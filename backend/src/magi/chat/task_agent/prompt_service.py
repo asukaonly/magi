@@ -1,4 +1,5 @@
 """Prompt construction and plain-chat LLM calls for chat task agents."""
+
 from __future__ import annotations
 
 import json
@@ -11,6 +12,7 @@ from magi.llm.streaming_events import LLMStreamEvent
 from magi.agent.orchestration import WorkerResult
 from magi.agent.task_agents.common import TaskAgentLLMService
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
+from magi.chat.task_agent.aggregation_evidence import build_aggregation_evidence_dossier
 
 
 class ChatPromptService:
@@ -114,7 +116,11 @@ class ChatPromptService:
                     "description": item.description,
                     "failure_reason": item.failure_reason,
                     "failure_details": getattr(item, "failure_details", None),
-                    "result": item.worker_result.to_dict() if isinstance(item.worker_result, WorkerResult) else None,
+                    "result": (
+                        item.worker_result.to_dict()
+                        if isinstance(item.worker_result, WorkerResult)
+                        else None
+                    ),
                     "attempt_count": item.attempt_count,
                 }
                 for item in state.subtasks
@@ -129,8 +135,12 @@ class ChatPromptService:
         state,
         payload: dict[str, Any],
     ) -> str:
-        shaping_requirements = self._build_request_shaped_aggregation_requirements(state.root_user_message)
-        research_requirements = self._build_research_aggregation_requirements(state.root_user_message)
+        shaping_requirements = self._build_request_shaped_aggregation_requirements(
+            state.root_user_message
+        )
+        research_requirements = self._build_research_aggregation_requirements(
+            state.root_user_message
+        )
         lines = [
             base_system_prompt.strip(),
             "",
@@ -149,10 +159,12 @@ class ChatPromptService:
         ]
         lines.extend(shaping_requirements["en"])
         lines.extend(research_requirements["en"])
-        lines.extend([
-            "",
-            "The final user message contains the original user request and the internal evidence dossier. Treat that message as task input, not as user-facing text to quote verbatim.",
-        ])
+        lines.extend(
+            [
+                "",
+                "The final user message contains the original user request and the internal evidence dossier. Treat that message as task input, not as user-facing text to quote verbatim.",
+            ]
+        )
         return "\n".join(lines).strip()
 
     def build_aggregation_messages(
@@ -162,7 +174,7 @@ class ChatPromptService:
         state,
         payload: dict[str, Any],
     ) -> list[dict[str, str]]:
-        evidence_dossier = self._build_aggregation_evidence_dossier(payload)
+        evidence_dossier = build_aggregation_evidence_dossier(payload)
         aggregation_input = "\n".join(
             [
                 "# Aggregation Input",
@@ -177,8 +189,16 @@ class ChatPromptService:
         return [*history_messages, {"role": "user", "content": aggregation_input}]
 
     def should_use_failure_status_path(self, payload: dict[str, Any]) -> bool:
-        completed = payload.get("completed_subtasks") if isinstance(payload.get("completed_subtasks"), list) else []
-        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        completed = (
+            payload.get("completed_subtasks")
+            if isinstance(payload.get("completed_subtasks"), list)
+            else []
+        )
+        failed = (
+            payload.get("failed_subtasks")
+            if isinstance(payload.get("failed_subtasks"), list)
+            else []
+        )
         return not completed and bool(failed)
 
     def build_failure_status_system_prompt(self, *, base_system_prompt: str, state) -> str:
@@ -218,7 +238,11 @@ class ChatPromptService:
         return [*history_messages, {"role": "user", "content": status_input}]
 
     def build_failure_status_fallback(self, state, payload: dict[str, Any]) -> str:
-        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        failed = (
+            payload.get("failed_subtasks")
+            if isinstance(payload.get("failed_subtasks"), list)
+            else []
+        )
         if self.prefers_chinese_response(state.root_user_message):
             lines = [
                 "这次还没拿到足够可靠的信息，所以我先不直接给最终结论。",
@@ -231,10 +255,12 @@ class ChatPromptService:
                 description = str(item.get("description") or "未命名步骤").strip()
                 reason = self._summarize_failed_subtask_for_user(item)
                 lines.append(f"- {description}{f'：{reason}' if reason else ''}")
-            lines.extend([
-                "",
-                "你可以先检查相关工具或网络配置，配置恢复后我再继续完成这个请求。",
-            ])
+            lines.extend(
+                [
+                    "",
+                    "你可以先检查相关工具或网络配置，配置恢复后我再继续完成这个请求。",
+                ]
+            )
             return "\n".join(lines).strip()
 
         lines = [
@@ -248,126 +274,20 @@ class ChatPromptService:
             description = str(item.get("description") or "Unnamed step").strip()
             reason = self._summarize_failed_subtask_for_user(item)
             lines.append(f"- {description}{f': {reason}' if reason else ''}")
-        lines.extend([
-            "",
-            "Please check the related tool or network configuration, then I can retry the request.",
-        ])
+        lines.extend(
+            [
+                "",
+                "Please check the related tool or network configuration, then I can retry the request.",
+            ]
+        )
         return "\n".join(lines).strip()
 
-    def _build_aggregation_evidence_dossier(self, payload: dict[str, Any]) -> str:
-        lines: list[str] = []
-
-        completed = payload.get("completed_subtasks") if isinstance(payload.get("completed_subtasks"), list) else []
-        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
-
-        lines.append("### Completed Analyses")
-        if completed:
-            for index, item in enumerate(completed, start=1):
-                if not isinstance(item, dict):
-                    continue
-                description = str(item.get("description") or f"Completed subtask {index}").strip()
-                result = item.get("result") if isinstance(item.get("result"), dict) else {}
-                lines.append(f"#### {index}. {description}")
-                summary = str(result.get("summary") or "").strip()
-                if summary:
-                    lines.append(f"Summary: {summary}")
-
-                findings = result.get("findings") if isinstance(result.get("findings"), list) else []
-                if findings:
-                    lines.append("Key Findings:")
-                    for finding in findings:
-                        if not isinstance(finding, dict):
-                            continue
-                        title = str(finding.get("title") or "Finding").strip()
-                        detail = str(finding.get("detail") or "").strip()
-                        why = str(finding.get("why_it_matters") or "").strip()
-                        path = str(finding.get("path") or "").strip()
-                        parts = [f"- {title}"]
-                        if detail:
-                            parts.append(detail)
-                        if why:
-                            parts.append(f"Why it matters: {why}")
-                        if path:
-                            parts.append(f"Evidence path: {path}")
-                        lines.append(" | ".join(parts))
-
-                evidence_items = result.get("evidence") if isinstance(result.get("evidence"), list) else []
-                if evidence_items:
-                    lines.append("Evidence:")
-                    for evidence in evidence_items:
-                        if not isinstance(evidence, dict):
-                            continue
-                        path = str(evidence.get("path") or "").strip()
-                        detail = str(evidence.get("detail") or "").strip()
-                        rendered = path or "(no path provided)"
-                        if detail:
-                            rendered = f"{rendered} — {detail}"
-                        lines.append(f"- {rendered}")
-
-                gaps = result.get("gaps") if isinstance(result.get("gaps"), list) else []
-                if gaps:
-                    lines.append("Open Gaps:")
-                    for gap in gaps:
-                        gap_text = str(gap or "").strip()
-                        if gap_text:
-                            lines.append(f"- {gap_text}")
-
-                next_steps = result.get("next_steps") if isinstance(result.get("next_steps"), list) else []
-                if next_steps:
-                    lines.append("Suggested Follow-ups:")
-                    for step in next_steps:
-                        step_text = str(step or "").strip()
-                        if step_text:
-                            lines.append(f"- {step_text}")
-
-                lines.append("")
-        else:
-            lines.append("- No completed subtask results were available.")
-            lines.append("")
-
-        lines.append("### Remaining Unverified Areas")
-        if failed:
-            for item in failed:
-                if not isinstance(item, dict):
-                    continue
-                description = str(item.get("description") or "Unknown failed subtask").strip()
-                failure_reason = str(item.get("failure_reason") or "UNKNOWN").strip()
-                lines.append(f"- {description} | Failure reason: {failure_reason}")
-                result = item.get("result") if isinstance(item.get("result"), dict) else {}
-                failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
-                summary = str(result.get("summary") or failure_details.get("error_text") or "").strip()
-                if summary:
-                    lines.append(f"  - Failure detail: {summary[:500]}")
-                worker_gaps = result.get("gaps") if isinstance(result.get("gaps"), list) else []
-                for gap in worker_gaps[:3]:
-                    gap_text = str(gap or "").strip()
-                    if gap_text:
-                        lines.append(f"  - Gap: {gap_text}")
-                tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
-                for failure in tool_failures[:3]:
-                    if not isinstance(failure, dict):
-                        continue
-                    tool_name = str(failure.get("tool_name") or "unknown").strip()
-                    error_code = str(failure.get("error_code") or "UNKNOWN").strip()
-                    error = str(failure.get("error") or "").strip()
-                    line = f"  - Tool failure: {tool_name} | {error_code}"
-                    if error:
-                        line += f" | {error[:300]}"
-                    lines.append(line)
-                    diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
-                    user_message = str(diagnostics.get("user_message_template") or "").strip()
-                    next_action = str(diagnostics.get("next_action") or "").strip()
-                    if user_message:
-                        lines.append(f"    Suggested user-facing explanation: {user_message[:300]}")
-                    if next_action:
-                        lines.append(f"    Next action: {next_action}")
-        else:
-            lines.append("- None")
-
-        return "\n".join(line for line in lines if line is not None).strip()
-
     def _build_failure_status_dossier(self, payload: dict[str, Any]) -> str:
-        failed = payload.get("failed_subtasks") if isinstance(payload.get("failed_subtasks"), list) else []
+        failed = (
+            payload.get("failed_subtasks")
+            if isinstance(payload.get("failed_subtasks"), list)
+            else []
+        )
         if not failed:
             return "- No failed steps were recorded."
         lines: list[str] = []
@@ -381,16 +301,28 @@ class ChatPromptService:
             user_summary = self._summarize_failed_subtask_for_user(item)
             if user_summary:
                 lines.append(f"   - User-facing summary: {user_summary}")
-            failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
-            tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
+            failure_details = (
+                item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
+            )
+            tool_failures = (
+                failure_details.get("tool_failures")
+                if isinstance(failure_details.get("tool_failures"), list)
+                else []
+            )
             for failure in tool_failures[:3]:
                 if not isinstance(failure, dict):
                     continue
                 tool_name = str(failure.get("tool_name") or "unknown").strip()
                 error_code = str(failure.get("error_code") or "UNKNOWN").strip()
                 error = str(failure.get("error") or "").strip()
-                lines.append(f"   - Tool failure: {tool_name} | {error_code}{f' | {error[:240]}' if error else ''}")
-                diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+                lines.append(
+                    f"   - Tool failure: {tool_name} | {error_code}{f' | {error[:240]}' if error else ''}"
+                )
+                diagnostics = (
+                    failure.get("diagnostics")
+                    if isinstance(failure.get("diagnostics"), dict)
+                    else {}
+                )
                 next_action = str(diagnostics.get("next_action") or "").strip()
                 if next_action:
                     lines.append(f"     Next action: {next_action}")
@@ -398,12 +330,20 @@ class ChatPromptService:
 
     def _summarize_failed_subtask_for_user(self, item: dict[str, Any]) -> str:
         result = item.get("result") if isinstance(item.get("result"), dict) else {}
-        failure_details = item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
-        tool_failures = failure_details.get("tool_failures") if isinstance(failure_details.get("tool_failures"), list) else []
+        failure_details = (
+            item.get("failure_details") if isinstance(item.get("failure_details"), dict) else {}
+        )
+        tool_failures = (
+            failure_details.get("tool_failures")
+            if isinstance(failure_details.get("tool_failures"), list)
+            else []
+        )
         for failure in tool_failures:
             if not isinstance(failure, dict):
                 continue
-            diagnostics = failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+            diagnostics = (
+                failure.get("diagnostics") if isinstance(failure.get("diagnostics"), dict) else {}
+            )
             user_message = str(diagnostics.get("user_message_template") or "").strip()
             if user_message:
                 return user_message[:300]
@@ -533,7 +473,9 @@ class ChatPromptService:
                     ]
                 )
         if reply_context.references_prior_turn:
-            lines.append("- note: this reply points to an earlier turn, so keep that thread continuity explicit.")
+            lines.append(
+                "- note: this reply points to an earlier turn, so keep that thread continuity explicit."
+            )
         return "\n".join(lines)
 
     @staticmethod
@@ -573,13 +515,15 @@ class ChatPromptService:
 
     @classmethod
     def _unwrap_markdown_document_fence(cls, text: str) -> str:
-        match = re.match(r"\A\s*```(?:markdown|md)\s*\n(?P<body>[\s\S]*?)\n```\s*", text, flags=re.IGNORECASE)
+        match = re.match(
+            r"\A\s*```(?:markdown|md)\s*\n(?P<body>[\s\S]*?)\n```\s*", text, flags=re.IGNORECASE
+        )
         if not match:
             return text
         body = match.group("body").strip()
         if not cls._looks_like_markdown_document(body):
             return text
-        rest = text[match.end():].strip()
+        rest = text[match.end() :].strip()
         if rest:
             return f"{body}\n\n{rest}"
         return body
@@ -590,7 +534,8 @@ class ChatPromptService:
 
     def build_aggregation_fallback(self, state) -> str:
         completed = [
-            item for item in state.subtasks
+            item
+            for item in state.subtasks
             if item.status == "completed" and isinstance(item.worker_result, WorkerResult)
         ]
         failed = [item for item in state.subtasks if item.status == "failed"]
@@ -609,7 +554,10 @@ class ChatPromptService:
                     lines.append(f"- {item.description}")
             return "\n".join(lines).strip()
 
-        lines = ["Here is the most reliable answer I can give based on the completed analysis so far.", ""]
+        lines = [
+            "Here is the most reliable answer I can give based on the completed analysis so far.",
+            "",
+        ]
         if completed:
             lines.append("Confirmed so far:")
             for item in completed:
@@ -617,7 +565,9 @@ class ChatPromptService:
                 lines.append(f"- {summary or 'Completed with structured findings.'}")
         if failed:
             lines.append("")
-            lines.append("These areas are still not fully confirmed because the underlying worker run failed:")
+            lines.append(
+                "These areas are still not fully confirmed because the underlying worker run failed:"
+            )
             for item in failed:
                 lines.append(f"- {item.description}")
         return "\n".join(lines).strip()
@@ -626,7 +576,18 @@ class ChatPromptService:
         lowered = user_message.lower()
         if not any(
             keyword in lowered
-            for keyword in ["news", "新闻", "资料", "信息", "来源", "链接", "source", "link", "核实", "verify"]
+            for keyword in [
+                "news",
+                "新闻",
+                "资料",
+                "信息",
+                "来源",
+                "链接",
+                "source",
+                "link",
+                "核实",
+                "verify",
+            ]
         ):
             return {"zh": [], "en": []}
         return {
@@ -642,7 +603,9 @@ class ChatPromptService:
             ],
         }
 
-    def _build_request_shaped_aggregation_requirements(self, user_message: str) -> dict[str, list[str]]:
+    def _build_request_shaped_aggregation_requirements(
+        self, user_message: str
+    ) -> dict[str, list[str]]:
         _ = user_message
         return {
             "zh": [
