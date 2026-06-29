@@ -490,42 +490,12 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             run_revision=run_revision,
         )
         parent_task_agent_id = self._resolve_parent_task_agent_id(user_id, session_id)
-        target_language = llm_language_label()
-        tool_guidance = self._tool_hint_resolver.render_guidance_block(
-            self._resolve_planning_task_hint(
-                user_message=user_message,
-                request_profile="generic",
-                default_leaf_type="CodeExplore",
-            )
-        )
         result = await self._tool_invocation_service.invoke(
-            _ServiceToolCall(
-                name="agent",
-                args={
-                    "action": "launch",
-                    "subagent_type": "Plan",
-                    "description": "plan leaf subtasks",
-                    "prompt": (
-                        "Decompose the parent task into bounded leaf workers. "
-                        "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
-                        "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
-                        "Workers gather evidence; the parent task agent handles synthesis and the final answer. "
-                        "If the request mixes local workspace evidence with external or public evidence, split those into separate leaf workers instead of forcing everything into repo exploration. "
-                        "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
-                        "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
-                        "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
-                        f"Write all natural-language JSON values in {target_language} unless preserving exact names, paths, commands, or source titles. "
-                        f"Parent task: {user_message}"
-                        + (f"\n\n{tool_guidance}" if tool_guidance else "")
-                    ),
-                    "run_in_background": False,
-                    "target_task_agent_type": self._parent_task_agent_type,
-                    "target_task_agent_id": parent_task_agent_id,
-                    "parent_task_agent_type": self._parent_task_agent_type,
-                    "parent_task_agent_id": parent_task_agent_id,
-                    "run_id": run_id,
-                    "run_revision": run_revision,
-                },
+            self._build_plan_worker_tool_call(
+                user_message=user_message,
+                parent_task_agent_id=parent_task_agent_id,
+                run_id=run_id,
+                run_revision=run_revision,
             ),
             InvocationContext(
                 tool_category="planning",
@@ -538,6 +508,57 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 execution_context=context,
             ),
         )
+        return self._subtask_plan_from_plan_worker_result(result)
+
+    def _build_plan_worker_tool_call(
+        self,
+        *,
+        user_message: str,
+        parent_task_agent_id: str,
+        run_id: str | None,
+        run_revision: int,
+    ) -> _ServiceToolCall:
+        return _ServiceToolCall(
+            name="agent",
+            args={
+                "action": "launch",
+                "subagent_type": "Plan",
+                "description": "plan leaf subtasks",
+                "prompt": self._build_plan_worker_prompt(user_message),
+                "run_in_background": False,
+                "target_task_agent_type": self._parent_task_agent_type,
+                "target_task_agent_id": parent_task_agent_id,
+                "parent_task_agent_type": self._parent_task_agent_type,
+                "parent_task_agent_id": parent_task_agent_id,
+                "run_id": run_id,
+                "run_revision": run_revision,
+            },
+        )
+
+    def _build_plan_worker_prompt(self, user_message: str) -> str:
+        target_language = llm_language_label()
+        tool_guidance = self._tool_hint_resolver.render_guidance_block(
+            self._resolve_planning_task_hint(
+                user_message=user_message,
+                request_profile="generic",
+                default_leaf_type="CodeExplore",
+            )
+        )
+        return (
+            "Decompose the parent task into bounded leaf workers. "
+            "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
+            "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
+            "Workers gather evidence; the parent task agent handles synthesis and the final answer. "
+            "If the request mixes local workspace evidence with external or public evidence, split those into separate leaf workers instead of forcing everything into repo exploration. "
+            "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
+            "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
+            "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
+            f"Write all natural-language JSON values in {target_language} unless preserving exact names, paths, commands, or source titles. "
+            f"Parent task: {user_message}" + (f"\n\n{tool_guidance}" if tool_guidance else "")
+        )
+
+    @staticmethod
+    def _subtask_plan_from_plan_worker_result(result: Any) -> Optional[SubtaskPlan]:
         if not result.success or not isinstance(result.data, dict):
             return None
         payload = result.data.get("result")
