@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Any, Awaitable, Callable, Optional
 
 from .cancel import CancelToken
 from magi.control.run_control import RunControl
 from ..core.logger import get_logger
-from ..events.events import Event, EventTypes
-from ..events.domain_payloads import (
-    SpanCompleted,
-    TaskContext,
-    ToolError,
-)
+from ..events.domain_payloads import TaskContext, ToolError
 from ..tools.registry import ToolRegistry
 from .orchestration import (
     OrchestrationExecutionResult,
@@ -22,6 +16,7 @@ from .orchestration import (
     TaskOrchestrationState,
     get_orchestration_store,
 )
+from .task_orchestration_lifecycle import TaskOrchestrationLifecyclePublisher
 from .task_orchestration_todos import TaskOrchestrationTodosMixin
 from .task_orchestration_transitions import mark_remaining_subtasks_cancelled
 from .task_orchestration_updates import TaskOrchestrationUpdateProcessor
@@ -72,6 +67,7 @@ class TaskOrchestrator(
         self._session_workspace_provider = session_workspace_provider
         self._control_session_store_provider = control_session_store_provider
         self._orchestration_store = get_orchestration_store()
+        self._lifecycle_publisher = TaskOrchestrationLifecyclePublisher(self)
         self._starter = TaskOrchestrationStarter(self)
         self._update_processor = TaskOrchestrationUpdateProcessor(self)
 
@@ -104,56 +100,14 @@ class TaskOrchestrator(
         error_message: Optional[str] = None,
         error: Optional[ToolError] = None,
     ) -> None:
-        """Publish SpanCompleted(node_type='task_lifecycle') for terminal state.
-
-        state must expose: orchestration_id, planner, created_at, updated_at,
-        user_id, session_id, turn_id.
-        """
-        err_obj = error
-        if err_obj is None and (error_type is not None or error_message is not None):
-            err_obj = ToolError(
-                type=error_type or "Error",
-                message=(error_message or "")[:1000],
-            )
-
-        started_at_ms = int(state.created_at * 1000)
-        ended_at_ms = int(state.updated_at * 1000)
-
-        payload = SpanCompleted(
-            span_id=str(uuid.uuid4()),
-            trace_id=str(uuid.uuid4()),
-            parent_span_id=None,
-            node_type="task_lifecycle",
-            name=state.planner,
+        await self._lifecycle_publisher.publish(
+            state=state,
             status=status,
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            duration_ms=ended_at_ms - started_at_ms,
-            error=err_obj,
-            result_preview=summary,
-            turn_id=state.turn_id,
-            attributes={
-                "task_id": state.orchestration_id,
-                "task_type": state.planner,
-                "status": status,
-                "summary": summary,
-                "user_id": state.user_id,
-                "session_id": state.session_id,
-                "started_at": state.created_at,
-                "finished_at": state.updated_at,
-            },
+            summary=summary,
+            error_type=error_type,
+            error_message=error_message,
+            error=error,
         )
-        try:
-            await self._event_bus.publish(
-                Event(
-                    type=EventTypes.SPAN_COMPLETED,
-                    data=payload,
-                    source="task_orchestrator",
-                    correlation_id=state.turn_id,
-                )
-            )
-        except Exception:
-            logger.exception("publish task_lifecycle SpanCompleted failed")
 
     def _build_task_context(self, state: TaskOrchestrationState) -> TaskContext:
         return TaskContext(
