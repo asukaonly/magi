@@ -27,95 +27,215 @@ class L2SnapshotEvolutionMixin:
         superseded_incoming_relations: List[Dict[str, Any]],
         fallback_updated_at: float,
     ) -> Dict[str, Any]:
-        previous_core_traits = dict(existing_snapshot.get("core_traits", {})) if existing_snapshot else {}
-        previous_preferences = dict(existing_snapshot.get("preferences", {})) if existing_snapshot else {}
-        previous_relationship = (
-            dict(existing_snapshot.get("relationship_topology", {})) if existing_snapshot else {}
+        previous_core_traits = self._snapshot_mapping(existing_snapshot, "core_traits")
+        previous_preferences = self._snapshot_mapping(existing_snapshot, "preferences")
+        previous_relationship = self._snapshot_mapping(existing_snapshot, "relationship_topology")
+
+        next_core_entries = self._build_core_trait_transition_entries(
+            previous_core_traits=previous_core_traits,
+            core_traits=core_traits,
+            assertions=assertions,
+            previous_assertion_ids=self._previous_snapshot_assertion_ids(existing_snapshot),
+        )
+        next_preference_entries = self._build_preference_transition_entries(
+            previous_preferences=previous_preferences,
+            preferences=preferences,
+            outgoing_relations=outgoing_relations,
+            superseded_outgoing_relations=superseded_outgoing_relations,
+            fallback_updated_at=fallback_updated_at,
+        )
+        next_relationship_entries = self._build_relationship_snapshot_entries(
+            previous_relationship=previous_relationship,
+            current_relationship=relationship_topology,
+            outgoing_relations=outgoing_relations,
+            incoming_relations=incoming_relations,
+            superseded_outgoing_relations=superseded_outgoing_relations,
+            superseded_incoming_relations=superseded_incoming_relations,
+            fallback_updated_at=fallback_updated_at,
         )
 
+        histories = self._merge_snapshot_evolution_histories(
+            existing_snapshot=existing_snapshot,
+            next_core_entries=next_core_entries,
+            next_preference_entries=next_preference_entries,
+            next_relationship_entries=next_relationship_entries,
+        )
+        history_entries = self._snapshot_history_entries(histories)
+
+        return {
+            **histories,
+            "last_evolution_at": self._last_snapshot_evolution_at(
+                history_entries=history_entries,
+                existing_snapshot=existing_snapshot,
+            ),
+            "active_record_ids": self._active_snapshot_record_ids(
+                assertions=assertions,
+                outgoing_relations=outgoing_relations,
+                incoming_relations=incoming_relations,
+            ),
+            "superseded_record_ids": self._superseded_snapshot_record_ids(history_entries),
+        }
+
+    @staticmethod
+    def _snapshot_mapping(
+        existing_snapshot: Dict[str, Any] | None,
+        key: str,
+    ) -> Dict[str, Any]:
+        return dict(existing_snapshot.get(key, {})) if existing_snapshot else {}
+
+    @staticmethod
+    def _previous_snapshot_assertion_ids(existing_snapshot: Dict[str, Any] | None) -> List[str]:
+        if not existing_snapshot:
+            return []
+        return [str(item) for item in existing_snapshot.get("update_source_assertion_ids", [])]
+
+    def _active_snapshot_record_ids(
+        self,
+        *,
+        assertions: List[Dict[str, Any]],
+        outgoing_relations: List[Dict[str, Any]],
+        incoming_relations: List[Dict[str, Any]],
+    ) -> List[str]:
         active_assertion_ids = [str(item["assertion_id"]) for item in assertions]
         active_relation_ids = [
             str(item["triple_id"]) for item in [*outgoing_relations, *incoming_relations]
         ]
-        active_record_ids = self._dedupe_preserve_order([*active_assertion_ids, *active_relation_ids])
+        return self._dedupe_preserve_order([*active_assertion_ids, *active_relation_ids])
 
-        previous_assertion_ids = (
-            [str(item) for item in existing_snapshot.get("update_source_assertion_ids", [])]
-            if existing_snapshot
-            else []
+    def _build_core_trait_transition_entries(
+        self,
+        *,
+        previous_core_traits: Dict[str, Any],
+        core_traits: Dict[str, Any],
+        assertions: List[Dict[str, Any]],
+        previous_assertion_ids: List[str],
+    ) -> List[Dict[str, Any]]:
+        return self._build_mapping_transition_entries(
+            previous_values=previous_core_traits,
+            current_values=core_traits,
+            support_ids_by_field={
+                str(item["trait_name"]): [str(item["assertion_id"])] for item in assertions
+            },
+            superseded_ids_by_field={
+                field_name: previous_assertion_ids
+                for field_name in set(previous_core_traits).intersection(core_traits)
+            },
+            evolved_at_by_field={
+                str(item["trait_name"]): float(item["last_validated_at"]) for item in assertions
+            },
         )
 
-        preference_support_ids = {
-            str(item["object_id"]): [str(item["triple_id"])]
-            for item in outgoing_relations
-            if item["predicate"] in {"LIKES", "DISLIKES"}
-        }
-        preference_superseded_ids = self._group_relation_ids_by_object(superseded_outgoing_relations)
-        core_support_ids = {
-            str(item["trait_name"]): [str(item["assertion_id"])]
-            for item in assertions
-        }
-
-        next_preference_entries = self._build_mapping_transition_entries(
+    def _build_preference_transition_entries(
+        self,
+        *,
+        previous_preferences: Dict[str, Any],
+        preferences: Dict[str, Any],
+        outgoing_relations: List[Dict[str, Any]],
+        superseded_outgoing_relations: List[Dict[str, Any]],
+        fallback_updated_at: float,
+    ) -> List[Dict[str, Any]]:
+        return self._build_mapping_transition_entries(
             previous_values=previous_preferences,
             current_values=preferences,
-            support_ids_by_field=preference_support_ids,
-            superseded_ids_by_field=preference_superseded_ids,
+            support_ids_by_field={
+                str(item["object_id"]): [str(item["triple_id"])]
+                for item in outgoing_relations
+                if item["predicate"] in {"LIKES", "DISLIKES"}
+            },
+            superseded_ids_by_field=self._group_relation_ids_by_object(
+                superseded_outgoing_relations
+            ),
             evolved_at_by_field=self._relation_evolved_at_by_object(
                 outgoing_relations=outgoing_relations,
                 superseded_outgoing_relations=superseded_outgoing_relations,
                 fallback_updated_at=fallback_updated_at,
             ),
         )
-        next_core_entries = self._build_mapping_transition_entries(
-            previous_values=previous_core_traits,
-            current_values=core_traits,
-            support_ids_by_field=core_support_ids,
-            superseded_ids_by_field={
-                field_name: previous_assertion_ids
-                for field_name in set(previous_core_traits).intersection(core_traits)
-            },
-            evolved_at_by_field={
-                str(item["trait_name"]): float(item["last_validated_at"])
-                for item in assertions
-            },
-        )
 
-        relationship_support_ids = [str(item["triple_id"]) for item in [*outgoing_relations, *incoming_relations]]
-        relationship_superseded_ids = [
-            str(item["triple_id"]) for item in [*superseded_outgoing_relations, *superseded_incoming_relations]
-        ]
-        next_relationship_entries = self._build_relationship_transition_entries(
+    def _build_relationship_snapshot_entries(
+        self,
+        *,
+        previous_relationship: Dict[str, Any],
+        current_relationship: Dict[str, Any],
+        outgoing_relations: List[Dict[str, Any]],
+        incoming_relations: List[Dict[str, Any]],
+        superseded_outgoing_relations: List[Dict[str, Any]],
+        superseded_incoming_relations: List[Dict[str, Any]],
+        fallback_updated_at: float,
+    ) -> List[Dict[str, Any]]:
+        return self._build_relationship_transition_entries(
             previous_relationship=previous_relationship,
-            current_relationship=relationship_topology,
-            support_ids=relationship_support_ids,
-            superseded_ids=relationship_superseded_ids,
+            current_relationship=current_relationship,
+            support_ids=[
+                str(item["triple_id"]) for item in [*outgoing_relations, *incoming_relations]
+            ],
+            superseded_ids=[
+                str(item["triple_id"])
+                for item in [*superseded_outgoing_relations, *superseded_incoming_relations]
+            ],
             fallback_updated_at=fallback_updated_at,
         )
 
-        core_traits_history = self._merge_snapshot_history(
-            existing_history=existing_snapshot.get("core_traits_history", []) if existing_snapshot else [],
-            new_entries=next_core_entries,
-        )
-        preferences_history = self._merge_snapshot_history(
-            existing_history=existing_snapshot.get("preferences_history", []) if existing_snapshot else [],
-            new_entries=next_preference_entries,
-        )
-        relationship_history = self._merge_snapshot_history(
-            existing_history=existing_snapshot.get("relationship_history", []) if existing_snapshot else [],
-            new_entries=next_relationship_entries,
-        )
+    def _merge_snapshot_evolution_histories(
+        self,
+        *,
+        existing_snapshot: Dict[str, Any] | None,
+        next_core_entries: List[Dict[str, Any]],
+        next_preference_entries: List[Dict[str, Any]],
+        next_relationship_entries: List[Dict[str, Any]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        return {
+            "core_traits_history": self._merge_snapshot_history(
+                existing_history=self._snapshot_history(existing_snapshot, "core_traits_history"),
+                new_entries=next_core_entries,
+            ),
+            "preferences_history": self._merge_snapshot_history(
+                existing_history=self._snapshot_history(existing_snapshot, "preferences_history"),
+                new_entries=next_preference_entries,
+            ),
+            "relationship_history": self._merge_snapshot_history(
+                existing_history=self._snapshot_history(existing_snapshot, "relationship_history"),
+                new_entries=next_relationship_entries,
+            ),
+        }
 
-        history_entries = [*core_traits_history, *preferences_history, *relationship_history]
+    @staticmethod
+    def _snapshot_history(
+        existing_snapshot: Dict[str, Any] | None,
+        key: str,
+    ) -> List[Dict[str, Any]]:
+        return existing_snapshot.get(key, []) if existing_snapshot else []
+
+    @staticmethod
+    def _snapshot_history_entries(
+        histories: Dict[str, List[Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
+        return [
+            *histories["core_traits_history"],
+            *histories["preferences_history"],
+            *histories["relationship_history"],
+        ]
+
+    @staticmethod
+    def _last_snapshot_evolution_at(
+        *,
+        history_entries: List[Dict[str, Any]],
+        existing_snapshot: Dict[str, Any] | None,
+    ) -> Any:
         evolution_timestamps = [
             float(entry["evolved_at"])
             for entry in history_entries
             if entry.get("evolved_at") is not None
         ]
-        last_evolution_at = max(evolution_timestamps) if evolution_timestamps else (
-            existing_snapshot.get("last_evolution_at") if existing_snapshot else None
-        )
-        superseded_record_ids = self._dedupe_preserve_order(
+        if evolution_timestamps:
+            return max(evolution_timestamps)
+        return existing_snapshot.get("last_evolution_at") if existing_snapshot else None
+
+    def _superseded_snapshot_record_ids(
+        self,
+        history_entries: List[Dict[str, Any]],
+    ) -> List[str]:
+        return self._dedupe_preserve_order(
             [
                 str(record_id)
                 for entry in history_entries
@@ -123,15 +243,6 @@ class L2SnapshotEvolutionMixin:
                 if str(record_id).strip()
             ]
         )
-
-        return {
-            "core_traits_history": core_traits_history,
-            "preferences_history": preferences_history,
-            "relationship_history": relationship_history,
-            "last_evolution_at": last_evolution_at,
-            "active_record_ids": active_record_ids,
-            "superseded_record_ids": superseded_record_ids,
-        }
 
     def _build_mapping_transition_entries(
         self,
@@ -154,7 +265,9 @@ class L2SnapshotEvolutionMixin:
                     "from": previous_value,
                     "to": current_value,
                     "evolved_at": evolved_at_by_field.get(field_name),
-                    "supporting_record_ids": self._dedupe_preserve_order(support_ids_by_field.get(field_name, [])),
+                    "supporting_record_ids": self._dedupe_preserve_order(
+                        support_ids_by_field.get(field_name, [])
+                    ),
                     "superseded_record_ids": self._dedupe_preserve_order(
                         superseded_ids_by_field.get(field_name, [])
                     ),
@@ -195,7 +308,7 @@ class L2SnapshotEvolutionMixin:
             if any(self._same_history_entry(entry, candidate) for candidate in merged):
                 continue
             merged.append(dict(entry))
-        return merged[:snapshot_history_limit()]
+        return merged[: snapshot_history_limit()]
 
     def _same_history_entry(self, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
         return (
@@ -204,7 +317,9 @@ class L2SnapshotEvolutionMixin:
             and left.get("to") == right.get("to")
         )
 
-    def _group_relation_ids_by_object(self, relations: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    def _group_relation_ids_by_object(
+        self, relations: List[Dict[str, Any]]
+    ) -> Dict[str, List[str]]:
         grouped: dict[str, list[str]] = {}
         for relation in relations:
             if relation["predicate"] not in {"LIKES", "DISLIKES"}:
