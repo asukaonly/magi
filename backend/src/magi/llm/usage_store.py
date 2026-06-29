@@ -1,4 +1,5 @@
 """Persistence and aggregation for LLM usage metrics."""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,121 @@ from ..utils.runtime import get_runtime_paths
 logger = get_logger(__name__)
 
 _llm_usage_store: "LLMUsageStore | None" = None
+
+_SUMMARY_TOTALS_SQL = """
+SELECT
+    COUNT(*) AS total_calls,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
+    SUM(CASE WHEN usage_available = 1 THEN 1 ELSE 0 END) AS calls_with_usage,
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+    CASE
+        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+        ELSE 0
+    END AS cache_hit_rate,
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+    COALESCE(SUM(cost_usd), 0) AS total_cost_usd
+FROM llm_usage
+WHERE created_at >= ?
+"""
+
+_SUMMARY_PROVIDERS_SQL = """
+SELECT
+    provider,
+    COUNT(*) AS calls,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+    CASE
+        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+        ELSE 0
+    END AS cache_hit_rate,
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+    MAX(cost_currency) AS cost_currency
+FROM llm_usage
+WHERE created_at >= ?
+GROUP BY provider
+ORDER BY total_tokens DESC, calls DESC
+"""
+
+_SUMMARY_MODELS_SQL = """
+SELECT
+    provider,
+    model,
+    COUNT(*) AS calls,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+    CASE
+        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+        ELSE 0
+    END AS cache_hit_rate,
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+    MAX(cost_currency) AS cost_currency
+FROM llm_usage
+WHERE created_at >= ?
+GROUP BY provider, model
+ORDER BY total_tokens DESC, calls DESC
+LIMIT ?
+"""
+
+_SUMMARY_REQUEST_KINDS_SQL = """
+SELECT
+    request_kind,
+    COUNT(*) AS calls,
+    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
+    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
+    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+    COALESCE(SUM(total_tokens), 0) AS total_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
+    CASE
+        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
+        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
+        ELSE 0
+    END AS cache_hit_rate,
+    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
+    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
+    COALESCE(SUM(cost_usd), 0) AS cost_usd,
+    MAX(cost_currency) AS cost_currency
+FROM llm_usage
+WHERE created_at >= ?
+GROUP BY request_kind
+ORDER BY total_tokens DESC, calls DESC
+"""
+
+_SUMMARY_COST_BY_CURRENCY_SQL = """
+SELECT cost_currency AS currency, COALESCE(SUM(cost_usd), 0) AS amount
+FROM llm_usage
+WHERE created_at >= ? AND cost_currency IS NOT NULL
+GROUP BY cost_currency
+ORDER BY amount DESC
+"""
 
 
 class LLMUsageStore:
@@ -222,158 +338,65 @@ class LLMUsageStore:
         await self.initialize()
         async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
-
-            totals_cursor = await db.execute(
-                """
-                SELECT
-                    COUNT(*) AS total_calls,
-                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
-                    SUM(CASE WHEN usage_available = 1 THEN 1 ELSE 0 END) AS calls_with_usage,
-                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
-                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
-                    CASE
-                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
-                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
-                        ELSE 0
-                    END AS cache_hit_rate,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
-                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS total_cost_usd
-                FROM llm_usage
-                WHERE created_at >= ?
-                """,
-                (cutoff,),
-            )
-            totals = await totals_cursor.fetchone()
-
-            providers = await self._fetch_grouped_usage(
-                db,
-                """
-                SELECT
-                    provider,
-                    COUNT(*) AS calls,
-                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
-                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
-                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
-                    CASE
-                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
-                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
-                        ELSE 0
-                    END AS cache_hit_rate,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
-                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-                    MAX(cost_currency) AS cost_currency
-                FROM llm_usage
-                WHERE created_at >= ?
-                GROUP BY provider
-                ORDER BY total_tokens DESC, calls DESC
-                """,
-                (cutoff,),
-            )
-
-            models = await self._fetch_grouped_usage(
-                db,
-                """
-                SELECT
-                    provider,
-                    model,
-                    COUNT(*) AS calls,
-                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
-                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
-                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
-                    CASE
-                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
-                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
-                        ELSE 0
-                    END AS cache_hit_rate,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
-                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-                    MAX(cost_currency) AS cost_currency
-                FROM llm_usage
-                WHERE created_at >= ?
-                GROUP BY provider, model
-                ORDER BY total_tokens DESC, calls DESC
-                LIMIT ?
-                """,
-                (cutoff, model_limit),
-            )
-
+            totals = await self._fetch_summary_totals(db, cutoff)
+            providers = await self._fetch_grouped_usage(db, _SUMMARY_PROVIDERS_SQL, (cutoff,))
+            models = await self._fetch_grouped_usage(db, _SUMMARY_MODELS_SQL, (cutoff, model_limit))
             request_kinds = await self._fetch_grouped_usage(
-                db,
-                """
-                SELECT
-                    request_kind,
-                    COUNT(*) AS calls,
-                    SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) AS successful_calls,
-                    SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) AS failed_calls,
-                    COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
-                    COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
-                    COALESCE(SUM(total_tokens), 0) AS total_tokens,
-                    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
-                    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
-                    COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write_1h_tokens,
-                    CASE
-                        WHEN COALESCE(SUM(prompt_tokens), 0) > 0
-                        THEN ROUND(COALESCE(SUM(cache_read_tokens), 0) * 100.0 / SUM(prompt_tokens), 2)
-                        ELSE 0
-                    END AS cache_hit_rate,
-                    COALESCE(AVG(latency_ms), 0) AS avg_latency_ms,
-                    COALESCE(AVG(CASE WHEN ttft_ms > 0 THEN ttft_ms END), 0) AS avg_ttft_ms,
-                    COALESCE(SUM(cost_usd), 0) AS cost_usd,
-                    MAX(cost_currency) AS cost_currency
-                FROM llm_usage
-                WHERE created_at >= ?
-                GROUP BY request_kind
-                ORDER BY total_tokens DESC, calls DESC
-                """,
-                (cutoff,),
+                db, _SUMMARY_REQUEST_KINDS_SQL, (cutoff,)
             )
+            cost_by_currency = await self._fetch_cost_by_currency(db, cutoff)
 
-            # Costs are summed per native currency so a mixed USD+CNY window is
-            # not collapsed into one meaningless number. Rows with no pricing
-            # data (cost_currency IS NULL) are excluded.
-            cost_by_currency_cursor = await db.execute(
-                """
-                SELECT cost_currency AS currency, COALESCE(SUM(cost_usd), 0) AS amount
-                FROM llm_usage
-                WHERE created_at >= ? AND cost_currency IS NOT NULL
-                GROUP BY cost_currency
-                ORDER BY amount DESC
-                """,
-                (cutoff,),
-            )
-            cost_by_currency_rows = await cost_by_currency_cursor.fetchall()
-            cost_by_currency = [
-                {"currency": str(row["currency"]), "amount": round(float(row["amount"] or 0), 4)}
-                for row in cost_by_currency_rows
-            ]
+        return self._build_summary_response(
+            days=days,
+            totals=totals,
+            providers=providers,
+            models=models,
+            request_kinds=request_kinds,
+            cost_by_currency=cost_by_currency,
+        )
 
+    async def _fetch_summary_totals(
+        self,
+        db: aiosqlite.Connection,
+        cutoff: float,
+    ) -> aiosqlite.Row:
+        cursor = await db.execute(_SUMMARY_TOTALS_SQL, (cutoff,))
+        return await cursor.fetchone()
+
+    async def _fetch_cost_by_currency(
+        self,
+        db: aiosqlite.Connection,
+        cutoff: float,
+    ) -> list[dict[str, Any]]:
+        cursor = await db.execute(_SUMMARY_COST_BY_CURRENCY_SQL, (cutoff,))
+        rows = await cursor.fetchall()
+        return [
+            {"currency": str(row["currency"]), "amount": round(float(row["amount"] or 0), 4)}
+            for row in rows
+        ]
+
+    @staticmethod
+    def _build_summary_response(
+        *,
+        days: int,
+        totals: aiosqlite.Row,
+        providers: list[dict[str, Any]],
+        models: list[dict[str, Any]],
+        request_kinds: list[dict[str, Any]],
+        cost_by_currency: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         total_calls = int(totals["total_calls"] or 0)
         successful_calls = int(totals["successful_calls"] or 0)
         failed_calls = int(totals["failed_calls"] or 0)
+        avg_ttft_ms = float(totals["avg_ttft_ms"] or 0)
         return {
             "window_days": days,
             "totals": {
                 "total_calls": total_calls,
                 "successful_calls": successful_calls,
-                "failed_calls": failed_calls if failed_calls >= 0 else max(total_calls - successful_calls, 0),
+                "failed_calls": (
+                    failed_calls if failed_calls >= 0 else max(total_calls - successful_calls, 0)
+                ),
                 "calls_with_usage": int(totals["calls_with_usage"] or 0),
                 "prompt_tokens": int(totals["prompt_tokens"] or 0),
                 "completion_tokens": int(totals["completion_tokens"] or 0),
@@ -383,7 +406,7 @@ class LLMUsageStore:
                 "cache_write_1h_tokens": int(totals["cache_write_1h_tokens"] or 0),
                 "cache_hit_rate": round(float(totals["cache_hit_rate"] or 0), 2),
                 "avg_latency_ms": round(float(totals["avg_latency_ms"] or 0), 2),
-                "avg_ttft_ms": round(float(totals["avg_ttft_ms"] or 0), 2) if float(totals["avg_ttft_ms"] or 0) > 0 else None,
+                "avg_ttft_ms": round(avg_ttft_ms, 2) if avg_ttft_ms > 0 else None,
                 "total_cost_usd": round(float(totals["total_cost_usd"] or 0), 4),
                 "cost_by_currency": cost_by_currency,
             },
