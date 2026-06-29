@@ -162,121 +162,209 @@ class DirectLLMHandler(BaseExecutionHandler):
         """
         control = request.context.control
         llm_trace: dict[str, object] = {}
-        streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
-
-        async def _capture_llm_trace(payload: dict[str, object]) -> None:
-            llm_trace.update(payload)
-
         turn_id = getattr(request.context.latest_payload, "turn_id", None)
         event_context = _build_llm_event_context(request.context, turn_id)
+        unsupported = self._build_unsupported_image_result_if_needed(
+            request=request,
+            turn_id=turn_id,
+            llm_trace=llm_trace,
+        )
+        if unsupported is not None:
+            return unsupported
+
+        streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
+        if streaming_enabled:
+            return await self._execute_streaming(
+                request=request,
+                control=control,
+                event_context=event_context,
+                turn_id=turn_id,
+                llm_trace=llm_trace,
+            )
+        return await self._execute_non_streaming(
+            request=request,
+            control=control,
+            event_context=event_context,
+            turn_id=turn_id,
+            llm_trace=llm_trace,
+        )
+
+    def _build_unsupported_image_result_if_needed(
+        self,
+        *,
+        request: DirectLLMRequest,
+        turn_id: object,
+        llm_trace: dict[str, object],
+    ) -> ExecutionResult | None:
         attachments = resolve_effective_turn_attachments(
             request.context, resolver=self._attachment_resolver
         )
-        if not _image_attachments_supported(request.context, attachments):
-            return ExecutionResult(
-                mode=request.mode,
-                response_text=_image_vision_unsupported_response(),
-                root_user_message=request.context.latest_user_message,
-                turn_id=turn_id,
-                llm_trace=llm_trace,
-                ux_plan=_serialize_ux_plan(request.intent),
-            )
+        if _image_attachments_supported(request.context, attachments):
+            return None
+        return ExecutionResult(
+            mode=request.mode,
+            response_text=_image_vision_unsupported_response(),
+            root_user_message=request.context.latest_user_message,
+            turn_id=turn_id,
+            llm_trace=llm_trace,
+            ux_plan=_serialize_ux_plan(request.intent),
+        )
 
-        if streaming_enabled:
-            chunks: list[str] = []
-            abort_reason: str | None = None
-            # Phase G+1 Step 2: per-delta chunks are emitted by the chat
-            # streaming SINK (ChatStreamingMixin._build_stream_sink ->
-            # coordinator.dispatch_stream_chunk), fed by the provider bridge's
-            # contextvar stream. The handler only joins the deltas into
-            # response_text here and dispatches the single final boundary chunk
-            # below — dispatching per delta too would double-write each delta.
-            coordinator = getattr(self._deps, "coordinator", None)
-            try:
-                try:
-                    async for event in self._deps.prompt_service.call_llm_stream(
-                        system_prompt=request.system_prompt,
-                        messages=request.messages,
-                        thinking_depth=request.thinking_depth,
-                        event_context=event_context,
-                        control=control,
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                except CancellationRaised as exc:
-                    abort_reason = f"cancel:{exc.reason or 'unknown'}"
-                except RetractRaised as exc:
-                    abort_reason = f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"
-            finally:
-                # Always emit one final boundary chunk so channels can
-                # close/flush — including when the stream was cancelled or
-                # retracted mid-way. The direct streaming path emits no
-                # ``text_flush`` event of its own, so the frontend flushes off
-                # ``is_final``. No ``event`` is attached: the boundary is not a
-                # real stream-event kind.
-                if coordinator is not None:
-                    try:
-                        await coordinator.dispatch_stream_chunk(
-                            session_id=request.context.session_id,
-                            user_id=request.context.user_id,
-                            turn_id=str(turn_id or "") or None,
-                            text="",
-                            is_final=True,
-                            seq=0,
-                        )
-                    except Exception:
-                        pass
-            response_text = "".join(chunks)
-            llm_trace_out = dict(llm_trace)
-            if abort_reason:
-                llm_trace_out["abort_reason"] = abort_reason
-            return ExecutionResult(
-                mode=request.mode,
-                response_text=response_text,
-                root_user_message=request.context.latest_user_message,
-                turn_id=turn_id,
-                llm_trace=llm_trace_out,
-                ux_plan=_serialize_ux_plan(request.intent),
-                streamed=bool(response_text),
+    async def _execute_streaming(
+        self,
+        *,
+        request: DirectLLMRequest,
+        control: Any,
+        event_context: dict[str, object],
+        turn_id: object,
+        llm_trace: dict[str, object],
+    ) -> ExecutionResult:
+        abort_reason: str | None = None
+        chunks: list[str] = []
+        try:
+            chunks, abort_reason = await self._collect_stream_chunks(
+                request=request,
+                control=control,
+                event_context=event_context,
             )
+        finally:
+            await self._dispatch_final_stream_boundary(request, turn_id)
+        response_text = "".join(chunks)
+        return self._build_execution_result(
+            request=request,
+            response_text=response_text,
+            turn_id=turn_id,
+            llm_trace=_with_abort_reason(llm_trace, abort_reason),
+            streamed=bool(response_text),
+        )
 
-        # Non-streaming path
+    async def _collect_stream_chunks(
+        self,
+        *,
+        request: DirectLLMRequest,
+        control: Any,
+        event_context: dict[str, object],
+    ) -> tuple[list[str], str | None]:
+        chunks: list[str] = []
+        try:
+            async for event in self._deps.prompt_service.call_llm_stream(
+                system_prompt=request.system_prompt,
+                messages=request.messages,
+                thinking_depth=request.thinking_depth,
+                event_context=event_context,
+                control=control,
+            ):
+                if event.kind == "text_delta" and event.text:
+                    chunks.append(event.text)
+        except CancellationRaised as exc:
+            return chunks, f"cancel:{exc.reason or 'unknown'}"
+        except RetractRaised as exc:
+            return chunks, _retract_abort_reason(exc)
+        return chunks, None
+
+    async def _dispatch_final_stream_boundary(
+        self,
+        request: DirectLLMRequest,
+        turn_id: object,
+    ) -> None:
+        # Always emit one final boundary chunk so channels can close/flush.
+        coordinator = getattr(self._deps, "coordinator", None)
+        if coordinator is None:
+            return
+        try:
+            await coordinator.dispatch_stream_chunk(
+                session_id=request.context.session_id,
+                user_id=request.context.user_id,
+                turn_id=str(turn_id or "") or None,
+                text="",
+                is_final=True,
+                seq=0,
+            )
+        except Exception:
+            pass
+
+    async def _execute_non_streaming(
+        self,
+        *,
+        request: DirectLLMRequest,
+        control: Any,
+        event_context: dict[str, object],
+        turn_id: object,
+        llm_trace: dict[str, object],
+    ) -> ExecutionResult:
         try:
             response_text = await self._deps.prompt_service.call_llm(
                 system_prompt=request.system_prompt,
                 messages=request.messages,
                 thinking_depth=request.thinking_depth,
-                llm_trace_callback=_capture_llm_trace,
+                llm_trace_callback=_llm_trace_updater(llm_trace),
                 event_context=event_context,
                 control=control,
             )
         except CancellationRaised as exc:
-            return ExecutionResult(
-                mode=request.mode,
+            return self._build_execution_result(
+                request=request,
                 response_text="",
-                root_user_message=request.context.latest_user_message,
                 turn_id=turn_id,
                 llm_trace={**llm_trace, "abort_reason": f"cancel:{exc.reason or 'unknown'}"},
-                ux_plan=_serialize_ux_plan(request.intent),
             )
         except RetractRaised as exc:
-            return ExecutionResult(
-                mode=request.mode,
+            return self._build_execution_result(
+                request=request,
                 response_text="",
-                root_user_message=request.context.latest_user_message,
                 turn_id=turn_id,
-                llm_trace={**llm_trace, "abort_reason": f"retract:{(exc.payload.reason if exc.payload else None) or 'unknown'}"},
-                ux_plan=_serialize_ux_plan(request.intent),
+                llm_trace={**llm_trace, "abort_reason": _retract_abort_reason(exc)},
             )
+        return self._build_execution_result(
+            request=request,
+            response_text=response_text,
+            turn_id=turn_id,
+            llm_trace=dict(llm_trace),
+            persona_rhythm=_extract_persona_rhythm(request.prompt_context),
+        )
+
+    @staticmethod
+    def _build_execution_result(
+        *,
+        request: DirectLLMRequest,
+        response_text: str,
+        turn_id: object,
+        llm_trace: dict[str, object],
+        streamed: bool = False,
+        persona_rhythm: RhythmPersonaSignal | None = None,
+    ) -> ExecutionResult:
         return ExecutionResult(
             mode=request.mode,
             response_text=response_text,
             root_user_message=request.context.latest_user_message,
             turn_id=turn_id,
-            llm_trace=dict(llm_trace),
+            llm_trace=llm_trace,
             ux_plan=_serialize_ux_plan(request.intent),
-            persona_rhythm=_extract_persona_rhythm(request.prompt_context),
+            streamed=streamed,
+            persona_rhythm=persona_rhythm,
         )
+
+
+def _llm_trace_updater(llm_trace: dict[str, object]):
+    async def _capture_llm_trace(payload: dict[str, object]) -> None:
+        llm_trace.update(payload)
+
+    return _capture_llm_trace
+
+
+def _retract_abort_reason(exc: RetractRaised) -> str:
+    reason = (exc.payload.reason if exc.payload else None) or "unknown"
+    return f"retract:{reason}"
+
+
+def _with_abort_reason(
+    llm_trace: dict[str, object],
+    abort_reason: str | None,
+) -> dict[str, object]:
+    llm_trace_out = dict(llm_trace)
+    if abort_reason:
+        llm_trace_out["abort_reason"] = abort_reason
+    return llm_trace_out
 
 
 __all__ = ["DirectLLMHandler"]
