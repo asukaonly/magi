@@ -210,11 +210,10 @@ Return JSON only:
 ```
 """
 
-PHASE2_INTEGRATE_SYSTEM_PROMPT = (
-    PHASE2_INTEGRATE_SYSTEM_PROMPT
-    .replace("@@ASSERTION_FAMILY_LIST@@", render_assertion_family_list())
-    .replace("@@ASSERTION_FAMILY_SEMANTICS@@", render_assertion_family_semantics())
-)
+PHASE2_INTEGRATE_SYSTEM_PROMPT = PHASE2_INTEGRATE_SYSTEM_PROMPT.replace(
+    "@@ASSERTION_FAMILY_LIST@@", render_assertion_family_list()
+).replace("@@ASSERTION_FAMILY_SEMANTICS@@", render_assertion_family_semantics())
+
 
 def build_phase2_integrate_system_prompt(user_language: str | None = None) -> str:
     """Return the Phase 2 system prompt with an explicit language directive.
@@ -345,184 +344,276 @@ def render_phase2_integrate_prompt(
     """Render a Markdown-formatted Phase 2 integration prompt."""
     parts: list[str] = []
 
-    if source_integration_instructions:
-        instructions = str(source_integration_instructions).strip()
-        if instructions:
-            parts.append("## Source-Specific Integration Instructions")
-            parts.append(instructions)
-            parts.append("")
+    _append_source_integration_instructions(parts, source_integration_instructions)
+    _append_phase1_results(parts, phase1_result)
+    _append_evidence_packet(parts, evidence_packet)
+    _append_existing_graph_edges(parts, existing_graph_edges)
+    _append_existing_assertions(parts, existing_assertions)
+    _append_phase2_focal_subject(parts, focal_subject)
+    _append_original_messages(parts, event_window)
 
-    # Phase 1 results
+    return "\n".join(parts)
+
+
+def _append_source_integration_instructions(
+    parts: list[str],
+    source_integration_instructions: str | None,
+) -> None:
+    if not source_integration_instructions:
+        return
+    instructions = str(source_integration_instructions).strip()
+    if not instructions:
+        return
+    parts.append("## Source-Specific Integration Instructions")
+    parts.append(instructions)
+    parts.append("")
+
+
+def _append_phase1_results(
+    parts: list[str],
+    phase1_result: dict[str, Any],
+) -> None:
     parts.append("## Phase 1 Extracted Results")
-
     entities = phase1_result.get("entities", [])
-    if entities:
-        parts.append("### Entities Found")
-        for entity in entities:
-            surface = entity.get("surface", "")
-            etype = entity.get("entity_type", "")
-            specificity = entity.get("specificity", "concrete")
-            resolved_id = entity.get("resolved_id")
-            entity_status = "new" if entity.get("is_new", True) else "existing"
-            status = (
-              f"entity_id={resolved_id}, status={entity_status}"
-              if resolved_id
-              else "unresolved_new_surface"
-            )
-            parts.append(
-              f"- **{surface}** -> {resolved_id or 'NO_ENTITY_ID'} "
-              f"[{etype}, {specificity}] ({status})"
-            )
-        parts.append("")
+    _append_phase1_entities(parts, entities)
+    _append_phase1_fact_claims(parts, phase1_result.get("fact_claims", []), entities)
+    _append_phase1_resolved_refs(parts, phase1_result.get("resolved_refs", []))
 
-    fact_claims = phase1_result.get("fact_claims", [])
-    if fact_claims:
-        parts.append("### Fact Claims")
-        for i, claim in enumerate(fact_claims, 1):
-            subj = claim.get("subject_ref", "?")
-            pred = claim.get("predicate", "?")
-            obj = claim.get("object_ref", "?")
-            obj_type = claim.get("object_type", "?")
-            specificity = claim.get("specificity", "concrete")
-            conf = claim.get("confidence", 0.0)
-            evidence = claim.get("evidence_text", "")
-            object_id_hint = _find_phase1_entity_id_for_claim(
-              object_ref=obj,
-              object_type=obj_type,
-              entities=entities,
-            )
-            hint_text = f", entity_id: {object_id_hint}" if object_id_hint else ""
-            parts.append(
-              f"{i}. {subj} → {pred} → {obj} [{obj_type}, {specificity}{hint_text}] (confidence: {conf})"
-            )
-            if evidence:
-                parts.append(f'   Evidence: "{evidence}"')
-            event_ids = claim.get("supporting_event_ids", [])
-            if event_ids:
-                parts.append(f"   Events: {', '.join(event_ids)}")
-        parts.append("")
 
-    resolved_refs = phase1_result.get("resolved_refs", [])
-    if resolved_refs:
-        parts.append("### Resolved References")
-        for ref in resolved_refs:
-            surface = ref.get("surface", "")
-            resolved = ref.get("resolved_ref") or "unresolved"
-            parts.append(f'- "{surface}" → {resolved}')
-        parts.append("")
+def _append_phase1_entities(parts: list[str], entities: list[dict[str, Any]]) -> None:
+    if not entities:
+        return
+    parts.append("### Entities Found")
+    for entity in entities:
+        surface = entity.get("surface", "")
+        etype = entity.get("entity_type", "")
+        specificity = entity.get("specificity", "concrete")
+        resolved_id = entity.get("resolved_id")
+        entity_status = "new" if entity.get("is_new", True) else "existing"
+        status = (
+            f"entity_id={resolved_id}, status={entity_status}"
+            if resolved_id
+            else "unresolved_new_surface"
+        )
+        parts.append(
+            f"- **{surface}** -> {resolved_id or 'NO_ENTITY_ID'} "
+            f"[{etype}, {specificity}] ({status})"
+        )
+    parts.append("")
 
-    if evidence_packet:
-        parts.append("## Deterministic Evidence Packet")
-        parts.append("No LLM was used to gather this packet; it is retrieval and statistics only.")
-        refs = evidence_packet.get("candidate_refs") or []
-        if refs:
-            parts.append("### Current Candidate Anchors")
-            for ref in refs[:12]:
-                kind = ref.get("kind", "?")
-                label = ref.get("label") or ref.get("id") or "?"
-                ref_type = ref.get("type") or "unknown"
-                predicate = ref.get("predicate")
-                suffix = f", predicate={predicate}" if predicate else ""
-                parts.append(f"- {kind}: {label} [{ref_type}{suffix}]")
-            parts.append("")
-        history_items = evidence_packet.get("history_contexts") or []
-        if history_items:
-            parts.append("### History Matches")
-            for item in history_items[:3]:
-                event_id = item.get("event_id", "?")
-                name = item.get("canonical_name") or item.get("matched_text") or "matched item"
-                content = item.get("content", "")
-                parts.append(f"- [#{event_id}] {name}: {content}")
-            parts.append("")
-        history_support = evidence_packet.get("history_support") or []
-        if history_support:
-            parts.append("### History Support Counts")
-            for item in history_support[:12]:
-                label = item.get("label") or item.get("id") or "matched item"
-                ref_type = item.get("type") or "unknown"
-                count = int(item.get("history_event_count", 0) or 0)
-                latest = _format_ts(float(item.get("latest_timestamp", 0.0) or 0.0))
-                parts.append(f"- {label} [{ref_type}] seen in {count} previous events, latest={latest}")
-            parts.append("")
-        related_edges = evidence_packet.get("related_edges") or []
-        if related_edges:
-            parts.append("### Related Graph Evidence")
-            for edge in related_edges[:12]:
-                triple_id = edge.get("triple_id", "?")
-                predicate = edge.get("predicate", "?")
-                object_id = edge.get("object_id", "?")
-                object_type = edge.get("object_type", "?")
-                source_type = edge.get("source_type") or "unknown_source"
-                obs_count = int(edge.get("observation_count", 0) or 0)
-                event_count = int(edge.get("evidence_event_count", 0) or 0)
-                parts.append(
-                    f"- [{triple_id}] {predicate} {object_id} [{object_type}] "
-                    f"from {source_type}, observed={obs_count}x, events={event_count}"
-                )
-            parts.append("")
-        packet_assertions = evidence_packet.get("existing_assertions") or []
-        if packet_assertions:
-            parts.append("### Existing Assertion State")
-            for assertion in packet_assertions[:8]:
-                trait = assertion.get("trait_name", "?")
-                value = assertion.get("trait_value", "?")
-                family = assertion.get("trait_family", "?")
-                state = assertion.get("validation_state", "?")
-                source = assertion.get("source_domain", "?")
-                parts.append(f"- {family}/{trait} = {value} (state={state}, source={source})")
-            parts.append("")
-        guardrails = evidence_packet.get("promotion_guardrails") or []
-        if guardrails:
-            parts.append("### Promotion Guardrails")
-            for guardrail in guardrails:
-                parts.append(f"- {guardrail}")
-            parts.append("")
 
-    # Existing graph edges for the focal subject
-    if existing_graph_edges:
-        parts.append("## Existing Knowledge Graph (relevant subgraph)")
-        for edge in existing_graph_edges[:30]:
-            subj = edge.get("subject_id", "?")
-            pred = edge.get("predicate", "?")
-            obj = edge.get("object_id", "?")
-            obj_type = edge.get("object_type", "?")
-            status = edge.get("status", "active")
-            conf = edge.get("confidence", 0.0)
-            obs_count = edge.get("observation_count", 1)
-            triple_id = edge.get("triple_id", "")
-            first_obs = _format_ts(float(edge.get("first_observed_at", 0)))
-            parts.append(
-                f"- [{triple_id}] {subj} {pred} {obj} [{obj_type}] "
-                f"(status={status}, confidence={conf}, observed={obs_count}x, since={first_obs})"
-            )
-        parts.append("")
+def _append_phase1_fact_claims(
+    parts: list[str],
+    fact_claims: list[dict[str, Any]],
+    entities: list[dict[str, Any]],
+) -> None:
+    if not fact_claims:
+        return
+    parts.append("### Fact Claims")
+    for i, claim in enumerate(fact_claims, 1):
+        subj = claim.get("subject_ref", "?")
+        pred = claim.get("predicate", "?")
+        obj = claim.get("object_ref", "?")
+        obj_type = claim.get("object_type", "?")
+        specificity = claim.get("specificity", "concrete")
+        conf = claim.get("confidence", 0.0)
+        object_id_hint = _find_phase1_entity_id_for_claim(
+            object_ref=obj,
+            object_type=obj_type,
+            entities=entities,
+        )
+        hint_text = f", entity_id: {object_id_hint}" if object_id_hint else ""
+        parts.append(
+            f"{i}. {subj} → {pred} → {obj} "
+            f"[{obj_type}, {specificity}{hint_text}] (confidence: {conf})"
+        )
+        _append_fact_claim_evidence(parts, claim)
+    parts.append("")
 
-    # Existing ToM assertions
-    if existing_assertions:
-        parts.append("## Existing Assertions")
-        for assertion in existing_assertions[:20]:
-            trait = assertion.get("trait_name", "?")
-            value = assertion.get("trait_value", "?")
-            family = assertion.get("trait_family", "?")
-            state = assertion.get("validation_state", "?")
-            conf = assertion.get("confidence_score", 0.0)
-            aid = assertion.get("assertion_id", "")
-            parts.append(f"- [{aid}] {family}/{trait} = {value} (state={state}, confidence={conf})")
-        parts.append("")
 
-    # Focal subject
+def _append_fact_claim_evidence(parts: list[str], claim: dict[str, Any]) -> None:
+    evidence = claim.get("evidence_text", "")
+    if evidence:
+        parts.append(f'   Evidence: "{evidence}"')
+    event_ids = claim.get("supporting_event_ids", [])
+    if event_ids:
+        parts.append(f"   Events: {', '.join(event_ids)}")
+
+
+def _append_phase1_resolved_refs(
+    parts: list[str],
+    resolved_refs: list[dict[str, Any]],
+) -> None:
+    if not resolved_refs:
+        return
+    parts.append("### Resolved References")
+    for ref in resolved_refs:
+        surface = ref.get("surface", "")
+        resolved = ref.get("resolved_ref") or "unresolved"
+        parts.append(f'- "{surface}" → {resolved}')
+    parts.append("")
+
+
+def _append_evidence_packet(
+    parts: list[str],
+    evidence_packet: dict[str, Any] | None,
+) -> None:
+    if not evidence_packet:
+        return
+    parts.append("## Deterministic Evidence Packet")
+    parts.append("No LLM was used to gather this packet; it is retrieval and statistics only.")
+    _append_packet_candidate_refs(parts, evidence_packet.get("candidate_refs") or [])
+    _append_packet_history_matches(parts, evidence_packet.get("history_contexts") or [])
+    _append_packet_history_support(parts, evidence_packet.get("history_support") or [])
+    _append_packet_related_edges(parts, evidence_packet.get("related_edges") or [])
+    _append_packet_assertion_state(parts, evidence_packet.get("existing_assertions") or [])
+    _append_packet_guardrails(parts, evidence_packet.get("promotion_guardrails") or [])
+
+
+def _append_packet_candidate_refs(parts: list[str], refs: list[dict[str, Any]]) -> None:
+    if not refs:
+        return
+    parts.append("### Current Candidate Anchors")
+    for ref in refs[:12]:
+        kind = ref.get("kind", "?")
+        label = ref.get("label") or ref.get("id") or "?"
+        ref_type = ref.get("type") or "unknown"
+        predicate = ref.get("predicate")
+        suffix = f", predicate={predicate}" if predicate else ""
+        parts.append(f"- {kind}: {label} [{ref_type}{suffix}]")
+    parts.append("")
+
+
+def _append_packet_history_matches(
+    parts: list[str],
+    history_items: list[dict[str, Any]],
+) -> None:
+    if not history_items:
+        return
+    parts.append("### History Matches")
+    for item in history_items[:3]:
+        event_id = item.get("event_id", "?")
+        name = item.get("canonical_name") or item.get("matched_text") or "matched item"
+        content = item.get("content", "")
+        parts.append(f"- [#{event_id}] {name}: {content}")
+    parts.append("")
+
+
+def _append_packet_history_support(
+    parts: list[str],
+    history_support: list[dict[str, Any]],
+) -> None:
+    if not history_support:
+        return
+    parts.append("### History Support Counts")
+    for item in history_support[:12]:
+        label = item.get("label") or item.get("id") or "matched item"
+        ref_type = item.get("type") or "unknown"
+        count = int(item.get("history_event_count", 0) or 0)
+        latest = _format_ts(float(item.get("latest_timestamp", 0.0) or 0.0))
+        parts.append(f"- {label} [{ref_type}] seen in {count} previous events, latest={latest}")
+    parts.append("")
+
+
+def _append_packet_related_edges(parts: list[str], related_edges: list[dict[str, Any]]) -> None:
+    if not related_edges:
+        return
+    parts.append("### Related Graph Evidence")
+    for edge in related_edges[:12]:
+        triple_id = edge.get("triple_id", "?")
+        predicate = edge.get("predicate", "?")
+        object_id = edge.get("object_id", "?")
+        object_type = edge.get("object_type", "?")
+        source_type = edge.get("source_type") or "unknown_source"
+        obs_count = int(edge.get("observation_count", 0) or 0)
+        event_count = int(edge.get("evidence_event_count", 0) or 0)
+        parts.append(
+            f"- [{triple_id}] {predicate} {object_id} [{object_type}] "
+            f"from {source_type}, observed={obs_count}x, events={event_count}"
+        )
+    parts.append("")
+
+
+def _append_packet_assertion_state(
+    parts: list[str],
+    packet_assertions: list[dict[str, Any]],
+) -> None:
+    if not packet_assertions:
+        return
+    parts.append("### Existing Assertion State")
+    for assertion in packet_assertions[:8]:
+        trait = assertion.get("trait_name", "?")
+        value = assertion.get("trait_value", "?")
+        family = assertion.get("trait_family", "?")
+        state = assertion.get("validation_state", "?")
+        source = assertion.get("source_domain", "?")
+        parts.append(f"- {family}/{trait} = {value} (state={state}, source={source})")
+    parts.append("")
+
+
+def _append_packet_guardrails(parts: list[str], guardrails: list[str]) -> None:
+    if not guardrails:
+        return
+    parts.append("### Promotion Guardrails")
+    for guardrail in guardrails:
+        parts.append(f"- {guardrail}")
+    parts.append("")
+
+
+def _append_existing_graph_edges(
+    parts: list[str],
+    existing_graph_edges: list[dict[str, Any]] | None,
+) -> None:
+    if not existing_graph_edges:
+        return
+    parts.append("## Existing Knowledge Graph (relevant subgraph)")
+    for edge in existing_graph_edges[:30]:
+        subj = edge.get("subject_id", "?")
+        pred = edge.get("predicate", "?")
+        obj = edge.get("object_id", "?")
+        obj_type = edge.get("object_type", "?")
+        status = edge.get("status", "active")
+        conf = edge.get("confidence", 0.0)
+        obs_count = edge.get("observation_count", 1)
+        triple_id = edge.get("triple_id", "")
+        first_obs = _format_ts(float(edge.get("first_observed_at", 0)))
+        parts.append(
+            f"- [{triple_id}] {subj} {pred} {obj} [{obj_type}] "
+            f"(status={status}, confidence={conf}, observed={obs_count}x, since={first_obs})"
+        )
+    parts.append("")
+
+
+def _append_existing_assertions(
+    parts: list[str],
+    existing_assertions: list[dict[str, Any]] | None,
+) -> None:
+    if not existing_assertions:
+        return
+    parts.append("## Existing Assertions")
+    for assertion in existing_assertions[:20]:
+        trait = assertion.get("trait_name", "?")
+        value = assertion.get("trait_value", "?")
+        family = assertion.get("trait_family", "?")
+        state = assertion.get("validation_state", "?")
+        conf = assertion.get("confidence_score", 0.0)
+        aid = assertion.get("assertion_id", "")
+        parts.append(f"- [{aid}] {family}/{trait} = {value} (state={state}, confidence={conf})")
+    parts.append("")
+
+
+def _append_phase2_focal_subject(parts: list[str], focal_subject: dict[str, Any]) -> None:
     focal_ref = focal_subject.get("entity_ref") or "user:self"
     parts.append(f"## Focal Subject: {focal_ref}")
     parts.append("")
 
-    # Original messages for evidence verification
+
+def _append_original_messages(parts: list[str], event_window: L2EventWindow) -> None:
     parts.append("## Original Messages (for evidence verification)")
     for event in event_window.events:
         role = str(event.author_type or "user").upper()
         parts.append(f"- [{role}] [#{event.event_id}] {str(event.content).strip()}")
     parts.append("")
-
-    return "\n".join(parts)
 
 
 def _find_phase1_entity_id_for_claim(
