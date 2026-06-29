@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from .models import (
@@ -500,33 +501,37 @@ def _builtin_chat_model_vendor(
     return _BUILTIN_PROVIDER_VENDOR.get(provider_id.lower().strip())
 
 
-def resolve_provider_model_catalog(
+@dataclass(frozen=True)
+class _ProviderCatalogResolution:
+    provider_type: str
+    base_provider_meta: Optional[LLMProviderMetaModel]
+    provider_meta: Optional[LLMProviderMetaModel]
+    overrides: dict[str, LLMModelMetadataOverrideSettings]
+    custom_models: list[str]
+    manual_base_capabilities: LLMCapabilitiesSettings
+    manual_base_limits: LLMLimitsSettings
+    manual_provider_options: dict[str, Any]
+
+
+def _provider_type_value(provider_settings: Optional[LLMProviderSettings]) -> str:
+    if provider_settings is None:
+        return ""
+    raw_provider_type = getattr(provider_settings, "provider_type", "")
+    return str(getattr(raw_provider_type, "value", raw_provider_type) or "").strip().lower()
+
+
+def _build_provider_catalog_resolution(
     registry: LLMProviderRegistryModel,
     provider_id: str,
-    provider_settings: Optional[LLMProviderSettings] = None,
-) -> LLMResolvedProviderCatalogModel:
-    """Resolve provider model metadata by merging registry models with user overrides."""
-
-    provider_type = (
-        str(
-            getattr(
-                getattr(provider_settings, "provider_type", ""),
-                "value",
-                getattr(provider_settings, "provider_type", ""),
-            )
-            or ""
-        )
-        .strip()
-        .lower()
-    )
+    provider_settings: Optional[LLMProviderSettings],
+) -> _ProviderCatalogResolution:
+    provider_type = _provider_type_value(provider_settings)
     base_provider_meta = find_provider_meta(registry, provider_type or provider_id)
     provider_meta = (
         resolve_provider_plan_meta(base_provider_meta, _provider_plan_value(provider_settings))
         if base_provider_meta is not None
         else None
     )
-    overrides = dict(getattr(provider_settings, "model_metadata_overrides", {}) or {})
-    custom_models = list(getattr(provider_settings, "custom_models", []) or [])
     manual_base_capabilities = (
         registry.custom_provider.capabilities.model_copy(deep=True)
         if provider_type == "custom"
@@ -540,154 +545,271 @@ def resolve_provider_model_catalog(
     manual_provider_options = (
         dict(registry.custom_provider.provider_options_example) if provider_type == "custom" else {}
     )
+    return _ProviderCatalogResolution(
+        provider_type=provider_type,
+        base_provider_meta=base_provider_meta,
+        provider_meta=provider_meta,
+        overrides=dict(getattr(provider_settings, "model_metadata_overrides", {}) or {}),
+        custom_models=list(getattr(provider_settings, "custom_models", []) or []),
+        manual_base_capabilities=manual_base_capabilities,
+        manual_base_limits=manual_base_limits,
+        manual_provider_options=manual_provider_options,
+    )
 
+
+def _add_builtin_chat_models(
+    *,
+    resolution: _ProviderCatalogResolution,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+) -> None:
+    if resolution.provider_meta is None:
+        return
+    provider_id = (
+        resolution.base_provider_meta.id
+        if resolution.base_provider_meta is not None
+        else resolution.provider_meta.id
+    )
+    for model in resolution.provider_meta.chat_models:
+        base_capabilities = LLMCapabilitiesSettings(
+            vision=model.capabilities.vision,
+            image_output=model.capabilities.image_output,
+            tool_calling=model.capabilities.tool_calling,
+            reasoning=model.capabilities.reasoning,
+            embedding=False,
+        )
+        chat_models[model.id] = _resolve_chat_model(
+            model_id=model.id,
+            source="builtin",
+            label=model.label,
+            capabilities=base_capabilities,
+            limits=model.limits,
+            cost=model.cost,
+            provider_options_example=model.provider_options_example,
+            override=resolution.overrides.get(model.id),
+            base_vendor=_builtin_chat_model_vendor(
+                model=model,
+                provider_id=provider_id,
+            ),
+        )
+
+
+def _add_builtin_embedding_models(
+    *,
+    resolution: _ProviderCatalogResolution,
+    embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel],
+) -> None:
+    if resolution.provider_meta is None:
+        return
+    for model in resolution.provider_meta.embedding_models:
+        base_capabilities = LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=False,
+            reasoning=False,
+            embedding=True,
+        )
+        embedding_models[model.id] = _resolve_embedding_model(
+            model_id=model.id,
+            source="builtin",
+            label=model.label,
+            dimensions=model.dimensions,
+            capabilities=base_capabilities,
+            limits=model.limits,
+            cost=model.cost,
+            provider_options_example=model.provider_options_example,
+            override=resolution.overrides.get(model.id),
+        )
+
+
+def _add_builtin_image_generation_models(
+    *,
+    resolution: _ProviderCatalogResolution,
+    image_generation_models: dict[str, LLMResolvedImageGenerationModelMetaModel],
+) -> None:
+    if resolution.provider_meta is None:
+        return
+    for model in resolution.provider_meta.image_generation_models:
+        base_capabilities = LLMCapabilitiesSettings(
+            vision=False,
+            image_output=True,
+            tool_calling=False,
+            reasoning=False,
+            embedding=False,
+        )
+        image_generation_models[model.id] = _resolve_image_generation_model(
+            model_id=model.id,
+            source="builtin",
+            label=model.label,
+            capabilities=base_capabilities,
+            limits=LLMLimitsSettings(),
+            cost=model.cost,
+            provider_options_example=model.provider_options_example,
+            override=resolution.overrides.get(model.id),
+            supported_sizes=model.supported_sizes,
+            supported_qualities=model.supported_qualities,
+            supports_seed=model.supports_seed,
+            supports_negative_prompt=model.supports_negative_prompt,
+            supports_reference=model.supports_reference,
+            max_n=model.max_n,
+            native_protocol=model.native_protocol,
+        )
+
+
+def _add_manual_chat_model(
+    *,
+    model_id: str,
+    override: Optional[LLMModelMetadataOverrideSettings],
+    provider_settings: Optional[LLMProviderSettings],
+    resolution: _ProviderCatalogResolution,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+) -> None:
+    chat_models[model_id] = _resolve_chat_model(
+        model_id=model_id,
+        source="manual",
+        label=model_id,
+        capabilities=resolution.manual_base_capabilities,
+        limits=resolution.manual_base_limits,
+        cost=None,
+        provider_options_example=resolution.manual_provider_options,
+        override=override,
+        base_vendor=_infer_custom_vendor(
+            model_id=model_id,
+            provider_settings=provider_settings,
+        ),
+    )
+
+
+def _add_custom_chat_models(
+    *,
+    provider_settings: Optional[LLMProviderSettings],
+    resolution: _ProviderCatalogResolution,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+) -> None:
+    for model_id in resolution.custom_models:
+        if model_id in chat_models:
+            continue
+        _add_manual_chat_model(
+            model_id=model_id,
+            override=resolution.overrides.get(model_id),
+            provider_settings=provider_settings,
+            resolution=resolution,
+            chat_models=chat_models,
+        )
+
+
+def _should_add_override_chat_model(
+    model_id: str,
+    override: LLMModelMetadataOverrideSettings,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+) -> bool:
+    return (
+        model_id not in chat_models
+        and override.capabilities.embedding is not True
+        and override.capabilities.image_output is not True
+    )
+
+
+def _add_override_embedding_model(
+    *,
+    model_id: str,
+    override: LLMModelMetadataOverrideSettings,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+    embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel],
+    resolution: _ProviderCatalogResolution,
+) -> None:
+    base_chat_model = chat_models.get(model_id)
+    embedding_capabilities = (
+        base_chat_model.capabilities.model_copy(deep=True)
+        if base_chat_model is not None
+        else LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=False,
+            reasoning=False,
+            embedding=True,
+        )
+    )
+    embedding_capabilities.embedding = True
+    embedding_models[model_id] = _resolve_embedding_model(
+        model_id=model_id,
+        source=(base_chat_model.source if base_chat_model is not None else "manual"),
+        label=(base_chat_model.label if base_chat_model is not None else model_id),
+        dimensions=[],
+        capabilities=embedding_capabilities,
+        limits=(base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings()),
+        cost=(base_chat_model.cost if base_chat_model is not None else None),
+        provider_options_example=(
+            base_chat_model.provider_options_example
+            if base_chat_model is not None
+            else resolution.manual_provider_options
+        ),
+        override=override,
+    )
+
+
+def _add_override_models(
+    *,
+    provider_settings: Optional[LLMProviderSettings],
+    resolution: _ProviderCatalogResolution,
+    chat_models: dict[str, LLMResolvedModelMetaModel],
+    embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel],
+) -> None:
+    for model_id, override in resolution.overrides.items():
+        if _should_add_override_chat_model(model_id, override, chat_models):
+            _add_manual_chat_model(
+                model_id=model_id,
+                override=override,
+                provider_settings=provider_settings,
+                resolution=resolution,
+                chat_models=chat_models,
+            )
+
+        if override.capabilities.embedding is True and model_id not in embedding_models:
+            _add_override_embedding_model(
+                model_id=model_id,
+                override=override,
+                chat_models=chat_models,
+                embedding_models=embedding_models,
+                resolution=resolution,
+            )
+
+
+def resolve_provider_model_catalog(
+    registry: LLMProviderRegistryModel,
+    provider_id: str,
+    provider_settings: Optional[LLMProviderSettings] = None,
+) -> LLMResolvedProviderCatalogModel:
+    """Resolve provider model metadata by merging registry models with user overrides."""
+
+    resolution = _build_provider_catalog_resolution(
+        registry,
+        provider_id,
+        provider_settings,
+    )
     chat_models: dict[str, LLMResolvedModelMetaModel] = {}
     embedding_models: dict[str, LLMResolvedEmbeddingModelMetaModel] = {}
     image_generation_models: dict[str, LLMResolvedImageGenerationModelMetaModel] = {}
 
-    if provider_meta is not None:
-        for model in provider_meta.chat_models:
-            base_capabilities = LLMCapabilitiesSettings(
-                vision=model.capabilities.vision,
-                image_output=model.capabilities.image_output,
-                tool_calling=model.capabilities.tool_calling,
-                reasoning=model.capabilities.reasoning,
-                embedding=False,
-            )
-            chat_models[model.id] = _resolve_chat_model(
-                model_id=model.id,
-                source="builtin",
-                label=model.label,
-                capabilities=base_capabilities,
-                limits=model.limits,
-                cost=model.cost,
-                provider_options_example=model.provider_options_example,
-                override=overrides.get(model.id),
-                base_vendor=_builtin_chat_model_vendor(
-                    model=model,
-                    provider_id=(
-                        base_provider_meta.id
-                        if base_provider_meta is not None
-                        else provider_meta.id
-                    ),
-                ),
-            )
-
-        for model in provider_meta.embedding_models:
-            base_capabilities = LLMCapabilitiesSettings(
-                vision=False,
-                image_output=False,
-                tool_calling=False,
-                reasoning=False,
-                embedding=True,
-            )
-            embedding_models[model.id] = _resolve_embedding_model(
-                model_id=model.id,
-                source="builtin",
-                label=model.label,
-                dimensions=model.dimensions,
-                capabilities=base_capabilities,
-                limits=model.limits,
-                cost=model.cost,
-                provider_options_example=model.provider_options_example,
-                override=overrides.get(model.id),
-            )
-
-        for model in provider_meta.image_generation_models:
-            base_capabilities = LLMCapabilitiesSettings(
-                vision=False,
-                image_output=True,
-                tool_calling=False,
-                reasoning=False,
-                embedding=False,
-            )
-            image_generation_models[model.id] = _resolve_image_generation_model(
-                model_id=model.id,
-                source="builtin",
-                label=model.label,
-                capabilities=base_capabilities,
-                limits=LLMLimitsSettings(),
-                cost=model.cost,
-                provider_options_example=model.provider_options_example,
-                override=overrides.get(model.id),
-                supported_sizes=model.supported_sizes,
-                supported_qualities=model.supported_qualities,
-                supports_seed=model.supports_seed,
-                supports_negative_prompt=model.supports_negative_prompt,
-                supports_reference=model.supports_reference,
-                max_n=model.max_n,
-                native_protocol=model.native_protocol,
-            )
-
-    for model_id in custom_models:
-        if model_id not in chat_models:
-            chat_models[model_id] = _resolve_chat_model(
-                model_id=model_id,
-                source="manual",
-                label=model_id,
-                capabilities=manual_base_capabilities,
-                limits=manual_base_limits,
-                cost=None,
-                provider_options_example=manual_provider_options,
-                override=overrides.get(model_id),
-                base_vendor=_infer_custom_vendor(
-                    model_id=model_id,
-                    provider_settings=provider_settings,
-                ),
-            )
-
-    for model_id, override in overrides.items():
-        if (
-            model_id not in chat_models
-            and override.capabilities.embedding is not True
-            and override.capabilities.image_output is not True
-        ):
-            chat_models[model_id] = _resolve_chat_model(
-                model_id=model_id,
-                source="manual",
-                label=model_id,
-                capabilities=manual_base_capabilities,
-                limits=manual_base_limits,
-                cost=None,
-                provider_options_example=manual_provider_options,
-                override=override,
-                base_vendor=_infer_custom_vendor(
-                    model_id=model_id,
-                    provider_settings=provider_settings,
-                ),
-            )
-
-        if override.capabilities.embedding is True and model_id not in embedding_models:
-            base_chat_model = chat_models.get(model_id)
-            embedding_capabilities = (
-                base_chat_model.capabilities.model_copy(deep=True)
-                if base_chat_model is not None
-                else LLMCapabilitiesSettings(
-                    vision=False,
-                    image_output=False,
-                    tool_calling=False,
-                    reasoning=False,
-                    embedding=True,
-                )
-            )
-            embedding_capabilities.embedding = True
-            embedding_models[model_id] = _resolve_embedding_model(
-                model_id=model_id,
-                source=(base_chat_model.source if base_chat_model is not None else "manual"),
-                label=(base_chat_model.label if base_chat_model is not None else model_id),
-                dimensions=[],
-                capabilities=embedding_capabilities,
-                limits=(
-                    base_chat_model.limits if base_chat_model is not None else LLMLimitsSettings()
-                ),
-                cost=(base_chat_model.cost if base_chat_model is not None else None),
-                provider_options_example=(
-                    base_chat_model.provider_options_example
-                    if base_chat_model is not None
-                    else manual_provider_options
-                ),
-                override=override,
-            )
+    _add_builtin_chat_models(resolution=resolution, chat_models=chat_models)
+    _add_builtin_embedding_models(
+        resolution=resolution,
+        embedding_models=embedding_models,
+    )
+    _add_builtin_image_generation_models(
+        resolution=resolution,
+        image_generation_models=image_generation_models,
+    )
+    _add_custom_chat_models(
+        provider_settings=provider_settings,
+        resolution=resolution,
+        chat_models=chat_models,
+    )
+    _add_override_models(
+        provider_settings=provider_settings,
+        resolution=resolution,
+        chat_models=chat_models,
+        embedding_models=embedding_models,
+    )
 
     return LLMResolvedProviderCatalogModel(
         chat_models=list(chat_models.values()),
