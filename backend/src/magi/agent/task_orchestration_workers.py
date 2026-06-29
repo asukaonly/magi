@@ -17,6 +17,7 @@ from .orchestration import (
     SubtaskDefinition,
     TaskOrchestrationState,
 )
+from .task_orchestration_transitions import mark_remaining_subtasks_cancelled
 
 logger = get_logger(__name__)
 
@@ -39,6 +40,7 @@ class TaskOrchestrationWorkerMixin:
     @property
     def _tool_invocation_service(self):
         from .execution.tool_invocation_service import get_tool_invocation_service
+
         if not hasattr(self, "_tool_invocation_service_cached"):
             self._tool_invocation_service_cached = get_tool_invocation_service(self._tool_registry)
         return self._tool_invocation_service_cached
@@ -51,7 +53,7 @@ class TaskOrchestrationWorkerMixin:
         run_revision: int = 0,
     ) -> Optional[str]:
         if state.status == "cancelling":
-            self._mark_remaining_subtasks_cancelled(state)
+            mark_remaining_subtasks_cancelled(state)
             state.status = "cancelled"
             state.updated_at = time.time()
             await self._orchestration_store.save_orchestration(state)
@@ -84,16 +86,19 @@ class TaskOrchestrationWorkerMixin:
             for item in state.subtasks
         ]
         result = await self._tool_invocation_service.invoke(
-            _ServiceToolCall(name="agent", args={
-                "action": "launch",
-                "workers": worker_payloads,
-                "parallel": state.allow_parallel,
-                "run_in_background": True,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "run_id": run_id,
-                "run_revision": run_revision,
-            }),
+            _ServiceToolCall(
+                name="agent",
+                args={
+                    "action": "launch",
+                    "workers": worker_payloads,
+                    "parallel": state.allow_parallel,
+                    "run_in_background": True,
+                    "target_task_agent_type": self._parent_task_agent_type,
+                    "target_task_agent_id": parent_task_agent_id,
+                    "run_id": run_id,
+                    "run_revision": run_revision,
+                },
+            ),
             InvocationContext(
                 tool_category="orchestrator_internal",
                 task_context=TaskContext(
@@ -159,23 +164,26 @@ class TaskOrchestrationWorkerMixin:
             )
             await asyncio.sleep(delay_seconds)
         result = await self._tool_invocation_service.invoke(
-            _ServiceToolCall(name="agent", args={
-                "action": "launch",
-                "subagent_type": subtask.subagent_type,
-                "description": subtask.description,
-                "prompt": subtask.prompt,
-                "run_in_background": True,
-                "orchestration_id": state.orchestration_id,
-                "subtask_id": subtask.subtask_id,
-                "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": parent_task_agent_id,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "retry_count": next_attempt - 1,
-                "run_id": run_id,
-                "run_revision": run_revision,
-                "turn_id": state.turn_id,
-            }),
+            _ServiceToolCall(
+                name="agent",
+                args={
+                    "action": "launch",
+                    "subagent_type": subtask.subagent_type,
+                    "description": subtask.description,
+                    "prompt": subtask.prompt,
+                    "run_in_background": True,
+                    "orchestration_id": state.orchestration_id,
+                    "subtask_id": subtask.subtask_id,
+                    "parent_task_agent_type": self._parent_task_agent_type,
+                    "parent_task_agent_id": parent_task_agent_id,
+                    "target_task_agent_type": self._parent_task_agent_type,
+                    "target_task_agent_id": parent_task_agent_id,
+                    "retry_count": next_attempt - 1,
+                    "run_id": run_id,
+                    "run_revision": run_revision,
+                    "turn_id": state.turn_id,
+                },
+            ),
             InvocationContext(
                 tool_category="orchestrator_internal",
                 task_context=TaskContext(
