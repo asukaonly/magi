@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from ....event_contracts import MemoryEvent
@@ -25,6 +26,18 @@ from ...ontology import (
 from ...storage.utils import normalize_event_ids
 
 
+@dataclass(frozen=True)
+class _Phase2GraphEdgeShape:
+    object_type: str
+    predicate: str
+
+
+@dataclass(frozen=True)
+class _Phase2GraphEndpoints:
+    subject_id: str
+    object_id: str
+
+
 class L2Phase2GraphValidationMixin:
     """Validate Phase 2 graph edges and contradiction hints."""
 
@@ -42,111 +55,219 @@ class L2Phase2GraphValidationMixin:
         classification: EvidenceClassification | None = None,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
         """Validate Phase 2 graph edges against ontology and profile constraints."""
-        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
+        if not self._phase2_graph_write_enabled(profile=profile, policy=policy):
             return [], [], 0
 
         prepared: list[dict[str, Any]] = []
         corroborate_targets: list[dict[str, Any]] = []
         rejected_count = 0
         for edge in phase2_edges:
-            if edge.relationship_to_existing == "corroborates" and edge.related_existing_triple_id:
-                corroborate_targets.append(
-                    {
-                        "triple_id": edge.related_existing_triple_id,
-                        "evidence_event_ids": normalize_event_ids(
-                            edge.supporting_event_ids or evidence_event_ids
-                        ),
-                        "new_confidence": edge.confidence,
-                        "observed_at": event.timestamp,
-                        "evidence_text": edge.evidence_text or "",
-                    }
-                )
-                continue
-
-            object_type = self._normalize_entity_type(edge.object_type)  # type: ignore[attr-defined]
-            predicate = self._normalize_predicate(edge.predicate)  # type: ignore[attr-defined]
-            if object_type not in profile.effective_structured_allowed_entity_types:
-                rejected_count += 1
-                continue
-            if predicate not in profile.effective_structured_allowed_predicates and not (
-                profile.effective_structured_allowed_predicates >= PREDICATE_REGISTRY
-                and is_valid_open_predicate(predicate)
-            ):
-                rejected_count += 1
-                continue
-            if is_low_value_open_predicate(predicate):
-                rejected_count += 1
-                continue
-            is_valid, _ = validate_graph_candidate(
-                {
-                    "predicate": predicate,
-                    "object_type": object_type,
-                    "object_ref": edge.object_ref,
-                }
-            )
-            if not is_valid:
-                rejected_count += 1
-                continue
-
-            subject_id = self._resolve_phase2_subject_id(event=event, subject_ref=edge.subject_ref)  # type: ignore[attr-defined]
-            if not subject_id:
-                rejected_count += 1
-                continue
-            object_id = self._resolve_phase2_object_id(  # type: ignore[attr-defined]
-                raw_object_ref=edge.object_ref,
-                object_type=object_type,
-                resolved_mentions=resolved_mentions,
-                catalog_name_index=catalog_name_index,
-            )
-            if not object_id:
-                rejected_count += 1
-                continue
-            if is_reserved_assertion_graph_identifier(object_id):
-                rejected_count += 1
-                continue
-            if is_vague_entity_reference(edge.object_ref) or is_vague_entity_reference(object_id):
-                rejected_count += 1
-                continue
-            normalized_object_ref = self._normalize_profile_signal_value(edge.object_ref)  # type: ignore[attr-defined]
-            if normalized_object_ref and normalized_object_ref in (profile_signal_object_refs or set()):
-                rejected_count += 1
-                continue
-            if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]
+            corroborate_target = self._build_phase2_corroborate_target(
                 event=event,
-                subject_id=subject_id,
-                predicate=predicate,
-                object_id=object_id,
-                object_type=object_type,
-                raw_object_ref=edge.object_ref,
-            ):
+                edge=edge,
+                evidence_event_ids=evidence_event_ids,
+            )
+            if corroborate_target is not None:
+                corroborate_targets.append(corroborate_target)
+                continue
+
+            candidate = self._prepare_phase2_graph_edge(
+                event=event,
+                profile=profile,
+                resolved_mentions=resolved_mentions,
+                evidence_event_ids=evidence_event_ids,
+                edge=edge,
+                profile_signal_object_refs=profile_signal_object_refs,
+                catalog_name_index=catalog_name_index,
+                classification=classification,
+            )
+            if candidate is None:
                 rejected_count += 1
                 continue
-            prepared.append(
-                {
-                    "subject_id": subject_id,
-                    "subject_type": edge.subject_type or "user",
-                    "predicate": predicate,
-                    "object_id": object_id,
-                    "object_type": object_type,
-                    "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                    "evidence_event_ids": normalize_event_ids(
-                        edge.supporting_event_ids or evidence_event_ids
-                    ),
-                    "confidence": (
-                        edge.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
-                        if predicate not in PREDICATE_REGISTRY
-                        else edge.confidence
-                    ),
-                    "observed_at": event.timestamp,
-                    "source_type": event.source,
-                    "extraction_method": "llm_phase2_integration",
-                    "evidence_text": edge.evidence_text or "",
-                    "evidence_class": (
-                        classification.evidence_class if classification is not None else None
-                    ),
-                }
-            )
+            prepared.append(candidate)
         return prepared, corroborate_targets, rejected_count
+
+    @staticmethod
+    def _phase2_graph_write_enabled(*, profile: ExtractionProfile, policy: Any) -> bool:
+        return bool(
+            policy.allow_graph_write and profile.allow_graph and policy.graph_scope == "full"
+        )
+
+    @staticmethod
+    def _build_phase2_corroborate_target(
+        *,
+        event: MemoryEvent,
+        edge: L2Phase2GraphEdge,
+        evidence_event_ids: list[str],
+    ) -> dict[str, Any] | None:
+        if edge.relationship_to_existing != "corroborates" or not edge.related_existing_triple_id:
+            return None
+        return {
+            "triple_id": edge.related_existing_triple_id,
+            "evidence_event_ids": normalize_event_ids(
+                edge.supporting_event_ids or evidence_event_ids
+            ),
+            "new_confidence": edge.confidence,
+            "observed_at": event.timestamp,
+            "evidence_text": edge.evidence_text or "",
+        }
+
+    def _prepare_phase2_graph_edge(
+        self,
+        *,
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        resolved_mentions: list[ResolvedEntityMention],
+        evidence_event_ids: list[str],
+        edge: L2Phase2GraphEdge,
+        profile_signal_object_refs: set[str] | None,
+        catalog_name_index: dict[str, str] | None,
+        classification: EvidenceClassification | None,
+    ) -> dict[str, Any] | None:
+        shape = self._normalize_phase2_graph_edge_shape(edge)
+        if not self._phase2_graph_shape_allowed(edge=edge, shape=shape, profile=profile):
+            return None
+        endpoints = self._resolve_phase2_graph_endpoints(
+            event=event,
+            edge=edge,
+            shape=shape,
+            resolved_mentions=resolved_mentions,
+            catalog_name_index=catalog_name_index,
+        )
+        if endpoints is None:
+            return None
+        if self._phase2_graph_object_rejected(
+            edge=edge,
+            object_id=endpoints.object_id,
+            profile_signal_object_refs=profile_signal_object_refs,
+        ):
+            return None
+        if self._should_reject_preference_graph_candidate(  # type: ignore[attr-defined]
+            event=event,
+            subject_id=endpoints.subject_id,
+            predicate=shape.predicate,
+            object_id=endpoints.object_id,
+            object_type=shape.object_type,
+            raw_object_ref=edge.object_ref,
+        ):
+            return None
+        return self._build_phase2_graph_candidate(
+            event=event,
+            edge=edge,
+            shape=shape,
+            endpoints=endpoints,
+            evidence_event_ids=evidence_event_ids,
+            classification=classification,
+        )
+
+    def _normalize_phase2_graph_edge_shape(
+        self,
+        edge: L2Phase2GraphEdge,
+    ) -> _Phase2GraphEdgeShape:
+        return _Phase2GraphEdgeShape(
+            object_type=self._normalize_entity_type(edge.object_type),  # type: ignore[attr-defined]
+            predicate=self._normalize_predicate(edge.predicate),  # type: ignore[attr-defined]
+        )
+
+    @staticmethod
+    def _phase2_graph_shape_allowed(
+        *,
+        edge: L2Phase2GraphEdge,
+        shape: _Phase2GraphEdgeShape,
+        profile: ExtractionProfile,
+    ) -> bool:
+        if shape.object_type not in profile.effective_structured_allowed_entity_types:
+            return False
+        if shape.predicate not in profile.effective_structured_allowed_predicates and not (
+            profile.effective_structured_allowed_predicates >= PREDICATE_REGISTRY
+            and is_valid_open_predicate(shape.predicate)
+        ):
+            return False
+        if is_low_value_open_predicate(shape.predicate):
+            return False
+        is_valid, _ = validate_graph_candidate(
+            {
+                "predicate": shape.predicate,
+                "object_type": shape.object_type,
+                "object_ref": edge.object_ref,
+            }
+        )
+        return is_valid
+
+    def _resolve_phase2_graph_endpoints(
+        self,
+        *,
+        event: MemoryEvent,
+        edge: L2Phase2GraphEdge,
+        shape: _Phase2GraphEdgeShape,
+        resolved_mentions: list[ResolvedEntityMention],
+        catalog_name_index: dict[str, str] | None,
+    ) -> _Phase2GraphEndpoints | None:
+        subject_id = self._resolve_phase2_subject_id(  # type: ignore[attr-defined]
+            event=event,
+            subject_ref=edge.subject_ref,
+        )
+        if not subject_id:
+            return None
+        object_id = self._resolve_phase2_object_id(  # type: ignore[attr-defined]
+            raw_object_ref=edge.object_ref,
+            object_type=shape.object_type,
+            resolved_mentions=resolved_mentions,
+            catalog_name_index=catalog_name_index,
+        )
+        if not object_id:
+            return None
+        return _Phase2GraphEndpoints(subject_id=subject_id, object_id=object_id)
+
+    def _phase2_graph_object_rejected(
+        self,
+        *,
+        edge: L2Phase2GraphEdge,
+        object_id: str,
+        profile_signal_object_refs: set[str] | None,
+    ) -> bool:
+        if is_reserved_assertion_graph_identifier(object_id):
+            return True
+        if is_vague_entity_reference(edge.object_ref) or is_vague_entity_reference(object_id):
+            return True
+        normalized_object_ref = self._normalize_profile_signal_value(edge.object_ref)  # type: ignore[attr-defined]
+        return bool(
+            normalized_object_ref and normalized_object_ref in (profile_signal_object_refs or set())
+        )
+
+    def _build_phase2_graph_candidate(
+        self,
+        *,
+        event: MemoryEvent,
+        edge: L2Phase2GraphEdge,
+        shape: _Phase2GraphEdgeShape,
+        endpoints: _Phase2GraphEndpoints,
+        evidence_event_ids: list[str],
+        classification: EvidenceClassification | None,
+    ) -> dict[str, Any]:
+        return {
+            "subject_id": endpoints.subject_id,
+            "subject_type": edge.subject_type or "user",
+            "predicate": shape.predicate,
+            "object_id": endpoints.object_id,
+            "object_type": shape.object_type,
+            "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
+            "evidence_event_ids": normalize_event_ids(
+                edge.supporting_event_ids or evidence_event_ids
+            ),
+            "confidence": (
+                edge.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
+                if shape.predicate not in PREDICATE_REGISTRY
+                else edge.confidence
+            ),
+            "observed_at": event.timestamp,
+            "source_type": event.source,
+            "extraction_method": "llm_phase2_integration",
+            "evidence_text": edge.evidence_text or "",
+            "evidence_class": (
+                classification.evidence_class if classification is not None else None
+            ),
+        }
 
     def _convert_phase2_contradiction_hints(
         self,
