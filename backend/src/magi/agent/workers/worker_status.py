@@ -52,9 +52,7 @@ class WorkerStatusMixin:
                 "worker_count": len(workers),
                 "missing_worker_ids": missing_ids,
             },
-            error=(
-                None if success else f"Some workers not found: {', '.join(missing_ids)}"
-            ),
+            error=(None if success else f"Some workers not found: {', '.join(missing_ids)}"),
             error_code=None if success else ToolErrorCode.TOOL_NOT_FOUND.value,
         )
 
@@ -85,20 +83,9 @@ class WorkerStatusMixin:
         await self._refresh_run_state(run_state)
         return self._build_run_result(run_state)
 
-    async def _await_workers(
-        self, worker_ids: List[str], timeout_seconds: int
-    ) -> ToolResult:
+    async def _await_workers(self, worker_ids: List[str], timeout_seconds: int) -> ToolResult:
         host = cast(_WorkerStatusHostProtocol, self)
-        run_states = []
-        missing_ids = []
-        for worker_id in worker_ids:
-            async with host._lock:
-                run_state = host._runs.get(worker_id)
-            if run_state is None:
-                missing_ids.append(worker_id)
-                continue
-            run_states.append(run_state)
-
+        run_states, missing_ids = await _resolve_run_states(host, worker_ids)
         if missing_ids:
             return ToolResult(
                 success=False,
@@ -107,41 +94,48 @@ class WorkerStatusMixin:
                 data={"missing_worker_ids": missing_ids},
             )
 
-        pending_tasks = [
-            state.task
-            for state in run_states
-            if state.task is not None and not state.task.done()
-        ]
-        if pending_tasks:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(
-                        *(asyncio.shield(task) for task in pending_tasks),
-                        return_exceptions=True,
-                    ),
-                    timeout=float(timeout_seconds),
-                )
-            except asyncio.TimeoutError:
-                return ToolResult(
-                    success=False,
-                    error=f"Waiting for workers timed out after {timeout_seconds}s",
-                    error_code=ToolErrorCode.TIMEOUT.value,
-                    data={
-                        "workers": [
-                            self._serialize_run_state(state) for state in run_states
-                        ]
-                    },
-                )
+        timeout_result = await self._await_pending_worker_tasks(
+            run_states,
+            timeout_seconds,
+        )
+        if timeout_result is not None:
+            return timeout_result
 
         for state in run_states:
             await self._refresh_run_state(state)
 
+        return self._build_workers_result(run_states)
+
+    async def _await_pending_worker_tasks(
+        self,
+        run_states: List[WorkerRunState],
+        timeout_seconds: int,
+    ) -> ToolResult | None:
+        pending_tasks = _pending_worker_tasks(run_states)
+        if not pending_tasks:
+            return None
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    *(asyncio.shield(task) for task in pending_tasks),
+                    return_exceptions=True,
+                ),
+                timeout=float(timeout_seconds),
+            )
+            return None
+        except asyncio.TimeoutError:
+            return ToolResult(
+                success=False,
+                error=f"Waiting for workers timed out after {timeout_seconds}s",
+                error_code=ToolErrorCode.TIMEOUT.value,
+                data={"workers": [self._serialize_run_state(state) for state in run_states]},
+            )
+
+    def _build_workers_result(self, run_states: List[WorkerRunState]) -> ToolResult:
         all_success = all(state.status == "completed" for state in run_states)
         return ToolResult(
             success=all_success,
-            data={
-                "workers": [self._serialize_run_state(state) for state in run_states]
-            },
+            data={"workers": [self._serialize_run_state(state) for state in run_states]},
             error=None if all_success else "Some workers failed",
             error_code=None if all_success else ToolErrorCode.EXECUTION_ERROR.value,
         )
@@ -213,3 +207,23 @@ class WorkerStatusMixin:
         if len(text) <= limit:
             return text
         return text[:limit] + "...(truncated)"
+
+
+async def _resolve_run_states(
+    host: _WorkerStatusHostProtocol,
+    worker_ids: List[str],
+) -> tuple[List[WorkerRunState], List[str]]:
+    run_states: List[WorkerRunState] = []
+    missing_ids: List[str] = []
+    for worker_id in worker_ids:
+        async with host._lock:
+            run_state = host._runs.get(worker_id)
+        if run_state is None:
+            missing_ids.append(worker_id)
+            continue
+        run_states.append(run_state)
+    return run_states, missing_ids
+
+
+def _pending_worker_tasks(run_states: List[WorkerRunState]) -> List[Any]:
+    return [state.task for state in run_states if state.task is not None and not state.task.done()]

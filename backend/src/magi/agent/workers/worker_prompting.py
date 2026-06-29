@@ -67,11 +67,15 @@ class WorkerPromptMixin:
             f"Response language: {llm_language_label()}. Write natural-language JSON values in this language "
             "unless preserving exact names, paths, commands, identifiers, or source titles."
         )
+        role_rules = self._build_worker_role_rules(subagent_type, description)
+        return "\n".join([base_rules, environment_rules, role_rules, language_rules, tool_rules])
+
+    def _build_worker_role_rules(self, subagent_type: str, description: str) -> str:
         host = cast(_WorkerPromptHostProtocol, self)
         if subagent_type == host.TYPE_EXPLORE:
-            role_rules = self._build_explore_role_rules(description)
-        elif subagent_type == host.TYPE_PLAN:
-            role_rules = (
+            return self._build_explore_role_rules(description)
+        if subagent_type == host.TYPE_PLAN:
+            return (
                 "Act as a software architect. Return ONLY valid JSON with this schema: "
                 '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
                 "The plan must be decision-complete, keep subtasks bounded, and not include any final user-facing aggregation. "
@@ -81,19 +85,20 @@ class WorkerPromptMixin:
                 "If you name a file, symbol, route, flag, or config key in findings or evidence, confirm it exists in the current code before treating it as fact. "
                 "Any response that is not a single valid JSON object will be treated as failure."
             )
-        elif subagent_type == host.TYPE_CODING:
-            role_rules = self._build_coding_role_rules()
-        else:
-            role_rules = (
-                "Act as a general-purpose leaf execution agent for one bounded task. "
-                "Return ONLY valid JSON with this schema: "
-                '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
-                "For external evidence, evidence.path should be the canonical URL or source label. "
-                "For local file evidence, evidence.path should be the verified file path. "
-                "Treat the iteration limit as a safety ceiling, not a target: stop as soon as the bounded task has enough evidence, and do not repeat equivalent searches. "
-                "Any response that is not a single valid JSON object will be treated as failure."
-            )
-        return "\n".join([base_rules, environment_rules, role_rules, language_rules, tool_rules])
+        if subagent_type == host.TYPE_CODING:
+            return self._build_coding_role_rules()
+        return self._build_general_role_rules()
+
+    def _build_general_role_rules(self) -> str:
+        return (
+            "Act as a general-purpose leaf execution agent for one bounded task. "
+            "Return ONLY valid JSON with this schema: "
+            '{"result_status":"success|partial|failed","summary":"string","findings":[{"title":"string","detail":"string"}],"evidence":[{"path":"string","detail":"string"}],"gaps":["string"],"next_steps":["string"],"failure_reason":"string|null"}. '
+            "For external evidence, evidence.path should be the canonical URL or source label. "
+            "For local file evidence, evidence.path should be the verified file path. "
+            "Treat the iteration limit as a safety ceiling, not a target: stop as soon as the bounded task has enough evidence, and do not repeat equivalent searches. "
+            "Any response that is not a single valid JSON object will be treated as failure."
+        )
 
     def _build_coding_role_rules(self) -> str:
         return (

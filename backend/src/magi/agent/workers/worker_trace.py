@@ -94,9 +94,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         await self._publish_worker_bus_event(
             event_type=event_type,
             payload=payload,
-            correlation_id=str(
-                correlation_id or payload.get("span_id") or uuid.uuid4()
-            ),
+            correlation_id=str(correlation_id or payload.get("span_id") or uuid.uuid4()),
         )
 
     async def _emit_worker_dispatch_trace(self, run_state: WorkerRunState) -> None:
@@ -126,9 +124,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
             },
         )
 
-    async def _emit_worker_attempt_started_trace(
-        self, run_state: WorkerRunState
-    ) -> None:
+    async def _emit_worker_attempt_started_trace(self, run_state: WorkerRunState) -> None:
         trace_turn_id = self._resolve_trace_turn_id(run_state)
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
@@ -139,13 +135,9 @@ class WorkerTraceMixin(WorkerPublicationMixin):
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="worker_attempt",
             name=f"Attempt {attempt_index}",
-            span_id=self._build_worker_attempt_span_id(
-                trace_turn_id, trace_key, attempt_index
-            ),
+            span_id=self._build_worker_attempt_span_id(trace_turn_id, trace_key, attempt_index),
             trace_id=self._build_trace_id(trace_turn_id),
-            parent_span_id=self._build_worker_dispatch_span_id(
-                trace_turn_id, trace_key
-            ),
+            parent_span_id=self._build_worker_dispatch_span_id(trace_turn_id, trace_key),
             status="running",
             started_at_ms=run_state.started_at_ms,
             ended_at_ms=run_state.started_at_ms,
@@ -187,21 +179,15 @@ class WorkerTraceMixin(WorkerPublicationMixin):
 
     async def _emit_worker_completed_trace(self, run_state: WorkerRunState) -> None:
         await self._emit_worker_terminal_trace(run_state=run_state, status="completed")
-        await self._emit_worker_attempt_terminal_trace(
-            run_state=run_state, status="completed"
-        )
+        await self._emit_worker_attempt_terminal_trace(run_state=run_state, status="completed")
 
     async def _emit_worker_failed_trace(self, run_state: WorkerRunState) -> None:
         await self._emit_worker_terminal_trace(run_state=run_state, status="failed")
-        await self._emit_worker_attempt_terminal_trace(
-            run_state=run_state, status="failed"
-        )
+        await self._emit_worker_attempt_terminal_trace(run_state=run_state, status="failed")
 
     async def _emit_worker_cancelled_trace(self, run_state: WorkerRunState) -> None:
         await self._emit_worker_terminal_trace(run_state=run_state, status="cancelled")
-        await self._emit_worker_attempt_terminal_trace(
-            run_state=run_state, status="cancelled"
-        )
+        await self._emit_worker_attempt_terminal_trace(run_state=run_state, status="cancelled")
 
     async def _emit_worker_attempt_terminal_trace(
         self, run_state: WorkerRunState, status: str
@@ -212,87 +198,46 @@ class WorkerTraceMixin(WorkerPublicationMixin):
 
         trace_key = self._worker_trace_key(run_state)
         attempt_index = run_state.retry_count + 1
-        ended_at_ms = int(
-            (run_state.completed_at or run_state.updated_at or time.time()) * 1000
-        )
-        timing = build_trace_timing(
-            started_at_ms=run_state.started_at_ms,
-            ended_at_ms=ended_at_ms,
-            started_monotonic=run_state.started_monotonic or None,
-            ended_monotonic=time.monotonic(),
-        )
+        timing = _worker_terminal_timing(run_state)
         output_payload = {
             "worker_id": run_state.worker_id,
             "result_preview": run_state.result_preview,
             "failure_reason": run_state.failure_reason,
         }
-        error_text = (
-            run_state.error or run_state.failure_reason or "Worker attempt failed"
-            if status != "completed"
-            else None
-        )
-        error_payload = (
-            ToolError(type="WorkerAttemptError", message=error_text)
-            if error_text
-            else None
-        )
         await publish_trace_span(
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="worker_attempt",
             name=f"Attempt {attempt_index}",
-            span_id=self._build_worker_attempt_span_id(
-                trace_turn_id, trace_key, attempt_index
-            ),
+            span_id=self._build_worker_attempt_span_id(trace_turn_id, trace_key, attempt_index),
             trace_id=self._build_trace_id(trace_turn_id),
-            parent_span_id=self._build_worker_dispatch_span_id(
-                trace_turn_id, trace_key
-            ),
+            parent_span_id=self._build_worker_dispatch_span_id(trace_turn_id, trace_key),
             status=status,
             started_at_ms=timing.started_at_ms,
             ended_at_ms=timing.ended_at_ms or timing.started_at_ms,
             turn_id=trace_turn_id,
             result_preview=output_payload["result_preview"],
-            error=error_payload,
-            attributes={
-                "attempt_index": attempt_index,
-                "retry_count": run_state.retry_count,
-                "execution_agent_id": run_state.worker_id,
-            },
+            error=_worker_error_payload(
+                run_state,
+                status=status,
+                error_type="WorkerAttemptError",
+                fallback_message="Worker attempt failed",
+            ),
+            attributes=_worker_span_attributes(run_state, attempt_index),
         )
 
-    async def _emit_worker_terminal_trace(
-        self, run_state: WorkerRunState, status: str
-    ) -> None:
+    async def _emit_worker_terminal_trace(self, run_state: WorkerRunState, status: str) -> None:
         trace_turn_id = self._resolve_trace_turn_id(run_state)
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
 
         trace_key = self._worker_trace_key(run_state)
         attempt_index = run_state.retry_count + 1
-        ended_at_ms = int(
-            (run_state.completed_at or run_state.updated_at or time.time()) * 1000
-        )
-        timing = build_trace_timing(
-            started_at_ms=run_state.started_at_ms,
-            ended_at_ms=ended_at_ms,
-            started_monotonic=run_state.started_monotonic or None,
-            ended_monotonic=time.monotonic(),
-        )
+        timing = _worker_terminal_timing(run_state)
         output_payload = {
             "result_preview": run_state.result_preview,
             "result": dict(run_state.result or {}),
             "failure_reason": run_state.failure_reason,
         }
-        error_text = (
-            run_state.error or run_state.failure_reason or "Worker execution failed"
-            if status != "completed"
-            else None
-        )
-        error_payload = (
-            ToolError(type="WorkerExecutionError", message=error_text)
-            if error_text
-            else None
-        )
         await publish_trace_span(
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="worker",
@@ -307,12 +252,13 @@ class WorkerTraceMixin(WorkerPublicationMixin):
             ended_at_ms=timing.ended_at_ms or timing.started_at_ms,
             turn_id=trace_turn_id,
             result_preview=output_payload["result_preview"],
-            error=error_payload,
-            attributes={
-                "attempt_index": attempt_index,
-                "retry_count": run_state.retry_count,
-                "execution_agent_id": run_state.worker_id,
-            },
+            error=_worker_error_payload(
+                run_state,
+                status=status,
+                error_type="WorkerExecutionError",
+                fallback_message="Worker execution failed",
+            ),
+            attributes=_worker_span_attributes(run_state, attempt_index),
         )
 
     async def _emit_worker_tool_trace(
@@ -326,11 +272,8 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         if self._runtime_trace_store is None or trace_turn_id is None:
             return
 
-        execution_time_seconds = float(payload.get("execution_time") or 0.0)
-        duration_ms = max(0, int(round(execution_time_seconds * 1000)))
-        ended_at_ms = now_wall_ms()
-        started_at_ms = max(0, ended_at_ms - duration_ms)
-        tool_name = str(payload.get("tool_name") or "unknown")
+        timing = _tool_trace_timing(payload)
+        tool_name = _tool_name(payload)
         trace_key = self._worker_trace_key(run_state)
         attempt_index = run_state.retry_count + 1
         tool_span_id = self._build_worker_tool_span_id(
@@ -342,41 +285,27 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         )
 
         success = bool(payload.get("success"))
-        error_message = str(payload.get("error") or "") or None
-        error_payload = (
-            ToolError(type="ToolExecutionError", message=error_message)
-            if error_message
-            else None
-        )
         await publish_trace_span(
             event_bus=resolve_event_bus(fallback=self._message_bus),
             node_type="tool_invocation",
             name=f"{tool_name} tool call",
             span_id=tool_span_id,
             trace_id=self._build_trace_id(trace_turn_id),
-            parent_span_id=self._build_worker_span_id(
-                trace_turn_id, trace_key, attempt_index
-            ),
+            parent_span_id=self._build_worker_span_id(trace_turn_id, trace_key, attempt_index),
             status="completed" if success else "failed",
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
+            started_at_ms=timing["started_at_ms"],
+            ended_at_ms=timing["ended_at_ms"],
             turn_id=trace_turn_id,
             result_preview=result_preview,
-            error=error_payload,
-            attributes={
-                "attempt_index": attempt_index,
-                "retry_count": run_state.retry_count,
-                "execution_agent_id": run_state.worker_id,
-                "tool_name": tool_name,
-                "tool_call_id": str(payload.get("tool_call_id") or "") or None,
-                "arguments_json": json.dumps(payload.get("arguments") or {}),
-                "success": success,
-                "execution_time_ms": duration_ms,
-                "error_code": str(payload.get("error_code") or "") or None,
-                "error_message": error_message,
-                "result_preview": result_preview,
-                "result_json": self._serialize_tool_result_json(payload.get("data")),
-            },
+            error=_tool_error_payload(payload),
+            attributes=_worker_tool_attributes(
+                run_state,
+                payload=payload,
+                tool_name=tool_name,
+                result_preview=result_preview,
+                duration_ms=timing["duration_ms"],
+                success=success,
+            ),
         )
 
     def _resolve_trace_turn_id(self, run_state: WorkerRunState) -> str | None:
@@ -389,14 +318,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
 
     @staticmethod
     def _serialize_tool_result_json(data: Any) -> str | None:
-        if data is None:
-            return None
-        if isinstance(data, str):
-            return data
-        try:
-            return json.dumps(data)
-        except (TypeError, ValueError):
-            return str(data)
+        return _serialize_tool_result_value_json(data)
 
     @staticmethod
     def _build_root_span_id(turn_id: str) -> str:
@@ -407,9 +329,7 @@ class WorkerTraceMixin(WorkerPublicationMixin):
         return f"{turn_id}:worker_dispatch:{trace_key}"
 
     @staticmethod
-    def _build_worker_attempt_span_id(
-        turn_id: str, trace_key: str, attempt_index: int
-    ) -> str:
+    def _build_worker_attempt_span_id(turn_id: str, trace_key: str, attempt_index: int) -> str:
         return f"{turn_id}:worker_attempt:{trace_key}:{attempt_index}"
 
     @staticmethod
@@ -451,3 +371,96 @@ class WorkerTraceMixin(WorkerPublicationMixin):
             "target_task_agent_type": run_state.target_task_agent_type,
             "target_task_agent_id": run_state.target_task_agent_id,
         }
+
+
+def _worker_terminal_timing(run_state: WorkerRunState):
+    ended_at_ms = int((run_state.completed_at or run_state.updated_at or time.time()) * 1000)
+    return build_trace_timing(
+        started_at_ms=run_state.started_at_ms,
+        ended_at_ms=ended_at_ms,
+        started_monotonic=run_state.started_monotonic or None,
+        ended_monotonic=time.monotonic(),
+    )
+
+
+def _worker_error_payload(
+    run_state: WorkerRunState,
+    *,
+    status: str,
+    error_type: str,
+    fallback_message: str,
+) -> ToolError | None:
+    if status == "completed":
+        return None
+    error_text = run_state.error or run_state.failure_reason or fallback_message
+    return ToolError(type=error_type, message=error_text)
+
+
+def _worker_span_attributes(
+    run_state: WorkerRunState,
+    attempt_index: int,
+) -> Dict[str, Any]:
+    return {
+        "attempt_index": attempt_index,
+        "retry_count": run_state.retry_count,
+        "execution_agent_id": run_state.worker_id,
+    }
+
+
+def _tool_trace_timing(payload: Dict[str, Any]) -> dict[str, int]:
+    execution_time_seconds = float(payload.get("execution_time") or 0.0)
+    duration_ms = max(0, int(round(execution_time_seconds * 1000)))
+    ended_at_ms = now_wall_ms()
+    return {
+        "duration_ms": duration_ms,
+        "ended_at_ms": ended_at_ms,
+        "started_at_ms": max(0, ended_at_ms - duration_ms),
+    }
+
+
+def _tool_name(payload: Dict[str, Any]) -> str:
+    return str(payload.get("tool_name") or "unknown")
+
+
+def _tool_error_payload(payload: Dict[str, Any]) -> ToolError | None:
+    error_message = str(payload.get("error") or "") or None
+    if not error_message:
+        return None
+    return ToolError(type="ToolExecutionError", message=error_message)
+
+
+def _worker_tool_attributes(
+    run_state: WorkerRunState,
+    *,
+    payload: Dict[str, Any],
+    tool_name: str,
+    result_preview: str,
+    duration_ms: int,
+    success: bool,
+) -> Dict[str, Any]:
+    error_message = str(payload.get("error") or "") or None
+    return {
+        "attempt_index": run_state.retry_count + 1,
+        "retry_count": run_state.retry_count,
+        "execution_agent_id": run_state.worker_id,
+        "tool_name": tool_name,
+        "tool_call_id": str(payload.get("tool_call_id") or "") or None,
+        "arguments_json": json.dumps(payload.get("arguments") or {}),
+        "success": success,
+        "execution_time_ms": duration_ms,
+        "error_code": str(payload.get("error_code") or "") or None,
+        "error_message": error_message,
+        "result_preview": result_preview,
+        "result_json": _serialize_tool_result_value_json(payload.get("data")),
+    }
+
+
+def _serialize_tool_result_value_json(data: Any) -> str | None:
+    if data is None:
+        return None
+    if isinstance(data, str):
+        return data
+    try:
+        return json.dumps(data)
+    except (TypeError, ValueError):
+        return str(data)
