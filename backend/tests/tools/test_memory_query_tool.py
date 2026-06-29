@@ -118,11 +118,11 @@ class TestMemoryQueryTool:
             def __init__(self, summary_category: str) -> None:
                 self.summary_category = summary_category
 
-        class _PluginManager:
+        class _PluginProjectionService:
             def iter_merged_summary_profiles(self) -> list[_Profile]:
                 return [_Profile("browser_activity")]
 
-        description = _build_summary_categories_description(_PluginManager())
+        description = _build_summary_categories_description(_PluginProjectionService())
 
         assert "browser_activity" in description
         # The ghost categories from the previous static fallback must not leak
@@ -134,12 +134,12 @@ class TestMemoryQueryTool:
         """Should tell the model to omit the field instead of listing fake categories."""
         from magi.tools.builtin.memory_query_tool import _build_summary_categories_description
 
-        class _EmptyManager:
+        class _EmptyProjectionService:
             def iter_merged_summary_profiles(self) -> list[object]:
                 return []
 
-        for manager in (None, _EmptyManager()):
-            description = _build_summary_categories_description(manager)
+        for projection_service in (None, _EmptyProjectionService()):
+            description = _build_summary_categories_description(projection_service)
             assert "Omit this field" in description
             # No invented categories may appear when none are actually registered.
             assert "browser_activity" not in description
@@ -150,7 +150,6 @@ class TestMemoryQueryTool:
     async def test_tool_execution(self):
         """Should execute query and return projected recall plus debug payloads."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
-        from magi.tools.schema import ToolExecutionContext
 
         fake_service = MagicMock(name="retrieval_service")
         fake_service.query = AsyncMock(

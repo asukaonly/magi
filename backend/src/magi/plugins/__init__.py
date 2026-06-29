@@ -28,6 +28,7 @@ from magi_plugin_sdk import (  # noqa: F401
     get_logger,
 )
 from .manager import PluginManager
+from .projections import PluginProjectionService
 from .sensors import SensorRegistry
 
 __all__ = [
@@ -43,6 +44,7 @@ __all__ = [
     "PluginManifest",
     "PluginManager",
     "PluginPackageState",
+    "PluginProjectionService",
     "PluginRegistryEntry",
     "PluginRegistryIndex",
     "PluginSettingsActionResult",

@@ -169,6 +169,7 @@ Notes:
 
 - this layer owns package lifecycle only
 - tools and sensors return to their owning runtime layers after registration
+- plugin-provided memory summary and recall hooks are exposed through `PluginProjectionService`, not through the lifecycle manager
 
 ### L6. LLM Runtime
 

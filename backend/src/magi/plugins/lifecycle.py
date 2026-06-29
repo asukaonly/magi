@@ -37,8 +37,10 @@ class PluginSystemModule(LifecycleModule):
             request_sensor_schedule_refresh=self._request_sensor_schedule_refresh,
         )
         self._context.plugins.plugin_manager = bindings.plugin_manager
+        self._context.plugins.plugin_projection_service = bindings.plugin_projection_service
         self._context.plugins.sensor_registry = bindings.sensor_registry
 
     async def shutdown(self) -> None:
         self._context.plugins.plugin_manager = None
+        self._context.plugins.plugin_projection_service = None
         self._context.plugins.sensor_registry = None

@@ -41,7 +41,7 @@ class MemoryQueryPort(Protocol):
         *,
         payload: Any,
         request: Any,
-        plugin_manager: Any = None,
+        plugin_projection_service: Any = None,
         canonical_names: Any = None,
     ) -> Any: ...
     def make_conversation_turn(self, **kwargs: Any) -> Any: ...

@@ -55,6 +55,11 @@ def _export_available_infrastructure_bindings(context: RuntimeBootstrapContext) 
     if context.plugins.plugin_manager is not None:
         container.plugin_manager.override(providers.Object(context.plugins.plugin_manager))
         bound.append("plugin_manager")
+    if context.plugins.plugin_projection_service is not None:
+        container.plugin_projection_service.override(
+            providers.Object(context.plugins.plugin_projection_service)
+        )
+        bound.append("plugin_projection_service")
     if context.plugins.sensor_registry is not None:
         container.sensor_registry.override(providers.Object(context.plugins.sensor_registry))
         bound.append("sensor_registry")

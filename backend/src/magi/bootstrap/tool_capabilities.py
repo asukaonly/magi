@@ -100,12 +100,19 @@ class _HostMemoryQueryPort:
         from magi.memory.l2.entities.catalog.lookup import get_canonical_names
         return await get_canonical_names(db_path, entity_ids)
 
-    def project_historical_recall(self, *, payload, request, plugin_manager=None, canonical_names=None):
+    def project_historical_recall(
+        self,
+        *,
+        payload,
+        request,
+        plugin_projection_service=None,
+        canonical_names=None,
+    ):
         from magi.memory.retrieval_projection import project_historical_recall
         return project_historical_recall(
             payload=payload,
             request=request,
-            plugin_manager=plugin_manager,
+            plugin_projection_service=plugin_projection_service,
             canonical_names=canonical_names,
         )
 

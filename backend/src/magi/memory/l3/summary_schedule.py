@@ -122,15 +122,17 @@ class L3SummaryScheduleContrib:
 
     async def _register_activity_schedules(self, scheduler: SchedulerService) -> None:
         try:
-            from ...plugins.provider import resolve_plugin_manager
+            from ...plugins.provider import resolve_plugin_projection_service
 
-            plugin_manager = resolve_plugin_manager()
+            plugin_projection_service = resolve_plugin_projection_service()
         except (RuntimeError, ImportError):
-            logger.debug("Plugin manager unavailable; skipping activity summary schedules")
+            logger.debug(
+                "Plugin projection service unavailable; skipping activity summary schedules"
+            )
             return
 
         try:
-            merged_profiles = plugin_manager.iter_merged_summary_profiles()
+            merged_profiles = plugin_projection_service.iter_merged_summary_profiles()
         except Exception as exc:
             logger.warning("iter_merged_summary_profiles failed: %s", exc)
             return

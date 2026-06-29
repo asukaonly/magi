@@ -16,6 +16,7 @@ from magi.plugins.installation import (
     replace_plugin_directory,
 )
 from magi.plugins.manager import PluginManager, build_plugin_runtime
+from magi.plugins.projections import PluginProjectionService
 from magi.plugins.sensors import SensorRegistry
 from magi.tools.registry import ToolRegistry, tool_registry as shared_tool_registry
 from magi_plugin_sdk import ExtractionProfileSpec, TemporalSummarySourceFeatures
@@ -648,7 +649,7 @@ def test_build_plugin_runtime_threads_injected_tool_registry(
         shared_tool_registry.unregister("external-hello")
 
 
-def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins() -> None:
+def test_plugin_projection_service_collects_temporal_summary_features_from_loaded_plugins() -> None:
     class ChromeFeaturePlugin(Plugin):
         def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end):  # type: ignore[no-untyped-def]
             _ = summary_category, period_start, period_end
@@ -674,15 +675,9 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
                 ],
             }
 
-    manager = PluginManager(
-        tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
-        search_paths=[],
-    )
-    manager._plugin_instances["chrome-feature"] = ChromeFeaturePlugin()
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [ChromeFeaturePlugin()])
 
-    features = manager.build_temporal_summary_features(
+    features = service.build_temporal_summary_features(
         events=[
             {
                 "event_id": "evt-1",
@@ -752,7 +747,7 @@ def test_plugin_manager_collects_temporal_summary_features_from_loaded_plugins()
     }
 
 
-def test_plugin_manager_collects_extraction_profiles_from_loaded_plugins() -> None:
+def test_plugin_projection_service_collects_extraction_profiles_from_loaded_plugins() -> None:
     class SourceProfilePlugin(Plugin):
         def get_extraction_profiles(self):  # type: ignore[no-untyped-def]
             return [
@@ -765,22 +760,16 @@ def test_plugin_manager_collects_extraction_profiles_from_loaded_plugins() -> No
                 )
             ]
 
-    manager = PluginManager(
-        tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
-        search_paths=[],
-    )
-    manager._plugin_instances["source-profile"] = SourceProfilePlugin()
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [SourceProfilePlugin()])
 
-    profiles = manager.iter_extraction_profiles()
+    profiles = service.iter_extraction_profiles()
 
     assert len(profiles) == 1
     assert profiles[0].profile_id == "source.example"
     assert profiles[0].source_types == ["example"]
 
 
-def test_plugin_manager_passes_temporal_feature_budget_to_new_hooks() -> None:
+def test_plugin_projection_service_passes_temporal_feature_budget_to_new_hooks() -> None:
     class BudgetAwarePlugin(Plugin):
         def build_temporal_summary_features(self, *, source_type, events, summary_category, period_start, period_end, budget=None):  # type: ignore[no-untyped-def]
             _ = summary_category, period_start, period_end
@@ -795,15 +784,9 @@ def test_plugin_manager_passes_temporal_feature_budget_to_new_hooks() -> None:
                 summary_lines=["Music listening was compacted for L3."],
             )
 
-    manager = PluginManager(
-        tool_registry=ToolRegistry(),
-        sensor_registry=SensorRegistry(),
-        request_sensor_schedule_refresh=lambda: None,
-        search_paths=[],
-    )
-    manager._plugin_instances["budget-aware"] = BudgetAwarePlugin()
+    service = PluginProjectionService(iter_loaded_plugins=lambda: [BudgetAwarePlugin()])
 
-    features = manager.build_temporal_summary_features(
+    features = service.build_temporal_summary_features(
         events=[{"event_id": "evt-1", "source": "music", "content": "song"}],
         summary_category="day",
         period_start=1.0,

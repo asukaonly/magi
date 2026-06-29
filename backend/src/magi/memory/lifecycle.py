@@ -49,7 +49,10 @@ class MemoryStoreModule(LifecycleModule):
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        plugin_projection_service = require_initialized(
+            self._context.plugins.plugin_projection_service,
+            "plugin projection service",
+        )
 
         await self._context.core.db_initializer.insert_default_data()
 
@@ -83,8 +86,8 @@ class MemoryStoreModule(LifecycleModule):
             enable_l3=memory_config.l3.enabled,
             enable_l4=memory_config.l4.enabled,
             l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
-            temporal_summary_features_builder=plugin_manager.build_temporal_summary_features,
-            extraction_profile_provider=getattr(plugin_manager, "iter_extraction_profiles", lambda: []),
+            temporal_summary_features_builder=plugin_projection_service.build_temporal_summary_features,
+            extraction_profile_provider=plugin_projection_service.iter_extraction_profiles,
             tuning=MemoryStoreTuning(
                 async_embeddings=memory_config.async_embeddings,
                 enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,

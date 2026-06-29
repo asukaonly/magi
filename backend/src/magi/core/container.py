@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     )
     from ..location.store import LocationSampleStore
     from ..scheduler.service import SchedulerService
-    from ..plugins import PluginManager, SensorRegistry
+    from ..plugins import PluginManager, PluginProjectionService, SensorRegistry
     from ..runtime_trace import RuntimeTraceStore
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
 
@@ -90,6 +90,7 @@ class Container(containers.DeclarativeContainer):
     sensor_scheduler_contrib: providers.Singleton[SensorSchedulerContrib] = providers.Singleton(object)
     scenario_llm_pool: providers.Singleton[ScenarioLLMPool] = providers.Singleton(object)
     plugin_manager: providers.Singleton[PluginManager] = providers.Singleton(object)
+    plugin_projection_service: providers.Singleton[PluginProjectionService] = providers.Singleton(object)
     sensor_registry: providers.Singleton[SensorRegistry] = providers.Singleton(object)
     runtime_trace_store: providers.Singleton[RuntimeTraceStore] = providers.Singleton(object)
     skill_indexer: providers.Singleton[Any] = providers.Singleton(object)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import inspect
 import logging
@@ -29,11 +30,14 @@ class MergedSummaryProfile:
     prompt_hints: dict[str, Any]
 
 
-class PluginProjectionMixin:
+class PluginProjectionService:
     """Collect plugin-provided temporal and recall projections."""
 
+    def __init__(self, *, iter_loaded_plugins: Callable[[], Iterable[Plugin]]) -> None:
+        self._iter_loaded_plugins = iter_loaded_plugins
+
     def iter_loaded_plugins(self) -> list[Plugin]:
-        raise NotImplementedError
+        return list(self._iter_loaded_plugins())
 
     def build_temporal_summary_features(
         self,

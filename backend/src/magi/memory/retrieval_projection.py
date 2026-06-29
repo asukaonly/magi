@@ -19,7 +19,7 @@ def project_historical_recall(
     *,
     payload: RetrievalPayload | dict[str, Any],
     request: RetrievalQuery | dict[str, Any],
-    plugin_manager: Any | None = None,
+    plugin_projection_service: Any | None = None,
     canonical_names: dict[str, str] | None = None,
 ) -> HistoricalRecallPayload:
     """Project a raw retrieval payload into an answer-facing recall contract.
@@ -39,7 +39,7 @@ def project_historical_recall(
         payload=normalized_payload,
         query=normalized_request.query,
         query_mode=normalized_request.query_mode,
-        plugin_manager=plugin_manager,
+        plugin_projection_service=plugin_projection_service,
     )
 
     findings, dropped_unresolved = _build_findings(

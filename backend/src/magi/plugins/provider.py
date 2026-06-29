@@ -8,6 +8,7 @@ from ..core.container import get_container
 
 if TYPE_CHECKING:
     from .manager import PluginManager
+    from .projections import PluginProjectionService
     from .sensors import SensorRegistry
 
 
@@ -24,6 +25,14 @@ def _require_plugin_binding(provider_name: str) -> Any:
 def resolve_plugin_manager() -> "PluginManager":
     """Return the active plugin manager binding."""
     return cast("PluginManager", _require_plugin_binding("plugin_manager"))
+
+
+def resolve_plugin_projection_service() -> "PluginProjectionService":
+    """Return the active plugin projection service binding."""
+    return cast(
+        "PluginProjectionService",
+        _require_plugin_binding("plugin_projection_service"),
+    )
 
 
 def resolve_sensor_registry() -> "SensorRegistry":

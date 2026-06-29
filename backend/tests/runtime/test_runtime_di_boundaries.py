@@ -93,6 +93,8 @@ def test_api_and_tools_use_runtime_bindings_instead_of_runtime_getters() -> None
     assert "require_unified_memory" not in timeline_router
     assert "require_hybrid_retrieval_service" not in memory_query_tool
     assert "plugins.provider" in memory_query_tool
+    assert "resolve_plugin_manager" not in memory_query_tool
+    assert "resolve_plugin_projection_service" in memory_query_tool
     assert "core.runtime_bindings" not in memory_query_tool
 
 

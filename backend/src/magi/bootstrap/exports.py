@@ -49,6 +49,10 @@ class RuntimeExportsModule(LifecycleModule):
             "hybrid retrieval service",
         )
         plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
+        plugin_projection_service = require_initialized(
+            self._context.plugins.plugin_projection_service,
+            "plugin projection service",
+        )
         sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
         runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
 
@@ -62,6 +66,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.unified_memory.override(providers.Object(unified_memory))
         container.hybrid_retrieval_service.override(providers.Object(hybrid_retrieval_service))
         container.plugin_manager.override(providers.Object(plugin_manager))
+        container.plugin_projection_service.override(providers.Object(plugin_projection_service))
         container.sensor_registry.override(providers.Object(sensor_registry))
         container.runtime_trace_store.override(providers.Object(runtime_trace_store))
 
@@ -125,6 +130,7 @@ class RuntimeExportsModule(LifecycleModule):
         container.sensor_scheduler_contrib.reset_override()
         container.scenario_llm_pool.reset_override()
         container.plugin_manager.reset_override()
+        container.plugin_projection_service.reset_override()
         container.sensor_registry.reset_override()
         container.runtime_trace_store.reset_override()
         container.skill_indexer.reset_override()

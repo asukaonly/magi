@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from ..memory.integration import MemoryIntegrationModule
     from ..memory.hybrid_retrieval import HybridRetrievalService
     from ..media.source_registry import MediaSourceRegistry
-    from ..plugins import PluginManager, SensorRegistry
+    from ..plugins import PluginManager, PluginProjectionService, SensorRegistry
     from ..personality.self_memory import SelfMemory
     from ..awareness.scheduler_contrib import SensorSchedulerContrib
     from ..awareness.sensor_hub import SensorHub
@@ -104,6 +104,7 @@ class PluginBootstrapState:
     """L4 Plugin runtime state slice."""
 
     plugin_manager: PluginManager | None = None
+    plugin_projection_service: PluginProjectionService | None = None
     sensor_registry: SensorRegistry | None = None
 
 

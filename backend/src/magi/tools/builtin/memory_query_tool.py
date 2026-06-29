@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any, Dict, Optional
 
-from ...plugins.provider import resolve_plugin_manager
+from ...plugins.provider import resolve_plugin_projection_service
 from ..schema import (
     Tool,
     ToolExecutionContext,
@@ -31,10 +31,10 @@ _QUERY_MODE_DESCRIPTION = (
 )
 
 
-def _build_summary_categories_description(plugin_manager: Optional[Any]) -> str:
+def _build_summary_categories_description(plugin_projection_service: Optional[Any]) -> str:
     """Compose the ``summary_categories`` parameter description.
 
-    The catalog is always derived from the live plugin manager so the LLM
+    The catalog is always derived from the live plugin projection service so the LLM
     never sees categories that are not actually registered by a loaded
     plugin. When no categories are available (early boot, no plugins
     contribute summary profiles), the description tells the model to omit
@@ -42,8 +42,8 @@ def _build_summary_categories_description(plugin_manager: Optional[Any]) -> str:
     """
 
     categories: list[str] = []
-    if plugin_manager is not None:
-        getter = getattr(plugin_manager, "iter_merged_summary_profiles", None)
+    if plugin_projection_service is not None:
+        getter = getattr(plugin_projection_service, "iter_merged_summary_profiles", None)
         if callable(getter):
             try:
                 merged = list(getter())
@@ -77,13 +77,13 @@ class MemoryQueryTool(Tool):
         """Initialize tool schema with a static fallback description.
 
         The schema is rebuilt lazily inside :meth:`get_schema` / :meth:`get_info`
-        once the plugin manager binding is available so the
+        once the plugin projection service binding is available so the
         ``summary_categories`` description reflects the live catalog.
         """
-        self._schema_built_with_plugin_manager = False
-        self.schema = self._build_schema(plugin_manager=None)
+        self._schema_built_with_plugin_projection_service = False
+        self.schema = self._build_schema(plugin_projection_service=None)
 
-    def _build_schema(self, *, plugin_manager: Optional[Any]) -> ToolSchema:
+    def _build_schema(self, *, plugin_projection_service: Optional[Any]) -> ToolSchema:
         return ToolSchema(
             name="memory_query",
             description=(
@@ -180,7 +180,7 @@ class MemoryQueryTool(Tool):
                     name="summary_categories",
                     type=ParameterType.ARRAY,
                     array_item_type=ParameterType.STRING,
-                    description=_build_summary_categories_description(plugin_manager),
+                    description=_build_summary_categories_description(plugin_projection_service),
                     required=False,
                 ),
                 ToolParameter(
@@ -219,20 +219,22 @@ class MemoryQueryTool(Tool):
         )
 
     def _maybe_refresh_schema(self) -> None:
-        """Rebuild the schema once the plugin manager is bound.
+        """Rebuild the schema once the plugin projection service is bound.
 
         Called from :meth:`get_schema` / :meth:`get_info` so the description
         text reflects the live ``summary_categories`` catalog. Idempotent and
         cheap once refreshed.
         """
-        if self._schema_built_with_plugin_manager:
+        if self._schema_built_with_plugin_projection_service:
             return
         try:
-            plugin_manager = resolve_plugin_manager()
+            plugin_projection_service = resolve_plugin_projection_service()
         except RuntimeError:
             return
-        self.schema = self._build_schema(plugin_manager=plugin_manager)
-        self._schema_built_with_plugin_manager = True
+        self.schema = self._build_schema(
+            plugin_projection_service=plugin_projection_service,
+        )
+        self._schema_built_with_plugin_projection_service = True
 
     def get_schema(self) -> ToolSchema:
         self._maybe_refresh_schema()
@@ -322,9 +324,9 @@ class MemoryQueryTool(Tool):
                 }
             )
             try:
-                plugin_manager = resolve_plugin_manager()
+                plugin_projection_service = resolve_plugin_projection_service()
             except RuntimeError:
-                plugin_manager = None
+                plugin_projection_service = None
 
             # Phase 5: batch-resolve canonical names so the projection layer drops
             # findings whose entity_ids would otherwise leak raw hashes.
@@ -380,7 +382,7 @@ class MemoryQueryTool(Tool):
                 mq.project_historical_recall(
                     payload=payload_dict,
                     request=request,
-                    plugin_manager=plugin_manager,
+                    plugin_projection_service=plugin_projection_service,
                     canonical_names=canonical_names,
                 )
             )

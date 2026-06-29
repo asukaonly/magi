@@ -80,11 +80,11 @@ def build_plugin_recall_artifacts(
     payload: RetrievalPayload,
     query: str,
     query_mode: str | None,
-    plugin_manager: Any | None,
+    plugin_projection_service: Any | None,
 ) -> dict[str, list[dict[str, Any]]]:
-    if plugin_manager is None:
+    if plugin_projection_service is None:
         return {"entity_refs": [], "asset_refs": []}
-    artifacts = plugin_manager.build_recall_artifacts(
+    artifacts = plugin_projection_service.build_recall_artifacts(
         events=payload.l1_events,
         query=query,
         query_mode=query_mode,

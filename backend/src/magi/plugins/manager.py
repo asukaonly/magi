@@ -28,7 +28,7 @@ from .contracts import (
     PluginPackageState,
 )
 from .installation import PluginInstallationMixin
-from .projections import PluginProjectionMixin
+from .projections import PluginProjectionService
 from .sensors import SensorRegistry
 from .settings_service import PluginSettingsActionRun, PluginSettingsService
 
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class PluginRuntimeBindings:
     plugin_manager: "PluginManager"
+    plugin_projection_service: PluginProjectionService
     sensor_registry: SensorRegistry
 
 
@@ -78,13 +79,17 @@ def build_plugin_runtime(
     )
     plugin_manager.scan(persist_discovery=True)
     plugin_manager.activate_enabled_plugins()
+    plugin_projection_service = PluginProjectionService(
+        iter_loaded_plugins=plugin_manager.iter_loaded_plugins,
+    )
     return PluginRuntimeBindings(
         plugin_manager=plugin_manager,
+        plugin_projection_service=plugin_projection_service,
         sensor_registry=resolved_sensor_registry,
     )
 
 
-class PluginManager(PluginInstallationMixin, PluginProjectionMixin):
+class PluginManager(PluginInstallationMixin):
     """Discovers plugin packages and registers enabled contributions."""
 
     def __init__(

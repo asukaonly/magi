@@ -46,8 +46,9 @@ At runtime the flow is:
    - hook registry
    - channel contribution metadata consumed by the channel lifecycle module
 6. `PluginSettingsService` serves plugin-owned settings resources and settings actions
-7. plugin ingress handlers are collected by the plugin ingress processor
-8. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
+7. `PluginProjectionService` collects loaded plugin projection hooks for memory summaries and recall artifacts
+8. plugin ingress handlers are collected by the plugin ingress processor
+9. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
 
 ## Scan Paths
 
@@ -132,6 +133,7 @@ Instead, lifecycle work is split across runtime services:
 - `PluginManager` owns package discovery, package state, enable/disable/reload coordination, and plugin instance lifetime
 - `PluginContributionRegistrar` owns host registry registration and unregistration for tools, sensors, channels, and hooks
 - `PluginSettingsService` owns plugin settings resources and settings action sessions
+- `PluginProjectionService` owns plugin-provided memory summary, extraction profile, and recall artifact projection
 - dedicated runtime modules own execution after registration, such as tool execution, sensor sync, channel delivery, memory projection, and plugin ingress processing
 
 ## Plugin Ingress Events
