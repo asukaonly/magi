@@ -46,6 +46,12 @@ MIN_HARD_RESULTS = 3
 MAX_BRIDGES = 5
 
 
+@dataclass(frozen=True)
+class _HopFilters:
+    predicates: Optional[list[str]]
+    object_types: Optional[list[str]]
+
+
 async def execute_graph_traversal(
     traversal: TraversalPlan,
     store: Any,
@@ -67,121 +73,235 @@ async def execute_graph_traversal(
     Abstain (RFC #65/#67): no predicate AND no object_type AND no candidate set →
     a pure subject dump (whole-profile junk); return [] and defer to edge_vector.
     """
-    hop = traversal.hop1
-    predicates = list(hop.predicates) or None
-    object_types = list(hop.object_types) or None
-    limit = traversal.limit
-    subject_ids = traversal.seed_entity_ids
-
-    # Candidate-object mode (objects already narrowed by constraint preprocessing).
+    filters = _filters_for_hop(traversal.hop1)
     if candidate_object_ids is not None:
-        if not subject_ids:
-            return []
-        edges: list[dict[str, Any]] = []
-        # Cap candidates at `limit`, mirroring the original topology executor
-        # (preserved behavior; do not change in P0).
-        for cid in candidate_object_ids[:limit]:
-            # temporal_clause intentionally omitted here: object set already narrowed
-            # by constraint preprocessing (matches original place-topology path).
-            rels = await store.get_relationships(
-                subject_id=subject_ids[0],  # single-subject context (preserved from original)
-                object_id=cid,
-                predicates=predicates,
-                status_filters=["active"],
-                limit=per_candidate_limit,
-                evidence_classes=evidence_classes,
-            )
-            edges.extend(rels)
-        return edges
-
-    # ---- Hard-edge fetch ----
-    # Abstain: neither a predicate nor an object-type constraint → topically
-    # unfiltered subject dump; yield no hard edges (soft fallback may still fire).
-    if predicates is None and object_types is None:
-        hard_edges: list[dict[str, Any]] = []
-    elif subject_ids:
-        batch_result = await store.batch_get_relationships(
-            entity_ids=subject_ids,
-            direction=relation_direction,
-            status_filters=["active"],
-            predicates=predicates,
-            object_types=object_types,
-            limit_per_entity=limit,
-            temporal_clause=temporal_clause,
+        return await _fetch_candidate_object_edges(
+            traversal,
+            store,
+            filters=filters,
+            candidate_object_ids=candidate_object_ids,
             evidence_classes=evidence_classes,
-        )
-        hard_edges = []
-        for rels in batch_result.values():
-            hard_edges.extend(rels)
-    else:
-        hard_edges = await store.get_relationships(
-            predicates=predicates,
-            status_filters=["active"],
-            object_types=object_types,
-            limit=limit,
-            temporal_clause=temporal_clause,
-            evidence_classes=evidence_classes,
+            per_candidate_limit=per_candidate_limit,
         )
 
-    # ---- Soft-edge sparse fallback (RFC #65 P2) ----
-    # When hard recall is sparse and soft edges are permitted, append the user's
-    # SEMANTIC_CONTEXT co-occurrence edges. evidence_classes intentionally NOT
-    # forwarded (co-occurrence edges are mostly observed / lack evidence_class;
-    # forwarding USER_SELF_REPORT would filter them all out).
-    if (
-        traversal.hop1.include_soft_edges
-        and subject_ids
-        and len(hard_edges) < MIN_HARD_RESULTS
-    ):
-        soft_result = await store.batch_get_relationships(
-            entity_ids=subject_ids,
-            direction=relation_direction,
-            status_filters=["active"],
-            predicates=[SEMANTIC_EDGE_PREDICATE],
-            object_types=None,
-            limit_per_entity=limit,
-            temporal_clause=temporal_clause,
-            evidence_classes=None,
-        )
-        for rels in soft_result.values():
-            hard_edges.extend(rels)
+    hard_edges = await _fetch_hop1_hard_edges(
+        traversal,
+        store,
+        filters=filters,
+        relation_direction=relation_direction,
+        temporal_clause=temporal_clause,
+        evidence_classes=evidence_classes,
+    )
 
-    # ---- Second hop (RFC #65 P3) ----
-    # Expand hop1's object nodes (bridges) toward hop2.object_types via hard + soft
-    # edges. Bridge subject != user; fusion scores these (tagged _hop=2) by confidence
-    # x HOP2_DECAY and exempts them from the user-subject gate. evidence_classes NOT
-    # forwarded (same rationale as soft edges).
-    if traversal.max_hops >= 2 and traversal.hop2 is not None and hard_edges:
-        bridge_ids = list(dict.fromkeys(
-            e.get("object_id") for e in hard_edges if e.get("object_id")
-        ))[:MAX_BRIDGES]
-        if bridge_ids:
-            hop2_types = list(traversal.hop2.object_types) or None
-            hop2_hard = await store.batch_get_relationships(
-                entity_ids=bridge_ids,
-                direction="outgoing",
-                status_filters=["active"],
-                predicates=None,
-                object_types=hop2_types,
-                limit_per_entity=limit,
-                evidence_classes=None,
+    if _should_fetch_hop1_soft_edges(traversal, hard_edges):
+        hard_edges.extend(
+            await _fetch_hop1_soft_edges(
+                traversal,
+                store,
+                relation_direction=relation_direction,
+                temporal_clause=temporal_clause,
             )
-            hop2_results = [hop2_hard]
-            if traversal.hop2.include_soft_edges:
-                hop2_soft = await store.batch_get_relationships(
-                    entity_ids=bridge_ids,
-                    direction="outgoing",
-                    status_filters=["active"],
-                    predicates=[SEMANTIC_EDGE_PREDICATE],
-                    object_types=hop2_types,
-                    limit_per_entity=limit,
-                    evidence_classes=None,
-                )
-                hop2_results.append(hop2_soft)
-            for result in hop2_results:
-                for rels in result.values():
-                    for e in rels:
-                        e["_hop"] = 2
-                        hard_edges.append(e)
+        )
+
+    if _should_expand_hop2(traversal, hard_edges):
+        hard_edges.extend(await _fetch_hop2_edges(traversal, store, hard_edges))
 
     return hard_edges
+
+
+def _filters_for_hop(hop: HopSpec) -> _HopFilters:
+    return _HopFilters(
+        predicates=list(hop.predicates) or None,
+        object_types=list(hop.object_types) or None,
+    )
+
+
+async def _fetch_candidate_object_edges(
+    traversal: TraversalPlan,
+    store: Any,
+    *,
+    filters: _HopFilters,
+    candidate_object_ids: list[str],
+    evidence_classes: Optional[list[str]],
+    per_candidate_limit: int,
+) -> list[dict[str, Any]]:
+    """Fetch object-constrained edges after topology preprocessing."""
+    subject_ids = traversal.seed_entity_ids
+    if not subject_ids:
+        return []
+
+    edges: list[dict[str, Any]] = []
+    # Cap candidates at `limit`, mirroring the original topology executor
+    # (preserved behavior; do not change in P0).
+    for candidate_id in candidate_object_ids[: traversal.limit]:
+        # temporal_clause intentionally omitted here: object set already narrowed
+        # by constraint preprocessing (matches original place-topology path).
+        rels = await store.get_relationships(
+            subject_id=subject_ids[0],  # single-subject context (preserved from original)
+            object_id=candidate_id,
+            predicates=filters.predicates,
+            status_filters=["active"],
+            limit=per_candidate_limit,
+            evidence_classes=evidence_classes,
+        )
+        edges.extend(rels)
+    return edges
+
+
+async def _fetch_hop1_hard_edges(
+    traversal: TraversalPlan,
+    store: Any,
+    *,
+    filters: _HopFilters,
+    relation_direction: str,
+    temporal_clause: Optional[tuple[str, list[Any]]],
+    evidence_classes: Optional[list[str]],
+) -> list[dict[str, Any]]:
+    # Abstain: neither a predicate nor an object-type constraint → topically
+    # unfiltered subject dump; yield no hard edges (soft fallback may still fire).
+    if filters.predicates is None and filters.object_types is None:
+        return []
+
+    subject_ids = traversal.seed_entity_ids
+    if subject_ids:
+        return await _batch_fetch_edges(
+            store,
+            entity_ids=subject_ids,
+            direction=relation_direction,
+            predicates=filters.predicates,
+            object_types=filters.object_types,
+            limit=traversal.limit,
+            temporal_clause=temporal_clause,
+            evidence_classes=evidence_classes,
+        )
+
+    return await store.get_relationships(
+        predicates=filters.predicates,
+        status_filters=["active"],
+        object_types=filters.object_types,
+        limit=traversal.limit,
+        temporal_clause=temporal_clause,
+        evidence_classes=evidence_classes,
+    )
+
+
+def _should_fetch_hop1_soft_edges(
+    traversal: TraversalPlan,
+    hard_edges: list[dict[str, Any]],
+) -> bool:
+    return (
+        traversal.hop1.include_soft_edges
+        and bool(traversal.seed_entity_ids)
+        and len(hard_edges) < MIN_HARD_RESULTS
+    )
+
+
+async def _fetch_hop1_soft_edges(
+    traversal: TraversalPlan,
+    store: Any,
+    *,
+    relation_direction: str,
+    temporal_clause: Optional[tuple[str, list[Any]]],
+) -> list[dict[str, Any]]:
+    # RFC #65 P2: evidence_classes intentionally NOT forwarded. Co-occurrence
+    # edges are mostly observed / lack evidence_class; forwarding
+    # USER_SELF_REPORT would filter them all out.
+    return await _batch_fetch_edges(
+        store,
+        entity_ids=traversal.seed_entity_ids,
+        direction=relation_direction,
+        predicates=[SEMANTIC_EDGE_PREDICATE],
+        object_types=None,
+        limit=traversal.limit,
+        temporal_clause=temporal_clause,
+        evidence_classes=None,
+    )
+
+
+def _should_expand_hop2(
+    traversal: TraversalPlan,
+    hop1_edges: list[dict[str, Any]],
+) -> bool:
+    return traversal.max_hops >= 2 and traversal.hop2 is not None and bool(hop1_edges)
+
+
+async def _fetch_hop2_edges(
+    traversal: TraversalPlan,
+    store: Any,
+    hop1_edges: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Expand hop1 object nodes toward hop2 answer types."""
+    bridge_ids = _collect_bridge_ids(hop1_edges)
+    if not bridge_ids:
+        return []
+
+    hop2 = traversal.hop2
+    if hop2 is None:
+        return []
+
+    hop2_types = list(hop2.object_types) or None
+    results = await _batch_fetch_edges(
+        store,
+        entity_ids=bridge_ids,
+        direction="outgoing",
+        predicates=None,
+        object_types=hop2_types,
+        limit=traversal.limit,
+        evidence_classes=None,
+        include_temporal_clause=False,
+    )
+    if hop2.include_soft_edges:
+        results += await _batch_fetch_edges(
+            store,
+            entity_ids=bridge_ids,
+            direction="outgoing",
+            predicates=[SEMANTIC_EDGE_PREDICATE],
+            object_types=hop2_types,
+            limit=traversal.limit,
+            evidence_classes=None,
+            include_temporal_clause=False,
+        )
+
+    for edge in results:
+        edge["_hop"] = 2
+    return results
+
+
+def _collect_bridge_ids(hop1_edges: list[dict[str, Any]]) -> list[str]:
+    return list(
+        dict.fromkeys(edge.get("object_id") for edge in hop1_edges if edge.get("object_id"))
+    )[:MAX_BRIDGES]
+
+
+async def _batch_fetch_edges(
+    store: Any,
+    *,
+    entity_ids: list[str],
+    direction: str,
+    predicates: Optional[list[str]],
+    object_types: Optional[list[str]],
+    limit: int,
+    temporal_clause: Optional[tuple[str, list[Any]]] = None,
+    evidence_classes: Optional[list[str]] = None,
+    include_temporal_clause: bool = True,
+) -> list[dict[str, Any]]:
+    kwargs: dict[str, Any] = {
+        "entity_ids": entity_ids,
+        "direction": direction,
+        "status_filters": ["active"],
+        "predicates": predicates,
+        "object_types": object_types,
+        "limit_per_entity": limit,
+        "evidence_classes": evidence_classes,
+    }
+    if include_temporal_clause:
+        kwargs["temporal_clause"] = temporal_clause
+    batch_result = await store.batch_get_relationships(**kwargs)
+    return _flatten_batch_result(batch_result)
+
+
+def _flatten_batch_result(batch_result: dict[Any, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    for rels in batch_result.values():
+        edges.extend(rels)
+    return edges
