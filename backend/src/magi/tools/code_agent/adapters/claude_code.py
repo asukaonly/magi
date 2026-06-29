@@ -4,6 +4,7 @@ Spawns the binary in headless stream-json mode, parses each JSONL event
 into a typed ``RunEvent``, persists raw stdout/stderr, and extracts the
 final assistant text + cost from the transcript for the service.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +12,7 @@ import json
 import os
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,6 +26,22 @@ from ..contracts import (
 from ..probe import probe_one
 from ..runtime_env import build_exec_env
 from .base import AdapterRunOutcome, CancelToken, OnEvent
+
+
+@dataclass
+class _SpawnedProcess:
+    process: asyncio.subprocess.Process
+    managed: Any = None
+
+
+@dataclass
+class _ClaudeRunState:
+    stdout_buf: list[bytes]
+    stderr_buf: list[bytes]
+    last_assistant_text: Optional[str] = None
+    cost_usd: Optional[float] = None
+    cost_in: Optional[int] = None
+    cost_out: Optional[int] = None
 
 
 class ClaudeCodeAdapter:
@@ -47,16 +65,45 @@ class ClaudeCodeAdapter:
         binary_path: str,
     ) -> AdapterRunOutcome:
         argv = self._build_argv(req, bundle_dir=bundle_dir, binary_path=binary_path)
-        # ManagedSubprocess registers the PID with the host so that if the
-        # backend crashes mid-delegation, the next boot's cleanup_orphans()
-        # will SIGKILL this CLI. The Claude / Codex binaries are 3rd-party
-        # and can't be modified to self-exit on parent death, so the
-        # registry is the only safety net.
+        spawned = await self._spawn_process(
+            req=req,
+            cwd=cwd,
+            argv=argv,
+            binary_path=binary_path,
+        )
+        await self._write_prompt(spawned.process, req)
+
+        state = _ClaudeRunState(stdout_buf=[], stderr_buf=[])
+        try:
+            exit_code = await self._drain_until_exit(req, spawned, state, on_event)
+        except asyncio.TimeoutError:
+            await self._terminate(spawned.process, managed=spawned.managed)
+            self._persist_logs(stdout_path, stderr_path, state)
+            return AdapterRunOutcome(
+                exit_code=-1,
+                summary=None,
+                cost=self._state_cost_or_none(state),
+                error=f"adapter timeout after {req.timeout_s}s",
+            )
+
+        if cancel_token.cancelled:
+            await self._terminate(spawned.process, managed=spawned.managed)
+
+        self._persist_logs(stdout_path, stderr_path, state)
+        return await self._outcome_from_exit_code(exit_code, state, on_event)
+
+    async def _spawn_process(
+        self,
+        *,
+        req: DelegateRequest,
+        cwd: Path,
+        argv: list[str],
+        binary_path: str,
+    ) -> _SpawnedProcess:
         try:
             from magi_plugin_sdk.subprocess import ManagedSubprocess
         except ImportError:
             ManagedSubprocess = None  # type: ignore[assignment]
-        managed: Any = None
         if ManagedSubprocess is not None:
             managed = await ManagedSubprocess.spawn(
                 argv,
@@ -67,17 +114,22 @@ class ClaudeCodeAdapter:
                 cwd=str(cwd),
                 env=self._build_env(binary_path),
             )
-            process = managed.proc
-        else:
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(cwd),
-                env=self._build_env(binary_path),
-            )
+            return _SpawnedProcess(process=managed.proc, managed=managed)
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd),
+            env=self._build_env(binary_path),
+        )
+        return _SpawnedProcess(process=process)
 
+    async def _write_prompt(
+        self,
+        process: asyncio.subprocess.Process,
+        req: DelegateRequest,
+    ) -> None:
         prompt_blob = self._compose_stdin(req)
         try:
             assert process.stdin is not None
@@ -87,133 +139,185 @@ class ClaudeCodeAdapter:
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-        stdout_buf: list[bytes] = []
-        stderr_buf: list[bytes] = []
-        last_assistant_text: Optional[str] = None
-        cost_usd: Optional[float] = None
-        cost_in: Optional[int] = None
-        cost_out: Optional[int] = None
+    async def _drain_until_exit(
+        self,
+        req: DelegateRequest,
+        spawned: _SpawnedProcess,
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> int:
+        await asyncio.wait_for(
+            asyncio.gather(
+                self._drain_stdout(spawned.process, state, on_event),
+                self._drain_stderr(spawned.process, state),
+            ),
+            timeout=req.timeout_s,
+        )
+        return await (
+            spawned.managed.wait() if spawned.managed is not None else spawned.process.wait()
+        )
 
-        async def _drain_stdout() -> None:
-            nonlocal last_assistant_text, cost_usd, cost_in, cost_out
-            assert process.stdout is not None
-            async for raw in process.stdout:
-                stdout_buf.append(raw)
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    await on_event(RunEvent(
-                        kind="stdout", ts_ms=int(time.time() * 1000),
-                        payload={"line": line},
-                    ))
-                    continue
-                if not isinstance(obj, dict):
-                    continue
-                event_type = str(obj.get("type") or "")
-                # Skip stream_event noise (content_block_delta, etc.), user/tool_result noise, and system noise
-                if event_type in ("stream_event", "user", "system"):
-                    continue
-                if event_type == "assistant":
-                    text = self._extract_assistant_text(obj)
-                    if text:
-                        last_assistant_text = text
-                        await on_event(RunEvent(
-                            kind="assistant_text",
-                            ts_ms=int(time.time() * 1000),
-                            payload={"text": text},
-                        ))
-                elif event_type == "result":
-                    if "total_cost_usd" in obj:
-                        try:
-                            cost_usd = float(obj["total_cost_usd"])
-                        except (TypeError, ValueError):
-                            pass
-                    usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else None
-                    if usage:
-                        cost_in = self._coerce_int(usage.get("input_tokens"))
-                        cost_out = self._coerce_int(usage.get("output_tokens"))
-                    await on_event(RunEvent(
-                        kind="status",
-                        ts_ms=int(time.time() * 1000),
-                        payload={"event": "result", "raw": obj},
-                    ))
-                else:
-                    await on_event(RunEvent(
-                        kind="status",
-                        ts_ms=int(time.time() * 1000),
-                        payload={"event": event_type or "unknown", "raw": obj},
-                    ))
+    async def _drain_stdout(
+        self,
+        process: asyncio.subprocess.Process,
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> None:
+        assert process.stdout is not None
+        async for raw in process.stdout:
+            state.stdout_buf.append(raw)
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                await self._handle_stdout_line(line, state, on_event)
 
-        async def _drain_stderr() -> None:
-            assert process.stderr is not None
-            async for raw in process.stderr:
-                stderr_buf.append(raw)
-
+    async def _handle_stdout_line(
+        self,
+        line: str,
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> None:
         try:
-            await asyncio.wait_for(
-                asyncio.gather(_drain_stdout(), _drain_stderr()),
-                timeout=req.timeout_s,
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            await on_event(
+                RunEvent(
+                    kind="stdout",
+                    ts_ms=int(time.time() * 1000),
+                    payload={"line": line},
+                )
             )
-            # managed.wait() also removes the PID registry entry — on the
-            # happy path that's what unregisters us.
-            exit_code = await (managed.wait() if managed is not None else process.wait())
-        except asyncio.TimeoutError:
-            await self._terminate(process, managed=managed)
-            self._persist(stdout_path, stdout_buf)
-            self._persist(stderr_path, stderr_buf)
-            return AdapterRunOutcome(
-                exit_code=-1,
-                summary=None,
-                cost=self._cost_or_none(cost_usd, cost_in, cost_out),
-                error=f"adapter timeout after {req.timeout_s}s",
+            return
+        if not isinstance(obj, dict):
+            return
+        event_type = str(obj.get("type") or "")
+        if event_type in ("stream_event", "user", "system"):
+            return
+        if event_type == "assistant":
+            await self._handle_assistant_event(obj, state, on_event)
+        elif event_type == "result":
+            await self._handle_result_event(obj, state, on_event)
+        else:
+            await on_event(
+                RunEvent(
+                    kind="status",
+                    ts_ms=int(time.time() * 1000),
+                    payload={"event": event_type or "unknown", "raw": obj},
+                )
             )
 
-        if cancel_token.cancelled:
-            await self._terminate(process, managed=managed)
+    async def _handle_assistant_event(
+        self,
+        obj: dict[str, Any],
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> None:
+        text = self._extract_assistant_text(obj)
+        if not text:
+            return
+        state.last_assistant_text = text
+        await on_event(
+            RunEvent(
+                kind="assistant_text",
+                ts_ms=int(time.time() * 1000),
+                payload={"text": text},
+            )
+        )
 
-        self._persist(stdout_path, stdout_buf)
-        self._persist(stderr_path, stderr_buf)
+    async def _handle_result_event(
+        self,
+        obj: dict[str, Any],
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> None:
+        if "total_cost_usd" in obj:
+            try:
+                state.cost_usd = float(obj["total_cost_usd"])
+            except (TypeError, ValueError):
+                pass
+        usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else None
+        if usage:
+            state.cost_in = self._coerce_int(usage.get("input_tokens"))
+            state.cost_out = self._coerce_int(usage.get("output_tokens"))
+        await on_event(
+            RunEvent(
+                kind="status",
+                ts_ms=int(time.time() * 1000),
+                payload={"event": "result", "raw": obj},
+            )
+        )
 
-        cost = self._cost_or_none(cost_usd, cost_in, cost_out)
+    @staticmethod
+    async def _drain_stderr(
+        process: asyncio.subprocess.Process,
+        state: _ClaudeRunState,
+    ) -> None:
+        assert process.stderr is not None
+        async for raw in process.stderr:
+            state.stderr_buf.append(raw)
+
+    def _persist_logs(
+        self,
+        stdout_path: Path,
+        stderr_path: Path,
+        state: _ClaudeRunState,
+    ) -> None:
+        self._persist(stdout_path, state.stdout_buf)
+        self._persist(stderr_path, state.stderr_buf)
+
+    async def _outcome_from_exit_code(
+        self,
+        exit_code: int,
+        state: _ClaudeRunState,
+        on_event: OnEvent,
+    ) -> AdapterRunOutcome:
+        cost = self._state_cost_or_none(state)
         if exit_code != 0:
-            stderr_tail = _stderr_tail(stderr_buf)
+            stderr_tail = _stderr_tail(state.stderr_buf)
             error_message = (
                 f"adapter exited with code {exit_code}: {stderr_tail}"
                 if stderr_tail
                 else f"adapter exited with code {exit_code}"
             )
-            await on_event(RunEvent(
-                kind="error",
-                ts_ms=int(time.time() * 1000),
-                payload={"message": error_message, "stderr_tail": stderr_tail},
-            ))
+            await on_event(
+                RunEvent(
+                    kind="error",
+                    ts_ms=int(time.time() * 1000),
+                    payload={"message": error_message, "stderr_tail": stderr_tail},
+                )
+            )
             return AdapterRunOutcome(
                 exit_code=exit_code,
-                summary=last_assistant_text,
+                summary=state.last_assistant_text,
                 cost=cost,
                 error=error_message,
             )
         return AdapterRunOutcome(
             exit_code=exit_code,
-            summary=last_assistant_text,
+            summary=state.last_assistant_text,
             cost=cost,
             error=None,
         )
 
+    def _state_cost_or_none(self, state: _ClaudeRunState) -> CostInfo | None:
+        return self._cost_or_none(state.cost_usd, state.cost_in, state.cost_out)
+
     def _build_argv(self, req: DelegateRequest, *, bundle_dir: Path, binary_path: str) -> list[str]:
         argv: list[str] = [
-            binary_path, "-p",
-            "--output-format", "stream-json",
+            binary_path,
+            "-p",
+            "--output-format",
+            "stream-json",
             "--include-partial-messages",
             "--verbose",
-            "--permission-mode", "acceptEdits",
+            "--permission-mode",
+            "acceptEdits",
             "--bare",
-            "--session-id", _format_uuid(req.delegation_id),
-            "--add-dir", str(bundle_dir),
-            "--input-format", "text",
+            "--session-id",
+            _format_uuid(req.delegation_id),
+            "--add-dir",
+            str(bundle_dir),
+            "--input-format",
+            "text",
         ]
         constraints_text = self._render_constraints(req)
         if constraints_text:
@@ -278,7 +382,9 @@ class ClaudeCodeAdapter:
             return None
 
     @staticmethod
-    def _cost_or_none(usd: Optional[float], inp: Optional[int], out: Optional[int]) -> Optional[CostInfo]:
+    def _cost_or_none(
+        usd: Optional[float], inp: Optional[int], out: Optional[int]
+    ) -> Optional[CostInfo]:
         if usd is None and inp is None and out is None:
             return None
         return CostInfo(usd=usd, input_tokens=inp, output_tokens=out)
