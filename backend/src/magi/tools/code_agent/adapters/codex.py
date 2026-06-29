@@ -5,12 +5,14 @@ isn't always cleanly tagged, so we use ``-o <path>`` to redirect it to a file
 and read the file at the end. Cost is not reliably present in the JSONL
 stream and is left as None.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,6 +25,18 @@ from ..contracts import (
 from ..probe import probe_one
 from ..runtime_env import build_exec_env
 from .base import AdapterRunOutcome, CancelToken, OnEvent
+
+
+@dataclass
+class _SpawnedProcess:
+    process: asyncio.subprocess.Process
+    managed: Any = None
+
+
+@dataclass
+class _CodexRunState:
+    stdout_buf: list[bytes]
+    stderr_buf: list[bytes]
 
 
 class CodexAdapter:
@@ -47,19 +61,57 @@ class CodexAdapter:
     ) -> AdapterRunOutcome:
         last_message_path = stdout_path.parent / "codex_last_message.txt"
         last_message_path.parent.mkdir(parents=True, exist_ok=True)
-
         argv = self._build_argv(
             req,
             bundle_dir=bundle_dir,
             binary_path=binary_path,
             last_message_path=last_message_path,
         )
-        # ManagedSubprocess registers PID; see claude_code.py for full rationale.
+        spawned = await self._spawn_process(
+            req=req,
+            cwd=cwd,
+            argv=argv,
+            binary_path=binary_path,
+        )
+        await self._write_prompt(spawned.process, req)
+
+        state = _CodexRunState(stdout_buf=[], stderr_buf=[])
+        try:
+            exit_code = await self._drain_until_exit(req, spawned, state, on_event)
+        except asyncio.TimeoutError:
+            await self._terminate(spawned.process, managed=spawned.managed)
+            self._persist_logs(stdout_path, stderr_path, state)
+            return AdapterRunOutcome(
+                exit_code=-1,
+                summary=self._read_last_message(last_message_path),
+                cost=None,
+                error=f"adapter timeout after {req.timeout_s}s",
+            )
+
+        if cancel_token.cancelled:
+            await self._terminate(spawned.process, managed=spawned.managed)
+
+        self._persist_logs(stdout_path, stderr_path, state)
+        summary = self._read_last_message(last_message_path)
+        return await self._outcome_from_exit_code(
+            exit_code,
+            summary=summary,
+            stderr_buf=state.stderr_buf,
+            on_event=on_event,
+        )
+
+    async def _spawn_process(
+        self,
+        *,
+        req: DelegateRequest,
+        cwd: Path,
+        argv: list[str],
+        binary_path: str,
+    ) -> _SpawnedProcess:
         try:
             from magi_plugin_sdk.subprocess import ManagedSubprocess
         except ImportError:
             ManagedSubprocess = None  # type: ignore[assignment]
-        managed: Any = None
         if ManagedSubprocess is not None:
             managed = await ManagedSubprocess.spawn(
                 argv,
@@ -70,16 +122,22 @@ class CodexAdapter:
                 cwd=str(cwd),
                 env=self._build_env(binary_path),
             )
-            process = managed.proc
-        else:
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(cwd),
-                env=self._build_env(binary_path),
-            )
+            return _SpawnedProcess(process=managed.proc, managed=managed)
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(cwd),
+            env=self._build_env(binary_path),
+        )
+        return _SpawnedProcess(process=process)
+
+    async def _write_prompt(
+        self,
+        process: asyncio.subprocess.Process,
+        req: DelegateRequest,
+    ) -> None:
         try:
             assert process.stdin is not None
             process.stdin.write(self._compose_stdin(req).encode("utf-8"))
@@ -88,63 +146,88 @@ class CodexAdapter:
         except (BrokenPipeError, ConnectionResetError):
             pass
 
-        stdout_buf: list[bytes] = []
-        stderr_buf: list[bytes] = []
+    async def _drain_until_exit(
+        self,
+        req: DelegateRequest,
+        spawned: _SpawnedProcess,
+        state: _CodexRunState,
+        on_event: OnEvent,
+    ) -> int:
+        await asyncio.wait_for(
+            asyncio.gather(
+                self._drain_stdout(spawned.process, state, on_event),
+                self._drain_stderr(spawned.process, state),
+            ),
+            timeout=req.timeout_s,
+        )
+        return await (
+            spawned.managed.wait() if spawned.managed is not None else spawned.process.wait()
+        )
 
-        async def _drain_stdout() -> None:
-            assert process.stdout is not None
-            async for raw in process.stdout:
-                stdout_buf.append(raw)
-                line = raw.decode("utf-8", errors="replace").strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
-                    await on_event(RunEvent(
-                        kind="stdout", ts_ms=int(time.time() * 1000),
-                        payload={"line": line},
-                    ))
-                    continue
-                if not isinstance(obj, dict):
-                    continue
-                etype = str(obj.get("type") or "")
-                kind = "assistant_text" if etype == "agent_message" else "status"
-                await on_event(RunEvent(
-                    kind=kind,
-                    ts_ms=int(time.time() * 1000),
-                    payload={"event": etype or "unknown", "raw": obj},
-                ))
+    async def _drain_stdout(
+        self,
+        process: asyncio.subprocess.Process,
+        state: _CodexRunState,
+        on_event: OnEvent,
+    ) -> None:
+        assert process.stdout is not None
+        async for raw in process.stdout:
+            state.stdout_buf.append(raw)
+            line = raw.decode("utf-8", errors="replace").strip()
+            if line:
+                await self._handle_stdout_line(line, on_event)
 
-        async def _drain_stderr() -> None:
-            assert process.stderr is not None
-            async for raw in process.stderr:
-                stderr_buf.append(raw)
-
+    @staticmethod
+    async def _handle_stdout_line(line: str, on_event: OnEvent) -> None:
         try:
-            await asyncio.wait_for(
-                asyncio.gather(_drain_stdout(), _drain_stderr()),
-                timeout=req.timeout_s,
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            await on_event(
+                RunEvent(
+                    kind="stdout",
+                    ts_ms=int(time.time() * 1000),
+                    payload={"line": line},
+                )
             )
-            exit_code = await (managed.wait() if managed is not None else process.wait())
-        except asyncio.TimeoutError:
-            await self._terminate(process, managed=managed)
-            self._persist(stdout_path, stdout_buf)
-            self._persist(stderr_path, stderr_buf)
-            return AdapterRunOutcome(
-                exit_code=-1,
-                summary=self._read_last_message(last_message_path),
-                cost=None,
-                error=f"adapter timeout after {req.timeout_s}s",
+            return
+        if not isinstance(obj, dict):
+            return
+        etype = str(obj.get("type") or "")
+        kind = "assistant_text" if etype == "agent_message" else "status"
+        await on_event(
+            RunEvent(
+                kind=kind,
+                ts_ms=int(time.time() * 1000),
+                payload={"event": etype or "unknown", "raw": obj},
             )
+        )
 
-        if cancel_token.cancelled:
-            await self._terminate(process, managed=managed)
+    @staticmethod
+    async def _drain_stderr(
+        process: asyncio.subprocess.Process,
+        state: _CodexRunState,
+    ) -> None:
+        assert process.stderr is not None
+        async for raw in process.stderr:
+            state.stderr_buf.append(raw)
 
-        self._persist(stdout_path, stdout_buf)
-        self._persist(stderr_path, stderr_buf)
-        summary = self._read_last_message(last_message_path)
+    def _persist_logs(
+        self,
+        stdout_path: Path,
+        stderr_path: Path,
+        state: _CodexRunState,
+    ) -> None:
+        self._persist(stdout_path, state.stdout_buf)
+        self._persist(stderr_path, state.stderr_buf)
 
+    async def _outcome_from_exit_code(
+        self,
+        exit_code: int,
+        *,
+        summary: Optional[str],
+        stderr_buf: list[bytes],
+        on_event: OnEvent,
+    ) -> AdapterRunOutcome:
         if exit_code != 0:
             stderr_tail = _stderr_tail(stderr_buf)
             error_message = (
@@ -152,11 +235,13 @@ class CodexAdapter:
                 if stderr_tail
                 else f"adapter exited with code {exit_code}"
             )
-            await on_event(RunEvent(
-                kind="error",
-                ts_ms=int(time.time() * 1000),
-                payload={"message": error_message, "stderr_tail": stderr_tail},
-            ))
+            await on_event(
+                RunEvent(
+                    kind="error",
+                    ts_ms=int(time.time() * 1000),
+                    payload={"message": error_message, "stderr_tail": stderr_tail},
+                )
+            )
             return AdapterRunOutcome(
                 exit_code=exit_code,
                 summary=summary,
@@ -179,14 +264,20 @@ class CodexAdapter:
         last_message_path: Path,
     ) -> list[str]:
         argv: list[str] = [
-            binary_path, "exec",
+            binary_path,
+            "exec",
             "--json",
-            "--sandbox", "workspace-write",
-            "--ask-for-approval", "never",
-            "--cd", str(req.workspace_root),
-            "--add-dir", str(bundle_dir),
+            "--sandbox",
+            "workspace-write",
+            "--ask-for-approval",
+            "never",
+            "--cd",
+            str(req.workspace_root),
+            "--add-dir",
+            str(bundle_dir),
             "--skip-git-repo-check",
-            "-o", str(last_message_path),
+            "-o",
+            str(last_message_path),
         ]
         if req.model:
             argv += ["--model", req.model]
