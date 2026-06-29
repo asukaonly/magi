@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 from .grounding import L2GroundingPlan, build_grounding_plan
@@ -19,6 +20,15 @@ from .l2_subdomain_retrievers import (
 from .models import L2Conditions, TimeRange
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _L2ChannelResults:
+    knowledge_edges: list[dict[str, Any]]
+    assertions: list[dict[str, Any]]
+    snapshots: list[dict[str, Any]]
+    episodes: list[dict[str, Any]]
+    experiences: list[dict[str, Any]]
 
 
 class L2QueryExecutionMixin:
@@ -42,126 +52,176 @@ class L2QueryExecutionMixin:
         """
         host = cast(Any, self)
 
-        resolved_entities = await host._resolve_entities(conditions, user_id=user_id)
-
-        await resolve_predicates(
+        plan = await _build_query_plan(
+            host,
             conditions,
-            embedding_service=getattr(host, "_embedding_service", None),
-        )
-
-        plan = build_grounding_plan(
-            conditions,
-            resolved_entities=resolved_entities,
             user_id=user_id,
             time_range=time_range,
         )
 
-        knowledge_task = (
-            retrieve_knowledge(
-                plan,
-                host._store,
-                embedding_service=getattr(host, "_embedding_service", None),
-                edge_vector_index=getattr(host, "_edge_vector_index", None),
-                l1_store=getattr(host, "_l1_store", None),
-                user_id=user_id,
-                limit=conditions.limit,
-            )
-            if conditions.include_relationships
-            else _empty_list()
-        )
-
-        assertion_task = (
-            retrieve_assertions(
-                plan,
-                host._store,
-                limit=conditions.limit,
-            )
-            if conditions.include_assertions
-            else _empty_list()
-        )
-
-        snapshot_task = (
-            retrieve_snapshots(
-                plan,
-                host._store,
-            )
-            if conditions.include_tom_snapshot
-            else _empty_list()
-        )
-
-        episode_task = retrieve_episodes(
+        channels = await _retrieve_l2_channels(
+            host,
             plan,
-            host._store,
-            limit=conditions.limit,
+            conditions,
+            user_id=user_id,
         )
-
-        experience_task = (
-            retrieve_experiences(
-                plan,
-                host._store,
-                limit=conditions.limit,
-            )
-            if conditions.include_experiences
-            else _empty_list()
-        )
-
-        knowledge_edges, assertions, snapshots, episodes, experiences = await asyncio.gather(
-            knowledge_task,
-            assertion_task,
-            snapshot_task,
-            episode_task,
-            experience_task,
-        )
-
-        episodes = _merge_experience_source_episodes(episodes, experiences)
 
         candidates = fuse_l2_candidates(
             plan,
-            knowledge_edges=knowledge_edges,
-            assertions=assertions,
-            snapshots=snapshots,
-            episodes=episodes,
+            knowledge_edges=channels.knowledge_edges,
+            assertions=channels.assertions,
+            snapshots=channels.snapshots,
+            episodes=channels.episodes,
             top_k=conditions.limit * 2,
         )
 
         projected = project_candidates(candidates)
-
-        results: dict[str, Any] = {
-            "entity_cards": projected.get("entity_cards", []),
-            "relationships": projected.get("relationships", []),
-            "assertions": projected.get("assertions", []),
-            "episodes": projected.get("episodes", []),
-            "experiences": experiences,
-            "state_facts": projected.get("state_facts", []),
-            "state_history": projected.get("state_history", []),
-        }
-
-        results["trace"] = {
-            "grounding_plan": _build_grounding_plan_trace(plan),
-            "channel_counts": {
-                "knowledge_edges": len(knowledge_edges),
-                "assertions": len(assertions),
-                "snapshots": len(snapshots),
-                "episodes": len(episodes),
-                "experiences": len(experiences),
-            },
-            "fusion_candidate_count": len(candidates),
-            "output_counts": {
-                "entity_cards": len(results["entity_cards"]),
-                "relationships": len(results["relationships"]),
-                "assertions": len(results["assertions"]),
-                "episodes": len(results["episodes"]),
-                "experiences": len(results["experiences"]),
-                "state_history": len(results["state_history"]),
-            },
-        }
+        results = _build_query_results(projected, channels.experiences)
+        results["trace"] = _build_execution_trace(plan, channels, candidates, results)
 
         logger.info("L2 retrieval executed | %s", results["trace"])
         return results
 
 
-async def _empty_list() -> list:
+async def _build_query_plan(
+    host: Any,
+    conditions: L2Conditions,
+    *,
+    time_range: Optional[TimeRange],
+    user_id: Optional[str],
+) -> L2GroundingPlan:
+    resolved_entities = await host._resolve_entities(conditions, user_id=user_id)
+
+    await resolve_predicates(
+        conditions,
+        embedding_service=getattr(host, "_embedding_service", None),
+    )
+
+    return build_grounding_plan(
+        conditions,
+        resolved_entities=resolved_entities,
+        user_id=user_id,
+        time_range=time_range,
+    )
+
+
+async def _retrieve_l2_channels(
+    host: Any,
+    plan: L2GroundingPlan,
+    conditions: L2Conditions,
+    *,
+    user_id: Optional[str],
+) -> _L2ChannelResults:
+    knowledge_task = (
+        retrieve_knowledge(
+            plan,
+            host._store,
+            embedding_service=getattr(host, "_embedding_service", None),
+            edge_vector_index=getattr(host, "_edge_vector_index", None),
+            l1_store=getattr(host, "_l1_store", None),
+            user_id=user_id,
+            limit=conditions.limit,
+        )
+        if conditions.include_relationships
+        else _empty_list()
+    )
+
+    assertion_task = (
+        retrieve_assertions(
+            plan,
+            host._store,
+            limit=conditions.limit,
+        )
+        if conditions.include_assertions
+        else _empty_list()
+    )
+
+    snapshot_task = (
+        retrieve_snapshots(
+            plan,
+            host._store,
+        )
+        if conditions.include_tom_snapshot
+        else _empty_list()
+    )
+
+    episode_task = retrieve_episodes(
+        plan,
+        host._store,
+        limit=conditions.limit,
+    )
+
+    experience_task = (
+        retrieve_experiences(
+            plan,
+            host._store,
+            limit=conditions.limit,
+        )
+        if conditions.include_experiences
+        else _empty_list()
+    )
+
+    knowledge_edges, assertions, snapshots, episodes, experiences = await asyncio.gather(
+        knowledge_task,
+        assertion_task,
+        snapshot_task,
+        episode_task,
+        experience_task,
+    )
+
+    return _L2ChannelResults(
+        knowledge_edges=knowledge_edges,
+        assertions=assertions,
+        snapshots=snapshots,
+        episodes=_merge_experience_source_episodes(episodes, experiences),
+        experiences=experiences,
+    )
+
+
+async def _empty_list() -> list[dict[str, Any]]:
     return []
+
+
+def _build_query_results(
+    projected: dict[str, Any],
+    experiences: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "entity_cards": projected.get("entity_cards", []),
+        "relationships": projected.get("relationships", []),
+        "assertions": projected.get("assertions", []),
+        "episodes": projected.get("episodes", []),
+        "experiences": experiences,
+        "state_facts": projected.get("state_facts", []),
+        "state_history": projected.get("state_history", []),
+    }
+
+
+def _build_execution_trace(
+    plan: L2GroundingPlan,
+    channels: _L2ChannelResults,
+    candidates: list[Any],
+    results: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "grounding_plan": _build_grounding_plan_trace(plan),
+        "channel_counts": {
+            "knowledge_edges": len(channels.knowledge_edges),
+            "assertions": len(channels.assertions),
+            "snapshots": len(channels.snapshots),
+            "episodes": len(channels.episodes),
+            "experiences": len(channels.experiences),
+        },
+        "fusion_candidate_count": len(candidates),
+        "output_counts": {
+            "entity_cards": len(results["entity_cards"]),
+            "relationships": len(results["relationships"]),
+            "assertions": len(results["assertions"]),
+            "episodes": len(results["episodes"]),
+            "experiences": len(results["experiences"]),
+            "state_history": len(results["state_history"]),
+        },
+    }
 
 
 def _merge_experience_source_episodes(
