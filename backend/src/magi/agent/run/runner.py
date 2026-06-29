@@ -76,32 +76,58 @@ class NodeSequenceRunner:
         node resumes from its natural initial state, not from corrupted
         in-flight state).
         """
-        graph = tuple(spec.node_type for spec in node_specs)
-        node_states: dict[str, dict[str, Any]] = dict(
-            resume_from.node_states if resume_from is not None else {}
+        graph = _node_graph(node_specs)
+        node_states = _resume_node_states(resume_from)
+        cursor = _resume_cursor(resume_from)
+        self._restore_completed_nodes(
+            node_specs=node_specs,
+            cursor=cursor,
+            node_states=node_states,
         )
-        cursor = resume_from.cursor if resume_from is not None else 0
-
-        # Restore all completed nodes' state before resuming.
-        # Nodes before cursor already ran; restore their captured state so
-        # they reflect their final condition (useful for downstream nodes
-        # that may inspect sibling state). The cursor node runs from scratch.
-        if resume_from is not None:
-            for i in range(cursor):
-                prior_spec = node_specs[i]
-                prior_node = self._node_registry.get(prior_spec.node_type)
-                if prior_node is not None:
-                    preserved = node_states.get(prior_spec.node_type, {})
-                    prior_node.restore(preserved)
 
         if not node_specs:
-            return None, RunSnapshot(
+            return None, _build_snapshot(
                 run_id=run_id,
                 graph=graph,
                 cursor=0,
                 node_states=node_states,
             )
 
+        return await self._run_remaining_nodes(
+            run_id=run_id,
+            node_specs=node_specs,
+            request=request,
+            graph=graph,
+            node_states=node_states,
+            cursor=cursor,
+        )
+
+    def _restore_completed_nodes(
+        self,
+        *,
+        node_specs: list[NodeSpec],
+        cursor: int,
+        node_states: dict[str, dict[str, Any]],
+    ) -> None:
+        # Nodes before cursor already ran; restore their captured state so
+        # they reflect their final condition. The cursor node runs from scratch.
+        for i in range(cursor):
+            prior_spec = node_specs[i]
+            prior_node = self._node_registry.get(prior_spec.node_type)
+            if prior_node is not None:
+                preserved = node_states.get(prior_spec.node_type, {})
+                prior_node.restore(preserved)
+
+    async def _run_remaining_nodes(
+        self,
+        *,
+        run_id: str,
+        node_specs: list[NodeSpec],
+        request: "ExecutionRequest",
+        graph: tuple[str, ...],
+        node_states: dict[str, dict[str, Any]],
+        cursor: int,
+    ) -> "tuple[ExecutionResult | None, RunSnapshot]":
         accumulated_texts: list[str] = []
         primary_result: "ExecutionResult | None" = None
 
@@ -115,13 +141,7 @@ class NodeSequenceRunner:
                 )
 
             node_result = await node.execute(request)
-
-            # Capture snapshot from this node (always — even on FAILED).
-            try:
-                node_states[spec.node_type] = node.snapshot()
-            except Exception:
-                # Snapshot failures must not break the run; record empty state.
-                node_states[spec.node_type] = {}
+            node_states[spec.node_type] = _capture_node_snapshot(node)
 
             if node_result.execution_result is not None:
                 if primary_result is None:
@@ -133,22 +153,69 @@ class NodeSequenceRunner:
                 error_text = node_result.error or "Node failed"
                 accumulated_texts.append(f"[error] {error_text}")
                 # Cursor stays at idx (failed node retained for retry).
-                snapshot = RunSnapshot(
-                    run_id=run_id, graph=graph, cursor=idx, node_states=node_states,
+                snapshot = _build_snapshot(
+                    run_id=run_id,
+                    graph=graph,
+                    cursor=idx,
+                    node_states=node_states,
                 )
-                return _merge_accumulated_into_result(
-                    primary_result=primary_result,
-                    accumulated_texts=accumulated_texts,
-                ), snapshot
+                return (
+                    _merge_accumulated_into_result(
+                        primary_result=primary_result,
+                        accumulated_texts=accumulated_texts,
+                    ),
+                    snapshot,
+                )
 
         # All nodes completed: cursor advances past the last index.
-        snapshot = RunSnapshot(
-            run_id=run_id, graph=graph, cursor=len(node_specs), node_states=node_states,
+        snapshot = _build_snapshot(
+            run_id=run_id,
+            graph=graph,
+            cursor=len(node_specs),
+            node_states=node_states,
         )
-        return _merge_accumulated_into_result(
-            primary_result=primary_result,
-            accumulated_texts=accumulated_texts,
-        ), snapshot
+        return (
+            _merge_accumulated_into_result(
+                primary_result=primary_result,
+                accumulated_texts=accumulated_texts,
+            ),
+            snapshot,
+        )
+
+
+def _node_graph(node_specs: list[NodeSpec]) -> tuple[str, ...]:
+    return tuple(spec.node_type for spec in node_specs)
+
+
+def _resume_node_states(resume_from: RunSnapshot | None) -> dict[str, dict[str, Any]]:
+    return dict(resume_from.node_states if resume_from is not None else {})
+
+
+def _resume_cursor(resume_from: RunSnapshot | None) -> int:
+    return resume_from.cursor if resume_from is not None else 0
+
+
+def _capture_node_snapshot(node: Any) -> dict[str, Any]:
+    try:
+        return node.snapshot()
+    except Exception:
+        # Snapshot failures must not break the run; record empty state.
+        return {}
+
+
+def _build_snapshot(
+    *,
+    run_id: str,
+    graph: tuple[str, ...],
+    cursor: int,
+    node_states: dict[str, dict[str, Any]],
+) -> RunSnapshot:
+    return RunSnapshot(
+        run_id=run_id,
+        graph=graph,
+        cursor=cursor,
+        node_states=node_states,
+    )
 
 
 def _merge_accumulated_into_result(
