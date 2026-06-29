@@ -9,9 +9,6 @@ import {
   type ChatTimelineReplyPreview,
   type NormalizedExecutionTraceSummary,
   type NormalizedTurnUxPlan,
-  type ReasoningTrace,
-  type RuntimeStatusTrace,
-  type ToolCallTrace,
   upsertTraceSummary as applyTraceSummaryUpdate,
 } from '@/domain/chat/state';
 import { isTranscriptMessage } from '@/domain/chat/presentation';
@@ -25,10 +22,22 @@ import {
 } from '@/stores/conversation-read-cursors';
 import {
   canMergeTimelineMessage,
-  insertTimelineMessageForTurn,
   mergeHistorySnapshot,
   upsertTimelineMessage,
 } from '@/stores/conversation-timeline';
+import {
+  applyStreamReasoningDelta,
+  applyStreamStatusUpdate,
+  applyStreamTextDelta,
+  applyStreamTextFlush,
+  applyStreamToolCall,
+  type StreamMessageUpdate,
+  type StreamReasoningDeltaPayload,
+  type StreamStatusUpdatePayload,
+  type StreamTextDeltaPayload,
+  type StreamTextFlushPayload,
+  type StreamToolCallPayload,
+} from '@/stores/conversation-streaming';
 
 type AgentResponsePayload = {
   sessionId: string;
@@ -43,48 +52,6 @@ type AgentResponsePayload = {
   traceAvailable?: boolean;
   uxPlan?: NormalizedTurnUxPlan | null;
   payload?: Record<string, unknown> | null;
-};
-
-type StreamTextDeltaPayload = {
-  sessionId: string;
-  turnId: string;
-  personaId?: string | null;
-  textDelta: string;
-};
-
-type StreamTextFlushPayload = {
-  sessionId: string;
-  turnId: string;
-  personaId?: string | null;
-};
-
-type StreamReasoningDeltaPayload = {
-  sessionId: string;
-  turnId: string;
-  source: string;
-  stepLabel?: string | null;
-  personaId?: string | null;
-  textDelta: string;
-};
-
-type StreamStatusUpdatePayload = {
-  sessionId: string;
-  turnId: string;
-  source: string;
-  stepLabel?: string | null;
-  personaId?: string | null;
-  content: string;
-};
-
-type StreamToolCallPayload = {
-  sessionId: string;
-  turnId: string;
-  toolCallId?: string | null;
-  toolName?: string | null;
-  toolArgsDelta?: string;
-  toolArguments?: Record<string, unknown> | null;
-  personaId?: string | null;
-  status: 'running' | 'completed';
 };
 
 type PendingTurnPayload = {
@@ -122,11 +89,11 @@ type ConversationState = {
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   applyTurnUxPlan: (payload: TurnUxPlanPayload) => void;
   receiveAgentResponse: (payload: AgentResponsePayload) => void;
-  appendStreamTextDelta: (payload: StreamTextDeltaPayload) => void;
-  appendStreamTextFlush: (payload: StreamTextFlushPayload) => void;
-  appendStreamReasoningDelta: (payload: StreamReasoningDeltaPayload) => void;
-  appendStreamStatusUpdate: (payload: StreamStatusUpdatePayload) => void;
-  appendStreamToolCall: (payload: StreamToolCallPayload) => void;
+  appendStreamTextDelta: (payload: StreamTextDeltaPayload & { sessionId: string }) => void;
+  appendStreamTextFlush: (payload: StreamTextFlushPayload & { sessionId: string }) => void;
+  appendStreamReasoningDelta: (payload: StreamReasoningDeltaPayload & { sessionId: string }) => void;
+  appendStreamStatusUpdate: (payload: StreamStatusUpdatePayload & { sessionId: string }) => void;
+  appendStreamToolCall: (payload: StreamToolCallPayload & { sessionId: string }) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
@@ -147,115 +114,6 @@ const isUnreadWorthyMessage = (message: ChatTimelineMessage): boolean => (
   && isTranscriptMessage(message)
   && !message.streaming
 );
-
-const appendReasoning = (
-  prev: ReasoningTrace[] | undefined,
-  source: string,
-  stepLabel: string | null | undefined,
-  textDelta: string,
-): ReasoningTrace[] => {
-  const list = prev ? [...prev] : [];
-  const normalizedLabel = stepLabel ?? null;
-  const lastIdx = list.length - 1;
-  if (lastIdx >= 0) {
-    const last = list[lastIdx];
-    if (last.source === source && (last.stepLabel ?? null) === normalizedLabel) {
-      list[lastIdx] = { ...last, content: last.content + textDelta };
-      return list;
-    }
-  }
-  list.push({ source, stepLabel: normalizedLabel, content: textDelta });
-  return list;
-};
-
-const appendRuntimeStatus = (
-  prev: RuntimeStatusTrace[] | undefined,
-  source: string,
-  stepLabel: string | null | undefined,
-  content: string,
-): RuntimeStatusTrace[] => {
-  const normalizedContent = String(content || '').trim();
-  if (!normalizedContent) {
-    return prev ? [...prev] : [];
-  }
-  const list = prev ? [...prev] : [];
-  const normalizedSource = String(source || '').trim() || 'assistant';
-  const normalizedLabel = stepLabel ?? null;
-  const last = list[list.length - 1];
-  if (
-    last
-    && last.source === normalizedSource
-    && (last.stepLabel ?? null) === normalizedLabel
-    && last.content.trim() === normalizedContent
-  ) {
-    return list;
-  }
-  list.push({ source: normalizedSource, stepLabel: normalizedLabel, content: normalizedContent });
-  return list;
-};
-
-const appendToolCall = (
-  prev: ToolCallTrace[] | undefined,
-  payload: StreamToolCallPayload,
-): ToolCallTrace[] => {
-  const list = prev ? [...prev] : [];
-  const normalizedToolName = String(payload.toolName || '').trim() || 'Tool';
-  const normalizedArgsDelta = typeof payload.toolArgsDelta === 'string' ? payload.toolArgsDelta : '';
-  const nextArguments = payload.toolArguments ?? undefined;
-  const index = list.findIndex((item) => {
-    if (payload.toolCallId && item.toolCallId) {
-      return item.toolCallId === payload.toolCallId;
-    }
-    return item.toolName === normalizedToolName;
-  });
-
-  if (index >= 0) {
-    const current = list[index];
-    list[index] = {
-      ...current,
-      toolCallId: payload.toolCallId ?? current.toolCallId,
-      toolName: payload.toolName ? normalizedToolName : current.toolName,
-      status: payload.status,
-      toolArgsText: normalizedArgsDelta
-        ? `${current.toolArgsText || ''}${normalizedArgsDelta}`
-        : current.toolArgsText,
-      toolArguments: nextArguments ?? current.toolArguments,
-    };
-    return list;
-  }
-
-  list.push({
-    toolCallId: payload.toolCallId ?? null,
-    toolName: normalizedToolName,
-    status: payload.status,
-    toolArgsText: normalizedArgsDelta || undefined,
-    toolArguments: nextArguments ?? null,
-  });
-  return list;
-};
-
-const findStreamingAssistantIndex = (
-  messages: ChatTimelineMessage[],
-  turnId: string,
-): number => {
-  const existingIndex = messages.findIndex(
-    (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
-  );
-  if (existingIndex >= 0) {
-    return existingIndex;
-  }
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const candidate = messages[i];
-    if (
-      candidate.role === 'assistant'
-      && candidate.turnId === turnId
-      && !candidate.messageId
-    ) {
-      return i;
-    }
-  }
-  return -1;
-};
 
 const ensureSession = (
   sessionsById: Record<string, ChatSessionListItem>,
@@ -286,9 +144,31 @@ const ensureSession = (
   };
 };
 
-const trimTrailingStreamNewlines = (content: string): string => (
-  String(content || '').replace(/(?:\r?\n)+$/, '')
-);
+type ConversationStoreSnapshot = Pick<
+  ConversationState,
+  'sessionsById' | 'orderedSessionIds' | 'messagesBySession'
+>;
+
+const applyStreamUpdateToState = (
+  state: ConversationStoreSnapshot,
+  sessionId: string,
+  update: StreamMessageUpdate,
+) => {
+  if (!update.changed) {
+    return state;
+  }
+  const ensured = update.needsSession
+    ? ensureSession(state.sessionsById, state.orderedSessionIds, sessionId)
+    : { sessionsById: state.sessionsById, orderedSessionIds: state.orderedSessionIds };
+  return {
+    sessionsById: ensured.sessionsById,
+    orderedSessionIds: ensured.orderedSessionIds,
+    messagesBySession: {
+      ...state.messagesBySession,
+      [sessionId]: update.messages,
+    },
+  };
+};
 
 const upsertSessionSummary = (
   sessionsById: Record<string, ChatSessionListItem>,
@@ -572,221 +452,55 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendStreamTextDelta: ({ sessionId, turnId, personaId, textDelta }) => set((state) => {
-    if (!sessionId || !turnId || !textDelta) {
+  appendStreamTextDelta: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
       return state;
     }
-    const previousMessages = state.messagesBySession[sessionId] || [];
-    // Prefer an active streaming bubble for this turn. Fall back to the most
-    // recent assistant placeholder for the same turn that has not yet been
-    // replaced by a persisted message (no messageId) — this keeps multi-step
-    // turns rendered as a single bubble even if a stray text_flush arrived
-    // between LLM calls.
-    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    if (existingIndex >= 0) {
-      const existing = previousMessages[existingIndex];
-      const nextMessages = [...previousMessages];
-      nextMessages[existingIndex] = {
-        ...existing,
-        content: existing.content + textDelta,
-        personaId: personaId ?? existing.personaId ?? null,
-        streaming: true,
-      };
-      return {
-        messagesBySession: {
-          ...state.messagesBySession,
-          [sessionId]: nextMessages,
-        },
-      };
-    }
-    const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
-    const streamingMessage: ChatTimelineMessage = {
-      id: `stream_${turnId}`,
-      role: 'assistant',
-      kind: 'assistant' as ChatTimelineMessage['kind'],
-      content: textDelta,
-      timestamp: Date.now(),
-      turnId,
-      personaId: personaId ?? null,
-      streaming: true,
-    };
-    return {
-      sessionsById: ensured.sessionsById,
-      orderedSessionIds: ensured.orderedSessionIds,
-      messagesBySession: {
-        ...state.messagesBySession,
-        [sessionId]: insertTimelineMessageForTurn(previousMessages, streamingMessage),
-      },
-    };
-  }),
-  appendStreamTextFlush: ({ sessionId, turnId, personaId }) => set((state) => {
-    if (!sessionId || !turnId) {
-      return state;
-    }
-    const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = previousMessages.findIndex(
-      (m) => m.role === 'assistant' && m.turnId === turnId && m.streaming,
-    );
-    if (existingIndex < 0) {
-      return state;
-    }
-    const existing = previousMessages[existingIndex];
-    const nextMessages = [...previousMessages];
-    nextMessages[existingIndex] = {
-      ...existing,
-      content: trimTrailingStreamNewlines(existing.content),
-      personaId: personaId ?? existing.personaId ?? null,
-      streaming: false,
-    };
-    return {
-      messagesBySession: {
-        ...state.messagesBySession,
-        [sessionId]: nextMessages,
-      },
-    };
-  }),
-  appendStreamReasoningDelta: ({ sessionId, turnId, source, stepLabel, personaId, textDelta }) => set((state) => {
-    if (!sessionId || !turnId || !textDelta) {
-      return state;
-    }
-    const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    const targetIndex = existingIndex;
-    if (existingIndex < 0) {
-      const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
-      const nextReasoning = appendReasoning([], source, stepLabel, textDelta);
-      const placeholder: ChatTimelineMessage = {
-        id: `stream_${turnId}`,
-        role: 'assistant',
-        kind: 'assistant' as ChatTimelineMessage['kind'],
-        content: '',
-        timestamp: Date.now(),
-        turnId,
-        personaId: personaId ?? null,
-        streaming: true,
-        reasoning: nextReasoning,
-      };
-      return {
-        sessionsById: ensured.sessionsById,
-        orderedSessionIds: ensured.orderedSessionIds,
-        messagesBySession: {
-          ...state.messagesBySession,
-          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
-        },
-      };
-    }
-    const target = previousMessages[targetIndex];
-    const nextReasoning = appendReasoning(target.reasoning, source, stepLabel, textDelta);
-    const nextMessages = [...previousMessages];
-    nextMessages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, reasoning: nextReasoning };
-    return {
-      messagesBySession: {
-        ...state.messagesBySession,
-        [sessionId]: nextMessages,
-      },
-    };
-  }),
-  appendStreamStatusUpdate: ({ sessionId, turnId, source, stepLabel, personaId, content }) => set((state) => {
-    if (!sessionId || !turnId || !String(content || '').trim()) {
-      return state;
-    }
-    const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    if (existingIndex < 0) {
-      const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
-      const placeholder: ChatTimelineMessage = {
-        id: `stream_${turnId}`,
-        role: 'assistant',
-        kind: 'assistant' as ChatTimelineMessage['kind'],
-        content: '',
-        timestamp: Date.now(),
-        turnId,
-        personaId: personaId ?? null,
-        streaming: true,
-        runtimeStatuses: appendRuntimeStatus([], source, stepLabel, content),
-      };
-      return {
-        sessionsById: ensured.sessionsById,
-        orderedSessionIds: ensured.orderedSessionIds,
-        messagesBySession: {
-          ...state.messagesBySession,
-          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
-        },
-      };
-    }
-
-    const target = previousMessages[existingIndex];
-    const nextMessages = [...previousMessages];
-    nextMessages[existingIndex] = {
-      ...target,
-      personaId: personaId ?? target.personaId ?? null,
-      runtimeStatuses: appendRuntimeStatus(target.runtimeStatuses, source, stepLabel, content),
-    };
-    return {
-      messagesBySession: {
-        ...state.messagesBySession,
-        [sessionId]: nextMessages,
-      },
-    };
-  }),
-  appendStreamToolCall: ({ sessionId, turnId, toolCallId, toolName, toolArgsDelta, toolArguments, personaId, status }) => set((state) => {
-    if (!sessionId || !turnId) {
-      return state;
-    }
-    const previousMessages = state.messagesBySession[sessionId] || [];
-    const existingIndex = findStreamingAssistantIndex(previousMessages, turnId);
-    const targetIndex = existingIndex;
-
-    if (existingIndex < 0) {
-      const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
-      const nextToolCalls = appendToolCall([], {
-        sessionId,
-        turnId,
-        toolCallId,
-        toolName,
-        toolArgsDelta,
-        toolArguments,
-        status,
-      });
-      const placeholder: ChatTimelineMessage = {
-        id: `stream_${turnId}`,
-        role: 'assistant',
-        kind: 'assistant' as ChatTimelineMessage['kind'],
-        content: '',
-        timestamp: Date.now(),
-        turnId,
-        personaId: personaId ?? null,
-        streaming: true,
-        toolCalls: nextToolCalls,
-      };
-      return {
-        sessionsById: ensured.sessionsById,
-        orderedSessionIds: ensured.orderedSessionIds,
-        messagesBySession: {
-          ...state.messagesBySession,
-          [sessionId]: insertTimelineMessageForTurn(previousMessages, placeholder),
-        },
-      };
-    }
-
-    const target = previousMessages[targetIndex];
-    const nextToolCalls = appendToolCall(target.toolCalls, {
+    return applyStreamUpdateToState(
+      state,
       sessionId,
-      turnId,
-      toolCallId,
-      toolName,
-      toolArgsDelta,
-      toolArguments,
-      status,
-    });
-    const nextMessages = [...previousMessages];
-    nextMessages[targetIndex] = { ...target, personaId: personaId ?? target.personaId ?? null, toolCalls: nextToolCalls };
-    return {
-      messagesBySession: {
-        ...state.messagesBySession,
-        [sessionId]: nextMessages,
-      },
-    };
+      applyStreamTextDelta(state.messagesBySession[sessionId] || [], payload),
+    );
+  }),
+  appendStreamTextFlush: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    return applyStreamUpdateToState(
+      state,
+      sessionId,
+      applyStreamTextFlush(state.messagesBySession[sessionId] || [], payload),
+    );
+  }),
+  appendStreamReasoningDelta: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    return applyStreamUpdateToState(
+      state,
+      sessionId,
+      applyStreamReasoningDelta(state.messagesBySession[sessionId] || [], payload),
+    );
+  }),
+  appendStreamStatusUpdate: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    return applyStreamUpdateToState(
+      state,
+      sessionId,
+      applyStreamStatusUpdate(state.messagesBySession[sessionId] || [], payload),
+    );
+  }),
+  appendStreamToolCall: ({ sessionId, ...payload }) => set((state) => {
+    if (!sessionId) {
+      return state;
+    }
+    return applyStreamUpdateToState(
+      state,
+      sessionId,
+      applyStreamToolCall(state.messagesBySession[sessionId] || [], payload),
+    );
   }),
   applyMessageLabel: (sessionId, messageId, label) => set((state) => {
     if (!sessionId || !messageId) {
