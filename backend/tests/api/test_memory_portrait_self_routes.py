@@ -54,7 +54,8 @@ def test_returns_existing_portrait_projection_page_model():
         prompt_summary=["用户关注 Magi 记忆系统。"],
     ))
     l2 = MagicMock()
-    l2.list_tom_snapshots = AsyncMock(return_value=[{"snapshot_id": "should-not-read"}])
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[])
     l2.list_tom_assertions = AsyncMock(return_value=[])
 
     with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
@@ -66,7 +67,49 @@ def test_returns_existing_portrait_projection_page_model():
     assert body["self_view"]["world"]["groups"][0]["items"][0]["text"] == "Magi 记忆系统"
     assert body["self_view"]["recent"]["items"][0]["text"] == "正在验证画像"
     assert body["prompt_summary"] == ["用户关注 Magi 记忆系统。"]
-    l2.list_tom_snapshots.assert_not_called()
+
+
+def test_rebuilds_stale_portrait_projection_when_newer_assertion_exists():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=UserPortraitProjection(
+        user_id="u1",
+        entity_id="user:u1",
+        world={"total_count": 1, "groups": [{"id": "preferences", "items": [{"text": "旧画像"}]}]},
+        review={"items": []},
+        recent={"items": []},
+        prompt_summary=["旧画像。"],
+        generated_at=100.0,
+    ))
+    portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[{
+        "assertion_id": "assert-new",
+        "trait_family": "preference_profile",
+        "trait_name": "interest.memory_system",
+        "trait_value": "新画像",
+        "validation_state": "stable",
+        "source_domain": "conversation",
+        "evidence_count": 3,
+        "updated_at": 200.0,
+    }])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    preferences = {
+        group["id"]: group["items"]
+        for group in body["self_view"]["world"]["groups"]
+    }["preferences"]
+    assert [item["text"] for item in preferences] == ["新画像"]
+    assert "旧画像" not in str(body["self_view"])
+    portrait_repo.upsert.assert_awaited_once()
 
 
 def test_returns_observations_from_projection_and_snapshot():
@@ -795,4 +838,3 @@ def test_materialized_and_fallback_render_multi_trait_snapshot_identically():
     materialized_recent = sorted(item["text"] for item in materialized.recent["items"])
     fallback_recent = sorted(item["text"] for item in fallback["recent"]["items"])
     assert materialized_recent == fallback_recent == ["专注", "验证画像"]
-

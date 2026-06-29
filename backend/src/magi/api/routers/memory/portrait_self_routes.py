@@ -17,6 +17,7 @@ from ....user_profile.portrait_graph_signals import (
     collect_portrait_graph_signals,
 )
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ....user_profile.portrait_signal_policy import (
     PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_REVIEW_STATES,
@@ -112,6 +113,13 @@ def build_router() -> APIRouter:
     ) -> dict[str, Any]:
         portrait_repo = _resolve_portrait_repo()
         l2 = _resolve_l2()
+        profile_repo = _resolve_profile_repo()
+        projection = None
+        if profile_repo is not None:
+            try:
+                projection = await profile_repo.get(user_id)
+            except Exception as exc:
+                logger.debug("self portrait: profile lookup failed: %s", exc)
         if portrait_repo is not None:
             try:
                 portrait_projection = await portrait_repo.get(user_id)
@@ -119,34 +127,25 @@ def build_router() -> APIRouter:
                 logger.debug("self portrait: portrait projection lookup failed: %s", exc)
                 portrait_projection = None
             if portrait_projection is not None:
-                payload = UserPortraitPayload(
-                    session_id="",
-                    persona_id="",
-                    topic="self",
-                    generated_at=int(time.time()),
-                    observations=[],
-                    is_cold_start=False,
-                    cold_start_line=None,
-                    cold_start_reason=None,
+                is_stale = await portrait_projection_is_stale(
+                    portrait_projection,
+                    user_id=user_id,
+                    l2_store=l2,
+                    profile_projection=projection,
                 )
-                data = payload.to_dict()
-                data["self_view"] = {
-                    "world": portrait_projection.world or _empty_world(),
-                    "review": portrait_projection.review or {"items": []},
-                    "recent": portrait_projection.recent or {"items": []},
-                }
-                data["prompt_summary"] = list(portrait_projection.prompt_summary)
-                return data
+                if not is_stale:
+                    return _payload_from_portrait_projection(portrait_projection)
+                try:
+                    rebuilt = await UserPortraitProjectionBuilder(
+                        l2,
+                        profile_projection=projection,
+                    ).build(user_id)
+                    portrait_projection = await portrait_repo.upsert(rebuilt)
+                    return _payload_from_portrait_projection(portrait_projection)
+                except Exception as exc:
+                    logger.debug("self portrait: stale projection rebuild failed: %s", exc)
 
-        profile_repo = _resolve_profile_repo()
         observations: list[UserPortraitObservation] = []
-
-        projection = None
-        if profile_repo is not None:
-            try:
-                projection = await profile_repo.get(user_id)
-            except Exception as exc:
-                logger.debug("self portrait: profile lookup failed: %s", exc)
         observations.extend(_observations_from_projection(projection))
 
         snapshot = None
@@ -217,6 +216,27 @@ def build_router() -> APIRouter:
         return data
 
     return router
+
+
+def _payload_from_portrait_projection(portrait_projection: Any) -> dict[str, Any]:
+    payload = UserPortraitPayload(
+        session_id="",
+        persona_id="",
+        topic="self",
+        generated_at=int(time.time()),
+        observations=[],
+        is_cold_start=False,
+        cold_start_line=None,
+        cold_start_reason=None,
+    )
+    data = payload.to_dict()
+    data["self_view"] = {
+        "world": portrait_projection.world or _empty_world(),
+        "review": portrait_projection.review or {"items": []},
+        "recent": portrait_projection.recent or {"items": []},
+    }
+    data["prompt_summary"] = list(portrait_projection.prompt_summary)
+    return data
 
 
 def _observations_from_projection(projection: Any) -> list[UserPortraitObservation]:

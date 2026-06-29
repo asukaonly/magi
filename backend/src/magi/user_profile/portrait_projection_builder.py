@@ -57,6 +57,17 @@ class UserPortraitProjectionBuilder:
         self._profile_projection = profile_projection
         self._llm_client = llm_client
 
+    def with_profile_projection(
+        self,
+        profile_projection: UserProfileProjection | None,
+    ) -> "UserPortraitProjectionBuilder":
+        """Return a builder with the same dependencies and a fresh profile input."""
+        return UserPortraitProjectionBuilder(
+            self._l2_store,
+            profile_projection=profile_projection,
+            llm_client=self._llm_client,
+        )
+
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserPortraitProjection:
         entity_id = f"user:{user_id}"
         assertions = await self._list_assertions(entity_id)

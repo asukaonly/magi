@@ -17,6 +17,7 @@ from typing import Any, Dict
 
 from ..core.logger import get_logger
 from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
+from ..user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ..user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -121,12 +122,29 @@ class UserProfileService:
         except Exception:
             logger.debug("Failed to get portrait projection for %s", user_id)
             return []
-        if projection is None:
-            l2 = getattr(self._unified_memory, "l2", None) if self._unified_memory is not None else None
-            if l2 is None:
-                return []
+        l2 = getattr(self._unified_memory, "l2", None) if self._unified_memory is not None else None
+        if l2 is None:
+            return [line for line in projection.prompt_summary if str(line).strip()] if projection is not None else []
+        try:
+            profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
+        except Exception:
+            logger.debug("Failed to get profile projection for portrait prompt %s", user_id)
+            profile_projection = None
+        try:
+            is_stale = (
+                projection is not None
+                and await portrait_projection_is_stale(
+                    projection,
+                    user_id=user_id,
+                    l2_store=l2,
+                    profile_projection=profile_projection,
+                )
+            )
+        except Exception:
+            logger.debug("Failed to check portrait projection freshness for %s", user_id)
+            is_stale = False
+        if projection is None or is_stale:
             try:
-                profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
                 projection = await UserPortraitProjectionBuilder(
                     l2,
                     profile_projection=profile_projection,

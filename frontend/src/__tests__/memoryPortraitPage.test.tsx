@@ -343,4 +343,56 @@ describe('MemoryPortraitPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存' }));
     expect(memoryApi.correctAssertion).toHaveBeenCalledWith('assert-1', 'Magi 关于你页面', 'portrait_review');
   });
+
+  it('reloads the backend portrait after confirming a review item', async () => {
+    vi.mocked(memoryPortraitSelfApi.get)
+      .mockResolvedValueOnce({
+        session_id: '', persona_id: '', topic: 'self', generated_at: 0,
+        observations: [],
+        self_view: {
+          world: { total_count: 0, groups: [] },
+          review: {
+            items: [{
+              id: 'review-1',
+              text: 'Magi 记忆体验',
+              source: 'conversation',
+              source_key: 'conversation',
+              assertion_id: 'assert-1',
+              basis_count: 1,
+              basis_refs: ['assertion:assert-1'],
+            }],
+          },
+          recent: { items: [] },
+        },
+        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+      })
+      .mockResolvedValueOnce({
+        session_id: '', persona_id: '', topic: 'self', generated_at: 1,
+        observations: [],
+        self_view: {
+          world: {
+            total_count: 1,
+            groups: [
+              { id: 'identity', items: [] },
+              { id: 'projects', items: [{ id: 'project-1', text: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }] },
+            ],
+          },
+          review: { items: [] },
+          recent: { items: [] },
+        },
+        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+      });
+    vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue({} as any);
+
+    renderPage();
+
+    await screen.findByText('Magi 记忆体验');
+    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+
+    await waitFor(() => {
+      expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
+    });
+    expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
+    expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
+  });
 });

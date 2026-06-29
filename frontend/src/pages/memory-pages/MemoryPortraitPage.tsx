@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { memoryPortraitSelfApi, type SelfPortraitPayload } from '@/api/modules/memoryPortraitSelf';
 import { memoryApi } from '@/api/modules/memory';
@@ -16,9 +16,17 @@ export const MemoryPortraitPage = () => {
   const { t } = useTranslation('app');
   const [payload, setPayload] = useState<SelfPortraitPayload | null>(null);
 
-  useEffect(() => {
-    void memoryPortraitSelfApi.get(DEFAULT_USER_ID).then(setPayload).catch(() => setPayload(null));
+  const loadPortrait = useCallback(async () => {
+    try {
+      setPayload(await memoryPortraitSelfApi.get(DEFAULT_USER_ID));
+    } catch {
+      setPayload(null);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadPortrait();
+  }, [loadPortrait]);
 
   const viewModel = useMemo(
     () => {
@@ -33,14 +41,17 @@ export const MemoryPortraitPage = () => {
 
   const handleConfirm = async (assertionId: string) => {
     await memoryApi.submitAssertionFeedback(assertionId, 'confirmed');
+    await loadPortrait();
   };
 
   const handleReject = async (assertionId: string) => {
     await memoryApi.submitAssertionFeedback(assertionId, 'rejected');
+    await loadPortrait();
   };
 
   const handleCorrect = async (assertionId: string, value: string) => {
     await memoryApi.correctAssertion(assertionId, value, 'portrait_review');
+    await loadPortrait();
   };
 
   if (!payload) {

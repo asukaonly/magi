@@ -44,6 +44,17 @@ class _FakeUnifiedMemory:
         self.l2 = _FakeL2()
 
 
+class _StaticQueryService:
+    def __init__(self, profile):
+        self.profile = profile
+
+    async def refresh_profile(self, user_id):
+        return self.profile
+
+    async def get_current_profile(self, user_id):
+        return self.profile
+
+
 async def test_command_service_writes_profile_assertions_and_refreshes_projection(tmp_path: Path):
     unified_memory = _FakeUnifiedMemory()
     repository = UserProfileProjectionRepository(str(tmp_path / "memory.db"))
@@ -82,3 +93,30 @@ async def test_command_service_writes_profile_assertions_and_refreshes_projectio
     portrait_text = str(portrait.world) + "\n" + "\n".join(portrait.prompt_summary)
     assert "明日香" in portrait_text
     assert "子涵" in portrait_text
+
+
+async def test_command_service_refreshes_portrait_with_strong_profile_projection(tmp_path: Path):
+    unified_memory = _FakeUnifiedMemory()
+    profile = await UserProfileProjectionBuilder(unified_memory.l2).build("local_user")
+    profile = profile.model_copy(update={
+        "display_name": "子涵",
+        "preferred_form_of_address": "子涵",
+        "home_location": "杭州",
+        "updated_at": 200.0,
+        "refreshed_at": 200.0,
+    })
+    portrait_repository = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
+    command_service = UserProfileCommandService(
+        unified_memory=unified_memory,
+        query_service=_StaticQueryService(profile),
+        portrait_repository=portrait_repository,
+        portrait_builder=UserPortraitProjectionBuilder(unified_memory.l2),
+    )
+
+    await command_service.refresh_from_memory("local_user")
+
+    portrait = await portrait_repository.get("local_user")
+    assert portrait is not None
+    world_text = str(portrait.world)
+    assert "子涵" in world_text
+    assert "杭州" in world_text

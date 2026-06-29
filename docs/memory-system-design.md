@@ -358,6 +358,10 @@ only after enough evidence accumulates, while a `tool.*` assertion belongs in
 working style and must not appear as a preference. Assertions that fail this gate can
 remain L2 facts or review material, but they must not enter `world` or
 `prompt_summary`.
+Materialized portrait rows are cacheable, not permanently authoritative: reads
+and prompt assembly must rebuild them when newer profile, assertion, snapshot,
+or safe graph inputs exist. User feedback or correction on a user assertion
+should refresh the portrait projection after the assertion update succeeds.
 
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
@@ -740,10 +744,12 @@ list may remain as compatibility material, but page classification belongs in
 the backend read model. The frontend may translate section and source labels,
 but it should not infer grouping from keywords, source names, or raw text.
 When a materialized `user_portrait_projection` exists, the endpoint may return
-that page model directly; otherwise it can assemble the same shape from the
-current projection/snapshot/assertion fallback path. The fallback path must use
-the same portrait qualification policy as the materialized projection so weak
-passive assertions do not leak into the page before the cache is refreshed.
+that page model directly only when it is fresh; otherwise it must rebuild it
+from current profile, assertion, snapshot, and safe graph inputs. If no
+materialized row exists, it can assemble the same shape from the current
+projection/snapshot/assertion fallback path. The fallback path must use the same
+portrait qualification policy as the materialized projection so weak passive
+assertions do not leak into the page before the cache is refreshed.
 The read model may include safe L2 graph relationships such as visited places
 or owned/used tools as user-visible clues; those clues do not become durable
 profile assertions unless they pass assertion policy separately.

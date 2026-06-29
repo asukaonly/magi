@@ -64,14 +64,18 @@ class UserProfileCommandService:
 
     async def refresh_from_memory(self, user_id: str = DEFAULT_USER_ID) -> UserProfileProjection:
         profile = await self._query_service.refresh_profile(user_id)
-        await self._refresh_portrait(user_id)
+        await self._refresh_portrait(user_id, profile)
         return profile
 
-    async def _refresh_portrait(self, user_id: str) -> None:
+    async def _refresh_portrait(self, user_id: str, profile: UserProfileProjection) -> None:
         if self._portrait_repository is None or self._portrait_builder is None:
             return
         try:
-            portrait = await self._portrait_builder.build(user_id)
+            builder = self._portrait_builder
+            with_profile_projection = getattr(builder, "with_profile_projection", None)
+            if callable(with_profile_projection):
+                builder = with_profile_projection(profile)
+            portrait = await builder.build(user_id)
             await self._portrait_repository.upsert(portrait)
         except Exception as exc:
             logger.debug("Failed to refresh portrait projection for %s: %s", user_id, exc)
