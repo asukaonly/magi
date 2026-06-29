@@ -1,4 +1,4 @@
-"""Serialization helpers for the user-facing episode review surface."""
+"""Serialization helpers for the user-facing L2 episode review surface."""
 
 from __future__ import annotations
 

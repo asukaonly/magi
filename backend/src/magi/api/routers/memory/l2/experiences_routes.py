@@ -6,21 +6,25 @@ from typing import Any
 
 from fastapi import HTTPException, Query, UploadFile, status
 
-from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
-from ..asset_uploads import store_uploaded_image_asset
-from ..helpers import memory_t
-from ..router import memory_router
-from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
-from .episode_review_helpers import build_episode_display_fields, serialize_episodic_summary
-from .episodes_routes import (
-    _attach_episode_entity_previews,
-    _get_configured_or_real_method,
-    _get_unified_layer,
-    _ordered_non_empty_strings,
-    _serialize_episode_event_previews,
+from magi.api.services.l2_episode_review_helpers import (
+    build_episode_display_fields,
+    serialize_episodic_summary,
+)
+from magi.api.services.l2_episode_review_read_model import (
+    attach_episode_entity_previews,
+    get_configured_or_real_method,
+    get_unified_layer,
+    ordered_non_empty_strings,
+    serialize_episode_event_previews,
 )
 from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
 from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+
+from ..asset_uploads import store_uploaded_image_asset
+from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
+from ..helpers import memory_t
+from ..router import memory_router
+from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
 
 
 def _clean_text(value: Any) -> str:
@@ -127,12 +131,12 @@ async def _attach_experience_review_fields(
     unified_memory: Any,
     items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    l3_store = _get_unified_layer(unified_memory, "l3")
+    l3_store = get_unified_layer(unified_memory, "l3")
     for item in items:
         review = None
         experience_id = str(item.get("experience_id") or "").strip()
         if l3_store is not None and experience_id:
-            get_review = _get_configured_or_real_method(
+            get_review = get_configured_or_real_method(
                 l3_store,
                 "get_episodic_summary_by_experience_id",
             )
@@ -140,7 +144,7 @@ async def _attach_experience_review_fields(
                 review = serialize_episodic_summary(await get_review(experience_id))
         item["experience_review"] = review
         item.update(_build_experience_display_fields(item, review))
-    await _attach_episode_entity_previews(unified_memory, items)
+    await attach_episode_entity_previews(unified_memory, items)
     return items
 
 
@@ -159,12 +163,12 @@ async def _source_episode_previews(
     members: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     previews: list[dict[str, Any]] = []
-    get_episode = _get_configured_or_real_method(unified_memory.l2, "get_episode")
+    get_episode = get_configured_or_real_method(unified_memory.l2, "get_episode")
     if get_episode is None:
         return previews
-    l3_store = _get_unified_layer(unified_memory, "l3")
+    l3_store = get_unified_layer(unified_memory, "l3")
     get_episode_summary = (
-        _get_configured_or_real_method(l3_store, "get_episodic_summary_by_episode_id")
+        get_configured_or_real_method(l3_store, "get_episodic_summary_by_episode_id")
         if l3_store is not None
         else None
     )
@@ -192,7 +196,7 @@ async def _source_episode_previews(
         item["membership_confidence"] = float(member.get("confidence") or 0.0)
         item["membership_added_at"] = member.get("added_at")
         previews.append(item)
-    await _attach_episode_entity_previews(unified_memory, previews)
+    await attach_episode_entity_previews(unified_memory, previews)
     return previews
 
 
@@ -202,7 +206,7 @@ async def _experience_event_previews(
 ) -> list[dict[str, Any]]:
     event_memberships: list[dict[str, Any]] = []
     seen: set[str] = set()
-    list_episode_events = _get_configured_or_real_method(
+    list_episode_events = get_configured_or_real_method(
         unified_memory.l2,
         "list_episode_events",
     )
@@ -230,7 +234,7 @@ async def _experience_event_previews(
                     "added_at": member.get("added_at"),
                 }
             )
-    return await _serialize_episode_event_previews(unified_memory, event_memberships)
+    return await serialize_episode_event_previews(unified_memory, event_memberships)
 
 
 async def _build_experience_review_response(
@@ -246,7 +250,7 @@ async def _build_experience_review_response(
         experience["experience_review"] = experience_review
         experience.update(_build_experience_display_fields(experience, experience_review))
     if members is None:
-        list_members = _get_configured_or_real_method(
+        list_members = get_configured_or_real_method(
             unified_memory.l2,
             "list_experience_members",
         )
@@ -269,9 +273,9 @@ async def _episode_ids_from_seed_request(
     unified_memory: Any,
     body: ExperienceSeedCreateRequest,
 ) -> list[str]:
-    episode_ids = _ordered_non_empty_strings(body.episode_ids)
+    episode_ids = ordered_non_empty_strings(body.episode_ids)
     if body.event_ids:
-        find_episode = _get_configured_or_real_method(
+        find_episode = get_configured_or_real_method(
             unified_memory.l2,
             "find_episode_for_event",
         )
@@ -281,7 +285,7 @@ async def _episode_ids_from_seed_request(
                 episode_id = _clean_text((episode or {}).get("episode_id"))
                 if episode_id:
                     episode_ids.append(episode_id)
-    return _ordered_non_empty_strings(episode_ids)
+    return ordered_non_empty_strings(episode_ids)
 
 
 @memory_router.post("/l2/experience-seeds")
@@ -582,8 +586,8 @@ async def regenerate_l2_experience(experience_id: str):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
-    l1_store = _get_unified_layer(unified_memory, "l1")
-    l3_store = _get_unified_layer(unified_memory, "l3")
+    l1_store = get_unified_layer(unified_memory, "l1")
+    l3_store = get_unified_layer(unified_memory, "l3")
     if l1_store is None or l3_store is None or not hasattr(l3_store, "generate_experience_summary"):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

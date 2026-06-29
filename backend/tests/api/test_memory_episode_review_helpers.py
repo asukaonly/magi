@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from magi.api.routers.memory.l2.episode_review_helpers import (
+from magi.api.services.l2_episode_review_helpers import (
     build_episode_display_fields,
     score_episode_candidate,
     serialize_episodic_summary,

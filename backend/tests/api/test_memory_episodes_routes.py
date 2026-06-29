@@ -43,15 +43,15 @@ def _patched_l2_consolidation_lock():
     record_failure = AsyncMock()
     with (
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._acquire_l2_consolidation_lock",
+            "magi.api.services.l2_episode_review_service._acquire_l2_consolidation_lock",
             new=acquire,
         ),
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._record_l2_consolidation_lock_success",
+            "magi.api.services.l2_episode_review_service._record_l2_consolidation_lock_success",
             new=record_success,
         ),
         patch(
-            "magi.api.routers.memory.l2.episodes_routes._record_l2_consolidation_lock_failure",
+            "magi.api.services.l2_episode_review_service._record_l2_consolidation_lock_failure",
             new=record_failure,
         ),
     ):
@@ -73,7 +73,9 @@ def test_list_episodes_surface_standout_returns_only_standouts(app_with_mock_mem
         "insight_metadata": {"label": "Kimi 下午"},
         "updated_at": 1700000000,
     })
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
@@ -94,7 +96,9 @@ def test_list_episodes_surface_standout_null_summary_when_no_l3(app_with_mock_me
         {"episode_id": "ep2", "episode_type": "visit", "user_pinned": True, "magi_standout": False,
          "time_start": 50, "time_end": 150, "primary_entity_ids": [], "status": "user_pinned"},
     ])
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = None
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
@@ -114,7 +118,9 @@ def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with
     ])
     l3 = MagicMock()
     l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
@@ -128,7 +134,9 @@ def test_list_episodes_default_surface_lists_active(app_with_mock_memory):
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
     l2.count_episodes = AsyncMock(return_value=1)
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = None
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes")
@@ -1023,7 +1031,9 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
         "insight_metadata": _json.dumps({"label": "from string"}),
         "updated_at": 999,
     })
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
     with build_patcher(unified):
         client = TestClient(app)
         r = client.get("/api/memory/l2/episodes", params={"surface": "standout"})
@@ -1071,7 +1081,10 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
         "insight_metadata": {"source_experience_id": "exp_need"},
     })
     l1 = MagicMock()
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
 
     # consolidate_episodes is invoked from within the route; patch where it's imported.
     with (
@@ -1202,7 +1215,10 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
         return_value={"generated": 0, "errors": ["ep_fail: LLM timeout"]}
     )
     l1 = MagicMock()
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = l3; unified.l1 = l1
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = l3
+    unified.l1 = l1
 
     with (
         build_patcher(unified),
@@ -1236,7 +1252,10 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[{"episode_id": "ep1"}])
-    unified = MagicMock(); unified.l2 = l2; unified.l3 = None; unified.l1 = None
+    unified = MagicMock()
+    unified.l2 = l2
+    unified.l3 = None
+    unified.l1 = None
 
     with (
         build_patcher(unified),
@@ -1301,7 +1320,7 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
     with (
         build_patcher(unified),
         patch(
-            "magi.api.routers.memory.l2.episodes_routes.get_runtime_paths",
+            "magi.api.services.l2_episode_review_service.get_runtime_paths",
             return_value=runtime_paths_with_schema,
             create=True,
         ),
@@ -1321,7 +1340,8 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
 def test_reconsolidate_503_when_l2_missing(app_with_mock_memory):
     """Returns 503 when L2 store is not initialized."""
     app, build_patcher = app_with_mock_memory
-    unified = MagicMock(); unified.l2 = None
+    unified = MagicMock()
+    unified.l2 = None
     with build_patcher(unified):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
