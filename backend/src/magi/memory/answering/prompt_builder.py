@@ -107,7 +107,9 @@ _TIMELINE_PRIORITY_RE = re.compile(
 )
 
 
-def should_prioritize_timeline(question: str, timeline_summary: list[dict[str, Any]] | None) -> bool:
+def should_prioritize_timeline(
+    question: str, timeline_summary: list[dict[str, Any]] | None
+) -> bool:
     if not timeline_summary:
         return False
     return bool(_TIMELINE_PRIORITY_RE.search(question or ""))
@@ -121,6 +123,30 @@ def build_answer_prompt_payload(
     timeline_summary: list[dict[str, Any]] | None = None,
     l2_episodes: list[dict[str, Any]] | None = None,
 ) -> AnswerPromptPayload:
+    evidence_blocks = _format_retrieved_evidence_blocks(hits)
+    prioritize_timeline = should_prioritize_timeline(question, timeline_summary)
+    timeline_text = _format_timeline_summary(timeline_summary)
+    bundle_text, bundle_turn_ids = _format_evidence_bundles(evidence_bundles)
+    evidence_text = _dedupe_retrieved_evidence(
+        evidence_blocks=evidence_blocks,
+        bundle_turn_ids=bundle_turn_ids,
+    )
+    episode_text = _format_episode_summaries(l2_episodes)
+
+    return AnswerPromptPayload(
+        evidence_text=evidence_text,
+        timeline_text=timeline_text,
+        bundle_text=bundle_text,
+        episode_text=episode_text,
+        prioritize_timeline=prioritize_timeline,
+        timeline_instruction=_timeline_priority_instruction(prioritize_timeline),
+        preference_instruction=_preference_question_instruction(question),
+    )
+
+
+def _format_retrieved_evidence_blocks(
+    hits: list[dict[str, Any]],
+) -> list[tuple[str, dict[str, Any]]]:
     evidence_blocks: list[tuple[str, dict[str, Any]]] = []
     for index, hit in enumerate(hits, start=1):
         content = str(hit.get("content") or "").strip()
@@ -129,8 +155,12 @@ def build_answer_prompt_payload(
         session_id = str(hit.get("session_id") or "").strip() or "unknown-session"
         turn_id = str(hit.get("turn_id") or "").strip() or "unknown-turn"
         evidence_blocks.append((f"[{index}] session={session_id} turn={turn_id}\n{content}", hit))
+    return evidence_blocks
 
-    prioritize_timeline = should_prioritize_timeline(question, timeline_summary)
+
+def _format_timeline_summary(
+    timeline_summary: list[dict[str, Any]] | None,
+) -> str:
     timeline_blocks: list[str] = []
     for index, item in enumerate(timeline_summary or [], start=1):
         timestamp = item.get("timestamp")
@@ -146,8 +176,12 @@ def build_answer_prompt_payload(
         timeline_blocks.append(
             f"[{index}] {date_prefix}session={session_id} role={author_type} turn={turn_id}{event_date_note}\n{summary}"
         )
-    timeline_text = "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
+    return "\n\n".join(timeline_blocks) if timeline_blocks else "(no timeline summary available)"
 
+
+def _format_evidence_bundles(
+    evidence_bundles: list[dict[str, Any]] | None,
+) -> tuple[str, dict[str, int]]:
     bundle_blocks: list[str] = []
     bundle_turn_ids: dict[str, int] = {}  # turn_id → bundle index
     for bundle_index, bundle in enumerate(evidence_bundles or [], start=1):
@@ -170,7 +204,14 @@ def build_answer_prompt_payload(
             bundle_turn_ids[turn_id] = bundle_index
         bundle_blocks.append("\n".join(lines))
     bundle_text = "\n\n".join(bundle_blocks) if bundle_blocks else "(no grouped evidence bundles)"
+    return bundle_text, bundle_turn_ids
 
+
+def _dedupe_retrieved_evidence(
+    *,
+    evidence_blocks: list[tuple[str, dict[str, Any]]],
+    bundle_turn_ids: dict[str, int],
+) -> str:
     # Deduplicate: skip hits already present in evidence bundles.
     # When all hits are deduped, generate a focus hint pointing to the
     # most relevant bundles so the LLM knows where to look.
@@ -184,39 +225,44 @@ def build_answer_prompt_payload(
         deduped_evidence_blocks.append(block_text)
 
     if deduped_evidence_blocks:
-        evidence_text = "\n\n".join(deduped_evidence_blocks)
+        return "\n\n".join(deduped_evidence_blocks)
     elif deduped_bundle_refs:
         total = sum(deduped_bundle_refs.values())
-        focus = ", ".join(
-            f"bundle {b}" for b, _ in deduped_bundle_refs.most_common()
-        )
-        evidence_text = f"({total} hits, all covered in session bundles above — focus: {focus})"
-    else:
-        evidence_text = "(no additional evidence)"
+        focus = ", ".join(f"bundle {b}" for b, _ in deduped_bundle_refs.most_common())
+        return f"({total} hits, all covered in session bundles above — focus: {focus})"
+    return "(no additional evidence)"
 
-    timeline_instruction = ""
-    if prioritize_timeline:
-        timeline_instruction = (
-            "TIMELINE PRIORITY — Timeline Summary entries are sorted chronologically (oldest first).\n"
-            "For 'most recently' / 'last time' questions, the LAST entry mentioning the relevant topic is the answer.\n"
-            "For 'first time' questions, the FIRST entry mentioning the relevant topic is the answer.\n"
-            "Do NOT let the volume or frequency of a topic in Session Evidence Bundles override the timeline ordering.\n"
-            "Use Session Evidence Bundles or Retrieved Evidence only to clarify details when the timeline summary is ambiguous.\n"
-            "IMPORTANT: Timeline dates are *conversation* dates, not necessarily *event* dates. "
-            "If bundle content mentions a specific event date (e.g. 'on February 20th', "
-            "'last Tuesday', 'on Black Friday'), use that date instead of the session's timeline date.\n\n"
-        )
 
-    preference_instruction = ""
-    if is_preference_question(question):
-        preference_instruction = (
-            "This question asks for recommendations or suggestions. "
-            "Ground your answer in the user's specific context from the evidence: "
-            "mention their actual interests, past experiences, owned items, stated preferences, "
-            "and constraints (budget, time, skill level, etc.). "
-            "Do not give generic advice that ignores the user's personal context.\n\n"
-        )
+def _timeline_priority_instruction(prioritize_timeline: bool) -> str:
+    if not prioritize_timeline:
+        return ""
+    return (
+        "TIMELINE PRIORITY — Timeline Summary entries are sorted chronologically (oldest first).\n"
+        "For 'most recently' / 'last time' questions, the LAST entry mentioning the relevant topic is the answer.\n"
+        "For 'first time' questions, the FIRST entry mentioning the relevant topic is the answer.\n"
+        "Do NOT let the volume or frequency of a topic in Session Evidence Bundles override the timeline ordering.\n"
+        "Use Session Evidence Bundles or Retrieved Evidence only to clarify details when the timeline summary is ambiguous.\n"
+        "IMPORTANT: Timeline dates are *conversation* dates, not necessarily *event* dates. "
+        "If bundle content mentions a specific event date (e.g. 'on February 20th', "
+        "'last Tuesday', 'on Black Friday'), use that date instead of the session's timeline date.\n\n"
+    )
 
+
+def _preference_question_instruction(question: str) -> str:
+    if not is_preference_question(question):
+        return ""
+    return (
+        "This question asks for recommendations or suggestions. "
+        "Ground your answer in the user's specific context from the evidence: "
+        "mention their actual interests, past experiences, owned items, stated preferences, "
+        "and constraints (budget, time, skill level, etc.). "
+        "Do not give generic advice that ignores the user's personal context.\n\n"
+    )
+
+
+def _format_episode_summaries(
+    l2_episodes: list[dict[str, Any]] | None,
+) -> str:
     episode_blocks: list[str] = []
     for ep in l2_episodes or []:
         label = str(ep.get("label") or "").strip()
@@ -228,14 +274,4 @@ def build_answer_prompt_payload(
         if time_range:
             header += f" ({time_range})"
         episode_blocks.append(f"{header}\n{summary}")
-    episode_text = "\n\n".join(episode_blocks) if episode_blocks else ""
-
-    return AnswerPromptPayload(
-        evidence_text=evidence_text,
-        timeline_text=timeline_text,
-        bundle_text=bundle_text,
-        episode_text=episode_text,
-        prioritize_timeline=prioritize_timeline,
-        timeline_instruction=timeline_instruction,
-        preference_instruction=preference_instruction,
-    )
+    return "\n\n".join(episode_blocks) if episode_blocks else ""
