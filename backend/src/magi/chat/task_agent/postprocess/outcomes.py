@@ -9,6 +9,7 @@ from magi.chat import ChatMessageRecord
 from magi.agent.task_agents.common import AssistantResponsePlan, IncomingFactKind
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 from .components import ChatOutcomeWriter
+from .message_payloads import resolve_reaction_text
 
 
 class _OutcomePostprocessHostProtocol(Protocol):
@@ -187,7 +188,7 @@ class ChatPostprocessOutcomeMixin:
 
     @staticmethod
     def _resolve_reaction_text(ux_plan: dict[str, Any] | None) -> str:
-        return str(ChatOutcomeWriter.resolve_reaction_text(ux_plan) or "")
+        return str(resolve_reaction_text(ux_plan) or "")
 
     @staticmethod
     def _serialize_selected_tools_payload(

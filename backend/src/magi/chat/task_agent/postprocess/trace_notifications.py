@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .components import ChatOutcomeWriter
+from .message_payloads import resolve_reaction_text
 
 
 class ChatPostprocessTraceNotificationMixin:
@@ -102,7 +102,7 @@ class ChatPostprocessTraceNotificationMixin:
         *,
         fallback: str,
     ) -> str:
-        reaction_text = ChatOutcomeWriter.resolve_reaction_text(ux_plan)
+        reaction_text = resolve_reaction_text(ux_plan)
         return reaction_text or fallback
 
 
