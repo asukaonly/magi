@@ -5,7 +5,7 @@
 <h1 align="center">Magi</h1>
 
 <p align="center">
-  <em>A local AI companion that remembers you</em>
+  <em>Turn time into context</em>
 </p>
 
 <p align="center">
@@ -26,102 +26,96 @@
   <img src="./docs/assets/hero.png" alt="Magi chat workspace screenshot" width="100%">
 </p>
 
-Magi is first and foremost an **agent runtime** that runs on your local desktop: it can chat, call tools, execute tasks, handle interruptions and permission requests, and move long-running work into the background.
+Magi is a local-first desktop agent that can chat, use tools, run background tasks, and keep long-term context under your control.
 
-What makes it different is not simply that it can run tasks. It is **not a one-shot agent**. Magi remembers the keyboard you complained about last time, the project you have been working on all week, and the song you looped three times last night. It turns those fragments from conversations, calendars, browsing history, git commits, music, and photos into a personal timeline you can revisit, question, correct, and delete, so the agent's judgment stays grounded in memory that accumulates over time.
+Most agents only see the current prompt. Magi is built for work, habits, preferences, and decisions that unfold over days or months. With your permission, it organizes useful signals from conversations, calendars, browsing history, git activity, music, photos, and other local sources into a timeline and inspectable memory, so future replies and actions can be grounded in what actually happened.
 
-## Why Magi
+## Why Time Matters
 
-Magi was not designed to rebuild Claude Code or OpenClaw.
+Time is the missing context in many AI workflows.
 
-If many AI agents focus on the question, "How can this task be completed faster and better?", Magi wants to answer a different one: **can an agent keep working over the long term**, across repeated conversations, daily activity, and a life that keeps changing, while continuing to understand you and make better judgments from that context?
+An assistant can answer a question in one window. A useful long-running agent also needs to understand what changed, what repeated, what you corrected, and what should be forgotten. Magi treats time as part of the product: events become a timeline, repeated patterns become memory, and every stored memory remains reviewable by you.
 
-This kind of observation is not surveillance, and it is not about piling data into a dashboard. Within the boundaries you authorize, Magi takes fragments from conversations, calendars, browsing history, git commits, music, photos, screen time, and terminal commands, then organizes them into a timeline you can revisit and turns them into long-term memory you can inspect, correct, and delete.
+- **A desktop agent, not only a chat surface** - Magi can answer, use tools, manage permissions, recover from interruptions, and continue long-running work in the background.
+- **Memory that accumulates over time** - The memory pipeline is built for facts, preferences, cross-session patterns, and updates, reaching **87.2% accuracy** on LongMemEval.
+- **A timeline you can ask about** - Conversations and authorized plugin events are organized into a searchable, reviewable timeline instead of disappearing into scattered logs.
+- **Inspectable by default** - You can see what Magi remembers, correct weak or wrong inferences, and delete anything you do not want to keep.
+- **Local-first control** - App and runtime data stay on your own machine by default under `~/.magi`; data only leaves during model calls or actions you configure.
+- **A more continuous interaction model** - Persona profiles, relationship depth, and natural reply rhythm help Magi feel less like a stateless command box.
 
-- 🤖 **The agent is the core capability; memory makes the agent stronger** - Magi can chat, call tools, execute tasks, and keep running, rather than stopping at being a chat UI that merely remembers things.
-- 🧠 **Real long-term memory is not just a larger context window** - It reaches **87.2% accuracy** on LongMemEval, with a retrieval pipeline built for facts, preferences, cross-session patterns, and changes over time.
-- 📅 **A timeline is not a chat log** - It organizes events from conversations and external data sources into a searchable, reviewable, askable personal timeline, and gives the agent traceable grounding.
-- 🔍 **Memory is inspectable** - You can review what the AI remembers, correct wrong inferences, and delete anything you do not want to keep.
-- 🏠 **Local-first** - App and runtime data stay on your own machine by default under `~/.magi`, and data is not proactively sent elsewhere outside LLM API calls.
-- 🎭 **Persona is not just a system prompt** - Magi maintains persona profiles, relationship depth, and dynamic state so the agent's behavior, tone, and long-term interaction feel more continuous.
+## How Time Becomes Context
 
-## How Magi Keeps An Agent Oriented Over Time
-
-Magi is not about turning memory into an isolated module. It is about letting the agent build on continuously accumulated context while it executes tasks, chats with you, and keeps interacting over time.
+Magi connects authorized local signals to an agent runtime through a loop you can inspect and control.
 
 ```mermaid
 flowchart LR
-  A[Chat]
-  B[Calendar]
-  C[Browsing History]
-  D[Git / Music / Photos / Terminal]
-  E[Plugins and MCP]
+  S[Authorized signals]
+  T[Timeline]
+  M[Inspectable memory]
+  A[Magi agent]
+  R[Replies, tools, and tasks]
+  C[Review, correct, or delete]
 
-  A --> M[Magi Agent Runtime]
-  B --> M
+  S --> T
+  T --> M
+  M --> A
+  A --> R
+  R --> T
   C --> M
-  D --> M
-  E --> M
-
-  M --> X[Chat / Tool Calls / Task Execution]
-  M --> T[Timeline]
-  M --> L[Long-Term Memory]
-  L --> R[Evidence-Grounded Judgment and Replies]
-  T --> R
-  R --> X
 ```
 
-You can think of it as a continuously running local system:
+The flow is simple:
 
-1. **It works as an agent first**: Magi chats, calls tools, executes tasks, and handles interruptions, permissions, and background work.
-2. **Then it turns interactions into long-term context**: with your permission, conversations and external data sources are organized into a Timeline and Memory instead of dissolving into scattered logs.
-3. **Later judgments are grounded in memory**: when it continues answering, planning, or executing tasks, it retrieves evidence from the timeline and long-term memory instead of guessing from the current window alone.
+1. **Signals become a timeline**: conversations and authorized plugin events are normalized into a history you can search and revisit.
+2. **The timeline becomes memory**: useful facts, patterns, experiences, and corrections are distilled into long-term context.
+3. **Memory guides future work**: when Magi replies, plans, or executes tasks, it can retrieve relevant context instead of relying only on the current window.
+4. **You stay in control**: memory is not a black box; you can review, edit, delete, and clear it.
 
 All data sources connect through one unified plugin architecture. Magi only sees what you authorize, and it forgets what you delete.
 
 ## Main Features
 
-### 💬 Chat With Memory
+### Chat With Long-Term Context
 
 <p align="center">
   <img src="./docs/assets/chat_with_memory.png" alt="Magi chat workspace screenshot" width="100%">
 </p>
 
-Long conversations, local workspaces, managed attachments, and answers that can bring in long-term memory when it matters, instead of starting from a blank slate every time.
+Chat across local workspaces, managed attachments, tools, and long-term memory. Magi can bring in relevant context when it matters instead of starting from a blank slate every time.
 
-### 📜 Timeline
+### Timeline
 
-It organizes chat and plugin events into a searchable timeline, with natural-language queries and context drawers.
+Turn conversations and authorized plugin events into a searchable personal timeline, with natural-language queries and context drawers for source details.
 
-### 🧩 Memory Workbench
+### Inspectable Memory
 
 <img src="./docs/assets/memory_console_event.png" alt="Event memory" width="100%">
 
 <img src="./docs/assets/memory_console_knowledge.png" alt="Knowledge memory" width="100%">
 
-L0 working state, L1 events, L2 structured cognition, L3 reflections, and L4 procedural skills. Every layer can be inspected, corrected, and cleared.
+Review what Magi has remembered, see where it came from, correct weak inferences, and remove memories you do not want to keep.
 
-### 🎭 Persona And Natural Rhythm
+### Persona And Natural Rhythm
 
 <img src="./docs/assets/natural_reply.png" alt="Natural Rhythm" width="100%">
 
 Persona profiles, conversation modes, relationship depth, and dynamic state. Long replies can be split into multiple chat bubbles so the interaction feels more like an ongoing exchange than a one-off report.
 
-### 🎮 Tasks And Run Control
+### Tasks And Run Control
 
 <img src="./docs/assets/schedule_task.png" alt="Scheduled task" width="100%">
 
 <img src="./docs/assets/schedule_task_status.png" alt="Scheduled task status" width="100%">
 
-Treat conversations as controllable agent runs. You can interrupt them, steer them, handle permission requests, or move long jobs into the background.
+Run one-off or scheduled agent work with visible status. You can interrupt runs, steer them, handle permission requests, or move long jobs into the background.
 
-### 🔌 Plugin Marketplace And External Capabilities
+### Plugins And External Capabilities
 
 <img src="./docs/assets/plugin.png" alt="Plugin marketplace" width="100%">
 
-Install, enable, and configure official or third-party plugins. MCP servers and channels such as Telegram can also plug into the same runtime.
+Install, enable, and configure plugins for local data sources, tools, sensors, and external channels. MCP servers and channels such as Telegram can plug into the same runtime.
 
-One clarification: Magi uses a unified plugin architecture, but the marketplace registry and most installable official or third-party plugins currently live in the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins). This repository mainly contains the desktop app, agent runtime, gateway, frontend, backend, and the plugin platform itself, so it is normal not to find every plugin implementation here.
+Most installable plugins live in the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins). This repository contains the desktop app, agent runtime, gateway, frontend, backend, and plugin platform.
 
 ## Privacy And Data
 
