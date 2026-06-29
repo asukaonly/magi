@@ -6,6 +6,9 @@ import inspect
 
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.chat.task_agent import runtime_dependencies
+from magi.chat.task_agent import runtime_context_builder
+from magi.chat.task_agent import runtime_execution_builder
+from magi.chat.task_agent import runtime_handler_builder
 from magi.chat.task_agent.runtime_dependencies import (
     build_chat_task_agent_runtime_parts,
 )
@@ -29,8 +32,38 @@ def test_chat_task_agent_delegates_runtime_assembly_to_chat_builder() -> None:
         assert f"{constructor_name}(" not in source
 
 
-def test_chat_runtime_builder_owns_core_chat_wiring() -> None:
+def test_chat_runtime_facade_delegates_core_chat_wiring() -> None:
     source = inspect.getsource(build_chat_task_agent_runtime_parts)
+
+    for builder_name in (
+        "build_chat_context_runtime_parts",
+        "build_chat_execution_runtime_parts",
+        "build_chat_handler_runtime_parts",
+    ):
+        assert builder_name in source
+
+    for constructor_name in (
+        "ChatContextAssembler",
+        "ChatExecutionCoordinator",
+        "ChatPlanningService",
+        "ChatPostProcessService",
+        "ChatPromptService",
+        "SessionRunCoordinator",
+        "SessionRunStore",
+        "FunctionCallingOrchestrator",
+        "ExecutionHandlerRegistry",
+    ):
+        assert f"{constructor_name}(" not in source
+
+
+def test_chat_runtime_domain_builders_own_core_chat_wiring() -> None:
+    source = "\n".join(
+        (
+            inspect.getsource(runtime_context_builder),
+            inspect.getsource(runtime_execution_builder),
+            inspect.getsource(runtime_handler_builder),
+        ),
+    )
 
     for constructor_name in (
         "ChatContextAssembler",
