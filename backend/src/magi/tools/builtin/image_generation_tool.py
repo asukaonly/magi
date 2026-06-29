@@ -8,6 +8,7 @@ import binascii
 import inspect
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
@@ -46,6 +47,23 @@ logger = get_logger(__name__, category="TOOLS")
 DEFAULT_IMAGE_GENERATION_TIMEOUT_SECONDS = 180
 DEFAULT_IMAGE_DOWNLOAD_TIMEOUT_SECONDS = 30
 TRANSIENT_IMAGE_GENERATION_RETRIES = 1
+
+
+@dataclass(frozen=True)
+class _ImageGenerationInputs:
+    prompt: str
+    size: str
+    quality: str
+
+
+@dataclass(frozen=True)
+class _ImageGenerationExecution:
+    selection: Any
+    image_gen: Any
+    proxy_url: str | None
+    adapter: Any
+    request_size: str
+    event_context: dict[str, Any]
 
 
 class ImageGenerationTool(Tool):
@@ -121,7 +139,7 @@ class ImageGenerationTool(Tool):
     def _load_execution_config():
         try:
             return reload_config()
-        except Exception as exc:  # noqa: BLE001 - fall back to cached config if reload is unavailable
+        except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to reload config for image generation", error=str(exc))
             return get_config()
 
@@ -155,160 +173,33 @@ class ImageGenerationTool(Tool):
     ) -> ToolResult:
         """Execute image generation."""
         start = time.time()
-        prompt = str(parameters.get("prompt") or "").strip()
-        if not prompt:
-            return ToolResult(
-                success=False,
+        inputs = self._parse_inputs(parameters)
+        if not inputs.prompt:
+            return self._failure_result(
+                start,
                 error="A prompt is required to generate an image.",
                 error_code=ToolErrorCode.MISSING_VALUE.value,
-                execution_time=time.time() - start,
-            )
-
-        size = str(parameters.get("size") or "").strip()
-        quality = str(parameters.get("quality") or "auto").strip()
-
-        config = self._load_execution_config()
-        selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
-        if selection is None or not selection.model:
-            return ToolResult(
-                success=False,
-                error=(
-                    "Image generation model is not configured. "
-                    "Please configure it in Settings → Models → Image Generation."
-                ),
-                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
-                execution_time=time.time() - start,
-            )
-
-        provider_settings = config.llm.providers.get(selection.provider_id)
-        if provider_settings is None or not provider_settings.enabled:
-            return ToolResult(
-                success=False,
-                error=(
-                    f"Provider '{selection.provider_id}' for image generation "
-                    f"is not enabled or not configured."
-                ),
-                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
-                execution_time=time.time() - start,
-            )
-
-        image_generation = provider_settings.services.image_generation
-        if not image_generation.enabled:
-            return ToolResult(
-                success=False,
-                error=f"Provider '{selection.provider_id}' does not have image generation enabled.",
-                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
-                execution_time=time.time() - start,
-            )
-
-        if not (image_generation.api_key or provider_settings.api_key):
-            return ToolResult(
-                success=False,
-                error=f"Provider '{selection.provider_id}' is missing an API key.",
-                error_code=ToolErrorCode.AUTH_REQUIRED.value,
-                execution_time=time.time() - start,
-            )
-
-        image_gen = context.capabilities.image_gen if context.capabilities else None
-        if image_gen is None:
-            return ToolResult(
-                success=False,
-                error="Image generation capability is not available.",
-                error_code=ToolErrorCode.EXECUTION_ERROR.value,
-                execution_time=time.time() - start,
             )
 
         try:
-            proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
-            registry = load_llm_provider_registry(
-                get_llm_provider_registry_file(),
-                fallback=LLMProviderRegistryModel(),
-            )
-            adapter = image_gen.create_adapter(
-                provider_id=selection.provider_id,
-                provider_settings=provider_settings,
-                model=selection.model,
-                registry=registry,
-                timeout=self._timeout_seconds_from_config(config),
-                proxy_url=proxy_url,
-            )
-            request_size = size or self._default_size_for_adapter(adapter)
+            execution, failure = self._prepare_execution(inputs, context, start)
+            if failure is not None:
+                return failure
+            assert execution is not None
 
-            try:
-                result = await self._generate_with_transient_retry(
-                    adapter,
-                    ImageGenerationRequest(
-                        prompt=prompt,
-                        model=selection.model,
-                        size=request_size,
-                        quality=quality,
-                        n=1,
-                    ),
-                    image_gen=image_gen,
-                    event_context={
-                        "agent_id": "image_generation_tool",
-                        "session_id": str(context.env_vars.get("session_id") or "").strip() or None,
-                        "turn_id": str(context.env_vars.get("turn_id") or "").strip() or None,
-                    },
-                )
-            finally:
-                await self._close_adapter(adapter)
-
+            result = await self._generate_images(execution, inputs)
             if not result.images:
-                return ToolResult(
-                    success=False,
+                return self._failure_result(
+                    start,
                     error="No images were returned by the provider.",
                     error_code=ToolErrorCode.EXECUTION_ERROR.value,
-                    execution_time=time.time() - start,
                 )
 
-            chat_port = context.capabilities.chat if context.capabilities else None
-            saved_paths, artifacts, chat_attachments = await self._persist_images(
-                images=result.images,
-                workspace=Path(context.workspace).resolve(),
-                model=selection.model,
-                session_id=str(context.env_vars.get("session_id") or "").strip(),
-                turn_id=str(context.env_vars.get("turn_id") or "").strip(),
-                proxy_url=proxy_url,
-                chat_port=chat_port,
-            )
-
-            revised_prompt = next(
-                (
-                    artifact.get("revised_prompt")
-                    for artifact in artifacts
-                    if artifact.get("revised_prompt")
-                ),
-                None,
-            )
-            summary_parts = [
-                f"Generated {len(artifacts)} image(s) using model '{result.model}'.",
-            ]
-            if chat_attachments:
-                summary_parts.append(f"Attached {len(chat_attachments)} generated image(s) to the reply.")
-            elif saved_paths:
-                summary_parts.append(f"Saved to: {saved_paths[0]}")
-            if revised_prompt:
-                summary_parts.append(f"Revised prompt: {revised_prompt}")
-
-            asset_refs = self._build_attachment_asset_refs(chat_attachments)
-            data: dict[str, Any] = {
-                "summary": " ".join(summary_parts),
-                "message": " ".join(summary_parts),
-                "paths": saved_paths,
-                "model": result.model,
-                "artifacts": artifacts,
-                "chat_attachments": chat_attachments,
-            }
-            if revised_prompt:
-                data["revised_prompt"] = revised_prompt
-            if asset_refs:
-                data["assistant_payload"] = {"asset_refs": asset_refs}
-
-            return ToolResult(
-                success=True,
-                data=data,
-                execution_time=time.time() - start,
+            return await self._success_result(
+                start,
+                result=result,
+                execution=execution,
+                context=context,
             )
 
         except ImageGenProviderError as exc:
@@ -317,22 +208,248 @@ class ImageGenerationTool(Tool):
                 error=str(exc),
                 code=getattr(exc, "code", None),
             )
-            return ToolResult(
-                success=False,
+            return self._failure_result(
+                start,
                 error=str(exc),
                 error_code=self._tool_error_code_for_image_error(exc),
-                execution_time=time.time() - start,
                 metadata=self._error_metadata(exc),
             )
 
         except Exception as exc:
             logger.error("Image generation failed", error=str(exc))
-            return ToolResult(
-                success=False,
+            return self._failure_result(
+                start,
                 error=f"Image generation failed: {exc}",
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
-                execution_time=time.time() - start,
             )
+
+    @staticmethod
+    def _parse_inputs(parameters: Dict[str, Any]) -> _ImageGenerationInputs:
+        return _ImageGenerationInputs(
+            prompt=str(parameters.get("prompt") or "").strip(),
+            size=str(parameters.get("size") or "").strip(),
+            quality=str(parameters.get("quality") or "auto").strip(),
+        )
+
+    def _prepare_execution(
+        self,
+        inputs: _ImageGenerationInputs,
+        context: ToolExecutionContext,
+        start: float,
+    ) -> tuple[_ImageGenerationExecution | None, ToolResult | None]:
+        config = self._load_execution_config()
+        selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
+        if selection is None or not selection.model:
+            return None, self._failure_result(
+                start,
+                error=(
+                    "Image generation model is not configured. "
+                    "Please configure it in Settings → Models → Image Generation."
+                ),
+                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+            )
+
+        provider_settings = config.llm.providers.get(selection.provider_id)
+        if provider_settings is None or not provider_settings.enabled:
+            return None, self._failure_result(
+                start,
+                error=(
+                    f"Provider '{selection.provider_id}' for image generation "
+                    f"is not enabled or not configured."
+                ),
+                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+            )
+
+        image_generation = provider_settings.services.image_generation
+        if not image_generation.enabled:
+            return None, self._failure_result(
+                start,
+                error=f"Provider '{selection.provider_id}' does not have image generation enabled.",
+                error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
+            )
+
+        if not (image_generation.api_key or provider_settings.api_key):
+            return None, self._failure_result(
+                start,
+                error=f"Provider '{selection.provider_id}' is missing an API key.",
+                error_code=ToolErrorCode.AUTH_REQUIRED.value,
+            )
+
+        image_gen = context.capabilities.image_gen if context.capabilities else None
+        if image_gen is None:
+            return None, self._failure_result(
+                start,
+                error="Image generation capability is not available.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+
+        proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
+        registry = load_llm_provider_registry(
+            get_llm_provider_registry_file(),
+            fallback=LLMProviderRegistryModel(),
+        )
+        adapter = image_gen.create_adapter(
+            provider_id=selection.provider_id,
+            provider_settings=provider_settings,
+            model=selection.model,
+            registry=registry,
+            timeout=self._timeout_seconds_from_config(config),
+            proxy_url=proxy_url,
+        )
+        return (
+            _ImageGenerationExecution(
+                selection=selection,
+                image_gen=image_gen,
+                proxy_url=proxy_url,
+                adapter=adapter,
+                request_size=inputs.size or self._default_size_for_adapter(adapter),
+                event_context=self._event_context(context),
+            ),
+            None,
+        )
+
+    async def _generate_images(
+        self,
+        execution: _ImageGenerationExecution,
+        inputs: _ImageGenerationInputs,
+    ):
+        try:
+            return await self._generate_with_transient_retry(
+                execution.adapter,
+                ImageGenerationRequest(
+                    prompt=inputs.prompt,
+                    model=execution.selection.model,
+                    size=execution.request_size,
+                    quality=inputs.quality,
+                    n=1,
+                ),
+                image_gen=execution.image_gen,
+                event_context=execution.event_context,
+            )
+        finally:
+            await self._close_adapter(execution.adapter)
+
+    async def _success_result(
+        self,
+        start: float,
+        *,
+        result,
+        execution: _ImageGenerationExecution,
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        chat_port = context.capabilities.chat if context.capabilities else None
+        saved_paths, artifacts, chat_attachments = await self._persist_images(
+            images=result.images,
+            workspace=Path(context.workspace).resolve(),
+            model=execution.selection.model,
+            session_id=str(context.env_vars.get("session_id") or "").strip(),
+            turn_id=str(context.env_vars.get("turn_id") or "").strip(),
+            proxy_url=execution.proxy_url,
+            chat_port=chat_port,
+        )
+        revised_prompt = self._first_revised_prompt(artifacts)
+        summary = self._success_summary(
+            model=str(result.model),
+            saved_paths=saved_paths,
+            artifacts=artifacts,
+            chat_attachments=chat_attachments,
+            revised_prompt=revised_prompt,
+        )
+        data = self._success_data(
+            summary=summary,
+            saved_paths=saved_paths,
+            model=str(result.model),
+            artifacts=artifacts,
+            chat_attachments=chat_attachments,
+            revised_prompt=revised_prompt,
+        )
+        return ToolResult(
+            success=True,
+            data=data,
+            execution_time=time.time() - start,
+        )
+
+    @staticmethod
+    def _event_context(context: ToolExecutionContext) -> dict[str, Any]:
+        return {
+            "agent_id": "image_generation_tool",
+            "session_id": str(context.env_vars.get("session_id") or "").strip() or None,
+            "turn_id": str(context.env_vars.get("turn_id") or "").strip() or None,
+        }
+
+    @staticmethod
+    def _first_revised_prompt(artifacts: list[dict[str, Any]]) -> Any:
+        return next(
+            (
+                artifact.get("revised_prompt")
+                for artifact in artifacts
+                if artifact.get("revised_prompt")
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _success_summary(
+        *,
+        model: str,
+        saved_paths: list[str],
+        artifacts: list[dict[str, Any]],
+        chat_attachments: list[dict[str, object]],
+        revised_prompt: Any,
+    ) -> str:
+        summary_parts = [
+            f"Generated {len(artifacts)} image(s) using model '{model}'.",
+        ]
+        if chat_attachments:
+            summary_parts.append(
+                f"Attached {len(chat_attachments)} generated image(s) to the reply."
+            )
+        elif saved_paths:
+            summary_parts.append(f"Saved to: {saved_paths[0]}")
+        if revised_prompt:
+            summary_parts.append(f"Revised prompt: {revised_prompt}")
+        return " ".join(summary_parts)
+
+    def _success_data(
+        self,
+        *,
+        summary: str,
+        saved_paths: list[str],
+        model: str,
+        artifacts: list[dict[str, Any]],
+        chat_attachments: list[dict[str, object]],
+        revised_prompt: Any,
+    ) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "summary": summary,
+            "message": summary,
+            "paths": saved_paths,
+            "model": model,
+            "artifacts": artifacts,
+            "chat_attachments": chat_attachments,
+        }
+        if revised_prompt:
+            data["revised_prompt"] = revised_prompt
+        asset_refs = self._build_attachment_asset_refs(chat_attachments)
+        if asset_refs:
+            data["assistant_payload"] = {"asset_refs": asset_refs}
+        return data
+
+    @staticmethod
+    def _failure_result(
+        start: float,
+        *,
+        error: str,
+        error_code: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        return ToolResult(
+            success=False,
+            error=error,
+            error_code=error_code,
+            execution_time=time.time() - start,
+            metadata=metadata,
+        )
 
     async def _generate_with_transient_retry(
         self,
@@ -401,7 +518,11 @@ class ImageGenerationTool(Tool):
         try:
             await image_gen.publish_usage_span(
                 provider=str(getattr(adapter, "provider_id", "unknown") or "unknown"),
-                model=str(resolved_model or request.model or getattr(adapter, "_model", "image_generation")),
+                model=str(
+                    resolved_model
+                    or request.model
+                    or getattr(adapter, "_model", "image_generation")
+                ),
                 request_kind="image_generation",
                 success=success,
                 started_at=started_at,
@@ -541,10 +662,7 @@ class ImageGenerationTool(Tool):
                 response = await client.get(url)
                 response.raise_for_status()
                 content_type = (
-                    str(response.headers.get("content-type") or "")
-                    .split(";", 1)[0]
-                    .strip()
-                    .lower()
+                    str(response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
                 )
                 content_length = response.headers.get("content-length")
                 if content_length and int(content_length) > MAX_IMAGE_ATTACHMENT_BYTES:
