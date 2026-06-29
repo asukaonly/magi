@@ -26,26 +26,26 @@
   <img src="./docs/assets/hero.png" alt="Magi chat workspace screenshot" width="100%">
 </p>
 
-Magi is a local-first desktop agent that can chat, use tools, run background tasks, and keep long-term context under your control.
+Magi is a local-first desktop agent for work that does not fit inside one chat window.
 
-Most agents only see the current prompt. Magi is built for work, habits, preferences, and decisions that unfold over days or months. With your permission, it organizes useful signals from conversations, calendars, browsing history, git activity, music, photos, and other local sources into a timeline and inspectable memory, so future replies and actions can be grounded in what actually happened.
+It can chat, use tools, run background tasks, and remember useful context over time. With your permission, Magi connects conversations, calendars, browsing history, git activity, music, photos, and other local signals into a timeline you can search, question, correct, and clear.
 
-## Why Time Matters
+## Beyond a Single Chat
 
-Time is the missing context in many AI workflows.
+The awkward part of most AI tools is what happens after the first answer.
 
-An assistant can answer a question in one window. A useful long-running agent also needs to understand what changed, what repeated, what you corrected, and what should be forgotten. Magi treats time as part of the product: events become a timeline, repeated patterns become memory, and every stored memory remains reviewable by you.
+You come back to the same project next week. You change your mind about a preference. You correct something the model guessed wrong. A habit only becomes visible after it repeats a few times. Magi is built for that in-between space: what happened before, what changed, what still matters, and what should no longer be used.
 
-- **A desktop agent, not only a chat surface** - Magi can answer, use tools, manage permissions, recover from interruptions, and continue long-running work in the background.
-- **Memory that accumulates over time** - The memory pipeline is built for facts, preferences, cross-session patterns, and updates, reaching **87.2% accuracy** on LongMemEval.
-- **A timeline you can ask about** - Conversations and authorized plugin events are organized into a searchable, reviewable timeline instead of disappearing into scattered logs.
-- **Inspectable by default** - You can see what Magi remembers, correct weak or wrong inferences, and delete anything you do not want to keep.
-- **Local-first control** - App and runtime data stay on your own machine by default under `~/.magi`; data only leaves during model calls or actions you configure.
-- **A more continuous interaction model** - Persona profiles, relationship depth, and natural reply rhythm help Magi feel less like a stateless command box.
+- **It can keep working** - Magi can answer, use tools, ask for permission, recover from interruptions, and move long-running work into the background.
+- **Memory has evidence** - Stored context is tied back to conversations and authorized local sources, so you can inspect where it came from.
+- **The timeline comes first** - Events are kept as a history you can search and revisit before they become long-term memory.
+- **You can correct the record** - Weak inferences can be edited or removed; unwanted memories can be deleted.
+- **Local by default** - App and runtime data stay under `~/.magi`; data only leaves during model calls or actions you configure.
+- **It does not reset every turn** - Persona profiles, relationship depth, and natural reply rhythm help Magi feel less like a stateless command box.
 
-## How Time Becomes Context
+## From Timeline to Memory
 
-Magi connects authorized local signals to an agent runtime through a loop you can inspect and control.
+Magi keeps the order simple: preserve what happened first, then distill what is worth carrying forward. That makes memory reviewable instead of magical.
 
 ```mermaid
 flowchart LR
