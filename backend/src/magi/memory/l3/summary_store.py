@@ -7,6 +7,7 @@ import asyncio
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -84,14 +85,9 @@ def _is_placeholder_experience_text(value: Any) -> bool:
     lowered = text.lower()
     if lowered in _EXPERIENCE_PLACEHOLDER_TEXTS or lowered.startswith("untitled exper"):
         return True
-    parts = [
-        part.strip()
-        for part in lowered.replace("|", "/").split("/")
-        if part.strip()
-    ]
+    parts = [part.strip() for part in lowered.replace("|", "/").split("/") if part.strip()]
     return bool(parts) and all(
-        part in _EXPERIENCE_PLACEHOLDER_TEXTS or part.startswith("untitled exper")
-        for part in parts
+        part in _EXPERIENCE_PLACEHOLDER_TEXTS or part.startswith("untitled exper") for part in parts
     )
 
 
@@ -101,10 +97,7 @@ def _is_generic_experience_text(value: Any) -> bool:
 
 
 def _experience_text_is_usable(value: Any) -> bool:
-    return (
-        not _is_placeholder_experience_text(value)
-        and not _is_generic_experience_text(value)
-    )
+    return not _is_placeholder_experience_text(value) and not _is_generic_experience_text(value)
 
 
 def _format_experience_label(value: Any) -> str:
@@ -138,11 +131,13 @@ def _ordered_experience_labels(values: list[Any]) -> list[str]:
 
 
 def _experience_theme_labels(experience: dict[str, Any]) -> list[str]:
-    return _ordered_experience_labels([
-        value
-        for key in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys")
-        for value in (experience.get(key) or [])
-    ])
+    return _ordered_experience_labels(
+        [
+            value
+            for key in ("primary_entity_ids", "primary_place_ids", "primary_topic_keys")
+            for value in (experience.get(key) or [])
+        ]
+    )
 
 
 def _experience_fallback_label(
@@ -190,7 +185,32 @@ def _experience_fallback_content(
     return f"包含 {event_count} 个事件的经历"
 
 
-class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPersistenceMixin, L3ReviewOperationsMixin):
+@dataclass(slots=True)
+class _ExperienceSummaryContext:
+    experience_id: str
+    episode_ids: list[str]
+    event_ids: list[str]
+    events: list[dict[str, Any]]
+    fallback_label: str
+    fallback_content: str
+    period_start: float
+    period_end: float
+
+
+@dataclass(slots=True)
+class _ExperienceSummaryDraft:
+    content: str
+    source_event_ids: list[str]
+    metadata: dict[str, Any]
+    used_fallback: bool
+
+
+class L3SummaryStore(
+    L3SummaryEmbeddingMixin,
+    L3SummarySearchMixin,
+    L3SummaryPersistenceMixin,
+    L3ReviewOperationsMixin,
+):
     """Stores reflection-oriented summaries that remain traceable to L1 evidence."""
 
     def __init__(
@@ -448,7 +468,9 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         period_end: float,
         limit: int,
     ) -> list[dict[str, object]]:
-        normalized = [str(category).strip() for category in summary_categories if str(category).strip()]
+        normalized = [
+            str(category).strip() for category in summary_categories if str(category).strip()
+        ]
         if not normalized:
             return []
         await self.initialize()
@@ -524,8 +546,14 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             events=topic_events,
         )
         source_event_ids = list(evidence_pack.source_event_ids)
-        snippets = [str(event.get("content") or "").strip() for event in topic_events[:4] if str(event.get("content") or "").strip()]
-        fallback_summary = f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
+        snippets = [
+            str(event.get("content") or "").strip()
+            for event in topic_events[:4]
+            if str(event.get("content") or "").strip()
+        ]
+        fallback_summary = (
+            f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
+        )
         fallback_summary = fallback_summary.strip()
         generation = await self._topic_llm_service.generate_topic_candidate(
             evidence_pack,
@@ -541,13 +569,25 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
         if decision.action != "accept":
             return None
 
-        timestamps = [float(event["timestamp"]) for event in topic_events if event.get("timestamp") is not None]
+        timestamps = [
+            float(event["timestamp"])
+            for event in topic_events
+            if event.get("timestamp") is not None
+        ]
         summary_overrides = {
             "summary_id": f"summary_{uuid.uuid4().hex}",
             "summary_type": "thematic",
             "summary_category": "topic",
-            "period_start": float(period_start) if period_start is not None else (min(timestamps) if timestamps else time.time()),
-            "period_end": float(period_end) if period_end is not None else (max(timestamps) if timestamps else time.time()),
+            "period_start": (
+                float(period_start)
+                if period_start is not None
+                else (min(timestamps) if timestamps else time.time())
+            ),
+            "period_end": (
+                float(period_end)
+                if period_end is not None
+                else (max(timestamps) if timestamps else time.time())
+            ),
             "key_topics": [str(topic).strip()],
             "key_entities": [],
             "sentiment_summary": None,
@@ -628,7 +668,9 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
                 "summary_category": "episodic",
                 "period_start": pack.time_start,
                 "period_end": pack.time_end,
-                "generated_by_model": "rule-summary" if generation.used_fallback else "episodic-llm",
+                "generated_by_model": (
+                    "rule-summary" if generation.used_fallback else "episodic-llm"
+                ),
             },
         )
         return summary
@@ -703,10 +745,79 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
     ) -> Optional[Dict[str, Any]]:
         """Build an L3 episodic review for one L2 experience."""
         await self.initialize()
+        context = await self._build_experience_summary_context(
+            l1_store=l1_store,
+            l2_store=l2_store,
+            experience=experience,
+            experience_members=experience_members,
+        )
+        if context is None:
+            return None
+
+        draft = await self._generate_experience_summary_draft(
+            experience=experience,
+            context=context,
+        )
+        candidate = self._build_experience_summary_candidate(
+            context=context,
+            draft=draft,
+        )
+        return await self.upsert_candidate(
+            candidate=candidate,
+            summary_overrides=self._experience_summary_overrides(
+                context=context,
+                used_fallback=draft.used_fallback,
+            ),
+        )
+
+    async def _build_experience_summary_context(
+        self,
+        *,
+        l1_store: L1EventStore,
+        l2_store: Any,
+        experience: Dict[str, Any],
+        experience_members: List[Dict[str, Any]],
+    ) -> _ExperienceSummaryContext | None:
         experience_id = str(experience.get("experience_id") or "").strip()
         if not experience_id:
             return None
 
+        episode_ids, event_ids = await self._collect_experience_member_event_ids(
+            l2_store=l2_store,
+            experience_members=experience_members,
+        )
+        if not event_ids:
+            return None
+
+        events = await self._load_experience_events(l1_store=l1_store, event_ids=event_ids)
+        fallback_label = _experience_fallback_label(experience, events)
+        fallback_content = _experience_fallback_content(
+            experience,
+            events,
+            len(event_ids),
+        )
+        period_start, period_end = self._experience_summary_period(
+            experience=experience,
+            events=events,
+        )
+
+        return _ExperienceSummaryContext(
+            experience_id=experience_id,
+            episode_ids=episode_ids,
+            event_ids=event_ids,
+            events=events,
+            fallback_label=fallback_label,
+            fallback_content=fallback_content,
+            period_start=period_start,
+            period_end=period_end,
+        )
+
+    async def _collect_experience_member_event_ids(
+        self,
+        *,
+        l2_store: Any,
+        experience_members: List[Dict[str, Any]],
+    ) -> tuple[list[str], list[str]]:
         episode_ids: list[str] = []
         event_ids: list[str] = []
         seen_events: set[str] = set()
@@ -727,99 +838,133 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             elif member_type == "event" and member_id not in seen_events:
                 seen_events.add(member_id)
                 event_ids.append(member_id)
+        return episode_ids, event_ids
 
-        if not event_ids:
-            return None
-
+    async def _load_experience_events(
+        self,
+        *,
+        l1_store: L1EventStore,
+        event_ids: list[str],
+    ) -> list[Dict[str, Any]]:
         events: list[Dict[str, Any]] = []
         for event_id in event_ids:
             row = await l1_store.get_event(event_id)
             if row is not None:
                 events.append(row)
+        return events
 
-        fallback_label = _experience_fallback_label(experience, events)
-        fallback_content = _experience_fallback_content(
-            experience,
-            events,
-            len(event_ids),
-        )
-
+    def _experience_summary_period(
+        self,
+        *,
+        experience: Dict[str, Any],
+        events: list[Dict[str, Any]],
+    ) -> tuple[float, float]:
         timestamps = [
-            float(event["timestamp"])
-            for event in events
-            if event.get("timestamp") is not None
+            float(event["timestamp"]) for event in events if event.get("timestamp") is not None
         ]
         period_start = float(
-            experience.get("time_start")
-            or (min(timestamps) if timestamps else time.time())
+            experience.get("time_start") or (min(timestamps) if timestamps else time.time())
         )
         period_end = float(
-            experience.get("time_end")
-            or (max(timestamps) if timestamps else period_start)
+            experience.get("time_end") or (max(timestamps) if timestamps else period_start)
+        )
+        return period_start, period_end
+
+    async def _generate_experience_summary_draft(
+        self,
+        *,
+        experience: Dict[str, Any],
+        context: _ExperienceSummaryContext,
+    ) -> _ExperienceSummaryDraft:
+        if not context.events:
+            return _ExperienceSummaryDraft(
+                content=context.fallback_content,
+                source_event_ids=list(context.event_ids),
+                metadata={"fallback": True},
+                used_fallback=True,
+            )
+
+        pack = self._episodic_llm_service.build_episodic_evidence_pack(
+            episode=self._experience_summary_episode_payload(
+                experience=experience,
+                context=context,
+            ),
+            events=context.events,
+        )
+        generation = await self._episodic_llm_service.generate_episodic_candidate(
+            pack,
+            fallback_label=context.fallback_label,
+            fallback_content=context.fallback_content,
+        )
+        return _ExperienceSummaryDraft(
+            content=str(generation.candidate.content or "").strip(),
+            source_event_ids=list(generation.candidate.source_event_ids),
+            metadata=dict(generation.candidate.insight_metadata),
+            used_fallback=generation.used_fallback,
         )
 
-        used_fallback = True
-        if events:
-            pack = self._episodic_llm_service.build_episodic_evidence_pack(
-                episode={
-                    "episode_id": experience_id,
-                    "episode_type": experience.get("experience_type") or "experience",
-                    "time_start": period_start,
-                    "time_end": period_end,
-                    "primary_entity_ids": experience.get("primary_entity_ids") or [],
-                    "primary_topic_keys": experience.get("primary_topic_keys") or [],
-                },
-                events=events,
-            )
-            generation = await self._episodic_llm_service.generate_episodic_candidate(
-                pack,
-                fallback_label=fallback_label,
-                fallback_content=fallback_content,
-            )
-            source_event_ids = list(generation.candidate.source_event_ids)
-            content = str(generation.candidate.content or "").strip()
-            metadata = dict(generation.candidate.insight_metadata)
-            used_fallback = generation.used_fallback
-        else:
-            source_event_ids = list(event_ids)
-            content = fallback_content
-            metadata = {"fallback": True}
-
+    def _build_experience_summary_candidate(
+        self,
+        *,
+        context: _ExperienceSummaryContext,
+        draft: _ExperienceSummaryDraft,
+    ) -> L3Candidate:
+        content = draft.content
         if (
             not content
             or _is_generic_experience_text(content)
             or _is_placeholder_experience_text(content)
         ):
-            content = fallback_content
+            content = context.fallback_content
 
+        metadata = dict(draft.metadata)
         metadata.pop("source_episode_id", None)
-        metadata["source_experience_id"] = experience_id
-        metadata["source_episode_ids"] = list(episode_ids)
+        metadata["source_experience_id"] = context.experience_id
+        metadata["source_episode_ids"] = list(context.episode_ids)
         if not _experience_text_is_usable(metadata.get("label")):
-            metadata["label"] = fallback_label
+            metadata["label"] = context.fallback_label
         else:
             metadata["label"] = str(metadata["label"]).strip()[:36]
 
-        candidate = L3Candidate(
+        return L3Candidate(
             content=content,
-            source_event_ids=source_event_ids or event_ids,
+            source_event_ids=draft.source_event_ids or context.event_ids,
             summary_category="episodic",
             summary_type="thematic",
-            insight_key=f"experience:{experience_id}:review",
+            insight_key=f"experience:{context.experience_id}:review",
             insight_metadata=metadata,
         )
-        return await self.upsert_candidate(
-            candidate=candidate,
-            summary_overrides={
-                "summary_id": f"summary_{uuid.uuid4().hex}",
-                "summary_type": "thematic",
-                "summary_category": "episodic",
-                "period_start": period_start,
-                "period_end": period_end,
-                "generated_by_model": "rule-summary" if used_fallback else "episodic-llm",
-                "generation_reason": "experience:episodic",
-            },
-        )
+
+    def _experience_summary_episode_payload(
+        self,
+        *,
+        experience: Dict[str, Any],
+        context: _ExperienceSummaryContext,
+    ) -> Dict[str, Any]:
+        return {
+            "episode_id": context.experience_id,
+            "episode_type": experience.get("experience_type") or "experience",
+            "time_start": context.period_start,
+            "time_end": context.period_end,
+            "primary_entity_ids": experience.get("primary_entity_ids") or [],
+            "primary_topic_keys": experience.get("primary_topic_keys") or [],
+        }
+
+    def _experience_summary_overrides(
+        self,
+        *,
+        context: _ExperienceSummaryContext,
+        used_fallback: bool,
+    ) -> Dict[str, Any]:
+        return {
+            "summary_id": f"summary_{uuid.uuid4().hex}",
+            "summary_type": "thematic",
+            "summary_category": "episodic",
+            "period_start": context.period_start,
+            "period_end": context.period_end,
+            "generated_by_model": "rule-summary" if used_fallback else "episodic-llm",
+            "generation_reason": "experience:episodic",
+        }
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight metadata for reporting."""
@@ -827,9 +972,14 @@ class L3SummaryStore(L3SummaryEmbeddingMixin, L3SummarySearchMixin, L3SummaryPer
             "db_path": self.db_path,
             "vector_enabled": self._vectors_enabled(),
             "async_embeddings": self._async_embeddings_enabled(),
-            "embedding_queue_size": self._embedding_queue.qsize() if self._embedding_queue is not None else 0,
+            "embedding_queue_size": (
+                self._embedding_queue.qsize() if self._embedding_queue is not None else 0
+            ),
             "embedding_active_count": int(getattr(self, "_embedding_active_count", 0)),
-            "embedding_worker_running": bool(self._embedding_worker is not None and not self._embedding_worker.done()),
+            "embedding_worker_running": bool(
+                self._embedding_worker is not None and not self._embedding_worker.done()
+            ),
         }
+
 
 __all__ = ["L3SummaryStore"]
