@@ -3,28 +3,15 @@
 from __future__ import annotations
 
 import inspect
-import os
-import platform
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable
 
-from magi.agent.message_utils import build_recent_messages
-from magi.agent.orchestration_plan import OrchestrationPlan
-from magi.config.models import ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.streaming_events import LLMStreamEvent
-from magi.personality.active_persona import get_current_personality_config
-from magi.personality.persona_routing_brief import build_persona_routing_brief
-from magi.personality.turn_planner import PersonaRoutingHint
 from magi.tools.context_decider import ContextDecider
-from magi.tools.context_decider_context import ContextDeciderContext
-from magi.tools.context_routing import should_decompose_external_request
 from magi.agent.task_agents.common import (
-    ExecutionMode,
     ExecutionHandlerRegistry,
     ExecutionRequest,
-    IncomingFactKind,
     ToolSelection,
 )
 from magi.agent.task_agents.handlers.turn_route_resolver import TurnRouteResolver
@@ -35,9 +22,9 @@ from magi.agent.task_agents.handlers.contracts import (
 from magi_plugin_sdk.delivery import DeliveryContent
 from magi.agent.run.execution_engine import TaskAgentExecutionEngine
 from magi.agent.run.ports import AttachmentResolverPort, NullAttachmentResolver
-from magi.agent.task_agents.handlers.attachment_context import resolve_effective_turn_attachments
 from .delivery_dispatch import ChatDeliveryDispatchPort
 from .fact_classifier import ChatFactClassifier
+from .intent_resolution_service import ChatIntentResolutionService
 from .rhythm import strip_segmentation_sentinel
 from .run_placement_service import ChatBackgroundLaunchRequest, ChatRunPlacementService
 from .tool_selection_service import ChatToolSelectionService, ToolAdvisoryProvider
@@ -45,53 +32,6 @@ from .turn_ux_planner import TurnUXPlanner
 
 logger = get_logger(__name__)
 
-
-def _build_persona_routing_hint(decision: Any) -> PersonaRoutingHint | None:
-    """Lift the ContextDecider's per-persona routing fields into a hint.
-
-    Returns ``None`` when the decision carries no persona-routing payload
-    (rule-based fallback path, decider unavailable, or LLM omitted the
-    fields). Downstream PersonaTurnPlanner falls back to its keyword
-    classifier in that case.
-    """
-    register = getattr(decision, "register", None)
-    trigger_ids = tuple(getattr(decision, "active_trigger_ids", ()) or ())
-    quiet_hints = tuple(getattr(decision, "quiet_hour_hints", ()) or ())
-    situation_strength = str(getattr(decision, "situation_strength", "ordinary") or "ordinary")
-    if not register and not trigger_ids and not quiet_hints and situation_strength == "ordinary":
-        return None
-    return PersonaRoutingHint(
-        register=register if isinstance(register, str) and register else None,
-        active_trigger_ids=trigger_ids,
-        situation_strength=situation_strength,
-        quiet_hour_hints=quiet_hints,
-    )
-
-
-_CODE_OR_LOCAL_REQUEST_HINTS = (
-    "code",
-    "codebase",
-    "repo",
-    "repository",
-    "source",
-    "file",
-    "function",
-    "class",
-    "module",
-    "stack trace",
-    "traceback",
-    "bug",
-    "代码",
-    "代码库",
-    "仓库",
-    "源码",
-    "文件",
-    "函数",
-    "类",
-    "模块",
-    "报错",
-    "调用链",
-)
 
 IntentTraceCallback = Callable[[ChatRuntimeContext, IntentDecision], Awaitable[None] | None]
 ToolSelectionTraceCallback = Callable[
@@ -144,6 +84,13 @@ class ChatExecutionCoordinator:
         )
         self._turn_route_resolver = TurnRouteResolver()
         self._turn_ux_planner = TurnUXPlanner()
+        self._intent_resolution_service = ChatIntentResolutionService(
+            context_decider=context_decider,
+            tool_selection_service=self._tool_selection_service,
+            attachment_resolver=self._attachment_resolver,
+            turn_route_resolver=self._turn_route_resolver,
+            turn_ux_planner=self._turn_ux_planner,
+        )
         self._run_placement_service = run_placement_service or ChatRunPlacementService()
         self._execution_engine = execution_engine or TaskAgentExecutionEngine(
             handler_registry=handler_registry,
@@ -152,146 +99,11 @@ class ChatExecutionCoordinator:
         )
 
     async def match_intent(self, context: ChatRuntimeContext) -> IntentDecision:
-        planner_fact_kind = (
-            context.planner_fact_kind
-            if context.planner_fact is not None
-            or context.planner_fact_kind != IncomingFactKind.OTHER_FACT
-            else context.incoming_fact_kind
-        )
-        if planner_fact_kind == IncomingFactKind.WORKER_UPDATE:
-            return IntentDecision(
-                intent="worker_orchestration_update",
-                difficulty="normal",
-                execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
-                reasoning="Worker events must update orchestration state before any final response is emitted.",
-                ux_plan=self._turn_ux_planner.build(
-                    user_message=context.latest_user_message,
-                    execution_mode=ExecutionMode.ORCHESTRATION_UPDATE,
-                    tools=[],
-                    route_decision=None,
-                ),
+        intent_decision = self._intent_resolution_service.resolve_system_fact_intent(context)
+        if intent_decision is None:
+            intent_decision = await self._intent_resolution_service.resolve_user_intent(
+                context,
             )
-        if planner_fact_kind == IncomingFactKind.EXPLORE_TASK_COMPLETED:
-            return IntentDecision(
-                intent="explore_task_completed",
-                difficulty="normal",
-                execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
-                reasoning="ExploreTaskAgent produced a Markdown dossier that must be rendered back to the user.",
-                ux_plan=self._turn_ux_planner.build(
-                    user_message=context.latest_user_message,
-                    execution_mode=ExecutionMode.EXPLORE_TASK_RENDER,
-                    tools=[],
-                    route_decision=None,
-                ),
-            )
-        if planner_fact_kind == IncomingFactKind.OTHER_FACT:
-            return IntentDecision(
-                intent="non_user_fact",
-                difficulty="normal",
-                execution_mode=ExecutionMode.FACT_ONLY,
-                reasoning="Non-user fact does not require immediate LLM response.",
-                ux_plan=self._turn_ux_planner.build(
-                    user_message=context.latest_user_message,
-                    execution_mode=ExecutionMode.FACT_ONLY,
-                    tools=[],
-                    route_decision=None,
-                ),
-            )
-
-        recent_messages = build_recent_messages(
-            context.history,
-            limit=6,
-            content_limit=120,
-            exclude_latest_user_message=context.latest_user_message,
-        )
-
-        now = datetime.now().astimezone()
-        decision_context = ContextDeciderContext(
-            os_name=platform.system(),
-            os_version=platform.release(),
-            current_datetime=now.isoformat(timespec="seconds"),
-            timezone=str(now.tzinfo or "unknown"),
-            workspace_path=str(getattr(context.latest_payload, "workspace_path", "") or ""),
-            home_dir=os.path.expanduser("~"),
-            current_user="unknown",
-            recent_messages=recent_messages,
-            recent_tool_errors=list(context.recent_tool_errors),
-            recent_tool_state=list(context.recent_tool_state),
-            persona_routing_brief=build_persona_routing_brief(get_current_personality_config()),
-        )
-
-        decision_context.tool_advisory = await (
-            self._tool_selection_service.build_prompt_tool_advisory(
-                user_message=context.latest_user_message,
-            )
-        )
-
-        decision = await self._context_decider.decide(context.latest_user_message, decision_context)
-        proposed_plan = OrchestrationPlan.from_route_decision(decision)
-        force_direct_external = self._should_force_direct_external_plan(
-            user_message=context.latest_user_message,
-            orchestration_plan=proposed_plan,
-        )
-        effective_attachments = resolve_effective_turn_attachments(
-            context, resolver=self._attachment_resolver
-        )
-        has_image_attachments = any(
-            isinstance(item, dict) and str(item.get("kind") or "").strip() == "image"
-            for item in effective_attachments
-        )
-        registered_tools = set(self._context_decider.tool_registry.list_tools())
-        route_resolution = self._turn_route_resolver.resolve_intent_route(
-            user_message=context.latest_user_message,
-            route_decision=decision,
-            registered_tools=registered_tools,
-            effective_attachments=effective_attachments,
-            force_direct_external=force_direct_external,
-        )
-        selected_tools = list(route_resolution.selected_tools)
-        if selected_tools:
-            selected_tools = await self._tool_selection_service.rerank_selected_tools(
-                task_context=context.latest_user_message,
-                tool_names=selected_tools,
-            )
-            route_resolution = self._turn_route_resolver.finalize_intent_route(
-                route_decision=decision,
-                selected_tools=selected_tools,
-                has_image_attachments=has_image_attachments,
-                force_direct_external=force_direct_external,
-            )
-
-        decision = route_resolution.route_decision
-        execution_mode = route_resolution.execution_mode
-        orchestration_plan = route_resolution.orchestration_plan
-        persona_routing_hint = _build_persona_routing_hint(decision)
-        intent_decision = IntentDecision(
-            intent=decision.profile,  # RouteDecision uses profile as the intent label
-            difficulty=(
-                "hard"
-                if decision.thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
-                else "normal"
-            ),
-            execution_mode=execution_mode,
-            ux_plan=self._turn_ux_planner.build(
-                user_message=context.latest_user_message,
-                execution_mode=execution_mode,
-                tools=selected_tools,
-                route_decision=decision,
-            ),
-            tools=selected_tools,
-            llm_trace=dict(getattr(decision, "llm_trace", {}) or {}),
-            thinking_depth=decision.thinking_depth,
-            reasoning=str(decision.reasoning),
-            memory_route=str(getattr(decision, "memory_route", "none") or "none"),
-            task_hint=self._tool_selection_service.resolve_runtime_task_hint(
-                user_message=context.latest_user_message,
-                selected_tools=selected_tools,
-                execution_mode=execution_mode,
-            ),
-            persona_routing_hint=persona_routing_hint,
-            route_decision=decision,
-            orchestration_plan=orchestration_plan,
-        )
         if self._intent_trace_callback is not None:
             callback_result = self._intent_trace_callback(context, intent_decision)
             if inspect.isawaitable(callback_result):
@@ -497,18 +309,3 @@ class ChatExecutionCoordinator:
             event=event,
             persona_id=persona_id,
         )
-
-    @staticmethod
-    def _should_force_direct_external_plan(
-        *,
-        user_message: str,
-        orchestration_plan: OrchestrationPlan,
-    ) -> bool:
-        if orchestration_plan.mode != "decompose":
-            return False
-        if orchestration_plan.default_leaf_type != "general-purpose":
-            return False
-        user_lower = str(user_message or "").lower()
-        if any(hint in user_lower for hint in _CODE_OR_LOCAL_REQUEST_HINTS):
-            return False
-        return not should_decompose_external_request(user_message)

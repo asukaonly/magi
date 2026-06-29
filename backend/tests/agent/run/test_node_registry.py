@@ -105,13 +105,13 @@ def test_task_agent_execution_engine_dispatches_via_node_registry() -> None:
     )
 
 
-def test_chat_execution_coordinator_builds_typed_orchestration_plan() -> None:
-    """ChatExecutionCoordinator derives the typed orchestration plan once."""
+def test_chat_intent_resolution_builds_typed_orchestration_plan() -> None:
+    """Chat intent resolution derives the typed orchestration plan once."""
     import inspect
 
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.intent_resolution_service import ChatIntentResolutionService
 
-    src = inspect.getsource(ChatExecutionCoordinator)
+    src = inspect.getsource(ChatIntentResolutionService)
     assert "OrchestrationPlan.from_route_decision" in src
 
 

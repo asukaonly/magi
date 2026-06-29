@@ -133,17 +133,17 @@ def test_orchestration_launch_handler_reads_orchestration_plan_from_intent() -> 
 
 
 def test_chat_coordinator_match_intent_signature_returns_intent_decision_from_route() -> None:
-    """ChatCoordinator.match_intent must continue to return an IntentDecision
+    """Chat intent resolution must continue to return an IntentDecision
     even after the underlying ContextDecider returns RouteDecision. The
-    coordinator translates RouteDecision → IntentDecision (which still has
+    chat intent resolver translates RouteDecision → IntentDecision (which still has
     fields the rest of chat consumes: execution_mode, tools, thinking_depth,
     orchestration_plan, persona_routing_hint, etc.)."""
     import inspect
-    from magi.chat.task_agent.coordinator import ChatExecutionCoordinator
+    from magi.chat.task_agent.intent_resolution_service import ChatIntentResolutionService
 
-    src = inspect.getsource(ChatExecutionCoordinator.match_intent)
+    src = inspect.getsource(ChatIntentResolutionService._build_intent_decision)
     assert "decision.graph_shape" in src or "decision.profile" in src, (
-        "match_intent must consume RouteDecision fields directly, not "
+        "chat intent resolution must consume RouteDecision fields directly, not "
         "the old orchestration strategy dict"
     )
 
