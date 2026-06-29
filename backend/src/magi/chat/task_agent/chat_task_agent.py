@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from magi.agent.cancel import SessionRunCancelToken
@@ -41,6 +42,13 @@ from .runtime_dependencies import (
 )
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _ChatRuntimePreferences:
+    streaming_chat_enabled: bool
+    allow_media_grounding_for_conversation: bool
+    core_model_supports_vision: bool
 
 
 class ChatTaskAgent(
@@ -143,9 +151,7 @@ class ChatTaskAgent(
         self._task_orchestrator = runtime_parts.task_orchestrator
         self._transcript_summarizer = runtime_parts.transcript_summarizer
         self._postprocess_service = runtime_parts.postprocess_service
-        self.function_calling_orchestrator = (
-            runtime_parts.function_calling_orchestrator
-        )
+        self.function_calling_orchestrator = runtime_parts.function_calling_orchestrator
         self._handler_registry = runtime_parts.handler_registry
         self._coordinator = runtime_parts.coordinator
         self._last_batch_facts: list[FactRecord] = []
@@ -185,12 +191,8 @@ class ChatTaskAgent(
             updated_at_ms=updated_at_ms,
         )
 
-    async def _resolve_session_workspace_path(
-        self, *, user_id: str, session_id: str
-    ) -> str | None:
-        summary = await self._chat_read_service.aget_session_summary(
-            user_id, session_id
-        )
+    async def _resolve_session_workspace_path(self, *, user_id: str, session_id: str) -> str | None:
+        summary = await self._chat_read_service.aget_session_summary(user_id, session_id)
         return summary.workspace_path if summary is not None else None
 
     async def _get_tool_advisory(
@@ -301,73 +303,36 @@ class ChatTaskAgent(
     async def build_context(self, merged_facts: list[FactRecord]) -> ChatRuntimeContext:
         base_context = await super().build_context(merged_facts)
         batch_facts = list(self._last_batch_facts)
-        latest_fact = (
-            base_context.latest_fact
-            if isinstance(base_context, TaskAgentRuntimeContext)
-            else None
-        )
+        latest_fact = _latest_runtime_fact(base_context)
         classified = self._fact_classifier.classify(
             agent_id=self.agent_id,
             latest_fact=latest_fact,
             batch_facts=batch_facts,
         )
         run_decision = await self._session_run_coordinator.aroute(classified)
-        if run_decision.superseded_turns:
-            updated_at_ms = (
-                int(latest_fact.timestamp * 1000)
-                if isinstance(latest_fact, FactRecord)
-                else now_wall_ms()
-            )
-            await self._postprocess_service.persist_turn_supersessions(
-                superseded_turns=run_decision.superseded_turns,
-                updated_at_ms=updated_at_ms,
-            )
+        await self._persist_context_supersessions(run_decision, latest_fact)
+
         session_id = self._context_assembler.require_session_id(
             classified.user_id, classified.session_id
         )
-        active_persona_id = await self._resolve_context_persona_id(
-            run_decision.latest_payload
-        )
+        active_persona_id = await self._resolve_context_persona_id(run_decision.latest_payload)
         history_context = await self._context_assembler.get_or_load_history_context(
             classified.user_id,
             session_id,
             active_persona_id=active_persona_id,
         )
         history = history_context.messages
-        recent_tool_errors = self._tool_state_view.recent_errors(
-            self._context_assembler.history_key(classified.user_id, session_id)
-        )
-        recent_tool_state = self._tool_state_view.recent_state(
-            self._context_assembler.history_key(classified.user_id, session_id)
-        )
+        history_key = self._context_assembler.history_key(classified.user_id, session_id)
+        recent_tool_errors = self._tool_state_view.recent_errors(history_key)
+        recent_tool_state = self._tool_state_view.recent_state(history_key)
         active_orchestrations = await self._orchestration_store.list_orchestrations(
             user_id=classified.user_id,
             session_id=session_id,
             statuses=["running", "aggregating"],
         )
         reply_context = await self._resolve_reply_context(run_decision.latest_payload)
-        streaming_chat_enabled = bool(
-            get_user_preference("streaming_chat_enabled", False)
-        )
-        if is_conversation_rhythm_enabled():
-            streaming_chat_enabled = False
-        allow_media_grounding_for_conversation = bool(
-            get_user_preference("allow_media_grounding_for_conversation", False)
-        )
-        core_selection = get_config().llm.selections.get("core")
-        core_model_supports_vision = bool(
-            getattr(getattr(core_selection, "capabilities", None), "vision", False)
-        )
-        # Build a fresh RunControl bundle for this turn. The signals
-        # (retract, suspend, detach, steer) are functional — fired via
-        # the SessionRunCoordinator's request_* methods or future
-        # detach/steer entry points.
+        preferences = _resolve_chat_runtime_preferences()
         turn_control = null_run_control()
-        # Wire the real SessionRunCancelToken into the bundle so external
-        # cancel calls (SessionRunCoordinator.request_cancel / UI cancel
-        # button) flow through context.control.cancel_token to all three
-        # execution paths (Direct / FC / Orchestration). Without this,
-        # the bundle's cancel_token is a null_cancel_token() no-op.
         if run_decision.active_run is not None:
             turn_control.cancel_token = SessionRunCancelToken(
                 coordinator=self._session_run_coordinator,
@@ -375,37 +340,18 @@ class ChatTaskAgent(
                 run_id=run_decision.active_run.run_id,
                 revision=int(run_decision.active_run.revision or 0),
             )
-        # Register the bundle with the session store so external callers
-        # (SessionRunCoordinator.request_retract, future cancel/detach
-        # entry points) can fire its signals at the live in-flight run.
-        if run_decision.active_run is not None:
-            self._session_run_coordinator.register_active_run_control(
-                session_id, run_decision.active_run.run_id, turn_control
-            )
+        self._register_turn_control(session_id, run_decision, turn_control)
+
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
-            recent_facts=list(
-                base_context.recent_facts
-                if isinstance(base_context, TaskAgentRuntimeContext)
-                else []
-            ),
+            recent_facts=_recent_runtime_facts(base_context),
             batch_facts=batch_facts,
             agent_id=self.agent_id,
-            agent_type=str(
-                base_context.agent_type
-                if isinstance(base_context, TaskAgentRuntimeContext)
-                else TaskAgentType.CHAT.value
-            ),
-            runtime_key=str(
-                base_context.runtime_key
-                if isinstance(base_context, TaskAgentRuntimeContext)
-                else self.runtime_key
-            ),
+            agent_type=_runtime_agent_type(base_context),
+            runtime_key=_runtime_key(base_context, self.runtime_key),
             user_id=classified.user_id,
             session_id=session_id,
-            history_key=self._context_assembler.history_key(
-                classified.user_id, session_id
-            ),
+            history_key=history_key,
             history=history,
             conversation_history=history,
             active_orchestrations=[item.to_dict() for item in active_orchestrations],
@@ -416,14 +362,10 @@ class ChatTaskAgent(
             latest_payload=run_decision.latest_payload,
             active_run=run_decision.active_run,
             session_run_id=(
-                run_decision.active_run.run_id
-                if run_decision.active_run is not None
-                else None
+                run_decision.active_run.run_id if run_decision.active_run is not None else None
             ),
             session_run_revision=(
-                run_decision.active_run.revision
-                if run_decision.active_run is not None
-                else 0
+                run_decision.active_run.revision if run_decision.active_run is not None else 0
             ),
             session_run_disposition=run_decision.run_disposition,
             planner_fact=run_decision.planner_fact,
@@ -434,10 +376,41 @@ class ChatTaskAgent(
             session_summary=history_context.session_summary,
             session_origin=history_context.session_origin,
             active_persona_id=active_persona_id,
-            streaming_chat_enabled=streaming_chat_enabled,
-            allow_media_grounding_for_conversation=allow_media_grounding_for_conversation,
-            core_model_supports_vision=core_model_supports_vision,
+            streaming_chat_enabled=preferences.streaming_chat_enabled,
+            allow_media_grounding_for_conversation=preferences.allow_media_grounding_for_conversation,
+            core_model_supports_vision=preferences.core_model_supports_vision,
             control=turn_control,
+        )
+
+    async def _persist_context_supersessions(
+        self,
+        run_decision: Any,
+        latest_fact: FactRecord | None,
+    ) -> None:
+        if not run_decision.superseded_turns:
+            return
+        updated_at_ms = (
+            int(latest_fact.timestamp * 1000)
+            if isinstance(latest_fact, FactRecord)
+            else now_wall_ms()
+        )
+        await self._postprocess_service.persist_turn_supersessions(
+            superseded_turns=run_decision.superseded_turns,
+            updated_at_ms=updated_at_ms,
+        )
+
+    def _register_turn_control(
+        self,
+        session_id: str,
+        run_decision: Any,
+        turn_control: Any,
+    ) -> None:
+        if run_decision.active_run is None:
+            return
+        self._session_run_coordinator.register_active_run_control(
+            session_id,
+            run_decision.active_run.run_id,
+            turn_control,
         )
 
     async def _resolve_context_persona_id(self, latest_payload: object) -> str | None:
@@ -451,9 +424,7 @@ class ChatTaskAgent(
                 if user_message is not None and user_message.persona_id:
                     return str(user_message.persona_id).strip() or None
             except Exception:
-                logger.debug(
-                    "Failed to resolve persona id from user turn", turn_id=turn_id
-                )
+                logger.debug("Failed to resolve persona id from user turn", turn_id=turn_id)
         try:
             from magi.personality.persona_repository import PersonaRepository
 
@@ -476,17 +447,13 @@ class ChatTaskAgent(
         intent_result,
         tool_result,
     ) -> ExecutionRequest:
-        return await self._coordinator.assemble_request(
-            context, intent_result, tool_result
-        )
+        return await self._coordinator.assemble_request(context, intent_result, tool_result)
 
     async def call_llm(
         self, context: ChatRuntimeContext, llm_params: ExecutionRequest
     ) -> ExecutionResult:
         sink = None
-        turn_id = (
-            str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
-        )
+        turn_id = str(getattr(context.latest_payload, "turn_id", "") or "").strip() or None
         if (
             context.user_id
             and context.session_id
@@ -536,9 +503,7 @@ class ChatTaskAgent(
         except Exception:
             return False
 
-    async def parse_result(
-        self, context: ChatRuntimeContext, raw_result: ExecutionResult
-    ) -> None:
+    async def parse_result(self, context: ChatRuntimeContext, raw_result: ExecutionResult) -> None:
         try:
             await self._postprocess_service.handle(context, raw_result)
         finally:
@@ -561,3 +526,45 @@ class ChatTaskAgent(
             return int(get_config().llm.max_tokens)
         except Exception:
             return 4096
+
+
+def _latest_runtime_fact(base_context: Any) -> FactRecord | None:
+    if not isinstance(base_context, TaskAgentRuntimeContext):
+        return None
+    latest_fact = base_context.latest_fact
+    return latest_fact if isinstance(latest_fact, FactRecord) else None
+
+
+def _recent_runtime_facts(base_context: Any) -> list[FactRecord]:
+    if not isinstance(base_context, TaskAgentRuntimeContext):
+        return []
+    return list(base_context.recent_facts)
+
+
+def _runtime_agent_type(base_context: Any) -> str:
+    if not isinstance(base_context, TaskAgentRuntimeContext):
+        return TaskAgentType.CHAT.value
+    return str(base_context.agent_type)
+
+
+def _runtime_key(base_context: Any, fallback: str) -> str:
+    if not isinstance(base_context, TaskAgentRuntimeContext):
+        return fallback
+    return str(base_context.runtime_key)
+
+
+def _resolve_chat_runtime_preferences() -> _ChatRuntimePreferences:
+    streaming_chat_enabled = bool(get_user_preference("streaming_chat_enabled", False))
+    if is_conversation_rhythm_enabled():
+        streaming_chat_enabled = False
+    core_selection = get_config().llm.selections.get("core")
+    core_model_supports_vision = bool(
+        getattr(getattr(core_selection, "capabilities", None), "vision", False)
+    )
+    return _ChatRuntimePreferences(
+        streaming_chat_enabled=streaming_chat_enabled,
+        allow_media_grounding_for_conversation=bool(
+            get_user_preference("allow_media_grounding_for_conversation", False)
+        ),
+        core_model_supports_vision=core_model_supports_vision,
+    )
