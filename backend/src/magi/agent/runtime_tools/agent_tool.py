@@ -69,182 +69,12 @@ class AgentTool(Tool):
             category="agent",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="action",
-                    type=ParameterType.STRING,
-                    description="Action: launch, status, or await",
-                    required=False,
-                    default=self.ACTION_LAUNCH,
-                    enum=[self.ACTION_LAUNCH, self.ACTION_STATUS, self.ACTION_AWAIT],
-                ),
-                ToolParameter(
-                    name="worker_id",
-                    type=ParameterType.STRING,
-                    description="Worker id for status/await actions",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="worker_ids",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description="Multiple worker ids for batch status/await actions",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="subagent_type",
-                    type=ParameterType.STRING,
-                    description="Worker type: general-purpose, CodeExplore, Plan, or Coding",
-                    required=False,
-                    enum=[
-                        self.TYPE_GENERAL,
-                        self.TYPE_EXPLORE,
-                        self.TYPE_PLAN,
-                        self.TYPE_CODING,
-                        "code-explore",
-                        "code_explore",
-                        "plan",
-                        "coding",
-                        "general",
-                        "code",
-                    ],
-                ),
-                ToolParameter(
-                    name="description",
-                    type=ParameterType.STRING,
-                    description="Short 3-5 word task summary",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="prompt",
-                    type=ParameterType.STRING,
-                    description="Detailed task instructions for the worker agent",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="workers",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.OBJECT,
-                    description=(
-                        "Batch worker definitions. Each item: "
-                        "{subagent_type, description, prompt, target_task_agent_type?, "
-                        "target_task_agent_id?, max_iterations?}"
-                    ),
-                    required=False,
-                ),
-                ToolParameter(
-                    name="parallel",
-                    type=ParameterType.BOOLEAN,
-                    description="Whether batch workers should run in parallel",
-                    required=False,
-                    default=True,
-                ),
-                ToolParameter(
-                    name="run_in_background",
-                    type=ParameterType.BOOLEAN,
-                    description="Run asynchronously and return immediately",
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="max_iterations",
-                    type=ParameterType.INTEGER,
-                    description="Maximum internal tool-loop iterations for this worker",
-                    required=False,
-                    default=20,
-                    min_value=1,
-                    max_value=50,
-                ),
-                ToolParameter(
-                    name="timeout_seconds",
-                    type=ParameterType.INTEGER,
-                    description="Timeout in seconds for await action",
-                    required=False,
-                    default=300,
-                    min_value=1,
-                    max_value=3600,
-                ),
-                ToolParameter(
-                    name="target_task_agent_type",
-                    type=ParameterType.STRING,
-                    description="Target task agent type to receive worker facts",
-                    required=False,
-                    default="chat",
-                ),
-                ToolParameter(
-                    name="target_task_agent_id",
-                    type=ParameterType.STRING,
-                    description="Target task agent id to receive worker facts",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="orchestration_id",
-                    type=ParameterType.STRING,
-                    description="Parent orchestration id when this worker belongs to a decomposed task",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="subtask_id",
-                    type=ParameterType.STRING,
-                    description="Subtask id within the parent orchestration",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="parent_task_agent_type",
-                    type=ParameterType.STRING,
-                    description="Parent task agent type that owns this worker",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="parent_task_agent_id",
-                    type=ParameterType.STRING,
-                    description="Parent task agent id that owns this worker",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="inherit_context",
-                    type=ParameterType.BOOLEAN,
-                    description=(
-                        "Pass a summary of the parent conversation to "
-                        "the worker so it can use surrounding context."
-                    ),
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="retry_count",
-                    type=ParameterType.INTEGER,
-                    description="Retry attempt count for this worker launch",
-                    required=False,
-                    default=0,
-                    min_value=0,
-                    max_value=3,
-                ),
-            ],
-            examples=[
-                {
-                    "input": {
-                        "action": "launch",
-                        "subagent_type": "CodeExplore",
-                        "description": "scan auth flow",
-                        "prompt": "Find where JWT token is created and validated.",
-                    },
-                    "output": "Returns worker id and status",
-                }
-            ],
+            parameters=_agent_tool_schema_parameters(self),
+            examples=_agent_tool_schema_examples(),
             timeout=300,
             dangerous=False,
             tags=["agent", "worker", "planning", "exploration"],
-            metadata={
-                "task_intents": ["delegate_task", "explore_codebase", "research_external"],
-                "domains": ["orchestration", "codebase", "web"],
-                "operations": ["delegate"],
-                "query_shapes": ["multi_step_task", "parallelizable_research"],
-                "followed_by": [],
-                "avoid_task_intents": ["verify_source_claim"],
-                "cost": "high",
-                "tool_hint": "Use when the task is large enough to justify a worker, parallel exploration, or independent background execution; avoid for simple local checks.",
-            },
+            metadata=_agent_tool_schema_metadata(),
         )
 
     def configure(
@@ -346,6 +176,221 @@ class AgentTool(Tool):
         return await self._manager._await_worker(
             worker_id=worker_id, timeout_seconds=timeout_seconds
         )
+
+
+def _agent_tool_schema_parameters(tool: AgentTool) -> list[ToolParameter]:
+    return [
+        *_agent_action_parameters(tool),
+        *_agent_launch_parameters(tool),
+        *_agent_execution_parameters(),
+        *_agent_routing_parameters(),
+        *_agent_context_parameters(),
+    ]
+
+
+def _agent_action_parameters(tool: AgentTool) -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="action",
+            type=ParameterType.STRING,
+            description="Action: launch, status, or await",
+            required=False,
+            default=tool.ACTION_LAUNCH,
+            enum=[tool.ACTION_LAUNCH, tool.ACTION_STATUS, tool.ACTION_AWAIT],
+        ),
+        ToolParameter(
+            name="worker_id",
+            type=ParameterType.STRING,
+            description="Worker id for status/await actions",
+            required=False,
+        ),
+        ToolParameter(
+            name="worker_ids",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.STRING,
+            description="Multiple worker ids for batch status/await actions",
+            required=False,
+        ),
+    ]
+
+
+def _agent_launch_parameters(tool: AgentTool) -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="subagent_type",
+            type=ParameterType.STRING,
+            description="Worker type: general-purpose, CodeExplore, Plan, or Coding",
+            required=False,
+            enum=[
+                tool.TYPE_GENERAL,
+                tool.TYPE_EXPLORE,
+                tool.TYPE_PLAN,
+                tool.TYPE_CODING,
+                "code-explore",
+                "code_explore",
+                "plan",
+                "coding",
+                "general",
+                "code",
+            ],
+        ),
+        ToolParameter(
+            name="description",
+            type=ParameterType.STRING,
+            description="Short 3-5 word task summary",
+            required=False,
+        ),
+        ToolParameter(
+            name="prompt",
+            type=ParameterType.STRING,
+            description="Detailed task instructions for the worker agent",
+            required=False,
+        ),
+        ToolParameter(
+            name="workers",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.OBJECT,
+            description=(
+                "Batch worker definitions. Each item: "
+                "{subagent_type, description, prompt, target_task_agent_type?, "
+                "target_task_agent_id?, max_iterations?}"
+            ),
+            required=False,
+        ),
+    ]
+
+
+def _agent_execution_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="parallel",
+            type=ParameterType.BOOLEAN,
+            description="Whether batch workers should run in parallel",
+            required=False,
+            default=True,
+        ),
+        ToolParameter(
+            name="run_in_background",
+            type=ParameterType.BOOLEAN,
+            description="Run asynchronously and return immediately",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="max_iterations",
+            type=ParameterType.INTEGER,
+            description="Maximum internal tool-loop iterations for this worker",
+            required=False,
+            default=20,
+            min_value=1,
+            max_value=50,
+        ),
+        ToolParameter(
+            name="timeout_seconds",
+            type=ParameterType.INTEGER,
+            description="Timeout in seconds for await action",
+            required=False,
+            default=300,
+            min_value=1,
+            max_value=3600,
+        ),
+    ]
+
+
+def _agent_routing_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="target_task_agent_type",
+            type=ParameterType.STRING,
+            description="Target task agent type to receive worker facts",
+            required=False,
+            default="chat",
+        ),
+        ToolParameter(
+            name="target_task_agent_id",
+            type=ParameterType.STRING,
+            description="Target task agent id to receive worker facts",
+            required=False,
+        ),
+        ToolParameter(
+            name="orchestration_id",
+            type=ParameterType.STRING,
+            description="Parent orchestration id when this worker belongs to a decomposed task",
+            required=False,
+        ),
+        ToolParameter(
+            name="subtask_id",
+            type=ParameterType.STRING,
+            description="Subtask id within the parent orchestration",
+            required=False,
+        ),
+    ]
+
+
+def _agent_context_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="parent_task_agent_type",
+            type=ParameterType.STRING,
+            description="Parent task agent type that owns this worker",
+            required=False,
+        ),
+        ToolParameter(
+            name="parent_task_agent_id",
+            type=ParameterType.STRING,
+            description="Parent task agent id that owns this worker",
+            required=False,
+        ),
+        ToolParameter(
+            name="inherit_context",
+            type=ParameterType.BOOLEAN,
+            description=(
+                "Pass a summary of the parent conversation to "
+                "the worker so it can use surrounding context."
+            ),
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="retry_count",
+            type=ParameterType.INTEGER,
+            description="Retry attempt count for this worker launch",
+            required=False,
+            default=0,
+            min_value=0,
+            max_value=3,
+        ),
+    ]
+
+
+def _agent_tool_schema_examples() -> list[dict[str, object]]:
+    return [
+        {
+            "input": {
+                "action": "launch",
+                "subagent_type": "CodeExplore",
+                "description": "scan auth flow",
+                "prompt": "Find where JWT token is created and validated.",
+            },
+            "output": "Returns worker id and status",
+        }
+    ]
+
+
+def _agent_tool_schema_metadata() -> dict[str, object]:
+    return {
+        "task_intents": ["delegate_task", "explore_codebase", "research_external"],
+        "domains": ["orchestration", "codebase", "web"],
+        "operations": ["delegate"],
+        "query_shapes": ["multi_step_task", "parallelizable_research"],
+        "followed_by": [],
+        "avoid_task_intents": ["verify_source_claim"],
+        "cost": "high",
+        "tool_hint": (
+            "Use when the task is large enough to justify a worker, parallel "
+            "exploration, or independent background execution; avoid for simple local checks."
+        ),
+    }
 
 
 __all__ = [
