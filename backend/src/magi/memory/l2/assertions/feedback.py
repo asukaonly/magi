@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
@@ -21,22 +22,37 @@ from .settings import (
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class _ShadowConflictContext:
+    shadow_id: str
+    entity_id: str
+    entity_type: str
+    trait_name: str
+    trait_value: str
+    target_entity_id: str
+    current_confidence: float
+    now: float
+
+
+@dataclass(frozen=True)
+class _ShadowPromotionResult:
+    old_authoritative_id: str | None
+    new_confidence: float
+
+
 class _FeedbackHostProtocol(Protocol):
     db_path: str
 
-    async def initialize(self) -> None:
-        ...
+    async def initialize(self) -> None: ...
 
-    async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]:
-        ...
+    async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]: ...
 
     async def refresh_entity_snapshot(
         self,
         *,
         entity_id: str,
         entity_type: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        ...
+    ) -> Optional[Dict[str, Any]]: ...
 
 
 class L2StoreFeedbackMixin:
@@ -124,72 +140,19 @@ class L2StoreFeedbackMixin:
         await host.initialize()
         now = time.time()
 
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
-                (assertion_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
+        existing = await _load_assertion_row(host.db_path, assertion_id)
+        if existing is None:
+            return None
 
-            if existing is None:
-                return None
-
-            new_assertion_id = f"assert_{uuid.uuid4().hex}"
-
-            await db.execute(
-                """
-                UPDATE tom_trait_assertions
-                SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
-                WHERE assertion_id = ?
-                """,
-                (new_assertion_id, now, now, assertion_id),
-            )
-
-            evidence = json.loads(existing["evidence_events"] or "[]")
-            await db.execute(
-                """
-                INSERT INTO tom_trait_assertions(
-                    assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
-                    confidence_score, evidence_events, volatility_index, source_domain,
-                    inference_depth, validation_state, first_inferred_at, last_validated_at,
-                    target_entity_id, target_entity_type, target_scope, temporal_scope,
-                    decay_policy, decay_anchor_at, context_ref_id, expires_at,
-                    status, user_feedback, user_feedback_at,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    new_assertion_id,
-                    str(existing["entity_id"]),
-                    str(existing["entity_type"]),
-                    str(existing["trait_family"]),
-                    str(existing["trait_name"]),
-                    new_value,
-                    0.95,
-                    json.dumps(evidence, ensure_ascii=False),
-                    float(existing["volatility_index"]),
-                    "user_correction",
-                    "explicit",
-                    "stable",
-                    float(existing["first_inferred_at"]),
-                    now,
-                    str(existing["target_entity_id"] or ""),
-                    str(existing["target_entity_type"] or ""),
-                    str(existing["target_scope"] or "global"),
-                    str(existing["temporal_scope"] or "session"),
-                    existing["decay_policy"],
-                    existing["decay_anchor_at"],
-                    str(existing["context_ref_id"] or ""),
-                    existing["expires_at"],
-                    "stable",
-                    "confirmed",
-                    now,
-                    now,
-                    now,
-                ),
-            )
-            await db.commit()
+        new_assertion_id = f"assert_{uuid.uuid4().hex}"
+        await _write_corrected_assertion(
+            host.db_path,
+            existing=existing,
+            old_assertion_id=assertion_id,
+            new_assertion_id=new_assertion_id,
+            new_value=new_value,
+            now=now,
+        )
 
         logger.info(
             "L2 user correction applied",
@@ -225,15 +188,7 @@ class L2StoreFeedbackMixin:
         host = cast(_FeedbackHostProtocol, self)
         await host.initialize()
 
-        # Load the shadow row to verify it exists and is still a shadow.
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
-                (shadow_id,),
-            ) as cursor:
-                shadow_row = await cursor.fetchone()
-
+        shadow_row = await _load_assertion_row(host.db_path, shadow_id)
         if shadow_row is None or str(shadow_row["status"]) != "shadow":
             # Missing or already resolved — idempotent return.
             return None
@@ -242,96 +197,287 @@ class L2StoreFeedbackMixin:
             # Delegate to the existing feedback path: user_rejected status + low confidence.
             return await self.apply_user_feedback(assertion_id=shadow_id, feedback="rejected")
 
-        # action == "confirm": promote the shadow and supersede the live authoritative row.
-        now = time.time()
-        entity_id = str(shadow_row["entity_id"])
-        entity_type = str(shadow_row["entity_type"])
-        trait_name = str(shadow_row["trait_name"])
-        target_entity_id = str(shadow_row["target_entity_id"] or "")
-        current_confidence = float(shadow_row["confidence_score"])
-
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
-            try:
-                # 1. Find the live authoritative owner on the same key (if any).
-                async with db.execute(
-                    """
-                    SELECT assertion_id FROM tom_trait_assertions
-                    WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
-                      AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                    """,
-                    (entity_id, entity_type, trait_name, target_entity_id),
-                ) as cursor:
-                    old_authoritative = await cursor.fetchone()
-
-                # 2. Supersede the old authoritative FIRST to free the unique-index slot.
-                if old_authoritative is not None:
-                    old_id = str(old_authoritative["assertion_id"])
-                    await db.execute(
-                        """
-                        UPDATE tom_trait_assertions
-                        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
-                        WHERE assertion_id = ?
-                        """,
-                        (shadow_id, now, now, old_id),
-                    )
-
-                # 3. Promote the shadow to active, authoritative, user-confirmed.
-                confidence_ceiling = assertion_float_setting(
-                    "confidence_ceiling",
-                    CONFIDENCE_CEILING,
-                )
-                new_confidence = max(
-                    min(confidence_ceiling, current_confidence + 0.20),
-                    assertion_float_setting(
-                        "user_confirmed_confidence_floor",
-                        USER_CONFIRMED_CONFIDENCE_FLOOR,
-                    ),
-                )
-                await db.execute(
-                    """
-                    UPDATE tom_trait_assertions
-                    SET status = 'stable',
-                        validation_state = 'stable',
-                        user_feedback = 'confirmed',
-                        user_feedback_at = ?,
-                        confidence_score = ?,
-                        updated_at = ?
-                    WHERE assertion_id = ?
-                    """,
-                    (now, new_confidence, now, shadow_id),
-                )
-
-                # 4. Commit the transaction.
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
+        context = _build_shadow_conflict_context(shadow_id, shadow_row)
+        promotion = await _confirm_shadow_conflict(host.db_path, context)
 
         logger.info(
             "L2 shadow conflict confirmed: shadow promoted to authoritative",
             shadow_id=shadow_id,
-            old_authoritative_id=str(old_authoritative["assertion_id"]) if old_authoritative else None,
-            entity_id=entity_id,
-            entity_type=entity_type,
-            trait_name=trait_name,
-            promoted_value=str(shadow_row["trait_value"]),
-            new_confidence=new_confidence,
+            old_authoritative_id=promotion.old_authoritative_id,
+            entity_id=context.entity_id,
+            entity_type=context.entity_type,
+            trait_name=context.trait_name,
+            promoted_value=context.trait_value,
+            new_confidence=promotion.new_confidence,
         )
 
-        # 5. Refresh the entity snapshot (error-isolated).
-        try:
-            await host.refresh_entity_snapshot(entity_id=entity_id, entity_type=entity_type)
-        except Exception as exc:
-            logger.warning(
-                "L2 snapshot refresh after shadow confirmation failed",
-                shadow_id=shadow_id,
-                entity_id=entity_id,
-                error=str(exc),
-            )
+        await _refresh_snapshot_after_shadow_confirmation(host, context)
 
-        # 6. Return the promoted row.
         return await host.get_tom_assertion(assertion_id=shadow_id)
+
+
+async def _load_assertion_row(
+    db_path: str,
+    assertion_id: str,
+) -> aiosqlite.Row | None:
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+            (assertion_id,),
+        ) as cursor:
+            return await cursor.fetchone()
+
+
+async def _write_corrected_assertion(
+    db_path: str,
+    *,
+    existing: aiosqlite.Row,
+    old_assertion_id: str,
+    new_assertion_id: str,
+    new_value: str,
+    now: float,
+) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await _supersede_assertion_for_correction(
+            db,
+            old_assertion_id=old_assertion_id,
+            new_assertion_id=new_assertion_id,
+            now=now,
+        )
+        await _insert_corrected_assertion(
+            db,
+            existing=existing,
+            new_assertion_id=new_assertion_id,
+            new_value=new_value,
+            now=now,
+        )
+        await db.commit()
+
+
+async def _supersede_assertion_for_correction(
+    db: aiosqlite.Connection,
+    *,
+    old_assertion_id: str,
+    new_assertion_id: str,
+    now: float,
+) -> None:
+    await db.execute(
+        """
+        UPDATE tom_trait_assertions
+        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+        WHERE assertion_id = ?
+        """,
+        (new_assertion_id, now, now, old_assertion_id),
+    )
+
+
+async def _insert_corrected_assertion(
+    db: aiosqlite.Connection,
+    *,
+    existing: aiosqlite.Row,
+    new_assertion_id: str,
+    new_value: str,
+    now: float,
+) -> None:
+    await db.execute(
+        """
+        INSERT INTO tom_trait_assertions(
+            assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+            confidence_score, evidence_events, volatility_index, source_domain,
+            inference_depth, validation_state, first_inferred_at, last_validated_at,
+            target_entity_id, target_entity_type, target_scope, temporal_scope,
+            decay_policy, decay_anchor_at, context_ref_id, expires_at,
+            status, user_feedback, user_feedback_at,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        _corrected_assertion_values(
+            existing,
+            new_assertion_id=new_assertion_id,
+            new_value=new_value,
+            now=now,
+        ),
+    )
+
+
+def _corrected_assertion_values(
+    existing: aiosqlite.Row,
+    *,
+    new_assertion_id: str,
+    new_value: str,
+    now: float,
+) -> tuple[Any, ...]:
+    evidence = json.loads(existing["evidence_events"] or "[]")
+    return (
+        new_assertion_id,
+        str(existing["entity_id"]),
+        str(existing["entity_type"]),
+        str(existing["trait_family"]),
+        str(existing["trait_name"]),
+        new_value,
+        0.95,
+        json.dumps(evidence, ensure_ascii=False),
+        float(existing["volatility_index"]),
+        "user_correction",
+        "explicit",
+        "stable",
+        float(existing["first_inferred_at"]),
+        now,
+        str(existing["target_entity_id"] or ""),
+        str(existing["target_entity_type"] or ""),
+        str(existing["target_scope"] or "global"),
+        str(existing["temporal_scope"] or "session"),
+        existing["decay_policy"],
+        existing["decay_anchor_at"],
+        str(existing["context_ref_id"] or ""),
+        existing["expires_at"],
+        "stable",
+        "confirmed",
+        now,
+        now,
+        now,
+    )
+
+
+def _build_shadow_conflict_context(
+    shadow_id: str,
+    shadow_row: aiosqlite.Row,
+) -> _ShadowConflictContext:
+    return _ShadowConflictContext(
+        shadow_id=shadow_id,
+        entity_id=str(shadow_row["entity_id"]),
+        entity_type=str(shadow_row["entity_type"]),
+        trait_name=str(shadow_row["trait_name"]),
+        trait_value=str(shadow_row["trait_value"]),
+        target_entity_id=str(shadow_row["target_entity_id"] or ""),
+        current_confidence=float(shadow_row["confidence_score"]),
+        now=time.time(),
+    )
+
+
+async def _confirm_shadow_conflict(
+    db_path: str,
+    context: _ShadowConflictContext,
+) -> _ShadowPromotionResult:
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            old_authoritative_id = await _supersede_current_authoritative(db, context)
+            new_confidence = await _promote_shadow_assertion(db, context)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    return _ShadowPromotionResult(
+        old_authoritative_id=old_authoritative_id,
+        new_confidence=new_confidence,
+    )
+
+
+async def _supersede_current_authoritative(
+    db: aiosqlite.Connection,
+    context: _ShadowConflictContext,
+) -> str | None:
+    old_authoritative_id = await _find_current_authoritative_id(db, context)
+    if old_authoritative_id is None:
+        return None
+
+    await db.execute(
+        """
+        UPDATE tom_trait_assertions
+        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+        WHERE assertion_id = ?
+        """,
+        (
+            context.shadow_id,
+            context.now,
+            context.now,
+            old_authoritative_id,
+        ),
+    )
+    return old_authoritative_id
+
+
+async def _find_current_authoritative_id(
+    db: aiosqlite.Connection,
+    context: _ShadowConflictContext,
+) -> str | None:
+    async with db.execute(
+        """
+        SELECT assertion_id FROM tom_trait_assertions
+        WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+          AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (
+            context.entity_id,
+            context.entity_type,
+            context.trait_name,
+            context.target_entity_id,
+        ),
+    ) as cursor:
+        old_authoritative = await cursor.fetchone()
+    if old_authoritative is None:
+        return None
+    return str(old_authoritative["assertion_id"])
+
+
+async def _promote_shadow_assertion(
+    db: aiosqlite.Connection,
+    context: _ShadowConflictContext,
+) -> float:
+    new_confidence = _confirmed_shadow_confidence(context.current_confidence)
+    await db.execute(
+        """
+        UPDATE tom_trait_assertions
+        SET status = 'stable',
+            validation_state = 'stable',
+            user_feedback = 'confirmed',
+            user_feedback_at = ?,
+            confidence_score = ?,
+            updated_at = ?
+        WHERE assertion_id = ?
+        """,
+        (
+            context.now,
+            new_confidence,
+            context.now,
+            context.shadow_id,
+        ),
+    )
+    return new_confidence
+
+
+def _confirmed_shadow_confidence(current_confidence: float) -> float:
+    confidence_ceiling = assertion_float_setting(
+        "confidence_ceiling",
+        CONFIDENCE_CEILING,
+    )
+    return max(
+        min(confidence_ceiling, current_confidence + 0.20),
+        assertion_float_setting(
+            "user_confirmed_confidence_floor",
+            USER_CONFIRMED_CONFIDENCE_FLOOR,
+        ),
+    )
+
+
+async def _refresh_snapshot_after_shadow_confirmation(
+    host: _FeedbackHostProtocol,
+    context: _ShadowConflictContext,
+) -> None:
+    try:
+        await host.refresh_entity_snapshot(
+            entity_id=context.entity_id,
+            entity_type=context.entity_type,
+        )
+    except Exception as exc:
+        logger.warning(
+            "L2 snapshot refresh after shadow confirmation failed",
+            shadow_id=context.shadow_id,
+            entity_id=context.entity_id,
+            error=str(exc),
+        )
