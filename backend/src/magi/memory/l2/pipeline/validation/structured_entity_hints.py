@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from .....core.logger import get_logger
@@ -10,6 +11,22 @@ from ...models import L2Phase1FactClaim, L2Phase1Result, StructuredGraphHint
 from .structured_hint_common import L2StructuredHintHostMixin
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _StructuredEntityHintCandidate:
+    entity_id: str
+    entity_type: str
+    canonical_name: str
+    alias_text: str | None = None
+
+
+@dataclass
+class _StructuredEntityHintUpsertState:
+    catalog: Any
+    host: Any
+    seen_ids: set[str] = field(default_factory=set)
+    upserted_count: int = 0
 
 
 class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
@@ -24,125 +41,171 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         if catalog is None:
             return 0
 
-        host = self._structured_hint_host()
-        upserted_count = 0
-        seen_ids: set[str] = set()
+        state = _StructuredEntityHintUpsertState(
+            catalog=catalog,
+            host=self._structured_hint_host(),
+        )
+        await self._upsert_structured_entity_hint_records(metadata_json, state)
+        await self._upsert_structured_graph_ref_entities(metadata_json, state)
 
-        async def upsert_hint(
-            *,
-            entity_id: str,
-            entity_type: str,
-            canonical_name: str,
-            alias_text: str | None = None,
-        ) -> None:
-            nonlocal upserted_count
-            if entity_id in seen_ids:
-                return
-            seen_ids.add(entity_id)
-            normalized_entity_id = await catalog.upsert_entity(
-                entity_id=entity_id,
-                canonical_name=canonical_name,
-                entity_type=entity_type,
+        if state.upserted_count:
+            logger.debug(
+                "L2 structured entity hints persisted",
+                event_id=event.event_id,
+                upserted_count=state.upserted_count,
             )
-            seen_ids.add(normalized_entity_id)
-            alias = host._non_empty_text(alias_text) or canonical_name
-            if alias:
-                await catalog.add_alias(
-                    entity_id=normalized_entity_id,
-                    alias_text=alias,
-                    confidence=0.98,
-                )
-            upserted_count += 1
+        return state.upserted_count
 
+    async def _upsert_structured_entity_hint_records(
+        self,
+        metadata_json: dict[str, Any],
+        state: _StructuredEntityHintUpsertState,
+    ) -> None:
         raw_entity_hints = metadata_json.get("structured_entity_hints")
         if isinstance(raw_entity_hints, list):
             for hint in raw_entity_hints:
-                if not isinstance(hint, dict):
+                candidate = self._structured_entity_hint_candidate(hint, state=state)
+                if candidate is None:
                     continue
-                mention_text = host._non_empty_text(hint.get("mention_text"))
-                entity_type = host._normalize_entity_type(hint.get("entity_type"))
-                if not mention_text or not entity_type:
-                    continue
-                canonical_name = (
-                    host._non_empty_text(hint.get("canonical_name_hint")) or mention_text
-                )
-                resolved_id = host._non_empty_text(hint.get("resolved_entity_id"))
-                entity_id = resolved_id or host._build_canonical_entity_id(
-                    entity_type=entity_type,
-                    canonical_name=canonical_name,
-                )
                 existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
-                    catalog=catalog,
-                    entity_ref=entity_id,
-                    entity_type=entity_type,
-                    canonical_name=canonical_name,
+                    catalog=state.catalog,
+                    entity_ref=candidate.entity_id,
+                    entity_type=candidate.entity_type,
+                    canonical_name=candidate.canonical_name,
                 )
                 if existing_entity_id:
-                    await catalog.add_alias(
+                    await state.catalog.add_alias(
                         entity_id=existing_entity_id,
-                        alias_text=mention_text,
+                        alias_text=candidate.alias_text,
                         confidence=0.98,
                     )
-                    seen_ids.add(existing_entity_id)
+                    state.seen_ids.add(existing_entity_id)
                     continue
-                await upsert_hint(
-                    entity_id=entity_id,
-                    entity_type=entity_type,
-                    canonical_name=canonical_name,
-                    alias_text=mention_text,
-                )
+                await self._upsert_structured_hint_entity(state, candidate)
 
+    async def _upsert_structured_graph_ref_entities(
+        self,
+        metadata_json: dict[str, Any],
+        state: _StructuredEntityHintUpsertState,
+    ) -> None:
         raw_graph_hints = metadata_json.get("structured_graph_hints")
         if isinstance(raw_graph_hints, list):
             for hint in raw_graph_hints:
                 if not isinstance(hint, dict):
                     continue
-                for ref_key, type_key in (
-                    ("subject_ref", "subject_type"),
-                    ("object_ref", "object_type"),
-                ):
-                    entity_ref = host._non_empty_text(hint.get(ref_key))
-                    entity_type = host._normalize_entity_type(hint.get(type_key))
-                    if (
-                        not entity_ref
-                        or not entity_type
-                        or ":" not in entity_ref
-                        or entity_ref.startswith("user:")
-                    ):
-                        continue
-                    canonical_name = self._canonical_name_from_entity_ref(
-                        entity_ref=entity_ref,
-                        entity_type=entity_type,
-                    )
+                for candidate in self._structured_graph_ref_candidates(hint, state=state):
                     existing_entity_id = await self._resolve_existing_structured_ref_entity_id(
-                        catalog=catalog,
-                        entity_ref=entity_ref,
-                        entity_type=entity_type,
-                        canonical_name=canonical_name,
+                        catalog=state.catalog,
+                        entity_ref=candidate.entity_id,
+                        entity_type=candidate.entity_type,
+                        canonical_name=candidate.canonical_name,
                     )
                     if existing_entity_id:
-                        alias = host._non_empty_text(canonical_name)
-                        if alias:
-                            await catalog.add_alias(
-                                entity_id=existing_entity_id,
-                                alias_text=alias,
-                                confidence=0.98,
-                            )
-                        seen_ids.add(existing_entity_id)
+                        await self._add_existing_structured_entity_alias(
+                            state,
+                            entity_id=existing_entity_id,
+                            alias_text=candidate.alias_text,
+                        )
                         continue
-                    await upsert_hint(
-                        entity_id=entity_ref,
-                        entity_type=entity_type,
-                        canonical_name=canonical_name,
-                    )
+                    await self._upsert_structured_hint_entity(state, candidate)
 
-        if upserted_count:
-            logger.debug(
-                "L2 structured entity hints persisted",
-                event_id=event.event_id,
-                upserted_count=upserted_count,
+    def _structured_entity_hint_candidate(
+        self,
+        hint: Any,
+        *,
+        state: _StructuredEntityHintUpsertState,
+    ) -> _StructuredEntityHintCandidate | None:
+        if not isinstance(hint, dict):
+            return None
+        mention_text = state.host._non_empty_text(hint.get("mention_text"))
+        entity_type = state.host._normalize_entity_type(hint.get("entity_type"))
+        if not mention_text or not entity_type:
+            return None
+        canonical_name = state.host._non_empty_text(hint.get("canonical_name_hint")) or mention_text
+        resolved_id = state.host._non_empty_text(hint.get("resolved_entity_id"))
+        entity_id = resolved_id or state.host._build_canonical_entity_id(
+            entity_type=entity_type,
+            canonical_name=canonical_name,
+        )
+        return _StructuredEntityHintCandidate(
+            entity_id=entity_id,
+            entity_type=entity_type,
+            canonical_name=canonical_name,
+            alias_text=mention_text,
+        )
+
+    def _structured_graph_ref_candidates(
+        self,
+        hint: dict[str, Any],
+        *,
+        state: _StructuredEntityHintUpsertState,
+    ) -> list[_StructuredEntityHintCandidate]:
+        candidates: list[_StructuredEntityHintCandidate] = []
+        for ref_key, type_key in (
+            ("subject_ref", "subject_type"),
+            ("object_ref", "object_type"),
+        ):
+            entity_ref = state.host._non_empty_text(hint.get(ref_key))
+            entity_type = state.host._normalize_entity_type(hint.get(type_key))
+            if (
+                not entity_ref
+                or not entity_type
+                or ":" not in entity_ref
+                or entity_ref.startswith("user:")
+            ):
+                continue
+            canonical_name = self._canonical_name_from_entity_ref(
+                entity_ref=entity_ref,
+                entity_type=entity_type,
             )
-        return upserted_count
+            candidates.append(
+                _StructuredEntityHintCandidate(
+                    entity_id=entity_ref,
+                    entity_type=entity_type,
+                    canonical_name=canonical_name,
+                    alias_text=canonical_name,
+                )
+            )
+        return candidates
+
+    async def _upsert_structured_hint_entity(
+        self,
+        state: _StructuredEntityHintUpsertState,
+        candidate: _StructuredEntityHintCandidate,
+    ) -> None:
+        if candidate.entity_id in state.seen_ids:
+            return
+        state.seen_ids.add(candidate.entity_id)
+        normalized_entity_id = await state.catalog.upsert_entity(
+            entity_id=candidate.entity_id,
+            canonical_name=candidate.canonical_name,
+            entity_type=candidate.entity_type,
+        )
+        state.seen_ids.add(normalized_entity_id)
+        alias = state.host._non_empty_text(candidate.alias_text) or candidate.canonical_name
+        if alias:
+            await state.catalog.add_alias(
+                entity_id=normalized_entity_id,
+                alias_text=alias,
+                confidence=0.98,
+            )
+        state.upserted_count += 1
+
+    async def _add_existing_structured_entity_alias(
+        self,
+        state: _StructuredEntityHintUpsertState,
+        *,
+        entity_id: str,
+        alias_text: str | None,
+    ) -> None:
+        alias = state.host._non_empty_text(alias_text)
+        if alias:
+            await state.catalog.add_alias(
+                entity_id=entity_id,
+                alias_text=alias,
+                confidence=0.98,
+            )
+        state.seen_ids.add(entity_id)
 
     def _canonical_name_from_entity_ref(self, *, entity_ref: str, entity_type: str) -> str:
         _, _, suffix = entity_ref.partition(":")
@@ -151,7 +214,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         for separator in ("-", "_", ":"):
             marker = f"{normalized_type}{separator}"
             if text.casefold().startswith(marker):
-                text = text[len(marker):]
+                text = text[len(marker) :]
                 break
         return text.replace("_", " ").replace("-", " ").strip() or entity_ref
 
@@ -212,7 +275,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         for separator in ("-", "_", ":"):
             marker = f"{normalized_type}{separator}"
             if text.casefold().startswith(marker):
-                return text[len(marker):].strip()
+                return text[len(marker) :].strip()
         return text
 
     def _inject_structured_entity_hints(
