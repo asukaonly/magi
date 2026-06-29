@@ -3,24 +3,17 @@ import {
   BookOpen,
   CalendarRange,
   EyeOff,
-  GitMerge,
   ImageIcon,
-  Layers,
-  MapPin,
   Pencil,
   Quote,
   RefreshCw,
   Star,
-  Tags,
-  UserRound,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import type {
-  L2EpisodeWithSummary,
   L2EpisodeEventPreview,
   L2ExperienceReviewDetail,
-  L2ExperienceWithReview,
 } from '@/api/modules/memory';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,178 +29,21 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
 import {
-  formatExperienceTag,
   getExperienceDescription,
   getExperienceEntityLabels,
 } from './ExperienceRow';
 import { cn } from '@/lib/utils';
+import {
+  getExperienceCoverUrl,
+  getReadableRecap,
+  normalizeList,
+  type ExperienceReviewLike,
+} from './ExperienceDetailModel';
+import { RelatedObjectsPanel } from './ExperienceRelatedObjects';
+import { SourceEpisodeList } from './ExperienceSourceEpisodes';
 import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
 
-type ExperienceReviewLike = L2ExperienceWithReview | L2ExperienceReviewDetail;
-
-const MEMORY_INFO_PANEL_CLASS = 'rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]';
-const MACHINE_TITLE_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$|^[0-9a-f]{16,}$|^[0-9A-HJKMNP-TV-Z]{12,}$/i;
-const MECHANICAL_RECAP_PATTERNS = [
-  /Chrome\s*(浏览|browsed)/i,
-  /Google Search/i,
-  /(访问|visited)\s*\d+\s*(次|times)/i,
-  /;\s*Chrome/i,
-];
-
-const normalizeList = (items: string[] | null | undefined): string[] => (
-  Array.isArray(items)
-    ? items.map(formatExperienceTag).filter((item) => Boolean(item && item.trim()))
-    : []
-);
-
-const getEpisodeDescription = (episode: L2EpisodeWithSummary): string => (
-  String(
-    episode.user_note ||
-    episode.display_description ||
-    episode.episode_summary?.content ||
-    episode.summary ||
-    episode.slice_narrative ||
-    ''
-  ).trim()
-);
-
-const truncateText = (value: string, maxLength: number): string => {
-  const text = value.trim();
-  if (text.length <= maxLength) {
-    return text;
-  }
-  return `${text.slice(0, maxLength - 1).trim()}…`;
-};
-
-const firstReadableSentence = (value: string): string => {
-  const text = value.trim();
-  if (!text) {
-    return '';
-  }
-  const [sentence = text] = text.split(/(?<=[。！？.!?])\s+|[；;]\s*/);
-  return truncateText(sentence.trim() || text, 150);
-};
-
-const isMechanicalRecap = (value: string): boolean => {
-  const text = value.trim();
-  if (!text) {
-    return false;
-  }
-  const separatorCount = (text.match(/[；;]/g) || []).length;
-  const patternHits = MECHANICAL_RECAP_PATTERNS.filter((pattern) => pattern.test(text)).length;
-  return separatorCount >= 2 || patternHits >= 2;
-};
-
-const getReadableRecap = (
-  experience: ExperienceReviewLike,
-  rawDescription: string,
-  title: string,
-  tags: string[],
-  locale: string
-): string => {
-  if (!rawDescription.trim()) {
-    return '';
-  }
-  if (experience.user_note) {
-    return firstReadableSentence(rawDescription);
-  }
-  if (!isMechanicalRecap(rawDescription) && rawDescription.trim().length <= 180) {
-    return firstReadableSentence(rawDescription);
-  }
-  const subject = title || tags[0] || '';
-  if (!subject) {
-    return locale.startsWith('zh')
-      ? '这段经历已经整理成一段可以回看的记录。'
-      : 'This experience has been shaped into something you can revisit.';
-  }
-  return locale.startsWith('zh')
-    ? `这段经历主要围绕「${subject}」展开。`
-    : `This experience centers on ${subject}.`;
-};
-
-const getEpisodeEvents = (
-  episode: L2EpisodeWithSummary,
-  eventsByEpisode: Map<string, L2EpisodeEventPreview[]>
-): L2EpisodeEventPreview[] => eventsByEpisode.get(episode.episode_id) ?? [];
-
-const getEventPreviewText = (event: L2EpisodeEventPreview): string => (
-  String(event.content_preview || '').trim()
-);
-
-const getSourceEpisodeFallbackFromEvents = (
-  episode: L2EpisodeWithSummary,
-  eventsByEpisode: Map<string, L2EpisodeEventPreview[]>
-): string => {
-  const event = getEpisodeEvents(episode, eventsByEpisode).find((item) => getEventPreviewText(item));
-  return event ? firstReadableSentence(getEventPreviewText(event)) : '';
-};
-
-const getReadableSourceEpisodeTitle = (
-  episode: L2EpisodeWithSummary,
-  index: number,
-  fallbackTemplate: string,
-  eventsByEpisode: Map<string, L2EpisodeEventPreview[]>
-): string => {
-  const values = [
-    episode.user_label,
-    episode.display_title,
-    episode.episode_summary?.label,
-    episode.label,
-    episode.summary,
-    episode.slice_narrative,
-  ];
-  const title = values.find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
-  if (!title || MACHINE_TITLE_PATTERN.test(title)) {
-    return getSourceEpisodeFallbackFromEvents(episode, eventsByEpisode)
-      || fallbackTemplate.replace('{{index}}', String(index + 1));
-  }
-  return title;
-};
-
-const getReadableSourceEpisodeSummary = (
-  episode: L2EpisodeWithSummary,
-  eventsByEpisode: Map<string, L2EpisodeEventPreview[]>
-): string => {
-  const summary = getEpisodeDescription(episode);
-  if (summary) {
-    return summary;
-  }
-  return getEpisodeEvents(episode, eventsByEpisode)
-    .map(getEventPreviewText)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((item) => firstReadableSentence(item))
-    .join(' / ');
-};
-
-const getExperienceCoverUrl = (episodes: L2EpisodeWithSummary[]): string | null => {
-  for (const episode of episodes) {
-    const url = resolveTimelineAssetUrl(episode.representative_asset_ref);
-    if (url) {
-      return url;
-    }
-  }
-  return null;
-};
-
-const formatSourceLabel = (value: string | null | undefined): string => (
-  String(value || '')
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (char) => char.toUpperCase())
-    .trim()
-);
-
-const formatEventTime = (value: number | null | undefined, locale: string): string => {
-  if (typeof value !== 'number') {
-    return '';
-  }
-  return new Intl.DateTimeFormat(locale, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(new Date(value * 1000));
-};
+const DETAIL_INFO_PANEL_CLASS = 'rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]';
 
 export function ExperienceDetail({
   experience,
@@ -496,7 +332,7 @@ export function ExperienceDetail({
             topics={topicLabels}
           />
         ) : null}
-        {detailLoading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
+        {detailLoading ? <div className={DETAIL_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
         <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} />
       </main>
 
@@ -593,149 +429,5 @@ export function ExperienceDetail({
   );
 }
 
-function SourceEpisodeList({
-  episodes,
-  eventsByEpisode,
-}: {
-  episodes: L2EpisodeWithSummary[];
-  eventsByEpisode: Map<string, L2EpisodeEventPreview[]>;
-}) {
-  const { t, i18n } = useTranslation('app');
-  return (
-    <section data-testid="episode-event-stream">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-        <Layers className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-        {t('memory.episodes.sections.sourceEpisodes')}
-      </h3>
-      <div data-testid="experience-source-episodes" className="mt-3 grid gap-3">
-        {episodes.length === 0 ? (
-          <div className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]">
-            {t('memory.episodes.noSourceEpisodes')}
-          </div>
-        ) : episodes.map((episode, index) => {
-          const title = getReadableSourceEpisodeTitle(
-            episode,
-            index,
-            t('memory.episodes.sourceEpisodeFallback', { index: index + 1 }),
-            eventsByEpisode
-          );
-          const rawSummary = getReadableSourceEpisodeSummary(episode, eventsByEpisode);
-          const summary = rawSummary === title ? '' : rawSummary;
-          const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
-          const episodeEvents = eventsByEpisode.get(episode.episode_id) ?? [];
-          return (
-            <article key={episode.episode_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <h4 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{title}</h4>
-                  {summary ? (
-                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-[hsl(var(--memory-body))]">{summary}</p>
-                  ) : null}
-                </div>
-                <div className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">
-                  {range}
-                </div>
-              </div>
-              <SourceEpisodeEventTrail events={episodeEvents} />
-            </article>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-function SourceEpisodeEventTrail({ events }: { events: L2EpisodeEventPreview[] }) {
-  const { t, i18n } = useTranslation('app');
-  if (events.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="mt-4 border-t border-[hsl(var(--memory-divider)/0.58)] pt-4">
-      <div className="flex items-center gap-2 text-xs font-semibold text-[hsl(var(--memory-muted))]">
-        <GitMerge className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-        {t('memory.episodes.sections.whatHappened')}
-      </div>
-      <div className="mt-3 grid gap-2">
-        {events.map((event) => {
-          const time = formatEventTime(event.timestamp ?? event.added_at, i18n.language);
-          const preview = String(event.content_preview || '').trim();
-          const source = formatSourceLabel(event.source);
-          return (
-            <article
-              key={`${event.episode_id}-${event.event_id}`}
-              className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
-            >
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                <p className="min-w-0 whitespace-pre-wrap break-words text-sm leading-6 text-[hsl(var(--memory-body))]">
-                  {preview || t('memory.episodes.eventPreviewUnavailable')}
-                </p>
-                {time ? <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{time}</span> : null}
-              </div>
-              {source ? (
-                <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">{source}</div>
-              ) : null}
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function RelatedObjectsPanel({
-  entities,
-  places,
-  topics,
-}: {
-  entities: string[];
-  places: string[];
-  topics: string[];
-}) {
-  const { t } = useTranslation('app');
-  return (
-    <section className="rounded-lg border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.5)] px-5 py-4">
-      <div className="grid gap-4 md:grid-cols-3">
-        <TagGroup
-          icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
-          title={t('memory.episodes.sections.entities')}
-          values={entities}
-        />
-        <TagGroup
-          icon={<MapPin className="h-4 w-4" aria-hidden="true" />}
-          title={t('memory.episodes.sections.places')}
-          values={places}
-        />
-        <TagGroup
-          icon={<Tags className="h-4 w-4" aria-hidden="true" />}
-          title={t('memory.episodes.sections.topics')}
-          values={topics}
-        />
-      </div>
-    </section>
-  );
-}
-
-function TagGroup({ icon, title, values }: { icon: ReactNode; title: string; values: string[] }) {
-  const { t } = useTranslation('app');
-  return (
-    <section className="min-w-0">
-      <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-        <span className="text-[hsl(var(--memory-accent))]">{icon}</span>
-        {title}
-      </h3>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {values.length > 0 ? values.map((value) => (
-          <span key={value} className="min-w-0 rounded-md border border-[hsl(var(--memory-tag-border))] bg-[hsl(var(--memory-tag-bg)/0.82)] px-2 py-1 text-xs text-[hsl(var(--memory-body))]">
-            {value}
-          </span>
-        )) : (
-          <span className="text-sm text-[hsl(var(--memory-muted))]">{t('memory.episodes.noTags')}</span>
-        )}
-      </div>
-    </section>
-  );
-}
 
 export default ExperienceDetail;
