@@ -11,9 +11,25 @@ where supersession needs to inspect existing rows.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from magi.runtime_trace.span_publisher import publish_trace_span, resolve_event_bus
+
+
+@dataclass(slots=True)
+class _ResponseTraceContext:
+    event_bus: Any | None
+    trace_id: str
+    turn_id: str
+    user_id: str
+    session_id: str
+    response_text: str
+    started_at_ms: int
+    ended_at_ms: int
+    orchestration_id: str | None
+    mode: str
+    user_message: str
 
 
 def _root_turn_attributes(
@@ -126,59 +142,84 @@ class ChatPostprocessRuntimeTraceMixin:
             user_message=user_message,
             mode=mode,
         )
-        # response_emit child span
-        await publish_trace_span(
+        trace_context = _ResponseTraceContext(
             event_bus=bus,
+            trace_id=trace_id,
+            turn_id=normalized_turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            response_text=response_text,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+            orchestration_id=orchestration_id,
+            mode=mode,
+            user_message=user_message,
+        )
+        await self._publish_response_emit_span(trace_context)
+        await self._publish_completed_root_turn_span(trace_context)
+        await self._publish_completed_turn_record(trace_context)
+
+    async def _publish_response_emit_span(self, trace_context: _ResponseTraceContext) -> None:
+        await publish_trace_span(
+            event_bus=trace_context.event_bus,
             node_type="response_emit",
             name="Response emission",
-            span_id=self._build_span_id(normalized_turn_id, "response_emit"),
-            trace_id=trace_id,
-            parent_span_id=self._build_root_span_id(normalized_turn_id),
+            span_id=self._build_span_id(trace_context.turn_id, "response_emit"),
+            trace_id=trace_context.trace_id,
+            parent_span_id=self._build_root_span_id(trace_context.turn_id),
             status="completed",
-            started_at_ms=ended_at_ms,
-            ended_at_ms=ended_at_ms,
-            result_preview=response_text[:240] or None,
-            turn_id=normalized_turn_id,
+            started_at_ms=trace_context.ended_at_ms,
+            ended_at_ms=trace_context.ended_at_ms,
+            result_preview=trace_context.response_text[:240] or None,
+            turn_id=trace_context.turn_id,
         )
-        # root span (semantic node_type "turn" — does NOT trigger turn-record dispatch)
+
+    async def _publish_completed_root_turn_span(
+        self,
+        trace_context: _ResponseTraceContext,
+    ) -> None:
         await publish_trace_span(
-            event_bus=bus,
+            event_bus=trace_context.event_bus,
             node_type="turn",
             name="Chat turn",
-            span_id=self._build_root_span_id(normalized_turn_id),
-            trace_id=trace_id,
+            span_id=self._build_root_span_id(trace_context.turn_id),
+            trace_id=trace_context.trace_id,
             parent_span_id=None,
             status="completed",
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            result_preview=response_text[:240] or None,
-            turn_id=normalized_turn_id,
+            started_at_ms=trace_context.started_at_ms,
+            ended_at_ms=trace_context.ended_at_ms,
+            result_preview=trace_context.response_text[:240] or None,
+            turn_id=trace_context.turn_id,
         )
-        # trace_turns row update (writes BOTH base span + turn sub-table)
+
+    async def _publish_completed_turn_record(
+        self,
+        trace_context: _ResponseTraceContext,
+    ) -> None:
         await publish_trace_span(
-            event_bus=bus,
+            event_bus=trace_context.event_bus,
             node_type="turn_record",
-            name=f"turn:{normalized_turn_id}",
-            trace_id=trace_id,
+            name=f"turn:{trace_context.turn_id}",
+            trace_id=trace_context.trace_id,
             parent_span_id=None,
             status="ok",
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
-            turn_id=normalized_turn_id,
+            started_at_ms=trace_context.started_at_ms,
+            ended_at_ms=trace_context.ended_at_ms,
+            turn_id=trace_context.turn_id,
             attributes=_root_turn_attributes(
-                turn_id=normalized_turn_id,
-                session_id=session_id,
-                user_id=user_id,
+                turn_id=trace_context.turn_id,
+                session_id=trace_context.session_id,
+                user_id=trace_context.user_id,
                 status="completed",
-                mode=mode,
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=max(0, ended_at_ms - started_at_ms),
-                orchestration_id=orchestration_id,
-                user_message_preview=user_message[:240] or None,
-                response_preview=response_text[:240] or None,
-                created_at_ms=started_at_ms,
-                updated_at_ms=ended_at_ms,
+                mode=trace_context.mode,
+                started_at_ms=trace_context.started_at_ms,
+                ended_at_ms=trace_context.ended_at_ms,
+                duration_ms=max(0, trace_context.ended_at_ms - trace_context.started_at_ms),
+                orchestration_id=trace_context.orchestration_id,
+                user_message_preview=trace_context.user_message[:240] or None,
+                response_preview=trace_context.response_text[:240] or None,
+                created_at_ms=trace_context.started_at_ms,
+                updated_at_ms=trace_context.ended_at_ms,
             ),
         )
 
