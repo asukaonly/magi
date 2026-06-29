@@ -4,6 +4,7 @@ Web Search Tool - Search web using multiple providers
 
 import copy
 import time
+from dataclasses import dataclass
 from datetime import date
 from typing import Dict, Any, List
 
@@ -47,6 +48,16 @@ _RESULT_CACHE_TTL_SECONDS = 900.0
 _FALLBACK_PRIORITY = ("brave", "tavily", "perplexity", "searxng", "duckduckgo")
 
 
+@dataclass(frozen=True)
+class _SearchRequest:
+    query: Any
+    executed_query: Any
+    num_results: int
+    configured_provider: str
+    date_range_applied: Dict[str, str] | None
+    proxy_url: str | None
+
+
 class WebSearchTool(MultiProviderTool):
     """
     Web Search Tool
@@ -57,7 +68,9 @@ class WebSearchTool(MultiProviderTool):
     def __init__(self) -> None:
         self._turn_query_cache: dict[str, dict[tuple[str, str, int], float]] = {}
         self._query_result_counts: dict[tuple[str, str, int], tuple[float, int]] = {}
-        self._result_cache: dict[tuple[str, str, tuple[str, ...], str, int], tuple[float, dict[str, Any]]] = {}
+        self._result_cache: dict[
+            tuple[str, str, tuple[str, ...], str, int], tuple[float, dict[str, Any]]
+        ] = {}
         super().__init__()
 
     def _init_schema(self) -> None:
@@ -280,6 +293,37 @@ class WebSearchTool(MultiProviderTool):
         self, parameters: Dict[str, Any], context: ToolExecutionContext
     ) -> ToolResult:
         """Handle web search query."""
+        request = self._prepare_search_request(parameters)
+        if isinstance(request, ToolResult):
+            return request
+
+        available_providers = self.get_available_providers()
+        if not available_providers:
+            return self._build_no_providers_guidance()
+
+        candidates = self._build_provider_candidates(
+            configured_provider=request.configured_provider,
+            available_providers=available_providers,
+        )
+        primary_provider = candidates[0]
+
+        cached_result = self._build_cached_search_result(
+            context=context,
+            request=request,
+            candidates=candidates,
+            primary_provider=primary_provider,
+        )
+        if cached_result is not None:
+            return cached_result
+
+        return await self._execute_search_candidates(
+            context=context,
+            request=request,
+            candidates=candidates,
+            primary_provider=primary_provider,
+        )
+
+    def _prepare_search_request(self, parameters: Dict[str, Any]) -> _SearchRequest | ToolResult:
         query = parameters.get("query")
 
         if not query:
@@ -289,9 +333,6 @@ class WebSearchTool(MultiProviderTool):
                 error_code=ToolErrorCode.MISSING_QUERY.value,
             )
 
-        # Provider is system-chosen, never caller-chosen: the LLM cannot select
-        # one (the schema exposes no `provider` field), so we always start from
-        # the configured default and fall back internally.
         configured_provider = str(self._get_default_provider()).strip()
         date_range_applied = self._normalize_date_range(
             parameters.get("start_date"),
@@ -302,140 +343,183 @@ class WebSearchTool(MultiProviderTool):
         executed_query = self._apply_date_range_to_query(query, date_range_applied)
         num_results = int(parameters.get("num_results", 10))
         proxy_url = get_config().network.proxy_url()
+        return _SearchRequest(
+            query=query,
+            executed_query=executed_query,
+            num_results=num_results,
+            configured_provider=configured_provider,
+            date_range_applied=date_range_applied,
+            proxy_url=proxy_url,
+        )
 
-        # Check if any provider is available
-        available_providers = self.get_available_providers()
-        if not available_providers:
-            return ToolResult(
-                success=False,
-                error=t(
-                    "tools.web_search.no_providers.error",
-                    fallback="No search providers are configured. Ask the user to configure a provider API key via system-settings, then retry.",
+    def _build_no_providers_guidance(self) -> ToolResult:
+        return ToolResult(
+            success=False,
+            error=t(
+                "tools.web_search.no_providers.error",
+                fallback="No search providers are configured. Ask the user to configure a provider API key via system-settings, then retry.",
+            ),
+            error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
+            data={
+                "next_action": "ask_user_to_configure_api_key",
+                "retryable": False,
+                "terminal": True,
+                "llm_guidance": t(
+                    "tools.web_search.no_providers.llm_guidance",
+                    fallback="Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
                 ),
-                error_code=ToolErrorCode.NO_PROVIDERS_CONFIGURED.value,
-                data={
-                    "next_action": "ask_user_to_configure_api_key",
-                    "retryable": False,
-                    "terminal": True,
-                    "llm_guidance": t(
-                        "tools.web_search.no_providers.llm_guidance",
-                        fallback="Do not retry web search until at least one search provider is available. Ask the user to confirm tool configuration or restore a supported provider.",
-                    ),
-                    "user_message_template": t(
-                        "tools.web_search.no_providers.user_message",
-                        fallback="To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available.",
-                    ),
-                    "config_tool": "system-settings",
-                    "config_example": {
-                        "action": "set",
-                        "path": "tool.web-search.default_provider",
-                        "value": "duckduckgo",
-                    },
-                    "supported_providers": list(PROVIDER_INFO.keys()),
+                "user_message_template": t(
+                    "tools.web_search.no_providers.user_message",
+                    fallback="To continue web search, please ensure the web search tool is configured. I will resume the current search after it is available.",
+                ),
+                "config_tool": "system-settings",
+                "config_example": {
+                    "action": "set",
+                    "path": "tool.web-search.default_provider",
+                    "value": "duckduckgo",
                 },
-            )
+                "supported_providers": list(PROVIDER_INFO.keys()),
+            },
+        )
 
-        # Build the deterministic fallback chain: configured default first, then
-        # the remaining configured providers in canonical priority order. A
-        # misconfigured / unavailable default is simply skipped rather than
-        # surfaced as an error — the tool self-heals instead of stalling.
+    def _build_provider_candidates(
+        self,
+        *,
+        configured_provider: str,
+        available_providers: List[str],
+    ) -> List[str]:
         ordered = [configured_provider] + [
             p for p in _FALLBACK_PRIORITY if p != configured_provider
         ]
         candidates = [p for p in ordered if p in available_providers]
-        if not candidates:  # defensive: providers exist but none matched the order
+        if not candidates:
             candidates = list(available_providers)
-        primary_provider = candidates[0]
+        return candidates
 
-        # Dedup is keyed on the primary provider so a repeated identical search in
-        # the same turn short-circuits regardless of which provider ultimately served.
+    def _build_cached_search_result(
+        self,
+        *,
+        context: ToolExecutionContext,
+        request: _SearchRequest,
+        candidates: List[str],
+        primary_provider: str,
+    ) -> ToolResult | None:
         duplicate_result = self._build_duplicate_turn_result(
             context=context,
             provider_name=primary_provider,
-            query=str(query),
-            executed_query=executed_query,
-            num_results=num_results,
-            requested_provider=configured_provider,
+            query=str(request.query),
+            executed_query=request.executed_query,
+            num_results=request.num_results,
+            requested_provider=request.configured_provider,
         )
         if duplicate_result is not None:
             return duplicate_result
 
-        cached_result = self._build_cached_result(
+        return self._build_cached_result(
             context=context,
-            configured_provider=configured_provider,
+            configured_provider=request.configured_provider,
             candidates=candidates,
-            query=str(query),
-            executed_query=executed_query,
-            num_results=num_results,
-            date_range_applied=date_range_applied,
+            query=str(request.query),
+            executed_query=request.executed_query,
+            num_results=request.num_results,
+            date_range_applied=request.date_range_applied,
         )
-        if cached_result is not None:
-            return cached_result
 
+    async def _execute_search_candidates(
+        self,
+        *,
+        context: ToolExecutionContext,
+        request: _SearchRequest,
+        candidates: List[str],
+        primary_provider: str,
+    ) -> ToolResult:
         attempts: List[Dict[str, Any]] = []
         ddg_challenge_seen = False
         for provider_name in candidates:
             result = await self.execute_with_provider(
                 provider_name,
                 {
-                    "query": executed_query,
-                    "num_results": num_results,
-                    "proxy_url": proxy_url,
+                    "query": request.executed_query,
+                    "num_results": request.num_results,
+                    "proxy_url": request.proxy_url,
                 },
             )
             if result.success:
-                result.data["query"] = query
-                result.data["executed_query"] = executed_query
-                result.data["requested_provider"] = configured_provider
-                result.data["actual_provider"] = provider_name
-                result.data["fallback_used"] = provider_name != configured_provider
-                if attempts:
-                    result.data["fallback_from"] = [a["provider"] for a in attempts]
-                if date_range_applied is not None:
-                    result.data["date_range_applied"] = date_range_applied
-                self._record_successful_result(
+                self._finalize_successful_search_result(
                     context=context,
-                    configured_provider=configured_provider,
+                    request=request,
                     candidates=candidates,
-                    executed_query=executed_query,
-                    num_results=num_results,
-                    data=result.data,
-                )
-                self._record_successful_turn_query(
-                    context=context,
-                    provider_name=primary_provider,
-                    executed_query=executed_query,
-                    num_results=num_results,
-                    result_count=int(result.data.get("result_count") or result.data.get("total") or 0),
+                    primary_provider=primary_provider,
+                    provider_name=provider_name,
+                    attempts=attempts,
+                    result=result,
                 )
                 return result
 
-            attempts.append(
-                {
-                    "provider": provider_name,
-                    "error_code": result.error_code,
-                    "error": str(result.error or ""),
-                }
-            )
+            attempts.append(self._project_failed_attempt(provider_name, result))
             if self._is_duckduckgo_challenge_error(provider_name, result):
                 ddg_challenge_seen = True
 
-        # Every configured provider failed. Preserve the actionable DuckDuckGo
-        # challenge guidance when it was the only option; otherwise report the
-        # aggregated failure so the model stops retrying and tells the user.
         if ddg_challenge_seen and len(candidates) == 1:
             return self._build_duckduckgo_challenge_guidance(
-                query=query,
-                requested_provider=configured_provider,
+                query=request.query,
+                requested_provider=request.configured_provider,
                 actual_provider="duckduckgo",
-                date_range_applied=date_range_applied,
+                date_range_applied=request.date_range_applied,
             )
         return self._build_all_providers_failed_guidance(
-            query=str(query),
-            configured_provider=configured_provider,
+            query=str(request.query),
+            configured_provider=request.configured_provider,
             attempts=attempts,
-            date_range_applied=date_range_applied,
+            date_range_applied=request.date_range_applied,
         )
+
+    def _finalize_successful_search_result(
+        self,
+        *,
+        context: ToolExecutionContext,
+        request: _SearchRequest,
+        candidates: List[str],
+        primary_provider: str,
+        provider_name: str,
+        attempts: List[Dict[str, Any]],
+        result: ToolResult,
+    ) -> None:
+        result.data["query"] = request.query
+        result.data["executed_query"] = request.executed_query
+        result.data["requested_provider"] = request.configured_provider
+        result.data["actual_provider"] = provider_name
+        result.data["fallback_used"] = provider_name != request.configured_provider
+        if attempts:
+            result.data["fallback_from"] = [a["provider"] for a in attempts]
+        if request.date_range_applied is not None:
+            result.data["date_range_applied"] = request.date_range_applied
+        self._record_successful_result(
+            context=context,
+            configured_provider=request.configured_provider,
+            candidates=candidates,
+            executed_query=request.executed_query,
+            num_results=request.num_results,
+            data=result.data,
+        )
+        self._record_successful_turn_query(
+            context=context,
+            provider_name=primary_provider,
+            executed_query=request.executed_query,
+            num_results=request.num_results,
+            result_count=int(result.data.get("result_count") or result.data.get("total") or 0),
+        )
+
+    @staticmethod
+    def _project_failed_attempt(
+        provider_name: str,
+        result: ToolResult,
+    ) -> Dict[str, Any]:
+        return {
+            "provider": provider_name,
+            "error_code": result.error_code,
+            "error": str(result.error or ""),
+        }
 
     def _build_duplicate_turn_result(
         self,
@@ -541,9 +625,7 @@ class WebSearchTool(MultiProviderTool):
 
     def _prune_result_cache(self) -> None:
         cutoff = time.time() - _RESULT_CACHE_TTL_SECONDS
-        stale_keys = [
-            key for key, (seen_at, _) in self._result_cache.items() if seen_at < cutoff
-        ]
+        stale_keys = [key for key, (seen_at, _) in self._result_cache.items() if seen_at < cutoff]
         for key in stale_keys:
             self._result_cache.pop(key, None)
 
