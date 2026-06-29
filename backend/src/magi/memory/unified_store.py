@@ -60,6 +60,14 @@ class MemoryStoreTuning:
     temporal_l3_llm_min_event_count: int = 2
 
 
+@dataclass(frozen=True)
+class _MemoryStorePaths:
+    memory_dir: Path
+    l1_db_path: str
+    shared_memory_db_path: str
+    archive_dir: Path
+
+
 class UnifiedMemoryStore(
     MemoryIngestionMixin,
     L3InsightsMixin,
@@ -92,47 +100,108 @@ class UnifiedMemoryStore(
         extraction_profile_provider: Callable[[], Any] | None = None,
         tuning: "MemoryStoreTuning | None" = None,
     ) -> None:
-        from ..utils.runtime import get_runtime_paths
-
-        # Advanced tuning knobs live in MemoryStoreTuning; unpack to locals so
-        # the rest of __init__ (and the layer constructors below) is unchanged.
         tuning = tuning or MemoryStoreTuning()
-        async_embeddings = tuning.async_embeddings
-        enable_l1_vectors = tuning.enable_l1_vectors
-        enable_l2_vectors = tuning.enable_l2_vectors
-        enable_l3_vectors = tuning.enable_l3_vectors
-        enable_l4_vectors = tuning.enable_l4_vectors
-        enable_l3_llm_summary = tuning.enable_l3_llm_summary
-        enable_l2_conflict_arbitration = tuning.enable_l2_conflict_arbitration
-        l2_conflict_arbitration_min_confidence = tuning.l2_conflict_arbitration_min_confidence
-        l0_checkpoint_interval_seconds = tuning.l0_checkpoint_interval_seconds
-        session_timeout_seconds = tuning.session_timeout_seconds
-        temporal_l3_llm_timeout_seconds = tuning.temporal_l3_llm_timeout_seconds
-        temporal_l3_llm_min_event_count = tuning.temporal_l3_llm_min_event_count
+        paths = self._resolve_memory_store_paths(
+            db_path=db_path,
+            persist_dir=persist_dir,
+            l1_db_path=l1_db_path,
+            memory_db_path=memory_db_path,
+            archive_dir_path=archive_dir_path,
+        )
+        self.memory_db_path = paths.shared_memory_db_path
+        self._initialize_layer_slots(paths.archive_dir, l2_batch_flush_interval_seconds)
+
+        if enable_l0:
+            self.l0 = self._build_l0_store(paths, tuning)
+        if enable_l1:
+            self.l1 = self._build_l1_store(
+                paths,
+                tuning,
+                embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
+            )
+        if enable_l2:
+            self._build_l2_stack(
+                paths,
+                tuning,
+                embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
+                extraction_profile_provider=extraction_profile_provider,
+                scenario_llm_pool=scenario_llm_pool,
+            )
+
+        self._build_edge_embedding_worker(paths, memory_config_getter)
+
+        if enable_l3:
+            self.l3 = self._build_l3_store(
+                paths,
+                tuning,
+                embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
+                scenario_llm_pool=scenario_llm_pool,
+                temporal_summary_features_builder=temporal_summary_features_builder,
+            )
+        if enable_l4:
+            self.l4 = self._build_l4_store(
+                paths,
+                tuning,
+                embedding_service=embedding_service,
+                memory_config_getter=memory_config_getter,
+                scenario_llm_pool=scenario_llm_pool,
+            )
+
+        self._finalize_initial_state()
+
+    def _finalize_initial_state(self) -> None:
+        # NOTE: the manual-entry subsystem (store, asset store, weather fetcher)
+        # and the location subsystem (sample store, geocode cache, resolver,
+        # WiFi/IPGeo sources) are no longer built here. They are owned by
+        # ``magi.memory.manual_entries.lifecycle.ManualEntriesModule`` and
+        # ``magi.location.lifecycle.LocationModule`` respectively, and exposed
+        # via their bootstrap-context slices + DI bindings. Memory's only stake
+        # in manual entries is the L1 projection, built at the API boundary.
+
+        self._initialized = False
+        self._write_lock = asyncio.Lock()
+
+    @staticmethod
+    def _resolve_memory_store_paths(
+        *,
+        db_path: Optional[str],
+        persist_dir: Optional[str],
+        l1_db_path: Optional[str],
+        memory_db_path: Optional[str],
+        archive_dir_path: Optional[str],
+    ) -> _MemoryStorePaths:
+        from ..utils.runtime import get_runtime_paths
 
         runtime_paths = get_runtime_paths()
         memory_dir = Path(persist_dir).expanduser() if persist_dir else runtime_paths.memory_dir
         memory_dir.mkdir(parents=True, exist_ok=True)
         l1_db = str(
-            (
-                Path(l1_db_path).expanduser()
-                if l1_db_path
-                else (Path(db_path).expanduser() if db_path else runtime_paths.l1_memory_db_path)
-            )
+            Path(l1_db_path).expanduser()
+            if l1_db_path
+            else (Path(db_path).expanduser() if db_path else runtime_paths.l1_memory_db_path)
         )
         shared_memory_db = str(
-            Path(memory_db_path).expanduser()
-            if memory_db_path
-            else (memory_dir / "memory.db")
+            Path(memory_db_path).expanduser() if memory_db_path else (memory_dir / "memory.db")
         )
-        self.memory_db_path: str = shared_memory_db
         archive_dir = (
-            Path(archive_dir_path).expanduser()
-            if archive_dir_path
-            else memory_dir / "archive"
+            Path(archive_dir_path).expanduser() if archive_dir_path else memory_dir / "archive"
         )
         archive_dir.mkdir(parents=True, exist_ok=True)
+        return _MemoryStorePaths(
+            memory_dir=memory_dir,
+            l1_db_path=l1_db,
+            shared_memory_db_path=shared_memory_db,
+            archive_dir=archive_dir,
+        )
 
+    def _initialize_layer_slots(
+        self,
+        archive_dir: Path,
+        l2_batch_flush_interval_seconds: int,
+    ) -> None:
         self.l0: Optional[L0WorkingMemoryStore] = None
         self.l1: Optional[L1EventStore] = None
         self.l2: Optional[L2CognitionStore] = None
@@ -150,63 +219,91 @@ class UnifiedMemoryStore(
         self._archive_dir = archive_dir
         self._summary_semaphore: asyncio.Semaphore = asyncio.Semaphore(3)
 
-        if enable_l0:
-            self.l0 = L0WorkingMemoryStore(
-                checkpoint_db_path=shared_memory_db,
-                checkpoint_interval_seconds=l0_checkpoint_interval_seconds,
-                session_timeout_seconds=session_timeout_seconds,
-                restore_on_restart=True,
-            )
-        if enable_l1:
-            self.l1 = L1EventStore(
-                db_path=l1_db,
-                embedding_service=embedding_service,
-                memory_config_getter=memory_config_getter,
-                vector_enabled=enable_l1_vectors,
-                async_embeddings=async_embeddings,
-            )
-        if enable_l2:
-            self.l2 = L2CognitionStore(db_path=shared_memory_db)
-            self.l2_entity_catalog = L2EntityCatalog(
-                db_path=shared_memory_db,
-                embedding_service=embedding_service,
-                memory_config_getter=memory_config_getter,
-                vector_enabled=enable_l2_vectors,
-            )
-            self.l2_promotion_counter = L2PromotionCounter(db_path=shared_memory_db)
-            self.l2_llm_service = L2LLMService(scenario_llm_pool)
-            semantic_edge_builder: EntityScopedSemanticBuilder | None = None
-            if self.l1 is not None:
-                semantic_edge_builder = EntityScopedSemanticBuilder(
-                    l1_store=self.l1,
-                    l2_store=self.l2,
-                    config_getter=memory_config_getter,
-                )
-            self.l2_pipeline = L2Pipeline(
-                self.l2,
-                l1_store=self.l1,
-                entity_catalog=self.l2_entity_catalog,
-                llm_service=self.l2_llm_service,
-                state_change_callback=self._handle_l2_state_change_outcomes,
-                active_entity_callback=self._handle_l2_active_entities,
-                batch_flush_interval_seconds=l2_batch_flush_interval_seconds,
-                enable_conflict_arbitration=enable_l2_conflict_arbitration,
-                conflict_arbitration_min_confidence=l2_conflict_arbitration_min_confidence,
-                semantic_edge_builder=semantic_edge_builder,
-                extraction_profile_provider=extraction_profile_provider,
-                promotion_counter=self.l2_promotion_counter,
-            )
-        # Build the edge-embedding drain worker.  The worker is always
-        # constructed (so stop() is always safe to call in shutdown), but is
-        # only *started* in initialize() when an embedding_service is present.
-        _drain_interval: float = 5.0
-        if memory_config_getter is not None:
-            try:
-                _drain_interval = memory_config_getter().l2.edge_embedding_drain_interval_seconds
-            except Exception:
-                pass
+    @staticmethod
+    def _build_l0_store(
+        paths: _MemoryStorePaths,
+        tuning: MemoryStoreTuning,
+    ) -> L0WorkingMemoryStore:
+        return L0WorkingMemoryStore(
+            checkpoint_db_path=paths.shared_memory_db_path,
+            checkpoint_interval_seconds=tuning.l0_checkpoint_interval_seconds,
+            session_timeout_seconds=tuning.session_timeout_seconds,
+            restore_on_restart=True,
+        )
+
+    @staticmethod
+    def _build_l1_store(
+        paths: _MemoryStorePaths,
+        tuning: MemoryStoreTuning,
+        *,
+        embedding_service: MemoryEmbeddingService | None,
+        memory_config_getter: Callable[[], Any] | None,
+    ) -> L1EventStore:
+        return L1EventStore(
+            db_path=paths.l1_db_path,
+            embedding_service=embedding_service,
+            memory_config_getter=memory_config_getter,
+            vector_enabled=tuning.enable_l1_vectors,
+            async_embeddings=tuning.async_embeddings,
+        )
+
+    def _build_l2_stack(
+        self,
+        paths: _MemoryStorePaths,
+        tuning: MemoryStoreTuning,
+        *,
+        embedding_service: MemoryEmbeddingService | None,
+        memory_config_getter: Callable[[], Any] | None,
+        extraction_profile_provider: Callable[[], Any] | None,
+        scenario_llm_pool: "ScenarioLLMPool | None",
+    ) -> None:
+        self.l2 = L2CognitionStore(db_path=paths.shared_memory_db_path)
+        self.l2_entity_catalog = L2EntityCatalog(
+            db_path=paths.shared_memory_db_path,
+            embedding_service=embedding_service,
+            memory_config_getter=memory_config_getter,
+            vector_enabled=tuning.enable_l2_vectors,
+        )
+        self.l2_promotion_counter = L2PromotionCounter(db_path=paths.shared_memory_db_path)
+        self.l2_llm_service = L2LLMService(scenario_llm_pool)
+        semantic_edge_builder = self._build_semantic_edge_builder(memory_config_getter)
+        self.l2_pipeline = L2Pipeline(
+            self.l2,
+            l1_store=self.l1,
+            entity_catalog=self.l2_entity_catalog,
+            llm_service=self.l2_llm_service,
+            state_change_callback=self._handle_l2_state_change_outcomes,
+            active_entity_callback=self._handle_l2_active_entities,
+            batch_flush_interval_seconds=self._l2_batch_flush_interval_seconds,
+            enable_conflict_arbitration=tuning.enable_l2_conflict_arbitration,
+            conflict_arbitration_min_confidence=tuning.l2_conflict_arbitration_min_confidence,
+            semantic_edge_builder=semantic_edge_builder,
+            extraction_profile_provider=extraction_profile_provider,
+            promotion_counter=self.l2_promotion_counter,
+        )
+
+    def _build_semantic_edge_builder(
+        self,
+        memory_config_getter: Callable[[], Any] | None,
+    ) -> EntityScopedSemanticBuilder | None:
+        if self.l1 is None or self.l2 is None:
+            return None
+        return EntityScopedSemanticBuilder(
+            l1_store=self.l1,
+            l2_store=self.l2,
+            config_getter=memory_config_getter,
+        )
+
+    def _build_edge_embedding_worker(
+        self,
+        paths: _MemoryStorePaths,
+        memory_config_getter: Callable[[], Any] | None,
+    ) -> None:
+        # The worker is always constructed so stop() is safe during shutdown,
+        # but initialize() starts it only when an embedding service is present.
+        drain_interval = self._edge_embedding_drain_interval(memory_config_getter)
         self._edge_embedding_drainer = EdgeEmbeddingDrainer(
-            db_path=shared_memory_db,
+            db_path=paths.shared_memory_db_path,
             embedding_service=(
                 self.l2_entity_catalog.embedding_service
                 if self.l2_entity_catalog is not None
@@ -220,42 +317,60 @@ class UnifiedMemoryStore(
         )
         self._edge_embedding_worker = L2EdgeEmbeddingWorker(
             drainer=self._edge_embedding_drainer,
-            idle_interval_seconds=_drain_interval,
+            idle_interval_seconds=drain_interval,
         )
 
-        if enable_l3:
-            self.l3 = L3SummaryStore(
-                db_path=shared_memory_db,
-                embedding_service=embedding_service,
-                memory_config_getter=memory_config_getter,
-                vector_enabled=enable_l3_vectors,
-                async_embeddings=async_embeddings,
-                enable_temporal_llm_summary=enable_l3_llm_summary,
-                temporal_llm_timeout_seconds=temporal_l3_llm_timeout_seconds,
-                temporal_llm_min_event_count=temporal_l3_llm_min_event_count,
-                scenario_llm_pool=scenario_llm_pool,
-                temporal_summary_features_builder=temporal_summary_features_builder,
-            )
-        if enable_l4:
-            self.l4 = L4ProceduralMemoryStore(
-                db_path=shared_memory_db,
-                embedding_service=embedding_service,
-                memory_config_getter=memory_config_getter,
-                scenario_llm_pool=scenario_llm_pool,
-                vector_enabled=enable_l4_vectors,
-                async_embeddings=async_embeddings,
-            )
+    @staticmethod
+    def _edge_embedding_drain_interval(
+        memory_config_getter: Callable[[], Any] | None,
+    ) -> float:
+        if memory_config_getter is None:
+            return 5.0
+        try:
+            return memory_config_getter().l2.edge_embedding_drain_interval_seconds
+        except Exception:
+            return 5.0
 
-        # NOTE: the manual-entry subsystem (store, asset store, weather fetcher)
-        # and the location subsystem (sample store, geocode cache, resolver,
-        # WiFi/IPGeo sources) are no longer built here. They are owned by
-        # ``magi.memory.manual_entries.lifecycle.ManualEntriesModule`` and
-        # ``magi.location.lifecycle.LocationModule`` respectively, and exposed
-        # via their bootstrap-context slices + DI bindings. Memory's only stake
-        # in manual entries is the L1 projection, built at the API boundary.
+    @staticmethod
+    def _build_l3_store(
+        paths: _MemoryStorePaths,
+        tuning: MemoryStoreTuning,
+        *,
+        embedding_service: MemoryEmbeddingService | None,
+        memory_config_getter: Callable[[], Any] | None,
+        scenario_llm_pool: "ScenarioLLMPool | None",
+        temporal_summary_features_builder: Callable[..., dict[str, Any]] | None,
+    ) -> L3SummaryStore:
+        return L3SummaryStore(
+            db_path=paths.shared_memory_db_path,
+            embedding_service=embedding_service,
+            memory_config_getter=memory_config_getter,
+            vector_enabled=tuning.enable_l3_vectors,
+            async_embeddings=tuning.async_embeddings,
+            enable_temporal_llm_summary=tuning.enable_l3_llm_summary,
+            temporal_llm_timeout_seconds=tuning.temporal_l3_llm_timeout_seconds,
+            temporal_llm_min_event_count=tuning.temporal_l3_llm_min_event_count,
+            scenario_llm_pool=scenario_llm_pool,
+            temporal_summary_features_builder=temporal_summary_features_builder,
+        )
 
-        self._initialized = False
-        self._write_lock = asyncio.Lock()
+    @staticmethod
+    def _build_l4_store(
+        paths: _MemoryStorePaths,
+        tuning: MemoryStoreTuning,
+        *,
+        embedding_service: MemoryEmbeddingService | None,
+        memory_config_getter: Callable[[], Any] | None,
+        scenario_llm_pool: "ScenarioLLMPool | None",
+    ) -> L4ProceduralMemoryStore:
+        return L4ProceduralMemoryStore(
+            db_path=paths.shared_memory_db_path,
+            embedding_service=embedding_service,
+            memory_config_getter=memory_config_getter,
+            scenario_llm_pool=scenario_llm_pool,
+            vector_enabled=tuning.enable_l4_vectors,
+            async_embeddings=tuning.async_embeddings,
+        )
 
 
 __all__ = ["UnifiedMemoryStore", "MemoryStoreTuning"]
