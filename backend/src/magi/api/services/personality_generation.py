@@ -88,6 +88,17 @@ class PersonalityGenerationJob:
   error: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class _GenerationRunContext:
+  description: str
+  target_language: str
+  current_config: Optional[PersonalityConfigModel]
+  llm_override: Optional[LLMSettings]
+  adapter_resolver: Callable[..., Any]
+  adapter_factory: Callable[..., Any]
+  stage_progress_callback: Optional[Callable[[str, str], None]]
+
+
 def _is_chinese_target(target_language: str) -> bool:
   return target_language.strip().lower() in {"chinese", "zh", "zh-cn", "中文", "简体中文"}
 
@@ -833,148 +844,23 @@ async def generate_personality_config_result(
   """Generate personality configuration through staged LLM calls."""
   stage_status: list[dict[str, str]] = []
   resolved_target_language = _resolve_generation_target_language(description, target_language, current_config)
+  context = _GenerationRunContext(
+    description=description,
+    target_language=resolved_target_language,
+    current_config=current_config,
+    llm_override=llm_override,
+    adapter_resolver=adapter_resolver,
+    adapter_factory=adapter_factory,
+    stage_progress_callback=stage_progress_callback,
+  )
   try:
-    base_data = await _run_generation_stage(
-      stage_id="base",
-      prompt=_base_user_prompt(description, resolved_target_language, current_config),
-      system_prompt=BASE_SPINE_SYSTEM_PROMPT,
-      max_tokens=1600,
-      temperature=0.55,
-      llm_override=llm_override,
-      adapter_resolver=adapter_resolver,
-      adapter_factory=adapter_factory,
-      stage_progress_callback=stage_progress_callback,
-    )
-    if stage_progress_callback is not None:
-      stage_progress_callback("base", "completed")
-    stage_status.append({"stage_id": "base", "status": "completed"})
-    combined = _pick_keys(
-      base_data,
-      ("name", "avatar", "description", META_DESIGN_KEY, "identity_core", "idiolect"),
-    )
-    _complete_generation_meta_design(combined)
-
-    module_kwargs = {
-      "llm_override": llm_override,
-      "adapter_resolver": adapter_resolver,
-      "adapter_factory": adapter_factory,
-      "stage_progress_callback": stage_progress_callback,
-    }
-    module_tasks = [
-      _run_optional_generation_stage(
-        stages=stage_status,
-        allowed_keys=("registers",),
-        stage_id="registers",
-        prompt=_module_user_prompt(
-          description,
-          resolved_target_language,
-          combined,
-          current_config,
-          "Design all required registers with good-only runtime examples that match the spine and respect the persona's design anchors.",
-        ),
-        system_prompt=REGISTER_SYSTEM_PROMPT,
-        max_tokens=2000,
-        temperature=0.7,
-        **module_kwargs,
-      ),
-      _run_optional_generation_stage(
-        stages=stage_status,
-        allowed_keys=("quiet_hours", "signature_triggers", "dynamic_state_rules", "milestone_conditions"),
-        stage_id="rules",
-        prompt=_module_user_prompt(
-          description,
-          resolved_target_language,
-          combined,
-          current_config,
-          "Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules using _meta_design as the source of persona-specific trigger ideas.",
-        ),
-        system_prompt=RULES_SYSTEM_PROMPT,
-        max_tokens=1500,
-        temperature=0.7,
-        **module_kwargs,
-      ),
-      _run_optional_generation_stage(
-        stages=stage_status,
-        allowed_keys=("persona_layers",),
-        stage_id="layers",
-        prompt=_module_user_prompt(
-          description,
-          resolved_target_language,
-          combined,
-          current_config,
-          "Design only the fixed surface baseline and non-surface deep persona layers as concrete diffs from the same _meta_design core theme.",
-        ),
-        system_prompt=LAYERS_SYSTEM_PROMPT,
-        max_tokens=1300,
-        temperature=0.7,
-        **module_kwargs,
-      ),
-      _run_optional_generation_stage(
-        stages=stage_status,
-        allowed_keys=("registers", "bootstrap", "interim_lines"),
-        stage_id="bootstrap",
-        prompt=_module_user_prompt(
-          description,
-          resolved_target_language,
-          combined,
-          current_config,
-          "Write good-only register examples, bootstrap first-contact copy that fits _meta_design, and sparse interim lines.",
-        ),
-        system_prompt=BOOTSTRAP_SYSTEM_PROMPT,
-        max_tokens=1800,
-        temperature=0.72,
-        **module_kwargs,
-      ),
-      _run_optional_generation_stage(
-        stages=stage_status,
-        allowed_keys=("appearance_prompt",),
-        stage_id="appearance",
-        prompt=_module_user_prompt(
-          description,
-          resolved_target_language,
-          combined,
-          current_config,
-          "Write the portrait prompt only.",
-        ),
-        system_prompt=APPEARANCE_SYSTEM_PROMPT,
-        max_tokens=350,
-        temperature=0.55,
-        **module_kwargs,
-      ),
-    ]
-
-    for fragment in await asyncio.gather(*module_tasks):
-      _deep_merge_payload(combined, fragment)
-
-    try:
-      integrated = await _run_generation_stage(
-        stage_id="integrate",
-        prompt=_integration_user_prompt(description, resolved_target_language, combined),
-        system_prompt=INTEGRATION_SYSTEM_PROMPT,
-        max_tokens=3200,
-        temperature=0.4,
-        llm_override=llm_override,
-        adapter_resolver=adapter_resolver,
-        adapter_factory=adapter_factory,
-        stage_progress_callback=stage_progress_callback,
-      )
-      _deep_merge_payload(combined, integrated)
-      if stage_progress_callback is not None:
-        stage_progress_callback("integrate", "completed")
-      stage_status.append({"stage_id": "integrate", "status": "completed"})
-    except Exception as exc:  # noqa: BLE001 - normalization can still complete the combined draft
-      logger.warning("[AI Generate Personality] Integration stage failed: %s", exc)
-      if stage_progress_callback is not None:
-        stage_progress_callback("integrate", "failed")
-      stage_status.append({"stage_id": "integrate", "status": "failed"})
-
-    data = normalize_generated_personality_payload(_runtime_payload_from_combined(combined), target_language=resolved_target_language)
-    if not data.get("name"):
-      data["name"] = "AI Assistant"
-    status_by_id = {item["stage_id"]: item["status"] for item in stage_status}
-    return PersonalityGenerationResult(
-      config=PersonalityConfigModel(**data),
-      stages=_stage_reports(status_by_id),
+    combined = await _run_base_personality_stage(context, stage_status)
+    await _run_module_personality_stages(context, stage_status, combined)
+    await _run_integration_personality_stage(context, stage_status, combined)
+    return _build_personality_generation_result(
+      combined,
+      stage_status,
+      target_language=context.target_language,
     )
   except json.JSONDecodeError as exc:
     logger.error("[AI Generate Personality] JSON decode failed: %s", exc)
@@ -982,6 +868,184 @@ async def generate_personality_config_result(
   except Exception:
     logger.error("[AI Generate Personality] Generation failed")
     raise
+
+
+async def _run_base_personality_stage(
+  context: _GenerationRunContext,
+  stage_status: list[dict[str, str]],
+) -> dict[str, Any]:
+  base_data = await _run_generation_stage(
+    stage_id="base",
+    prompt=_base_user_prompt(context.description, context.target_language, context.current_config),
+    system_prompt=BASE_SPINE_SYSTEM_PROMPT,
+    max_tokens=1600,
+    temperature=0.55,
+    **_generation_stage_dependencies(context),
+  )
+  _record_completed_generation_stage(stage_status, context, "base")
+  combined = _pick_keys(
+    base_data,
+    ("name", "avatar", "description", META_DESIGN_KEY, "identity_core", "idiolect"),
+  )
+  _complete_generation_meta_design(combined)
+  return combined
+
+
+async def _run_module_personality_stages(
+  context: _GenerationRunContext,
+  stage_status: list[dict[str, str]],
+  combined: dict[str, Any],
+) -> None:
+  module_tasks = [
+    _module_stage_task(
+      context,
+      stage_status,
+      combined,
+      allowed_keys=("registers",),
+      stage_id="registers",
+      system_prompt=REGISTER_SYSTEM_PROMPT,
+      max_tokens=2000,
+      temperature=0.7,
+      task_prompt="Design all required registers with good-only runtime examples that match the spine and respect the persona's design anchors.",
+    ),
+    _module_stage_task(
+      context,
+      stage_status,
+      combined,
+      allowed_keys=("quiet_hours", "signature_triggers", "dynamic_state_rules", "milestone_conditions"),
+      stage_id="rules",
+      system_prompt=RULES_SYSTEM_PROMPT,
+      max_tokens=1500,
+      temperature=0.7,
+      task_prompt="Design the persona's trigger signatures, quiet-hour clamps, and state convergence rules using _meta_design as the source of persona-specific trigger ideas.",
+    ),
+    _module_stage_task(
+      context,
+      stage_status,
+      combined,
+      allowed_keys=("persona_layers",),
+      stage_id="layers",
+      system_prompt=LAYERS_SYSTEM_PROMPT,
+      max_tokens=1300,
+      temperature=0.7,
+      task_prompt="Design only the fixed surface baseline and non-surface deep persona layers as concrete diffs from the same _meta_design core theme.",
+    ),
+    _module_stage_task(
+      context,
+      stage_status,
+      combined,
+      allowed_keys=("registers", "bootstrap", "interim_lines"),
+      stage_id="bootstrap",
+      system_prompt=BOOTSTRAP_SYSTEM_PROMPT,
+      max_tokens=1800,
+      temperature=0.72,
+      task_prompt="Write good-only register examples, bootstrap first-contact copy that fits _meta_design, and sparse interim lines.",
+    ),
+    _module_stage_task(
+      context,
+      stage_status,
+      combined,
+      allowed_keys=("appearance_prompt",),
+      stage_id="appearance",
+      system_prompt=APPEARANCE_SYSTEM_PROMPT,
+      max_tokens=350,
+      temperature=0.55,
+      task_prompt="Write the portrait prompt only.",
+    ),
+  ]
+  for fragment in await asyncio.gather(*module_tasks):
+    _deep_merge_payload(combined, fragment)
+
+
+def _module_stage_task(
+  context: _GenerationRunContext,
+  stage_status: list[dict[str, str]],
+  combined: dict[str, Any],
+  *,
+  allowed_keys: Sequence[str],
+  stage_id: str,
+  system_prompt: str,
+  max_tokens: int,
+  temperature: float,
+  task_prompt: str,
+):
+  return _run_optional_generation_stage(
+    stages=stage_status,
+    allowed_keys=allowed_keys,
+    stage_id=stage_id,
+    prompt=_module_user_prompt(
+      context.description,
+      context.target_language,
+      combined,
+      context.current_config,
+      task_prompt,
+    ),
+    system_prompt=system_prompt,
+    max_tokens=max_tokens,
+    temperature=temperature,
+    **_generation_stage_dependencies(context),
+  )
+
+
+async def _run_integration_personality_stage(
+  context: _GenerationRunContext,
+  stage_status: list[dict[str, str]],
+  combined: dict[str, Any],
+) -> None:
+  try:
+    integrated = await _run_generation_stage(
+      stage_id="integrate",
+      prompt=_integration_user_prompt(context.description, context.target_language, combined),
+      system_prompt=INTEGRATION_SYSTEM_PROMPT,
+      max_tokens=3200,
+      temperature=0.4,
+      **_generation_stage_dependencies(context),
+    )
+    _deep_merge_payload(combined, integrated)
+    _record_completed_generation_stage(stage_status, context, "integrate")
+  except Exception as exc:  # noqa: BLE001 - normalization can still complete the combined draft
+    logger.warning("[AI Generate Personality] Integration stage failed: %s", exc)
+    if context.stage_progress_callback is not None:
+      context.stage_progress_callback("integrate", "failed")
+    stage_status.append({"stage_id": "integrate", "status": "failed"})
+
+
+def _record_completed_generation_stage(
+  stage_status: list[dict[str, str]],
+  context: _GenerationRunContext,
+  stage_id: str,
+) -> None:
+  if context.stage_progress_callback is not None:
+    context.stage_progress_callback(stage_id, "completed")
+  stage_status.append({"stage_id": stage_id, "status": "completed"})
+
+
+def _generation_stage_dependencies(context: _GenerationRunContext) -> dict[str, Any]:
+  return {
+    "llm_override": context.llm_override,
+    "adapter_resolver": context.adapter_resolver,
+    "adapter_factory": context.adapter_factory,
+    "stage_progress_callback": context.stage_progress_callback,
+  }
+
+
+def _build_personality_generation_result(
+  combined: dict[str, Any],
+  stage_status: list[dict[str, str]],
+  *,
+  target_language: str,
+) -> PersonalityGenerationResult:
+  data = normalize_generated_personality_payload(
+    _runtime_payload_from_combined(combined),
+    target_language=target_language,
+  )
+  if not data.get("name"):
+    data["name"] = "AI Assistant"
+  status_by_id = {item["stage_id"]: item["status"] for item in stage_status}
+  return PersonalityGenerationResult(
+    config=PersonalityConfigModel(**data),
+    stages=_stage_reports(status_by_id),
+  )
 
 
 async def generate_personality_config(
