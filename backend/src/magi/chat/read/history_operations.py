@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -17,6 +17,26 @@ from .schema import (
 )
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _DisplayHistoryRows:
+    turn_rows: list[sqlite3.Row]
+    message_rows: list[sqlite3.Row]
+
+
+@dataclass(slots=True)
+class _DisplayHistoryProjection:
+    messages_by_turn: dict[str, list[ChatDisplayMessage]]
+    legacy_messages: list[ChatDisplayMessage]
+    display_rows: list[sqlite3.Row]
+    display_messages: list[ChatDisplayMessage]
+
+
+@dataclass(slots=True)
+class _TurnDisplayMetadata:
+    ux_preferences: dict[str, dict[str, Any]]
+    run_state_by_turn: dict[str, dict[str, object] | None]
 
 
 def _collapse_rhythm_segments_for_prompt(
@@ -35,11 +55,7 @@ def _collapse_rhythm_segments_for_prompt(
         existing_index = rhythm_index_by_turn.get(turn_id)
         if existing_index is not None:
             existing = collapsed_messages[existing_index]
-            parts = [
-                part
-                for part in (existing.content.strip(), message.content.strip())
-                if part
-            ]
+            parts = [part for part in (existing.content.strip(), message.content.strip()) if part]
             existing.content = "\n\n".join(parts)
             if message.attachments:
                 existing.attachments = message.attachments
@@ -94,13 +110,9 @@ class _ChatHistoryOperationsHost(Protocol):
         exclude_replaced: bool,
     ) -> list[sqlite3.Row]: ...
 
-    def _query_turn_rows(
-        self, *, user_id: str, session_id: str
-    ) -> list[sqlite3.Row]: ...
+    def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]: ...
 
-    def _row_to_display_message(
-        self, row: sqlite3.Row
-    ) -> ChatDisplayMessage | None: ...
+    def _row_to_display_message(self, row: sqlite3.Row) -> ChatDisplayMessage | None: ...
 
     def _attach_reply_previews(
         self,
@@ -109,9 +121,7 @@ class _ChatHistoryOperationsHost(Protocol):
         messages: list[ChatDisplayMessage],
     ) -> None: ...
 
-    def _parse_turn_ux_preferences(
-        self, raw_ux_plan_json: str | None
-    ) -> dict[str, Any]: ...
+    def _parse_turn_ux_preferences(self, raw_ux_plan_json: str | None) -> dict[str, Any]: ...
 
     def _apply_turn_ux_preferences(
         self,
@@ -122,6 +132,200 @@ class _ChatHistoryOperationsHost(Protocol):
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
     def _delete_chat_session_assets(self, *, session_id: str) -> None: ...
+
+
+def _query_display_history_rows(
+    *,
+    host: _ChatHistoryOperationsHost,
+    user_id: str,
+    session_id: str,
+) -> _DisplayHistoryRows:
+    turn_rows = host._query_turn_rows(user_id=user_id, session_id=session_id)
+    message_rows = host._query_chat_message_rows(
+        user_id=user_id,
+        session_id=session_id,
+        message_kinds=None,
+        visible_only=True,
+        exclude_replaced=True,
+    )
+    replaced_interim_rows = [
+        row
+        for row in host._query_chat_message_rows(
+            user_id=user_id,
+            session_id=session_id,
+            message_kinds=("assistant_interim",),
+            visible_only=True,
+            exclude_replaced=False,
+        )
+        if row["replaced_by_message_id"] is not None
+    ]
+    return _DisplayHistoryRows(
+        turn_rows=turn_rows,
+        message_rows=_merge_replaced_interim_rows(message_rows, replaced_interim_rows),
+    )
+
+
+def _merge_replaced_interim_rows(
+    message_rows: list[sqlite3.Row],
+    replaced_interim_rows: list[sqlite3.Row],
+) -> list[sqlite3.Row]:
+    if not replaced_interim_rows:
+        return message_rows
+    return sorted(
+        [*message_rows, *replaced_interim_rows],
+        key=lambda row: (
+            int(row["created_at_ms"] or 0),
+            int(row["sequence_no"] or 0),
+        ),
+    )
+
+
+def _build_turn_display_metadata(
+    host: _ChatHistoryOperationsHost,
+    turn_rows: list[sqlite3.Row],
+) -> _TurnDisplayMetadata:
+    return _TurnDisplayMetadata(
+        ux_preferences={
+            str(row["turn_id"]): host._parse_turn_ux_preferences(row["ux_plan_json"])
+            for row in turn_rows
+        },
+        run_state_by_turn={str(row["turn_id"]): _build_turn_run_state(row) for row in turn_rows},
+    )
+
+
+def _project_display_history(
+    *,
+    host: _ChatHistoryOperationsHost,
+    trace_service: Any,
+    trace_activity: dict[str, Any],
+    rows: _DisplayHistoryRows,
+    metadata: _TurnDisplayMetadata,
+    user_id: str,
+    session_id: str,
+) -> _DisplayHistoryProjection:
+    projection = _DisplayHistoryProjection({}, [], [], [])
+    for row in rows.message_rows:
+        display_message = host._row_to_display_message(row)
+        if display_message is None:
+            continue
+        projection.display_rows.append(row)
+        projection.display_messages.append(display_message)
+        turn_id = str(row["turn_id"] or "").strip()
+        if not turn_id:
+            projection.legacy_messages.append(display_message)
+            continue
+        _decorate_turn_message(
+            host=host,
+            trace_service=trace_service,
+            trace_activity=trace_activity,
+            metadata=metadata,
+            message=display_message,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        projection.messages_by_turn.setdefault(turn_id, []).append(display_message)
+    return projection
+
+
+def _decorate_turn_message(
+    *,
+    host: _ChatHistoryOperationsHost,
+    trace_service: Any,
+    trace_activity: dict[str, Any],
+    metadata: _TurnDisplayMetadata,
+    message: ChatDisplayMessage,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+) -> None:
+    host._apply_turn_ux_preferences(message, metadata.ux_preferences.get(turn_id))
+    message.run_state = metadata.run_state_by_turn.get(turn_id)
+    if message.kind != "assistant":
+        return
+    summary = trace_service.get_trace_summary(
+        user_id=user_id, session_id=session_id, turn_id=turn_id
+    )
+    message.trace_summary = summary or trace_activity.get(turn_id)
+    message.trace_available = bool(
+        (summary or trace_activity.get(turn_id) or {}).get("trace_available")
+    )
+
+
+def _assemble_display_messages(
+    *,
+    turn_rows: list[sqlite3.Row],
+    projection: _DisplayHistoryProjection,
+    trace_service: Any,
+    trace_activity: dict[str, Any],
+    metadata: _TurnDisplayMetadata,
+    user_id: str,
+    session_id: str,
+) -> list[ChatDisplayMessage]:
+    messages: list[ChatDisplayMessage] = []
+    for turn in turn_rows:
+        turn_id = str(turn["turn_id"])
+        turn_messages = projection.messages_by_turn.get(turn_id, [])
+        messages.extend(turn_messages)
+        if any(item.kind == "assistant" for item in turn_messages):
+            continue
+        status_message = _build_trace_status_message(
+            turn=turn,
+            turn_messages=turn_messages,
+            trace_service=trace_service,
+            trace_activity=trace_activity,
+            metadata=metadata,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        if status_message is not None:
+            messages.append(status_message)
+    messages.extend(projection.legacy_messages)
+    return messages
+
+
+def _build_trace_status_message(
+    *,
+    turn: sqlite3.Row,
+    turn_messages: list[ChatDisplayMessage],
+    trace_service: Any,
+    trace_activity: dict[str, Any],
+    metadata: _TurnDisplayMetadata,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+) -> ChatDisplayMessage | None:
+    summary = trace_activity.get(turn_id) or trace_service.get_trace_summary(
+        user_id=user_id,
+        session_id=session_id,
+        turn_id=turn_id,
+    )
+    if summary is None:
+        return None
+    preferences = metadata.ux_preferences.get(turn_id, {})
+    return ChatDisplayMessage(
+        role="assistant",
+        kind="status",
+        content=str((summary or {}).get("headline") or "Thinking"),
+        timestamp=_trace_status_timestamp(turn, turn_messages),
+        turn_id=turn_id,
+        trace_display_mode=preferences.get("trace_display_mode"),
+        allow_trace_collapse=bool(preferences.get("allow_trace_collapse", False)),
+        trace_summary=summary,
+        trace_available=bool(summary and summary.get("trace_available")),
+        run_state=metadata.run_state_by_turn.get(turn_id),
+    )
+
+
+def _trace_status_timestamp(
+    turn: sqlite3.Row,
+    turn_messages: list[ChatDisplayMessage],
+) -> int:
+    user_message = next((item for item in turn_messages if item.kind == "user"), None)
+    if user_message is not None:
+        return user_message.timestamp
+    return int(turn["updated_at_ms"] or turn["created_at_ms"] or 0)
 
 
 class ChatHistoryOperationsMixin:
@@ -181,130 +385,40 @@ class ChatHistoryOperationsMixin:
             return []
         safe_limit = max(1, min(limit, 1000))
         try:
-            turn_rows = host._query_turn_rows(
+            rows = _query_display_history_rows(
+                host=host,
                 user_id=user_id,
                 session_id=session_id,
             )
-            message_rows = host._query_chat_message_rows(
-                user_id=user_id,
-                session_id=session_id,
-                message_kinds=None,
-                visible_only=True,
-                exclude_replaced=True,
-            )
-            replaced_interim_rows = [
-                row
-                for row in host._query_chat_message_rows(
-                    user_id=user_id,
-                    session_id=session_id,
-                    message_kinds=("assistant_interim",),
-                    visible_only=True,
-                    exclude_replaced=False,
-                )
-                if row["replaced_by_message_id"] is not None
-            ]
         except Exception as exc:
             logger.exception(f"Failed to query display history: {exc}")
             return []
 
-        if replaced_interim_rows:
-            message_rows = sorted(
-                [*message_rows, *replaced_interim_rows],
-                key=lambda row: (
-                    int(row["created_at_ms"] or 0),
-                    int(row["sequence_no"] or 0),
-                ),
-            )
-
         trace_service = _get_chat_trace_read_service()
-        trace_activity = trace_service.get_turn_activity_map(
-            user_id=user_id, session_id=session_id
+        trace_activity = trace_service.get_turn_activity_map(user_id=user_id, session_id=session_id)
+        metadata = _build_turn_display_metadata(host, rows.turn_rows)
+        projection = _project_display_history(
+            host=host,
+            trace_service=trace_service,
+            trace_activity=trace_activity,
+            rows=rows,
+            metadata=metadata,
+            user_id=user_id,
+            session_id=session_id,
         )
-        messages_by_turn: dict[str, list[ChatDisplayMessage]] = {}
-        legacy_messages: list[ChatDisplayMessage] = []
-        turn_ux_preferences = {
-            str(row["turn_id"]): host._parse_turn_ux_preferences(row["ux_plan_json"])
-            for row in turn_rows
-        }
-        run_state_by_turn = {
-            str(row["turn_id"]): _build_turn_run_state(row) for row in turn_rows
-        }
-
-        display_rows: list[sqlite3.Row] = []
-        display_messages: list[ChatDisplayMessage] = []
-        for row in message_rows:
-            display_message = host._row_to_display_message(row)
-            if display_message is None:
-                continue
-            display_rows.append(row)
-            display_messages.append(display_message)
-            turn_id = str(row["turn_id"] or "").strip()
-            if not turn_id:
-                legacy_messages.append(display_message)
-                continue
-            host._apply_turn_ux_preferences(
-                display_message, turn_ux_preferences.get(turn_id)
-            )
-            display_message.run_state = run_state_by_turn.get(turn_id)
-            if display_message.kind == "assistant":
-                summary = trace_service.get_trace_summary(
-                    user_id=user_id, session_id=session_id, turn_id=turn_id
-                )
-                display_message.trace_summary = summary or trace_activity.get(turn_id)
-                display_message.trace_available = bool(
-                    (summary or trace_activity.get(turn_id) or {}).get(
-                        "trace_available"
-                    )
-                )
-            messages_by_turn.setdefault(turn_id, []).append(display_message)
-
-        messages: list[ChatDisplayMessage] = []
-        for turn in turn_rows:
-            turn_id = str(turn["turn_id"])
-            turn_messages = messages_by_turn.get(turn_id, [])
-            for item in turn_messages:
-                messages.append(item)
-            has_assistant_message = any(
-                item.kind == "assistant" for item in turn_messages
-            )
-            if has_assistant_message:
-                continue
-            summary = trace_activity.get(turn_id) or trace_service.get_trace_summary(
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-            )
-            if summary is not None:
-                timestamp = int(turn["updated_at_ms"] or turn["created_at_ms"] or 0)
-                user_message = next(
-                    (item for item in turn_messages if item.kind == "user"), None
-                )
-                if user_message is not None:
-                    timestamp = user_message.timestamp
-                messages.append(
-                    ChatDisplayMessage(
-                        role="assistant",
-                        kind="status",
-                        content=str((summary or {}).get("headline") or "Thinking"),
-                        timestamp=timestamp,
-                        turn_id=turn_id,
-                        trace_display_mode=turn_ux_preferences.get(turn_id, {}).get(
-                            "trace_display_mode"
-                        ),
-                        allow_trace_collapse=bool(
-                            turn_ux_preferences.get(turn_id, {}).get(
-                                "allow_trace_collapse", False
-                            )
-                        ),
-                        trace_summary=summary,
-                        trace_available=bool(
-                            summary and summary.get("trace_available")
-                        ),
-                        run_state=run_state_by_turn.get(turn_id),
-                    )
-                )
-        messages.extend(legacy_messages)
-        host._attach_reply_previews(rows=display_rows, messages=display_messages)
+        messages = _assemble_display_messages(
+            turn_rows=rows.turn_rows,
+            projection=projection,
+            trace_service=trace_service,
+            trace_activity=trace_activity,
+            metadata=metadata,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        host._attach_reply_previews(
+            rows=projection.display_rows,
+            messages=projection.display_messages,
+        )
         messages.sort(key=lambda item: item.timestamp)
         return messages[-safe_limit:]
 
@@ -363,11 +477,7 @@ class ChatHistoryOperationsMixin:
         normalized_user_id = str(user_id).strip()
         normalized_session_id = str(session_id).strip()
         normalized_attachment_id = str(attachment_id).strip()
-        if (
-            not normalized_user_id
-            or not normalized_session_id
-            or not normalized_attachment_id
-        ):
+        if not normalized_user_id or not normalized_session_id or not normalized_attachment_id:
             raise ValueError("User ID, session ID, and attachment ID are required")
         if not host._chat_db_path.exists():
             return None
