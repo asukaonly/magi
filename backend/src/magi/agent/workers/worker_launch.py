@@ -5,11 +5,41 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol, cast
 
 from ..cancel import EventCancelToken
 from ...tools.schema import ToolErrorCode, ToolExecutionContext, ToolResult
 from .worker_state import DEFAULT_WORKER_MAX_ITERATIONS, WorkerRunState, optional_string
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkerStartSpec:
+    subagent_type: str
+    description: str
+    prompt: str
+    max_iterations: int
+    orchestration_id: str | None
+    subtask_id: str | None
+    retry_count: int
+    parent_context_summary: str
+    turn_id: str | None
+    user_id: str
+    session_id: str
+    parent_task_agent_type: str
+    parent_task_agent_id: str
+    target_task_agent_type: str
+    target_task_agent_id: str
+    run_id: str | None
+    run_revision: int
+    execution_workspace: str
+
+
+@dataclass(frozen=True, slots=True)
+class _WorkerBatchOptions:
+    run_in_background: bool
+    parallel: bool
+    default_max_iterations: Any
 
 
 class _WorkerLaunchHostProtocol(Protocol):
@@ -107,109 +137,33 @@ class WorkerLaunchMixin:
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
             )
 
-        subagent_type = host._normalize_subagent_type(str(parameters.get("subagent_type", "")))
-        if not subagent_type:
-            return ToolResult(
-                success=False,
-                error="Unsupported subagent_type. Expected one of: general-purpose, CodeExplore, Plan",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
+        spec = _resolve_worker_start_spec(host, parameters, context)
+        if isinstance(spec, ToolResult):
+            return spec
 
-        description = str(parameters.get("description", "")).strip()
-        prompt = str(parameters.get("prompt", "")).strip()
-        max_iterations = int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS))
-        orchestration_id = optional_string(parameters.get("orchestration_id"))
-        subtask_id = optional_string(parameters.get("subtask_id"))
-        retry_count = int(parameters.get("retry_count", 0))
-        parent_context_summary = str(parameters.get("parent_context_summary", "")).strip()
-        turn_id = optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id"))
+        run_state = _build_worker_run_state(spec)
 
-        user_id = str(context.env_vars.get("user_id", "unknown"))
-        session_id = str(context.env_vars.get("session_id", ""))
-        parent_task_agent_type = str(
-            parameters.get("parent_task_agent_type")
-            or context.env_vars.get("parent_task_agent_type")
-            or parameters.get("target_task_agent_type")
-            or context.env_vars.get("target_task_agent_type")
-            or "chat"
-        )
-        parent_task_agent_id = str(
-            parameters.get("parent_task_agent_id")
-            or context.env_vars.get("parent_task_agent_id")
-            or parameters.get("target_task_agent_id")
-            or context.env_vars.get("target_task_agent_id")
-            or user_id
-            or "default"
-        )
-        target_task_agent_type = str(
-            parameters.get("target_task_agent_type") or parent_task_agent_type
-        )
-        target_task_agent_id = str(parameters.get("target_task_agent_id") or parent_task_agent_id)
-
-        worker_id = f"worker_{uuid.uuid4().hex[:10]}"
-        created_at = time.time()
-        started_at_ms = int(created_at * 1000)
-        run_id = (
-            str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip() or None
-        )
-        try:
-            run_revision = int(
-                parameters.get("run_revision") or context.env_vars.get("run_revision") or 0
-            )
-        except (TypeError, ValueError):
-            run_revision = 0
-        run_state = WorkerRunState(
-            worker_id=worker_id,
-            subagent_type=subagent_type,
-            description=description,
-            prompt=prompt,
-            orchestration_id=orchestration_id,
-            subtask_id=subtask_id,
-            parent_task_agent_type=parent_task_agent_type,
-            parent_task_agent_id=parent_task_agent_id,
-            target_task_agent_type=target_task_agent_type,
-            target_task_agent_id=target_task_agent_id,
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            run_id=run_id,
-            run_revision=run_revision,
-            created_at=created_at,
-            updated_at=created_at,
-            retry_count=retry_count,
-            parent_context_summary=parent_context_summary,
-            started_at_ms=started_at_ms,
-            started_monotonic=time.monotonic(),
-            cancel_token=EventCancelToken(),
-        )
-
-        selected_tools = host._resolve_tools_for_type(subagent_type)
+        selected_tools = host._resolve_tools_for_type(spec.subagent_type)
         run_state.selected_tools = list(selected_tools)
         worker_system_prompt = host._build_worker_system_prompt(
-            worker_id=worker_id,
-            subagent_type=subagent_type,
-            description=description,
+            worker_id=run_state.worker_id,
+            subagent_type=spec.subagent_type,
+            description=spec.description,
             selected_tools=selected_tools,
-            execution_workspace=context.workspace,
+            execution_workspace=spec.execution_workspace,
         )
 
-        run_state.task = asyncio.create_task(
-            host._run_worker(
-                run_state=run_state,
-                worker_system_prompt=worker_system_prompt,
-                selected_tools=selected_tools,
-                max_iterations=max_iterations,
-                execution_workspace=context.workspace,
-            ),
-            name=f"agent-tool-{worker_id}",
+        run_state.task = _create_worker_task(
+            host,
+            run_state,
+            worker_system_prompt=worker_system_prompt,
+            selected_tools=selected_tools,
+            max_iterations=spec.max_iterations,
+            execution_workspace=spec.execution_workspace,
         )
 
-        async with host._lock:
-            host._runs[worker_id] = run_state
-            host._trim_history(max_runs=100)
-        await host._emit_worker_dispatch_trace(run_state)
-        await host._emit_worker_attempt_started_trace(run_state)
-        await host._emit_worker_started_trace(run_state)
+        await _register_worker_run(host, run_state)
+        await _emit_worker_start_traces(host, run_state)
         return run_state
 
     async def _launch_workers_batch(
@@ -218,59 +172,266 @@ class WorkerLaunchMixin:
         context: ToolExecutionContext,
     ) -> ToolResult:
         host = cast(_WorkerLaunchHostProtocol, self)
-        workers = parameters.get("workers")
-        if not isinstance(workers, list) or not workers:
-            return ToolResult(
-                success=False,
-                error="workers must be a non-empty array",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
+        workers = _validated_batch_workers(parameters)
+        if isinstance(workers, ToolResult):
+            return workers
+        options = _resolve_batch_options(parameters)
+        run_states = await self._start_batch_workers(
+            workers,
+            parameters=parameters,
+            context=context,
+            options=options,
+        )
+        if isinstance(run_states, ToolResult):
+            return run_states
+        await _await_parallel_batch_if_needed(run_states, options)
+        return _build_batch_result(host, run_states, options)
 
-        run_in_background = bool(parameters.get("run_in_background", False))
-        parallel = bool(parameters.get("parallel", True))
-        default_max_iterations = parameters.get("max_iterations")
-
+    async def _start_batch_workers(
+        self,
+        workers: List[Any],
+        *,
+        parameters: Dict[str, Any],
+        context: ToolExecutionContext,
+        options: _WorkerBatchOptions,
+    ) -> List[WorkerRunState] | ToolResult:
         run_states: List[WorkerRunState] = []
         for worker in workers:
-            worker_params = dict(parameters)
-            worker_params.update(worker if isinstance(worker, dict) else {})
-            if isinstance(worker, dict) and "max_iterations" in worker:
-                worker_params["max_iterations"] = int(worker["max_iterations"])
-            elif default_max_iterations is not None:
-                worker_params["max_iterations"] = int(default_max_iterations)
+            worker_params = _build_batch_worker_params(worker, parameters, options)
             run_state = await self._start_worker(worker_params, context)
             if isinstance(run_state, ToolResult):
                 return run_state
             run_states.append(run_state)
-
-            if not parallel and not run_in_background and run_state.task is not None:
+            if _should_await_batch_worker_immediately(run_state, options):
                 await run_state.task
+        return run_states
 
-        if not run_in_background and parallel:
-            tasks = [state.task for state in run_states if state.task is not None]
-            if tasks:
-                await asyncio.gather(*tasks, return_exceptions=True)
 
-        data: Dict[str, Any] = {
-            "worker_count": len(run_states),
-            "run_in_background": run_in_background,
-            "parallel": parallel,
-        }
-        orchestration_ids = {
-            state.orchestration_id for state in run_states if state.orchestration_id
-        }
-        if len(orchestration_ids) == 1:
-            data["orchestration_id"] = next(iter(orchestration_ids))
-        if run_in_background:
-            data["status"] = "running"
-            data["worker_ids"] = [state.worker_id for state in run_states]
-            return ToolResult(success=True, data=data)
-
-        data["workers"] = [host._serialize_run_state(state) for state in run_states]
-        all_success = all(state.status == "completed" for state in run_states)
+def _resolve_worker_start_spec(
+    host: _WorkerLaunchHostProtocol,
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+) -> _WorkerStartSpec | ToolResult:
+    subagent_type = host._normalize_subagent_type(str(parameters.get("subagent_type", "")))
+    if not subagent_type:
         return ToolResult(
-            success=all_success,
-            data=data,
-            error=None if all_success else "Some workers failed",
-            error_code=None if all_success else ToolErrorCode.EXECUTION_ERROR.value,
+            success=False,
+            error="Unsupported subagent_type. Expected one of: general-purpose, CodeExplore, Plan",
+            error_code=ToolErrorCode.INVALID_PARAMETERS.value,
         )
+
+    user_id = str(context.env_vars.get("user_id", "unknown"))
+    parent_type, parent_id = _resolve_parent_task_agent(parameters, context, user_id)
+    run_id, run_revision = _resolve_run_identity(parameters, context)
+    return _WorkerStartSpec(
+        subagent_type=subagent_type,
+        description=str(parameters.get("description", "")).strip(),
+        prompt=str(parameters.get("prompt", "")).strip(),
+        max_iterations=int(parameters.get("max_iterations", DEFAULT_WORKER_MAX_ITERATIONS)),
+        orchestration_id=optional_string(parameters.get("orchestration_id")),
+        subtask_id=optional_string(parameters.get("subtask_id")),
+        retry_count=int(parameters.get("retry_count", 0)),
+        parent_context_summary=str(parameters.get("parent_context_summary", "")).strip(),
+        turn_id=optional_string(parameters.get("turn_id") or context.env_vars.get("turn_id")),
+        user_id=user_id,
+        session_id=str(context.env_vars.get("session_id", "")),
+        parent_task_agent_type=parent_type,
+        parent_task_agent_id=parent_id,
+        target_task_agent_type=str(parameters.get("target_task_agent_type") or parent_type),
+        target_task_agent_id=str(parameters.get("target_task_agent_id") or parent_id),
+        run_id=run_id,
+        run_revision=run_revision,
+        execution_workspace=context.workspace,
+    )
+
+
+def _resolve_parent_task_agent(
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+    user_id: str,
+) -> tuple[str, str]:
+    parent_type = str(
+        parameters.get("parent_task_agent_type")
+        or context.env_vars.get("parent_task_agent_type")
+        or parameters.get("target_task_agent_type")
+        or context.env_vars.get("target_task_agent_type")
+        or "chat"
+    )
+    parent_id = str(
+        parameters.get("parent_task_agent_id")
+        or context.env_vars.get("parent_task_agent_id")
+        or parameters.get("target_task_agent_id")
+        or context.env_vars.get("target_task_agent_id")
+        or user_id
+        or "default"
+    )
+    return parent_type, parent_id
+
+
+def _resolve_run_identity(
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+) -> tuple[str | None, int]:
+    run_id = str(parameters.get("run_id") or context.env_vars.get("run_id") or "").strip()
+    try:
+        run_revision = int(
+            parameters.get("run_revision") or context.env_vars.get("run_revision") or 0
+        )
+    except (TypeError, ValueError):
+        run_revision = 0
+    return run_id or None, run_revision
+
+
+def _build_worker_run_state(spec: _WorkerStartSpec) -> WorkerRunState:
+    worker_id = f"worker_{uuid.uuid4().hex[:10]}"
+    created_at = time.time()
+    return WorkerRunState(
+        worker_id=worker_id,
+        subagent_type=spec.subagent_type,
+        description=spec.description,
+        prompt=spec.prompt,
+        orchestration_id=spec.orchestration_id,
+        subtask_id=spec.subtask_id,
+        parent_task_agent_type=spec.parent_task_agent_type,
+        parent_task_agent_id=spec.parent_task_agent_id,
+        target_task_agent_type=spec.target_task_agent_type,
+        target_task_agent_id=spec.target_task_agent_id,
+        user_id=spec.user_id,
+        session_id=spec.session_id,
+        turn_id=spec.turn_id,
+        run_id=spec.run_id,
+        run_revision=spec.run_revision,
+        created_at=created_at,
+        updated_at=created_at,
+        retry_count=spec.retry_count,
+        parent_context_summary=spec.parent_context_summary,
+        started_at_ms=int(created_at * 1000),
+        started_monotonic=time.monotonic(),
+        cancel_token=EventCancelToken(),
+    )
+
+
+def _create_worker_task(
+    host: _WorkerLaunchHostProtocol,
+    run_state: WorkerRunState,
+    *,
+    worker_system_prompt: str,
+    selected_tools: List[str],
+    max_iterations: int,
+    execution_workspace: str,
+) -> asyncio.Task[None]:
+    return asyncio.create_task(
+        host._run_worker(
+            run_state=run_state,
+            worker_system_prompt=worker_system_prompt,
+            selected_tools=selected_tools,
+            max_iterations=max_iterations,
+            execution_workspace=execution_workspace,
+        ),
+        name=f"agent-tool-{run_state.worker_id}",
+    )
+
+
+async def _register_worker_run(
+    host: _WorkerLaunchHostProtocol,
+    run_state: WorkerRunState,
+) -> None:
+    async with host._lock:
+        host._runs[run_state.worker_id] = run_state
+        host._trim_history(max_runs=100)
+
+
+async def _emit_worker_start_traces(
+    host: _WorkerLaunchHostProtocol,
+    run_state: WorkerRunState,
+) -> None:
+    await host._emit_worker_dispatch_trace(run_state)
+    await host._emit_worker_attempt_started_trace(run_state)
+    await host._emit_worker_started_trace(run_state)
+
+
+def _validated_batch_workers(parameters: Dict[str, Any]) -> List[Any] | ToolResult:
+    workers = parameters.get("workers")
+    if isinstance(workers, list) and workers:
+        return workers
+    return ToolResult(
+        success=False,
+        error="workers must be a non-empty array",
+        error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+    )
+
+
+def _resolve_batch_options(parameters: Dict[str, Any]) -> _WorkerBatchOptions:
+    return _WorkerBatchOptions(
+        run_in_background=bool(parameters.get("run_in_background", False)),
+        parallel=bool(parameters.get("parallel", True)),
+        default_max_iterations=parameters.get("max_iterations"),
+    )
+
+
+def _build_batch_worker_params(
+    worker: Any,
+    parameters: Dict[str, Any],
+    options: _WorkerBatchOptions,
+) -> Dict[str, Any]:
+    worker_params = dict(parameters)
+    worker_params.update(worker if isinstance(worker, dict) else {})
+    if isinstance(worker, dict) and "max_iterations" in worker:
+        worker_params["max_iterations"] = int(worker["max_iterations"])
+    elif options.default_max_iterations is not None:
+        worker_params["max_iterations"] = int(options.default_max_iterations)
+    return worker_params
+
+
+def _should_await_batch_worker_immediately(
+    run_state: WorkerRunState,
+    options: _WorkerBatchOptions,
+) -> bool:
+    return not options.parallel and not options.run_in_background and run_state.task is not None
+
+
+async def _await_parallel_batch_if_needed(
+    run_states: List[WorkerRunState],
+    options: _WorkerBatchOptions,
+) -> None:
+    if options.run_in_background or not options.parallel:
+        return
+    tasks = [state.task for state in run_states if state.task is not None]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _build_batch_result(
+    host: _WorkerLaunchHostProtocol,
+    run_states: List[WorkerRunState],
+    options: _WorkerBatchOptions,
+) -> ToolResult:
+    data = _build_batch_result_data(run_states, options)
+    if options.run_in_background:
+        data["status"] = "running"
+        data["worker_ids"] = [state.worker_id for state in run_states]
+        return ToolResult(success=True, data=data)
+
+    data["workers"] = [host._serialize_run_state(state) for state in run_states]
+    all_success = all(state.status == "completed" for state in run_states)
+    return ToolResult(
+        success=all_success,
+        data=data,
+        error=None if all_success else "Some workers failed",
+        error_code=None if all_success else ToolErrorCode.EXECUTION_ERROR.value,
+    )
+
+
+def _build_batch_result_data(
+    run_states: List[WorkerRunState],
+    options: _WorkerBatchOptions,
+) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "worker_count": len(run_states),
+        "run_in_background": options.run_in_background,
+        "parallel": options.parallel,
+    }
+    orchestration_ids = {state.orchestration_id for state in run_states if state.orchestration_id}
+    if len(orchestration_ids) == 1:
+        data["orchestration_id"] = next(iter(orchestration_ids))
+    return data
