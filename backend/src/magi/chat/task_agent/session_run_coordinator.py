@@ -1,5 +1,9 @@
 """Session-scoped execution coordination for chat task-agent turns."""
+
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
 
 from magi_plugin_sdk.run_trigger import IncomingEvent
 
@@ -8,6 +12,7 @@ from magi.agent.runtime.contracts import FactRecord
 from magi.core.logger import get_logger
 from magi.agent.run_triggers import build_user_message_trigger, is_external_source
 from magi.agent.task_agents.common import IncomingFactKind, UserMessagePayload
+from magi.agent.task_agents.handlers.run_contracts import ActiveRun
 from .fact_classifier import ClassifiedFact
 from .interruption_classifier import (
     InterruptionClassifier,
@@ -17,7 +22,7 @@ from .interruption_classifier import (
 )
 from magi.agent.task_agents.handlers.run_contracts import RunResultDisposition
 from .delivery_dispatch import ChatDeliveryDispatchPort
-from .session_run_decisions import SessionFactDecision
+from .session_run_decisions import SessionFactDecision, TurnSupersession
 from .session_run_lifecycle import SessionRunLifecycleMixin
 from .session_turn_queue import SessionRunTurnQueueMixin
 from .run_store import SessionRunStore
@@ -30,6 +35,13 @@ _CHECKPOINT_EVENT_TYPES = {"CHAT_TOOL_LOOP_STEP"}
 # trigger seam (``magi.agent.run_triggers``: build_user_message_trigger /
 # is_external_source). External sources additionally produce an
 # ``IncomingEvent(external_inbound)`` when landing on an already-active run.
+
+
+@dataclass(slots=True)
+class _AppliedUserTurnDisposition:
+    active_run: ActiveRun | None
+    planner_fact_kind: IncomingFactKind
+    superseded_turns: list[TurnSupersession]
 
 
 class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
@@ -83,11 +95,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
 
         # Phase G+3: also retract messages that were already delivered
         # through external channels.
-        if (
-            self._delivery_dispatcher is not None
-            and session_id
-            and active_run.run_id
-        ):
+        if self._delivery_dispatcher is not None and session_id and active_run.run_id:
             import asyncio
 
             async def _retract_delivered_messages() -> None:
@@ -164,10 +172,49 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         """
         if self._conversation_log is None:
             return False
+        if not await self._append_message_redaction_event(
+            session_id=session_id,
+            message_id=message_id,
+            actor=actor,
+        ):
+            return False
+        dependents = await self._find_message_dependents(
+            session_id=session_id,
+            message_id=message_id,
+        )
+        if dependents is None:
+            return False
+        return self._signal_dependent_retracts(
+            session_id=session_id,
+            dependents=dependents,
+            payload=payload,
+        )
+
+    async def _append_message_redaction_event(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        actor: str,
+    ) -> bool:
+        try:
+            await self._conversation_log.append(
+                self._build_message_redacted_event(message_id=message_id, actor=actor),
+                session_id=session_id,
+            )
+            return True
+        except Exception:
+            logger.warning("ConversationLog.append(message_redacted) failed", exc_info=True)
+            return False
+
+    @staticmethod
+    def _build_message_redacted_event(*, message_id: str, actor: str) -> Any:
         import time
         import uuid
+
         from magi_plugin_sdk.conversation import ConversationEvent
-        redact_event = ConversationEvent(
+
+        return ConversationEvent(
             event_id=uuid.uuid4().hex,
             event_type="message_redacted",
             timestamp_ms=int(time.time() * 1000),
@@ -175,24 +222,31 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
             content=None,
             redacts=message_id,
         )
+
+    async def _find_message_dependents(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+    ) -> Any | None:
         try:
-            await self._conversation_log.append(redact_event, session_id=session_id)
-        except Exception:
-            logger.warning(
-                "ConversationLog.append(message_redacted) failed", exc_info=True,
-            )
-            return False
-        try:
-            deps = await self._conversation_log.find_dependents(
-                session_id=session_id, message_id=message_id,
+            return await self._conversation_log.find_dependents(
+                session_id=session_id,
+                message_id=message_id,
             )
         except Exception:
-            logger.warning(
-                "ConversationLog.find_dependents failed", exc_info=True,
-            )
-            return False
+            logger.warning("ConversationLog.find_dependents failed", exc_info=True)
+            return None
+
+    def _signal_dependent_retracts(
+        self,
+        *,
+        session_id: str,
+        dependents: Any,
+        payload: RetractRequested | None,
+    ) -> bool:
         signaled = 0
-        for dep_run_id, _dep_revision in deps:
+        for dep_run_id, _dep_revision in dependents:
             control = self._run_store.get_active_run_control(session_id, dep_run_id)
             if control is None:
                 # Completed-run propagation is intentionally a no-op in
@@ -223,75 +277,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 classified_fact.latest_user_payload,
                 source_fact=classified_fact.latest_user_fact,
             )
-
-        result_record = self._record_classified_result(
-            classified_fact=classified_fact,
-            active_run=active_run,
-        )
-        if result_record is not None and result_record.disposition == RunResultDisposition.STALE:
-            refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
-            return SessionFactDecision(
-                active_run=refreshed_run,
-                planner_fact=classified_fact.latest_result_fact,
-                planner_fact_kind=IncomingFactKind.OTHER_FACT,
-                planner_user_message=(
-                    refreshed_run.root_user_message
-                    if refreshed_run is not None
-                    else classified_fact.user_message
-                ),
-                latest_payload=classified_fact.latest_payload,
-                user_id=classified_fact.user_id,
-                session_id=classified_fact.session_id,
-            )
-
-        if (
-            classified_fact.latest_result_fact is not None
-            and active_run is not None
-            and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
-            and self._current_revision_augment_pending_turns(active_run)
-        ):
-            checkpoint_pending_turns = self._run_store.consume_pending_turns(
-                classified_fact.session_id,
-                revision=active_run.revision,
-                disposition=InterruptionDisposition.AUGMENT.value,
-            )
-            refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
-            planner_user_message = self._merge_visible_user_message(
-                root_user_message=active_run.root_user_message,
-                pending_turns=checkpoint_pending_turns,
-            )
-            anchor_turn_id = checkpoint_pending_turns[-1].turn_id if checkpoint_pending_turns else active_run.root_turn_id
-            return SessionFactDecision(
-                active_run=refreshed_run,
-                planner_fact=classified_fact.latest_result_fact,
-                planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-                planner_user_message=planner_user_message,
-                latest_payload=UserMessagePayload(
-                    user_id=classified_fact.user_id,
-                    session_id=classified_fact.session_id,
-                    content=planner_user_message,
-                    turn_id=anchor_turn_id,
-                ),
-                user_id=classified_fact.user_id,
-                session_id=classified_fact.session_id,
-                run_disposition=InterruptionDisposition.AUGMENT.value,
-                checkpoint_pending_turns=checkpoint_pending_turns,
-                superseded_turns=self._build_augment_supersessions(
-                    root_turn_id=active_run.root_turn_id,
-                    pending_turns=checkpoint_pending_turns,
-                    anchor_turn_id=anchor_turn_id,
-                ),
-            )
-
-        return SessionFactDecision(
-            active_run=active_run,
-            planner_fact=classified_fact.source_fact,
-            planner_fact_kind=classified_fact.kind,
-            planner_user_message=classified_fact.user_message,
-            latest_payload=classified_fact.source_payload,
-            user_id=classified_fact.user_id,
-            session_id=classified_fact.session_id,
-        )
+        return self._route_non_user_fact(classified_fact, active_run)
 
     async def aroute(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
         """Async variant that can use a model-backed interruption classifier."""
@@ -301,66 +287,100 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 classified_fact.latest_user_payload,
                 source_fact=classified_fact.latest_user_fact,
             )
+        return self._route_non_user_fact(classified_fact, active_run)
 
+    def _route_non_user_fact(
+        self,
+        classified_fact: ClassifiedFact,
+        active_run: ActiveRun | None,
+    ) -> SessionFactDecision:
         result_record = self._record_classified_result(
             classified_fact=classified_fact,
             active_run=active_run,
         )
         if result_record is not None and result_record.disposition == RunResultDisposition.STALE:
-            refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
-            return SessionFactDecision(
-                active_run=refreshed_run,
-                planner_fact=classified_fact.latest_result_fact,
-                planner_fact_kind=IncomingFactKind.OTHER_FACT,
-                planner_user_message=(
-                    refreshed_run.root_user_message
-                    if refreshed_run is not None
-                    else classified_fact.user_message
-                ),
-                latest_payload=classified_fact.latest_payload,
-                user_id=classified_fact.user_id,
-                session_id=classified_fact.session_id,
-            )
+            return self._stale_result_decision(classified_fact)
 
-        if (
+        if self._should_consume_checkpoint_augment(classified_fact, active_run):
+            return self._checkpoint_augment_decision(classified_fact, active_run)
+
+        return self._default_route_decision(classified_fact, active_run)
+
+    def _stale_result_decision(self, classified_fact: ClassifiedFact) -> SessionFactDecision:
+        refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
+        return SessionFactDecision(
+            active_run=refreshed_run,
+            planner_fact=classified_fact.latest_result_fact,
+            planner_fact_kind=IncomingFactKind.OTHER_FACT,
+            planner_user_message=(
+                refreshed_run.root_user_message
+                if refreshed_run is not None
+                else classified_fact.user_message
+            ),
+            latest_payload=classified_fact.latest_payload,
+            user_id=classified_fact.user_id,
+            session_id=classified_fact.session_id,
+        )
+
+    def _should_consume_checkpoint_augment(
+        self,
+        classified_fact: ClassifiedFact,
+        active_run: ActiveRun | None,
+    ) -> bool:
+        return (
             classified_fact.latest_result_fact is not None
             and active_run is not None
             and classified_fact.latest_result_fact.event_type in _CHECKPOINT_EVENT_TYPES
-            and self._current_revision_augment_pending_turns(active_run)
-        ):
-            checkpoint_pending_turns = self._run_store.consume_pending_turns(
-                classified_fact.session_id,
-                revision=active_run.revision,
-                disposition=InterruptionDisposition.AUGMENT.value,
-            )
-            refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
-            planner_user_message = self._merge_visible_user_message(
-                root_user_message=active_run.root_user_message,
-                pending_turns=checkpoint_pending_turns,
-            )
-            anchor_turn_id = checkpoint_pending_turns[-1].turn_id if checkpoint_pending_turns else active_run.root_turn_id
-            return SessionFactDecision(
-                active_run=refreshed_run,
-                planner_fact=classified_fact.latest_result_fact,
-                planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-                planner_user_message=planner_user_message,
-                latest_payload=UserMessagePayload(
-                    user_id=classified_fact.user_id,
-                    session_id=classified_fact.session_id,
-                    content=planner_user_message,
-                    turn_id=anchor_turn_id,
-                ),
+            and bool(self._current_revision_augment_pending_turns(active_run))
+        )
+
+    def _checkpoint_augment_decision(
+        self,
+        classified_fact: ClassifiedFact,
+        active_run: ActiveRun,
+    ) -> SessionFactDecision:
+        checkpoint_pending_turns = self._run_store.consume_pending_turns(
+            classified_fact.session_id,
+            revision=active_run.revision,
+            disposition=InterruptionDisposition.AUGMENT.value,
+        )
+        refreshed_run = self._run_store.get_active_run(classified_fact.session_id)
+        planner_user_message = self._merge_visible_user_message(
+            root_user_message=active_run.root_user_message,
+            pending_turns=checkpoint_pending_turns,
+        )
+        anchor_turn_id = (
+            checkpoint_pending_turns[-1].turn_id
+            if checkpoint_pending_turns
+            else active_run.root_turn_id
+        )
+        return SessionFactDecision(
+            active_run=refreshed_run,
+            planner_fact=classified_fact.latest_result_fact,
+            planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+            planner_user_message=planner_user_message,
+            latest_payload=UserMessagePayload(
                 user_id=classified_fact.user_id,
                 session_id=classified_fact.session_id,
-                run_disposition=InterruptionDisposition.AUGMENT.value,
-                checkpoint_pending_turns=checkpoint_pending_turns,
-                superseded_turns=self._build_augment_supersessions(
-                    root_turn_id=active_run.root_turn_id,
-                    pending_turns=checkpoint_pending_turns,
-                    anchor_turn_id=anchor_turn_id,
-                ),
-            )
+                content=planner_user_message,
+                turn_id=anchor_turn_id,
+            ),
+            user_id=classified_fact.user_id,
+            session_id=classified_fact.session_id,
+            run_disposition=InterruptionDisposition.AUGMENT.value,
+            checkpoint_pending_turns=checkpoint_pending_turns,
+            superseded_turns=self._build_augment_supersessions(
+                root_turn_id=active_run.root_turn_id,
+                pending_turns=checkpoint_pending_turns,
+                anchor_turn_id=anchor_turn_id,
+            ),
+        )
 
+    @staticmethod
+    def _default_route_decision(
+        classified_fact: ClassifiedFact,
+        active_run: ActiveRun | None,
+    ) -> SessionFactDecision:
         return SessionFactDecision(
             active_run=active_run,
             planner_fact=classified_fact.source_fact,
@@ -386,6 +406,7 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         """
         import time
         import uuid
+
         return IncomingEvent(
             event_id=uuid.uuid4().hex,
             event_type="external_inbound",
@@ -409,26 +430,10 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         active_run = self._run_store.get_active_run(payload.session_id)
         turn_id = self._resolve_turn_id(payload=payload, source_fact=source_fact)
         if active_run is None or active_run.status == "cancelled":
-            active_run = self._run_store.create_active_run(
-                payload.session_id,
-                root_turn_id=turn_id,
-                root_user_message=payload.content,
-                trigger=build_user_message_trigger(
-                    source=payload.source,
-                    requester=payload.user_id,
-                    content=payload.content,
-                    turn_id=turn_id,
-                ),
-            )
-            return SessionFactDecision(
-                active_run=active_run,
-                planner_fact=source_fact,
-                planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-                planner_user_message=payload.content,
-                latest_payload=payload,
-                user_id=payload.user_id,
-                session_id=payload.session_id,
-                run_disposition="root",
+            return self._start_root_user_turn(
+                payload=payload,
+                turn_id=turn_id,
+                source_fact=source_fact,
             )
 
         disposition = self._interruption_classifier.classify(
@@ -437,57 +442,12 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 step_state=step_state or StepState(),
             )
         )
-        if disposition == InterruptionDisposition.INTERRUPT:
-            superseded_turns = self._build_interrupt_supersessions(active_run=active_run, anchor_turn_id=turn_id)
-            active_run = self._run_store.bump_revision(
-                payload.session_id,
-                clear_pending_turns=True,
-            )
-            active_run = self._run_store.set_root_turn(
-                payload.session_id,
-                turn_id=turn_id,
-                content=payload.content,
-            )
-            planner_fact_kind = IncomingFactKind.USER_MESSAGE
-        else:
-            self._run_store.append_pending_turn(
-                payload.session_id,
-                turn_id,
-                payload.content,
-                disposition=(
-                    disposition.value
-                    if isinstance(disposition, InterruptionDisposition)
-                    else InterruptionDisposition.AUGMENT.value
-                ),
-            )
-            active_run = self._run_store.get_active_run(payload.session_id)
-            planner_fact_kind = IncomingFactKind.OTHER_FACT
-            superseded_turns = []
-        # Phase H+1: external (telegram/weixin/...) inbounds landing on an
-        # active run ALSO append a typed IncomingEvent. The legacy
-        # ``pending_turns`` queue is kept for backward compat (session
-        # turn queue already merges both queues since Phase H Task 4).
-        if active_run is not None and is_external_source(payload.source):
-            active_run.pending_events.append(
-                self._build_external_inbound_event(
-                    payload=payload,
-                    active_run_id=active_run.run_id,
-                )
-            )
-        return SessionFactDecision(
+        return self._finish_interrupted_user_turn(
+            payload=payload,
+            turn_id=turn_id,
+            source_fact=source_fact,
             active_run=active_run,
-            planner_fact=source_fact,
-            planner_fact_kind=planner_fact_kind,
-            planner_user_message=payload.content,
-            latest_payload=payload,
-            user_id=payload.user_id,
-            session_id=payload.session_id,
-            run_disposition=(
-                disposition.value if isinstance(disposition, InterruptionDisposition) else None
-            ),
-            interruption_disposition=disposition,
-            checkpoint_pending_turns=self._current_revision_pending_turns(active_run),
-            superseded_turns=superseded_turns,
+            disposition=disposition,
         )
 
     async def ahandle_user_turn(
@@ -501,75 +461,79 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
         active_run = self._run_store.get_active_run(payload.session_id)
         turn_id = self._resolve_turn_id(payload=payload, source_fact=source_fact)
         if active_run is None or active_run.status == "cancelled":
-            active_run = self._run_store.create_active_run(
-                payload.session_id,
-                root_turn_id=turn_id,
-                root_user_message=payload.content,
-                trigger=build_user_message_trigger(
-                    source=payload.source,
-                    requester=payload.user_id,
-                    content=payload.content,
-                    turn_id=turn_id,
-                ),
-            )
-            return SessionFactDecision(
-                active_run=active_run,
-                planner_fact=source_fact,
-                planner_fact_kind=IncomingFactKind.USER_MESSAGE,
-                planner_user_message=payload.content,
-                latest_payload=payload,
-                user_id=payload.user_id,
-                session_id=payload.session_id,
-                run_disposition="root",
+            return self._start_root_user_turn(
+                payload=payload,
+                turn_id=turn_id,
+                source_fact=source_fact,
             )
 
         disposition = await self._interruption_classifier.aclassify(
             InterruptionContext(
                 user_text=payload.content,
                 root_user_message=active_run.root_user_message,
-                pending_turns=[item.content for item in self._current_revision_pending_turns(active_run)],
+                pending_turns=[
+                    item.content for item in self._current_revision_pending_turns(active_run)
+                ],
                 step_state=step_state or StepState(),
             )
         )
-        if disposition == InterruptionDisposition.INTERRUPT:
-            superseded_turns = self._build_interrupt_supersessions(active_run=active_run, anchor_turn_id=turn_id)
-            active_run = self._run_store.bump_revision(
-                payload.session_id,
-                clear_pending_turns=True,
-            )
-            active_run = self._run_store.set_root_turn(
-                payload.session_id,
-                turn_id=turn_id,
+        return self._finish_interrupted_user_turn(
+            payload=payload,
+            turn_id=turn_id,
+            source_fact=source_fact,
+            active_run=active_run,
+            disposition=disposition,
+        )
+
+    def _start_root_user_turn(
+        self,
+        *,
+        payload: UserMessagePayload,
+        turn_id: str,
+        source_fact: FactRecord | None,
+    ) -> SessionFactDecision:
+        active_run = self._run_store.create_active_run(
+            payload.session_id,
+            root_turn_id=turn_id,
+            root_user_message=payload.content,
+            trigger=build_user_message_trigger(
+                source=payload.source,
+                requester=payload.user_id,
                 content=payload.content,
-            )
-            planner_fact_kind = IncomingFactKind.USER_MESSAGE
-        else:
-            self._run_store.append_pending_turn(
-                payload.session_id,
-                turn_id,
-                payload.content,
-                disposition=(
-                    disposition.value
-                    if isinstance(disposition, InterruptionDisposition)
-                    else InterruptionDisposition.AUGMENT.value
-                ),
-            )
-            active_run = self._run_store.get_active_run(payload.session_id)
-            planner_fact_kind = IncomingFactKind.OTHER_FACT
-            superseded_turns = []
-        # Phase H+1: see ``handle_user_turn`` — mirror the IncomingEvent
-        # emission on the async path so both routes behave identically.
-        if active_run is not None and is_external_source(payload.source):
-            active_run.pending_events.append(
-                self._build_external_inbound_event(
-                    payload=payload,
-                    active_run_id=active_run.run_id,
-                )
-            )
+                turn_id=turn_id,
+            ),
+        )
         return SessionFactDecision(
             active_run=active_run,
             planner_fact=source_fact,
-            planner_fact_kind=planner_fact_kind,
+            planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+            planner_user_message=payload.content,
+            latest_payload=payload,
+            user_id=payload.user_id,
+            session_id=payload.session_id,
+            run_disposition="root",
+        )
+
+    def _finish_interrupted_user_turn(
+        self,
+        *,
+        payload: UserMessagePayload,
+        turn_id: str,
+        source_fact: FactRecord | None,
+        active_run: ActiveRun,
+        disposition: InterruptionDisposition,
+    ) -> SessionFactDecision:
+        applied = self._apply_user_turn_disposition(
+            payload=payload,
+            turn_id=turn_id,
+            active_run=active_run,
+            disposition=disposition,
+        )
+        self._append_external_inbound_event_if_needed(applied.active_run, payload)
+        return SessionFactDecision(
+            active_run=applied.active_run,
+            planner_fact=source_fact,
+            planner_fact_kind=applied.planner_fact_kind,
             planner_user_message=payload.content,
             latest_payload=payload,
             user_id=payload.user_id,
@@ -578,6 +542,61 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 disposition.value if isinstance(disposition, InterruptionDisposition) else None
             ),
             interruption_disposition=disposition,
-            checkpoint_pending_turns=self._current_revision_pending_turns(active_run),
-            superseded_turns=superseded_turns,
+            checkpoint_pending_turns=self._current_revision_pending_turns(applied.active_run),
+            superseded_turns=applied.superseded_turns,
+        )
+
+    def _apply_user_turn_disposition(
+        self,
+        *,
+        payload: UserMessagePayload,
+        turn_id: str,
+        active_run: ActiveRun,
+        disposition: InterruptionDisposition,
+    ) -> _AppliedUserTurnDisposition:
+        if disposition == InterruptionDisposition.INTERRUPT:
+            superseded_turns = self._build_interrupt_supersessions(
+                active_run=active_run,
+                anchor_turn_id=turn_id,
+            )
+            self._run_store.bump_revision(payload.session_id, clear_pending_turns=True)
+            refreshed_run = self._run_store.set_root_turn(
+                payload.session_id,
+                turn_id=turn_id,
+                content=payload.content,
+            )
+            return _AppliedUserTurnDisposition(
+                active_run=refreshed_run,
+                planner_fact_kind=IncomingFactKind.USER_MESSAGE,
+                superseded_turns=superseded_turns,
+            )
+
+        self._run_store.append_pending_turn(
+            payload.session_id,
+            turn_id,
+            payload.content,
+            disposition=(
+                disposition.value
+                if isinstance(disposition, InterruptionDisposition)
+                else InterruptionDisposition.AUGMENT.value
+            ),
+        )
+        return _AppliedUserTurnDisposition(
+            active_run=self._run_store.get_active_run(payload.session_id),
+            planner_fact_kind=IncomingFactKind.OTHER_FACT,
+            superseded_turns=[],
+        )
+
+    def _append_external_inbound_event_if_needed(
+        self,
+        active_run: ActiveRun | None,
+        payload: UserMessagePayload,
+    ) -> None:
+        if active_run is None or not is_external_source(payload.source):
+            return
+        active_run.pending_events.append(
+            self._build_external_inbound_event(
+                payload=payload,
+                active_run_id=active_run.run_id,
+            )
         )
