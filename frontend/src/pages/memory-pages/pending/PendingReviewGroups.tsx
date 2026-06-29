@@ -1,0 +1,200 @@
+import { BookOpen, Check, FileText, Loader2, UserRound, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import type { L2Assertion, L2ExperienceSeed } from '@/api/modules/memory';
+import type { StoryItem } from '@/api/modules/memoryStories';
+import type { NotificationItem } from '@/api/modules/notifications';
+import { Button } from '@/components/ui/button';
+import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
+import { MEMORY_ACTION_BUTTON_CLASS } from '../MemoryPageFrame';
+import {
+  ConflictActions,
+  PendingCard,
+  PendingSection,
+  ReviewActions,
+} from './PendingPrimitives';
+import {
+  conflictBody,
+  conflictTitle,
+  seedBody,
+  seedTitle,
+  storyTitle,
+  type ConflictAction,
+  type PendingAction,
+} from './pendingModel';
+
+export function PendingReviewGroups({
+  assertions,
+  stories,
+  seeds,
+  conflicts,
+  actionId,
+  memoryCount,
+  experienceCount,
+  observationCount,
+  showMemory,
+  showExperiences,
+  showObservations,
+  onAssertion,
+  onStory,
+  onSeed,
+  onConflict,
+}: {
+  assertions: L2Assertion[];
+  stories: StoryItem[];
+  seeds: L2ExperienceSeed[];
+  conflicts: NotificationItem[];
+  actionId: string | null;
+  memoryCount: number;
+  experienceCount: number;
+  observationCount: number;
+  showMemory: boolean;
+  showExperiences: boolean;
+  showObservations: boolean;
+  onAssertion: (assertion: L2Assertion, action: PendingAction) => void;
+  onStory: (story: StoryItem, action: PendingAction) => void;
+  onSeed: (seed: L2ExperienceSeed, action: 'promote' | 'reject') => void;
+  onConflict: (notification: NotificationItem, action: ConflictAction) => void;
+}) {
+  const { t } = useTranslation('app');
+
+  return (
+    <>
+      {showMemory ? (
+        <PendingSection
+          title={t('memory.pending.groups.memory.title')}
+          description={t('memory.pending.groups.memory.description')}
+          icon={<UserRound className="h-4 w-4" aria-hidden="true" />}
+          count={memoryCount}
+          tone="amber"
+        >
+          {assertions.map((assertion) => {
+            const busy = actionId === `assertion:${assertion.assertion_id}`;
+            const copy = getPendingAssertionCopy(assertion, t);
+            return (
+              <PendingCard
+                key={assertion.assertion_id}
+                testId={`pending-assertion-${assertion.assertion_id}`}
+                label={t('memory.pending.meta.assertion')}
+                title={copy.title}
+                body={copy.body}
+                meta={t('memory.pending.evidenceCount', { count: assertion.evidence_events?.length ?? 0 })}
+                actions={(
+                  <ReviewActions
+                    busy={busy}
+                    confirmLabel={t('memory.pending.actions.confirmJudgment')}
+                    rejectLabel={t('memory.pending.actions.reject')}
+                    onConfirm={() => onAssertion(assertion, 'confirmed')}
+                    onReject={() => onAssertion(assertion, 'rejected')}
+                  />
+                )}
+              />
+            );
+          })}
+          {conflicts.map((conflict) => {
+            const busy = actionId === `conflict:${conflict.id}`;
+            return (
+              <PendingCard
+                key={conflict.id}
+                testId={`pending-conflict-${conflict.id}`}
+                label={t('memory.pending.meta.conflict')}
+                title={conflictBody(conflict) || conflictTitle(conflict, t('memory.pending.fallbackConflictTitle'))}
+                body=""
+                meta={t('memory.pending.conflictMeta')}
+                actions={(
+                  <ConflictActions
+                    busy={busy}
+                    onConfirm={() => onConflict(conflict, 'confirm')}
+                    onReject={() => onConflict(conflict, 'reject')}
+                  />
+                )}
+              />
+            );
+          })}
+        </PendingSection>
+      ) : null}
+
+      {showExperiences ? (
+        <PendingSection
+          title={t('memory.pending.groups.experiences.title')}
+          description={t('memory.pending.groups.experiences.description')}
+          icon={<BookOpen className="h-4 w-4" aria-hidden="true" />}
+          count={experienceCount}
+          tone="green"
+        >
+          {seeds.map((seed) => {
+            const busy = actionId === `seed:${seed.seed_id}`;
+            return (
+              <PendingCard
+                key={seed.seed_id}
+                testId={`pending-experience-${seed.seed_id}`}
+                label={t('memory.pending.meta.experienceSeed')}
+                title={seedTitle(seed, t('memory.episodes.pending.fallbackTitle'))}
+                body={seedBody(seed)}
+                meta={t('memory.pending.fragmentCount', { count: seed.evidence_count ?? 0 })}
+                actions={(
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={MEMORY_ACTION_BUTTON_CLASS}
+                      disabled={busy}
+                      onClick={() => onSeed(seed, 'promote')}
+                    >
+                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      {t('memory.pending.actions.promoteExperience')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className={MEMORY_ACTION_BUTTON_CLASS}
+                      disabled={busy}
+                      onClick={() => onSeed(seed, 'reject')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      {t('memory.pending.actions.rejectExperience')}
+                    </Button>
+                  </div>
+                )}
+              />
+            );
+          })}
+        </PendingSection>
+      ) : null}
+
+      {showObservations ? (
+        <PendingSection
+          title={t('memory.pending.groups.observations.title')}
+          description={t('memory.pending.groups.observations.description')}
+          icon={<FileText className="h-4 w-4" aria-hidden="true" />}
+          count={observationCount}
+          tone="blue"
+        >
+          {stories.map((story) => {
+            const busy = actionId === `story:${story.summary_id}`;
+            const title = storyTitle(story, t('memory.pending.fallbackMemoryUpdateTitle'));
+            const body = String(story.detail_lead_text || story.content || '').trim();
+            return (
+              <PendingCard
+                key={story.summary_id}
+                testId={`pending-story-${story.summary_id}`}
+                title={title}
+                body={body}
+                meta={t('memory.pending.evidenceCount', { count: story.evidence_event_count })}
+                actions={(
+                  <ReviewActions
+                    busy={busy}
+                    confirmLabel={t('memory.pending.actions.confirmObservation')}
+                    rejectLabel={t('memory.pending.actions.rejectObservation')}
+                    onConfirm={() => onStory(story, 'confirmed')}
+                    onReject={() => onStory(story, 'rejected')}
+                  />
+                )}
+              />
+            );
+          })}
+        </PendingSection>
+      ) : null}
+    </>
+  );
+}
