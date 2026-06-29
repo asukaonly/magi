@@ -8,12 +8,7 @@ from typing import Any, Awaitable, Callable, Optional
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
 from ....agent.background.launch import BackgroundLaunchService
-from magi.control.run_control import (
-    DetachSignal,
-    SteerInbox,
-    bind_detach_signal,
-    null_run_control,
-)
+from magi.control.run_control import null_run_control
 from ....agent.turn_input import UserTurnInput
 from ....agent.execution.function_calling import EngineRunInput
 from ....context.service import ContextAssemblyService
@@ -31,6 +26,7 @@ from ..common.service_protocols import (
     HistoryServiceProtocol,
     PromptServiceProtocol,
 )
+from .checkpoint_loop import FunctionCallingCheckpointLoop
 from .explore_render import start_explore_task_agent
 from .runtime_control import FunctionCallingRuntimeControlMixin
 from .handler_helpers import (
@@ -127,6 +123,15 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
         # rather than touching chat.
         resolver = getattr(self._deps, "attachment_resolver", None)
         return resolver if resolver is not None else NullAttachmentResolver()
+
+    def _build_checkpoint_loop(self) -> FunctionCallingCheckpointLoop:
+        return FunctionCallingCheckpointLoop(
+            deps=self._deps,
+            attachment_resolver=self._attachment_resolver,
+            cancel_token_factory=self._build_cancel_token,
+            detached_result_builder=self._build_detached_chat_result,
+            drain_pending_steer_turns=self._drain_pending_steer_turns,
+        )
 
     async def build_request(self, request: ExecutionRequest) -> FunctionCallingRequest:
         prompt_package = await self._deps.context_service.build_prompt_package(
@@ -227,7 +232,7 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
                     self._deps.function_calling_orchestrator, "build_step_state"
                 )
             ):
-                result = await self._execute_with_session_checkpoints(
+                result = await self._build_checkpoint_loop().run(
                     request,
                     execution_workspace=execution_workspace,
                     detach_signal=detach_signal,
@@ -304,295 +309,6 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             self._release_detach_signal(
                 session_id=session_id, detach_signal=detach_signal
             )
-
-    async def _execute_with_session_checkpoints(
-        self,
-        request: FunctionCallingRequest,
-        *,
-        execution_workspace: str | None,
-        detach_signal: DetachSignal | None = None,
-        steer_inbox: SteerInbox | None = None,
-    ) -> ExecutionResult:
-        orchestrator = self._deps.function_calling_orchestrator
-        session_run_coordinator = self._deps.session_run_coordinator
-        current_user_message = request.context.latest_user_message
-        current_revision = int(getattr(request.context, "session_run_revision", 0) or 0)
-        current_turn_id = getattr(request.context.latest_payload, "turn_id", None)
-        cancel_token = self._build_cancel_token(request)
-
-        def _build_turn(text: str) -> UserTurnInput:
-            return UserTurnInput(
-                text=text,
-                attachments=resolve_effective_turn_attachments(
-                    request.context, resolver=self._attachment_resolver
-                ),
-                user_id=request.context.user_id,
-                session_id=request.context.session_id,
-            )
-
-        step_state = orchestrator.build_step_state(
-            turn=_build_turn(current_user_message),
-            system_prompt=request.system_prompt,
-            selected_tools=request.selected_tools,
-            conversation_history=request.context.history,
-            session_summary=getattr(request.context, "session_summary", None),
-            session_origin=getattr(request.context, "session_origin", None),
-            reply_context=getattr(request.context, "reply_context", None),
-            allow_attachment_grounding=(
-                bool(
-                    getattr(
-                        request.context, "allow_media_grounding_for_conversation", False
-                    )
-                )
-                and bool(getattr(request.context, "core_model_supports_vision", False))
-            ),
-        )
-        max_iterations = int(getattr(orchestrator, "MAX_ITERATIONS", 10) or 10)
-
-        with bind_detach_signal(detach_signal):
-            while step_state.iteration < max_iterations:
-                if await cancel_token.is_cancelled():
-                    return FunctionCallingExecutionResult(
-                        mode=request.mode,
-                        response_text="",
-                        attachments=list(
-                            getattr(step_state, "chat_attachments", []) or []
-                        ),
-                        message_payload=dict(
-                            getattr(step_state, "message_payload", {}) or {}
-                        ),
-                        root_user_message=current_user_message,
-                        execution_outcome={
-                            "status": "cancelled",
-                            "content": "",
-                            "failure_reason": None,
-                            "attachments": list(
-                                getattr(step_state, "chat_attachments", []) or []
-                            ),
-                            "message_payload": dict(
-                                getattr(step_state, "message_payload", {}) or {}
-                            ),
-                            "tool_failures": list(
-                                getattr(step_state, "tool_failures", [])
-                            ),
-                            "iterations": step_state.iteration,
-                        },
-                        turn_id=current_turn_id,
-                        ux_plan=_serialize_ux_plan(request.intent),
-                    )
-                if detach_signal is not None and detach_signal.is_requested():
-                    return self._build_detached_chat_result(
-                        request=request,
-                        step_state=step_state,
-                        detach_signal=detach_signal,
-                        current_user_message=current_user_message,
-                        current_turn_id=current_turn_id,
-                    )
-                await self._drain_pending_steer_turns(
-                    session_id=request.context.session_id,
-                    revision=current_revision,
-                    steer_inbox=steer_inbox,
-                    step_state=step_state,
-                    latest_fact_timestamp=getattr(
-                        request.context.latest_payload, "timestamp", None
-                    ),
-                )
-                step_outcome = await orchestrator.step_executor.execute_step(
-                    state=step_state,
-                    user_message=current_user_message,
-                    thinking_depth=request.thinking_depth,
-                    user_id=request.context.user_id,
-                    session_id=request.context.session_id,
-                    session_run_id=request.context.session_run_id,
-                    session_run_revision=current_revision,
-                    turn_id=current_turn_id,
-                    intent=request.intent.intent,
-                    execution_agent_id=request.context.runtime_key,
-                    execution_workspace=execution_workspace,
-                    cancel_token=cancel_token,
-                    route_decision=request.intent.route_decision,
-                )
-                if step_outcome.status == "completed":
-                    execution_outcome = {
-                        "status": "completed",
-                        "content": step_outcome.content,
-                        "failure_reason": None,
-                        "tool_failures": list(getattr(step_state, "tool_failures", [])),
-                        "iterations": step_outcome.iteration,
-                    }
-                    return FunctionCallingExecutionResult(
-                        mode=request.mode,
-                        response_text=step_outcome.content,
-                        attachments=list(
-                            getattr(step_state, "chat_attachments", []) or []
-                        ),
-                        message_payload=dict(
-                            getattr(step_state, "message_payload", {}) or {}
-                        ),
-                        root_user_message=current_user_message,
-                        execution_outcome=execution_outcome,
-                        turn_id=current_turn_id,
-                        ux_plan=_serialize_ux_plan(request.intent),
-                    )
-                if step_outcome.status == "cancelled":
-                    return FunctionCallingExecutionResult(
-                        mode=request.mode,
-                        response_text="",
-                        attachments=list(
-                            getattr(step_state, "chat_attachments", []) or []
-                        ),
-                        message_payload=dict(
-                            getattr(step_state, "message_payload", {}) or {}
-                        ),
-                        root_user_message=current_user_message,
-                        execution_outcome={
-                            "status": "cancelled",
-                            "content": "",
-                            "failure_reason": None,
-                            "tool_failures": list(
-                                getattr(step_state, "tool_failures", [])
-                            ),
-                            "iterations": step_outcome.iteration,
-                        },
-                        turn_id=current_turn_id,
-                        ux_plan=_serialize_ux_plan(request.intent),
-                    )
-                if step_outcome.status == "failed":
-                    # Instead of returning an empty response, let the LLM
-                    # generate a final answer using the error context.
-                    break
-
-                # Re-check detach after the tool batch runs so a tool that
-                # flipped the signal this iteration exits before the next
-                # LLM call.
-                if detach_signal is not None and detach_signal.is_requested():
-                    return self._build_detached_chat_result(
-                        request=request,
-                        step_state=step_state,
-                        detach_signal=detach_signal,
-                        current_user_message=current_user_message,
-                        current_turn_id=current_turn_id,
-                    )
-
-                active_run = session_run_coordinator.get_active_run(
-                    request.context.session_id
-                )
-                if active_run is not None and active_run.revision != current_revision:
-                    current_revision = active_run.revision
-                    current_user_message = str(
-                        active_run.root_user_message or current_user_message
-                    )
-                    current_turn_id = active_run.root_turn_id or current_turn_id
-                    step_state = orchestrator.build_step_state(
-                        turn=_build_turn(current_user_message),
-                        system_prompt=request.system_prompt,
-                        selected_tools=request.selected_tools,
-                        conversation_history=request.context.history,
-                        session_summary=getattr(
-                            request.context, "session_summary", None
-                        ),
-                        session_origin=getattr(request.context, "session_origin", None),
-                        reply_context=getattr(request.context, "reply_context", None),
-                        allow_attachment_grounding=(
-                            bool(
-                                getattr(
-                                    request.context,
-                                    "allow_media_grounding_for_conversation",
-                                    False,
-                                )
-                            )
-                            and bool(
-                                getattr(
-                                    request.context, "core_model_supports_vision", False
-                                )
-                            )
-                        ),
-                    )
-                    if steer_inbox is not None:
-                        # Pending STEER turns from the prior revision are no
-                        # longer relevant once the run is rebuilt from a new
-                        # root, so drop anything still queued in-process.
-                        await steer_inbox.drain()
-                    continue
-
-                checkpoint = session_run_coordinator.consume_checkpoint(
-                    request.context.session_id
-                )
-                if checkpoint.pending_turns:
-                    current_user_message = str(
-                        checkpoint.visible_user_message or current_user_message
-                    )
-                    current_turn_id = (
-                        checkpoint.pending_turns[-1].turn_id or current_turn_id
-                    )
-                    step_state = orchestrator.build_step_state(
-                        turn=_build_turn(current_user_message),
-                        system_prompt=request.system_prompt,
-                        selected_tools=request.selected_tools,
-                        conversation_history=request.context.history,
-                        session_summary=getattr(
-                            request.context, "session_summary", None
-                        ),
-                        session_origin=getattr(request.context, "session_origin", None),
-                        reply_context=getattr(request.context, "reply_context", None),
-                        allow_attachment_grounding=(
-                            bool(
-                                getattr(
-                                    request.context,
-                                    "allow_media_grounding_for_conversation",
-                                    False,
-                                )
-                            )
-                            and bool(
-                                getattr(
-                                    request.context, "core_model_supports_vision", False
-                                )
-                            )
-                        ),
-                    )
-                    continue
-
-            _fallback_ctx_control = (
-                request.context.control
-                if hasattr(request.context, "control")
-                else None
-            )
-            _fallback_control = (
-                _fallback_ctx_control
-                if _fallback_ctx_control is not None
-                else null_run_control()
-            )
-            _fallback_control.cancel_token = cancel_token
-            execution_outcome = await orchestrator._execute_fallback_final_response(
-                state=step_state,
-                thinking_depth=request.thinking_depth,
-                user_id=request.context.user_id,
-                session_id=request.context.session_id,
-                session_run_id=request.context.session_run_id,
-                session_run_revision=current_revision,
-                turn_id=current_turn_id,
-                intent=request.intent.intent,
-                execution_agent_id=request.context.runtime_key,
-                execution_workspace=execution_workspace,
-                llm_timeout_seconds=None,
-                final_response_json_mode=False,
-                cancel_token=cancel_token,
-                control=_fallback_control,
-                route_decision=request.intent.route_decision,
-            )
-        return FunctionCallingExecutionResult(
-            mode=request.mode,
-            response_text=execution_outcome.content,
-            attachments=list(getattr(execution_outcome, "attachments", []) or []),
-            message_payload=dict(
-                getattr(execution_outcome, "message_payload", {}) or {}
-            ),
-            root_user_message=current_user_message,
-            execution_outcome=execution_outcome.to_dict(),
-            turn_id=current_turn_id,
-            ux_plan=_serialize_ux_plan(request.intent),
-        )
-
 
 async def _start_explore_task_agent(
     deps: ChatHandlerDependencies,

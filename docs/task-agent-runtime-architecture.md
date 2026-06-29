@@ -252,6 +252,13 @@ verification work.
   policy. `FunctionCallingHandler` consumes that resolved tool surface; it does
   not reimplement those routing rules.
 
+  For session-bound function-calling turns, `FunctionCallingHandler` remains the
+  chat-mode entry point, while `FunctionCallingCheckpointLoop` owns the
+  checkpoint-aware execution loop. That loop coordinates cancel, detach,
+  mid-run steering, pending-turn checkpoint rebuilds, one-step tool execution,
+  and fallback response generation. Keeping that loop outside the handler keeps
+  chat entry routing separate from long-running tool-run control flow.
+
   Reply-target continuity in chat is intentionally compact but now carries more than plain text excerpts.
   When a user replies to an earlier assistant message, the runtime may include a sanitized structured payload summary from that replied-to message, such as managed attachment references, so follow-up turns can reuse concrete artifacts without re-exposing raw local file paths.
   Tool-driven chat turns may persist this reusable state through assistant message payloads. In particular, function-calling tools can return a sanitized `assistant_payload` with generic `asset_refs`, which later reply turns may see through reply context and hand back to source resolver tools before calling `prepare_chat_attachments`.
