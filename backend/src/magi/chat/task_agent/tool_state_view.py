@@ -14,6 +14,7 @@ domain (L14). Lifting it to the generic agent runtime (L12) would be
 premature — only chat reads it today. If worker / subagent / batch
 drivers later need an equivalent, promote the shape then.
 """
+
 from __future__ import annotations
 
 import json
@@ -49,6 +50,24 @@ _MAX_RECORDS_PER_SESSION = 100
 # normal usage without scanning unbounded history.
 _RESTORE_SCAN_LIMIT = 5000
 
+_TRACE_RESTORE_QUERY = """
+SELECT
+    trace_turns.user_id,
+    trace_turns.session_id,
+    trace_tools.turn_id,
+    trace_tools.tool_name,
+    trace_tools.error_code,
+    trace_tools.error_message,
+    trace_tools.result_preview,
+    trace_tools.arguments_json,
+    trace_tools.execution_time_ms,
+    trace_tools.success
+FROM trace_tools
+JOIN trace_turns ON trace_turns.trace_id = trace_tools.trace_id
+ORDER BY trace_turns.updated_at_ms ASC
+LIMIT ?
+"""
+
 
 class ChatToolStateView:
     """Per-session recent-tool-call view used by chat prompt assembly.
@@ -80,9 +99,7 @@ class ChatToolStateView:
 
     # === reads (prompt-shaped) ===
 
-    def recent_errors(
-        self, history_key: str, limit: int = 3
-    ) -> list[dict[str, Any]]:
+    def recent_errors(self, history_key: str, limit: int = 3) -> list[dict[str, Any]]:
         """Most recent error tool calls, newest first, shaped for prompt use."""
         records = self._records.get(history_key, [])
         results: list[dict[str, Any]] = []
@@ -112,9 +129,7 @@ class ChatToolStateView:
                 break
         return results
 
-    def recent_state(
-        self, history_key: str, limit: int = 4
-    ) -> list[dict[str, Any]]:
+    def recent_state(self, history_key: str, limit: int = 4) -> list[dict[str, Any]]:
         """Most recent tool calls, newest first, shaped for prompt use.
 
         Returns one dict per call summarising tool, status, optional
@@ -132,9 +147,7 @@ class ChatToolStateView:
             status = str(item.get("status") or "unknown").strip() or "unknown"
             result_summary = str(item.get("result_summary") or "").strip()
             result_data = (
-                item.get("result_data")
-                if isinstance(item.get("result_data"), dict)
-                else {}
+                item.get("result_data") if isinstance(item.get("result_data"), dict) else {}
             )
             state: dict[str, Any] = {
                 "tool_name": tool_name,
@@ -143,9 +156,7 @@ class ChatToolStateView:
             turn_id = str(item.get("turn_id") or "").strip()
             if turn_id:
                 state["turn_id"] = turn_id
-            execution_time_ms = _normalize_execution_time_ms(
-                item.get("execution_time_ms")
-            )
+            execution_time_ms = _normalize_execution_time_ms(item.get("execution_time_ms"))
             if execution_time_ms is not None:
                 state["execution_time_ms"] = execution_time_ms
             if result_summary:
@@ -182,85 +193,86 @@ class ChatToolStateView:
         ChatContextAssembler).
         """
         try:
-            if not self._runtime_trace_db_path.exists():
-                return
-            conn = connect_sqlite(
-                self._runtime_trace_db_path,
-                profile="hot_write",
-                use_row_factory=False,
-            )
-            cur = conn.cursor()
-            cur.execute(
-                """
-                SELECT
-                    trace_turns.user_id,
-                    trace_turns.session_id,
-                    trace_tools.turn_id,
-                    trace_tools.tool_name,
-                    trace_tools.error_code,
-                    trace_tools.error_message,
-                    trace_tools.result_preview,
-                    trace_tools.arguments_json,
-                    trace_tools.execution_time_ms,
-                    trace_tools.success
-                FROM trace_tools
-                JOIN trace_turns ON trace_turns.trace_id = trace_tools.trace_id
-                ORDER BY trace_turns.updated_at_ms ASC
-                LIMIT ?
-                """,
-                (_RESTORE_SCAN_LIMIT,),
-            )
-            rows = cur.fetchall()
-            conn.close()
+            rows = _fetch_restorable_trace_rows(self._runtime_trace_db_path)
         except Exception:
-            logger.warning(
-                "Failed to restore tool interactions from runtime trace store"
-            )
+            logger.warning("Failed to restore tool interactions from runtime trace store")
             return
 
-        for (
-            user_id,
-            raw_session_id,
-            turn_id,
-            tool_name,
-            error_code,
-            error_message,
-            result_preview,
-            arguments_json,
-            execution_time_ms,
-            success,
-        ) in rows:
-            if not user_id:
-                continue
-            session_id = require_session_id(str(user_id), raw_session_id)
-            key = build_history_key(str(user_id), session_id)
-            result_data: dict[str, Any] = {}
-            try:
-                parsed = json.loads(str(arguments_json or ""))
-                if isinstance(parsed, dict):
-                    result_data = parsed
-            except Exception:
-                result_data = {}
-            self.record(
-                key,
-                {
-                    "timestamp": execution_time_ms,
-                    "intent": "unknown",
-                    "tool_name": str(tool_name or "unknown"),
-                    "status": "success" if bool(success) else "error",
-                    "error_code": str(error_code or ""),
-                    "error_message": str(error_message or ""),
-                    "result_summary": str(result_preview or ""),
-                    "result_data": result_data,
-                    "execution_time_ms": _normalize_execution_time_ms(
-                        execution_time_ms
-                    ),
-                    "turn_id": turn_id,
-                },
+        for row in rows:
+            restored = _restore_tool_state_record(
+                row,
+                require_session_id=require_session_id,
+                build_history_key=build_history_key,
             )
+            if restored is None:
+                continue
+            key, record = restored
+            self.record(key, record)
 
 
 # === module helpers ===
+
+
+def _fetch_restorable_trace_rows(runtime_trace_db_path: Path) -> list[tuple[Any, ...]]:
+    if not runtime_trace_db_path.exists():
+        return []
+
+    conn = connect_sqlite(
+        runtime_trace_db_path,
+        profile="hot_write",
+        use_row_factory=False,
+    )
+    try:
+        cur = conn.cursor()
+        cur.execute(_TRACE_RESTORE_QUERY, (_RESTORE_SCAN_LIMIT,))
+        return list(cur.fetchall())
+    finally:
+        conn.close()
+
+
+def _restore_tool_state_record(
+    row: tuple[Any, ...],
+    *,
+    require_session_id: Callable[[str, Any], str],
+    build_history_key: Callable[[str, str], str],
+) -> tuple[str, dict[str, Any]] | None:
+    (
+        user_id,
+        raw_session_id,
+        turn_id,
+        tool_name,
+        error_code,
+        error_message,
+        result_preview,
+        arguments_json,
+        execution_time_ms,
+        success,
+    ) = row
+    if not user_id:
+        return None
+
+    session_id = require_session_id(str(user_id), raw_session_id)
+    key = build_history_key(str(user_id), session_id)
+    return key, {
+        "timestamp": execution_time_ms,
+        "intent": "unknown",
+        "tool_name": str(tool_name or "unknown"),
+        "status": "success" if bool(success) else "error",
+        "error_code": str(error_code or ""),
+        "error_message": str(error_message or ""),
+        "result_summary": str(result_preview or ""),
+        "result_data": _parse_trace_arguments(arguments_json),
+        "execution_time_ms": _normalize_execution_time_ms(execution_time_ms),
+        "turn_id": turn_id,
+    }
+
+
+def _parse_trace_arguments(arguments_json: Any) -> dict[str, Any]:
+    try:
+        parsed = json.loads(str(arguments_json or ""))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 def _normalize_execution_time_ms(value: Any) -> int | None:
