@@ -1,68 +1,42 @@
-"""LLM invocation helpers for function-calling execution."""
+"""LLM invocation entry points for function-calling execution."""
 
 from __future__ import annotations
 
-import json
-import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Protocol, cast
+from dataclasses import dataclass
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, cast
 
-from ....config.constants import DEFAULT_MAX_TOKENS, SYSTEM_PROMPT_CACHE_BOUNDARY
 from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.cancellable_client import (
-    CancellableLLMClient,
     CancellationRaised,
     RetractRaised,
 )
-from ....llm.provider_bridge import LLMProviderBridge, ToolStreamResult
-from ....llm.streaming_events import get_stream_sink
-from ....runtime_trace import enrich_event_context_with_turn_trace
-from ....utils.llm_logger import get_llm_logger, log_llm_request, log_llm_response
+from ....llm.provider_bridge import LLMProviderBridge
 from ..context_compactor import ContextCompactor
 from magi.control.run_control import RunControl
-from .types import ToolCall
-
-logger = logging.getLogger(__name__)
-llm_logger = get_llm_logger("function_calling")
-
-THINKING_LLM_TIMEOUT_SECONDS = 180.0
-
-
-def _build_llm_event_context(
-    *,
-    request_id: str,
-    request_kind: str,
-    session_id: str | None,
-    turn_id: str | None,
-    execution_agent_id: str,
-    intent: str,
-    iteration: int | None = None,
-) -> dict[str, Any]:
-    context = {
-        "request_id": request_id,
-        "request_kind": request_kind,
-        "session_id": session_id,
-        "turn_id": turn_id,
-        "agent_id": execution_agent_id,
-        "correlation_id": turn_id,
-        "intent": intent,
-    }
-    normalized_turn_id = str(turn_id or "").strip()
-    if normalized_turn_id and iteration is not None and iteration > 0:
-        context["parent_span_id"] = f"{normalized_turn_id}:iteration:{iteration}"
-    return cast(dict[str, Any], enrich_event_context_with_turn_trace(context))
-
-
-def _resolve_tools_request_kind(*, execution_agent_id: str, intent: str) -> str:
-    agent_id = str(execution_agent_id or "").strip()
-    normalized_intent = str(intent or "").strip()
-    if agent_id.startswith("worker_") or normalized_intent.startswith("worker_"):
-        return "function_calling:worker_tools"
-    return "function_calling:chat_tools"
+from .llm_invocation import (
+    FinalProviderCallResult,
+    FunctionCallingLlmRequest,
+    LlmInvocationHostProtocol,
+    ToolsProviderCallResult,
+    call_provider_with_tools,
+    call_provider_without_tools,
+    pre_poll_run_control,
+    resolve_llm_timeout,
+    resolve_tools_request_kind,
+)
+from .llm_logging import (
+    log_final_llm_failure,
+    log_final_llm_request,
+    log_final_llm_success,
+    log_tools_llm_failure,
+    log_tools_llm_request,
+    log_tools_llm_success,
+)
+from .llm_payloads import build_llm_response_payload, build_llm_trace
 
 
 class _LlmHostProtocol(Protocol):
@@ -77,6 +51,43 @@ class _LlmHostProtocol(Protocol):
         *,
         label: str,
     ) -> Any: ...
+
+
+class _PreparedLlmCall(NamedTuple):
+    host: _LlmHostProtocol
+    request_id: str
+    start_time: float
+    llm: LLMAdapter
+
+
+@dataclass(frozen=True, slots=True)
+class _ToolsLlmCallParams:
+    system_prompt: str
+    messages: List[Dict]
+    tools: List[Dict]
+    thinking_depth: ThinkingDepth
+    timeout_seconds: Optional[float]
+    session_id: Optional[str]
+    turn_id: Optional[str]
+    intent: str
+    execution_agent_id: str
+    iteration: int | None
+    control: RunControl | None
+
+
+@dataclass(frozen=True, slots=True)
+class _FinalLlmCallParams:
+    system_prompt: str
+    messages: List[Dict]
+    thinking_depth: ThinkingDepth
+    json_mode: bool
+    timeout_seconds: Optional[float]
+    session_id: Optional[str]
+    turn_id: Optional[str]
+    intent: str
+    execution_agent_id: str
+    iteration: int | None
+    control: RunControl | None
 
 
 class FunctionCallingLlmMixin:
@@ -96,168 +107,21 @@ class FunctionCallingLlmMixin:
         iteration: int | None = None,
         control: RunControl | None = None,
     ) -> Dict[str, Any]:
-        """
-        Call LLM with tools parameter
-
-        Returns dict with either:
-        - content: str (text response)
-        - tool_calls: List[ToolCall] (tool calls to execute)
-
-        Cancel/retract semantics: if ``control`` is supplied, the method
-        pre-polls the signals before invoking the bridge. The bridge's
-        ``chat_with_tools[_stream]`` calls are NOT wrapped by
-        ``CancellableLLMClient`` yet, so mid-call cancellation is not
-        honored for tool calls — only the iteration boundary check in
-        ``FunctionCallingOrchestrator._execute_with_tools_impl`` catches
-        signals fired during a tool-call LLM invocation. This pre-poll is
-        the only opportunity to short-circuit before the request hits the
-        provider.
-        """
-        host = cast(_LlmHostProtocol, self)
-        request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
-
-        # Pre-poll: if control is supplied AND already signaled, raise
-        # immediately rather than starting the LLM call.
-        if control is not None:
-            if control.retract_signal.is_requested():
-                raise RetractRaised(control.retract_signal.payload)
-            if await control.cancel_token.is_cancelled():
-                raise CancellationRaised(control.cancel_token.reason)
-
-        llm = host._resolve_llm()
-        model_name = llm.model_name
-        request_kind = _resolve_tools_request_kind(
-            execution_agent_id=execution_agent_id,
-            intent=intent,
-        )
-
-        log_llm_request(
-            llm_logger,
-            request_id=request_id,
-            model=model_name,
+        """Call the provider with the current tool surface."""
+        params = _ToolsLlmCallParams(
             system_prompt=system_prompt,
             messages=messages,
-            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
-            tool_count=len(tools),
-            tool_names=[str(t.get("function", {}).get("name", "")) for t in tools],
+            tools=tools,
+            thinking_depth=thinking_depth,
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+            turn_id=turn_id,
+            intent=intent,
+            execution_agent_id=execution_agent_id,
+            iteration=iteration,
+            control=control,
         )
-
-        try:
-            streamed = False
-            if get_stream_sink() is not None:
-                stream_result: ToolStreamResult = await host._invoke_with_rate_limit_backoff(
-                    lambda: host.provider_bridge.chat_with_tools_stream(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        tools=tools,
-                        max_tokens=DEFAULT_MAX_TOKENS,
-                        temperature=0.7,
-                        thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(
-                            timeout_seconds, thinking_depth=thinking_depth
-                        ),
-                        event_context=_build_llm_event_context(
-                            request_id=request_id,
-                            request_kind=request_kind,
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            execution_agent_id=execution_agent_id,
-                            intent=intent,
-                            iteration=iteration,
-                        ),
-                    ),
-                    label="chat_with_tools_stream",
-                )
-                provider_response = stream_result.provider_response
-                streamed = (
-                    not stream_result.has_tool_calls and stream_result.text_chunks_emitted > 0
-                )
-            else:
-                provider_response = await host._invoke_with_rate_limit_backoff(
-                    lambda: host.provider_bridge.chat_with_tools(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        tools=tools,
-                        max_tokens=DEFAULT_MAX_TOKENS,
-                        temperature=0.7,
-                        thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(
-                            timeout_seconds, thinking_depth=thinking_depth
-                        ),
-                        event_context=_build_llm_event_context(
-                            request_id=request_id,
-                            request_kind=request_kind,
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            execution_agent_id=execution_agent_id,
-                            intent=intent,
-                            iteration=iteration,
-                        ),
-                    ),
-                    label="chat_with_tools",
-                )
-
-            duration_ms = int((time.time() - start_time) * 1000)
-            result: Dict[str, Any] = {"content": provider_response.content}
-            result["llm_trace"] = self._build_llm_trace(
-                metadata=provider_response.metadata,
-                thinking_depth=thinking_depth,
-                duration_ms=duration_ms,
-                model_name=model_name,
-                provider_name=llm.provider_name,
-            )
-            host._context_compactor.record_input_tokens(
-                int(result["llm_trace"].get("input_tokens") or 0)
-            )
-            context_usage = host._context_compactor.get_usage()
-            if context_usage is not None:
-                result["context_usage"] = context_usage
-            if provider_response.assistant_message:
-                result["assistant_message"] = provider_response.assistant_message
-            if provider_response.tool_calls:
-                result["tool_calls"] = [
-                    ToolCall(
-                        id=tc.id,
-                        name=tc.name,
-                        arguments=tc.arguments,
-                    )
-                    for tc in provider_response.tool_calls
-                ]
-            if streamed:
-                result["streamed"] = True
-
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response=json.dumps(result, ensure_ascii=False, default=str),
-                success=True,
-                duration_ms=duration_ms,
-            )
-            return result
-
-        except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response="",
-                success=False,
-                error=str(exc),
-                duration_ms=duration_ms,
-            )
-            logger.error(f"[FunctionCalling] LLM call failed: {exc}")
-            try:
-                tools_blob = json.dumps(tools, ensure_ascii=False, default=str)
-                logger.error(
-                    "[FunctionCalling] LLM call failed | request_id=%s | model=%s | tools=%s",
-                    request_id,
-                    model_name,
-                    tools_blob if len(tools_blob) <= 8000 else tools_blob[:8000] + "...",
-                )
-            except Exception:  # pragma: no cover - logging must not mask the original error
-                pass
-            raise
+        return await _call_llm_with_tools_params(self, params)
 
     async def _call_llm_without_tools(
         self,
@@ -273,223 +137,21 @@ class FunctionCallingLlmMixin:
         iteration: int | None = None,
         control: RunControl | None = None,
     ) -> Dict[str, Any]:
-        """Call LLM without tools for final response.
-
-        Cancel/retract semantics: when ``control`` is supplied, this method
-        routes through :class:`CancellableLLMClient` which polls cancel/retract
-        signals before every yielded chunk (streaming) or once before dispatch
-        (non-streaming). This is the full mid-call abort path, in contrast to
-        :meth:`_call_llm_with_tools` which only pre-polls (the tool-variant
-        bridge calls are not yet wrapped by ``CancellableLLMClient``).
-        """
-        host = cast(_LlmHostProtocol, self)
-        request_id = str(uuid.uuid4())[:8]
-        start_time = time.time()
-
-        # Pre-poll matches _call_llm_with_tools behavior: catch signals that
-        # were already set before we even build the request kwargs.
-        if control is not None:
-            if control.retract_signal.is_requested():
-                raise RetractRaised(control.retract_signal.payload)
-            if await control.cancel_token.is_cancelled():
-                raise CancellationRaised(control.cancel_token.reason)
-
-        llm = host._resolve_llm()
-        model_name = llm.model_name
-
-        log_llm_request(
-            llm_logger,
-            request_id=request_id,
-            model=model_name,
+        """Call the provider for the final assistant response."""
+        params = _FinalLlmCallParams(
             system_prompt=system_prompt,
             messages=messages,
-            cache_boundary=SYSTEM_PROMPT_CACHE_BOUNDARY,
+            thinking_depth=thinking_depth,
+            json_mode=json_mode,
+            timeout_seconds=timeout_seconds,
+            session_id=session_id,
+            turn_id=turn_id,
+            intent=intent,
+            execution_agent_id=execution_agent_id,
+            iteration=iteration,
+            control=control,
         )
-
-        try:
-            streamed = False
-            if get_stream_sink() is not None and not json_mode:
-                chunks: List[str] = []
-                if control is not None:
-                    # Route via CancellableLLMClient for mid-chunk polling.
-                    # TODO(phase-A-task-8): CancellableLLMClient does not yet
-                    # support rate-limit retry callbacks; this path bypasses
-                    # _invoke_with_rate_limit_backoff. Acceptable today (no
-                    # production caller threads control here yet); revisit when
-                    # Task 8+ wires control through fallback paths.
-                    cancellable = CancellableLLMClient(bridge=host.provider_bridge)
-                    async for event in cancellable.stream(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        control=control,
-                        max_tokens=DEFAULT_MAX_TOKENS,
-                        temperature=0.7,
-                        thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(
-                            timeout_seconds, thinking_depth=thinking_depth
-                        ),
-                        event_context=_build_llm_event_context(
-                            request_id=request_id,
-                            request_kind="function_calling:final_response",
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            execution_agent_id=execution_agent_id,
-                            intent=intent,
-                            iteration=iteration,
-                        ),
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                else:
-                    async for event in host.provider_bridge.chat_response_stream(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        max_tokens=DEFAULT_MAX_TOKENS,
-                        temperature=0.7,
-                        thinking_depth=thinking_depth,
-                        timeout_seconds=self._resolve_llm_timeout(
-                            timeout_seconds, thinking_depth=thinking_depth
-                        ),
-                        event_context=_build_llm_event_context(
-                            request_id=request_id,
-                            request_kind="function_calling:final_response",
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            execution_agent_id=execution_agent_id,
-                            intent=intent,
-                            iteration=iteration,
-                        ),
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                content = "".join(chunks)
-                streamed = True
-                provider_response = None
-            else:
-                if control is not None:
-                    # Route via CancellableLLMClient.call for a pre-dispatch
-                    # signal check. Note: _invoke_with_rate_limit_backoff is
-                    # intentionally bypassed here — the cancellable client
-                    # does not support the lambda-factory retry pattern, and
-                    # rate-limit retries within an already-signaled run create
-                    # more confusion than value. If rate-limit handling on the
-                    # no-tools path becomes important, revisit Task 8+.
-                    # TODO(phase-A-task-8): CancellableLLMClient does not yet
-                    # support rate-limit retry callbacks; this path bypasses
-                    # _invoke_with_rate_limit_backoff. Acceptable today (no
-                    # production caller threads control here yet); revisit when
-                    # Task 8+ wires control through fallback paths.
-                    cancellable = CancellableLLMClient(bridge=host.provider_bridge)
-                    llm_result = await cancellable.call(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        control=control,
-                        max_tokens=DEFAULT_MAX_TOKENS,
-                        temperature=0.7,
-                        thinking_depth=thinking_depth,
-                        json_mode=json_mode,
-                        timeout_seconds=self._resolve_llm_timeout(
-                            timeout_seconds, thinking_depth=thinking_depth
-                        ),
-                        event_context=_build_llm_event_context(
-                            request_id=request_id,
-                            request_kind="function_calling:final_response",
-                            session_id=session_id,
-                            turn_id=turn_id,
-                            execution_agent_id=execution_agent_id,
-                            intent=intent,
-                            iteration=iteration,
-                        ),
-                    )
-                    provider_response = SimpleNamespace(
-                        content=llm_result.content,
-                        metadata=llm_result.metadata,
-                        assistant_message=None,
-                        tool_calls=None,
-                    )
-                else:
-                    provider_response = await host._invoke_with_rate_limit_backoff(
-                        lambda: host.provider_bridge.chat_response(
-                            system_prompt=system_prompt,
-                            messages=messages,
-                            max_tokens=DEFAULT_MAX_TOKENS,
-                            temperature=0.7,
-                            thinking_depth=thinking_depth,
-                            json_mode=json_mode,
-                            timeout_seconds=self._resolve_llm_timeout(
-                                timeout_seconds, thinking_depth=thinking_depth
-                            ),
-                            event_context=_build_llm_event_context(
-                                request_id=request_id,
-                                request_kind="function_calling:final_response",
-                                session_id=session_id,
-                                turn_id=turn_id,
-                                execution_agent_id=execution_agent_id,
-                                intent=intent,
-                                iteration=iteration,
-                            ),
-                        ),
-                        label="chat_response",
-                    )
-                content = provider_response.content
-
-            duration_ms = int((time.time() - start_time) * 1000)
-            metadata = dict((provider_response.metadata if provider_response else None) or {})
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response=content,
-                success=True,
-                duration_ms=duration_ms,
-                fallback_reason="function_calling_final_response_without_tools",
-                **metadata,
-            )
-            result: Dict[str, Any] = {"content": content}
-            result["llm_trace"] = self._build_llm_trace(
-                metadata=provider_response.metadata if provider_response else None,
-                thinking_depth=thinking_depth,
-                duration_ms=duration_ms,
-                model_name=model_name,
-                provider_name=llm.provider_name,
-            )
-            host._context_compactor.record_input_tokens(
-                int(result["llm_trace"].get("input_tokens") or 0)
-            )
-            context_usage = host._context_compactor.get_usage()
-            if context_usage is not None:
-                result["context_usage"] = context_usage
-            if provider_response is not None and provider_response.assistant_message:
-                result["assistant_message"] = provider_response.assistant_message
-            if provider_response is not None and provider_response.tool_calls:
-                result["tool_calls"] = [
-                    ToolCall(
-                        id=tc.id,
-                        name=tc.name,
-                        arguments=tc.arguments,
-                    )
-                    for tc in provider_response.tool_calls
-                ]
-            if streamed:
-                result["streamed"] = True
-            return result
-        except (CancellationRaised, RetractRaised):
-            # Pre-poll raises are outside this try block, but mid-stream raises
-            # from CancellableLLMClient.stream() / .call() land here. Re-raise
-            # so step_executor's try/except catches them; signal abort is not
-            # an LLM error and should not pollute failure metrics.
-            raise
-        except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response="",
-                success=False,
-                error=str(exc),
-                duration_ms=duration_ms,
-                fallback_reason="function_calling_final_response_without_tools",
-            )
-            raise
+        return await _call_llm_without_tools_params(self, params)
 
     @staticmethod
     def _resolve_llm_timeout(
@@ -497,11 +159,7 @@ class FunctionCallingLlmMixin:
         *,
         thinking_depth: ThinkingDepth = ThinkingDepth.NONE,
     ) -> Optional[float]:
-        if timeout_seconds is not None:
-            return timeout_seconds
-        if thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW):
-            return THINKING_LLM_TIMEOUT_SECONDS
-        return None
+        return resolve_llm_timeout(timeout_seconds, thinking_depth=thinking_depth)
 
     def _build_llm_trace(
         self,
@@ -512,18 +170,209 @@ class FunctionCallingLlmMixin:
         model_name: str,
         provider_name: str,
     ) -> Dict[str, Any]:
-        trace_metrics = dict((metadata or {}).get("trace_metrics") or {})
-        trace_metrics.setdefault("provider", provider_name)
-        trace_metrics.setdefault("model", model_name)
-        trace_metrics.setdefault("input_tokens", 0)
-        trace_metrics.setdefault("output_tokens", 0)
-        trace_metrics.setdefault("total_tokens", 0)
-        trace_metrics.setdefault("reasoning_tokens", 0)
-        trace_metrics.setdefault("cache_read_tokens", 0)
-        trace_metrics.setdefault("cache_write_tokens", 0)
-        trace_metrics.setdefault(
-            "thinking_enabled", thinking_depth not in (ThinkingDepth.NONE, ThinkingDepth.LOW)
+        return build_llm_trace(
+            metadata=metadata,
+            thinking_depth=thinking_depth,
+            duration_ms=duration_ms,
+            model_name=model_name,
+            provider_name=provider_name,
         )
-        trace_metrics.setdefault("thinking_depth", thinking_depth.value)
-        trace_metrics.setdefault("duration_ms", duration_ms)
-        return trace_metrics
+
+
+async def _prepare_llm_call(
+    owner: object,
+    control: RunControl | None,
+) -> _PreparedLlmCall:
+    await pre_poll_run_control(control)
+    host = cast(_LlmHostProtocol, owner)
+    return _PreparedLlmCall(
+        host=host,
+        request_id=str(uuid.uuid4())[:8],
+        start_time=time.time(),
+        llm=host._resolve_llm(),
+    )
+
+
+async def _call_llm_with_tools_params(
+    owner: object,
+    params: _ToolsLlmCallParams,
+) -> Dict[str, Any]:
+    prepared = await _prepare_llm_call(owner, params.control)
+    model_name = prepared.llm.model_name
+    request = _build_tools_request(prepared.request_id, params)
+
+    log_tools_llm_request(
+        request_id=prepared.request_id,
+        model_name=model_name,
+        system_prompt=params.system_prompt,
+        messages=params.messages,
+        tools=params.tools,
+    )
+
+    try:
+        call_result = await call_provider_with_tools(
+            cast(LlmInvocationHostProtocol, prepared.host),
+            request,
+            tools=params.tools,
+        )
+        duration_ms = _elapsed_ms(prepared.start_time)
+        result = _build_tools_result(
+            prepared=prepared,
+            call_result=call_result,
+            thinking_depth=params.thinking_depth,
+            duration_ms=duration_ms,
+        )
+        log_tools_llm_success(
+            request_id=prepared.request_id,
+            result=result,
+            duration_ms=duration_ms,
+        )
+        return result
+    except Exception as exc:
+        duration_ms = _elapsed_ms(prepared.start_time)
+        log_tools_llm_failure(
+            request_id=prepared.request_id,
+            model_name=model_name,
+            tools=params.tools,
+            exc=exc,
+            duration_ms=duration_ms,
+        )
+        raise
+
+
+async def _call_llm_without_tools_params(
+    owner: object,
+    params: _FinalLlmCallParams,
+) -> Dict[str, Any]:
+    prepared = await _prepare_llm_call(owner, params.control)
+    model_name = prepared.llm.model_name
+    request = _build_final_response_request(prepared.request_id, params)
+
+    log_final_llm_request(
+        request_id=prepared.request_id,
+        model_name=model_name,
+        system_prompt=params.system_prompt,
+        messages=params.messages,
+    )
+
+    try:
+        call_result = await call_provider_without_tools(
+            cast(LlmInvocationHostProtocol, prepared.host),
+            request,
+            json_mode=params.json_mode,
+            control=params.control,
+        )
+        duration_ms = _elapsed_ms(prepared.start_time)
+        log_final_llm_success(
+            request_id=prepared.request_id,
+            content=call_result.content,
+            duration_ms=duration_ms,
+            metadata=_provider_response_metadata(call_result),
+        )
+        return _build_final_result(
+            prepared=prepared,
+            call_result=call_result,
+            thinking_depth=params.thinking_depth,
+            duration_ms=duration_ms,
+        )
+    except (CancellationRaised, RetractRaised):
+        raise
+    except Exception as exc:
+        duration_ms = _elapsed_ms(prepared.start_time)
+        log_final_llm_failure(
+            request_id=prepared.request_id,
+            exc=exc,
+            duration_ms=duration_ms,
+        )
+        raise
+
+
+def _build_tools_request(
+    request_id: str,
+    params: _ToolsLlmCallParams,
+) -> FunctionCallingLlmRequest:
+    return FunctionCallingLlmRequest(
+        request_id=request_id,
+        request_kind=resolve_tools_request_kind(
+            execution_agent_id=params.execution_agent_id,
+            intent=params.intent,
+        ),
+        system_prompt=params.system_prompt,
+        messages=params.messages,
+        thinking_depth=params.thinking_depth,
+        timeout_seconds=params.timeout_seconds,
+        session_id=params.session_id,
+        turn_id=params.turn_id,
+        execution_agent_id=params.execution_agent_id,
+        intent=params.intent,
+        iteration=params.iteration,
+    )
+
+
+def _build_tools_result(
+    *,
+    prepared: _PreparedLlmCall,
+    call_result: ToolsProviderCallResult,
+    thinking_depth: ThinkingDepth,
+    duration_ms: int,
+) -> Dict[str, Any]:
+    return build_llm_response_payload(
+        provider_response=call_result.provider_response,
+        content=call_result.provider_response.content,
+        streamed=call_result.streamed,
+        context_compactor=prepared.host._context_compactor,
+        thinking_depth=thinking_depth,
+        duration_ms=duration_ms,
+        model_name=prepared.llm.model_name,
+        provider_name=prepared.llm.provider_name,
+    )
+
+
+def _build_final_response_request(
+    request_id: str,
+    params: _FinalLlmCallParams,
+) -> FunctionCallingLlmRequest:
+    return FunctionCallingLlmRequest(
+        request_id=request_id,
+        request_kind="function_calling:final_response",
+        system_prompt=params.system_prompt,
+        messages=params.messages,
+        thinking_depth=params.thinking_depth,
+        timeout_seconds=params.timeout_seconds,
+        session_id=params.session_id,
+        turn_id=params.turn_id,
+        execution_agent_id=params.execution_agent_id,
+        intent=params.intent,
+        iteration=params.iteration,
+    )
+
+
+def _provider_response_metadata(
+    call_result: FinalProviderCallResult,
+) -> Dict[str, Any]:
+    if call_result.provider_response is None:
+        return {}
+    return dict(call_result.provider_response.metadata or {})
+
+
+def _build_final_result(
+    *,
+    prepared: _PreparedLlmCall,
+    call_result: FinalProviderCallResult,
+    thinking_depth: ThinkingDepth,
+    duration_ms: int,
+) -> Dict[str, Any]:
+    return build_llm_response_payload(
+        provider_response=call_result.provider_response,
+        content=call_result.content,
+        streamed=call_result.streamed,
+        context_compactor=prepared.host._context_compactor,
+        thinking_depth=thinking_depth,
+        duration_ms=duration_ms,
+        model_name=prepared.llm.model_name,
+        provider_name=prepared.llm.provider_name,
+    )
+
+
+def _elapsed_ms(start_time: float) -> int:
+    return int((time.time() - start_time) * 1000)

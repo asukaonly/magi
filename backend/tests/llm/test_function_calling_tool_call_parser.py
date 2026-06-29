@@ -9,7 +9,12 @@ import pytest
 from magi.llm.base import LLMAdapter
 from magi.llm.provider_bridge import ProviderResponse, ProviderToolCall
 from magi.agent.execution.function_calling.postprocessor import FunctionCallingPostprocessor
-from magi.agent.execution.function_calling import llm as function_calling_llm_module
+from magi.agent.execution.function_calling import (
+    llm_invocation as function_calling_llm_invocation_module,
+)
+from magi.agent.execution.function_calling import (
+    llm_logging as function_calling_llm_logging_module,
+)
 from magi.agent.execution.function_calling import (
     FunctionCallingOrchestrator,
     ToolCall,
@@ -1193,11 +1198,11 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
 
 
 def test_function_calling_tools_request_kind_distinguishes_worker_and_chat() -> None:
-    assert function_calling_llm_module._resolve_tools_request_kind(
+    assert function_calling_llm_invocation_module.resolve_tools_request_kind(
         execution_agent_id="worker_123",
         intent="worker_general",
     ) == "function_calling:worker_tools"
-    assert function_calling_llm_module._resolve_tools_request_kind(
+    assert function_calling_llm_invocation_module.resolve_tools_request_kind(
         execution_agent_id="chat_session",
         intent="chat",
     ) == "function_calling:chat_tools"
@@ -1239,7 +1244,11 @@ async def test_call_llm_without_tools_logs_provider_metadata(
         captured.update(metadata)
 
     executor.provider_bridge.chat_response = _fake_chat_response  # type: ignore[method-assign]
-    monkeypatch.setattr(function_calling_llm_module, "log_llm_response", _fake_log_llm_response)
+    monkeypatch.setattr(
+        function_calling_llm_logging_module,
+        "log_llm_response",
+        _fake_log_llm_response,
+    )
 
     result = await executor._call_llm_without_tools(
         system_prompt="sys",
@@ -1308,7 +1317,11 @@ async def test_call_llm_with_tools_logs_json_response_without_ascii_escaping(
         captured["response"] = response
 
     executor.provider_bridge.chat_with_tools = _fake_chat_with_tools  # type: ignore[method-assign]
-    monkeypatch.setattr(function_calling_llm_module, "log_llm_response", _fake_log_llm_response)
+    monkeypatch.setattr(
+        function_calling_llm_logging_module,
+        "log_llm_response",
+        _fake_log_llm_response,
+    )
 
     await executor._call_llm_with_tools(
         system_prompt="sys",
