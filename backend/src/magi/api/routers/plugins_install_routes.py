@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
-import tempfile
 import logging
+import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, UploadFile, status
 
 from ... import i18n as core_i18n
+from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
 from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import legacy_plugins_module
 from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
-from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallRequest, PluginManifestResponse, PluginPackageResponse
+from .plugins_schemas import (
+    PluginInstallJobSnapshot,
+    PluginInstallRequest,
+    PluginManifestResponse,
+    PluginPackageResponse,
+)
 
 plugins_install_router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -38,6 +44,7 @@ async def install_plugin_from_upload(file: UploadFile):
         )
 
     manager = legacy.resolve_plugin_manager()
+    install_service = legacy._plugin_install_service(manager)
     with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
         archive_path = Path(tmp) / file.filename
         content = await file.read()
@@ -51,7 +58,7 @@ async def install_plugin_from_upload(file: UploadFile):
             },
         )
         try:
-            state = manager.install_plugin_from_archive(archive_path)
+            state = await install_service.install_from_archive(archive_path)
         except InvalidPluginArchiveError as exc:
             logger.warning(
                 "Plugin upload install rejected (invalid archive)",
@@ -168,53 +175,40 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
     """Clone and install a plugin from the remote registry."""
     legacy = legacy_plugins_module()
     manager = legacy._try_plugin_manager()
-    registry = legacy._get_registry_client()
+    install_service = legacy._plugin_install_service(manager)
 
-    entry = await registry.fetch_entry(request.plugin_id)
-    if entry is None:
+    try:
+        logger.info(
+            "Plugin registry install requested",
+            extra={"plugin_id": request.plugin_id},
+        )
+        install_result = await install_service.install_from_registry(request.plugin_id)
+        logger.info(
+            "Plugin registry install completed",
+            extra={
+                "plugin_id": request.plugin_id,
+                "auto_installed_deps": install_result.extra_installed,
+            },
+        )
+        if install_result.used_runtime_manager:
+            return legacy._serialize_package(install_result.target_state)
+        return legacy._serialize_package_lightweight(install_result.target_state)
+    except PluginRegistryEntryNotFound as exc:
         logger.warning("Plugin registry entry not found", extra={"plugin_id": request.plugin_id})
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=core_i18n.t(
                 "plugins.errors.not_found_in_registry", fallback="Plugin not found in registry"
             ),
-        )
-
-    if entry.kind == "library":
-        # Libraries are installed only as dep closure of a real plugin;
-        # rejecting the direct call keeps the UI/CLI honest about what's
-        # user-installable. (See plugins_common.install_with_closure.)
+        ) from exc
+    except DirectLibraryInstallError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=core_i18n.t(
                 "plugins.errors.library_not_directly_installable",
-                fallback=(
-                    "Library components are installed automatically as "
-                    "plugin dependencies and cannot be installed directly."
-                ),
+                fallback=str(exc),
             ),
-        )
-
-    try:
-        logger.info(
-            "Plugin registry install requested",
-            extra={"plugin_id": request.plugin_id, "registry_path": entry.path},
-        )
-        from .plugins_common import install_with_closure
-
-        target_state, extra_installed = await install_with_closure(
-            request.plugin_id, registry, manager
-        )
-        logger.info(
-            "Plugin registry install completed",
-            extra={
-                "plugin_id": request.plugin_id,
-                "auto_installed_deps": extra_installed,
-            },
-        )
-        if manager is not None:
-            return legacy._serialize_package(target_state)
-        return legacy._serialize_package_lightweight(target_state)
+        ) from exc
     except ValueError as exc:
         logger.warning(
             "Plugin registry install rejected",
@@ -256,8 +250,9 @@ async def uninstall_plugin(plugin_id: str):
     """Uninstall a user-installed plugin."""
     legacy = legacy_plugins_module()
     manager = legacy.resolve_plugin_manager()
+    install_service = legacy._plugin_install_service(manager)
     try:
-        manager.uninstall_plugin(plugin_id)
+        install_service.uninstall(plugin_id)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except ValueError as exc:

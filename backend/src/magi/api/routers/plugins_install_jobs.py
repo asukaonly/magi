@@ -6,7 +6,6 @@ import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 import shutil
-import tempfile
 import threading
 import time
 import uuid
@@ -14,10 +13,10 @@ import uuid
 from fastapi import HTTPException, status
 
 from ... import i18n as core_i18n
+from ...plugins.install_service import PluginInstallService
 from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import (
     _get_registry_client,
-    _lightweight_install,
     _serialize_package,
     _serialize_package_lightweight,
     _try_plugin_manager,
@@ -185,81 +184,58 @@ class PluginInstallJobManager:
             plugin_id = job.plugin_id or ""
             registry = _get_registry_client()
             job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
-            entry = await registry.fetch_entry(plugin_id)
-            if entry is None:
-                raise ValueError(f"Plugin not found in registry: {plugin_id}")
-            if entry.kind == "library":
-                raise ValueError(
-                    "Library components are installed automatically as "
-                    "plugin dependencies and cannot be installed directly."
-                )
-
-            job.update(stage="install", progress_pct=20.0, message="Resolving plugin dependencies")
-            from .plugins_common import install_with_closure
-
             manager = _try_plugin_manager()
-            target_state, extra_installed = await install_with_closure(
-                plugin_id, registry, manager, progress_reporter=self._reporter(job)
+            install_service = PluginInstallService(
+                registry_client=registry,
+                plugin_manager=manager,
             )
-            if extra_installed:
+            job.update(stage="install", progress_pct=20.0, message="Resolving plugin dependencies")
+            install_result = await install_service.install_from_registry(
+                plugin_id,
+                progress_reporter=self._reporter(job),
+            )
+            if install_result.extra_installed:
                 job.update(
                     stage="install",
                     progress_pct=80.0,
-                    message=f"Also installed: {', '.join(extra_installed)}",
+                    message=f"Also installed: {', '.join(install_result.extra_installed)}",
                 )
-            if manager is not None:
-                job.complete(_serialize_package(target_state))
+            if install_result.used_runtime_manager:
+                job.complete(_serialize_package(install_result.target_state))
             else:
-                job.complete(_serialize_package_lightweight(target_state))
+                job.complete(_serialize_package_lightweight(install_result.target_state))
         except Exception as exc:
             job.fail(str(exc))
 
     async def _run_registry_update(self, job: PluginInstallJob) -> None:
-        temp_root: Path | None = None
         try:
             plugin_id = job.plugin_id or ""
             legacy = legacy_plugins_module()
-            manager, state = legacy._require_package(plugin_id)
-            if state.manifest.source == "builtin":
-                raise ValueError("Cannot update builtin plugins")
-
             registry = _get_registry_client()
-            job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
-            entry = await registry.fetch_entry(plugin_id)
-            if entry is None:
-                raise ValueError(f"Plugin not found in registry: {plugin_id}")
-
-            temp_root = Path(tempfile.mkdtemp(prefix="magi-plugin-dl-"))
-            job.update(stage="download", progress_pct=18.0, message="Downloading plugin source")
-            plugin_dir = await registry.clone_plugin(entry, dest_dir=temp_root)
-            job.update(stage="install", progress_pct=35.0, message="Updating plugin package")
-            new_state = await asyncio.to_thread(
-                manager.install_plugin_from_directory,
-                plugin_dir,
-                progress_reporter=self._reporter(job),
+            install_service = PluginInstallService(
+                registry_client=registry,
+                plugin_manager=legacy.resolve_plugin_manager(),
             )
-            from ...config import save_config
-
-            save_config(
-                {
-                    f"plugins.packages.{plugin_id}.consented_capabilities": [
-                        c.model_dump() for c in entry.capabilities
-                    ]
-                }
+            job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
+            job.update(stage="download", progress_pct=18.0, message="Downloading plugin source")
+            job.update(stage="install", progress_pct=35.0, message="Updating plugin package")
+            new_state = await install_service.update_from_registry(
+                plugin_id,
+                progress_reporter=self._reporter(job),
             )
             job.complete(_serialize_package(new_state))
         except Exception as exc:
             job.fail(str(exc))
-        finally:
-            if temp_root is not None:
-                await asyncio.to_thread(shutil.rmtree, temp_root, True)
 
     async def _run_upload_install(self, job: PluginInstallJob, archive_path: Path) -> None:
         try:
             manager = legacy_plugins_module().resolve_plugin_manager()
+            install_service = PluginInstallService(
+                registry_client=_get_registry_client(),
+                plugin_manager=manager,
+            )
             job.update(stage="upload", progress_pct=10.0, message="Preparing uploaded plugin archive")
-            state = await asyncio.to_thread(
-                manager.install_plugin_from_archive,
+            state = await install_service.install_from_archive(
                 archive_path,
                 progress_reporter=self._reporter(job),
             )

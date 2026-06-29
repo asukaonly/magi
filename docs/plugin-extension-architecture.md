@@ -36,19 +36,20 @@ A plugin package is discovered from disk, parsed from `plugin.toml`, loaded from
 
 At runtime the flow is:
 
-1. `PluginManager` scans plugin roots for `plugin.toml`
-2. discovered packages are persisted into split plugin config files under `~/.magi/config/plugins/`
-3. packages are disabled by default unless they are official built-in packages enabled by default config
-4. enabled packages are instantiated through the shared `Plugin` base class
-5. `PluginContributionRegistrar` registers or records host-facing contributions:
+1. `PluginInstallService` coordinates registry, upload, update, and uninstall requests before package scanning
+2. `PluginManager` scans plugin roots for `plugin.toml`
+3. discovered packages are persisted into split plugin config files under `~/.magi/config/plugins/`
+4. packages are disabled by default unless they are official built-in packages enabled by default config
+5. enabled packages are instantiated through the shared `Plugin` base class
+6. `PluginContributionRegistrar` registers or records host-facing contributions:
    - `ToolRegistry`
    - `SensorRegistry`
    - hook registry
    - channel contribution metadata consumed by the channel lifecycle module
-6. `PluginSettingsService` serves plugin-owned settings resources and settings actions
-7. `PluginProjectionService` collects loaded plugin projection hooks for memory summaries and recall artifacts
-8. plugin ingress handlers are collected by the plugin ingress processor
-9. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
+7. `PluginSettingsService` serves plugin-owned settings resources and settings actions
+8. `PluginProjectionService` collects loaded plugin projection hooks for memory summaries and recall artifacts
+9. plugin ingress handlers are collected by the plugin ingress processor
+10. APIs and frontend settings surfaces read registry state and plugin package state rather than hardcoded lists
 
 ## Scan Paths
 
@@ -131,6 +132,7 @@ The plugin manager is the package lifecycle owner, but it does not act as the ex
 Instead, lifecycle work is split across runtime services:
 
 - `PluginManager` owns package discovery, package state, enable/disable/reload coordination, and plugin instance lifetime
+- `PluginInstallService` owns registry install, upload install, update, uninstall orchestration, dependency closure resolution, and install-time registry metadata persistence
 - `PluginContributionRegistrar` owns host registry registration and unregistration for tools, sensors, channels, and hooks
 - `PluginSettingsService` owns plugin settings resources and settings action sessions
 - `PluginProjectionService` owns plugin-provided memory summary, extraction profile, and recall artifact projection
@@ -799,12 +801,13 @@ The marketplace index is a `registry.json` file at the repository root containin
 
 1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
 2. The backend job reports `status`, `stage`, `progress_pct`, installer messages, and bounded install logs while work continues in the background
-3. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
-4. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
-5. The requested plugin subdirectory is extracted from the tarball into a temporary directory
-6. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-7. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
-8. The plugin is discovered on next scan and can be enabled from the settings UI
+3. `PluginInstallService` owns the install or update workflow and delegates registry reads/downloads to `RegistryClient`
+4. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
+5. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
+6. The requested plugin subdirectory is extracted from the tarball into a temporary directory
+7. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
+8. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
+9. The plugin is discovered on next scan and can be enabled from the settings UI
 
 Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
 

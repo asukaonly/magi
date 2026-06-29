@@ -229,6 +229,34 @@ def test_plugin_runtime_uses_container_bindings_instead_of_runtime_globals() -> 
     assert "require_action_registry" not in runtime_bindings
 
 
+def test_plugin_install_flow_lives_in_plugin_service_not_api_helpers() -> None:
+    plugins_common = (BACKEND_SRC / "api/routers/plugins_common.py").read_text(
+        encoding="utf-8"
+    )
+    install_routes = (BACKEND_SRC / "api/routers/plugins_install_routes.py").read_text(
+        encoding="utf-8"
+    )
+    install_jobs = (BACKEND_SRC / "api/routers/plugins_install_jobs.py").read_text(
+        encoding="utf-8"
+    )
+    registry_routes = (BACKEND_SRC / "api/routers/plugins_registry_routes.py").read_text(
+        encoding="utf-8"
+    )
+    install_service = (BACKEND_SRC / "plugins/install_service.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert not (BACKEND_SRC / "api/routers/plugins_install_service.py").exists()
+    assert "def install_with_closure" not in plugins_common
+    assert "def _resolve_install_closure" not in plugins_common
+    assert "def _lightweight_install" not in plugins_common
+    assert "PluginInstallService" in plugins_common
+    assert "_plugin_install_service" in install_routes
+    assert "PluginInstallService" in install_jobs
+    assert "_plugin_install_service" in registry_routes
+    assert "class PluginInstallService" in install_service
+
+
 def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:
     runtime_bindings = (BACKEND_SRC / "core/runtime_bindings.py").read_text(encoding="utf-8")
 

@@ -5,6 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
+from ...plugins.install_service import (
+    BuiltinPluginUpdateError,
+    PluginPackageNotInstalled,
+    PluginRegistryEntryNotFound,
+)
 from .plugins_common import legacy_plugins_module
 from .plugins_install_jobs import plugin_install_jobs
 from .plugins_schemas import (
@@ -134,43 +139,36 @@ async def check_plugin_updates():
 async def update_plugin(plugin_id: str):
     """Update a plugin to the latest version from the registry."""
     legacy = legacy_plugins_module()
-    manager, state = legacy._require_package(plugin_id)
-    if state.manifest.source == "builtin":
+    manager = legacy.resolve_plugin_manager()
+    install_service = legacy._plugin_install_service(manager)
+
+    try:
+        new_state = await install_service.update_from_registry(plugin_id)
+    except PluginPackageNotInstalled as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("plugins.errors.not_found", fallback="Plugin not found"),
+        ) from exc
+    except BuiltinPluginUpdateError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=core_i18n.t(
                 "plugins.errors.cannot_update_builtin", fallback="Cannot update builtin plugins"
             ),
-        )
-
-    registry = legacy._get_registry_client()
-    entry = await registry.fetch_entry(plugin_id)
-    if entry is None:
+        ) from exc
+    except PluginRegistryEntryNotFound as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=core_i18n.t(
                 "plugins.errors.not_found_in_registry", fallback="Plugin not found in registry"
             ),
-        )
-
-    try:
-        plugin_dir = await registry.clone_plugin(entry)
-        new_state = manager.install_plugin_from_directory(plugin_dir)
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    from ...config import save_config
-
-    save_config(
-        {
-            f"plugins.packages.{plugin_id}.consented_capabilities": [
-                c.model_dump() for c in entry.capabilities
-            ]
-        }
-    )
     return legacy._serialize_package(new_state)
 
 

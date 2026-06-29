@@ -1,15 +1,13 @@
 import pytest
 
 from magi.config.plugin_models import PluginSettings
-from magi.api.routers.plugins_common import (
-    _authoritative_official,
-    install_with_closure,
-)
+from magi.api.routers.plugins_common import _authoritative_official
 from magi.plugins.contracts import (
     PluginManifest,
     PluginPackageState,
     PluginRegistryEntry,
 )
+from magi.plugins.install_service import PluginInstallService
 
 
 class _FakeManifest:
@@ -62,12 +60,12 @@ def test_plugin_settings_has_official_field():
 # initialized) the install went through install_plugin_from_directory + scan,
 # which conservatively persists official=False for external plugins, and the
 # registry's official value was never written. These tests drive the real
-# install_with_closure manager branch and assert the authoritative value is
+# PluginInstallService manager branch and assert the authoritative value is
 # persisted after install.
 
 
 class _FakeManager:
-    """Stand-in for PluginManager exposing only what install_with_closure uses."""
+    """Stand-in for PluginManager exposing only what PluginInstallService uses."""
 
     def __init__(self):
         self._package_states = {}
@@ -106,16 +104,16 @@ class _FakeRegistry:
     async def fetch_entry(self, plugin_id):
         return self.entry if plugin_id == self.entry.plugin_id else None
 
-    async def clone_plugin(self, entry):
+    async def clone_plugin(self, entry, *, dest_dir=None):
         return "/tmp/fake-calendar"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("official", [True, False])
-async def test_install_with_closure_persists_registry_official(monkeypatch, official):
+async def test_plugin_install_service_persists_registry_official(monkeypatch, official):
     """The manager-branch install must persist the registry's official value.
 
-    Drives install_with_closure with a fake manager + fake registry and
+    Drives PluginInstallService with a fake manager + fake registry and
     asserts save_config was called with
     ``plugins.packages.<id>.official == entry.official``. This fails against
     the pre-fix code (where the manager branch never persisted official).
@@ -126,20 +124,17 @@ async def test_install_with_closure_persists_registry_official(monkeypatch, offi
         recorded.append(updates)
         return True
 
-    # install_with_closure does `from ...config import save_config`, which
-    # binds from the magi.config package namespace at call time, so patch
-    # the attribute there.
-    monkeypatch.setattr("magi.config.save_config", _record_save_config)
+    monkeypatch.setattr("magi.plugins.install_service.save_config", _record_save_config)
 
     manager = _FakeManager()
     registry = _FakeRegistry(official=official)
+    service = PluginInstallService(registry_client=registry, plugin_manager=manager)
 
-    target_state, extra = await install_with_closure(
-        "calendar", registry, manager
-    )
+    result = await service.install_from_registry("calendar")
 
-    assert extra == []
+    assert result.extra_installed == []
     assert manager.installed_dirs == ["/tmp/fake-calendar"]
+    assert result.target_state.manifest.plugin_id == "calendar"
 
     official_key = "plugins.packages.calendar.official"
     official_writes = [

@@ -157,6 +157,7 @@ Notes:
 Responsibilities:
 
 - plugin discovery
+- plugin install, update, upload, and uninstall orchestration
 - plugin loading
 - contribution registration
 - plugin package settings metadata
@@ -169,6 +170,7 @@ Notes:
 
 - this layer owns package lifecycle only
 - tools and sensors return to their owning runtime layers after registration
+- plugin install/update decisions are owned by `PluginInstallService`, while API routes and background jobs only submit install commands
 - plugin-provided memory summary and recall hooks are exposed through `PluginProjectionService`, not through the lifecycle manager
 
 ### L6. LLM Runtime

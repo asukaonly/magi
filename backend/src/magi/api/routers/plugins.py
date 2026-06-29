@@ -24,7 +24,7 @@ from ...plugins.registry_client import PluginRegistryClient
 from .plugins_common import (
     _get_plugin_i18n,
     _get_registry_client,
-    _lightweight_install,
+    _plugin_install_service,
     _require_package,
     _serialize_contribution,
     _serialize_field,
@@ -114,7 +114,7 @@ __all__ = [
     "UploadFile",
     "_get_plugin_i18n",
     "_get_registry_client",
-    "_lightweight_install",
+    "_plugin_install_service",
     "_registry_client",
     "_require_package",
     "_serialize_contribution",
