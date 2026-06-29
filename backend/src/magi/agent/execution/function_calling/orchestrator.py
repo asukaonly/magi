@@ -7,8 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, cast
 
 from ....config.models import LLMScenario, ThinkingDepth
 from ....llm.base import LLMAdapter
-from ....llm.provider_bridge import LLMProviderBridge, _coerce_thinking_depth
-from ....llm.streaming_events import LLMStreamEvent, emit_stream_event, get_stream_sink
+from ....llm.provider_bridge import LLMProviderBridge
 from ....runtime_trace import RuntimeTraceStore
 from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
@@ -29,10 +28,12 @@ from .failures import FunctionCallingFailureMixin
 from .fallback import FunctionCallingFallbackMixin
 from .guardrails import FunctionCallingGuardrailsMixin
 from .llm import FunctionCallingLlmMixin
+from .loop_runner import FunctionCallingLoopRunner
 from .messages import FunctionCallingMessageHistoryMixin
 from .permission import FunctionCallingPermissionMixin
 from .postprocessor import FunctionCallingPostprocessor
 from .responses import FunctionCallingResponseMixin
+from .run_input import EngineRunInput
 from .step_executor import (
     FunctionCallingStepExecutor,
     FunctionCallingStepState,
@@ -48,7 +49,6 @@ from .types import ExecutionOutcome
 if TYPE_CHECKING:
     from ....tools.registry import ToolRegistry
     from ....tools.context_routing import RouteDecision
-    from .run_input import EngineRunInput
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +153,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._attachment_resolver = attachment_resolver or NullAttachmentResolver()
         self._operations = _FunctionCallingOperations(self)
         self.step_executor = FunctionCallingStepExecutor(self)
+        self._loop_runner = FunctionCallingLoopRunner(self)
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
             scenario_llm_pool=scenario_llm_pool,
@@ -459,45 +460,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         control: RunControl,
         route_decision: "RouteDecision | None" = None,
     ) -> ExecutionOutcome:
-        state = self.build_step_state(
-            turn=turn,
-            system_prompt=system_prompt,
-            selected_tools=selected_tools,
-            conversation_history=conversation_history,
-            session_summary=session_summary,
-            session_origin=session_origin,
-            reply_context=reply_context,
-            ephemeral_context=ephemeral_context,
-        )
-        self._current_messages = state.messages
-        depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
-        while state.iteration < max_iterations:
-            # Poll signals in priority order:
-            #   cancel  → stop immediately, no snapshot needed
-            #   retract → stop + snapshot for DeliveryRouter rollback
-            #   suspend → stop + snapshot for in-place resume
-            #   steer   → drain follow-ups before next LLM call
-            #   detach  → hand off to background worker with snapshot
-            if await control.cancel_token.is_cancelled():
-                return ExecutionOutcome(
-                    status="cancelled",
-                    content="",
-                    iterations=state.iteration,
-                )
-            if control.retract_signal.is_requested():
-                return self._build_retracted_outcome(state, control.retract_signal)
-            if control.suspend_signal.is_requested():
-                return self._build_suspended_outcome(state, control.suspend_signal)
-            # Drain steer messages before checking detach so a steer that
-            # arrived in the same tick is appended to state.messages before
-            # the snapshot is taken.
-            await self.apply_steer_messages(state, control.steer_inbox)
-            if control.detach_signal.is_requested():
-                return self._build_detached_outcome(state, control.detach_signal)
-            step_outcome = await self.step_executor.execute_step(
-                state=state,
-                user_message=turn.text,
-                thinking_depth=depth,
+        return await self._loop_runner.run(
+            EngineRunInput(
+                turn=turn,
+                system_prompt=system_prompt,
+                selected_tools=selected_tools,
                 user_id=user_id,
                 session_id=session_id,
                 session_run_id=session_run_id,
@@ -507,74 +474,19 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 execution_agent_id=execution_agent_id,
                 execution_workspace=execution_workspace,
                 llm_timeout_seconds=llm_timeout_seconds,
-                cancel_token=control.cancel_token,
-                control=control,
-                route_decision=route_decision,
-            )
-            if step_outcome.status == "aborted":
-                # CancellationRaised/RetractRaised was caught by step_executor.
-                # Loop back so the top-of-loop signal poll returns the right outcome.
-                continue
-            if step_outcome.status == "continue":
-                if get_stream_sink() is not None:
-                    await emit_stream_event(LLMStreamEvent(kind="text_flush"))
-                await self._drop_ephemeral_context(state)
-                await self._try_compact(state, system_prompt)
-                continue
-            if step_outcome.status == "completed":
-                return ExecutionOutcome(
-                    status="completed",
-                    content=step_outcome.content,
-                    tool_failures=list(state.tool_failures),
-                    # Pre-existing bug fix: state.chat_attachments
-                    # accumulates tool-emitted attachments (image_gen,
-                    # prepare_chat_attachments, …) across the FC loop,
-                    # but the completed outcome wasn't forwarding them
-                    # to the coordinator. Desktop still saw images
-                    # because the chat UI reads chat_messages.payload_json
-                    # directly; external channels (WeChat, Telegram)
-                    # got the text body but no image because their
-                    # deliver() path only sees DeliveryContent.attachments,
-                    # which is sourced from this field.
-                    attachments=list(state.chat_attachments),
-                    message_payload=dict(state.message_payload or {}),
-                    iterations=step_outcome.iteration,
-                )
-            if step_outcome.status == "cancelled":
-                return ExecutionOutcome(
-                    status="cancelled",
-                    content="",
-                    tool_failures=list(state.tool_failures),
-                    iterations=step_outcome.iteration,
-                )
-            return ExecutionOutcome(
-                status="failed",
-                content="",
-                failure_reason=step_outcome.failure_reason,
-                error_text=step_outcome.error_text,
-                tool_failures=list(state.tool_failures),
-                iterations=step_outcome.iteration,
-            )
-
-        return cast(
-            ExecutionOutcome,
-            await self._execute_fallback_final_response(
-                state=state,
-                thinking_depth=depth,
-                user_id=user_id,
-                session_id=session_id,
-                session_run_id=session_run_id,
-                session_run_revision=session_run_revision,
-                turn_id=turn_id,
-                intent=intent,
-                execution_agent_id=execution_agent_id,
-                execution_workspace=execution_workspace,
-                llm_timeout_seconds=llm_timeout_seconds,
+                conversation_history=conversation_history,
+                session_summary=session_summary,
+                session_origin=session_origin,
+                reply_context=reply_context,
+                ephemeral_context=ephemeral_context,
+                max_iterations=max_iterations,
+                disable_thinking=disable_thinking,
                 final_response_json_mode=final_response_json_mode,
-                cancel_token=control.cancel_token,
+                thinking_depth=thinking_depth,
                 control=control,
                 route_decision=route_decision,
             ),
+            control=control,
         )
 
     async def _try_compact(
