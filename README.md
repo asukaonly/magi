@@ -77,11 +77,16 @@ All data sources connect through one unified plugin architecture. Magi only sees
 
 ### Chat With Long-Term Context
 
+Chat across local workspaces, managed attachments, tools, and long-term memory. Magi can bring in relevant context when it matters instead of starting from a blank slate every time.
+
+<details>
+<summary>View screenshot</summary>
+
 <p align="center">
   <img src="./docs/assets/chat_with_memory.png" alt="Magi chat workspace screenshot" width="100%">
 </p>
 
-Chat across local workspaces, managed attachments, tools, and long-term memory. Magi can bring in relevant context when it matters instead of starting from a blank slate every time.
+</details>
 
 ### Timeline
 
@@ -89,33 +94,65 @@ Turn conversations and authorized plugin events into a searchable personal timel
 
 ### Inspectable Memory
 
-<img src="./docs/assets/memory_console_event.png" alt="Event memory" width="100%">
-
-<img src="./docs/assets/memory_console_knowledge.png" alt="Knowledge memory" width="100%">
-
 Review what Magi has remembered, see where it came from, correct weak inferences, and remove memories you do not want to keep.
+
+<details>
+<summary>View screenshots</summary>
+
+<p align="center">
+  <img src="./docs/assets/memory_console_event.png" alt="Event memory" width="100%">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/memory_console_knowledge.png" alt="Knowledge memory" width="100%">
+</p>
+
+</details>
 
 ### Persona And Natural Rhythm
 
-<img src="./docs/assets/natural_reply.png" alt="Natural Rhythm" width="100%">
-
 Persona profiles, conversation modes, relationship depth, and dynamic state. Long replies can be split into multiple chat bubbles so the interaction feels more like an ongoing exchange than a one-off report.
+
+<details>
+<summary>View screenshot</summary>
+
+<p align="center">
+  <img src="./docs/assets/natural_reply.png" alt="Natural Rhythm" width="100%">
+</p>
+
+</details>
 
 ### Tasks And Run Control
 
-<img src="./docs/assets/schedule_task.png" alt="Scheduled task" width="100%">
-
-<img src="./docs/assets/schedule_task_status.png" alt="Scheduled task status" width="100%">
-
 Run one-off or scheduled agent work with visible status. You can interrupt runs, steer them, handle permission requests, or move long jobs into the background.
 
-### Plugins And External Capabilities
+<details>
+<summary>View screenshots</summary>
 
-<img src="./docs/assets/plugin.png" alt="Plugin marketplace" width="100%">
+<p align="center">
+  <img src="./docs/assets/schedule_task.png" alt="Scheduled task" width="100%">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/schedule_task_status.png" alt="Scheduled task status" width="100%">
+</p>
+
+</details>
+
+### Plugins And External Capabilities
 
 Install, enable, and configure plugins for local data sources, tools, sensors, and external channels. MCP servers and channels such as Telegram can plug into the same runtime.
 
 Most installable plugins live in the companion repository [magi-plugins](https://github.com/asukaonly/magi-plugins). This repository contains the desktop app, agent runtime, gateway, frontend, backend, and plugin platform.
+
+<details>
+<summary>View screenshot</summary>
+
+<p align="center">
+  <img src="./docs/assets/plugin.png" alt="Plugin marketplace" width="100%">
+</p>
+
+</details>
 
 ## Privacy And Data
 

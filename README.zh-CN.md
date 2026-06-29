@@ -78,11 +78,16 @@ flowchart LR
 
 ### 带长期上下文的对话
 
+在本地工作区里对话，使用附件、工具和长期记忆。Magi 可以在需要时带入相关上下文，而不是每次都从一片空白开始。
+
+<details>
+<summary>查看截图</summary>
+
 <p align="center">
   <img src="./docs/assets/chat_with_memory.png" alt="Magi 聊天工作区截图" width="100%">
 </p>
 
-在本地工作区里对话，使用附件、工具和长期记忆。Magi 可以在需要时带入相关上下文，而不是每次都从一片空白开始。
+</details>
 
 ### 时间线
 
@@ -90,34 +95,65 @@ flowchart LR
 
 ### 可检查的记忆
 
-<img src="./docs/assets/memory_console_event.png" alt="事件记忆" width="100%">
-
-<img src="./docs/assets/memory_console_knowledge.png" alt="知识记忆" width="100%">
-
 查看 Magi 记住了什么、这些记忆从哪里来，修正不可靠的推断，也可以删除你不想保留的内容。
+
+<details>
+<summary>查看截图</summary>
+
+<p align="center">
+  <img src="./docs/assets/memory_console_event.png" alt="事件记忆" width="100%">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/memory_console_knowledge.png" alt="知识记忆" width="100%">
+</p>
+
+</details>
 
 ### 人格与自然节奏
 
-<img src="./docs/assets/natural_reply.png" alt="调度任务" width="100%">
-
 人格档案、对话模式、关系深度、动态状态。长回复会拆成多段聊天气泡，更像持续互动而不是一次性报告。
+
+<details>
+<summary>查看截图</summary>
+
+<p align="center">
+  <img src="./docs/assets/natural_reply.png" alt="人格与自然节奏" width="100%">
+</p>
+
+</details>
 
 ### 任务与运行控制
 
-<img src="./docs/assets/schedule_task.png" alt="调度任务状态" width="100%">
-
-<img src="./docs/assets/schedule_task_status.png" alt="调度任务状态" width="100%">
-
-
 运行一次性或定时 Agent 任务，并查看清楚的执行状态。你可以打断、调整方向、处理权限请求，或把长任务移到后台继续执行。
 
-### 插件与外部能力
+<details>
+<summary>查看截图</summary>
 
-<img src="./docs/assets/plugin.png" alt="调度任务状态" width="100%">
+<p align="center">
+  <img src="./docs/assets/schedule_task.png" alt="调度任务" width="100%">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/schedule_task_status.png" alt="调度任务状态" width="100%">
+</p>
+
+</details>
+
+### 插件与外部能力
 
 安装、启用和配置插件，为 Magi 接入本地数据源、工具、传感器和外部渠道。MCP 服务器和 Telegram 等渠道也可以接入同一个运行时。
 
 大多数可安装插件维护在配套仓库 [magi-plugins](https://github.com/asukaonly/magi-plugins)。这个仓库主要承载桌面应用、Agent runtime、网关、前后端界面和插件平台。
+
+<details>
+<summary>查看截图</summary>
+
+<p align="center">
+  <img src="./docs/assets/plugin.png" alt="插件市场" width="100%">
+</p>
+
+</details>
 
 ## 隐私与数据
 
