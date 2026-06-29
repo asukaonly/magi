@@ -6,7 +6,6 @@ import inspect
 import logging
 import time
 from datetime import date, datetime, time as datetime_time
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -18,385 +17,37 @@ from ...events.contracts import SensorStateFlushCommand, SensorSyncCommand
 from ... import i18n as core_i18n
 from ...memory.provider import get_unified_memory
 from ...plugins.provider import resolve_plugin_manager, resolve_sensor_registry
-from ...scheduler import ScheduledTargetType
-from ...scheduler.contracts import build_sensor_schedule_id, build_sensor_target_key
-from ...scheduler.repository import ScheduleRepository
 from ...utils.runtime import get_runtime_paths
-from .plugins_common import (
-    _get_plugin_i18n,
-    _serialize_activation_flow,
-    _serialize_field,
-    _serialize_sensor_capability,
-    _serialize_settings_action,
-    _serialize_settings_layout,
-    _serialize_settings_ui_block,
-    normalize_plugin_id,
-    translate_with_fallback,
+from .sensor_status_projection import (
+    _derive_sensor_status,
+    _get_nested_value,
+    build_sensor_source_status_payload,
 )
 
 sensors_router = APIRouter()
 
 logger = logging.getLogger(__name__)
 
-_SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
-_INTERVAL_STALE_FLOOR_SECONDS = 6 * 60 * 60
-
+__all__ = ["_derive_sensor_status", "sensors_router"]
 
 class SensorSourceAuthorizationRequest(BaseModel):
     field_values: dict[str, Any] = Field(default_factory=dict)
-
-
-def _get_nested_value(payload: dict[str, Any], path: str, default: Any) -> Any:
-    current: Any = payload
-    for part in path.split("."):
-        if not isinstance(current, dict):
-            return default
-        if part not in current:
-            return default
-        current = current[part]
-    return current
-
-
-def _collect_source_setting_defaults(item) -> dict[str, Any]:
-    defaults = {field.key: field.default for field in item.fields}
-    activation_flow = item.metadata.get("activation_flow")
-    if isinstance(activation_flow, dict):
-        for field in activation_flow.get("fields", []):
-            if isinstance(field, dict) and isinstance(field.get("key"), str):
-                defaults[field["key"]] = field.get("default")
-        for extra_key, extra_default in (
-            (activation_flow.get("enabled_key"), item.metadata.get("default_settings", {}).get("enabled")),
-            (activation_flow.get("configured_key"), False),
-        ):
-            if isinstance(extra_key, str):
-                defaults.setdefault(extra_key, extra_default)
-    for block in item.metadata.get("settings_ui_blocks", []):
-        if not isinstance(block, dict):
-            continue
-        value_key = block.get("value_key")
-        if not isinstance(value_key, str):
-            continue
-        defaults.setdefault(
-            value_key,
-            item.metadata.get("default_settings", {}).get(value_key.split(".")[-1], []),
-        )
-    return defaults
-
-
-def _sanitize_sensor_error(error: Any) -> str | None:
-    text = str(error or "").strip()
-    if not text:
-        return None
-    if " is bound to a different event loop" in text:
-        return core_i18n.t(
-            "sensors.sync.loop_mismatch",
-            fallback="Sensor sync failed due to an internal runtime loop mismatch.",
-        )
-    if any(marker in text for marker in _SENSOR_INTERNAL_ERROR_MARKERS):
-        return core_i18n.t(
-            "sensors.sync.internal_runtime_error",
-            fallback="Sensor sync failed due to an internal runtime error.",
-        )
-    if len(text) > 280:
-        return f"{text[:277]}..."
-    return text
-
-
-def _coerce_timestamp_seconds(value: Any) -> float | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, (int, float)):
-        numeric = float(value)
-        if numeric <= 0:
-            return None
-        return numeric / 1000.0 if numeric > 1_000_000_000_000 else numeric
-    text = str(value).strip()
-    if not text:
-        return None
-    try:
-        return _coerce_timestamp_seconds(float(text))
-    except ValueError:
-        pass
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return None
-
-
-def _derive_sensor_status(
-    *,
-    enabled: bool,
-    activation_required: bool,
-    running: bool,
-    last_error: str | None,
-    last_success_at: Any,
-    sync_mode: str,
-    sync_interval_minutes: int,
-    now: float | None = None,
-) -> str:
-    if activation_required:
-        return "setup_required"
-    if not enabled:
-        return "disabled"
-    if running:
-        return "running"
-    if last_error:
-        return "error"
-    last_success = _coerce_timestamp_seconds(last_success_at)
-    if last_success is None:
-        return "never_synced"
-    if str(sync_mode or "").lower() == "interval":
-        interval_seconds = max(int(sync_interval_minutes or 0), 1) * 60
-        stale_after = max(interval_seconds * 2, _INTERVAL_STALE_FLOOR_SECONDS)
-        if (now if now is not None else time.time()) - last_success > stale_after:
-            return "stale"
-    return "ready"
 
 
 @sensors_router.get("/status")
 async def get_sensor_source_status():
     get_config()
     runtime_paths = get_runtime_paths()
-    scheduler_db_path = getattr(runtime_paths, "scheduler_db_path", Path(runtime_paths.base_dir) / "runtime" / "scheduler.db")
-    repository = ScheduleRepository(scheduler_db_path)
-    await repository.initialize()
     try:
         manager = resolve_plugin_manager()
     except RuntimeError:
         return []
     sensor_registry = resolve_sensor_registry()
-    packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
-    contributions = sensor_registry.list_contributions()
-    sources = []
-    for item in contributions:
-        source_name = str(item.metadata.get("source_type") or item.contribution_id.split(".")[-1])
-        package = packages.get(item.plugin_id)
-        current_settings = package.current_settings if package is not None else {}
-        plugin_dir = (
-            package.manifest.plugin_dir if package is not None and package.manifest is not None else ""
-        )
-        try:
-            i18n = _get_plugin_i18n(item.plugin_id, plugin_dir)
-        except Exception:  # noqa: BLE001 - never block status on i18n
-            i18n = None
-        plugin_id_normalized = normalize_plugin_id(item.plugin_id)
-        entry_id_for_translation = str(item.metadata.get("entry_id") or source_name)
-        display_name_translated = translate_with_fallback(
-            i18n,
-            f"{plugin_id_normalized}.entries.{entry_id_for_translation}.display_name",
-            translate_with_fallback(i18n, f"{plugin_id_normalized}.name", item.display_name),
-        )
-        description_translated = translate_with_fallback(
-            i18n,
-            f"{plugin_id_normalized}.entries.{entry_id_for_translation}.description",
-            translate_with_fallback(i18n, f"{plugin_id_normalized}.description", item.description),
-        )
-        capability_payload = _serialize_sensor_capability(
-            item.metadata,
-            i18n,
-            plugin_id=item.plugin_id,
-            fallback_source_name=source_name,
-            fallback_display_name=item.display_name,
-            fallback_description=item.description,
-        )
-
-        translated_fields: list[dict[str, Any]] = []
-        if i18n is not None:
-            translated_fields = [
-                _serialize_field(field, i18n, item.contribution_id, plugin_id=item.plugin_id)
-                for field in item.fields
-            ]
-        else:
-            translated_fields = [field.model_dump() for field in item.fields]
-
-        raw_activation_flow = item.metadata.get("activation_flow")
-        if isinstance(raw_activation_flow, dict) and i18n is not None:
-            activation_flow_payload = _serialize_activation_flow(
-                raw_activation_flow, i18n, plugin_id=item.plugin_id
-            )
-        else:
-            activation_flow_payload = raw_activation_flow
-
-        raw_ui_blocks = item.metadata.get("settings_ui_blocks", []) or []
-        if isinstance(raw_ui_blocks, list) and i18n is not None:
-            settings_ui_blocks_payload = [
-                _serialize_settings_ui_block(block, i18n, plugin_id=item.plugin_id)
-                if isinstance(block, dict)
-                else block
-                for block in raw_ui_blocks
-            ]
-        else:
-            settings_ui_blocks_payload = raw_ui_blocks
-
-        raw_settings_layout = item.metadata.get("settings_layout")
-        if isinstance(raw_settings_layout, dict) and i18n is not None:
-            settings_layout_payload = _serialize_settings_layout(
-                raw_settings_layout,
-                i18n,
-                plugin_id=item.plugin_id,
-            )
-        else:
-            settings_layout_payload = raw_settings_layout if isinstance(raw_settings_layout, dict) else None
-
-        raw_settings_actions = item.metadata.get("settings_actions", []) or []
-        if isinstance(raw_settings_actions, list) and i18n is not None:
-            settings_actions_payload = [
-                _serialize_settings_action(action, i18n, plugin_id=item.plugin_id)
-                if isinstance(action, dict)
-                else action
-                for action in raw_settings_actions
-            ]
-        else:
-            settings_actions_payload = raw_settings_actions if isinstance(raw_settings_actions, list) else []
-        resolved = sensor_registry.resolve_source_sensor(source_name)
-        sensor = resolved[2] if resolved is not None else None
-        schedule_id = build_sensor_schedule_id(item.plugin_id, source_name)
-        state = await repository.get_target_state(
-            ScheduledTargetType.SENSOR_SYNC,
-            build_sensor_target_key(item.plugin_id, source_name),
-        )
-        schedule = await repository.get_schedule(schedule_id)
-        recurring_binding = await repository.get_recurring_target_binding(
-            ScheduledTargetType.SENSOR_SYNC,
-            build_sensor_target_key(item.plugin_id, source_name),
-        )
-        supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
-        supports_state_flush = bool(getattr(sensor, "supports_state_flush", False))
-        visible_last_error = (
-            _sanitize_sensor_error(state.last_error)
-            if (state is not None and supports_pull_sync)
-            else None
-        )
-        enabled = bool(
-            _get_nested_value(
-                current_settings,
-                f"sensors.{source_name}.enabled",
-                item.metadata.get("default_settings", {}).get("enabled", True),
-            )
-        )
-        sync_mode = str(
-            _get_nested_value(
-                current_settings,
-                f"sensors.{source_name}.sync_mode",
-                item.metadata.get("default_settings", {}).get("sync_mode", item.metadata.get("sync_mode", "manual")),
-            )
-        )
-        sync_interval_minutes = int(
-            _get_nested_value(
-                current_settings,
-                f"sensors.{source_name}.sync_interval_minutes",
-                item.metadata.get("default_settings", {}).get("sync_interval_minutes", 1),
-            )
-        )
-        activation_required = bool(
-            isinstance(item.metadata.get("activation_flow"), dict)
-            and not enabled
-            and not bool(
-                _get_nested_value(
-                    current_settings,
-                    str(item.metadata.get("activation_flow", {}).get("configured_key") or ""),
-                    False,
-                )
-            )
-        )
-        running = bool(state.running) if state is not None else False
-        # next_run_at is exclusively sourced from the APScheduler jobstore (#89).
-        # recurring_binding[1] carries next_run_time from apscheduler_jobs.
-        resolved_next_run_at = recurring_binding[1] if recurring_binding is not None else None
-        resolved_scheduler_job_id = (
-            recurring_binding[0]
-            if recurring_binding is not None
-            else (
-                schedule.job_id
-                if schedule is not None
-                else (state.scheduler_job_id if state is not None else None)
-            )
-        )
-        package_icon = str(getattr(package.manifest, "icon", "") or "") if package is not None else ""
-        sources.append(
-            {
-                "source_name": source_name,
-                "plugin_id": item.plugin_id,
-                "contribution_id": item.contribution_id,
-                "icon": package_icon or str(item.metadata.get("icon") or ""),
-                "display_name": item.display_name,
-                "display_name_translated": display_name_translated,
-                "description": item.description,
-                "description_translated": description_translated,
-                **capability_payload,
-                "entry_order": item.metadata.get("entry_order"),
-                "available": item.metadata.get("available"),
-                "platforms": item.metadata.get("platforms"),
-                "unavailable_reason": item.metadata.get("unavailable_reason"),
-                "unavailable_reason_translated": translate_with_fallback(
-                    i18n,
-                    f"{plugin_id_normalized}.entries.{entry_id_for_translation}.unavailable_reason",
-                    item.metadata.get("unavailable_reason"),
-                ),
-                "fields": translated_fields,
-                "current_settings": {
-                    key: _get_nested_value(current_settings, key, default)
-                    for key, default in _collect_source_setting_defaults(item).items()
-                },
-                "enabled": enabled,
-                "sync_mode": sync_mode,
-                "sync_interval_minutes": sync_interval_minutes,
-                "storage_mode": str(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.storage_mode",
-                        item.metadata.get("default_settings", {}).get("storage_mode", "managed"),
-                    )
-                ),
-                "source_path": _get_nested_value(
-                    current_settings,
-                    f"sensors.{source_name}.source_path",
-                    item.metadata.get("default_settings", {}).get("source_path"),
-                ),
-                "fetch_page_content": bool(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.fetch_page_content",
-                        item.metadata.get("default_settings", {}).get("fetch_page_content", False),
-                    )
-                ),
-                "edge_whitelist": list(
-                    _get_nested_value(
-                        current_settings,
-                        f"sensors.{source_name}.edge_whitelist",
-                        item.metadata.get("default_settings", {}).get("edge_whitelist", []),
-                    )
-                ),
-                "supports_pull_sync": supports_pull_sync,
-                "supports_state_flush": supports_state_flush,
-                "activation_flow": activation_flow_payload,
-                "settings_layout": settings_layout_payload,
-                "settings_ui_blocks": settings_ui_blocks_payload,
-                "settings_actions": settings_actions_payload,
-                "activation_required": activation_required,
-                "running": running,
-                "last_run_at": state.last_run_at if state is not None else None,
-                "last_result_count": int((state.stats or {}).get("count", 0)) if state is not None else 0,
-                "last_raw_result_count": int((state.stats or {}).get("raw_count", 0)) if state is not None else 0,
-                "last_error": visible_last_error,
-                "last_success": state.last_success_at if state is not None else None,
-                "last_sync_at": state.last_success_at if state is not None else None,
-                "status": _derive_sensor_status(
-                    enabled=enabled,
-                    activation_required=activation_required,
-                    running=running,
-                    last_error=visible_last_error,
-                    last_success_at=state.last_success_at if state is not None else None,
-                    sync_mode=sync_mode,
-                    sync_interval_minutes=sync_interval_minutes,
-                ),
-                "next_run_at": resolved_next_run_at,
-                "scheduler_job_id": resolved_scheduler_job_id,
-                "runtime_base_dir": str(runtime_paths.base_dir),
-            }
-        )
-    return {"sources": sources}
-
+    return await build_sensor_source_status_payload(
+        runtime_paths=runtime_paths,
+        manager=manager,
+        sensor_registry=sensor_registry,
+    )
 
 @sensors_router.post("/{source_name}/sync")
 async def trigger_sensor_source_sync(source_name: str):
