@@ -1,7 +1,9 @@
 """Chat-owned orchestration planning and aggregation helpers."""
+
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from magi.core.logger import get_logger
@@ -25,6 +27,12 @@ from .prompt_service import ChatPromptService
 logger = get_logger(__name__)
 
 STRUCTURED_PLANNING_TIMEOUT_SECONDS = 180.0
+
+
+@dataclass(slots=True)
+class _TaskAgentPlanningRequest:
+    system_prompt: str
+    planning_prompt: dict[str, Any]
 
 
 class ChatPlanningService(ChatPlanningPromptMixin):
@@ -57,6 +65,7 @@ class ChatPlanningService(ChatPlanningPromptMixin):
     @property
     def _tool_invocation_service(self):
         from magi.agent.execution.tool_invocation_service import get_tool_invocation_service
+
         if not hasattr(self, "_tool_invocation_service_cached"):
             self._tool_invocation_service_cached = get_tool_invocation_service(self._tool_registry)
         return self._tool_invocation_service_cached
@@ -265,44 +274,86 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         # relying on the wrapper `except RetractRaised` in TaskOrchestrator.
         # Today: signal observed only at the next worker-await boundary or
         # via the wrapper if CancellableLLMClient raises mid-stream.
-        recent_history = [
-            {
-                "role": str(item.get("role", "unknown")),
-                "content": str(item.get("content", ""))[:400],
-            }
-            for item in history[-4:]
-            if isinstance(item, dict) and str(item.get("content", "")).strip()
-        ]
+        planning_request = self._build_task_agent_planning_request(
+            user_message=user_message,
+            history=history,
+            orchestration_plan=orchestration_plan,
+            request_profile=request_profile,
+            workspace_root=workspace_root,
+        )
+        try:
+            response = await self._call_task_agent_planner(planning_request)
+        except Exception as exc:
+            logger.warning("Task-agent planning call failed | error=%s", exc)
+            return None
+        return self._parse_task_agent_planning_response(
+            response=response,
+            user_message=user_message,
+        )
+
+    def _build_task_agent_planning_request(
+        self,
+        *,
+        user_message: str,
+        history: list[dict[str, Any]],
+        orchestration_plan: OrchestrationPlan,
+        request_profile: str,
+        workspace_root: str | None,
+    ) -> _TaskAgentPlanningRequest:
+        recent_history = _recent_planning_history(history)
         if request_profile == "research":
-            target_language = llm_language_label()
-            seed_subtasks = [item.to_dict() for item in self._build_research_seed_subtasks(user_message)]
-            task_hint = self._resolve_planning_task_hint(
+            return self._build_research_planning_request(
                 user_message=user_message,
-                request_profile=request_profile,
-                default_leaf_type="general-purpose",
+                recent_history=recent_history,
+                allow_parallel=orchestration_plan.allow_parallel,
+                workspace_root=workspace_root,
             )
-            planning_prompt = {
-                "planning_profile": "research",
-                "target_language": target_language,
-                "user_request": user_message,
-                "recent_history": recent_history,
-                "default_leaf_type": "general-purpose",
-                "allow_parallel": orchestration_plan.allow_parallel,
-                "date_range_hint": self._extract_date_range_hint(user_message),
-                "task_hints": task_hint,
-                "seed_subtasks": seed_subtasks,
-                "requirements": [
-                    "Decompose into bounded, independent research subtasks that a generic worker can complete without reading sibling outputs.",
-                    "Favor parallel subtasks that split by source family, verification responsibility, or retrieval angle.",
-                    "Only include web-fetch when the user requests details, verification, full text, or when source summaries are likely insufficient.",
-                    "The parent task agent owns cross-source synthesis. Do not create a final synthesis worker that depends on sibling worker outputs.",
-                    "Each research subtask should collect evidence that preserves title, date, source, link, and a short summary when available.",
-                ],
-            }
-            workspace_context = self._build_workspace_context(workspace_root)
-            if workspace_context is not None:
-                planning_prompt["workspace_context"] = workspace_context
-            system_prompt = (
+        return self._build_generic_planning_request(
+            user_message=user_message,
+            recent_history=recent_history,
+            orchestration_plan=orchestration_plan,
+            request_profile=request_profile,
+            workspace_root=workspace_root,
+        )
+
+    def _build_research_planning_request(
+        self,
+        *,
+        user_message: str,
+        recent_history: list[dict[str, str]],
+        allow_parallel: bool,
+        workspace_root: str | None,
+    ) -> _TaskAgentPlanningRequest:
+        target_language = llm_language_label()
+        seed_subtasks = [
+            item.to_dict() for item in self._build_research_seed_subtasks(user_message)
+        ]
+        planning_prompt = {
+            "planning_profile": "research",
+            "target_language": target_language,
+            "user_request": user_message,
+            "recent_history": recent_history,
+            "default_leaf_type": "general-purpose",
+            "allow_parallel": allow_parallel,
+            "date_range_hint": self._extract_date_range_hint(user_message),
+            "task_hints": self._resolve_planning_task_hint(
+                user_message=user_message,
+                request_profile="research",
+                default_leaf_type="general-purpose",
+            ),
+            "seed_subtasks": seed_subtasks,
+            "requirements": [
+                "Decompose into bounded, independent research subtasks that a generic worker can complete without reading sibling outputs.",
+                "Favor parallel subtasks that split by source family, verification responsibility, or retrieval angle.",
+                "Only include web-fetch when the user requests details, verification, full text, or when source summaries are likely insufficient.",
+                "The parent task agent owns cross-source synthesis. Do not create a final synthesis worker that depends on sibling worker outputs.",
+                "Each research subtask should collect evidence that preserves title, date, source, link, and a short summary when available.",
+            ],
+        }
+        _attach_workspace_context(planning_prompt, self._build_workspace_context(workspace_root))
+        return _TaskAgentPlanningRequest(
+            planning_prompt=planning_prompt,
+            system_prompt=(
                 "You are a parent task agent planning bounded generic research subtasks. "
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"general-purpose","prompt":"string","parallel_group":"string"}]}. '
@@ -310,36 +361,45 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 f"Write summary, description, and prompt values in {target_language} unless preserving exact names, paths, or source titles. "
                 "Never emit a worker whose only job is final synthesis across sibling results. "
                 "When task_hints are present, use them to separate broad discovery from detail fetch work."
-            )
-        else:
-            target_language = llm_language_label()
-            task_hint = self._resolve_planning_task_hint(
+            ),
+        )
+
+    def _build_generic_planning_request(
+        self,
+        *,
+        user_message: str,
+        recent_history: list[dict[str, str]],
+        orchestration_plan: OrchestrationPlan,
+        request_profile: str,
+        workspace_root: str | None,
+    ) -> _TaskAgentPlanningRequest:
+        target_language = llm_language_label()
+        planning_prompt = {
+            "planning_profile": request_profile,
+            "target_language": target_language,
+            "user_request": user_message,
+            "recent_history": recent_history,
+            "default_leaf_type": orchestration_plan.default_leaf_type,
+            "allow_parallel": orchestration_plan.allow_parallel,
+            "task_hints": self._resolve_planning_task_hint(
                 user_message=user_message,
                 request_profile=request_profile,
                 default_leaf_type=orchestration_plan.default_leaf_type,
-            )
-            planning_prompt = {
-                "planning_profile": request_profile,
-                "target_language": target_language,
-                "user_request": user_message,
-                "recent_history": recent_history,
-                "default_leaf_type": orchestration_plan.default_leaf_type,
-                "allow_parallel": orchestration_plan.allow_parallel,
-                "task_hints": task_hint,
-                "requirements": [
-                    "Decompose into bounded leaf subtasks owned by the parent task agent.",
-                    "Favor parallel subtasks when there are no strong dependencies.",
-                    "Workers gather evidence; the parent task agent synthesizes and writes the final answer.",
-                    "If the request spans current-workspace evidence and targets or sources that are not guaranteed to exist locally, split the plan by evidence source.",
-                    "Use CodeExplore only for current workspace or repository code inspection; use general-purpose for external, web, current-world, or mixed-source evidence.",
-                    "Do not create a leaf worker whose job is to compare sibling outputs, merge sibling findings, or write the final answer.",
-                    "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
-                ],
-            }
-            workspace_context = self._build_workspace_context(workspace_root)
-            if workspace_context is not None:
-                planning_prompt["workspace_context"] = workspace_context
-            system_prompt = (
+            ),
+            "requirements": [
+                "Decompose into bounded leaf subtasks owned by the parent task agent.",
+                "Favor parallel subtasks when there are no strong dependencies.",
+                "Workers gather evidence; the parent task agent synthesizes and writes the final answer.",
+                "If the request spans current-workspace evidence and targets or sources that are not guaranteed to exist locally, split the plan by evidence source.",
+                "Use CodeExplore only for current workspace or repository code inspection; use general-purpose for external, web, current-world, or mixed-source evidence.",
+                "Do not create a leaf worker whose job is to compare sibling outputs, merge sibling findings, or write the final answer.",
+                "For codebase architecture analysis, prefer separate subtasks for directory structure, tech stack, frontend, backend, and project progress when relevant.",
+            ],
+        }
+        _attach_workspace_context(planning_prompt, self._build_workspace_context(workspace_root))
+        return _TaskAgentPlanningRequest(
+            planning_prompt=planning_prompt,
+            system_prompt=(
                 "You are a parent task agent planning bounded leaf subtasks. "
                 "Return ONLY valid JSON with this schema: "
                 '{"summary":"string","subtasks":[{"description":"string","subagent_type":"CodeExplore|general-purpose","prompt":"string","parallel_group":"string"}]}. '
@@ -348,29 +408,19 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 "Workers gather evidence; the parent task agent performs cross-subtask synthesis. "
                 "If the request mixes local repository analysis with external targets or sources, split those evidence paths into separate leaf tasks. "
                 "When task_hints are present, use them to bias the plan toward efficient bounded search sequences."
-            )
-        try:
-            planning_message = self._render_planning_prompt_markdown(planning_prompt)
-            if get_stream_sink() is not None:
-                chunks: list[str] = []
-                async with stream_source("planner"):
-                    async for event in self._prompt_service.call_llm_stream(
-                        system_prompt=system_prompt,
-                        messages=[{"role": "user", "content": planning_message}],
-                        disable_thinking=False,
-                        json_mode=True,
-                        timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
-                        event_context={
-                            "request_kind": "task_agent:planner",
-                            "agent_id": self._agent_id,
-                        },
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                response = "".join(chunks)
-            else:
-                response = await self._prompt_service.call_llm(
-                    system_prompt=system_prompt,
+            ),
+        )
+
+    async def _call_task_agent_planner(
+        self,
+        planning_request: _TaskAgentPlanningRequest,
+    ) -> str:
+        planning_message = self._render_planning_prompt_markdown(planning_request.planning_prompt)
+        if get_stream_sink() is not None:
+            chunks: list[str] = []
+            async with stream_source("planner"):
+                async for event in self._prompt_service.call_llm_stream(
+                    system_prompt=planning_request.system_prompt,
                     messages=[{"role": "user", "content": planning_message}],
                     disable_thinking=False,
                     json_mode=True,
@@ -379,10 +429,28 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                         "request_kind": "task_agent:planner",
                         "agent_id": self._agent_id,
                     },
-                )
-        except Exception as exc:
-            logger.warning("Task-agent planning call failed | error=%s", exc)
-            return None
+                ):
+                    if event.kind == "text_delta" and event.text:
+                        chunks.append(event.text)
+            return "".join(chunks)
+        return await self._prompt_service.call_llm(
+            system_prompt=planning_request.system_prompt,
+            messages=[{"role": "user", "content": planning_message}],
+            disable_thinking=False,
+            json_mode=True,
+            timeout_seconds=STRUCTURED_PLANNING_TIMEOUT_SECONDS,
+            event_context={
+                "request_kind": "task_agent:planner",
+                "agent_id": self._agent_id,
+            },
+        )
+
+    def _parse_task_agent_planning_response(
+        self,
+        *,
+        response: str,
+        user_message: str,
+    ) -> Optional[SubtaskPlan]:
         if not str(response or "").strip():
             logger.warning(
                 "Task-agent planning returned empty response | user_id=%s request_preview=%s",
@@ -431,31 +499,34 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             )
         )
         result = await self._tool_invocation_service.invoke(
-            _ServiceToolCall(name="agent", args={
-                "action": "launch",
-                "subagent_type": "Plan",
-                "description": "plan leaf subtasks",
-                "prompt": (
-                    "Decompose the parent task into bounded leaf workers. "
-                    "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
-                    "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
-                    "Workers gather evidence; the parent task agent handles synthesis and the final answer. "
-                    "If the request mixes local workspace evidence with external or public evidence, split those into separate leaf workers instead of forcing everything into repo exploration. "
-                    "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
-                    "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
-                    "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
-                    f"Write all natural-language JSON values in {target_language} unless preserving exact names, paths, commands, or source titles. "
-                    f"Parent task: {user_message}"
-                    + (f"\n\n{tool_guidance}" if tool_guidance else "")
-                ),
-                "run_in_background": False,
-                "target_task_agent_type": self._parent_task_agent_type,
-                "target_task_agent_id": parent_task_agent_id,
-                "parent_task_agent_type": self._parent_task_agent_type,
-                "parent_task_agent_id": parent_task_agent_id,
-                "run_id": run_id,
-                "run_revision": run_revision,
-            }),
+            _ServiceToolCall(
+                name="agent",
+                args={
+                    "action": "launch",
+                    "subagent_type": "Plan",
+                    "description": "plan leaf subtasks",
+                    "prompt": (
+                        "Decompose the parent task into bounded leaf workers. "
+                        "Start from the most concrete likely anchor or owning code path, then split only by neighboring responsibilities that are actually needed. "
+                        "Prefer execution-ready subtasks around concrete modules, interfaces, or validation checks. "
+                        "Workers gather evidence; the parent task agent handles synthesis and the final answer. "
+                        "If the request mixes local workspace evidence with external or public evidence, split those into separate leaf workers instead of forcing everything into repo exploration. "
+                        "Do not create a final synthesis or compare-the-findings worker that depends on sibling outputs. "
+                        "Avoid generic subtasks that only gather context or summarize risks unless ambiguity remains unresolved. "
+                        "Return JSON with summary, findings, evidence, gaps, next_steps, and subtasks only. "
+                        f"Write all natural-language JSON values in {target_language} unless preserving exact names, paths, commands, or source titles. "
+                        f"Parent task: {user_message}"
+                        + (f"\n\n{tool_guidance}" if tool_guidance else "")
+                    ),
+                    "run_in_background": False,
+                    "target_task_agent_type": self._parent_task_agent_type,
+                    "target_task_agent_id": parent_task_agent_id,
+                    "parent_task_agent_type": self._parent_task_agent_type,
+                    "parent_task_agent_id": parent_task_agent_id,
+                    "run_id": run_id,
+                    "run_revision": run_revision,
+                },
+            ),
             InvocationContext(
                 tool_category="planning",
                 task_context=TaskContext(
@@ -482,7 +553,9 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             }
         )
 
-    def should_route_to_explore_task_agent(self, *, user_message: str, orchestration_plan: OrchestrationPlan) -> bool:
+    def should_route_to_explore_task_agent(
+        self, *, user_message: str, orchestration_plan: OrchestrationPlan
+    ) -> bool:
         if orchestration_plan.mode != "decompose":
             return False
         if orchestration_plan.default_leaf_type != "CodeExplore":
@@ -593,3 +666,22 @@ class ChatPlanningService(ChatPlanningPromptMixin):
         if not normalized.subtasks:
             return None
         return normalized
+
+
+def _recent_planning_history(history: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "role": str(item.get("role", "unknown")),
+            "content": str(item.get("content", ""))[:400],
+        }
+        for item in history[-4:]
+        if isinstance(item, dict) and str(item.get("content", "")).strip()
+    ]
+
+
+def _attach_workspace_context(
+    planning_prompt: dict[str, Any],
+    workspace_context: dict[str, str] | None,
+) -> None:
+    if workspace_context is not None:
+        planning_prompt["workspace_context"] = workspace_context
