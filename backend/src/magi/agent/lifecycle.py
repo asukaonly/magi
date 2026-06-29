@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.background_tasks import (
+    BackgroundTaskWiring,
     build_background_task_wiring,
 )
 from ..core.logger import get_logger
@@ -23,6 +25,26 @@ if TYPE_CHECKING:
     from .runtime import TaskAgent
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _AgentRuntimeDependencies:
+    config: Any
+    llm_adapter: Any
+    llm_pool: Any
+    memory: Any
+    unified_memory: Any
+    hybrid_retrieval_service: Any
+    memory_integration: Any
+    runtime_trace_store: Any
+    chat_store: Any
+    chat_projector: Any
+    message_bus: Any
+    sensor_hub: Any
+    event_emitter: Any
+    plugin_manager: Any
+    sensor_registry: Any
+    skill_runner: Any
 
 
 class AgentRuntimeModule(LifecycleModule):
@@ -56,136 +78,193 @@ class AgentRuntimeModule(LifecycleModule):
         self._build_timeline_handler = build_timeline_handler
 
     async def init(self) -> None:
-        config = require_initialized(self._context.core.config, "runtime config")
-        llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
-        llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "llm pool")
-        memory = require_initialized(self._context.personality.self_memory, "self memory")
-        unified_memory = require_initialized(self._context.memory.unified_memory, "unified memory")
-        hybrid_retrieval_service = require_initialized(
-            self._context.memory.hybrid_retrieval_service,
-            "hybrid retrieval service",
-        )
-        memory_integration = require_initialized(self._context.memory.memory_integration, "memory integration")
-        runtime_trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
-        chat_store = require_initialized(self._context.chat.store, "chat store")
-        chat_projector = require_initialized(self._context.chat.projector, "chat projector")
-        message_bus = require_initialized(self._context.message_bus.message_bus, "message bus")
-        sensor_hub = require_initialized(self._context.agent_runtime.sensor_hub, "sensor hub")
-        event_emitter = require_initialized(self._context.agent_runtime.event_emitter, "event emitter")
-        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
-        sensor_registry = require_initialized(self._context.plugins.sensor_registry, "sensor registry")
+        deps = _load_agent_runtime_dependencies(self._context)
+        background_wiring = self._build_background_wiring(deps)
+        self._publish_background_wiring(background_wiring)
+        self._register_batch_driver(background_wiring)
 
+        task_agent_manager = self._build_task_agent_manager(deps, background_wiring)
+        router_agent = self._build_router_agent(deps, task_agent_manager)
+        agent_runtime = AgentRuntime(
+            sensor_hub=deps.sensor_hub,
+            router_agent=router_agent,
+            task_agent_manager=task_agent_manager,
+            event_emitter=deps.event_emitter,
+        )
+        self._publish_agent_runtime(task_agent_manager, agent_runtime)
+        self._configure_agent_tool(deps, task_agent_manager)
+        await self._start_runtime_services(deps, agent_runtime, background_wiring)
+
+    def _build_background_wiring(
+        self,
+        deps: _AgentRuntimeDependencies,
+    ) -> BackgroundTaskWiring:
         runtime_paths = get_runtime_paths()
-        bg_settings = config.agent.background_tasks
+        bg_settings = deps.config.agent.background_tasks
         background_wiring = build_background_task_wiring(
             store_db_path=str(runtime_paths.background_tasks_db_path),
-            llm_adapter=llm_adapter,
-            llm_pool=llm_pool,
-            skill_runner=self._context.skills.skill_runner,
-            runtime_trace_store=runtime_trace_store,
+            llm_adapter=deps.llm_adapter,
+            llm_pool=deps.llm_pool,
+            skill_runner=deps.skill_runner,
+            runtime_trace_store=deps.runtime_trace_store,
             max_concurrent=bg_settings.max_concurrent,
             permission_gateway_provider=get_permission_gateway,
         )
+        return background_wiring
+
+    def _publish_background_wiring(self, background_wiring: BackgroundTaskWiring) -> None:
         self._background_wiring = background_wiring
         self._context.agent_runtime.background_task_manager = background_wiring.manager
         self._context.agent_runtime.background_task_retention_schedule = (
             background_wiring.retention_schedule
         )
 
+    @staticmethod
+    def _register_batch_driver(background_wiring: BackgroundTaskWiring) -> None:
         # Batch orchestrator (W2): drive manifest jobs via the same manager —
         # each finished background run fires this listener, which continues the
         # batch (next slice) or finalizes it. Non-batch runs are ignored.
         from .batch.driver import BatchDriver
-        background_wiring.manager.add_listener(
-            BatchDriver(background_wiring.manager).on_terminal
+
+        background_wiring.manager.add_listener(BatchDriver(background_wiring.manager).on_terminal)
+
+    def _build_task_agent_manager(
+        self,
+        deps: _AgentRuntimeDependencies,
+        background_wiring: BackgroundTaskWiring,
+    ) -> TaskAgentManager:
+        runtime_settings = deps.config.agent.runtime
+        return TaskAgentManager(
+            create_chat_agent=self._build_chat_agent_factory(deps, background_wiring),
+            create_default_agent=self._build_default_agent_factory(deps),
+            idle_ttl_seconds=runtime_settings.task_agent_manager_idle_ttl_seconds,
+            max_dynamic_instances=runtime_settings.task_agent_manager_max_dynamic_instances,
         )
 
-        task_agent_manager = TaskAgentManager(
-            create_chat_agent=self._create_chat_agent_factory(
-                llm_adapter=llm_adapter,
-                llm_pool=llm_pool,
-                memory=memory,
-                unified_memory=unified_memory,
-                hybrid_retrieval_service=hybrid_retrieval_service,
-                memory_integration=memory_integration,
-                skill_runner=self._context.skills.skill_runner,
-                runtime_trace_store=runtime_trace_store,
-                chat_store=chat_store,
-                chat_projector=chat_projector,
-                chat_read_service_factory=self._chat_read_service_factory,
-                config=config,
-                background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
-                background_launch_service=background_wiring.launch_service if bg_settings.enabled else None,
-                permission_gateway_provider=get_permission_gateway,
-                control_session_store_provider=resolve_control_session_store,
-                delivery_dispatcher_resolver=lambda: getattr(
-                    getattr(self._context.channels, "module", None),
-                    "_chat_delivery_dispatcher",
-                    None,
-                ),
-                conversation_log_resolver=lambda: getattr(
-                    getattr(self._context.chat, "module", None),
-                    "_conversation_log",
-                    None,
-                ),
-                message_bus=message_bus,
+    def _build_chat_agent_factory(
+        self,
+        deps: _AgentRuntimeDependencies,
+        background_wiring: BackgroundTaskWiring,
+    ) -> Callable[[str], "TaskAgent"]:
+        bg_settings = deps.config.agent.background_tasks
+        return self._create_chat_agent_factory(
+            llm_adapter=deps.llm_adapter,
+            llm_pool=deps.llm_pool,
+            memory=deps.memory,
+            unified_memory=deps.unified_memory,
+            hybrid_retrieval_service=deps.hybrid_retrieval_service,
+            memory_integration=deps.memory_integration,
+            skill_runner=deps.skill_runner,
+            runtime_trace_store=deps.runtime_trace_store,
+            chat_store=deps.chat_store,
+            chat_projector=deps.chat_projector,
+            chat_read_service_factory=self._chat_read_service_factory,
+            config=deps.config,
+            background_dispatcher=background_wiring.dispatcher if bg_settings.enabled else None,
+            background_launch_service=(
+                background_wiring.launch_service if bg_settings.enabled else None
             ),
-            create_default_agent=create_default_agent_factory(
-                llm_adapter=llm_adapter,
-                llm_pool=llm_pool,
-                config=config,
-                unified_memory=unified_memory,
-                plugin_manager=plugin_manager,
-                sensor_registry=sensor_registry,
-                build_timeline_handler=self._build_timeline_handler,
-                control_session_store_provider=resolve_control_session_store,
-            ),
-            idle_ttl_seconds=config.agent.runtime.task_agent_manager_idle_ttl_seconds,
-            max_dynamic_instances=config.agent.runtime.task_agent_manager_max_dynamic_instances,
+            permission_gateway_provider=get_permission_gateway,
+            control_session_store_provider=resolve_control_session_store,
+            delivery_dispatcher_resolver=self._resolve_delivery_dispatcher,
+            conversation_log_resolver=self._resolve_conversation_log,
+            message_bus=deps.message_bus,
         )
-        router_agent = RouterAgent(
-            sensor_hub=sensor_hub,
+
+    def _build_default_agent_factory(
+        self,
+        deps: _AgentRuntimeDependencies,
+    ) -> Callable[[str], "TaskAgent"]:
+        return create_default_agent_factory(
+            llm_adapter=deps.llm_adapter,
+            llm_pool=deps.llm_pool,
+            config=deps.config,
+            unified_memory=deps.unified_memory,
+            plugin_manager=deps.plugin_manager,
+            sensor_registry=deps.sensor_registry,
+            build_timeline_handler=self._build_timeline_handler,
+            control_session_store_provider=resolve_control_session_store,
+        )
+
+    def _build_router_agent(
+        self,
+        deps: _AgentRuntimeDependencies,
+        task_agent_manager: TaskAgentManager,
+    ) -> RouterAgent:
+        return RouterAgent(
+            sensor_hub=deps.sensor_hub,
             task_agent_manager=task_agent_manager,
-            batch_size=max(8, config.agent.num_task_agents * 4),
+            batch_size=max(8, deps.config.agent.num_task_agents * 4),
             poll_timeout_seconds=0.2,
-            restart_backoff_seconds=config.agent.runtime.router_restart_backoff_seconds,
+            restart_backoff_seconds=deps.config.agent.runtime.router_restart_backoff_seconds,
         )
 
+    def _publish_agent_runtime(
+        self,
+        task_agent_manager: TaskAgentManager,
+        agent_runtime: AgentRuntime,
+    ) -> None:
         self._context.agent_runtime.task_agent_manager = task_agent_manager
-        self._context.agent_runtime.agent_runtime = AgentRuntime(
-            sensor_hub=sensor_hub,
-            router_agent=router_agent,
-            task_agent_manager=task_agent_manager,
-            event_emitter=event_emitter,
-        )
+        self._context.agent_runtime.agent_runtime = agent_runtime
+
+    def _configure_agent_tool(
+        self,
+        deps: _AgentRuntimeDependencies,
+        task_agent_manager: TaskAgentManager,
+    ) -> None:
         agent_tool = tool_registry.get_tool("agent")
         if agent_tool and hasattr(agent_tool, "configure"):
             agent_tool.configure(
-                llm_adapter=llm_adapter,
+                llm_adapter=deps.llm_adapter,
                 tool_registry_instance=tool_registry,
                 task_agent_manager=task_agent_manager,
-                message_bus=message_bus,
-                runtime_trace_store=runtime_trace_store,
-                scenario_llm_pool=llm_pool,
+                message_bus=deps.message_bus,
+                runtime_trace_store=deps.runtime_trace_store,
+                scenario_llm_pool=deps.llm_pool,
                 permission_gateway_provider=get_permission_gateway,
             )
-        await self._context.agent_runtime.agent_runtime.start()
 
+    async def _start_runtime_services(
+        self,
+        deps: _AgentRuntimeDependencies,
+        agent_runtime: AgentRuntime,
+        background_wiring: BackgroundTaskWiring,
+    ) -> None:
+        await agent_runtime.start()
         background_wiring.manager.add_listener(broadcast_background_task_state_changed)
         await background_wiring.manager.start()
+        await self._resume_batch_jobs(background_wiring)
 
-        # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
-        # process (manager._running is empty after restart) and refill their runs.
-        from .batch.driver import BatchDriver
-        resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
-        if resumed:
-            logger.info("batch jobs resumed after restart", count=resumed)
-
+        bg_settings = deps.config.agent.background_tasks
         logger.info(
             "AgentRuntime started (L11)",
             background_tasks_enabled=bg_settings.enabled,
             background_tasks_auto_detect_long_task=bg_settings.auto_detect_long_task,
             background_tasks_max_concurrent=bg_settings.max_concurrent,
+        )
+
+    @staticmethod
+    async def _resume_batch_jobs(background_wiring: BackgroundTaskWiring) -> None:
+        # Batch restart-recovery: pick up RUNNING batch jobs left by a previous
+        # process (manager._running is empty after restart) and refill their runs.
+        from .batch.driver import BatchDriver
+
+        resumed = await BatchDriver(background_wiring.manager).resume_running_jobs()
+        if resumed:
+            logger.info("batch jobs resumed after restart", count=resumed)
+
+    def _resolve_delivery_dispatcher(self) -> Any:
+        return getattr(
+            getattr(self._context.channels, "module", None),
+            "_chat_delivery_dispatcher",
+            None,
+        )
+
+    def _resolve_conversation_log(self) -> Any:
+        return getattr(
+            getattr(self._context.chat, "module", None),
+            "_conversation_log",
+            None,
         )
 
     async def shutdown(self) -> None:
@@ -198,6 +277,47 @@ class AgentRuntimeModule(LifecycleModule):
             await self._context.agent_runtime.agent_runtime.stop()
             self._context.agent_runtime.agent_runtime = None
         self._context.agent_runtime.task_agent_manager = None
+
+
+def _load_agent_runtime_dependencies(
+    context: RuntimeBootstrapContext,
+) -> _AgentRuntimeDependencies:
+    return _AgentRuntimeDependencies(
+        config=require_initialized(context.core.config, "runtime config"),
+        llm_adapter=require_initialized(context.llm.llm_adapter, "llm adapter"),
+        llm_pool=require_initialized(context.llm.scenario_llm_pool, "llm pool"),
+        memory=require_initialized(context.personality.self_memory, "self memory"),
+        unified_memory=require_initialized(context.memory.unified_memory, "unified memory"),
+        hybrid_retrieval_service=require_initialized(
+            context.memory.hybrid_retrieval_service,
+            "hybrid retrieval service",
+        ),
+        memory_integration=require_initialized(
+            context.memory.memory_integration,
+            "memory integration",
+        ),
+        runtime_trace_store=require_initialized(
+            context.runtime_trace.store,
+            "runtime trace store",
+        ),
+        chat_store=require_initialized(context.chat.store, "chat store"),
+        chat_projector=require_initialized(context.chat.projector, "chat projector"),
+        message_bus=require_initialized(context.message_bus.message_bus, "message bus"),
+        sensor_hub=require_initialized(context.agent_runtime.sensor_hub, "sensor hub"),
+        event_emitter=require_initialized(
+            context.agent_runtime.event_emitter,
+            "event emitter",
+        ),
+        plugin_manager=require_initialized(
+            context.plugins.plugin_manager,
+            "plugin manager",
+        ),
+        sensor_registry=require_initialized(
+            context.plugins.sensor_registry,
+            "sensor registry",
+        ),
+        skill_runner=context.skills.skill_runner,
+    )
 
 
 class AgentScheduleRegistrationModule(LifecycleModule):
@@ -213,7 +333,9 @@ class AgentScheduleRegistrationModule(LifecycleModule):
         self._background_retention_contrib = None
 
     async def init(self) -> None:
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         background_task_manager = require_initialized(
             self._context.agent_runtime.background_task_manager,
             "background task manager",
