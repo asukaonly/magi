@@ -51,6 +51,20 @@ class _ChatRuntimePreferences:
     core_model_supports_vision: bool
 
 
+@dataclass(slots=True)
+class _ChatContextInputs:
+    session_id: str
+    active_persona_id: str | None
+    history_context: Any
+    history: list[dict[str, Any]]
+    history_key: str
+    recent_tool_errors: list[dict[str, Any]]
+    recent_tool_state: list[dict[str, Any]]
+    active_orchestrations: list[Any]
+    reply_context: Any
+    preferences: _ChatRuntimePreferences
+
+
 class ChatTaskAgent(
     ChatSessionControlMixin,
     ChatStreamingMixin,
@@ -133,6 +147,17 @@ class ChatTaskAgent(
                 persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
             ),
         )
+        self._install_runtime_parts(runtime_parts)
+        self._last_batch_facts: list[FactRecord] = []
+
+        # Keep this alias so existing read paths and tests see the same underlying store.
+        self._conversation_history = self._context_assembler._conversation_history
+        # Per-session recent-tool-call view; the chat agent (prompt assembly)
+        # and postprocess (tool-event sink) both depend on this view
+        # directly rather than going through ChatContextAssembler.
+        self._tool_state_view = self._context_assembler.tool_state_view
+
+    def _install_runtime_parts(self, runtime_parts: Any) -> None:
         self._chat_read_service_factory = runtime_parts.chat_read_service_factory
         self.context_decider = runtime_parts.context_decider
         self.prompt_context_assembler = runtime_parts.prompt_context_assembler
@@ -154,14 +179,6 @@ class ChatTaskAgent(
         self.function_calling_orchestrator = runtime_parts.function_calling_orchestrator
         self._handler_registry = runtime_parts.handler_registry
         self._coordinator = runtime_parts.coordinator
-        self._last_batch_facts: list[FactRecord] = []
-
-        # Keep this alias so existing read paths and tests see the same underlying store.
-        self._conversation_history = self._context_assembler._conversation_history
-        # Per-session recent-tool-call view; the chat agent (prompt assembly)
-        # and postprocess (tool-event sink) both depend on this view
-        # directly rather than going through ChatContextAssembler.
-        self._tool_state_view = self._context_assembler.tool_state_view
 
     @property
     def postprocess_service(self) -> ChatPostProcessService:
@@ -203,82 +220,78 @@ class ChatTaskAgent(
     ) -> list[dict]:
         """Fetch notable L4 advisories for the coordinator."""
         available_tool_names = list(tool_names or tool_registry.list_tools())
-        trace_stats: dict[str, dict[str, float | int]] = {}
-        if self._runtime_trace_store is not None:
-            try:
-                trace_stats = await self._runtime_trace_store.get_tool_execution_stats(
-                    available_tool_names
-                )
-            except Exception as exc:
-                logger.debug("Failed to fetch runtime trace tool stats: %s", exc)
-
-        advisories_by_tool: dict[str, dict] = {}
         targeted_mode = bool(tool_names)
-        if self.unified_memory is None or self.unified_memory.l4 is None:
-            base_advisories = []
-        else:
-            try:
-                if targeted_mode:
-                    base_advisories = await self.unified_memory.l4.get_tool_advisory(
-                        tool_names=list(tool_names or []),
-                        task_context=task_context,
-                    )
-                else:
-                    base_advisories = await self.unified_memory.l4.get_notable_advisories(
-                        task_context=task_context,
-                        limit=limit,
-                    )
-            except Exception as exc:
-                logger.debug("Failed to fetch L4 tool advisories: %s", exc)
-                base_advisories = []
-        for advisory in base_advisories:
-            tool_name = str(advisory.get("tool_name") or "").strip()
-            if tool_name:
-                advisories_by_tool[tool_name] = dict(advisory)
-
-        for tool_name, stats in trace_stats.items():
-            total_calls = int(stats.get("total_calls") or 0)
-            if total_calls <= 0:
-                continue
-            success_rate = float(stats.get("success_rate") or 0.0)
-            failed_calls = int(stats.get("failed_calls") or 0)
-            advisory = advisories_by_tool.setdefault(
-                tool_name,
-                {
-                    "tool_name": tool_name,
-                    "available": True,
-                    "breaker_state": "closed",
-                    "strategy_hint": None,
-                    "context_fit": 0.0,
-                },
-            )
-            advisory["success_rate"] = success_rate
-            advisory["total_attempts"] = total_calls
-            advisory["failure_count"] = failed_calls
-            advisory["stats_source"] = "runtime_trace.trace_tools"
-            if success_rate < 0.7 and total_calls >= 3:
-                advisory["risk_note"] = (
-                    f"Low success rate ({success_rate:.0%} over {total_calls} attempts)"
-                )
+        advisories_by_tool = await self._collect_tool_advisories(
+            available_tool_names=available_tool_names,
+            task_context=task_context,
+            targeted_mode=targeted_mode,
+            tool_names=tool_names,
+            limit=limit,
+        )
 
         if targeted_mode:
-            ordered: list[dict] = []
-            for tool_name in list(tool_names or []):
-                advisory = advisories_by_tool.get(tool_name)
-                if advisory is not None:
-                    ordered.append(advisory)
-            return ordered[:limit]
+            return _ordered_target_tool_advisories(advisories_by_tool, tool_names, limit)
 
-        return [
-            advisory
-            for advisory in advisories_by_tool.values()
-            if advisory.get("strategy_hint") is not None
-            or advisory.get("breaker_state") != "closed"
-            or (
-                float(advisory.get("success_rate") or 0.0) < 0.7
-                and int(advisory.get("total_attempts") or 0) >= 3
+        return _notable_tool_advisories(advisories_by_tool, limit)
+
+    async def _collect_tool_advisories(
+        self,
+        *,
+        available_tool_names: list[str],
+        task_context: str | None,
+        targeted_mode: bool,
+        tool_names: list[str] | None,
+        limit: int,
+    ) -> dict[str, dict]:
+        advisories_by_tool = _advisories_by_tool(
+            await self._fetch_l4_tool_advisories(
+                task_context=task_context,
+                targeted_mode=targeted_mode,
+                tool_names=tool_names,
+                limit=limit,
             )
-        ][:limit]
+        )
+        _merge_trace_tool_stats(
+            advisories_by_tool,
+            await self._fetch_tool_trace_stats(available_tool_names),
+        )
+        return advisories_by_tool
+
+    async def _fetch_tool_trace_stats(
+        self,
+        available_tool_names: list[str],
+    ) -> dict[str, dict[str, float | int]]:
+        if self._runtime_trace_store is None:
+            return {}
+        try:
+            return await self._runtime_trace_store.get_tool_execution_stats(available_tool_names)
+        except Exception as exc:
+            logger.debug("Failed to fetch runtime trace tool stats: %s", exc)
+            return {}
+
+    async def _fetch_l4_tool_advisories(
+        self,
+        *,
+        task_context: str | None,
+        targeted_mode: bool,
+        tool_names: list[str] | None,
+        limit: int,
+    ) -> list[dict]:
+        if self.unified_memory is None or self.unified_memory.l4 is None:
+            return []
+        try:
+            if targeted_mode:
+                return await self.unified_memory.l4.get_tool_advisory(
+                    tool_names=list(tool_names or []),
+                    task_context=task_context,
+                )
+            return await self.unified_memory.l4.get_notable_advisories(
+                task_context=task_context,
+                limit=limit,
+            )
+        except Exception as exc:
+            logger.debug("Failed to fetch L4 tool advisories: %s", exc)
+            return []
 
     async def add_fact(self, fact: FactRecord) -> bool:
         """Enqueue the fact, fast-pathing obvious INTERRUPT user turns.
@@ -312,6 +325,28 @@ class ChatTaskAgent(
         run_decision = await self._session_run_coordinator.aroute(classified)
         await self._persist_context_supersessions(run_decision, latest_fact)
 
+        context_inputs = await self._load_context_inputs(classified, run_decision)
+        turn_control = null_run_control()
+        if run_decision.active_run is not None:
+            turn_control.cancel_token = SessionRunCancelToken(
+                coordinator=self._session_run_coordinator,
+                session_id=context_inputs.session_id,
+                run_id=run_decision.active_run.run_id,
+                revision=int(run_decision.active_run.revision or 0),
+            )
+        self._register_turn_control(context_inputs.session_id, run_decision, turn_control)
+
+        return self._build_chat_runtime_context(
+            base_context=base_context,
+            latest_fact=latest_fact,
+            batch_facts=batch_facts,
+            classified=classified,
+            run_decision=run_decision,
+            context_inputs=context_inputs,
+            turn_control=turn_control,
+        )
+
+    async def _load_context_inputs(self, classified: Any, run_decision: Any) -> _ChatContextInputs:
         session_id = self._context_assembler.require_session_id(
             classified.user_id, classified.session_id
         )
@@ -321,27 +356,36 @@ class ChatTaskAgent(
             session_id,
             active_persona_id=active_persona_id,
         )
-        history = history_context.messages
         history_key = self._context_assembler.history_key(classified.user_id, session_id)
-        recent_tool_errors = self._tool_state_view.recent_errors(history_key)
-        recent_tool_state = self._tool_state_view.recent_state(history_key)
         active_orchestrations = await self._orchestration_store.list_orchestrations(
             user_id=classified.user_id,
             session_id=session_id,
             statuses=["running", "aggregating"],
         )
-        reply_context = await self._resolve_reply_context(run_decision.latest_payload)
-        preferences = _resolve_chat_runtime_preferences()
-        turn_control = null_run_control()
-        if run_decision.active_run is not None:
-            turn_control.cancel_token = SessionRunCancelToken(
-                coordinator=self._session_run_coordinator,
-                session_id=session_id,
-                run_id=run_decision.active_run.run_id,
-                revision=int(run_decision.active_run.revision or 0),
-            )
-        self._register_turn_control(session_id, run_decision, turn_control)
+        return _ChatContextInputs(
+            session_id=session_id,
+            active_persona_id=active_persona_id,
+            history_context=history_context,
+            history=history_context.messages,
+            history_key=history_key,
+            recent_tool_errors=self._tool_state_view.recent_errors(history_key),
+            recent_tool_state=self._tool_state_view.recent_state(history_key),
+            active_orchestrations=active_orchestrations,
+            reply_context=await self._resolve_reply_context(run_decision.latest_payload),
+            preferences=_resolve_chat_runtime_preferences(),
+        )
 
+    def _build_chat_runtime_context(
+        self,
+        *,
+        base_context: TaskAgentRuntimeContext,
+        latest_fact: FactRecord | None,
+        batch_facts: list[FactRecord],
+        classified: Any,
+        run_decision: Any,
+        context_inputs: _ChatContextInputs,
+        turn_control: Any,
+    ) -> ChatRuntimeContext:
         return ChatRuntimeContext(
             latest_fact=latest_fact if isinstance(latest_fact, FactRecord) else None,
             recent_facts=_recent_runtime_facts(base_context),
@@ -350,13 +394,13 @@ class ChatTaskAgent(
             agent_type=_runtime_agent_type(base_context),
             runtime_key=_runtime_key(base_context, self.runtime_key),
             user_id=classified.user_id,
-            session_id=session_id,
-            history_key=history_key,
-            history=history,
-            conversation_history=history,
-            active_orchestrations=[item.to_dict() for item in active_orchestrations],
-            recent_tool_errors=recent_tool_errors,
-            recent_tool_state=recent_tool_state,
+            session_id=context_inputs.session_id,
+            history_key=context_inputs.history_key,
+            history=context_inputs.history,
+            conversation_history=context_inputs.history,
+            active_orchestrations=[item.to_dict() for item in context_inputs.active_orchestrations],
+            recent_tool_errors=context_inputs.recent_tool_errors,
+            recent_tool_state=context_inputs.recent_tool_state,
             latest_user_message=run_decision.planner_user_message,
             incoming_fact_kind=run_decision.planner_fact_kind,
             latest_payload=run_decision.latest_payload,
@@ -372,13 +416,15 @@ class ChatTaskAgent(
             planner_fact_kind=run_decision.planner_fact_kind,
             planner_payload=run_decision.latest_payload,
             pending_turns=list(run_decision.checkpoint_pending_turns),
-            reply_context=reply_context,
-            session_summary=history_context.session_summary,
-            session_origin=history_context.session_origin,
-            active_persona_id=active_persona_id,
-            streaming_chat_enabled=preferences.streaming_chat_enabled,
-            allow_media_grounding_for_conversation=preferences.allow_media_grounding_for_conversation,
-            core_model_supports_vision=preferences.core_model_supports_vision,
+            reply_context=context_inputs.reply_context,
+            session_summary=context_inputs.history_context.session_summary,
+            session_origin=context_inputs.history_context.session_origin,
+            active_persona_id=context_inputs.active_persona_id,
+            streaming_chat_enabled=context_inputs.preferences.streaming_chat_enabled,
+            allow_media_grounding_for_conversation=(
+                context_inputs.preferences.allow_media_grounding_for_conversation
+            ),
+            core_model_supports_vision=context_inputs.preferences.core_model_supports_vision,
             control=turn_control,
         )
 
@@ -551,6 +597,77 @@ def _runtime_key(base_context: Any, fallback: str) -> str:
     if not isinstance(base_context, TaskAgentRuntimeContext):
         return fallback
     return str(base_context.runtime_key)
+
+
+def _advisories_by_tool(base_advisories: list[dict]) -> dict[str, dict]:
+    advisories_by_tool: dict[str, dict] = {}
+    for advisory in base_advisories:
+        tool_name = str(advisory.get("tool_name") or "").strip()
+        if tool_name:
+            advisories_by_tool[tool_name] = dict(advisory)
+    return advisories_by_tool
+
+
+def _merge_trace_tool_stats(
+    advisories_by_tool: dict[str, dict],
+    trace_stats: dict[str, dict[str, float | int]],
+) -> None:
+    for tool_name, stats in trace_stats.items():
+        total_calls = int(stats.get("total_calls") or 0)
+        if total_calls <= 0:
+            continue
+        _merge_one_trace_tool_stat(advisories_by_tool, tool_name, stats, total_calls)
+
+
+def _merge_one_trace_tool_stat(
+    advisories_by_tool: dict[str, dict],
+    tool_name: str,
+    stats: dict[str, float | int],
+    total_calls: int,
+) -> None:
+    success_rate = float(stats.get("success_rate") or 0.0)
+    advisory = advisories_by_tool.setdefault(
+        tool_name,
+        {
+            "tool_name": tool_name,
+            "available": True,
+            "breaker_state": "closed",
+            "strategy_hint": None,
+            "context_fit": 0.0,
+        },
+    )
+    advisory["success_rate"] = success_rate
+    advisory["total_attempts"] = total_calls
+    advisory["failure_count"] = int(stats.get("failed_calls") or 0)
+    advisory["stats_source"] = "runtime_trace.trace_tools"
+    if success_rate < 0.7 and total_calls >= 3:
+        advisory["risk_note"] = f"Low success rate ({success_rate:.0%} over {total_calls} attempts)"
+
+
+def _ordered_target_tool_advisories(
+    advisories_by_tool: dict[str, dict],
+    tool_names: list[str] | None,
+    limit: int,
+) -> list[dict]:
+    ordered: list[dict] = []
+    for tool_name in list(tool_names or []):
+        advisory = advisories_by_tool.get(tool_name)
+        if advisory is not None:
+            ordered.append(advisory)
+    return ordered[:limit]
+
+
+def _notable_tool_advisories(advisories_by_tool: dict[str, dict], limit: int) -> list[dict]:
+    return [
+        advisory
+        for advisory in advisories_by_tool.values()
+        if advisory.get("strategy_hint") is not None
+        or advisory.get("breaker_state") != "closed"
+        or (
+            float(advisory.get("success_rate") or 0.0) < 0.7
+            and int(advisory.get("total_attempts") or 0) >= 3
+        )
+    ][:limit]
 
 
 def _resolve_chat_runtime_preferences() -> _ChatRuntimePreferences:
