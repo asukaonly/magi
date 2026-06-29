@@ -119,7 +119,7 @@ class MemoryL0ConfigModel(BaseModel):
 
 class MemoryL1ConfigModel(BaseModel):
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=7, ge=1)
+    retention_days: int = Field(default=30, ge=1)
     vectors_enabled: bool = Field(default=True)
 
 
@@ -178,7 +178,7 @@ class QueryExpansionConfigModel(BaseModel):
 
 
 class GraphSpreadingConfigModel(BaseModel):
-    enabled: bool = Field(default=False)
+    enabled: bool = Field(default=True)
 
 
 class EntitySemanticEdgeConfigModel(BaseModel):
@@ -232,7 +232,7 @@ class UserPreferencesModel(BaseModel):
     scenario: Optional[str] = Field(default=None)
     language: str = Field(default="zh")
     close_to_tray_enabled: bool = Field(default=True)
-    desktop_notifications_enabled: bool = Field(default=False)
+    desktop_notifications_enabled: bool = Field(default=True)
     desktop_notification_previews_enabled: bool = Field(default=True)
     auto_start_enabled: bool = Field(default=False)
     start_minimized: bool = Field(default=False)
@@ -241,7 +241,7 @@ class UserPreferencesModel(BaseModel):
     streaming_chat_enabled: bool = Field(default=False)
     conversation_rhythm_enabled: bool = Field(default=True)
     conversation_rhythm_mode: str = Field(default="natural")
-    allow_media_grounding_for_conversation: bool = Field(default=False)
+    allow_media_grounding_for_conversation: bool = Field(default=True)
     allow_interjection: bool = Field(default=False)
     allow_ask_in_background: bool = Field(default=False)
 

@@ -82,7 +82,7 @@ class MemoryL1Settings(BaseModel):
     """L1 long-term event memory settings."""
 
     enabled: bool = Field(default=True)
-    retention_days: int = Field(default=7, ge=1)
+    retention_days: int = Field(default=30, ge=1)
     t1_importance_enabled: bool = Field(default=True)
     vectors_enabled: bool = Field(default=True)
     maintenance_enabled: bool = Field(
@@ -577,7 +577,7 @@ class QueryExpansionSettings(BaseModel):
 class GraphSpreadingSettings(BaseModel):
     """Graph spreading activation settings for L2 knowledge graph BFS."""
 
-    enabled: bool = Field(default=False)
+    enabled: bool = Field(default=True)
 
 
 class EntitySemanticEdgeSettings(BaseModel):

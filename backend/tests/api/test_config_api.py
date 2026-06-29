@@ -32,6 +32,7 @@ from magi.config.models import (
     LLMSettings,
     ModelVendor,
 )
+from magi.config.memory_models import GraphSpreadingSettings, MemoryL1Settings
 from magi.config.agent_models import BackgroundTasksSettings as AgentBackgroundTasksSettings
 from magi.config.llm_registry import (
     build_provider_catalog,
@@ -134,7 +135,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.reranker.cross_encoder.managed_model_id is None
     assert config.memory.query_expansion.enabled is True
     assert config.memory.query_expansion.max_expansions == 2
-    assert config.memory.graph_spreading.enabled is False
+    assert config.memory.graph_spreading.enabled is True
     assert config.memory.l0.enabled is True
     assert config.memory.l4.enabled is True
     assert config.memory.retention_days == 90
@@ -145,7 +146,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l2.conflict_arbitration_enabled is True
     assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
     assert config.memory.l2.shadow_conflict_notification_enabled is True
-    assert config.memory.l1.retention_days == 7
+    assert config.memory.l1.retention_days == 30
     assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
     assert config.memory.l3.temporal_llm_min_event_count == 2
     assert config.memory.l3.retention_days == 180
@@ -158,14 +159,17 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.embedding.local.model_source == "managed"
     assert config.memory.embedding.local.idle_timeout_seconds == 1800
     assert "backend" not in config.memory.embedding.model_dump(mode="json")
+    assert MemoryL1Settings().retention_days == 30
+    assert GraphSpreadingSettings().enabled is True
 
 
 def test_system_config_defaults_include_close_to_tray_enabled_preference():
     config = SystemConfigModel()
 
     assert config.preferences.close_to_tray_enabled is True
-    assert config.preferences.desktop_notifications_enabled is False
+    assert config.preferences.desktop_notifications_enabled is True
     assert config.preferences.desktop_notification_previews_enabled is True
+    assert config.preferences.allow_media_grounding_for_conversation is True
     assert config.preferences.default_chat_workspace_path == "~/.magi/chat-workspace"
 
 

@@ -749,7 +749,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       max_expansions: 2,
     },
     graph_spreading: {
-      enabled: false,
+      enabled: true,
     },
     retention_days: 90,
     history_behavior: 'delete',
@@ -760,7 +760,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     },
     l1: {
       enabled: true,
-      retention_days: 7,
+      retention_days: 30,
       vectors_enabled: true,
     },
     l2: {
@@ -796,7 +796,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     scenario: null,
     language: 'zh',
     close_to_tray_enabled: true,
-    desktop_notifications_enabled: false,
+    desktop_notifications_enabled: true,
     desktop_notification_previews_enabled: true,
     auto_start_enabled: false,
     start_minimized: false,
@@ -805,7 +805,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
     streaming_chat_enabled: false,
     conversation_rhythm_enabled: true,
     conversation_rhythm_mode: 'natural',
-    allow_media_grounding_for_conversation: false,
+    allow_media_grounding_for_conversation: true,
     allow_interjection: false,
     allow_ask_in_background: false,
   },

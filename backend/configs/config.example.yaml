@@ -42,7 +42,7 @@ agent:
       timeout_seconds: 3.0
 
     graph_spreading:
-      enabled: false
+      enabled: true
       max_hops: 2
       max_neighbors: 10
       max_entities: 50
@@ -67,6 +67,7 @@ agent:
 
     l1:
       enabled: true
+      retention_days: 30
       vectors_enabled: true
 
     l2:
@@ -256,11 +257,11 @@ plugins:
 # =============================================================================
 preferences:
   default_chat_workspace_path: "~/.magi/chat-workspace"
-  desktop_notifications_enabled: false
+  desktop_notifications_enabled: true
   desktop_notification_previews_enabled: true
   conversation_rhythm_enabled: true
   conversation_rhythm_mode: "natural"
-  allow_media_grounding_for_conversation: false
+  allow_media_grounding_for_conversation: true
 
 debug: false
 log_level: "INFO"

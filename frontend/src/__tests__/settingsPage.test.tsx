@@ -764,11 +764,10 @@ describe('settings page draft saving', () => {
     const notificationsSwitch = await screen.findByRole('switch', { name: 'settings.desktopNotificationsLabel' });
     const previewsSwitch = await screen.findByRole('switch', { name: 'settings.desktopNotificationPreviewsLabel' });
 
-    expect(notificationsSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(notificationsSwitch).toHaveAttribute('data-state', 'checked');
     expect(previewsSwitch).toHaveAttribute('data-state', 'checked');
 
     await user.click(notificationsSwitch);
-    await waitFor(() => expect(requestDesktopNotificationPermissionMock).toHaveBeenCalledTimes(1));
     await user.click(previewsSwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
@@ -776,12 +775,13 @@ describe('settings page draft saving', () => {
       expect(configApi.update).toHaveBeenCalledWith(
         expect.objectContaining({
           preferences: expect.objectContaining({
-            desktop_notifications_enabled: true,
+            desktop_notifications_enabled: false,
             desktop_notification_previews_enabled: false,
           }),
         })
       )
     );
+    expect(requestDesktopNotificationPermissionMock).not.toHaveBeenCalled();
   });
 
   it('saves proxy credentials from network proxy settings', async () => {
@@ -1074,16 +1074,19 @@ describe('settings page draft saving', () => {
     );
   });
 
-  it('disables media grounding when the current core model lacks vision support', async () => {
+  it('defaults media grounding on while still allowing users to turn it off without vision support', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.conversation' }));
 
     const mediaGroundingSwitch = await screen.findByRole('switch', { name: 'settings.fields.mediaGrounding' });
-    expect(mediaGroundingSwitch).toBeDisabled();
-    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'unchecked');
+    expect(mediaGroundingSwitch).toBeEnabled();
+    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'checked');
     expect(screen.getByText('settings.mediaGroundingUnavailable')).toBeInTheDocument();
+
+    await user.click(mediaGroundingSwitch);
+    expect(mediaGroundingSwitch).toHaveAttribute('data-state', 'unchecked');
   });
 
   it('still lets users turn off media grounding after switching to a non-vision core model', async () => {
@@ -1404,7 +1407,10 @@ describe('settings page draft saving', () => {
     await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
     await screen.findByRole('heading', { name: 'settings.tabs.memoryGeneral' });
 
-    await user.click(screen.getByRole('switch', { name: 'settings.memory.fields.graph_spreading_enabled.label' }));
+    const graphSpreadingSwitch = screen.getByRole('switch', { name: 'settings.memory.fields.graph_spreading_enabled.label' });
+    expect(graphSpreadingSwitch).toHaveAttribute('data-state', 'checked');
+
+    await user.click(graphSpreadingSwitch);
     await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
 
     await waitFor(() =>
@@ -1412,7 +1418,7 @@ describe('settings page draft saving', () => {
         expect.objectContaining({
           memory: expect.objectContaining({
             graph_spreading: expect.objectContaining({
-              enabled: true,
+              enabled: false,
             }),
           }),
         })

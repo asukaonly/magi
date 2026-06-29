@@ -138,6 +138,7 @@ Current product expectations:
 
 - users can switch interface language at any time
 - desktop users can choose whether closing the main window hides to tray or exits
+- desktop system notifications for new messages should default to enabled, with notification previews also enabled by default
 - packaged desktop builds should expose a manual update surface that checks the latest published stable GitHub Release, downloads signed updater artifacts, and prompts for restart after installation
 - packaged desktop builds should also run a delayed background update check shortly after startup and reuse the global network proxy settings when that proxy is enabled
 - global network proxy settings should support optional username and password credentials for authenticated HTTP and SOCKS5 proxies
@@ -152,7 +153,7 @@ Current product expectations:
 - desktop chat history thumbnails should open a larger local preview when clicked
 - parsed text and PDF attachments should be injected into the chat prompt as active attachment context for the current turn
 - image attachments on vision-capable core models should be delivered as multimodal message blocks and routed through direct LLM execution
-- conversation preferences should allow users to decide whether the assistant may inspect prepared media attachments for grounded replies; media grounding must remain disabled unless the selected core model exposes vision capability
+- conversation preferences should default to allowing the assistant to inspect prepared image attachments for grounded replies when needed; media grounding must remain disabled unless the selected core model exposes vision capability
 - conversation rhythm may split one assistant turn into several natural chat bubbles when enabled; it takes precedence over streaming output for that turn, must remain presentation-only, preserve one canonical answer for memory and trace, and fall back to a single message when segmentation is unavailable or invalid
 
 ### Desktop Startup Diagnostics
@@ -322,6 +323,8 @@ Product expectations:
 - changing the active embedding model must run a save preflight: model or dimension changes for existing vectors require a strong confirmation and should prompt users to rebuild vectors; remote provider/base URL changes with the same model and dimension may show a softer provenance warning
 - general memory settings should expose vector ready counts and a rebuild action backed by a persisted background job, so users can safely recover semantic search after embedding changes
 - the Knowledge Memory workspace should let operators manually trigger immediate L2 microbatch generation for all currently staged batches
+- L1 event memory should default to a 30-day hot retention window
+- graph-spreading recall should default to enabled for relation-assisted memory retrieval
 
 The current settings surface should support at least:
 
