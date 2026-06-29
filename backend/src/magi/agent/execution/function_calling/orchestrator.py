@@ -38,6 +38,7 @@ from .step_executor import (
     FunctionCallingStepExecutor,
     FunctionCallingStepState,
 )
+from .tool_expansion import apply_tool_expansion_from_results
 from .tool_execution import FunctionCallingToolExecutionMixin
 from .tools import (
     build_tool_description,
@@ -248,65 +249,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         state: FunctionCallingStepState,
         tool_results: list[Any],
     ) -> list[str]:
-        if state.tool_expansion_count >= self._MAX_TOOL_EXPANSIONS_PER_TURN:
-            return []
-        if not tool_results:
-            return []
-
-        raw_append_tools: list[str] = []
-        for result in tool_results:
-            if not getattr(result, "success", False):
-                continue
-            data = getattr(result, "data", None)
-            if not isinstance(data, dict):
-                continue
-            expansion = data.get("tool_expansion")
-            if not isinstance(expansion, dict):
-                continue
-            append_tools = expansion.get("append_tools")
-            if not isinstance(append_tools, list):
-                continue
-            raw_append_tools.extend(str(item or "").strip() for item in append_tools)
-
-        if not raw_append_tools:
-            return []
-
-        available_slots = max(0, self._MAX_TOTAL_TOOLS_PER_TURN - len(state.selected_tool_names))
-        if available_slots <= 0:
-            return []
-        max_additions = min(self._MAX_TOOLS_PER_EXPANSION, available_slots)
-
-        resolve_tool_name = getattr(self.tool_registry, "resolve_tool_name", None)
-        get_tool_info = getattr(self.tool_registry, "get_tool_info", None)
-        is_skill = getattr(self.tool_registry, "is_skill", None)
-        known_names = set(state.selected_tool_names)
-        additions: list[str] = []
-        for raw_name in raw_append_tools:
-            if len(additions) >= max_additions:
-                break
-            name = str(raw_name or "").strip()
-            if not name:
-                continue
-            skill_name = name.lstrip("/")
-            normalized = (
-                resolve_tool_name(name) if callable(resolve_tool_name) and not name.startswith("/") else skill_name
-            )
-            if normalized in known_names:
-                continue
-            known_tool = callable(get_tool_info) and get_tool_info(normalized) is not None
-            known_skill = callable(is_skill) and is_skill(skill_name)
-            if not known_tool and not known_skill:
-                continue
-            known_names.add(normalized)
-            additions.append(normalized)
-
-        if not additions:
-            return []
-
-        state.selected_tool_names.extend(additions)
-        state.tools = self._build_tools_parameter(state.selected_tool_names)
-        state.tool_expansion_count += 1
-        return additions
+        return apply_tool_expansion_from_results(
+            self,
+            state=state,
+            tool_results=tool_results,
+        )
 
     def inject_prepared_attachment_grounding_message(
         self,
