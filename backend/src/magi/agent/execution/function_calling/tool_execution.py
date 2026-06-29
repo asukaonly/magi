@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
-import getpass
 import logging
-import os
 import time
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from ...cancel import CancelToken, null_cancel_token
+from ._registered_tool_execution import _RegisteredToolExecutor
+from ._skill_tool_execution import _SkillToolExecutor
+from ._tool_execution_contracts import (
+    _FunctionCallingToolExecutionHostProtocol,
+    _RegisteredToolExecutionRequest,
+    _SkillExecutionRequest,
+    _cancelled_tool_call_result,
+    _failed_tool_call_result,
+)
 from .types import ToolCall, ToolCallResult
-from magi.tools.capabilities import build_tool_capabilities
 
 if TYPE_CHECKING:
     from ....tools.context_routing import RouteDecision
@@ -112,59 +118,90 @@ def _inject_memory_query_context(
     return enriched
 
 
-class _ToolRegistryProtocol(Protocol):
-    def get_tool_info(self, tool_name: str) -> dict[str, Any] | None: ...
 
-    async def execute(self, tool_name: str, arguments: dict[str, Any], context: Any) -> Any: ...
+def _build_registered_tool_execution_request(
+    *,
+    tool_call: ToolCall,
+    tool_name: str,
+    arguments: dict[str, Any],
+    user_id: str,
+    session_id: str | None,
+    turn_id: str | None,
+    intent: str,
+    execution_agent_id: str,
+    execution_workspace: str | None,
+    session_run_id: str | None,
+    session_run_revision: int,
+    user_message: str | None,
+    iteration: int | None,
+    route_decision: "RouteDecision | None",
+    start_time: float,
+    token: CancelToken,
+    workspace_root: str,
+) -> _RegisteredToolExecutionRequest:
+    return _RegisteredToolExecutionRequest(
+        tool_call=tool_call,
+        tool_name=tool_name,
+        arguments=arguments,
+        user_id=user_id,
+        session_id=session_id,
+        turn_id=turn_id,
+        intent=intent,
+        execution_agent_id=execution_agent_id,
+        execution_workspace=execution_workspace,
+        session_run_id=session_run_id,
+        session_run_revision=session_run_revision,
+        user_message=user_message,
+        iteration=iteration,
+        route_decision=route_decision,
+        start_time=start_time,
+        token=token,
+        workspace_root=workspace_root,
+    )
 
 
-class _FunctionCallingToolExecutionHostProtocol(Protocol):
-    skill_runner: Any
-    tool_registry: _ToolRegistryProtocol
-    _tool_invocation_service: Any
-    _FILE_SCAN_TOOLS: set[str]
-    _SLOW_SCAN_WARNING_SECONDS: float
-
-    def _resolve_execution_workspace(self, execution_workspace: str | None) -> str: ...
-
-    def _apply_worker_explore_guardrails(
-        self,
-        *,
-        intent: str,
-        tool_name: str,
-        arguments: dict[str, Any],
-        execution_workspace: str | None,
-    ) -> tuple[dict[str, Any], str | None]: ...
-
-    def _classify_guardrail_error_code(self, *, tool_name: str, error_text: str) -> str: ...
-
-    def _normalize_agent_launch_arguments(
-        self,
-        arguments: dict[str, Any],
-        route_decision: "RouteDecision | None" = None,
-    ) -> dict[str, Any]: ...
-
-    def _resolve_permission_gateway(self) -> Any: ...
-
-    def _build_tool_span_id(self, turn_id: str, iteration: int, tool_call_id: str) -> str: ...
-
-    async def _gate_tool_call(
-        self,
-        *,
-        tool_call: ToolCall,
-        tool_name: str,
-        arguments: dict[str, Any],
-        agent_id: str,
-        session_id: str | None,
-        turn_id: str | None,
-        workspace: str | None,
-        intent: str,
-        start_time: float,
-        gateway: Any = None,
-    ) -> ToolCallResult | None: ...
-
-    def _resolve_scan_root_path(self, path_value: Any, execution_workspace: str | None) -> str: ...
-
+def _prepare_registered_tool_execution_request(
+    *,
+    host: _FunctionCallingToolExecutionHostProtocol,
+    tool_call: ToolCall,
+    user_id: str,
+    session_id: str | None,
+    turn_id: str | None,
+    intent: str,
+    execution_agent_id: str,
+    execution_workspace: str | None,
+    session_run_id: str | None,
+    session_run_revision: int,
+    user_message: str | None,
+    iteration: int | None,
+    cancel_token: CancelToken | None,
+    recent_messages: list[dict[str, Any]] | None,
+    route_decision: "RouteDecision | None",
+) -> _RegisteredToolExecutionRequest:
+    start_time = time.time()
+    token = cancel_token if cancel_token is not None else null_cancel_token()
+    tool_name = tool_call.name
+    arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
+    arguments = _inject_memory_query_context(tool_name, arguments, recent_messages)
+    return _build_registered_tool_execution_request(
+        tool_call=tool_call,
+        tool_name=tool_name,
+        arguments=arguments,
+        user_id=user_id,
+        session_id=session_id,
+        turn_id=turn_id,
+        intent=intent,
+        execution_agent_id=execution_agent_id,
+        execution_workspace=execution_workspace,
+        session_run_id=session_run_id,
+        session_run_revision=session_run_revision,
+        user_message=user_message,
+        iteration=iteration,
+        route_decision=route_decision,
+        start_time=start_time,
+        token=token,
+        workspace_root=host._resolve_execution_workspace(execution_workspace),
+    )
 
 class FunctionCallingToolExecutionMixin:
     """Execute concrete tool calls and skill-backed tools."""
@@ -188,222 +225,82 @@ class FunctionCallingToolExecutionMixin:
     ) -> ToolCallResult:
         """Execute a single tool call."""
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
-        start_time = time.time()
-        token = cancel_token if cancel_token is not None else null_cancel_token()
+        request = _prepare_registered_tool_execution_request(
+            host=host,
+            tool_call=tool_call,
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            intent=intent,
+            execution_agent_id=execution_agent_id,
+            execution_workspace=execution_workspace,
+            session_run_id=session_run_id,
+            session_run_revision=session_run_revision,
+            user_message=user_message,
+            iteration=iteration,
+            cancel_token=cancel_token,
+            recent_messages=recent_messages,
+            route_decision=route_decision,
+        )
 
-        tool_name = tool_call.name
-        arguments = tool_call.arguments if isinstance(tool_call.arguments, dict) else {}
-        # Phase 3: auto-inject conversation_context for memory_query so the
-        # indexical resolver can anchor deictic references (e.g. "当时", "just
-        # now"). The chat LLM rarely populates this parameter on its own.
-        arguments = _inject_memory_query_context(tool_name, arguments, recent_messages)
-        workspace_root = host._resolve_execution_workspace(execution_workspace)
-
-        if await token.is_cancelled():
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=False,
-                error="Run cancelled before tool execution",
-                error_code="CANCELLED",
-                execution_time=time.time() - start_time,
-            )
+        if await request.token.is_cancelled():
+            return _cancelled_tool_call_result(request)
 
         try:
-            from ....tools.schema import ToolExecutionContext
+            skill_result = await self._try_execute_skill_tool(request)
+            if skill_result is not None:
+                return skill_result
 
-            if tool_name.startswith("skill_"):
-                skill_name = tool_name.replace("skill_", "")
-                return await self._execute_skill(
-                    skill_name=skill_name,
-                    arguments=arguments,
-                    user_id=user_id,
-                    execution_workspace=execution_workspace,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    tool_call_id=tool_call.id,
-                    iteration=iteration,
-                )
+            role_result = self._reject_worker_owned_tool(request)
+            if role_result is not None:
+                return role_result
 
-            if tool_name == "todo_write" and (
-                str(intent or "").startswith("worker_")
-                or str(execution_agent_id or "").startswith("worker_")
-            ):
-                return ToolCallResult(
-                    tool_call_id=tool_call.id,
-                    tool_name=tool_name,
-                    success=False,
-                    error=(
-                        "todo_write is owned by the parent task agent; "
-                        "worker agents must report progress through worker results."
-                    ),
-                    error_code="ROLE_NOT_ALLOWED",
-                    execution_time=time.time() - start_time,
-                )
-
-            arguments, guardrail_error = host._apply_worker_explore_guardrails(
-                intent=intent,
-                tool_name=tool_name,
-                arguments=arguments,
-                execution_workspace=execution_workspace,
-            )
-            if guardrail_error:
-                guardrail_error_code = host._classify_guardrail_error_code(
-                    tool_name=tool_name,
-                    error_text=guardrail_error,
-                )
-                logger.warning(
-                    "[FunctionCalling] Blocked by guardrail: %s | intent=%s | workspace=%s | args=%s | reason=%s",
-                    tool_name,
-                    intent,
-                    workspace_root,
-                    arguments,
-                    guardrail_error,
-                )
-                return ToolCallResult(
-                    tool_call_id=tool_call.id,
-                    tool_name=tool_name,
-                    success=False,
-                    error=guardrail_error,
-                    error_code=guardrail_error_code,
-                    execution_time=time.time() - start_time,
-                )
-
-            permissions = ["authenticated"]
-            tool_info = host.tool_registry.get_tool_info(tool_name)
-            if tool_info and tool_info.get("dangerous", False):
-                permissions.append("dangerous_tools")
-            normalized_session_id = str(session_id or "").strip()
-            normalized_turn_id = str(turn_id or "").strip()
-            target_task_agent_id = normalized_session_id or user_id
-            trace_parent_span_id = (
-                host._build_tool_span_id(normalized_turn_id, iteration, tool_call.id)
-                if normalized_turn_id and iteration is not None and iteration > 0
-                else ""
-            )
-
-            context = ToolExecutionContext(
-                agent_id=execution_agent_id,
-                workspace=workspace_root,
-                env_vars={
-                    "user_id": user_id,
-                    "session_id": session_id or "",
-                    "turn_id": turn_id or "",
-                    "intent": intent,
-                    "run_id": session_run_id or "",
-                    "run_revision": str(session_run_revision),
-                    "target_task_agent_type": "chat",
-                    "target_task_agent_id": target_task_agent_id,
-                    "trace_id": f"trace:{normalized_turn_id}" if normalized_turn_id else "",
-                    "trace_parent_span_id": trace_parent_span_id,
-                    "trace_tool_call_id": tool_call.id,
-                    "current_user_text": user_message or "",
-                },
-                permissions=permissions,
-                cancellation=token,
-                capabilities=build_tool_capabilities(),
-            )
-
-            if tool_name == "agent":
-                arguments = host._normalize_agent_launch_arguments(
-                    arguments=arguments,
-                    route_decision=route_decision,
-                )
-
-            gateway = host._resolve_permission_gateway()
-            if gateway is not None:
-                denied_result = await host._gate_tool_call(
-                    tool_call=tool_call,
-                    tool_name=tool_name,
-                    arguments=arguments,
-                    agent_id=execution_agent_id,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    workspace=context.workspace,
-                    intent=intent,
-                    start_time=start_time,
-                    gateway=gateway,
-                )
-                if denied_result is not None:
-                    return denied_result
-
-            if tool_name in host._FILE_SCAN_TOOLS:
-                logger.info(
-                    "[FunctionCalling] Executing scan tool: %s | workspace=%s | path=%s | args=%s",
-                    tool_name,
-                    workspace_root,
-                    host._resolve_scan_root_path(arguments.get("path"), execution_workspace),
-                    arguments,
-                )
-            else:
-                logger.info(
-                    "[FunctionCalling] Executing: %s with args: %s",
-                    tool_name,
-                    arguments,
-                )
-            from ...execution.tool_invocation_service import (
-                InvocationContext,
-                ToolCall as _ServiceToolCall,
-                get_tool_invocation_service,
-            )
-            from ....events.domain_payloads import TaskContext
-
-            if not hasattr(host, "_tool_invocation_service"):
-                host._tool_invocation_service = get_tool_invocation_service(host.tool_registry)
-
-            result = await host._tool_invocation_service.invoke(
-                _ServiceToolCall(name=tool_name, args=arguments),
-                InvocationContext(
-                    tool_category="external_tool",
-                    task_context=TaskContext(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        task_id=getattr(context, "task_id", None),
-                        user_id=user_id,
-                    ),
-                    execution_context=context,
-                ),
-            )
-            execution_time = time.time() - start_time
-            if not result.success:
-                logger.warning(
-                    "[FunctionCalling] Tool failed: %s | error=%s | code=%s",
-                    tool_name,
-                    result.error,
-                    result.error_code,
-                )
-            if (
-                tool_name in host._FILE_SCAN_TOOLS
-                and execution_time >= host._SLOW_SCAN_WARNING_SECONDS
-            ):
-                logger.warning(
-                    "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",
-                    tool_name,
-                    workspace_root,
-                    host._resolve_scan_root_path(arguments.get("path"), execution_workspace),
-                    execution_time * 1000,
-                    arguments,
-                )
-
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=result.success,
-                data=result.data,
-                error=result.error,
-                error_code=getattr(result, "error_code", None),
-                execution_time=execution_time,
-            )
+            return await _RegisteredToolExecutor(host).execute(request)
 
         except Exception as exc:
             logger.error("[FunctionCalling] Tool execution error: %s", exc)
-            return ToolCallResult(
-                tool_call_id=tool_call.id,
-                tool_name=tool_name,
-                success=False,
-                error=str(exc),
-                execution_time=time.time() - start_time,
-            )
+            return _failed_tool_call_result(request, exc)
+
+    async def _try_execute_skill_tool(
+        self,
+        request: _RegisteredToolExecutionRequest,
+    ) -> ToolCallResult | None:
+        if not request.tool_name.startswith("skill_"):
+            return None
+        skill_name = request.tool_name.replace("skill_", "")
+        return await self._execute_skill(
+            skill_name=skill_name,
+            arguments=request.arguments,
+            user_id=request.user_id,
+            execution_workspace=request.execution_workspace,
+            session_id=request.session_id,
+            turn_id=request.turn_id,
+            tool_call_id=request.tool_call.id,
+            iteration=request.iteration,
+        )
+
+    def _reject_worker_owned_tool(
+        self,
+        request: _RegisteredToolExecutionRequest,
+    ) -> ToolCallResult | None:
+        if request.tool_name != "todo_write":
+            return None
+        if not (
+            str(request.intent or "").startswith("worker_")
+            or str(request.execution_agent_id or "").startswith("worker_")
+        ):
+            return None
+        return ToolCallResult(
+            tool_call_id=request.tool_call.id,
+            tool_name=request.tool_name,
+            success=False,
+            error=(
+                "todo_write is owned by the parent task agent; "
+                "worker agents must report progress through worker results."
+            ),
+            error_code="ROLE_NOT_ALLOWED",
+            execution_time=time.time() - request.start_time,
+        )
 
     async def _execute_skill(
         self,
@@ -423,272 +320,18 @@ class FunctionCallingToolExecutionMixin:
         ``SkillInvocationCompleted`` event for memory ingestion.
         """
         host = cast(_FunctionCallingToolExecutionHostProtocol, self)
-        if not host.skill_runner:
-            return ToolCallResult(
-                tool_call_id="",
-                tool_name=skill_name,
-                success=False,
-                error="Skill runner not available",
-            )
-
-        workspace_root = host._resolve_execution_workspace(execution_workspace)
-
-        from ....hooks.contracts import HookEventType, HookOutcome
-        from ....hooks.dispatch import dispatch_hook
-
-        pre_decision = await dispatch_hook(
-            HookEventType.PRE_SKILL_USE,
-            session_id=session_id,
-            turn_id=turn_id,
-            user_id=user_id,
-            workspace=workspace_root,
-            skill_name=skill_name,
-            arguments=arguments,
-        )
-        if pre_decision.outcome == HookOutcome.DENY:
-            return ToolCallResult(
-                tool_call_id=tool_call_id or "",
-                tool_name=skill_name,
-                success=False,
-                error=pre_decision.reason or "Skill call denied by hook",
-                error_code="HOOK_DENIED",
-            )
-        if pre_decision.outcome == HookOutcome.MODIFY and pre_decision.modified_arguments is not None:
-            arguments = dict(pre_decision.modified_arguments)
-
-        skill_context = {
-            "user_id": user_id,
-            "session_id": f"session_{user_id}",
-            "workspace": workspace_root,
-            "env_vars": {
-                "user": getpass.getuser(),
-                "HOME": os.path.expanduser("~"),
-                "PWD": workspace_root,
-            },
-        }
-
-        from ....events.tracing import start_async_span, current_trace_context
-        from ....runtime_trace import build_root_span_id, build_trace_id, normalize_turn_id
-
-        normalized_turn_id = normalize_turn_id(turn_id)
-        trace_id = (
-            build_trace_id(normalized_turn_id)
-            if normalized_turn_id and current_trace_context() is None
-            else None
-        )
-        parent_span_id = None
-        if trace_id and normalized_turn_id:
-            parent_span_id = (
-                host._build_tool_span_id(normalized_turn_id, iteration, tool_call_id or "")
-                if iteration is not None and iteration > 0 and tool_call_id
-                else build_root_span_id(normalized_turn_id)
-            )
-
-        args_list: list[str] = []
-        if arguments:
-            for value in arguments.values():
-                if isinstance(value, str):
-                    args_list.append(value)
-                elif value is not None:
-                    args_list.append(str(value))
-
-        started_at = time.time()
-        started_mono = time.monotonic()
-        args_summary = str(arguments)[:500] if arguments else None
-
-        async with start_async_span(
-            node_type="skill_call",
-            name=skill_name,
-            trace_id=trace_id,
-            parent_span_id=parent_span_id,
-        ) as span:
-            span.set_turn_id(turn_id)
-            span.set_attributes(
-                {
-                    "skill_name": skill_name,
-                    "tool_call_id": tool_call_id,
-                    "args_summary": args_summary,
-                    "started_at": started_at,
-                    "session_id": session_id,
-                    "user_id": user_id,
-                }
-            )
-            try:
-                result = await host.skill_runner.execute(
-                    skill_name=skill_name,
-                    arguments=args_list,
-                    context=skill_context,
-                )
-                duration_ms = (time.monotonic() - started_mono) * 1000
-                finished_at = time.time()
-                success = bool(getattr(result, "success", False))
-                content = getattr(result, "content", None)
-                result_summary = str(content)[:500] if content is not None else None
-                metadata = getattr(result, "metadata", {}) or {}
-                fork_mode = bool(metadata.get("fork_mode") or metadata.get("context") == "fork")
-                allowed_tools = metadata.get("allowed_tools")
-                if isinstance(allowed_tools, (list, tuple)):
-                    allowed_tools_tuple = tuple(str(t) for t in allowed_tools)
-                else:
-                    allowed_tools_tuple = None
-
-                span.set_attributes(
-                    {
-                        "success": success,
-                        "execution_time_ms": int(duration_ms),
-                        "finished_at": finished_at,
-                        "result_summary": result_summary,
-                        "fork_mode": fork_mode,
-                        "allowed_tools": (
-                            list(allowed_tools_tuple) if allowed_tools_tuple else None
-                        ),
-                    }
-                )
-                span.set_result_preview(result_summary)
-
-                error = getattr(result, "error", None)
-                if not success:
-                    span.set_status("error")
-                    from ....events.domain_payloads import ToolError as _ToolError
-                    span._error = _ToolError(
-                        type="SkillFailure",
-                        message=str(error or "")[:1000],
-                    )
-
-                await self._publish_skill_invocation_event(
-                    skill_name=skill_name,
-                    success=success,
-                    duration_ms=duration_ms,
-                    started_at=started_at,
-                    finished_at=finished_at,
-                    fork_mode=fork_mode,
-                    args_summary=args_summary,
-                    result_summary=result_summary,
-                    allowed_tools=allowed_tools_tuple,
-                    error_message=str(error) if (not success and error) else None,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    user_id=user_id,
-                )
-
-                await dispatch_hook(
-                    HookEventType.POST_SKILL_USE,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    user_id=user_id,
-                    workspace=workspace_root,
-                    skill_name=skill_name,
-                    arguments=arguments,
-                    extra={
-                        "success": success,
-                        "duration_ms": duration_ms,
-                        "result_summary": result_summary,
-                        "fork_mode": fork_mode,
-                        "error_message": str(error) if (not success and error) else None,
-                    },
-                )
-
-                return ToolCallResult(
-                    tool_call_id=tool_call_id or "",
-                    tool_name=skill_name,
-                    success=success,
-                    data=content,
-                    error=error,
-                )
-
-            except Exception as exc:
-                duration_ms = (time.monotonic() - started_mono) * 1000
-                finished_at = time.time()
-                logger.error("[FunctionCalling] Skill execution error: %s", exc)
-                span.set_attributes(
-                    {
-                        "success": False,
-                        "execution_time_ms": int(duration_ms),
-                        "finished_at": finished_at,
-                        "error_message": str(exc)[:1000],
-                    }
-                )
-                await self._publish_skill_invocation_event(
-                    skill_name=skill_name,
-                    success=False,
-                    duration_ms=duration_ms,
-                    started_at=started_at,
-                    finished_at=finished_at,
-                    fork_mode=False,
-                    args_summary=args_summary,
-                    result_summary=None,
-                    allowed_tools=None,
-                    error_message=str(exc),
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    user_id=user_id,
-                )
-                return ToolCallResult(
-                    tool_call_id=tool_call_id or "",
-                    tool_name=skill_name,
-                    success=False,
-                    error=str(exc),
-                )
-
-    async def _publish_skill_invocation_event(
-        self,
-        *,
-        skill_name: str,
-        success: bool,
-        duration_ms: float,
-        started_at: float,
-        finished_at: float,
-        fork_mode: bool,
-        args_summary: str | None,
-        result_summary: str | None,
-        allowed_tools: tuple[str, ...] | None,
-        error_message: str | None,
-        session_id: str | None,
-        turn_id: str | None,
-        user_id: str | None,
-    ) -> None:
-        """Publish SkillInvocationCompleted to the message bus (best-effort)."""
-        try:
-            from ....events.events import Event, EventTypes
-            from ....events.domain_payloads import (
-                SkillInvocationCompleted,
-                TaskContext,
-                ToolError,
-            )
-            from ....core.container import get_container
-
-            bus = get_container().message_bus()
-            if bus is None or not hasattr(bus, "publish"):
-                return
-            payload = SkillInvocationCompleted(
+        return await _SkillToolExecutor(host=host).execute(
+            _SkillExecutionRequest(
                 skill_name=skill_name,
-                success=success,
-                duration_ms=duration_ms,
-                started_at=started_at,
-                finished_at=finished_at,
-                fork_mode=fork_mode,
-                args_summary=args_summary,
-                result_summary=result_summary,
-                allowed_tools=allowed_tools,
-                error=(
-                    ToolError(type="SkillFailure", message=error_message[:1000])
-                    if error_message
-                    else None
-                ),
-                context=TaskContext(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    task_id=None,
-                    user_id=user_id,
-                ),
+                arguments=arguments,
+                user_id=user_id,
+                execution_workspace=execution_workspace,
+                session_id=session_id,
+                turn_id=turn_id,
+                tool_call_id=tool_call_id,
+                iteration=iteration,
             )
-            await bus.publish(Event(
-                type=EventTypes.SKILL_INVOCATION_COMPLETED,
-                data=payload,
-                source="skill_runner",
-            ))
-        except Exception:
-            logger.exception("publish SkillInvocationCompleted failed (skill=%s)", skill_name)
+        )
 
 
 __all__ = ["FunctionCallingToolExecutionMixin"]
