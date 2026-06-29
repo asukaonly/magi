@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .handler_base import rrf_fuse
@@ -11,6 +12,51 @@ from .debug_detail import DETAIL_LIMIT, event_record, event_records, log_detail
 from .models import L1Conditions, TimeRange
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _L1BasePathResults:
+    bm25_ids: List[str]
+    vector_ids: List[str]
+    keyword_ids: List[str]
+    temporal_bm25_ids: List[str]
+    bm25_details: Dict[str, Dict[str, Any]]
+    vector_details: Dict[str, Dict[str, Any]]
+    temporal_bm25_details: Dict[str, Dict[str, Any]]
+
+    @property
+    def paths(self) -> Dict[str, List[str]]:
+        return {
+            "bm25": self.bm25_ids,
+            "vector": self.vector_ids,
+            "keyword": self.keyword_ids,
+            "temporal_bm25": self.temporal_bm25_ids,
+        }
+
+    @property
+    def details(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        return {
+            "bm25": self.bm25_details,
+            "vector": self.vector_details,
+            "keyword": {},
+            "temporal_bm25": self.temporal_bm25_details,
+        }
+
+    def seed_ids(self) -> List[str]:
+        return list(
+            dict.fromkeys(
+                self.bm25_ids[:10]
+                + self.vector_ids[:10]
+                + self.keyword_ids[:10]
+                + self.temporal_bm25_ids[:10]
+            )
+        )
+
+
+@dataclass(frozen=True)
+class _L1ExpansionPathResults:
+    entity_ids: List[str]
+    graph_ids: List[str]
 
 
 class L1ExecutionMixin:
@@ -57,7 +103,10 @@ class L1ExecutionMixin:
         )
 
         return await self._hydrate_and_rerank(
-            top_ids, fused, conditions, time_range,
+            top_ids,
+            fused,
+            conditions,
+            time_range,
             session_id=session_id,
             user_id=user_id,
             l1_retrieval_scopes=l1_retrieval_scopes,
@@ -75,11 +124,94 @@ class L1ExecutionMixin:
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> Tuple[List[Sequence[str]], List[float], Dict[str, Any]]:
         """Run all retrieval paths and return (ranked_lists, weights) for RRF fusion."""
-        cfg = self._config
+        self._reset_l1_path_details()
+        base_paths = await self._run_base_l1_paths(
+            conditions,
+            time_range,
+            fetch_k,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        await self._log_base_l1_path_results(
+            conditions=conditions,
+            time_range=time_range,
+            fetch_k=fetch_k,
+            base_paths=base_paths,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+
+        expansion_paths = await self._expand_l1_candidate_paths(
+            seed_ids=base_paths.seed_ids(),
+            fetch_k=fetch_k,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        ranked_lists, weights, path_names = self._build_l1_ranked_lists(
+            base_paths,
+            expansion_paths,
+        )
+        return (
+            ranked_lists,
+            weights,
+            self._build_l1_path_debug(
+                base_paths=base_paths,
+                expansion_paths=expansion_paths,
+                path_names=path_names,
+                weights=weights,
+            ),
+        )
+
+    def _reset_l1_path_details(self) -> None:
         self._last_bm25_path_details = {}
         self._last_vector_path_details = {}
         self._last_temporal_bm25_path_details = {}
 
+    async def _run_base_l1_paths(
+        self,
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        fetch_k: int,
+        *,
+        session_id: Optional[str],
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> _L1BasePathResults:
+        has_temporal = self._has_temporal_range(time_range)
+        retrieval_coros = self._base_l1_path_coroutines(
+            conditions,
+            time_range,
+            fetch_k,
+            has_temporal=has_temporal,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
+        self._log_l1_path_errors(results_or_errors)
+        return self._base_l1_results_from_gather(
+            results_or_errors,
+            has_temporal=has_temporal,
+        )
+
+    @staticmethod
+    def _has_temporal_range(time_range: Optional[TimeRange]) -> bool:
+        return time_range is not None and (
+            time_range.start is not None or time_range.end is not None
+        )
+
+    def _base_l1_path_coroutines(
+        self,
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        fetch_k: int,
+        *,
+        has_temporal: bool,
+        session_id: Optional[str],
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> List[Any]:
         retrieval_coros = [
             self._bm25_path(
                 conditions.content_query,
@@ -101,7 +233,6 @@ class L1ExecutionMixin:
                 l1_retrieval_scopes=l1_retrieval_scopes,
             ),
         ]
-        has_temporal = time_range is not None and (time_range.start is not None or time_range.end is not None)
         if has_temporal:
             retrieval_coros.append(
                 self._temporal_bm25_path(
@@ -112,41 +243,64 @@ class L1ExecutionMixin:
                     l1_retrieval_scopes=l1_retrieval_scopes,
                 ),
             )
+        return retrieval_coros
 
-        results_or_errors = await asyncio.gather(*retrieval_coros, return_exceptions=True)
-
-        bm25_ids: List[str] = results_or_errors[0] if isinstance(results_or_errors[0], list) else []
-        bm25_details = (
-            getattr(self, "_last_bm25_path_details", {})
-            if isinstance(getattr(self, "_last_bm25_path_details", {}), dict)
-            else {}
-        )
-        vec_ids: List[str] = results_or_errors[1] if isinstance(results_or_errors[1], list) else []
-        vec_details = (
-            getattr(self, "_last_vector_path_details", {})
-            if isinstance(getattr(self, "_last_vector_path_details", {}), dict)
-            else {}
-        )
-        kw_ids: List[str] = results_or_errors[2] if isinstance(results_or_errors[2], list) else []
+    def _base_l1_results_from_gather(
+        self,
+        results_or_errors: List[Any],
+        *,
+        has_temporal: bool,
+    ) -> _L1BasePathResults:
         temporal_bm25_ids: List[str] = []
         temporal_bm25_details: Dict[str, Dict[str, Any]] = {}
         if has_temporal:
-            temporal_bm25_ids = results_or_errors[3] if isinstance(results_or_errors[3], list) else []
-            temporal_bm25_details = (
-                getattr(self, "_last_temporal_bm25_path_details", {})
-                if isinstance(getattr(self, "_last_temporal_bm25_path_details", {}), dict)
-                else {}
-            )
+            temporal_bm25_ids = self._ids_from_path_result(results_or_errors[3])
+            temporal_bm25_details = self._last_path_details("_last_temporal_bm25_path_details")
 
+        return _L1BasePathResults(
+            bm25_ids=self._ids_from_path_result(results_or_errors[0]),
+            vector_ids=self._ids_from_path_result(results_or_errors[1]),
+            keyword_ids=self._ids_from_path_result(results_or_errors[2]),
+            temporal_bm25_ids=temporal_bm25_ids,
+            bm25_details=self._last_path_details("_last_bm25_path_details"),
+            vector_details=self._last_path_details("_last_vector_path_details"),
+            temporal_bm25_details=temporal_bm25_details,
+        )
+
+    @staticmethod
+    def _ids_from_path_result(result: Any) -> List[str]:
+        return result if isinstance(result, list) else []
+
+    def _last_path_details(self, attr_name: str) -> Dict[str, Dict[str, Any]]:
+        details = getattr(self, attr_name, {})
+        return details if isinstance(details, dict) else {}
+
+    @staticmethod
+    def _log_l1_path_errors(results_or_errors: List[Any]) -> None:
         for i, res in enumerate(results_or_errors):
             if isinstance(res, BaseException):
                 logger.warning("L1 search path %d failed: %s", i, res)
 
+    async def _log_base_l1_path_results(
+        self,
+        *,
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        fetch_k: int,
+        base_paths: _L1BasePathResults,
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> None:
         logger.info(
             "L1 retrieval paths completed | content_query=%r user_id=%s "
             "bm25_count=%d vec_count=%d kw_count=%d temporal_bm25_count=%d fetch_k=%d",
-            conditions.content_query, user_id,
-            len(bm25_ids), len(vec_ids), len(kw_ids), len(temporal_bm25_ids), fetch_k,
+            conditions.content_query,
+            user_id,
+            len(base_paths.bm25_ids),
+            len(base_paths.vector_ids),
+            len(base_paths.keyword_ids),
+            len(base_paths.temporal_bm25_ids),
+            fetch_k,
         )
         logger.debug(
             "L1 retrieval path samples | content_query=%r user_id=%s "
@@ -154,10 +308,10 @@ class L1ExecutionMixin:
             "temporal_bm25_ids_sample=%s l1_retrieval_scopes=%s time_range=%s",
             conditions.content_query,
             user_id,
-            bm25_ids[:10],
-            vec_ids[:10],
-            kw_ids[:10],
-            temporal_bm25_ids[:10],
+            base_paths.bm25_ids[:10],
+            base_paths.vector_ids[:10],
+            base_paths.keyword_ids[:10],
+            base_paths.temporal_bm25_ids[:10],
             l1_retrieval_scopes,
             (
                 {"start": time_range.start, "end": time_range.end}
@@ -170,84 +324,132 @@ class L1ExecutionMixin:
             user_id=user_id,
             time_range=time_range,
             l1_retrieval_scopes=l1_retrieval_scopes,
-            paths={
-                "bm25": bm25_ids,
-                "vector": vec_ids,
-                "keyword": kw_ids,
-                "temporal_bm25": temporal_bm25_ids,
-            },
-            path_details={
-                "bm25": bm25_details,
-                "vector": vec_details,
-                "keyword": {},
-                "temporal_bm25": temporal_bm25_details,
-            },
+            paths=base_paths.paths,
+            path_details=base_paths.details,
         )
 
-        seed_ids: List[str] = list(dict.fromkeys(
-            bm25_ids[:10] + vec_ids[:10] + kw_ids[:10] + temporal_bm25_ids[:10]
-        ))
-        entity_ids: List[str] = []
-        if seed_ids:
-            try:
-                entity_ids = await self._store.expand_by_entities(seed_ids, limit=fetch_k)
-                entity_ids = await self._filter_ids_by_l1_retrieval_scope(
-                    entity_ids,
-                    l1_retrieval_scopes,
-                    user_id=user_id,
-                )
-            except Exception as exc:
-                logger.warning("L1 entity expansion failed: %s", exc)
+    async def _expand_l1_candidate_paths(
+        self,
+        *,
+        seed_ids: List[str],
+        fetch_k: int,
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> _L1ExpansionPathResults:
+        entity_ids = await self._entity_expansion_path(
+            seed_ids=seed_ids,
+            fetch_k=fetch_k,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        graph_ids = await self._graph_expansion_path(
+            seed_ids=seed_ids,
+            fetch_k=fetch_k,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        return _L1ExpansionPathResults(entity_ids=entity_ids, graph_ids=graph_ids)
 
-        graph_ids: List[str] = []
-        if cfg.graph_spreading_enabled and self._l2_store is not None and seed_ids:
-            try:
-                graph_ids = await self._graph_spreading_path(seed_ids, fetch_k)
-                graph_ids = await self._filter_ids_by_l1_retrieval_scope(
-                    graph_ids,
-                    l1_retrieval_scopes,
-                    user_id=user_id,
-                )
-            except Exception as exc:
-                logger.warning("L1 graph spreading failed: %s", exc)
+    async def _entity_expansion_path(
+        self,
+        *,
+        seed_ids: List[str],
+        fetch_k: int,
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> List[str]:
+        if not seed_ids:
+            return []
+        try:
+            entity_ids = await self._store.expand_by_entities(seed_ids, limit=fetch_k)
+            return await self._filter_ids_by_l1_retrieval_scope(
+                entity_ids,
+                l1_retrieval_scopes,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.warning("L1 entity expansion failed: %s", exc)
+            return []
 
-        ranked_lists: List[Sequence[str]] = [bm25_ids, vec_ids, kw_ids]
-        weights = [cfg.rrf_weight_bm25, cfg.rrf_weight_vector, cfg.rrf_weight_keyword]
-        if entity_ids:
-            ranked_lists.append(entity_ids)
-            weights.append(cfg.rrf_weight_entity)
-        if graph_ids:
-            ranked_lists.append(graph_ids)
-            weights.append(cfg.rrf_weight_graph)
-        if temporal_bm25_ids:
-            ranked_lists.append(temporal_bm25_ids)
-            weights.append(cfg.rrf_weight_temporal_bm25)
+    async def _graph_expansion_path(
+        self,
+        *,
+        seed_ids: List[str],
+        fetch_k: int,
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> List[str]:
+        cfg = self._config
+        if not cfg.graph_spreading_enabled or self._l2_store is None or not seed_ids:
+            return []
+        try:
+            graph_ids = await self._graph_spreading_path(seed_ids, fetch_k)
+            return await self._filter_ids_by_l1_retrieval_scope(
+                graph_ids,
+                l1_retrieval_scopes,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.warning("L1 graph spreading failed: %s", exc)
+            return []
 
+    def _build_l1_ranked_lists(
+        self,
+        base_paths: _L1BasePathResults,
+        expansion_paths: _L1ExpansionPathResults,
+    ) -> Tuple[List[Sequence[str]], List[float], List[str]]:
+        cfg = self._config
+        ranked_lists: List[Sequence[str]] = [
+            base_paths.bm25_ids,
+            base_paths.vector_ids,
+            base_paths.keyword_ids,
+        ]
+        weights = [
+            cfg.rrf_weight_bm25,
+            cfg.rrf_weight_vector,
+            cfg.rrf_weight_keyword,
+        ]
         path_names = ["bm25", "vector", "keyword"]
-        if entity_ids:
-            path_names.append("entity")
-        if graph_ids:
-            path_names.append("graph")
-        if temporal_bm25_ids:
-            path_names.append("temporal_bm25")
 
-        return ranked_lists, weights, {
+        if expansion_paths.entity_ids:
+            ranked_lists.append(expansion_paths.entity_ids)
+            weights.append(cfg.rrf_weight_entity)
+            path_names.append("entity")
+        if expansion_paths.graph_ids:
+            ranked_lists.append(expansion_paths.graph_ids)
+            weights.append(cfg.rrf_weight_graph)
+            path_names.append("graph")
+        if base_paths.temporal_bm25_ids:
+            ranked_lists.append(base_paths.temporal_bm25_ids)
+            weights.append(cfg.rrf_weight_temporal_bm25)
+            path_names.append("temporal_bm25")
+        return ranked_lists, weights, path_names
+
+    @staticmethod
+    def _build_l1_path_debug(
+        *,
+        base_paths: _L1BasePathResults,
+        expansion_paths: _L1ExpansionPathResults,
+        path_names: List[str],
+        weights: List[float],
+    ) -> Dict[str, Any]:
+        return {
             "path_names": path_names,
             "paths": {
-                "bm25": bm25_ids,
-                "vector": vec_ids,
-                "keyword": kw_ids,
-                "entity": entity_ids,
-                "graph": graph_ids,
-                "temporal_bm25": temporal_bm25_ids,
+                "bm25": base_paths.bm25_ids,
+                "vector": base_paths.vector_ids,
+                "keyword": base_paths.keyword_ids,
+                "entity": expansion_paths.entity_ids,
+                "graph": expansion_paths.graph_ids,
+                "temporal_bm25": base_paths.temporal_bm25_ids,
             },
             "details": {
-                "bm25": bm25_details,
-                "vector": vec_details,
+                "bm25": base_paths.bm25_details,
+                "vector": base_paths.vector_details,
                 "keyword": {},
                 "entity": {},
                 "graph": {},
-                "temporal_bm25": temporal_bm25_details,
+                "temporal_bm25": base_paths.temporal_bm25_details,
             },
             "weights": dict(zip(path_names, weights)),
         }
@@ -266,7 +468,9 @@ class L1ExecutionMixin:
     ) -> List[Dict[str, Any]]:
         """Fetch full event rows, apply filters, and rerank."""
         results = await self._fetch_and_filter(
-            event_ids=top_ids, conditions=conditions, time_range=time_range,
+            event_ids=top_ids,
+            conditions=conditions,
+            time_range=time_range,
             session_id=session_id,
             user_id=user_id,
             l1_retrieval_scopes=l1_retrieval_scopes,
@@ -303,7 +507,7 @@ class L1ExecutionMixin:
             query=conditions.content_query,
             fused_scores=dict(fused),
         )
-        final = reranked[:conditions.limit]
+        final = reranked[: conditions.limit]
         log_detail(
             logger,
             "L1 RERANK DETAIL",
