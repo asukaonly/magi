@@ -126,7 +126,11 @@ class UserProfileService:
             if l2 is None:
                 return []
             try:
-                projection = await UserPortraitProjectionBuilder(l2).build(user_id)
+                profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
+                projection = await UserPortraitProjectionBuilder(
+                    l2,
+                    profile_projection=profile_projection,
+                ).build(user_id)
                 projection = await repo.upsert(projection)
             except Exception:
                 logger.debug("Failed to build portrait projection for %s", user_id)

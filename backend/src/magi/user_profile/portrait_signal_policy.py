@@ -17,6 +17,7 @@ PORTRAIT_RECENT_FAMILIES = frozenset({"state_profile", "mood", "stress", "engage
 PORTRAIT_SOURCE_STRENGTH = {
     "user_authored": 5,
     "settings_profile": 5,
+    "user_profile_projection": 5,
     "user_feedback": 5,
     "conversation": 4,
     "chat": 4,
@@ -38,17 +39,17 @@ PORTRAIT_VALIDATION_STRENGTH = {
 # allowed and it has been observed at least ``min_observations`` times.
 PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
     "VISITED": {
-        "group": "places",
+        "group": "invariants",
         "object_types": frozenset({"place"}),
         "min_observations": 2,
     },
     "OWNS": {
-        "group": "routine",
+        "group": "work_style",
         "object_types": frozenset({"hardware", "product"}),
         "min_observations": 2,
     },
     "USES": {
-        "group": "routine",
+        "group": "work_style",
         "object_types": frozenset({"software", "hardware", "technology", "product"}),
         "min_observations": 3,
     },

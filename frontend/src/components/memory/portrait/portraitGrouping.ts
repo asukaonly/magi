@@ -18,6 +18,7 @@ export interface PortraitDisplayItem {
 
 export interface PortraitWorldGroup {
   id: PortraitWorldGroupId;
+  summary: string;
   items: PortraitDisplayItem[];
 }
 
@@ -32,10 +33,10 @@ const ASSERTION_REF_PATTERN = /^[0-9a-f-]{20,}$/i;
 
 const WORLD_GROUP_IDS: PortraitWorldGroupId[] = [
   'identity',
+  'projects',
   'preferences',
-  'routine',
-  'places',
-  'communication',
+  'work_style',
+  'invariants',
 ];
 
 const STATE_FAMILIES = new Set([
@@ -51,8 +52,8 @@ const STATE_FAMILIES = new Set([
 const FAMILY_GROUPS = new Map<string, PortraitWorldGroupId>([
   ['identity_profile', 'identity'],
   ['preference_profile', 'preferences'],
-  ['routine_profile', 'routine'],
-  ['communication_profile', 'communication'],
+  ['routine_profile', 'work_style'],
+  ['communication_profile', 'work_style'],
 ]);
 
 const REVIEW_STATUSES = new Set(['tentative', 'contradicted']);
@@ -170,7 +171,7 @@ const worldGroupFor = (obs: SelfPortraitObservation): PortraitWorldGroupId | nul
 };
 
 const emptyWorldGroups = (): PortraitWorldGroup[] =>
-  WORLD_GROUP_IDS.map((id) => ({ id, items: [] }));
+  WORLD_GROUP_IDS.map((id) => ({ id, summary: '', items: [] }));
 
 export const buildPortraitViewModel = (observations: SelfPortraitObservation[]): PortraitViewModel => {
   const groups = emptyWorldGroups();
@@ -207,6 +208,7 @@ export const buildPortraitViewModelFromSelfView = (selfView: PortraitSelfView): 
   return {
     worldGroups: WORLD_GROUP_IDS.map((id) => ({
       id,
+      summary: groupsById.get(id)?.summary ?? '',
       items: (groupsById.get(id)?.items ?? []).map(displayItemFromSelfView),
     })),
     reviewItems: selfView.review.items.map(displayItemFromSelfView),

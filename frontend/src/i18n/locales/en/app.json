@@ -2857,10 +2857,10 @@
         "rootMeta": "A compact outline of what Magi understands so far.",
         "groups": {
           "identity": "Identity",
+          "projects": "Long-term projects",
           "preferences": "Preferences and interests",
-          "routine": "Routines and tools",
-          "places": "Places and scenes",
-          "communication": "Interaction style"
+          "work_style": "Working style",
+          "invariants": "Stable facts"
         }
       },
       "review": {

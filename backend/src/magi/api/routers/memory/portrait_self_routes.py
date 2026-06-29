@@ -16,6 +16,7 @@ from ....user_profile.portrait_graph_signals import (
     PortraitGraphSignal,
     collect_portrait_graph_signals,
 )
+from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_signal_policy import (
     PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_REVIEW_STATES,
@@ -32,12 +33,12 @@ logger = logging.getLogger(__name__)
 
 
 _ASSERTION_REF_MIN_LENGTH = 20
-_WORLD_GROUP_IDS = ("identity", "preferences", "routine", "places", "communication")
+_WORLD_GROUP_IDS = ("identity", "projects", "preferences", "work_style", "invariants")
 _FAMILY_WORLD_GROUPS = {
     "identity_profile": "identity",
     "preference_profile": "preferences",
-    "routine_profile": "routine",
-    "communication_profile": "communication",
+    "routine_profile": "work_style",
+    "communication_profile": "work_style",
 }
 _INTERNAL_SOURCE_KEYS = {
     "external_activity",
@@ -179,7 +180,20 @@ def build_router() -> APIRouter:
             except Exception as exc:
                 logger.debug("self portrait: graph relationship lookup failed: %s", exc)
 
-        is_cold_start = len(observations) == 0
+        fallback_projection = None
+        try:
+            fallback_projection = await UserPortraitProjectionBuilder(
+                l2,
+                profile_projection=projection,
+            ).build(user_id)
+        except Exception as exc:
+            logger.debug("self portrait: fallback projection build failed: %s", exc)
+
+        is_cold_start = (
+            not _projection_has_content(fallback_projection)
+            if fallback_projection is not None
+            else len(observations) == 0
+        )
         payload = UserPortraitPayload(
             session_id="",
             persona_id="",
@@ -191,7 +205,15 @@ def build_router() -> APIRouter:
             cold_start_reason=("no_observations" if is_cold_start else None),
         )
         data = payload.to_dict()
-        data["self_view"] = _build_self_view(observations)
+        if fallback_projection is not None:
+            data["self_view"] = {
+                "world": fallback_projection.world or _empty_world(),
+                "review": fallback_projection.review or {"items": []},
+                "recent": fallback_projection.recent or {"items": []},
+            }
+            data["prompt_summary"] = list(fallback_projection.prompt_summary)
+        else:
+            data["self_view"] = _build_self_view(observations)
         return data
 
     return router
@@ -211,7 +233,7 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
             "preferred_form_of_address",
         ))
     if projection.home_location:
-        facts.append((f"住在{projection.home_location}", "identity_profile", "home_location"))
+        facts.append((f"住在{projection.home_location}", "identity_profile", "home_location|world_group:invariants"))
     for key, value in (projection.preferences or {}).items():
         facts.append((f"偏好：{key} = {value}", "preference_profile", f"preference:{key}"))
     for key, value in (projection.communication or {}).items():
@@ -219,16 +241,18 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
     for key, value in (projection.state or {}).items():
         facts.append((f"近期状态：{key} = {value}", "state_profile", f"state:{key}"))
 
-    return [
-        UserPortraitObservation(
+    observations: list[UserPortraitObservation] = []
+    for text, family, ref in facts:
+        basis_refs = [f"family:{family}"]
+        basis_refs.extend(part for part in ref.split("|") if part)
+        observations.append(UserPortraitObservation(
             kind="assertion",
             text=text,
             basis_count=1,
             basis_summary="user_profile_projection",
-            basis_refs=[f"family:{family}", ref],
-        )
-        for text, family, ref in facts
-    ]
+            basis_refs=basis_refs,
+        ))
+    return observations
 
 
 def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[UserPortraitObservation]:
@@ -336,6 +360,7 @@ def _build_self_view(observations: list[UserPortraitObservation]) -> dict[str, A
 
     for group in groups:
         group["items"] = _dedupe_and_sort_world_items(group["items"])
+        group["summary"] = _group_summary(group["id"], group["items"])
 
     return {
         "world": {**world, "total_count": len(observations), "groups": groups},
@@ -394,7 +419,22 @@ def _world_group_id(observation: UserPortraitObservation) -> str | None:
     if explicit_group in _WORLD_GROUP_IDS:
         return explicit_group
     family = _ref_value(observation, "family")
+    if family == "routine_profile":
+        trait_ref = _ref_value(observation, "routine") or _ref_value(observation, "trait")
+        if trait_ref and trait_ref.startswith("project."):
+            return "projects"
     return _FAMILY_WORLD_GROUPS.get(family or "")
+
+
+def _projection_has_content(projection: Any) -> bool:
+    if projection is None:
+        return False
+    world = getattr(projection, "world", {}) or {}
+    review = getattr(projection, "review", {}) or {}
+    recent = getattr(projection, "recent", {}) or {}
+    if int(world.get("total_count") or 0) > 0:
+        return True
+    return bool((review.get("items") or []) or (recent.get("items") or []))
 
 
 def _dedupe_and_sort_world_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -415,6 +455,24 @@ def _dedupe_and_sort_world_items(items: list[dict[str, Any]]) -> list[dict[str, 
             str(item.get("text") or "").casefold(),
         ),
     )
+
+
+def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
+    texts = [str(item.get("text") or "").strip() for item in items if str(item.get("text") or "").strip()]
+    if not texts:
+        return ""
+    short = texts[:4]
+    if group_id == "identity":
+        return "；".join(short)
+    if group_id == "projects":
+        return f"长期推进或反复关注：{'、'.join(short)}"
+    if group_id == "preferences":
+        return f"关注或偏好：{'、'.join(short)}"
+    if group_id == "work_style":
+        return f"工作和沟通方式：{'、'.join(short)}"
+    if group_id == "invariants":
+        return f"稳定背景：{'、'.join(short)}"
+    return "、".join(short)
 
 
 def _world_item_key(item: dict[str, Any]) -> str:

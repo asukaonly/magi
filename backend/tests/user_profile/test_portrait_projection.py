@@ -157,6 +157,65 @@ class _ConfirmedPassiveSignalL2:
         return []
 
 
+class _FragmentedProfileSignalL2:
+    async def list_tom_assertions(self, **kwargs):
+        return [
+            {
+                "assertion_id": "a-project",
+                "trait_family": "routine_profile",
+                "trait_name": "project.magi_memory",
+                "trait_value": "Magi 记忆系统",
+                "source_domain": "conversation",
+                "validation_state": "stable",
+                "confidence_score": 0.92,
+                "evidence_events": ["event-1", "event-2", "event-3"],
+            },
+            {
+                "assertion_id": "a-interest-plugin",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.plugin_ecosystem",
+                "trait_value": "插件生态",
+                "source_domain": "conversation",
+                "validation_state": "stable",
+                "confidence_score": 0.9,
+                "evidence_events": ["event-4", "event-5"],
+            },
+            {
+                "assertion_id": "a-tool-codex",
+                "trait_family": "routine_profile",
+                "trait_name": "tool.codex",
+                "trait_value": "Codex",
+                "source_domain": "conversation",
+                "validation_state": "stable",
+                "confidence_score": 0.88,
+                "evidence_events": ["event-6", "event-7"],
+            },
+            {
+                "assertion_id": "a-communication",
+                "trait_family": "communication_profile",
+                "trait_name": "communication.answer_style",
+                "trait_value": "先讲结论，再补关键依据",
+                "source_domain": "user_authored",
+                "validation_state": "stable",
+                "confidence_score": 1.0,
+                "evidence_events": ["event-8"],
+            },
+            {
+                "assertion_id": "a-weak-passive",
+                "trait_family": "preference_profile",
+                "trait_name": "interest.one_off_page",
+                "trait_value": "一次性页面",
+                "source_domain": "external_activity",
+                "validation_state": "stable",
+                "confidence_score": 0.8,
+                "evidence_events": ["event-9"],
+            },
+        ]
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+
 async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(tmp_path):
     repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
     projection = UserPortraitProjection(
@@ -208,7 +267,7 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
 
     world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
     assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统", "RAG"]
-    assert [item["text"] for item in world_groups["communication"]] == ["先讲结论，再讲原因"]
+    assert [item["text"] for item in world_groups["work_style"]] == ["先讲结论，再讲原因"]
     assert [item["text"] for item in projection.review["items"]] == ["一次性页面标题"]
     assert [item["text"] for item in projection.recent["items"]] == [
         "正在检查画像投影效果",
@@ -237,6 +296,46 @@ async def test_portrait_projection_treats_confirmed_feedback_as_user_qualified()
     world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
     assert [item["text"] for item in world_groups["preferences"]] == ["DeepSeek"]
     assert "DeepSeek" in "\n".join(projection.prompt_summary)
+
+
+async def test_portrait_projection_uses_profile_projection_as_strong_input_and_converges_groups():
+    profile = UserProfileProjection(
+        user_id="local_user",
+        entity_id="user:local_user",
+        display_name="子涵",
+        preferred_form_of_address="子涵",
+        home_location="杭州",
+    )
+
+    projection = await UserPortraitProjectionBuilder(
+        _FragmentedProfileSignalL2(),
+        profile_projection=profile,
+    ).build("local_user")
+
+    world_groups = {group["id"]: group for group in projection.world["groups"]}
+    assert [group["id"] for group in projection.world["groups"]] == [
+        "identity",
+        "projects",
+        "preferences",
+        "work_style",
+        "invariants",
+    ]
+    assert "子涵" in world_groups["identity"]["summary"]
+    assert "杭州" in world_groups["invariants"]["summary"]
+    assert "Magi 记忆系统" in world_groups["projects"]["summary"]
+    assert "插件生态" in world_groups["preferences"]["summary"]
+    assert "Codex" in world_groups["work_style"]["summary"]
+    assert "先讲结论" in world_groups["work_style"]["summary"]
+    assert "一次性页面" not in str(projection.world)
+
+    prompt_text = "\n".join(projection.prompt_summary)
+    assert "子涵" in prompt_text
+    assert "Magi 记忆系统" in prompt_text
+    assert "插件生态" in prompt_text
+    assert "先讲结论" in prompt_text
+    assert "interest." not in prompt_text
+    assert "tool." not in prompt_text
+    assert "external_activity" not in prompt_text
 
 
 class _GraphSignalL2:
@@ -288,8 +387,8 @@ async def test_portrait_projection_includes_safe_graph_world_clues():
     projection = await UserPortraitProjectionBuilder(_GraphSignalL2()).build("local_user")
 
     world_groups = {group["id"]: [item["text"] for item in group["items"]] for group in projection.world["groups"]}
-    assert world_groups["places"] == ["东京"]  # single-observation place is dropped
-    assert world_groups["routine"] == ["本地插件仓库", "Chrome"]  # assertion ranks above passive clue
+    assert world_groups["invariants"] == ["东京"]  # single-observation place is dropped
+    assert world_groups["work_style"] == ["本地插件仓库", "Chrome"]  # assertion ranks above passive clue
 
     prompt_text = "\n".join(projection.prompt_summary)
     assert "本地插件仓库" in prompt_text

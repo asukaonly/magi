@@ -16,10 +16,10 @@ export interface SelfPortraitObservation {
 
 export type PortraitSelfViewWorldGroupId =
   | 'identity'
+  | 'projects'
   | 'preferences'
-  | 'routine'
-  | 'places'
-  | 'communication';
+  | 'work_style'
+  | 'invariants';
 
 export interface PortraitSelfViewItem {
   id: string;
@@ -33,6 +33,7 @@ export interface PortraitSelfViewItem {
 
 export interface PortraitSelfViewWorldGroup {
   id: PortraitSelfViewWorldGroupId;
+  summary?: string;
   items: PortraitSelfViewItem[];
 }
 

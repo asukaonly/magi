@@ -5,7 +5,12 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
-from .models import DEFAULT_USER_ID, PROFILE_ASSERTION_FAMILIES, UserPortraitProjection
+from .models import (
+    DEFAULT_USER_ID,
+    PROFILE_ASSERTION_FAMILIES,
+    UserPortraitProjection,
+    UserProfileProjection,
+)
 from .portrait_graph_signals import (
     PortraitGraphSignal,
     collect_portrait_graph_signals,
@@ -22,12 +27,12 @@ from .portrait_values import (
 )
 
 PORTRAIT_ASSERTION_FAMILIES = (*PROFILE_ASSERTION_FAMILIES, "routine_profile")
-WORLD_GROUP_IDS = ("identity", "preferences", "routine", "places", "communication")
-WORLD_GROUP_BY_FAMILY = {
-    "identity_profile": "identity",
-    "preference_profile": "preferences",
-    "routine_profile": "routine",
-    "communication_profile": "communication",
+WORLD_GROUP_IDS = ("identity", "projects", "preferences", "work_style", "invariants")
+_INTERNAL_SOURCE_KEYS = {
+    "external_activity",
+    "photo_library",
+    "photo_library_apple_photos",
+    "photo_library_directory",
 }
 
 
@@ -41,8 +46,15 @@ class UserPortraitLLMClient(Protocol):
 class UserPortraitProjectionBuilder:
     """Create a clean self-portrait projection from L2 profile evidence."""
 
-    def __init__(self, l2_store: Any, *, llm_client: UserPortraitLLMClient | None = None):
+    def __init__(
+        self,
+        l2_store: Any,
+        *,
+        profile_projection: UserProfileProjection | None = None,
+        llm_client: UserPortraitLLMClient | None = None,
+    ):
         self._l2_store = l2_store
+        self._profile_projection = profile_projection
         self._llm_client = llm_client
 
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserPortraitProjection:
@@ -51,7 +63,8 @@ class UserPortraitProjectionBuilder:
         snapshot = await self._latest_snapshot(entity_id)
         graph_world = await self._graph_world_items(entity_id)
 
-        world = self._build_world(assertions, graph_world)
+        profile_world = self._profile_world_items(self._profile_projection)
+        world = self._build_world(assertions, graph_world, profile_world)
         review = self._build_review(assertions)
         recent = self._build_recent(assertions=assertions, snapshot=snapshot)
         evidence_refs = self._evidence_refs(assertions=assertions, snapshot=snapshot)
@@ -131,15 +144,20 @@ class UserPortraitProjectionBuilder:
         self,
         assertions: list[dict[str, Any]],
         graph_world: dict[str, list[dict[str, Any]]],
+        profile_world: dict[str, list[dict[str, Any]]],
     ) -> dict[str, Any]:
         groups = [{"id": group_id, "items": []} for group_id in WORLD_GROUP_IDS]
         by_id = {group["id"]: group for group in groups}
 
+        for group_id, items in profile_world.items():
+            target = by_id.get(group_id)
+            if target is not None:
+                target["items"].extend(items)
+
         for assertion in assertions:
             if assertion_portrait_role(assertion) != "world":
                 continue
-            family = _text(assertion.get("trait_family"))
-            group_id = WORLD_GROUP_BY_FAMILY.get(family)
+            group_id = _world_group_for_assertion(assertion)
             if not group_id:
                 continue
             item = _item_from_assertion(assertion)
@@ -153,10 +171,66 @@ class UserPortraitProjectionBuilder:
 
         for group in groups:
             group["items"] = _dedupe_items(group["items"])[:5]
+            group["summary"] = _group_summary(group["id"], group["items"])
         return {
             "total_count": sum(len(group["items"]) for group in groups),
             "groups": groups,
         }
+
+    @staticmethod
+    def _profile_world_items(
+        profile: UserProfileProjection | None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        if profile is None:
+            return {}
+        grouped: dict[str, list[dict[str, Any]]] = {group_id: [] for group_id in WORLD_GROUP_IDS}
+
+        def add(group_id: str, field: str, text: str, *, basis_count: int = 1) -> None:
+            clean = _text(text)
+            if not clean:
+                return
+            grouped[group_id].append({
+                "id": f"profile:{field}",
+                "text": clean,
+                "source": "",
+                "source_key": "user_profile_projection",
+                "assertion_id": None,
+                "basis_count": basis_count,
+                "basis_refs": [
+                    "source:user_profile_projection",
+                    f"profile:{field}",
+                ],
+            })
+
+        preferred_form_of_address = _profile_field_text(profile, "preferred_form_of_address")
+        if preferred_form_of_address:
+            add("identity", "preferred_form_of_address", f"希望称呼为「{preferred_form_of_address}」")
+        real_name = _profile_field_text(profile, "real_name")
+        if real_name:
+            add("identity", "real_name", f"真实姓名：{real_name}")
+        birth_date = _profile_field_text(profile, "birth_date")
+        if birth_date:
+            add("identity", "birth_date", f"生日：{birth_date}")
+        home_location = _profile_field_text(profile, "home_location")
+        if home_location:
+            add("invariants", "home_location", f"常住地：{home_location}")
+
+        disallowed = profile.communication.get("disallowed_forms_of_address")
+        if isinstance(disallowed, list) and disallowed:
+            text = "、".join(_text(item) for item in disallowed if _text(item))
+            add("work_style", "disallowed_forms_of_address", f"避免这些称呼：{text}")
+
+        for key, value in (profile.preferences or {}).items():
+            text = _display_value(value)
+            if text:
+                add("preferences", f"preference:{key}", text)
+        for key, value in (profile.communication or {}).items():
+            if key == "disallowed_forms_of_address":
+                continue
+            text = _display_value(value)
+            if text:
+                add("work_style", f"communication:{key}", text)
+        return grouped
 
     async def _graph_world_items(self, entity_id: str) -> dict[str, list[dict[str, Any]]]:
         """Promote safe L2 graph relationships into world-group page items.
@@ -217,17 +291,23 @@ class UserPortraitProjectionBuilder:
             for group in world.get("groups", [])
         }
         lines: list[str] = []
+        identity = _item_texts(groups.get("identity", []))[:3]
+        if identity:
+            lines.append(f"用户资料：{'；'.join(identity)}。")
+        projects = _item_texts(groups.get("projects", []))[:3]
+        if projects:
+            lines.append(f"用户长期推进或反复关注：{'、'.join(projects)}。")
         preferences = _item_texts(groups.get("preferences", []))[:4]
         if preferences:
             lines.append(f"用户关注或偏好：{'、'.join(preferences)}。")
-        routines = _item_texts(groups.get("routine", []))[:3]
-        if routines:
-            lines.append(f"用户常用或反复出现的工具/习惯：{'、'.join(routines)}。")
-        communication = _item_texts(groups.get("communication", []))[:2]
-        if communication:
-            lines.append(f"用户偏好的沟通方式：{'、'.join(communication)}。")
+        work_style = _item_texts(groups.get("work_style", []))[:4]
+        if work_style:
+            lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
+        invariants = _item_texts(groups.get("invariants", []))[:2]
+        if invariants and len(lines) < 4:
+            lines.append(f"稳定背景：{'、'.join(invariants)}。")
         recent_items = _item_texts(recent.get("items", []))[:2]
-        if recent_items:
+        if recent_items and len(lines) < 4:
             lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长长期结论。")
         return lines[:4]
 
@@ -271,7 +351,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     if not text:
         return None
     assertion_id = _text(assertion.get("assertion_id"))
-    source_key = _text(assertion.get("source_domain")) or None
+    raw_source_key = _text(assertion.get("source_domain"))
+    source_key = None if raw_source_key in _INTERNAL_SOURCE_KEYS else (raw_source_key or None)
     refs = []
     if assertion_id:
         refs.append(f"assertion:{assertion_id}")
@@ -281,8 +362,8 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     state = _text(assertion.get("validation_state") or assertion.get("status"))
     if state:
         refs.append(f"status:{state}")
-    if source_key:
-        refs.append(f"source:{source_key}")
+    if raw_source_key:
+        refs.append(f"source:{raw_source_key}")
     return {
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
@@ -292,6 +373,46 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
     }
+
+
+def _world_group_for_assertion(assertion: dict[str, Any]) -> str | None:
+    family = _text(assertion.get("trait_family")).casefold()
+    trait = _text(assertion.get("trait_name")).casefold()
+    if family == "identity_profile":
+        if trait.startswith("identity.location."):
+            return "invariants"
+        return "identity"
+    if family == "communication_profile":
+        return "work_style"
+    if family == "preference_profile":
+        if trait.startswith(("project.", "current_project", "focus_project")):
+            return "projects"
+        return "preferences"
+    if family == "routine_profile":
+        if trait.startswith(("project.", "current_project", "focus_project")):
+            return "projects"
+        if trait.startswith(("environment.", "location.")):
+            return "invariants"
+        return "work_style"
+    return None
+
+
+def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
+    texts = _item_texts(items)
+    if not texts:
+        return ""
+    short = texts[:4]
+    if group_id == "identity":
+        return "；".join(short)
+    if group_id == "projects":
+        return f"长期推进或反复关注：{'、'.join(short)}"
+    if group_id == "preferences":
+        return f"关注或偏好：{'、'.join(short)}"
+    if group_id == "work_style":
+        return f"工作和沟通方式：{'、'.join(short)}"
+    if group_id == "invariants":
+        return f"稳定背景：{'、'.join(short)}"
+    return "、".join(short)
 
 
 def _item_from_graph_signal(signal: PortraitGraphSignal) -> dict[str, Any]:
@@ -317,6 +438,11 @@ def _item_from_graph_signal(signal: PortraitGraphSignal) -> dict[str, Any]:
 
 def _is_graph_item(item: dict[str, Any]) -> bool:
     return any(str(ref).startswith("graph:") for ref in (item.get("basis_refs") or []))
+
+
+def _profile_field_text(profile: UserProfileProjection, field: str) -> str:
+    value = getattr(profile, field, "")
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _dedupe_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

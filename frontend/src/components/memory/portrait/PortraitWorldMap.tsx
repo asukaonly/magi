@@ -63,7 +63,11 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
                     </h3>
 
                     <div className="mt-3 space-y-3">
-                      {group.items.length === 0 ? (
+                      {group.summary ? (
+                        <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
+                          {group.summary}
+                        </p>
+                      ) : group.items.length === 0 ? (
                         <p className="text-sm leading-6 text-[hsl(var(--memory-muted))]">
                           {t('memory.portrait.world.empty')}
                         </p>

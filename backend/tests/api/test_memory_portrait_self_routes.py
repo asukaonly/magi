@@ -12,7 +12,7 @@ from magi.api.routers.memory.portrait_self_routes import (
     build_router,
     override_dependencies_for_test,
 )
-from magi.user_profile.models import UserPortraitProjection
+from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
 from magi.user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 
 
@@ -240,15 +240,14 @@ def test_self_portrait_returns_backend_grouped_page_model():
     world_groups = {group["id"]: group["items"] for group in view["world"]["groups"]}
     assert [group["id"] for group in view["world"]["groups"]] == [
         "identity",
+        "projects",
         "preferences",
-        "routine",
-        "places",
-        "communication",
+        "work_style",
+        "invariants",
     ]
-    assert [item["text"] for item in world_groups["identity"]] == ["称呼你「Asuka」"]
+    assert [item["text"] for item in world_groups["identity"]] == ["希望称呼为「Asuka」"]
     assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统"]
-    assert [item["text"] for item in world_groups["routine"]] == ["本地插件仓库"]
-    assert [item["text"] for item in world_groups["communication"]] == ["直接给结论"]
+    assert [item["text"] for item in world_groups["work_style"]] == ["本地插件仓库", "直接给结论"]
 
     review_items = view["review"]["items"]
     assert [item["text"] for item in review_items] == ["画像页面"]
@@ -260,7 +259,7 @@ def test_self_portrait_returns_backend_grouped_page_model():
         "最近在验证关于你页面",
         "检查 L2 结果",
     ]
-    assert view["world"]["total_count"] == len(body["observations"])
+    assert view["world"]["total_count"] == 4
 
 
 def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals():
@@ -303,14 +302,14 @@ def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals(
         resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
 
     assert resp.status_code == 200
-    routine_items = {
+    work_style_items = {
         group["id"]: group["items"]
         for group in resp.json()["self_view"]["world"]["groups"]
-    }["routine"]
+    }["work_style"]
 
-    assert [item["text"] for item in routine_items] == ["Codex", "Docker"]
-    assert routine_items[0]["source_key"] == "user_authored"
-    assert routine_items[1]["assertion_id"] == "assert-dup"
+    assert [item["text"] for item in work_style_items] == ["Codex", "Docker"]
+    assert work_style_items[0]["source_key"] == "user_authored"
+    assert work_style_items[1]["assertion_id"] == "assert-dup"
 
 
 def test_self_view_skips_non_world_ready_passive_assertions():
@@ -445,10 +444,10 @@ def test_self_view_includes_safe_graph_relationship_signals():
     body = resp.json()
     world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
 
-    assert [item["text"] for item in world_groups["places"]] == ["东京"]
-    assert world_groups["places"][0]["source"] == ""
-    assert world_groups["places"][0]["source_key"] is None
-    assert [item["text"] for item in world_groups["routine"]] == ["Sony A7C"]
+    assert [item["text"] for item in world_groups["invariants"]] == ["东京"]
+    assert world_groups["invariants"][0]["source"] == ""
+    assert world_groups["invariants"][0]["source_key"] is None
+    assert [item["text"] for item in world_groups["work_style"]] == ["Sony A7C"]
     assert "一次性地点" not in " ".join(item["text"] for group in world_groups.values() for item in group)
 
 
@@ -483,7 +482,74 @@ def test_self_view_skips_coordinate_only_photo_places():
 
     assert resp.status_code == 200
     world_groups = {group["id"]: group["items"] for group in resp.json()["self_view"]["world"]["groups"]}
-    assert [item["text"] for item in world_groups["places"]] == ["杭州"]
+    assert [item["text"] for item in world_groups["invariants"]] == ["杭州"]
+
+
+def test_self_view_fallback_uses_converged_portrait_projection_with_profile_input():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=UserProfileProjection(
+        user_id="u1",
+        entity_id="user:u1",
+        display_name="子涵",
+        preferred_form_of_address="子涵",
+        home_location="杭州",
+    ))
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=None)
+    l2 = MagicMock()
+    l2.list_tom_snapshots = AsyncMock(return_value=[])
+    l2.get_relationships = AsyncMock(return_value=[])
+    l2.list_tom_assertions = AsyncMock(return_value=[
+        {
+            "assertion_id": "a-project",
+            "trait_family": "routine_profile",
+            "trait_name": "project.magi_memory",
+            "trait_value": "Magi 记忆系统",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 3,
+        },
+        {
+            "assertion_id": "a-interest",
+            "trait_family": "preference_profile",
+            "trait_name": "interest.plugin_ecosystem",
+            "trait_value": "插件生态",
+            "validation_state": "stable",
+            "source_domain": "conversation",
+            "evidence_count": 2,
+        },
+        {
+            "assertion_id": "a-communication",
+            "trait_family": "communication_profile",
+            "trait_name": "communication.answer_style",
+            "trait_value": "先讲结论",
+            "validation_state": "stable",
+            "source_domain": "user_authored",
+            "evidence_count": 1,
+        },
+    ])
+
+    with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
+        client = TestClient(_app())
+        resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    world_groups = {group["id"]: group for group in body["self_view"]["world"]["groups"]}
+    assert [group["id"] for group in body["self_view"]["world"]["groups"]] == [
+        "identity",
+        "projects",
+        "preferences",
+        "work_style",
+        "invariants",
+    ]
+    assert "子涵" in world_groups["identity"]["summary"]
+    assert "Magi 记忆系统" in world_groups["projects"]["summary"]
+    assert "插件生态" in world_groups["preferences"]["summary"]
+    assert "先讲结论" in world_groups["work_style"]["summary"]
+    assert "杭州" in world_groups["invariants"]["summary"]
+    assert body["prompt_summary"]
+    assert "external_activity" not in "\n".join(body["prompt_summary"])
 
 
 class _ConsistencyL2:
@@ -526,7 +592,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
             "source_domain": "conversation",
             "evidence_count": 3,
         },
-        {  # world / routine
+        {  # world / work style
             "assertion_id": "a-routine",
             "trait_family": "routine_profile",
             "trait_name": "tool",
@@ -535,7 +601,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
             "source_domain": "user_authored",
             "evidence_count": 2,
         },
-        {  # world / communication
+        {  # world / work style
             "assertion_id": "a-comm",
             "trait_family": "communication_profile",
             "trait_name": "communication.answer_style",
@@ -599,10 +665,10 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
     # Sanity: every role bucket is actually exercised (not vacuously equal).
     assert _world_buckets(fallback["world"]) == {
         "identity": [],
+        "projects": [],
         "preferences": ["Magi 记忆系统"],
-        "routine": ["本地插件仓库"],
-        "places": [],
-        "communication": ["先讲结论"],
+        "work_style": ["先讲结论", "本地插件仓库"],
+        "invariants": [],
     }
     assert sorted(item["text"] for item in fallback["review"]["items"]) == ["一次性页面"]
     assert sorted(item["text"] for item in fallback["recent"]["items"]) == ["验证画像"]
@@ -681,10 +747,10 @@ def test_materialized_and_fallback_portrait_include_graph_clues_identically():
     assert _world_buckets(materialized.world) == _world_buckets(fallback["world"])
     assert _world_buckets(fallback["world"]) == {
         "identity": [],
+        "projects": [],
         "preferences": [],
-        "routine": ["Chrome", "本地插件仓库"],
-        "places": ["东京"],
-        "communication": [],
+        "work_style": ["Chrome", "本地插件仓库"],
+        "invariants": ["东京"],
     }
 
 
@@ -729,6 +795,4 @@ def test_materialized_and_fallback_render_multi_trait_snapshot_identically():
     materialized_recent = sorted(item["text"] for item in materialized.recent["items"])
     fallback_recent = sorted(item["text"] for item in fallback["recent"]["items"])
     assert materialized_recent == fallback_recent == ["专注", "验证画像"]
-
-
 

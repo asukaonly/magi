@@ -355,7 +355,7 @@ the portrait once they are active, but passive source assertions must also pass
 source strength, evidence-count, validation-state, and trait-family alignment
 checks. For example, an external `interest.*` assertion can become a preference
 only after enough evidence accumulates, while a `tool.*` assertion belongs in
-routines and must not appear as a preference. Assertions that fail this gate can
+working style and must not appear as a preference. Assertions that fail this gate can
 remain L2 facts or review material, but they must not enter `world` or
 `prompt_summary`.
 
@@ -728,11 +728,12 @@ summary statistics. Frontend story surfaces may translate labels and choose
 visual treatment, but they should not reclassify raw `summary_category` values
 or recompute story-feed statistics from the raw records.
 The About You page presents the user-facing self portrait as an ordered
-world model: first a grouped view of identity, preferences, routines, places,
-and interaction style; then reviewable items that need user judgment; then recent
-state observations. It should translate L2 assertion metadata into readable
-groups and review actions instead of exposing raw assertion/family/status names
-as primary UI copy.
+world model: first a grouped view of identity, long-running projects,
+preferences, working style, and stable facts; then reviewable items that need
+user judgment; then recent state observations. Personal-profile fields are
+strong inputs to this portrait, not a second visible portrait surface. It should
+translate L2 assertion metadata into readable groups and review actions instead
+of exposing raw assertion/family/status names as primary UI copy.
 `GET /api/memory/portrait/self` returns this as a backend-assembled `self_view`
 with `world`, `review`, and `recent` sections. The legacy flat `observations`
 list may remain as compatibility material, but page classification belongs in
