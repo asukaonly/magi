@@ -20,7 +20,6 @@ from ...plugins.contracts import (
 )
 from ...plugins.i18n import PluginI18n
 from ...plugins.provider import resolve_plugin_manager
-from ...plugins.registry_client import PluginRegistryClient
 from .plugins_common import (
     _get_plugin_i18n,
     _get_registry_client,
@@ -82,8 +81,6 @@ from .plugins_schemas import (
 logger = logging.getLogger(__name__)
 plugins_router = plugins_core_router
 
-_registry_client: PluginRegistryClient | None = None
-
 plugins_router.include_router(plugins_install_router)
 plugins_router.include_router(plugins_registry_router)
 
@@ -115,7 +112,6 @@ __all__ = [
     "_get_plugin_i18n",
     "_get_registry_client",
     "_plugin_install_service",
-    "_registry_client",
     "_require_package",
     "_serialize_contribution",
     "_serialize_field",

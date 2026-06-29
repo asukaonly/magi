@@ -14,7 +14,10 @@ from ...events.contracts import RefreshChannelsCommand
 from ...plugins.contracts import PluginSettingsResourcePayload
 from .plugins_common import (
     _get_plugin_i18n,
-    legacy_plugins_module,
+    _require_plugin_manager,
+    _require_package,
+    _serialize_package,
+    _try_plugin_manager,
     translate_with_fallback,
 )
 from .plugins_schemas import (
@@ -68,10 +71,8 @@ async def list_plugins(
         ),
     ),
 ):
-    legacy = legacy_plugins_module()
-    try:
-        manager = legacy.resolve_plugin_manager()
-    except RuntimeError:
+    manager = _try_plugin_manager()
+    if manager is None:
         return PluginsListResponse(plugins=[], total=0)
     packages = manager.list_packages()
     include_set = {p.strip() for p in (include or "").split(",") if p.strip()}
@@ -83,7 +84,7 @@ async def list_plugins(
     config_packages = get_config().plugins.packages
     return PluginsListResponse(
         plugins=[
-            legacy._serialize_package(item, packages=config_packages)
+            _serialize_package(item, packages=config_packages)
             for item in packages
         ],
         total=len(packages),
@@ -92,13 +93,12 @@ async def list_plugins(
 
 @plugins_core_router.post("/rescan", response_model=PluginsListResponse)
 async def rescan_plugins():
-    legacy = legacy_plugins_module()
-    manager = legacy.resolve_plugin_manager()
+    manager = _require_plugin_manager()
     packages = manager.rescan_runtime()
     config_packages = get_config().plugins.packages
     return PluginsListResponse(
         plugins=[
-            legacy._serialize_package(item, packages=config_packages)
+            _serialize_package(item, packages=config_packages)
             for item in packages
         ],
         total=len(packages),
@@ -107,46 +107,41 @@ async def rescan_plugins():
 
 @plugins_core_router.post("/{plugin_id}/enable", response_model=PluginPackageResponse)
 async def enable_plugin(plugin_id: str):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     state = manager.enable_plugin(plugin_id)
     await _refresh_channels_after_plugin_change(plugin_id, "enabled")
-    return legacy._serialize_package(state)
+    return _serialize_package(state)
 
 
 @plugins_core_router.post("/{plugin_id}/disable", response_model=PluginPackageResponse)
 async def disable_plugin(plugin_id: str):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     state = manager.disable_plugin(plugin_id)
     await _refresh_channels_after_plugin_change(plugin_id, "disabled")
-    return legacy._serialize_package(state)
+    return _serialize_package(state)
 
 
 @plugins_core_router.post("/{plugin_id}/reload", response_model=PluginPackageResponse)
 async def reload_plugin(plugin_id: str):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     state = manager.reload_plugin(plugin_id)
     await _refresh_channels_after_plugin_change(plugin_id, "reloaded")
-    return legacy._serialize_package(state)
+    return _serialize_package(state)
 
 
 @plugins_core_router.get("/{plugin_id}/settings", response_model=PluginPackageResponse)
 async def get_plugin_settings(plugin_id: str):
-    legacy = legacy_plugins_module()
-    _, package = legacy._require_package(plugin_id)
-    return legacy._serialize_package(package)
+    _, package = _require_package(plugin_id)
+    return _serialize_package(package)
 
 
 @plugins_core_router.put("/{plugin_id}/settings", response_model=PluginPackageResponse)
 async def update_plugin_settings(plugin_id: str, request: PluginSettingsUpdateRequest):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     state = manager.update_plugin_settings(plugin_id, request.updates)
     if request.updates:
         await _refresh_channels_after_plugin_change(plugin_id, "settings_updated")
-    return legacy._serialize_package(state)
+    return _serialize_package(state)
 
 
 def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) -> dict[str, Any]:
@@ -163,7 +158,7 @@ def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) ->
     if not isinstance(state, dict):
         return payload_dict
 
-    package = legacy_plugins_module()._try_plugin_manager()
+    package = _try_plugin_manager()
     package_state = package.get_package(plugin_id) if package is not None else None
     plugin_dir = (
         package_state.manifest.plugin_dir if package_state and package_state.manifest else ""
@@ -207,8 +202,7 @@ def _translate_resource_payload(payload_dict: dict[str, Any], plugin_id: str) ->
     "/{plugin_id}/settings/resources/{resource_name}", response_model=PluginSettingsResourceResponse
 )
 async def read_plugin_settings_resource(plugin_id: str, resource_name: str):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         payload = settings_service.read_plugin_settings_resource(plugin_id, resource_name)
@@ -253,8 +247,7 @@ async def start_plugin_settings_action(
     action_id: str,
     request: PluginSettingsActionRequest,
 ):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.start_plugin_settings_action(
@@ -291,8 +284,7 @@ async def poll_plugin_settings_action(
     session_id: str,
     request: PluginSettingsActionRequest,
 ):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.poll_plugin_settings_action(
@@ -329,8 +321,7 @@ async def cancel_plugin_settings_action(
     action_id: str,
     session_id: str,
 ):
-    legacy = legacy_plugins_module()
-    manager, _ = legacy._require_package(plugin_id)
+    manager, _ = _require_package(plugin_id)
     settings_service = _plugin_settings_service(manager)
     try:
         run = await settings_service.cancel_plugin_settings_action(

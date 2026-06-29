@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, status
 
 from ... import i18n as core_i18n
@@ -10,7 +12,14 @@ from ...plugins.install_service import (
     PluginPackageNotInstalled,
     PluginRegistryEntryNotFound,
 )
-from .plugins_common import legacy_plugins_module
+from .plugins_common import (
+    _get_registry_client,
+    _plugin_install_service,
+    _require_plugin_manager,
+    _serialize_package,
+    _try_plugin_manager,
+    _version_newer,
+)
 from .plugins_install_jobs import plugin_install_jobs
 from .plugins_schemas import (
     PluginInstallJobSnapshot,
@@ -21,6 +30,7 @@ from .plugins_schemas import (
 )
 
 plugins_registry_router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @plugins_registry_router.get("/registry", response_model=PluginRegistryResponse)
@@ -44,13 +54,12 @@ async def list_registry_plugins(
     ),
 ):
     """List all available plugins from the remote registry."""
-    legacy = legacy_plugins_module()
-    manager = legacy._try_plugin_manager()
-    registry = legacy._get_registry_client()
+    manager = _try_plugin_manager()
+    registry = _get_registry_client()
     try:
         index = await registry.fetch_index(force=refresh)
     except Exception as exc:
-        legacy.logger.exception("Failed to fetch plugin registry")
+        logger.exception("Failed to fetch plugin registry")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=core_i18n.t(
@@ -69,7 +78,7 @@ async def list_registry_plugins(
         installed = installed_version is not None
         update_available = False
         if installed and installed_version:
-            update_available = legacy._version_newer(entry.version, installed_version)
+            update_available = _version_newer(entry.version, installed_version)
         result.append(
             PluginRegistryEntryResponse(
                 plugin_id=entry.plugin_id,
@@ -101,9 +110,8 @@ async def list_registry_plugins(
 @plugins_registry_router.get("/updates", response_model=list[PluginUpdateCheckResponse])
 async def check_plugin_updates():
     """Check all installed plugins for available updates."""
-    legacy = legacy_plugins_module()
-    manager = legacy.resolve_plugin_manager()
-    registry = legacy._get_registry_client()
+    manager = _require_plugin_manager()
+    registry = _get_registry_client()
 
     installed = {
         state.manifest.plugin_id: state.manifest.version
@@ -116,7 +124,7 @@ async def check_plugin_updates():
     try:
         update_entries = await registry.check_updates(installed)
     except Exception as exc:
-        legacy.logger.warning("Failed to check plugin updates", extra={"error": str(exc)})
+        logger.warning("Failed to check plugin updates", extra={"error": str(exc)})
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=core_i18n.t(
@@ -138,9 +146,8 @@ async def check_plugin_updates():
 @plugins_registry_router.post("/{plugin_id}/update", response_model=PluginPackageResponse)
 async def update_plugin(plugin_id: str):
     """Update a plugin to the latest version from the registry."""
-    legacy = legacy_plugins_module()
-    manager = legacy.resolve_plugin_manager()
-    install_service = legacy._plugin_install_service(manager)
+    manager = _require_plugin_manager()
+    install_service = _plugin_install_service(manager)
 
     try:
         new_state = await install_service.update_from_registry(plugin_id)
@@ -169,7 +176,7 @@ async def update_plugin(plugin_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
-    return legacy._serialize_package(new_state)
+    return _serialize_package(new_state)
 
 
 @plugins_registry_router.post("/{plugin_id}/update/jobs", response_model=PluginInstallJobSnapshot)

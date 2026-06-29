@@ -26,8 +26,8 @@ ResolverDep = Callable[[], AvailabilityResolver]
 PluginIdsDep = Callable[[], list[str]]
 
 
-# Module-scoped lazily-initialized resolver. Mirrors how
-# ``_registry_client`` is held in :mod:`magi.api.routers.plugins`.
+# Module-scoped lazily-initialized resolver. Mirrors the shared plugin API
+# helpers that keep one process-local client/cache per router process.
 _resolver: AvailabilityResolver | None = None
 _resolver_lock = Lock()
 

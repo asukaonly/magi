@@ -236,6 +236,9 @@ def test_plugin_install_flow_lives_in_plugin_service_not_api_helpers() -> None:
     install_routes = (BACKEND_SRC / "api/routers/plugins_install_routes.py").read_text(
         encoding="utf-8"
     )
+    core_routes = (BACKEND_SRC / "api/routers/plugins_core_routes.py").read_text(
+        encoding="utf-8"
+    )
     install_jobs = (BACKEND_SRC / "api/routers/plugins_install_jobs.py").read_text(
         encoding="utf-8"
     )
@@ -255,6 +258,11 @@ def test_plugin_install_flow_lives_in_plugin_service_not_api_helpers() -> None:
     assert "PluginInstallService" in install_jobs
     assert "_plugin_install_service" in registry_routes
     assert "class PluginInstallService" in install_service
+    assert "legacy_plugins_module" not in plugins_common
+    assert "legacy_plugins_module" not in core_routes
+    assert "legacy_plugins_module" not in install_routes
+    assert "legacy_plugins_module" not in install_jobs
+    assert "legacy_plugins_module" not in registry_routes
 
 
 def test_runtime_bindings_only_expose_boundary_consumed_services() -> None:

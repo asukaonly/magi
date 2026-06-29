@@ -6,7 +6,6 @@ query param that forwards to ``PluginRegistryClient.fetch_index(force=...)``.
 """
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 
 import pytest
@@ -31,32 +30,20 @@ class _FakeRegistry:
         return _FakeIndex()
 
 
-class _FakeLegacy:
-    def __init__(self, registry: _FakeRegistry) -> None:
-        self._registry = registry
-        self.logger = logging.getLogger("test_plugins_registry_routes")
-
-    def _try_plugin_manager(self):  # noqa: ANN202 - test stub
-        return None
-
-    def _get_registry_client(self) -> _FakeRegistry:
-        return self._registry
-
-    def _version_newer(self, remote: str, local: str) -> bool:  # noqa: ARG002
-        return False
-
-
-def _patch_legacy(monkeypatch: pytest.MonkeyPatch, registry: _FakeRegistry) -> None:
-    legacy = _FakeLegacy(registry)
+def _patch_registry_context(monkeypatch: pytest.MonkeyPatch, registry: _FakeRegistry) -> None:
+    monkeypatch.setattr(plugins_registry_routes, "_get_registry_client", lambda: registry)
+    monkeypatch.setattr(plugins_registry_routes, "_try_plugin_manager", lambda: None)
     monkeypatch.setattr(
-        plugins_registry_routes, "legacy_plugins_module", lambda: legacy
+        plugins_registry_routes,
+        "_version_newer",
+        lambda remote, local: False,  # noqa: ARG005
     )
 
 
 @pytest.mark.asyncio
 async def test_refresh_true_forces_index_refetch(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = _FakeRegistry()
-    _patch_legacy(monkeypatch, registry)
+    _patch_registry_context(monkeypatch, registry)
 
     await plugins_registry_routes.list_registry_plugins(include=None, refresh=True)
 
@@ -66,7 +53,7 @@ async def test_refresh_true_forces_index_refetch(monkeypatch: pytest.MonkeyPatch
 @pytest.mark.asyncio
 async def test_default_uses_cache(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = _FakeRegistry()
-    _patch_legacy(monkeypatch, registry)
+    _patch_registry_context(monkeypatch, registry)
 
     await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
 
@@ -104,7 +91,7 @@ async def test_registry_response_preserves_plugin_icon(monkeypatch: pytest.Monke
         return index
 
     registry.fetch_index = fetch_index  # type: ignore[method-assign]
-    _patch_legacy(monkeypatch, registry)
+    _patch_registry_context(monkeypatch, registry)
 
     response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
 
@@ -154,7 +141,7 @@ async def test_registry_response_preserves_plugin_display_group(monkeypatch: pyt
         return index
 
     registry.fetch_index = fetch_index  # type: ignore[method-assign]
-    _patch_legacy(monkeypatch, registry)
+    _patch_registry_context(monkeypatch, registry)
 
     response = await plugins_registry_routes.list_registry_plugins(include=None, refresh=False)
 

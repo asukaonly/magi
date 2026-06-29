@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 import logging
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -20,6 +18,7 @@ from ...plugins.contracts import (
 )
 from ...plugins.i18n import PluginI18n
 from ...plugins.install_service import PluginInstallService
+from ...plugins.provider import resolve_plugin_manager
 from ...plugins.registry_client import PluginRegistryClient
 from .plugins_schemas import (
     PluginContributionResponse,
@@ -28,6 +27,7 @@ from .plugins_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+_registry_client: PluginRegistryClient | None = None
 
 
 def _authoritative_official(manifest, *, packages) -> bool:
@@ -76,25 +76,25 @@ def translate_with_fallback(
     return value
 
 
-def legacy_plugins_module() -> ModuleType:
-    return import_module("magi.api.routers.plugins")
-
-
 def _get_registry_client() -> PluginRegistryClient:
     """Return a shared registry client so the TTL cache is effective."""
-    legacy = legacy_plugins_module()
-    if legacy._registry_client is None:
-        legacy._registry_client = legacy.PluginRegistryClient()
-    return legacy._registry_client
+    global _registry_client
+    if _registry_client is None:
+        _registry_client = PluginRegistryClient()
+    return _registry_client
 
 
 def _try_plugin_manager():
     """Return the plugin manager if initialized, otherwise ``None``."""
-    legacy = legacy_plugins_module()
     try:
-        return legacy.resolve_plugin_manager()
+        return _require_plugin_manager()
     except RuntimeError:
         return None
+
+
+def _require_plugin_manager():
+    """Return the initialized plugin manager or raise the provider error."""
+    return resolve_plugin_manager()
 
 
 def _plugin_install_service(manager=None) -> PluginInstallService:
@@ -106,21 +106,19 @@ def _plugin_install_service(manager=None) -> PluginInstallService:
 
 def _get_plugin_i18n(plugin_id: str, plugin_dir: str) -> PluginI18n:
     """Get i18n helper for a plugin, using cached instance if plugin is loaded."""
-    legacy = legacy_plugins_module()
-    manager = legacy._try_plugin_manager()
+    manager = _try_plugin_manager()
     if manager is not None:
         get_loaded_plugin = getattr(manager, "get_loaded_plugin", None)
         plugin_instance = get_loaded_plugin(plugin_id) if callable(get_loaded_plugin) else None
         if plugin_instance:
             return plugin_instance.i18n
-    return legacy.PluginI18n(plugin_id, Path(plugin_dir))
+    return PluginI18n(plugin_id, Path(plugin_dir))
 
 
 def _serialize_manifest(
     manifest: PluginManifest, *, packages=None
 ) -> PluginManifestResponse:
-    legacy = legacy_plugins_module()
-    i18n = legacy._get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
+    i18n = _get_plugin_i18n(manifest.plugin_id, manifest.plugin_dir)
     plugin_id_normalized = normalize_plugin_id(manifest.plugin_id)
 
     # ``packages`` is the once-read ``config.plugins.packages`` mapping. List
@@ -500,17 +498,16 @@ def _serialize_activation_flow(
 def _serialize_package(
     state: PluginPackageState, *, packages=None
 ) -> PluginPackageResponse:
-    legacy = legacy_plugins_module()
-    i18n = legacy._get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
+    i18n = _get_plugin_i18n(state.manifest.plugin_id, state.manifest.plugin_dir)
 
     return PluginPackageResponse(
-        manifest=legacy._serialize_manifest(state.manifest, packages=packages),
+        manifest=_serialize_manifest(state.manifest, packages=packages),
         enabled=state.enabled,
         trusted=state.trusted,
         loaded=state.loaded,
         healthy=state.healthy,
         last_error=state.last_error,
-        contributions=[legacy._serialize_contribution(item, i18n) for item in state.contributions],
+        contributions=[_serialize_contribution(item, i18n) for item in state.contributions],
         current_settings=dict(state.current_settings),
     )
 
@@ -554,8 +551,7 @@ def _serialize_package_lightweight(
 
 
 def _require_package(plugin_id: str):
-    legacy = legacy_plugins_module()
-    manager = legacy.resolve_plugin_manager()
+    manager = _require_plugin_manager()
     package = manager.get_package(plugin_id)
     if package is None:
         raise HTTPException(
@@ -579,6 +575,7 @@ __all__ = [
     "_get_plugin_i18n",
     "_get_registry_client",
     "_plugin_install_service",
+    "_require_plugin_manager",
     "_require_package",
     "_serialize_activation_flow",
     "_serialize_contribution",
@@ -590,7 +587,7 @@ __all__ = [
     "_serialize_package_lightweight",
     "_try_plugin_manager",
     "_version_newer",
-    "legacy_plugins_module",
     "normalize_plugin_id",
+    "resolve_plugin_manager",
     "translate_with_fallback",
 ]

@@ -17,10 +17,10 @@ from ...plugins.install_service import PluginInstallService
 from ...plugins.installation import InvalidPluginArchiveError
 from .plugins_common import (
     _get_registry_client,
+    _require_plugin_manager,
     _serialize_package,
     _serialize_package_lightweight,
     _try_plugin_manager,
-    legacy_plugins_module,
 )
 from .plugins_schemas import PluginInstallJobSnapshot, PluginInstallLogEntry, PluginPackageResponse
 
@@ -210,11 +210,10 @@ class PluginInstallJobManager:
     async def _run_registry_update(self, job: PluginInstallJob) -> None:
         try:
             plugin_id = job.plugin_id or ""
-            legacy = legacy_plugins_module()
             registry = _get_registry_client()
             install_service = PluginInstallService(
                 registry_client=registry,
-                plugin_manager=legacy.resolve_plugin_manager(),
+                plugin_manager=_require_plugin_manager(),
             )
             job.update(stage="registry", progress_pct=8.0, message="Resolving plugin registry entry")
             job.update(stage="download", progress_pct=18.0, message="Downloading plugin source")
@@ -229,7 +228,7 @@ class PluginInstallJobManager:
 
     async def _run_upload_install(self, job: PluginInstallJob, archive_path: Path) -> None:
         try:
-            manager = legacy_plugins_module().resolve_plugin_manager()
+            manager = _require_plugin_manager()
             install_service = PluginInstallService(
                 registry_client=_get_registry_client(),
                 plugin_manager=manager,

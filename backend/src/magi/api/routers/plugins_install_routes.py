@@ -11,7 +11,13 @@ from fastapi import APIRouter, HTTPException, UploadFile, status
 from ... import i18n as core_i18n
 from ...plugins.install_service import DirectLibraryInstallError, PluginRegistryEntryNotFound
 from ...plugins.installation import InvalidPluginArchiveError
-from .plugins_common import legacy_plugins_module
+from .plugins_common import (
+    _plugin_install_service,
+    _require_plugin_manager,
+    _serialize_package,
+    _serialize_package_lightweight,
+    _try_plugin_manager,
+)
 from .plugins_install_jobs import plugin_install_jobs, require_plugin_install_job
 from .plugins_schemas import (
     PluginInstallJobSnapshot,
@@ -27,7 +33,6 @@ logger = logging.getLogger(__name__)
 @plugins_install_router.post("/install/upload", response_model=PluginPackageResponse)
 async def install_plugin_from_upload(file: UploadFile):
     """Install a plugin from an uploaded .tar.gz or .zip archive."""
-    legacy = legacy_plugins_module()
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -43,8 +48,8 @@ async def install_plugin_from_upload(file: UploadFile):
             ),
         )
 
-    manager = legacy.resolve_plugin_manager()
-    install_service = legacy._plugin_install_service(manager)
+    manager = _require_plugin_manager()
+    install_service = _plugin_install_service(manager)
     with tempfile.TemporaryDirectory(prefix="magi-upload-") as tmp:
         archive_path = Path(tmp) / file.filename
         content = await file.read()
@@ -85,14 +90,13 @@ async def install_plugin_from_upload(file: UploadFile):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
             ) from exc
-    return legacy._serialize_package(state)
+    return _serialize_package(state)
 
 
 @plugins_install_router.post("/install/upload/inspect", response_model=PluginManifestResponse)
 async def inspect_plugin_upload(file: UploadFile):
     """Return declared capabilities + metadata of an uploaded archive WITHOUT
     installing it — drives the pre-install consent step for sideload."""
-    legacy = legacy_plugins_module()
     if not file.filename:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -107,7 +111,7 @@ async def inspect_plugin_upload(file: UploadFile):
                 fallback="Archive must be .tar.gz, .tgz, or .zip",
             ),
         )
-    manager = legacy.resolve_plugin_manager()
+    manager = _require_plugin_manager()
     with tempfile.TemporaryDirectory(prefix="magi-upload-inspect-") as tmp:
         archive_path = Path(tmp) / file.filename
         archive_path.write_bytes(await file.read())
@@ -173,9 +177,8 @@ async def start_plugin_upload_install_job(file: UploadFile):
 @plugins_install_router.post("/install/registry", response_model=PluginPackageResponse)
 async def install_plugin_from_registry(request: PluginInstallRequest):
     """Clone and install a plugin from the remote registry."""
-    legacy = legacy_plugins_module()
-    manager = legacy._try_plugin_manager()
-    install_service = legacy._plugin_install_service(manager)
+    manager = _try_plugin_manager()
+    install_service = _plugin_install_service(manager)
 
     try:
         logger.info(
@@ -191,8 +194,8 @@ async def install_plugin_from_registry(request: PluginInstallRequest):
             },
         )
         if install_result.used_runtime_manager:
-            return legacy._serialize_package(install_result.target_state)
-        return legacy._serialize_package_lightweight(install_result.target_state)
+            return _serialize_package(install_result.target_state)
+        return _serialize_package_lightweight(install_result.target_state)
     except PluginRegistryEntryNotFound as exc:
         logger.warning("Plugin registry entry not found", extra={"plugin_id": request.plugin_id})
         raise HTTPException(
@@ -248,9 +251,8 @@ async def get_plugin_install_job(job_id: str):
 @plugins_install_router.delete("/{plugin_id}", status_code=status.HTTP_200_OK)
 async def uninstall_plugin(plugin_id: str):
     """Uninstall a user-installed plugin."""
-    legacy = legacy_plugins_module()
-    manager = legacy.resolve_plugin_manager()
-    install_service = legacy._plugin_install_service(manager)
+    manager = _require_plugin_manager()
+    install_service = _plugin_install_service(manager)
     try:
         install_service.uninstall(plugin_id)
     except KeyError as exc:

@@ -164,7 +164,7 @@ def test_plugins_api_lists_and_updates_plugin_settings(monkeypatch):
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
-    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
     monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
@@ -184,7 +184,7 @@ def test_plugins_api_supports_enable_disable_reload_rescan_and_settings(monkeypa
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
-    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
     monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 
@@ -230,7 +230,7 @@ def test_plugins_api_reads_plugin_settings_resources(monkeypatch):
     app = FastAPI()
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
-    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
     client = TestClient(app)
 
     response = client.get("/api/plugins/core-tools/settings/resources/calendar_lists")
@@ -256,7 +256,7 @@ def test_plugins_api_runs_plugin_settings_actions(monkeypatch):
     app.include_router(plugins_router, prefix="/api/plugins")
     manager = _FakeManager()
     queue = _FakeRuntimeQueue()
-    monkeypatch.setattr("magi.api.routers.plugins.resolve_plugin_manager", lambda: manager)
+    monkeypatch.setattr("magi.api.routers.plugins_common.resolve_plugin_manager", lambda: manager)
     monkeypatch.setattr("magi.api.routers.plugins_core_routes.require_runtime_command_queue", lambda: queue)
     client = TestClient(app)
 

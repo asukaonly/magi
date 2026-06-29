@@ -8,7 +8,7 @@ from magi.api.routers import background_tasks as background_tasks_module
 from magi.api.routers import commands as commands_module
 from magi.api.routers import control as control_module
 from magi.api.routers import mcp as mcp_module
-from magi.api.routers import plugins as plugins_module
+from magi.api.routers import plugins_common as plugins_common_module
 from magi.api.routers import timeline as timeline_module
 from magi.api.routers.background_tasks import background_tasks_router
 from magi.api.routers.commands import commands_router
@@ -113,7 +113,7 @@ def test_plugins_missing_package_uses_chinese(monkeypatch: pytest.MonkeyPatch) -
             return None
 
     monkeypatch.setattr(
-        plugins_module,
+        plugins_common_module,
         "resolve_plugin_manager",
         lambda: _MissingPluginManager(),
     )
