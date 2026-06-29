@@ -1,12 +1,47 @@
 """Pure serialization helpers for chat read models."""
+
 from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from typing import Any, cast
 
 from ..contracts import ChatMessageLabel, ChatReplyPreview
 from .models import ChatDisplayMessage, ChatSessionSummary
+
+_ASSISTANT_MESSAGE_KINDS = {
+    "assistant_final",
+    "assistant_interim",
+    "assistant_reaction",
+    "assistant_rhythm_segment",
+    "ask_request",
+}
+_STATUS_MESSAGE_KINDS = {
+    "command_result",
+    "status_note",
+    "system_notice",
+    "plan_state",
+    "todo_state",
+    "permission_request",
+    "background_task_completion",
+    "background_task_pending",
+}
+_USER_PAYLOAD_MESSAGE_KINDS = {"ask_response", "command_invocation"}
+
+
+@dataclass(slots=True)
+class _DisplayRowContext:
+    message_kind: str
+    content: str
+    payload: dict[str, Any]
+    attachments: list[dict[str, Any]]
+    role: str
+    label_payload: dict[str, Any] | None
+    turn_id: str | None
+    timestamp: int
+    message_id: str
+    persona_id: str | None
 
 
 def parse_turn_ux_preferences(raw_ux_plan_json: str | None) -> dict[str, Any]:
@@ -33,150 +68,108 @@ def apply_turn_ux_preferences(
 
 
 def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
-    message_kind = str(row["message_kind"] or "")
-    content = str(row["content_text"] or "").strip()
-    payload = parse_message_payload_json(row["payload_json"])
-    raw_attachments = payload.get("attachments")
-    attachments = cast(list[dict[str, Any]], raw_attachments) if isinstance(raw_attachments, list) else []
-    if not content and not attachments:
+    context = _build_display_row_context(row)
+    if not context.content and not context.attachments:
         return None
 
-    role = str(row["role"] or "assistant")
-    label = parse_label_payload(row["label_json"])
-    label_payload = label.to_dict() if label is not None else None
-    turn_id = str(row["turn_id"] or "").strip() or None
-    timestamp = int(row["created_at_ms"] or 0)
-    message_id = str(row["message_id"])
-    persona_id = (
-        str(row["persona_id"] or "").strip() or None
-        if "persona_id" in row.keys()
-        else None
-    )
-
-    if message_kind == "user_text":
-        return ChatDisplayMessage(
+    if context.message_kind == "user_text":
+        return _build_display_message(context, role="user", kind="user")
+    if context.message_kind in _USER_PAYLOAD_MESSAGE_KINDS:
+        return _build_display_message(
+            context,
             role="user",
             kind="user",
-            content=content,
-            attachments=list(attachments),
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            label=label_payload,
+            include_payload=True,
         )
-    if message_kind == "ask_response":
-        return ChatDisplayMessage(
-            role="user",
-            kind="user",
-            content=content,
-            attachments=list(attachments),
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            label=label_payload,
-            payload=dict(payload) if isinstance(payload, dict) else None,
-        )
-    if message_kind == "command_invocation":
-        return ChatDisplayMessage(
-            role="user",
-            kind="user",
-            content=content,
-            attachments=list(attachments),
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            label=label_payload,
-            payload=dict(payload) if isinstance(payload, dict) else None,
-        )
-    if message_kind == "command_result":
-        return ChatDisplayMessage(
-            role=role,
-            kind="status",
-            content=content,
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            payload=dict(payload) if isinstance(payload, dict) else None,
-            label=label_payload,
-        )
-    if message_kind in {"assistant_final", "assistant_interim", "assistant_reaction", "assistant_rhythm_segment", "ask_request"}:
-        return ChatDisplayMessage(
-            role=role,
+    if context.message_kind in _ASSISTANT_MESSAGE_KINDS:
+        return _build_display_message(
+            context,
+            role=context.role,
             kind="assistant",
-            content=content,
-            attachments=list(attachments),
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            label=label_payload,
-            payload=dict(payload) if isinstance(payload, dict) else None,
+            include_payload=True,
         )
-    if message_kind in {
-        "status_note",
-        "system_notice",
-        "plan_state",
-        "todo_state",
-        "permission_request",
-    }:
-        return ChatDisplayMessage(
-            role=role,
+    if context.message_kind in _STATUS_MESSAGE_KINDS:
+        return _build_display_message(
+            context,
+            role=context.role,
             kind="status",
-            content=content,
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            payload=dict(payload) if isinstance(payload, dict) else None,
-            label=label_payload,
-        )
-    if message_kind == "background_task_completion":
-        return ChatDisplayMessage(
-            role=role,
-            kind="status",
-            content=content,
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            payload=dict(payload) if isinstance(payload, dict) else None,
-        )
-    if message_kind == "background_task_pending":
-        return ChatDisplayMessage(
-            role=role,
-            kind="status",
-            content=content,
-            timestamp=timestamp,
-            message_id=message_id,
-            message_kind=message_kind,
-            persona_id=persona_id,
-            turn_id=turn_id,
-            payload=dict(payload) if isinstance(payload, dict) else None,
+            include_payload=True,
+            include_attachments=False,
+            include_label=context.message_kind not in _BACKGROUND_TASK_MESSAGE_KINDS,
         )
     return None
+
+
+_BACKGROUND_TASK_MESSAGE_KINDS = {
+    "background_task_completion",
+    "background_task_pending",
+}
+
+
+def _build_display_row_context(row: sqlite3.Row) -> _DisplayRowContext:
+    payload = parse_message_payload_json(row["payload_json"])
+    raw_attachments = payload.get("attachments")
+    attachments = (
+        cast(list[dict[str, Any]], raw_attachments) if isinstance(raw_attachments, list) else []
+    )
+    label = parse_label_payload(row["label_json"])
+    return _DisplayRowContext(
+        message_kind=str(row["message_kind"] or ""),
+        content=str(row["content_text"] or "").strip(),
+        payload=payload,
+        attachments=attachments,
+        role=str(row["role"] or "assistant"),
+        label_payload=label.to_dict() if label is not None else None,
+        turn_id=str(row["turn_id"] or "").strip() or None,
+        timestamp=int(row["created_at_ms"] or 0),
+        message_id=str(row["message_id"]),
+        persona_id=_row_persona_id(row),
+    )
+
+
+def _row_persona_id(row: sqlite3.Row) -> str | None:
+    if "persona_id" not in row.keys():
+        return None
+    return str(row["persona_id"] or "").strip() or None
+
+
+def _build_display_message(
+    context: _DisplayRowContext,
+    *,
+    role: str,
+    kind: str,
+    include_payload: bool = False,
+    include_attachments: bool = True,
+    include_label: bool = True,
+) -> ChatDisplayMessage:
+    return ChatDisplayMessage(
+        role=role,
+        kind=kind,
+        content=context.content,
+        attachments=list(context.attachments) if include_attachments else [],
+        timestamp=context.timestamp,
+        message_id=context.message_id,
+        message_kind=context.message_kind,
+        persona_id=context.persona_id,
+        turn_id=context.turn_id,
+        payload=dict(context.payload) if include_payload else None,
+        label=context.label_payload if include_label else None,
+    )
 
 
 def build_reply_preview(target_row: sqlite3.Row | None) -> dict[str, Any] | None:
     if target_row is None:
         return None
     content = str(target_row["content_text"] or "").strip()
-    return cast(dict[str, Any], ChatReplyPreview(
-        message_id=str(target_row["message_id"]),
-        role=str(target_row["role"] or "assistant"),
-        message_kind=str(target_row["message_kind"] or "").strip() or None,
-        content_excerpt=content[:160],
-    ).to_dict())
+    return cast(
+        dict[str, Any],
+        ChatReplyPreview(
+            message_id=str(target_row["message_id"]),
+            role=str(target_row["role"] or "assistant"),
+            message_kind=str(target_row["message_kind"] or "").strip() or None,
+            content_excerpt=content[:160],
+        ).to_dict(),
+    )
 
 
 def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
@@ -190,9 +183,7 @@ def row_to_session_summary(row: sqlite3.Row) -> ChatSessionSummary:
         message_count=int(row["message_count"] or 0),
         workspace_path=str(row["workspace_path"]) if row["workspace_path"] is not None else None,
         history_version=(
-            int(row["history_version"] or 0)
-            if "history_version" in row.keys()
-            else 0
+            int(row["history_version"] or 0) if "history_version" in row.keys() else 0
         ),
     )
 
