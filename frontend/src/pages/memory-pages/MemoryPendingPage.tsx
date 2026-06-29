@@ -34,7 +34,7 @@ const MEMORY_REVIEW_BUTTON_CLASS = cn(
 );
 
 const storyTitle = (story: StoryItem, fallback: string): string => (
-  String(story.title || '').trim() || fallback
+  String(story.title || story.preview_text || '').trim() || fallback
 );
 
 const seedTitle = (seed: L2ExperienceSeed, fallback: string): string => (
@@ -73,7 +73,7 @@ export const MemoryPendingPage = () => {
     try {
       const [dashboardPayload, storyPayload, seedPayload, notificationPayload] = await Promise.all([
         memoryApi.getDashboard({ pending_limit: 25 }),
-        memoryStoriesApi.list({ limit: 50, offset: 0 }),
+        memoryStoriesApi.list({ limit: 50, offset: 0, surface: 'all' }),
         memoryApi.listExperienceSeeds({ status: 'candidate', limit: 50, offset: 0 }),
         listNotifications(),
       ]);
@@ -334,8 +334,8 @@ export const MemoryPendingPage = () => {
             >
               {stories.map((story) => {
                 const busy = actionId === `story:${story.summary_id}`;
-                const title = String(story.content || '').trim() || storyTitle(story, t('memory.pending.fallbackMemoryUpdateTitle'));
-                const body = String(story.content || '').trim() ? storyTitle(story, '') : '';
+                const title = storyTitle(story, t('memory.pending.fallbackMemoryUpdateTitle'));
+                const body = String(story.detail_lead_text || story.content || '').trim();
                 return (
                   <PendingCard
                     key={story.summary_id}

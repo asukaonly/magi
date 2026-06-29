@@ -721,6 +721,12 @@ storage remains a current usage value until a durable daily snapshot exists.
 Raw L1 events, L2 graph inspection, and L4 skill memory remain available from
 Manage as operator/developer surfaces, not as the default mental model for
 ordinary memory review.
+The memory story feed is a backend-assembled read model over L3 insight and
+temporal summary records. The API owns story grouping, summary-page visibility,
+featured ordering hints, display timestamps, preview text, detail lead text, and
+summary statistics. Frontend story surfaces may translate labels and choose
+visual treatment, but they should not reclassify raw `summary_category` values
+or recompute story-feed statistics from the raw records.
 The About You page presents the user-facing self portrait as an ordered
 world model: first a grouped view of identity, preferences, routines, places,
 and interaction style; then reviewable items that need user judgment; then recent

@@ -141,6 +141,12 @@ const storyPayload = {
       insight_key: 'state:memory',
       insight_metadata: {},
       evidence_event_count: 4,
+      feed_group: 'memory_update',
+      summary_feed_visible: false,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: '最近更关注记忆产品',
+      detail_lead_text: 'Magi 觉得你这几天更常讨论记忆页面和用户校准。',
     },
     {
       summary_id: 'story-2',
@@ -155,6 +161,12 @@ const storyPayload = {
       insight_key: 'trend:memory',
       insight_metadata: {},
       evidence_event_count: 6,
+      feed_group: 'observations',
+      summary_feed_visible: true,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: '趋势观察',
+      detail_lead_text: '最近持续关注：Codex、DeepSeek。',
     },
     {
       summary_id: 'story-3',
@@ -169,11 +181,23 @@ const storyPayload = {
       insight_key: null,
       insight_metadata: {},
       evidence_event_count: 1,
+      feed_group: 'periodic',
+      summary_feed_visible: true,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: '普通总结',
+      detail_lead_text: '已经处理过的总结。',
     },
   ],
   total: 2,
   limit: 50,
   offset: 0,
+  stats: {
+    highlights: 1,
+    periodic: 1,
+    observations: 1,
+    tasks: 0,
+  },
 };
 
 const seedPayload = {
@@ -273,7 +297,7 @@ describe('MemoryPendingPage', () => {
     expect(screen.getByText('可能是一段记忆页面改版')).toBeInTheDocument();
     expect(screen.getByText('你最近常关注「安静圣地巡礼」，但你说过「城市热门路线」—— 要更新偏好吗？')).toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 25 });
-    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 50, offset: 0, surface: 'all' });
     expect(memoryApi.listExperienceSeeds).toHaveBeenCalledWith({ status: 'candidate', limit: 50, offset: 0 });
     expect(listNotifications).toHaveBeenCalled();
   });

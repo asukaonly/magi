@@ -14,7 +14,7 @@ import MemoryPageFrame, {
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_SECTION_CARD_CLASS,
 } from './MemoryPageFrame';
-import { isMemoryUpdateStory, isSummaryInsightStory } from './storyFilters';
+import { isMemoryUpdateStory } from './storyFilters';
 
 type PendingOverviewItem =
   | {
@@ -197,9 +197,9 @@ const buildPendingItems = (
       kind: 'story',
       id: `story:${story.summary_id}`,
       title: storyDisplayTitle(story, t),
-      body: sanitizeMemoryText(story.content, t),
+      body: sanitizeMemoryText(story.detail_lead_text || story.content, t),
       status: story.review_state,
-      updatedAt: story.updated_at || story.period_end || 0,
+      updatedAt: story.display_timestamp || 0,
       payload: story,
     }));
   return [...assertionItems, ...storyItems]
@@ -218,11 +218,11 @@ const buildRecentStories = (stories: StoryItem[], t: OverviewTranslateFn): Story
     .filter((story) => (
       story.review_state !== 'archived'
       && story.review_state !== 'pending_confirmation'
-      && (story.summary_type !== 'insight' || isSummaryInsightStory(story))
+      && story.summary_feed_visible
     ))
     .forEach((story) => {
-      const contentKey = sanitizeMemoryText(story.content, t).replace(/\s+/g, ' ').trim().toLowerCase();
-      const fallbackKey = `${story.summary_type}:${story.summary_category}:${story.period_start || ''}:${story.period_end || ''}`;
+      const contentKey = sanitizeMemoryText(story.preview_text || story.content, t).replace(/\s+/g, ' ').trim().toLowerCase();
+      const fallbackKey = `${story.summary_type}:${story.summary_category}:${story.display_timestamp || ''}`;
       const key = contentKey || fallbackKey;
       if (!key || seen.has(key)) {
         return;
@@ -275,7 +275,7 @@ export const MemoryOverviewPage = () => {
         const [dashboardPayload, sensorPayload, storyPayload] = await Promise.all([
           memoryApi.getDashboard({ pending_limit: 8 }),
           sensorsApi.getStatus(),
-          memoryStoriesApi.list({ limit: 12, offset: 0 }),
+          memoryStoriesApi.list({ limit: 12, offset: 0, surface: 'all' }),
         ]);
         if (cancelled) {
           return;
@@ -522,7 +522,9 @@ export const MemoryOverviewPage = () => {
                   <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
                     {storyDisplayTitle(story, t)}
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{sanitizeMemoryText(story.content, t)}</p>
+                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                    {sanitizeMemoryText(story.preview_text || story.content, t)}
+                  </p>
                 </article>
               )) : (
                 <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.recent')}</div>

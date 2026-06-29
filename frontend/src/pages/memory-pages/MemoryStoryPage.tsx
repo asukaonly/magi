@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
+import {
+  memoryStoriesApi,
+  type StoryFeedGroup,
+  type StoryFeedStats,
+  type StoryItem,
+} from '@/api/modules/memoryStories';
 import StoryCard from '@/components/memory/story/StoryCard';
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { MarkdownBlock } from '@/components/ui/markdown-block';
-import { isSummaryInsightStory } from './storyFilters';
 import { cn } from '@/lib/utils';
 
-type StoryFilter = 'all' | 'periodic' | 'observations' | 'tasks';
+type StoryFilter = 'all' | Exclude<StoryFeedGroup, 'memory_update'>;
 
 const FILTERS: Array<{ id: StoryFilter; labelKey: string }> = [
   { id: 'all', labelKey: 'memory.stories.filters.all' },
@@ -20,21 +24,15 @@ const FILTERS: Array<{ id: StoryFilter; labelKey: string }> = [
 
 const PAGE_SIZE = 30;
 
-const TEMPORAL_CATEGORIES = new Set(['day', 'week', 'month', 'quarter', 'year']);
-const OBSERVATION_CATEGORIES = new Set([
-  'trend_shift',
-  'preference_emergence',
-  'conflict_resolution',
-  'risk_escalation',
-]);
-const TASK_CATEGORIES = new Set(['task_reflection', 'goal_refinement', 'milestone_review']);
-
-const isTemporalStory = (story: StoryItem): boolean => (
-  story.summary_type !== 'insight' || TEMPORAL_CATEGORIES.has(story.summary_category)
-);
+const EMPTY_STATS: StoryFeedStats = {
+  highlights: 0,
+  periodic: 0,
+  observations: 0,
+  tasks: 0,
+};
 
 const storyTimestamp = (story: StoryItem): number => (
-  story.period_end || story.updated_at || story.period_start || 0
+  story.display_timestamp || 0
 );
 
 const formatStoryDate = (story: StoryItem, locale: string): string => {
@@ -46,38 +44,42 @@ const formatStoryDate = (story: StoryItem, locale: string): string => {
   }).format(new Date(timestamp * 1000));
 };
 
-const matchesFilter = (story: StoryItem, filter: StoryFilter): boolean => {
-  switch (filter) {
-    case 'periodic':
-      return isTemporalStory(story);
-    case 'observations':
-      return OBSERVATION_CATEGORIES.has(story.summary_category);
-    case 'tasks':
-      return TASK_CATEGORIES.has(story.summary_category);
-    default:
-      return true;
-  }
-};
-
 const storyEssenceText = (story: StoryItem): string => (
   String(story.essence_prose || '').trim()
 );
 
 const storyPreviewText = (story: StoryItem): string => (
-  storyEssenceText(story) || story.title || story.content
+  String(story.preview_text || '').trim() || storyEssenceText(story) || story.title || story.content
 );
 
 const storyDetailLeadText = (story: StoryItem): string => (
-  story.title ? (storyEssenceText(story) || story.content) : ''
+  String(story.detail_lead_text || '').trim()
 );
 
 const storyCategoryLabelKey = (story: StoryItem): string => (
   `memory.stories.categories.${story.summary_category}`
 );
 
+const groupForFilter = (filter: StoryFilter): Exclude<StoryFeedGroup, 'memory_update'> | undefined => (
+  filter === 'all' ? undefined : filter
+);
+
+const decrementStatsForStory = (stats: StoryFeedStats, story: StoryItem): StoryFeedStats => {
+  if (!story.summary_feed_visible || story.review_state === 'archived') {
+    return stats;
+  }
+  return {
+    highlights: Math.max(0, stats.highlights - (story.summary_type === 'insight' ? 1 : 0)),
+    periodic: Math.max(0, stats.periodic - (story.feed_group === 'periodic' ? 1 : 0)),
+    observations: Math.max(0, stats.observations - (story.feed_group === 'observations' ? 1 : 0)),
+    tasks: Math.max(0, stats.tasks - (story.feed_group === 'tasks' ? 1 : 0)),
+  };
+};
+
 export const MemoryStoryPage = () => {
   const { t, i18n } = useTranslation('app');
   const [items, setItems] = useState<StoryItem[]>([]);
+  const [stats, setStats] = useState<StoryFeedStats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -87,13 +89,19 @@ export const MemoryStoryPage = () => {
   const fetchFeed = useCallback(async () => {
     setLoading(true);
     try {
-      const payload = await memoryStoriesApi.list({ limit: PAGE_SIZE, offset: 0 });
+      const payload = await memoryStoriesApi.list({
+        limit: PAGE_SIZE,
+        offset: 0,
+        surface: 'summary',
+        group: groupForFilter(activeFilter),
+      });
       setItems(payload.items);
+      setStats(payload.stats || EMPTY_STATS);
       setHasMore(payload.items.length === PAGE_SIZE);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeFilter]);
 
   useEffect(() => {
     void fetchFeed();
@@ -101,6 +109,7 @@ export const MemoryStoryPage = () => {
 
   const handleArchive = useCallback(async (story: StoryItem) => {
     await memoryStoriesApi.review(story.summary_id, { review_state: 'archived' });
+    setStats((current) => decrementStatsForStory(current, story));
     setItems((prev) => prev.map((it) =>
       it.summary_id === story.summary_id ? { ...it, review_state: 'archived' } : it
     ));
@@ -113,16 +122,22 @@ export const MemoryStoryPage = () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const payload = await memoryStoriesApi.list({ limit: PAGE_SIZE, offset: items.length });
+      const payload = await memoryStoriesApi.list({
+        limit: PAGE_SIZE,
+        offset: items.length,
+        surface: 'summary',
+        group: groupForFilter(activeFilter),
+      });
       setItems((prev) => [...prev, ...payload.items]);
+      setStats(payload.stats || EMPTY_STATS);
       setHasMore(payload.items.length === PAGE_SIZE);
     } finally {
       setLoadingMore(false);
     }
-  }, [hasMore, items.length, loadingMore]);
+  }, [activeFilter, hasMore, items.length, loadingMore]);
 
   const summaryItems = useMemo(
-    () => items.filter((story) => isSummaryInsightStory(story) || isTemporalStory(story)),
+    () => items.filter((story) => story.summary_feed_visible),
     [items]
   );
 
@@ -131,14 +146,11 @@ export const MemoryStoryPage = () => {
     [summaryItems]
   );
 
-  const filteredItems = useMemo(
-    () => visibleBaseItems.filter((story) => matchesFilter(story, activeFilter)),
-    [activeFilter, visibleBaseItems]
-  );
+  const filteredItems = visibleBaseItems;
 
   const featuredStory = useMemo(
     () => (
-      filteredItems.find((story) => ['week', 'month', 'quarter', 'year'].includes(story.summary_category))
+      filteredItems.find((story) => story.featured_rank !== null && story.featured_rank !== undefined)
       || filteredItems[0]
       || null
     ),
@@ -152,11 +164,6 @@ export const MemoryStoryPage = () => {
     },
     [featuredStory?.summary_id, filteredItems]
   );
-
-  const statItems = visibleBaseItems;
-  const insightCount = statItems.filter((story) => story.summary_type === 'insight').length;
-  const temporalCount = statItems.filter(isTemporalStory).length;
-  const observationCount = statItems.filter((story) => OBSERVATION_CATEGORIES.has(story.summary_category)).length;
 
   return (
     <MemoryPageFrame
@@ -200,17 +207,17 @@ export const MemoryStoryPage = () => {
                 className="inline-flex h-8 w-fit max-w-full items-center gap-2 rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-2.5 text-xs text-[hsl(var(--memory-muted))]"
               >
                 <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{insightCount}</span>
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.highlights}</span>
                   <span>{t('memory.stories.stats.highlights')}</span>
                 </span>
                 <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
                 <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{temporalCount}</span>
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.periodic}</span>
                   <span>{t('memory.stories.stats.periodic')}</span>
                 </span>
                 <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
                 <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{observationCount}</span>
+                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.observations}</span>
                   <span>{t('memory.stories.stats.observations')}</span>
                 </span>
               </div>

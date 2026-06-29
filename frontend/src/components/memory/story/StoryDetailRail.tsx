@@ -63,69 +63,69 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
 
   if (!story) return null;
 
-  const period = story.period_end ? new Date(story.period_end * 1000).toLocaleString(i18n.language) : '';
-  const detailTitle = story.title || String(story.essence_prose || '').trim() || story.content.slice(0, 80);
+  const period = story.display_timestamp ? new Date(story.display_timestamp * 1000).toLocaleString(i18n.language) : '';
+  const detailTitle = story.title || story.preview_text || story.content.slice(0, 80);
 
   return (
     <Dialog open={Boolean(story)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent
-      data-testid="story-detail-rail"
+        data-testid="story-detail-rail"
         hideClose
         className="max-h-[min(760px,calc(100vh-64px))] max-w-3xl overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
-    >
+      >
         <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
           <div className="min-w-0">
             <DialogDescription className="text-xs text-[hsl(var(--memory-muted))]">
-            {t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category })}
-            {period ? ` · ${period}` : ''}
+              {t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category })}
+              {period ? ` · ${period}` : ''}
             </DialogDescription>
             <DialogTitle className="mt-1 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
               {detailTitle}
             </DialogTitle>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')}>
-          <X className="h-4 w-4" />
-        </Button>
+            <X className="h-4 w-4" />
+          </Button>
         </DialogHeader>
 
         <div className="max-h-[calc(min(760px,100vh-64px)-96px)] space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
-        <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
-          {story.content}
-        </MarkdownBlock>
+          <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
+            {story.content}
+          </MarkdownBlock>
 
-        <div>
-          <div className="text-xs font-medium text-[hsl(var(--memory-muted))]">
-            {t('memory.stories.detailRail.evidenceTitle')}
+          <div>
+            <div className="text-xs font-medium text-[hsl(var(--memory-muted))]">
+              {t('memory.stories.detailRail.evidenceTitle')}
+            </div>
+            {evidenceLoading ? (
+              <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
+                {t('memory.stories.detailRail.evidenceLoading')}
+              </div>
+            ) : evidence && evidence.length > 0 ? (
+              <ul className="mt-2 space-y-2">
+                {evidence.map((item) => (
+                  <li
+                    key={item.event_id}
+                    className="rounded-md border border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--memory-muted))]">
+                      <span>{formatEvidenceTimestamp(item.timestamp, i18n.language)}</span>
+                      {item.source ? <span>· {item.source}</span> : null}
+                      {item.event_type ? <span>· {item.event_type}</span> : null}
+                    </div>
+                    <div className="mt-1 text-xs leading-5 text-[hsl(var(--memory-body))]">
+                      {item.content || '—'}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
+                {t('memory.stories.detailRail.evidenceEmpty')}
+              </div>
+            )}
           </div>
-          {evidenceLoading ? (
-            <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
-              {t('memory.stories.detailRail.evidenceLoading')}
-            </div>
-          ) : evidence && evidence.length > 0 ? (
-            <ul className="mt-2 space-y-2">
-              {evidence.map((item) => (
-                <li
-                  key={item.event_id}
-                  className="rounded-md border border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--memory-muted))]">
-                    <span>{formatEvidenceTimestamp(item.timestamp, i18n.language)}</span>
-                    {item.source ? <span>· {item.source}</span> : null}
-                    {item.event_type ? <span>· {item.event_type}</span> : null}
-                  </div>
-                  <div className="mt-1 text-xs leading-5 text-[hsl(var(--memory-body))]">
-                    {item.content || '—'}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
-              {t('memory.stories.detailRail.evidenceEmpty')}
-            </div>
-          )}
         </div>
-      </div>
       </DialogContent>
     </Dialog>
   );

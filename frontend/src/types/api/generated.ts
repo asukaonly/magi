@@ -4772,7 +4772,7 @@ export interface components {
         readonly GraphSpreadingConfigModel: {
             /**
              * Enabled
-             * @default false
+             * @default true
              */
             readonly enabled: boolean;
         };
@@ -6034,7 +6034,7 @@ export interface components {
             readonly enabled: boolean;
             /**
              * Retention Days
-             * @default 7
+             * @default 30
              */
             readonly retention_days: number;
             /**
@@ -7956,7 +7956,7 @@ export interface components {
             readonly allow_interjection: boolean;
             /**
              * Allow Media Grounding For Conversation
-             * @default false
+             * @default true
              */
             readonly allow_media_grounding_for_conversation: boolean;
             /**
@@ -7991,7 +7991,7 @@ export interface components {
             readonly desktop_notification_previews_enabled: boolean;
             /**
              * Desktop Notifications Enabled
-             * @default false
+             * @default true
              */
             readonly desktop_notifications_enabled: boolean;
             /**
@@ -12464,6 +12464,8 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly surface?: "all" | "summary";
+                readonly group?: ("periodic" | "observations" | "tasks" | "other") | null;
             };
             readonly header?: never;
             readonly path?: never;

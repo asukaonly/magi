@@ -17,15 +17,19 @@ def app_factory():
         app = FastAPI()
         app.include_router(build_router(), prefix="/api/memory")
         return app
+
     return _build
 
 
 def _stub_memory(insights=None, temporal=None):
     l3 = MagicMock()
-    l3.list_summaries_by_category = AsyncMock(side_effect=lambda **kwargs: (
-        list(insights or []) if "state_change" in kwargs["summary_categories"]
-        else list(temporal or [])
-    ))
+    l3.list_summaries_by_category = AsyncMock(
+        side_effect=lambda **kwargs: (
+            list(insights or [])
+            if "state_change" in kwargs["summary_categories"]
+            else list(temporal or [])
+        )
+    )
     unified = MagicMock()
     unified.l3 = l3
     return unified
@@ -43,27 +47,31 @@ def test_empty_store_returns_empty_feed(app_factory):
 
 
 def test_proposed_insights_float_to_top(app_factory):
-    insights = [{
-        "summary_id": "ins-1",
-        "summary_type": "insight",
-        "summary_category": "state_change",
-        "content": "你最近转向更安静的播放选择",
-        "period_end": 100.0,
-        "updated_at": 100.0,
-        "review_state": "pending_confirmation",
-        "source_event_count": 8,
-    }]
-    temporal = [{
-        "summary_id": "tmp-1",
-        "summary_type": "temporal",
-        "summary_category": "week",
-        "content": "本周以阅读为主",
-        "essence_prose": "本周重点是阅读。",
-        "period_end": 200.0,
-        "updated_at": 200.0,
-        "review_state": "neutral",
-        "source_event_count": 14,
-    }]
+    insights = [
+        {
+            "summary_id": "ins-1",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "你最近转向更安静的播放选择",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 8,
+        }
+    ]
+    temporal = [
+        {
+            "summary_id": "tmp-1",
+            "summary_type": "temporal",
+            "summary_category": "week",
+            "content": "本周以阅读为主",
+            "essence_prose": "本周重点是阅读。",
+            "period_end": 200.0,
+            "updated_at": 200.0,
+            "review_state": "neutral",
+            "source_event_count": 14,
+        }
+    ]
     unified = _stub_memory(insights=insights, temporal=temporal)
     with override_unified_memory_for_test(unified):
         client = TestClient(app_factory())
@@ -72,14 +80,33 @@ def test_proposed_insights_float_to_top(app_factory):
     assert [item["summary_id"] for item in body["items"]] == ["ins-1", "tmp-1"]
     assert body["items"][0]["review_state"] == "pending_confirmation"
     assert body["items"][0]["evidence_event_count"] == 8
+    assert body["items"][0]["feed_group"] == "memory_update"
+    assert body["items"][0]["summary_feed_visible"] is False
     assert body["items"][1]["essence_prose"] == "本周重点是阅读。"
+    assert body["items"][1]["feed_group"] == "periodic"
+    assert body["items"][1]["summary_feed_visible"] is True
+    assert body["items"][1]["featured_rank"] == 0
+    assert body["items"][1]["preview_text"] == "本周重点是阅读。"
+    assert body["stats"] == {
+        "highlights": 0,
+        "periodic": 1,
+        "observations": 0,
+        "tasks": 0,
+    }
 
 
 def test_pagination_limits_results(app_factory):
     temporal = [
-        {"summary_id": f"t-{i}", "summary_type": "temporal", "summary_category": "day",
-         "content": "", "period_end": float(i), "updated_at": float(i),
-         "review_state": "neutral", "source_event_count": 1}
+        {
+            "summary_id": f"t-{i}",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "content": "",
+            "period_end": float(i),
+            "updated_at": float(i),
+            "review_state": "neutral",
+            "source_event_count": 1,
+        }
         for i in range(5)
     ]
     unified = _stub_memory(insights=[], temporal=temporal)
@@ -90,6 +117,70 @@ def test_pagination_limits_results(app_factory):
     assert len(body["items"]) == 2
     assert body["items"][0]["summary_id"] == "t-3"  # second-newest after offset 1
     assert body["total"] == 5
+
+
+def test_summary_surface_and_group_filter_are_server_owned(app_factory):
+    insights = [
+        {
+            "summary_id": "state-1",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "content": "待确认记忆",
+            "period_end": 400.0,
+            "updated_at": 400.0,
+            "review_state": "pending_confirmation",
+            "source_event_count": 2,
+        },
+        {
+            "summary_id": "trend-1",
+            "summary_type": "insight",
+            "summary_category": "trend_shift",
+            "content": "长期观察",
+            "period_end": 300.0,
+            "updated_at": 300.0,
+            "review_state": "neutral",
+            "source_event_count": 3,
+        },
+        {
+            "summary_id": "task-1",
+            "summary_type": "insight",
+            "summary_category": "task_reflection",
+            "content": "任务复盘",
+            "period_end": 200.0,
+            "updated_at": 200.0,
+            "review_state": "neutral",
+            "source_event_count": 4,
+        },
+    ]
+    temporal = [
+        {
+            "summary_id": "day-1",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "content": "时段总结",
+            "period_end": 100.0,
+            "updated_at": 100.0,
+            "review_state": "neutral",
+            "source_event_count": 5,
+        },
+    ]
+    unified = _stub_memory(insights=insights, temporal=temporal)
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get(
+            "/api/memory/stories",
+            params={"surface": "summary", "group": "tasks", "limit": 20},
+        )
+    body = resp.json()
+    assert [item["summary_id"] for item in body["items"]] == ["task-1"]
+    assert body["total"] == 1
+    assert body["items"][0]["feed_group"] == "tasks"
+    assert body["stats"] == {
+        "highlights": 2,
+        "periodic": 1,
+        "observations": 1,
+        "tasks": 1,
+    }
 
 
 def test_review_state_patch_updates_summary(app_factory):
@@ -109,7 +200,9 @@ def test_review_state_patch_updates_summary(app_factory):
     assert body["summary_id"] == "sum-1"
     assert body["review_state"] == "confirmed"
     l3.set_review_state.assert_awaited_once_with(
-        summary_id="sum-1", review_state="confirmed", user_note="yes",
+        summary_id="sum-1",
+        review_state="confirmed",
+        user_note="yes",
     )
 
 
@@ -190,19 +283,37 @@ def test_expired_state_change_insight_filtered_out(app_factory):
 def test_evidence_insight_uses_source_event_ids(app_factory):
     """For insight summaries, evidence comes from source_event_ids list."""
     l3 = MagicMock()
-    l3.get_summary_by_id = AsyncMock(return_value={
-        "summary_id": "ins-1",
-        "summary_type": "insight",
-        "summary_category": "state_change",
-        "source_event_ids": ["evt-a", "evt-b"],
-        "period_start": 100.0,
-        "period_end": 200.0,
-    })
+    l3.get_summary_by_id = AsyncMock(
+        return_value={
+            "summary_id": "ins-1",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "source_event_ids": ["evt-a", "evt-b"],
+            "period_start": 100.0,
+            "period_end": 200.0,
+        }
+    )
     l1 = MagicMock()
-    l1.get_event = AsyncMock(side_effect=[
-        {"event_id": "evt-a", "timestamp": 100.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "I slept badly"},
-        {"event_id": "evt-b", "timestamp": 150.0, "source": "chat", "event_type": "user_message", "memory_domain": "user_authored", "content": "mosquito kept biting"},
-    ])
+    l1.get_event = AsyncMock(
+        side_effect=[
+            {
+                "event_id": "evt-a",
+                "timestamp": 100.0,
+                "source": "chat",
+                "event_type": "user_message",
+                "memory_domain": "user_authored",
+                "content": "I slept badly",
+            },
+            {
+                "event_id": "evt-b",
+                "timestamp": 150.0,
+                "source": "chat",
+                "event_type": "user_message",
+                "memory_domain": "user_authored",
+                "content": "mosquito kept biting",
+            },
+        ]
+    )
     unified = MagicMock()
     unified.l3 = l3
     unified.l1 = l1
@@ -221,18 +332,29 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
 def test_evidence_temporal_uses_time_window(app_factory):
     """For temporal summaries, evidence is the L1 events in [period_start, period_end)."""
     l3 = MagicMock()
-    l3.get_summary_by_id = AsyncMock(return_value={
-        "summary_id": "day-1",
-        "summary_type": "temporal",
-        "summary_category": "day",
-        "source_event_ids": [],
-        "period_start": 1700000000.0,
-        "period_end": 1700086400.0,
-    })
+    l3.get_summary_by_id = AsyncMock(
+        return_value={
+            "summary_id": "day-1",
+            "summary_type": "temporal",
+            "summary_category": "day",
+            "source_event_ids": [],
+            "period_start": 1700000000.0,
+            "period_end": 1700086400.0,
+        }
+    )
     l1 = MagicMock()
-    l1.query_events = AsyncMock(return_value=[
-        {"event_id": "e1", "timestamp": 1700010000.0, "source": "chrome_history", "event_type": "SENSOR_EVENT", "memory_domain": "external_activity", "content": "visited example.com"},
-    ])
+    l1.query_events = AsyncMock(
+        return_value=[
+            {
+                "event_id": "e1",
+                "timestamp": 1700010000.0,
+                "source": "chrome_history",
+                "event_type": "SENSOR_EVENT",
+                "memory_domain": "external_activity",
+                "content": "visited example.com",
+            },
+        ]
+    )
     unified = MagicMock()
     unified.l3 = l3
     unified.l1 = l1
@@ -314,7 +436,10 @@ def test_story_feed_keeps_latest_interest_trend_per_entity(app_factory):
                 "kind": "trend_shift",
                 "entity_id": "user:self",
                 "outcomes": [
-                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {
+                        "trait_name": "interest.codex-coding-tools-by-openai",
+                        "winning_value": "Codex",
+                    },
                     {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
                 ],
             },
@@ -332,7 +457,10 @@ def test_story_feed_keeps_latest_interest_trend_per_entity(app_factory):
                 "kind": "trend_shift",
                 "entity_id": "user:self",
                 "outcomes": [
-                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {
+                        "trait_name": "interest.codex-coding-tools-by-openai",
+                        "winning_value": "Codex",
+                    },
                     {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
                     {"trait_name": "interest.glm-5-2", "winning_value": "GLM-5.2"},
                 ],
@@ -382,7 +510,10 @@ def test_story_feed_projects_legacy_interest_trend_as_readable_summary(app_facto
                 "kind": "trend_shift",
                 "entity_id": "user:self",
                 "outcomes": [
-                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {
+                        "trait_name": "interest.codex-coding-tools-by-openai",
+                        "winning_value": "Codex",
+                    },
                     {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
                 ],
             },
@@ -416,7 +547,10 @@ def test_story_feed_drops_raw_legacy_interest_title(app_factory):
                 "kind": "trend_shift",
                 "entity_id": "user:self",
                 "outcomes": [
-                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {
+                        "trait_name": "interest.codex-coding-tools-by-openai",
+                        "winning_value": "Codex",
+                    },
                     {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
                 ],
             },
@@ -449,7 +583,10 @@ def test_story_feed_projects_legacy_interest_state_change_as_readable_summary(ap
                 "kind": "state_change",
                 "entity_id": "user:self",
                 "outcomes": [
-                    {"trait_name": "interest.codex-coding-tools-by-openai", "winning_value": "Codex"},
+                    {
+                        "trait_name": "interest.codex-coding-tools-by-openai",
+                        "winning_value": "Codex",
+                    },
                     {"trait_name": "interest.deepseek", "winning_value": "DeepSeek"},
                 ],
             },

@@ -8,6 +8,15 @@ export type StoryReviewState =
   | 'archived';
 
 export type StorySummaryCategory = string;
+export type StoryFeedGroup = 'periodic' | 'observations' | 'tasks' | 'memory_update' | 'other';
+export type StoryFeedSurface = 'all' | 'summary';
+
+export interface StoryFeedStats {
+  highlights: number;
+  periodic: number;
+  observations: number;
+  tasks: number;
+}
 
 export interface StoryItem {
   summary_id: string;
@@ -25,6 +34,12 @@ export interface StoryItem {
   evidence_event_count: number;
   generated_by_model?: string | null;
   narrative_style?: string | null;
+  feed_group: StoryFeedGroup;
+  summary_feed_visible: boolean;
+  featured_rank: number | null;
+  display_timestamp: number;
+  preview_text: string;
+  detail_lead_text: string;
 }
 
 export interface StoryFeedPayload {
@@ -32,6 +47,7 @@ export interface StoryFeedPayload {
   total: number;
   limit: number;
   offset: number;
+  stats: StoryFeedStats;
 }
 
 export interface StoryReviewPatch {
@@ -64,7 +80,12 @@ export interface StoryEvidencePayload {
 }
 
 export const memoryStoriesApi = {
-  list: async (params?: { limit?: number; offset?: number }): Promise<StoryFeedPayload> => {
+  list: async (params?: {
+    limit?: number;
+    offset?: number;
+    surface?: StoryFeedSurface;
+    group?: Exclude<StoryFeedGroup, 'memory_update'>;
+  }): Promise<StoryFeedPayload> => {
     const response = await api.get<StoryFeedPayload>('/memory/stories', { params });
     return unwrapGatewayPayload(response);
   },

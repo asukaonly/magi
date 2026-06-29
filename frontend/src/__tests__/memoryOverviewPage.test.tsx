@@ -180,6 +180,12 @@ const storyPayload = {
       insight_key: 'state:sleep',
       insight_metadata: {},
       evidence_event_count: 4,
+      feed_group: 'memory_update',
+      summary_feed_visible: false,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: 'Sleep changed',
+      detail_lead_text: 'Your sleep pattern looks different this week.',
     },
     {
       summary_id: 'story-trend',
@@ -194,6 +200,12 @@ const storyPayload = {
       insight_key: 'trend:tools',
       insight_metadata: {},
       evidence_event_count: 6,
+      feed_group: 'observations',
+      summary_feed_visible: true,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: 'Trend observed',
+      detail_lead_text: 'Sustained interest: Codex and DeepSeek.',
     },
     {
       summary_id: 'story-2',
@@ -208,6 +220,12 @@ const storyPayload = {
       insight_key: null,
       insight_metadata: {},
       evidence_event_count: 2,
+      feed_group: 'periodic',
+      summary_feed_visible: true,
+      featured_rank: null,
+      display_timestamp: 1710003600,
+      preview_text: 'A normal chat projector day.',
+      detail_lead_text: '',
     },
     {
       summary_id: 'story-duplicate',
@@ -222,11 +240,23 @@ const storyPayload = {
       insight_key: null,
       insight_metadata: {},
       evidence_event_count: 2,
+      feed_group: 'periodic',
+      summary_feed_visible: true,
+      featured_rank: null,
+      display_timestamp: 1710003400,
+      preview_text: 'Yesterday copy',
+      detail_lead_text: 'A normal chat projector day.',
     },
   ],
   total: 2,
   limit: 12,
   offset: 0,
+  stats: {
+    highlights: 1,
+    periodic: 2,
+    observations: 1,
+    tasks: 0,
+  },
 };
 
 const sensorPayload = {
@@ -357,7 +387,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.queryByText(/chat projector/i)).not.toBeInTheDocument();
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(sensorsApi.getStatus).toHaveBeenCalled();
-    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0 });
+    expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0, surface: 'all' });
   });
 
   it('uses the same readable wording for pending address assertions as the review page', async () => {

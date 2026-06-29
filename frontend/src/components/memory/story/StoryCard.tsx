@@ -21,23 +21,15 @@ const stateToneClass = (state: StoryReviewState): string => {
   }
 };
 
-const categoryToneClass = (category: string): string => {
-  switch (category) {
-    case 'trend_shift':
-    case 'preference_emergence':
+const groupToneClass = (group: StoryItem['feed_group']): string => {
+  switch (group) {
+    case 'observations':
       return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-    case 'day':
-    case 'week':
-    case 'month':
-    case 'quarter':
-    case 'year':
+    case 'periodic':
       return 'bg-sky-50 text-sky-700 border-sky-100';
-    case 'task_reflection':
-    case 'goal_refinement':
-    case 'milestone_review':
+    case 'tasks':
       return 'bg-amber-50 text-amber-700 border-amber-100';
-    case 'conflict_resolution':
-    case 'risk_escalation':
+    case 'memory_update':
       return 'bg-rose-50 text-rose-700 border-rose-100';
     default:
       return 'bg-[hsl(var(--memory-panel-subtle)/0.76)] text-[hsl(var(--memory-body))] border-[hsl(var(--memory-border)/0.35)]';
@@ -45,7 +37,7 @@ const categoryToneClass = (category: string): string => {
 };
 
 const storyTimestamp = (story: StoryItem): number | null => (
-  story.period_end || story.updated_at || story.period_start || null
+  story.display_timestamp || null
 );
 
 const formatStoryDate = (story: StoryItem, locale: string): string => {
@@ -60,9 +52,8 @@ const formatStoryDate = (story: StoryItem, locale: string): string => {
 export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) => {
   const { t, i18n } = useTranslation('app');
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
-  const essenceText = String(story.essence_prose || '').trim();
-  const primaryText = story.title || essenceText || story.content;
-  const secondaryText = story.title ? (essenceText || story.content) : '';
+  const primaryText = String(story.preview_text || story.title || story.content).trim();
+  const secondaryText = String(story.detail_lead_text || '').trim();
   const dateLabel = formatStoryDate(story, i18n.language);
   const evidenceLabel = story.evidence_event_count > 0
     ? t('memory.stories.evidenceChip', { count: story.evidence_event_count })
@@ -80,7 +71,7 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
       )}
     >
       <div className="flex flex-row items-center gap-3 md:flex-col md:items-start md:gap-2">
-        <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', categoryToneClass(story.summary_category))}>
+        <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', groupToneClass(story.feed_group))}>
           {categoryLabel}
         </span>
         {dateLabel ? <span className="text-xs font-medium text-[hsl(var(--memory-muted))]">{dateLabel}</span> : null}

@@ -47,6 +47,12 @@ const baseStory: StoryItem = {
   insight_key: null,
   insight_metadata: {},
   evidence_event_count: 3,
+  feed_group: 'memory_update',
+  summary_feed_visible: false,
+  featured_rank: null,
+  display_timestamp: 1700100000,
+  preview_text: '一段反思',
+  detail_lead_text: '你最近开始更频繁地夜间上线',
 };
 
 beforeEach(() => {
