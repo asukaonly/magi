@@ -428,6 +428,51 @@ def _extract_music_source_facets(
     created_at: float,
 ) -> list[SourceFacet]:
     provenance = _provenance_from_metadata(metadata)
+    facets = _music_text_facets(
+        event_id=event_id,
+        source=source,
+        metadata=metadata,
+        provenance=provenance,
+        created_at=created_at,
+    )
+    facets.extend(
+        _music_alias_facets(
+            event_id=event_id,
+            source=source,
+            metadata=metadata,
+            provenance=provenance,
+            created_at=created_at,
+        )
+    )
+    facets.extend(
+        _music_metric_facets(
+            event_id=event_id,
+            source=source,
+            metadata=metadata,
+            provenance=provenance,
+            created_at=created_at,
+        )
+    )
+    facets.extend(
+        _music_track_fallback_facets(
+            event_id=event_id,
+            source=source,
+            content=content,
+            existing_facets=facets,
+            created_at=created_at,
+        )
+    )
+    return facets
+
+
+def _music_text_facets(
+    *,
+    event_id: str,
+    source: str,
+    metadata: dict[str, Any],
+    provenance: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
     field_pairs = (
         (("track_name", "title"), "music.track"),
         (("artist_name", "artist"), "music.artist"),
@@ -451,7 +496,18 @@ def _extract_music_source_facets(
                 created_at=created_at,
             )
         )
+    return facets
 
+
+def _music_alias_facets(
+    *,
+    event_id: str,
+    source: str,
+    metadata: dict[str, Any],
+    provenance: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
+    facets: list[SourceFacet] = []
     for alias in _iter_track_aliases(metadata, provenance):
         facets.append(
             _text_facet(
@@ -462,9 +518,19 @@ def _extract_music_source_facets(
                 created_at=created_at,
             )
         )
+    return facets
 
+
+def _music_metric_facets(
+    *,
+    event_id: str,
+    source: str,
+    metadata: dict[str, Any],
+    provenance: dict[str, Any],
+    created_at: float,
+) -> list[SourceFacet]:
     duration = _first_float(metadata, provenance, keys=("play_duration_sec", "duration_seconds"))
-    facets.append(
+    facets = [
         SourceFacet(
             event_id=event_id,
             source=source,
@@ -472,7 +538,7 @@ def _extract_music_source_facets(
             numeric_value=1.0,
             created_at=created_at,
         )
-    )
+    ]
     if duration is not None:
         facets.append(
             SourceFacet(
@@ -483,21 +549,31 @@ def _extract_music_source_facets(
                 created_at=created_at,
             )
         )
-
-    if not any(facet.facet_name == "music.track" for facet in facets):
-        parsed_track = _music_track_from_content(content)
-        if parsed_track:
-            facets.append(
-                _text_facet(
-                    event_id=event_id,
-                    source=source,
-                    facet_name="music.track",
-                    value=parsed_track,
-                    created_at=created_at,
-                )
-            )
-
     return facets
+
+
+def _music_track_fallback_facets(
+    *,
+    event_id: str,
+    source: str,
+    content: str,
+    existing_facets: list[SourceFacet],
+    created_at: float,
+) -> list[SourceFacet]:
+    if any(facet.facet_name == "music.track" for facet in existing_facets):
+        return []
+    parsed_track = _music_track_from_content(content)
+    if not parsed_track:
+        return []
+    return [
+        _text_facet(
+            event_id=event_id,
+            source=source,
+            facet_name="music.track",
+            value=parsed_track,
+            created_at=created_at,
+        )
+    ]
 
 
 def _metadata_from_event_dict(event: dict[str, Any]) -> dict[str, Any]:
