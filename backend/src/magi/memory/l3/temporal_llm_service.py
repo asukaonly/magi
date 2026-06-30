@@ -66,12 +66,41 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
     ) -> TemporalGenerationResult:
         """Generate user-facing prose first, then best-effort structured fields."""
         fallback = self._build_fallback_result(pack, fallback_summary)
-        if not self._enabled:
+        if not self._should_use_temporal_llm(pack):
             return fallback
-        if pack.source_event_count < self._min_event_count_for_llm:
-            return fallback
+
         timeout_seconds = self._timeout_seconds_for_pack(pack)
         disable_thinking = self._disable_thinking_for_pack(pack)
+        prose_content = await self._generate_temporal_prose(
+            pack,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
+        )
+        if prose_content is None:
+            return fallback
+
+        summary_overrides = await self._generate_temporal_structure_overrides(
+            pack,
+            prose_content=prose_content,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
+        )
+        return TemporalGenerationResult(
+            candidate=self._candidate_from_temporal_prose(pack, prose_content),
+            summary_overrides=summary_overrides,
+            used_fallback=False,
+        )
+
+    def _should_use_temporal_llm(self, pack: TemporalEvidencePack) -> bool:
+        return self._enabled and pack.source_event_count >= self._min_event_count_for_llm
+
+    async def _generate_temporal_prose(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> str | None:
         try:
             prose_content = await asyncio.wait_for(
                 self._call_temporal_prose_model(
@@ -82,61 +111,40 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                 timeout=timeout_seconds,
             )
         except asyncio.TimeoutError:
-            logger.warning(
+            self._log_temporal_timeout(
                 "L3 temporal LLM call timed out",
-                extra={
-                    "summary_category": pack.summary_category,
-                    "event_count": pack.source_event_count,
-                    "timeout_seconds": timeout_seconds,
-                    "thinking_enabled": not disable_thinking,
-                },
+                pack,
+                timeout_seconds=timeout_seconds,
+                disable_thinking=disable_thinking,
             )
-            return fallback
+            return None
         except Exception:
-            return fallback
+            return None
+
         prose_content = str(prose_content or "").strip()
         if not prose_content:
-            return fallback
+            return None
         try:
             self._validate_temporal_prose(prose_content)
         except Exception:
-            return fallback
+            return None
+        return prose_content
 
-        candidate = L3Candidate(
-            summary_type="temporal",
-            summary_category=pack.summary_category,
-            content=prose_content,
-            source_event_ids=list(pack.source_event_ids),
+    async def _generate_temporal_structure_overrides(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        prose_content: str,
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> dict[str, object]:
+        summary_overrides = self._empty_temporal_summary_overrides()
+        payload = await self._call_temporal_structure_payload(
+            pack,
+            prose_content=prose_content,
+            timeout_seconds=timeout_seconds,
+            disable_thinking=disable_thinking,
         )
-        summary_overrides: dict[str, object] = {
-            "key_topics": [],
-            "key_entities": [],
-            "sentiment_summary": None,
-            "change_and_pattern": None,
-        }
-        try:
-            payload = await asyncio.wait_for(
-                self._call_temporal_structure_model(
-                    pack,
-                    prose_content=prose_content,
-                    timeout_seconds=timeout_seconds,
-                    disable_thinking=disable_thinking,
-                ),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "L3 temporal structure LLM call timed out",
-                extra={
-                    "summary_category": pack.summary_category,
-                    "event_count": pack.source_event_count,
-                    "timeout_seconds": timeout_seconds,
-                    "thinking_enabled": not disable_thinking,
-                },
-            )
-            payload = None
-        except Exception:
-            payload = None
         if isinstance(payload, dict):
             try:
                 summary_overrides.update(
@@ -151,10 +159,73 @@ class TemporalSummaryLLMService(TemporalEvidencePackMixin, TemporalOutputParsing
                         "error": str(exc),
                     },
                 )
-        return TemporalGenerationResult(
-            candidate=candidate,
-            summary_overrides=summary_overrides,
-            used_fallback=False,
+        return summary_overrides
+
+    async def _call_temporal_structure_payload(
+        self,
+        pack: TemporalEvidencePack,
+        *,
+        prose_content: str,
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> dict[str, Any] | None:
+        try:
+            return await asyncio.wait_for(
+                self._call_temporal_structure_model(
+                    pack,
+                    prose_content=prose_content,
+                    timeout_seconds=timeout_seconds,
+                    disable_thinking=disable_thinking,
+                ),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            self._log_temporal_timeout(
+                "L3 temporal structure LLM call timed out",
+                pack,
+                timeout_seconds=timeout_seconds,
+                disable_thinking=disable_thinking,
+            )
+            return None
+        except Exception:
+            return None
+
+    def _empty_temporal_summary_overrides(self) -> dict[str, object]:
+        return {
+            "key_topics": [],
+            "key_entities": [],
+            "sentiment_summary": None,
+            "change_and_pattern": None,
+        }
+
+    def _candidate_from_temporal_prose(
+        self,
+        pack: TemporalEvidencePack,
+        prose_content: str,
+    ) -> L3Candidate:
+        return L3Candidate(
+            summary_type="temporal",
+            summary_category=pack.summary_category,
+            content=prose_content,
+            source_event_ids=list(pack.source_event_ids),
+        )
+
+    def _log_temporal_timeout(
+        self,
+        message: str,
+        pack: TemporalEvidencePack,
+        *,
+        timeout_seconds: float,
+        disable_thinking: bool,
+    ) -> None:
+        logger.warning(
+            message,
+            extra={
+                "summary_category": pack.summary_category,
+                "event_count": pack.source_event_count,
+                "timeout_seconds": timeout_seconds,
+                "thinking_enabled": not disable_thinking,
+            },
         )
 
     async def _call_temporal_prose_model(
