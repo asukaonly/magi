@@ -140,7 +140,9 @@ class L1SearchPathMixin:
             chunk_density_multiplier = 10
             vec_limit = limit * chunk_density_multiplier
             hits = await self._store.vector_search(
-                query=query, limit=vec_limit, user_id=user_id,
+                query=query,
+                limit=vec_limit,
+                user_id=user_id,
             )
             if not hits:
                 return [], {}
@@ -216,7 +218,9 @@ class L1SearchPathMixin:
                 matched_scored: list[tuple[int, str]] = []
                 for event in events:
                     normalized_content = " ".join(extract_query_tokens(event.get("content", "")))
-                    quote_hits = sum(1 for phrase in quoted_phrases if phrase and phrase in normalized_content)
+                    quote_hits = sum(
+                        1 for phrase in quoted_phrases if phrase and phrase in normalized_content
+                    )
                     if quote_hits > 0:
                         matched_scored.append((quote_hits, str(event.get("event_id") or "")))
                 matched_scored.sort(key=lambda item: item[0], reverse=True)
@@ -268,85 +272,84 @@ class L1SearchPathMixin:
         l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """Fetch full event dicts for given IDs and apply post-filters."""
-        from ..event_contracts import MemoryDomain
-
         if not event_ids:
             return []
 
-        results = await self._store.fetch_events(
+        results = await self._fetch_l1_filtered_events(
+            event_ids=event_ids,
+            conditions=conditions,
+            time_range=time_range,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        result_ids = [str(item.get("event_id") or "") for item in results]
+        dropped_ids = _dropped_event_ids(event_ids=event_ids, result_ids=result_ids)
+        dropped_rows = await self._hydrate_dropped_l1_rows(
+            dropped_ids=dropped_ids,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        dropped_by_id = {str(row.get("event_id") or ""): row for row in dropped_rows}
+        filters = _fetch_filter_trace(
+            conditions=conditions,
+            time_range=time_range,
+            session_id=session_id,
+            user_id=user_id,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        _log_l1_fetch_filter_trace(
+            conditions=conditions,
+            event_ids=event_ids,
+            results=results,
+            result_ids=result_ids,
+            dropped_ids=dropped_ids,
+            dropped_by_id=dropped_by_id,
+            filters=filters,
+        )
+        return results
+
+    async def _fetch_l1_filtered_events(
+        self,
+        *,
+        event_ids: List[str],
+        conditions: L1Conditions,
+        time_range: Optional[TimeRange],
+        session_id: Optional[str],
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        return await self._store.fetch_events(
             event_ids,
             session_id=session_id,
             user_id=user_id,
             event_types=conditions.event_types or None,
             source_filters=conditions.source_filters or None,
             domain_filters=conditions.domain_filters or None,
-            exclude_domain=MemoryDomain.RUNTIME_TELEMETRY.label if not conditions.domain_filters else None,
+            exclude_domain=_runtime_telemetry_exclusion(conditions),
             time_start=time_range.start if time_range else None,
             time_end=time_range.end if time_range else None,
             l1_retrieval_scopes=l1_retrieval_scopes,
         )
-        result_ids = [str(item.get("event_id") or "") for item in results]
-        result_id_set = set(result_ids)
-        dropped_ids = [event_id for event_id in event_ids if event_id not in result_id_set]
-        dropped_rows: list[dict[str, Any]] = []
-        if dropped_ids:
-            try:
-                dropped_rows = await self._store.fetch_events(
-                    dropped_ids[:DETAIL_LIMIT],
-                    user_id=user_id,
-                    l1_retrieval_scopes=l1_retrieval_scopes,
-                )
-            except Exception:
-                logger.debug("Failed to hydrate dropped L1 rows for debug log", exc_info=True)
-        dropped_by_id = {str(row.get("event_id") or ""): row for row in dropped_rows}
-        filters = {
-            "session_id": session_id,
-            "user_id": user_id,
-            "event_types": conditions.event_types or None,
-            "source_filters": conditions.source_filters or None,
-            "domain_filters": conditions.domain_filters or None,
-            "exclude_domain": MemoryDomain.RUNTIME_TELEMETRY.label
-            if not conditions.domain_filters
-            else None,
-            "time_range": (
-                {"start": time_range.start, "end": time_range.end}
-                if time_range is not None
-                else None
-            ),
-            "l1_retrieval_scopes": l1_retrieval_scopes,
-        }
-        logger.info(
-            "L1 fetch filters applied | content_query=%r input_count=%d "
-            "output_count=%d dropped_count=%d dropped_ids_sample=%s "
-            "result_ids_sample=%s filters=%s",
-            conditions.content_query,
-            len(event_ids),
-            len(results),
-            len(dropped_ids),
-            dropped_ids[:10],
-            result_ids[:10],
-            filters,
-        )
-        log_detail(
-            logger,
-            "L1 FETCH FILTER DETAIL",
-            {
-                "content_query": conditions.content_query,
-                "input_count": len(event_ids),
-                "output_count": len(results),
-                "dropped_count": len(dropped_ids),
-                "filters": filters,
-                "result_events": [
-                    event_record(event, rank=rank)
-                    for rank, event in enumerate(results[:DETAIL_LIMIT], start=1)
-                ],
-                "dropped_events": [
-                    event_record(dropped_by_id.get(event_id), rank=rank) | {"event_id": event_id}
-                    for rank, event_id in enumerate(dropped_ids[:DETAIL_LIMIT], start=1)
-                ],
-            },
-        )
-        return results
+
+    async def _hydrate_dropped_l1_rows(
+        self,
+        *,
+        dropped_ids: List[str],
+        user_id: Optional[str],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> List[Dict[str, Any]]:
+        if not dropped_ids:
+            return []
+        try:
+            return await self._store.fetch_events(
+                dropped_ids[:DETAIL_LIMIT],
+                user_id=user_id,
+                l1_retrieval_scopes=l1_retrieval_scopes,
+            )
+        except Exception:
+            logger.debug("Failed to hydrate dropped L1 rows for debug log", exc_info=True)
+            return []
 
     async def _log_l1_path_detail(
         self,
@@ -391,11 +394,15 @@ class L1SearchPathMixin:
                                     by_id.get(event_id),
                                     rank=rank,
                                     path=name,
-                                    path_rank=path_details.get(name, {}).get(event_id, {}).get("rank"),
+                                    path_rank=path_details.get(name, {})
+                                    .get(event_id, {})
+                                    .get("rank"),
                                     path_score=(
                                         path_details.get(name, {}).get(event_id, {}).get("score")
                                         if "score" in path_details.get(name, {}).get(event_id, {})
-                                        else path_details.get(name, {}).get(event_id, {}).get("best_distance")
+                                        else path_details.get(name, {})
+                                        .get(event_id, {})
+                                        .get("best_distance")
                                     ),
                                 )
                                 | {
@@ -411,6 +418,88 @@ class L1SearchPathMixin:
             )
         except Exception:
             logger.warning("Failed to log L1 path detail", exc_info=True)
+
+
+def _runtime_telemetry_exclusion(conditions: L1Conditions) -> str | None:
+    from ..event_contracts import MemoryDomain
+
+    if conditions.domain_filters:
+        return None
+    return MemoryDomain.RUNTIME_TELEMETRY.label
+
+
+def _dropped_event_ids(
+    *,
+    event_ids: List[str],
+    result_ids: List[str],
+) -> List[str]:
+    result_id_set = set(result_ids)
+    return [event_id for event_id in event_ids if event_id not in result_id_set]
+
+
+def _fetch_filter_trace(
+    *,
+    conditions: L1Conditions,
+    time_range: Optional[TimeRange],
+    session_id: Optional[str],
+    user_id: Optional[str],
+    l1_retrieval_scopes: Optional[List[str]],
+) -> Dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "user_id": user_id,
+        "event_types": conditions.event_types or None,
+        "source_filters": conditions.source_filters or None,
+        "domain_filters": conditions.domain_filters or None,
+        "exclude_domain": _runtime_telemetry_exclusion(conditions),
+        "time_range": (
+            {"start": time_range.start, "end": time_range.end} if time_range is not None else None
+        ),
+        "l1_retrieval_scopes": l1_retrieval_scopes,
+    }
+
+
+def _log_l1_fetch_filter_trace(
+    *,
+    conditions: L1Conditions,
+    event_ids: List[str],
+    results: List[Dict[str, Any]],
+    result_ids: List[str],
+    dropped_ids: List[str],
+    dropped_by_id: Dict[str, Dict[str, Any]],
+    filters: Dict[str, Any],
+) -> None:
+    logger.info(
+        "L1 fetch filters applied | content_query=%r input_count=%d "
+        "output_count=%d dropped_count=%d dropped_ids_sample=%s "
+        "result_ids_sample=%s filters=%s",
+        conditions.content_query,
+        len(event_ids),
+        len(results),
+        len(dropped_ids),
+        dropped_ids[:10],
+        result_ids[:10],
+        filters,
+    )
+    log_detail(
+        logger,
+        "L1 FETCH FILTER DETAIL",
+        {
+            "content_query": conditions.content_query,
+            "input_count": len(event_ids),
+            "output_count": len(results),
+            "dropped_count": len(dropped_ids),
+            "filters": filters,
+            "result_events": [
+                event_record(event, rank=rank)
+                for rank, event in enumerate(results[:DETAIL_LIMIT], start=1)
+            ],
+            "dropped_events": [
+                event_record(dropped_by_id.get(event_id), rank=rank) | {"event_id": event_id}
+                for rank, event_id in enumerate(dropped_ids[:DETAIL_LIMIT], start=1)
+            ],
+        },
+    )
 
 
 __all__ = ["L1SearchPathMixin"]
