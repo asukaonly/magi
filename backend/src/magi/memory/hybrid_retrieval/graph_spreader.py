@@ -28,6 +28,15 @@ class SpreadingResult:
     edges_traversed: int = 0
 
 
+@dataclass
+class _SpreadState:
+    activation: Dict[str, float]
+    event_scores: Dict[str, float]
+    frontier: Set[str]
+    visited: Set[str] = field(default_factory=set)
+    total_edges: int = 0
+
+
 class GraphSpreader:
     """BFS spreading activation over the L2 knowledge graph.
 
@@ -74,78 +83,146 @@ class GraphSpreader:
             return SpreadingResult()
 
         exclude = exclude_event_ids or set()
-        # entity_id → best activation seen so far
-        activation: Dict[str, float] = {eid: 1.0 for eid in seed_entity_ids}
-        event_scores: Dict[str, float] = {}
-        frontier: Set[str] = set(seed_entity_ids)
-        visited: Set[str] = set()
-        total_edges = 0
+        state = _SpreadState(
+            activation={eid: 1.0 for eid in seed_entity_ids},
+            event_scores={},
+            frontier=set(seed_entity_ids),
+        )
 
         for hop in range(self._max_hops):
-            if not frontier:
+            if not state.frontier:
+                break
+            if not await self._spread_hop(state, hop=hop, exclude=exclude):
                 break
 
-            batch_ids = list(frontier)
-            try:
-                batch_rels = await self._store.batch_get_relationships(
-                    entity_ids=batch_ids,
-                    direction="both",
-                    status="active",
-                    limit_per_entity=self._max_neighbors,
-                )
-            except Exception as exc:
-                logger.warning("Graph spreading hop %d failed: %s", hop, exc)
-                break
+        return self._build_result(seed_entity_ids, state)
 
-            visited.update(frontier)
-            next_frontier: Set[str] = set()
+    async def _spread_hop(
+        self,
+        state: _SpreadState,
+        *,
+        hop: int,
+        exclude: Set[str],
+    ) -> bool:
+        batch_ids = list(state.frontier)
+        batch_rels = await self._load_hop_relationships(batch_ids, hop)
+        if batch_rels is None:
+            return False
 
-            for source_id in batch_ids:
-                edges = batch_rels.get(source_id, [])
-                source_activation = activation.get(source_id, 0.0)
-                hop_decay = self._decay ** (hop + 1)
+        state.visited.update(state.frontier)
+        next_frontier: Set[str] = set()
+        hop_decay = self._decay ** (hop + 1)
+        for source_id in batch_ids:
+            self._spread_source_edges(
+                state=state,
+                source_id=source_id,
+                edges=batch_rels.get(source_id, []),
+                hop_decay=hop_decay,
+                next_frontier=next_frontier,
+                exclude=exclude,
+            )
+        state.frontier = next_frontier
+        return True
 
-                for edge in edges:
-                    total_edges += 1
-                    confidence = float(edge.get("confidence") or 0.5)
-                    obs_count = int(edge.get("observation_count") or 1)
-                    edge_weight = confidence * math.log1p(obs_count)
+    async def _load_hop_relationships(
+        self,
+        batch_ids: List[str],
+        hop: int,
+    ) -> Dict[str, List[Dict[str, Any]]] | None:
+        try:
+            return await self._store.batch_get_relationships(
+                entity_ids=batch_ids,
+                direction="both",
+                status="active",
+                limit_per_entity=self._max_neighbors,
+            )
+        except Exception as exc:
+            logger.warning("Graph spreading hop %d failed: %s", hop, exc)
+            return None
 
-                    # Determine the neighbor entity
-                    subject_id = edge.get("subject_id", "")
-                    object_id = edge.get("object_id", "")
-                    neighbor_id = object_id if subject_id == source_id else subject_id
+    def _spread_source_edges(
+        self,
+        *,
+        state: _SpreadState,
+        source_id: str,
+        edges: List[Dict[str, Any]],
+        hop_decay: float,
+        next_frontier: Set[str],
+        exclude: Set[str],
+    ) -> None:
+        source_activation = state.activation.get(source_id, 0.0)
+        for edge in edges:
+            self._spread_edge(
+                state=state,
+                source_id=source_id,
+                source_activation=source_activation,
+                hop_decay=hop_decay,
+                edge=edge,
+                next_frontier=next_frontier,
+                exclude=exclude,
+            )
 
-                    # Accumulate activation on neighbor
-                    neighbor_score = source_activation * hop_decay * edge_weight
-                    activation[neighbor_id] = activation.get(neighbor_id, 0.0) + neighbor_score
+    def _spread_edge(
+        self,
+        *,
+        state: _SpreadState,
+        source_id: str,
+        source_activation: float,
+        hop_decay: float,
+        edge: Dict[str, Any],
+        next_frontier: Set[str],
+        exclude: Set[str],
+    ) -> None:
+        state.total_edges += 1
+        neighbor_id = self._neighbor_entity_id(source_id, edge)
+        neighbor_score = source_activation * hop_decay * _edge_weight(edge)
+        state.activation[neighbor_id] = state.activation.get(neighbor_id, 0.0) + neighbor_score
+        if neighbor_id not in state.visited and len(state.activation) < self._max_entities:
+            next_frontier.add(neighbor_id)
+        self._collect_edge_evidence_scores(
+            edge=edge,
+            event_scores=state.event_scores,
+            neighbor_score=neighbor_score,
+            exclude=exclude,
+        )
 
-                    if neighbor_id not in visited and len(activation) < self._max_entities:
-                        next_frontier.add(neighbor_id)
+    def _neighbor_entity_id(self, source_id: str, edge: Dict[str, Any]) -> str:
+        subject_id = edge.get("subject_id", "")
+        object_id = edge.get("object_id", "")
+        return object_id if subject_id == source_id else subject_id
 
-                    # Collect evidence event IDs from the edge
-                    evidence_raw = edge.get("evidence_event_ids")
-                    evidence_ids = _parse_evidence_ids(evidence_raw)
-                    for eid in evidence_ids:
-                        if eid not in exclude:
-                            event_scores[eid] = event_scores.get(eid, 0.0) + neighbor_score
+    def _collect_edge_evidence_scores(
+        self,
+        *,
+        edge: Dict[str, Any],
+        event_scores: Dict[str, float],
+        neighbor_score: float,
+        exclude: Set[str],
+    ) -> None:
+        for event_id in _parse_evidence_ids(edge.get("evidence_event_ids")):
+            if event_id not in exclude:
+                event_scores[event_id] = event_scores.get(event_id, 0.0) + neighbor_score
 
-            frontier = next_frontier
-
-        # Build result excluding seed entities from discovered set
+    def _build_result(
+        self,
+        seed_entity_ids: List[str],
+        state: _SpreadState,
+    ) -> SpreadingResult:
         seed_set = set(seed_entity_ids)
-        discovered = {
-            eid: score
-            for eid, score in activation.items()
-            if eid not in seed_set
-        }
+        discovered = {eid: score for eid, score in state.activation.items() if eid not in seed_set}
 
         return SpreadingResult(
-            scored_event_ids=event_scores,
+            scored_event_ids=state.event_scores,
             discovered_entities=discovered,
-            hops_executed=min(self._max_hops, len(visited)),
-            edges_traversed=total_edges,
+            hops_executed=min(self._max_hops, len(state.visited)),
+            edges_traversed=state.total_edges,
         )
+
+
+def _edge_weight(edge: Dict[str, Any]) -> float:
+    confidence = float(edge.get("confidence") or 0.5)
+    obs_count = int(edge.get("observation_count") or 1)
+    return confidence * math.log1p(obs_count)
 
 
 def _parse_evidence_ids(raw: Any) -> List[str]:
@@ -160,5 +237,7 @@ def _parse_evidence_ids(raw: Any) -> List[str]:
             if isinstance(parsed, list):
                 return [str(x) for x in parsed if x]
         except (json.JSONDecodeError, TypeError):
-            logger.warning("Malformed evidence_event_ids value: %r", raw[:200] if len(raw) > 200 else raw)
+            logger.warning(
+                "Malformed evidence_event_ids value: %r", raw[:200] if len(raw) > 200 else raw
+            )
     return []
