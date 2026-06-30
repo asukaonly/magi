@@ -2,6 +2,9 @@
 background-completion producer + outbox-drain schedule."""
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..channels.delivery_router import DeliveryRouter
@@ -27,6 +30,20 @@ from .target_resolver import TargetResolver
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True)
+class _OutreachRuntimeDeps:
+    chat_store: Any
+    scheduler: Any
+    manager: Any
+
+
+@dataclass(frozen=True)
+class _OutreachChannelDeps:
+    registry: Any
+    receipts_store: Any
+    session_mapper: Any
+
+
 class OutreachModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext) -> None:
         super().__init__(
@@ -44,54 +61,79 @@ class OutreachModule(LifecycleModule):
 
     async def init(self) -> None:
         ctx = self._context
-        chat_store = require_initialized(ctx.chat.store, "chat store")
-        scheduler = require_initialized(ctx.scheduler.scheduler_service, "scheduler service")
-        manager = require_initialized(
-            ctx.agent_runtime.background_task_manager, "background task manager"
-        )
-
-        channels_module = getattr(getattr(ctx, "channels", None), "module", None)
-        registry = getattr(channels_module, "_registry", None)
-        # receipts_store is OPTIONAL: ExternalChannelExecutor handles a None
-        # store gracefully (delivery still happens, receipts just aren't
-        # persisted). Only registry + session_mapper are hard requirements,
-        # so receipts_store is deliberately NOT part of the disable guard.
-        receipts_store = getattr(channels_module, "_receipts_store", None)
-        session_mapper = getattr(channels_module, "_session_mapper", None)
-        if registry is None or session_mapper is None:
+        runtime_deps = self._runtime_deps(ctx)
+        channel_deps = self._channel_deps(ctx)
+        if channel_deps is None:
             logger.warning(
                 "outreach DISABLED — channels registry/session_mapper unavailable; "
                 "no proactive task-completion delivery will occur"
             )
             return
 
+        service = self._build_service(runtime_deps.chat_store, channel_deps)
+        self._register_background_completion(runtime_deps.manager, service)
+        await self._register_outbox_drain(runtime_deps.scheduler, service)
+        logger.info("OutreachModule started (background-completion producer + outbox drain)")
+
+    @staticmethod
+    def _runtime_deps(ctx: RuntimeBootstrapContext) -> _OutreachRuntimeDeps:
+        return _OutreachRuntimeDeps(
+            chat_store=require_initialized(ctx.chat.store, "chat store"),
+            scheduler=require_initialized(ctx.scheduler.scheduler_service, "scheduler service"),
+            manager=require_initialized(
+                ctx.agent_runtime.background_task_manager, "background task manager"
+            ),
+        )
+
+    @staticmethod
+    def _channel_deps(ctx: RuntimeBootstrapContext) -> _OutreachChannelDeps | None:
+        channels_module = getattr(getattr(ctx, "channels", None), "module", None)
+        registry = getattr(channels_module, "_registry", None)
+        session_mapper = getattr(channels_module, "_session_mapper", None)
+        if registry is None or session_mapper is None:
+            return None
+        # receipts_store is optional: delivery still happens when receipts
+        # persistence is unavailable.
+        return _OutreachChannelDeps(
+            registry=registry,
+            receipts_store=getattr(channels_module, "_receipts_store", None),
+            session_mapper=session_mapper,
+        )
+
+    def _build_service(
+        self,
+        chat_store: Any,
+        channel_deps: _OutreachChannelDeps,
+    ) -> OutreachService:
         channels_db = str(get_runtime_paths().channels_db_path)
         delivery_log = OutreachDeliveryLogStore(db_path=channels_db)
         outbox = OutreachOutboxStore(db_path=channels_db)
-
-        async def _compose(intent: OutreachIntent) -> str:
-            return await compose_outreach_line(
-                kind=intent.kind.value,
-                title=intent.title,
-                facts=intent.facts,
-                persona_name=None,
-            )
-
-        service = OutreachService(
-            compose=_compose,
+        return OutreachService(
+            compose=self._compose,
             target_resolver=TargetResolver(
-                read_service_factory=get_chat_read_service, session_mapper=session_mapper
+                read_service_factory=get_chat_read_service,
+                session_mapper=channel_deps.session_mapper,
             ),
             governor=Governor(delivery_log=delivery_log),
             desktop_executor=DesktopTranscriptExecutor(chat_store=chat_store),
             external_executor=ExternalChannelExecutor(
-                delivery_router=DeliveryRouter(channel_registry=registry),
-                receipts_store=receipts_store,
+                delivery_router=DeliveryRouter(channel_registry=channel_deps.registry),
+                receipts_store=channel_deps.receipts_store,
             ),
             outbox=outbox,
             delivery_log=delivery_log,
         )
 
+    @staticmethod
+    async def _compose(intent: OutreachIntent) -> str:
+        return await compose_outreach_line(
+            kind=intent.kind.value,
+            title=intent.title,
+            facts=intent.facts,
+            persona_name=None,
+        )
+
+    def _register_background_completion(self, manager: Any, service: OutreachService) -> None:
         # Register the completion producer as a background-task listener.
         # NOTE: AgentRuntimeModule has already called manager.start() by the
         # time this module inits, so a task that completes in the brief boot
@@ -101,6 +143,7 @@ class OutreachModule(LifecycleModule):
         self._producer = build_background_completion_producer(service)
         manager.add_listener(self._producer)
 
+    async def _register_outbox_drain(self, scheduler: Any, service: OutreachService) -> None:
         # One-way-door note: if register_handler/schedule_interval below raise,
         # the producer listener stays added (shutdown() still removes it), but
         # the drain schedule would be absent — a restart re-runs this init.
@@ -115,7 +158,6 @@ class OutreachModule(LifecycleModule):
             seconds=OUTBOX_DRAIN_INTERVAL_SECONDS,
             target_payload={},
         )
-        logger.info("OutreachModule started (background-completion producer + outbox drain)")
 
     async def shutdown(self) -> None:
         manager = getattr(self._context.agent_runtime, "background_task_manager", None)
