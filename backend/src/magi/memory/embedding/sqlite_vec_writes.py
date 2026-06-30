@@ -113,50 +113,130 @@ class SqliteVecWriteMixin:
         host = cast(Any, self)
         embedding_model_key = host._embedding_model_key(embedding)
         vec_table = host._vec_table_name(embedding_model_key, embedding.dimension)
-        async with db.execute(
-            f"SELECT vec_rowid, vec_table, created_at FROM {host._registry_table} WHERE {host._entity_column} = ? AND embedding_model = ?",
-            (entity_id, embedding_model_key),
-        ) as cursor:
-            existing = await cursor.fetchone()
+        existing = await self._fetch_registry_row(
+            db,
+            entity_id=entity_id,
+            embedding_model_key=embedding_model_key,
+        )
 
         if existing is None:
-            insert_cursor = await db.execute(
-                f"""
-                INSERT INTO {host._registry_table}(
-                    {host._entity_column}, embedding_model, embedding_dim, vec_table,
-                    metadata, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    entity_id,
-                    embedding_model_key,
-                    int(embedding.dimension),
-                    vec_table,
-                    json.dumps(metadata or {}, ensure_ascii=False),
-                    now,
-                    now,
-                ),
+            vec_rowid = await self._insert_registry_row(
+                db,
+                entity_id=entity_id,
+                embedding_model_key=embedding_model_key,
+                embedding=embedding,
+                vec_table=vec_table,
+                metadata=metadata,
+                now=now,
             )
-            vec_rowid = int(insert_cursor.lastrowid)
             previous_table = None
         else:
             vec_rowid = int(existing["vec_rowid"])
             previous_table = str(existing["vec_table"])
-            await db.execute(
-                f"""
-                UPDATE {host._registry_table}
-                SET embedding_dim = ?, vec_table = ?, metadata = ?, updated_at = ?
-                WHERE vec_rowid = ?
-                """,
-                (
-                    int(embedding.dimension),
-                    vec_table,
-                    json.dumps(metadata or {}, ensure_ascii=False),
-                    now,
-                    vec_rowid,
-                ),
+            await self._update_registry_row(
+                db,
+                vec_rowid=vec_rowid,
+                embedding=embedding,
+                vec_table=vec_table,
+                metadata=metadata,
+                now=now,
             )
 
+        await self._replace_vector_row(
+            db,
+            vec_rowid=vec_rowid,
+            vec_table=vec_table,
+            previous_table=previous_table,
+            embedding=embedding,
+            metadata=metadata,
+        )
+
+    async def _fetch_registry_row(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        entity_id: str,
+        embedding_model_key: str,
+    ) -> aiosqlite.Row | None:
+        host = cast(Any, self)
+        async with db.execute(
+            f"""
+            SELECT vec_rowid, vec_table, created_at
+            FROM {host._registry_table}
+            WHERE {host._entity_column} = ? AND embedding_model = ?
+            """,
+            (entity_id, embedding_model_key),
+        ) as cursor:
+            return await cursor.fetchone()
+
+    async def _insert_registry_row(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        entity_id: str,
+        embedding_model_key: str,
+        embedding: EmbeddingResult,
+        vec_table: str,
+        metadata: Optional[dict[str, Any]],
+        now: float,
+    ) -> int:
+        host = cast(Any, self)
+        insert_cursor = await db.execute(
+            f"""
+            INSERT INTO {host._registry_table}(
+                {host._entity_column}, embedding_model, embedding_dim, vec_table,
+                metadata, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entity_id,
+                embedding_model_key,
+                int(embedding.dimension),
+                vec_table,
+                json.dumps(metadata or {}, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        return int(insert_cursor.lastrowid)
+
+    async def _update_registry_row(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        vec_rowid: int,
+        embedding: EmbeddingResult,
+        vec_table: str,
+        metadata: Optional[dict[str, Any]],
+        now: float,
+    ) -> None:
+        host = cast(Any, self)
+        await db.execute(
+            f"""
+            UPDATE {host._registry_table}
+            SET embedding_dim = ?, vec_table = ?, metadata = ?, updated_at = ?
+            WHERE vec_rowid = ?
+            """,
+            (
+                int(embedding.dimension),
+                vec_table,
+                json.dumps(metadata or {}, ensure_ascii=False),
+                now,
+                vec_rowid,
+            ),
+        )
+
+    async def _replace_vector_row(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        vec_rowid: int,
+        vec_table: str,
+        previous_table: str | None,
+        embedding: EmbeddingResult,
+        metadata: Optional[dict[str, Any]],
+    ) -> None:
+        host = cast(Any, self)
         if previous_table:
             await db.execute(f'DELETE FROM "{previous_table}" WHERE rowid = ?', (vec_rowid,))
         await db.execute(f'DELETE FROM "{vec_table}" WHERE rowid = ?', (vec_rowid,))
