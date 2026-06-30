@@ -8,7 +8,6 @@ from typing import Any
 
 from .loader import PersonalityConfig, Register, SignatureTrigger
 
-
 _CRISIS_TERMS = (
     "crisis",
     "urgent",
@@ -142,6 +141,96 @@ class PersonaTurnPlan:
     selected_examples: list[str] = field(default_factory=list)
 
 
+def _normalized_tools(tools: list[str] | None) -> list[str]:
+    return [str(tool) for tool in (tools or []) if str(tool).strip()]
+
+
+def _signature_triggers_by_id(config: PersonalityConfig) -> dict[str, SignatureTrigger]:
+    return {
+        str(trigger.trigger_id or "").strip(): trigger
+        for trigger in config.signature_triggers
+        if str(trigger.trigger_id or "").strip()
+    }
+
+
+def _active_trigger(
+    trigger_id: str,
+    trigger: SignatureTrigger,
+    *,
+    reason: str,
+) -> ActivePersonaTrigger:
+    return ActivePersonaTrigger(
+        trigger_id=trigger_id,
+        intensity=_trigger_intensity(trigger.intensity_levels),
+        behavior_shift=trigger.behavior_shift,
+        reason=reason,
+    )
+
+
+def _trigger_intensity(levels: dict[str, str]) -> str:
+    for preferred in ("mid", "medium", "low", "mild", "high", "peak"):
+        if preferred in levels:
+            return preferred
+    return "mid"
+
+
+def _built_in_quiet_hours(*, register: str, tools: list[str]) -> list[dict[str, Any]]:
+    quiet_hours: list[dict[str, Any]] = []
+    if register in {"task", "analysis"} or tools:
+        quiet_hours.append(
+            _quiet_hour_record(
+                "focused_work",
+                {
+                    "persona_intensity_max": 1,
+                    "meme_density": "none",
+                    "answer_utility": "highest",
+                },
+            )
+        )
+    if register == "emotional":
+        quiet_hours.append(
+            _quiet_hour_record(
+                "emotional_support",
+                {
+                    "persona_intensity_max": 1,
+                    "sarcasm": "none_to_light",
+                    "answer_utility": "highest",
+                },
+            )
+        )
+    if register == "crisis":
+        quiet_hours.append(
+            _quiet_hour_record(
+                "crisis",
+                {
+                    "persona_intensity_max": 0,
+                    "sarcasm": "none",
+                    "answer_style": "brief_operational",
+                },
+            )
+        )
+    return quiet_hours
+
+
+def _quiet_hours_from_hints(
+    config: PersonalityConfig,
+    hinted_conditions: list[Any],
+) -> list[dict[str, Any]]:
+    normalized_hints = {str(h).strip() for h in hinted_conditions if str(h).strip()}
+    return [
+        _quiet_hour_record(quiet_hour.condition, quiet_hour.clamps)
+        for quiet_hour in config.quiet_hours
+        if quiet_hour.condition in normalized_hints
+    ]
+
+
+def _quiet_hour_record(condition: str, clamps: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "condition": condition,
+        "clamps": dict(clamps),
+    }
+
+
 class PersonaTurnPlanner:
     """Build a compact persona plan from config and runtime signals."""
 
@@ -159,19 +248,10 @@ class PersonaTurnPlanner:
         routing_hint: "PersonaRoutingHint | None" = None,
         previous_trigger_ids: list[str] | None = None,
     ) -> PersonaTurnPlan:
-        """Build a per-turn persona behavior plan.
-
-        ``routing_hint`` carries the unified ContextDecider's per-persona
-        routing output (register / active_trigger_ids / quiet_hour_hints).
-        When the hint provides a field, the planner consumes it directly
-        instead of running its built-in keyword classifier. When the hint
-        is None or a field is missing, the keyword fallback runs so the
-        planner remains usable in tests, offline contexts, and any code
-        path that has not yet been wired through ContextDecider.
-        """
+        """Build a per-turn persona behavior plan."""
         persona_config = config or PersonalityConfig()
         normalized_message = str(user_message or "")
-        selected_tools = [str(tool) for tool in (tools or []) if str(tool).strip()]
+        selected_tools = _normalized_tools(tools)
         register_name = self._select_register(
             config=persona_config,
             user_message=normalized_message,
@@ -190,7 +270,7 @@ class PersonaTurnPlanner:
             config=persona_config,
             emotional_state=emotional_state,
         )
-        active_triggers = self._select_triggers(
+        active_triggers = self._select_active_triggers_for_turn(
             config=persona_config,
             user_message=normalized_message,
             register=register_name,
@@ -198,19 +278,8 @@ class PersonaTurnPlanner:
             task_category=task_category,
             tools=selected_tools,
             routing_hint=routing_hint,
+            previous_trigger_ids=previous_trigger_ids,
         )
-        if not active_triggers and previous_trigger_ids:
-            # No new trigger fired this turn but something fired last turn.
-            # Carry the emotional state forward one hop with reduced intensity
-            # so the persona does not snap from "still angry" to "neutral"
-            # between adjacent turns. Bounded to a single hop because only
-            # NEW (non-carryover) trigger_ids should be written back into
-            # ``emotional_state.recent_active_trigger_ids`` by the caller.
-            active_triggers = self._build_carryover_triggers(
-                config=persona_config,
-                previous_trigger_ids=previous_trigger_ids,
-                tools=selected_tools,
-            )
         quiet_hours = self._select_quiet_hours(
             config=persona_config,
             user_message=normalized_message,
@@ -230,11 +299,68 @@ class PersonaTurnPlanner:
             active_triggers=active_triggers,
             routing_hint=routing_hint,
         )
+        return self._build_turn_plan(
+            config=persona_config,
+            register_name=register_name,
+            register=register,
+            situation_strength=situation_strength,
+            quiet_hours=quiet_hours,
+            persona_intensity=persona_intensity,
+            active_triggers=active_triggers,
+            active_layer=active_layer,
+            layer_modifiers=layer_modifiers,
+            dynamic_modulations=dynamic_modulations,
+            user_message=normalized_message,
+        )
 
+    def _select_active_triggers_for_turn(
+        self,
+        *,
+        config: PersonalityConfig,
+        user_message: str,
+        register: str,
+        scenario: str,
+        task_category: str,
+        tools: list[str],
+        routing_hint: "PersonaRoutingHint | None",
+        previous_trigger_ids: list[str] | None,
+    ) -> list[ActivePersonaTrigger]:
+        active_triggers = self._select_triggers(
+            config=config,
+            user_message=user_message,
+            register=register,
+            scenario=scenario,
+            task_category=task_category,
+            tools=tools,
+            routing_hint=routing_hint,
+        )
+        if active_triggers or not previous_trigger_ids:
+            return active_triggers
+        return self._build_carryover_triggers(
+            config=config,
+            previous_trigger_ids=previous_trigger_ids,
+            tools=tools,
+        )
+
+    def _build_turn_plan(
+        self,
+        *,
+        config: PersonalityConfig,
+        register_name: str,
+        register: Register,
+        situation_strength: str,
+        quiet_hours: list[dict[str, Any]],
+        persona_intensity: int,
+        active_triggers: list[ActivePersonaTrigger],
+        active_layer: str | None,
+        layer_modifiers: dict[str, Any],
+        dynamic_modulations: dict[str, Any],
+        user_message: str,
+    ) -> PersonaTurnPlan:
         return PersonaTurnPlan(
-            persona_name=persona_config.name,
-            identity_core=asdict(persona_config.identity_core),
-            idiolect=asdict(persona_config.idiolect),
+            persona_name=config.name,
+            identity_core=asdict(config.identity_core),
+            idiolect=asdict(config.idiolect),
             register=register_name,
             register_description=register.description,
             register_behavior=register.behavior,
@@ -245,7 +371,7 @@ class PersonaTurnPlanner:
             active_layer=active_layer,
             layer_modifiers=layer_modifiers,
             dynamic_modulations=dynamic_modulations,
-            selected_examples=self._select_examples(register=register, user_message=normalized_message),
+            selected_examples=self._select_examples(register=register, user_message=user_message),
         )
 
     @staticmethod
@@ -277,7 +403,12 @@ class PersonaTurnPlanner:
         # and the safety net when the LLM omits or invalidates the field.
         hinted = getattr(routing_hint, "register", None) if routing_hint else None
         if isinstance(hinted, str) and hinted.strip().lower() in {
-            "casual", "chat", "task", "analysis", "emotional", "crisis"
+            "casual",
+            "chat",
+            "task",
+            "analysis",
+            "emotional",
+            "crisis",
         }:
             normalized_hint = hinted.strip().lower()
             # The product enum is the same 5 across personas, but persona
@@ -301,7 +432,9 @@ class PersonaTurnPlanner:
         if (
             tools
             or normalized_scenario in {"task", "code", "debug"}
-            or any(term in normalized_task_category for term in ("code", "debug", "execution", "task"))
+            or any(
+                term in normalized_task_category for term in ("code", "debug", "execution", "task")
+            )
         ):
             return self._first_available(config, ("task", "analysis", "chat", "casual"))
         if self._contains_any(user_message, _EMOTIONAL_TERMS):
@@ -319,46 +452,57 @@ class PersonaTurnPlanner:
         tools: list[str],
         routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[ActivePersonaTrigger]:
-        hinted_ids = list(getattr(routing_hint, "active_trigger_ids", []) or []) if routing_hint else []
+        hinted_ids = (
+            list(getattr(routing_hint, "active_trigger_ids", []) or []) if routing_hint else []
+        )
         if hinted_ids:
-            # Unified-router path: trigger IDs are entirely config-driven. The
-            # planner only looks up the matching SignatureTrigger objects in
-            # the persona config; it does not maintain a hardcoded ID
-            # whitelist anymore. New trigger IDs in JSON Just Work.
-            by_id: dict[str, SignatureTrigger] = {
-                str(t.trigger_id or "").strip(): t
-                for t in config.signature_triggers
-                if str(t.trigger_id or "").strip()
-            }
-            selected: list[ActivePersonaTrigger] = []
-            for raw_id in hinted_ids:
-                trigger_id = str(raw_id or "").strip()
-                if not trigger_id:
-                    continue
-                trigger = by_id.get(trigger_id)
-                if trigger is None:
-                    # LLM hallucinated an ID outside the menu; ignore and rely
-                    # on its other choices.
-                    continue
-                if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
-                    continue
-                selected.append(
-                    ActivePersonaTrigger(
-                        trigger_id=trigger_id,
-                        intensity=self._trigger_intensity(trigger.intensity_levels),
-                        behavior_shift=trigger.behavior_shift,
-                        reason="routing_hint",
-                    )
-                )
-                if len(selected) >= 2:
-                    break
-            return selected
+            return self._select_hint_triggers(
+                config=config,
+                hinted_ids=hinted_ids,
+                tools=tools,
+            )
+        return self._select_keyword_triggers(
+            config=config,
+            user_message=user_message,
+            register=register,
+            scenario=scenario,
+            task_category=task_category,
+            tools=tools,
+        )
 
-        # Keyword fallback path: no LLM hint present (offline / tests / not
-        # yet wired). The hand-rolled matcher recognizes a handful of well-
-        # known trigger IDs and otherwise falls back to bag-of-words overlap
-        # against ``activates_when``. Less accurate than the LLM path but
-        # safe for tests.
+    def _select_hint_triggers(
+        self,
+        *,
+        config: PersonalityConfig,
+        hinted_ids: list[Any],
+        tools: list[str],
+    ) -> list[ActivePersonaTrigger]:
+        by_id = _signature_triggers_by_id(config)
+        selected: list[ActivePersonaTrigger] = []
+        for raw_id in hinted_ids:
+            trigger_id = str(raw_id or "").strip()
+            if not trigger_id:
+                continue
+            trigger = by_id.get(trigger_id)
+            if trigger is None:
+                continue
+            if self._should_suppress_trigger_for_execution(trigger_id=trigger_id, tools=tools):
+                continue
+            selected.append(_active_trigger(trigger_id, trigger, reason="routing_hint"))
+            if len(selected) >= 2:
+                break
+        return selected
+
+    def _select_keyword_triggers(
+        self,
+        *,
+        config: PersonalityConfig,
+        user_message: str,
+        register: str,
+        scenario: str,
+        task_category: str,
+        tools: list[str],
+    ) -> list[ActivePersonaTrigger]:
         selected = []
         for trigger in config.signature_triggers:
             trigger_id = str(trigger.trigger_id or "").strip()
@@ -376,14 +520,7 @@ class PersonaTurnPlanner:
             )
             if not reason:
                 continue
-            selected.append(
-                ActivePersonaTrigger(
-                    trigger_id=trigger_id,
-                    intensity=self._trigger_intensity(trigger.intensity_levels),
-                    behavior_shift=trigger.behavior_shift,
-                    reason=reason,
-                )
-            )
+            selected.append(_active_trigger(trigger_id, trigger, reason=reason))
             if len(selected) >= 2:
                 break
         return selected
@@ -444,7 +581,9 @@ class PersonaTurnPlanner:
         examples overlap (or no user message) so the behaviour is stable
         and deterministic.
         """
-        examples = [example for example in register.examples if isinstance(example, str) and example.strip()]
+        examples = [
+            example for example in register.examples if isinstance(example, str) and example.strip()
+        ]
         if len(examples) <= limit:
             return list(examples)
         message_terms = set(_tokenize_for_overlap(user_message))
@@ -477,7 +616,13 @@ class PersonaTurnPlanner:
         if not tools:
             return False
         normalized_id = trigger_id.lower()
-        always_allowed = {"crisis", "emotional", "emotional_resonance", "boundary_violation", "safety"}
+        always_allowed = {
+            "crisis",
+            "emotional",
+            "emotional_resonance",
+            "boundary_violation",
+            "safety",
+        }
         return normalized_id not in always_allowed
 
     def _trigger_reason(
@@ -499,9 +644,13 @@ class PersonaTurnPlanner:
             register in {"analysis", "task"} or self._contains_any(user_message, _DOMAIN_TERMS)
         ):
             return "domain or technical analysis signal"
-        if normalized_id in {"value_topic", "judgment"} and self._contains_any(user_message, _VALUE_TERMS):
+        if normalized_id in {"value_topic", "judgment"} and self._contains_any(
+            user_message, _VALUE_TERMS
+        ):
             return "user asks for judgment or stance"
-        if normalized_id in {"emotional_resonance", "emotional"} and self._contains_any(user_message, _EMOTIONAL_TERMS):
+        if normalized_id in {"emotional_resonance", "emotional"} and self._contains_any(
+            user_message, _EMOTIONAL_TERMS
+        ):
             return "user emotional state is salient"
         if self._condition_overlap(user_message, activates_when):
             return "persona trigger condition overlaps the user turn"
@@ -510,10 +659,7 @@ class PersonaTurnPlanner:
 
     @staticmethod
     def _trigger_intensity(levels: dict[str, str]) -> str:
-        for preferred in ("mid", "medium", "low", "mild", "high", "peak"):
-            if preferred in levels:
-                return preferred
-        return "mid"
+        return _trigger_intensity(levels)
 
     def _select_quiet_hours(
         self,
@@ -526,67 +672,36 @@ class PersonaTurnPlanner:
         tools: list[str],
         routing_hint: "PersonaRoutingHint | None" = None,
     ) -> list[dict[str, Any]]:
-        # Register-derived built-in clamps are deterministic and run on every
-        # turn regardless of routing source: task/analysis tighten focus,
-        # emotional softens, crisis zeros out performance.
-        quiet_hours: list[dict[str, Any]] = []
-        if register in {"task", "analysis"} or tools:
-            quiet_hours.append({
-                "condition": "focused_work",
-                "clamps": {
-                    "persona_intensity_max": 1,
-                    "meme_density": "none",
-                    "answer_utility": "highest",
-                },
-            })
-        if register == "emotional":
-            quiet_hours.append({
-                "condition": "emotional_support",
-                "clamps": {
-                    "persona_intensity_max": 1,
-                    "sarcasm": "none_to_light",
-                    "answer_utility": "highest",
-                },
-            })
-        if register == "crisis":
-            quiet_hours.append({
-                "condition": "crisis",
-                "clamps": {
-                    "persona_intensity_max": 0,
-                    "sarcasm": "none",
-                    "answer_style": "brief_operational",
-                },
-            })
-
-        # Persona-defined quiet-hour conditions. Two ways to pick them:
-        # 1) Unified router supplied condition strings that match this
-        #    persona's configured quiet_hours.
-        # 2) Keyword fallback when there is no LLM hint.
-        hinted_conditions = list(getattr(routing_hint, "quiet_hour_hints", []) or []) if routing_hint else []
+        quiet_hours = _built_in_quiet_hours(register=register, tools=tools)
+        hinted_conditions = (
+            list(getattr(routing_hint, "quiet_hour_hints", []) or []) if routing_hint else []
+        )
         if hinted_conditions:
-            normalized_hints = {str(h).strip() for h in hinted_conditions if str(h).strip()}
-            for quiet_hour in config.quiet_hours:
-                if quiet_hour.condition in normalized_hints:
-                    quiet_hours.append({
-                        "condition": quiet_hour.condition,
-                        "clamps": dict(quiet_hour.clamps),
-                    })
+            quiet_hours.extend(_quiet_hours_from_hints(config, hinted_conditions))
         else:
-            if self._contains_any(user_message, _SERIOUS_TERMS):
-                quiet_hours.append({
+            quiet_hours.extend(self._fallback_quiet_hours(config, user_message))
+        _ = (scenario, task_category)
+        return quiet_hours
+
+    def _fallback_quiet_hours(
+        self,
+        config: PersonalityConfig,
+        user_message: str,
+    ) -> list[dict[str, Any]]:
+        quiet_hours = []
+        if self._contains_any(user_message, _SERIOUS_TERMS):
+            quiet_hours.append(
+                {
                     "condition": "user_requested_seriousness",
                     "clamps": {
                         "persona_intensity_max": 1,
                         "jokes": "none",
                     },
-                })
-            for quiet_hour in config.quiet_hours:
-                if self._condition_overlap(user_message, quiet_hour.condition):
-                    quiet_hours.append({
-                        "condition": quiet_hour.condition,
-                        "clamps": dict(quiet_hour.clamps),
-                    })
-        _ = (scenario, task_category)
+                }
+            )
+        for quiet_hour in config.quiet_hours:
+            if self._condition_overlap(user_message, quiet_hour.condition):
+                quiet_hours.append(_quiet_hour_record(quiet_hour.condition, quiet_hour.clamps))
         return quiet_hours
 
     @staticmethod
@@ -690,7 +805,11 @@ class PersonaTurnPlanner:
         """
         if emotional_state is None:
             return {}
-        state = asdict(emotional_state) if is_dataclass(emotional_state) else dict(emotional_state or {})
+        state = (
+            asdict(emotional_state)
+            if is_dataclass(emotional_state)
+            else dict(emotional_state or {})
+        )
         energy = float(state.get("energy_level", 0.7) or 0.7)
         stress = float(state.get("stress_level", 0.2) or 0.2)
         mood = str(state.get("current_mood") or state.get("mood") or "neutral").lower()
@@ -700,7 +819,10 @@ class PersonaTurnPlanner:
             active_rules["low_energy"] = config.dynamic_state_rules["low_energy"]
         if stress > 0.70 and "high_stress" in config.dynamic_state_rules:
             active_rules["high_stress"] = config.dynamic_state_rules["high_stress"]
-        if mood in {"positive", "happy", "good", "excited"} and "positive_mood" in config.dynamic_state_rules:
+        if (
+            mood in {"positive", "happy", "good", "excited"}
+            and "positive_mood" in config.dynamic_state_rules
+        ):
             active_rules["positive_mood"] = config.dynamic_state_rules["positive_mood"]
         if focus == "flow" and "flow_state" in config.dynamic_state_rules:
             active_rules["flow_state"] = config.dynamic_state_rules["flow_state"]
@@ -741,7 +863,9 @@ def _tokenize_for_overlap(text: str) -> list[str]:
     for chunk in cjk_chunks:
         cjk_terms.append(chunk)
         for width in (2, 3, 4):
-            cjk_terms.extend(chunk[index : index + width] for index in range(0, max(len(chunk) - width + 1, 0)))
+            cjk_terms.extend(
+                chunk[index : index + width] for index in range(0, max(len(chunk) - width + 1, 0))
+            )
     return [*latin_terms, *cjk_terms]
 
 
