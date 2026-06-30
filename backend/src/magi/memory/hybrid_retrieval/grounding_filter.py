@@ -100,6 +100,32 @@ class _GroundingCandidateWindow:
     total: int
 
 
+@dataclass(slots=True)
+class _ParsedGroundingResponse:
+    kept_indices: list[int]
+    why: str | None
+    valid_ev_indices: list[int]
+    valid_rel_indices: list[int]
+    event_count: int
+
+    @property
+    def has_valid_indices(self) -> bool:
+        return bool(self.valid_ev_indices or self.valid_rel_indices)
+
+
+@dataclass(slots=True)
+class _GroundingResponseContext:
+    payload: RetrievalPayload
+    query: str
+    events: list[dict[str, Any]]
+    rels: list[dict[str, Any]]
+    sliced_events: list[dict[str, Any]]
+    sliced_rels: list[dict[str, Any]]
+    total: int
+    elapsed_ms: float
+    owner_screen: dict[str, Any]
+
+
 class GroundingFilter:
     """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events
     and RetrievalPayload.l2_relationships in a SINGLE LLM call.
@@ -130,31 +156,7 @@ class GroundingFilter:
         payload: RetrievalPayload,
         request: RetrievalQuery,
     ) -> RetrievalPayload:
-        """Filter ``payload.l1_events`` and ``payload.l2_relationships``
-        in place with a SINGLE LLM call, return the same payload.
-
-        Degrades silently to pass-through on any failure path, leaving
-        BOTH lists unchanged.
-
-        Records trace fields under ``grounding_filter``:
-          - ``applied`` (bool)
-          - ``input_count`` (int) — total combined candidates shown to LLM
-          - ``input_events`` (int) — L1 events portion
-          - ``input_relationships`` (int) — L2 relationships portion
-          - ``kept_events`` (int) — on success
-          - ``kept_relationships`` (int) — on success
-          - ``kept_count`` (int) — total kept, on success
-          - ``elapsed_ms`` (float)
-          - ``why`` (str | None)
-          - ``degraded_reason`` (str | None) — set on failure path.
-
-        Also writes a minimal ``grounding_filter_l2`` alias for
-        backward compatibility:
-          - ``applied`` (bool)
-          - ``input_count`` (int)
-          - ``kept_count`` (int) — on success
-          - ``degraded_reason`` (str) — on failure
-        """
+        """Filter L1 events and L2 relationships in one pass, returning payload."""
         if not self._enabled:
             return payload
 
@@ -186,16 +188,18 @@ class GroundingFilter:
             return payload
 
         return self._apply_llm_response(
-            payload=payload,
-            query=window.query,
-            events=window.events,
-            rels=window.rels,
-            sliced_events=window.sliced_events,
-            sliced_rels=window.sliced_rels,
-            total=window.total,
+            context=_GroundingResponseContext(
+                payload=payload,
+                query=window.query,
+                events=window.events,
+                rels=window.rels,
+                sliced_events=window.sliced_events,
+                sliced_rels=window.sliced_rels,
+                total=window.total,
+                elapsed_ms=elapsed_ms,
+                owner_screen=owner_screen,
+            ),
             raw=raw,
-            elapsed_ms=elapsed_ms,
-            owner_screen=owner_screen,
         )
 
     def _candidate_window(
@@ -501,17 +505,37 @@ class GroundingFilter:
     def _apply_llm_response(
         self,
         *,
+        context: _GroundingResponseContext,
+        raw: Any,
+    ) -> RetrievalPayload:
+        parsed = self._parsed_llm_response(
+            payload=context.payload,
+            query=context.query,
+            raw=raw,
+            elapsed_ms=context.elapsed_ms,
+            event_count=len(context.sliced_events),
+            total=context.total,
+        )
+        if parsed is None:
+            return context.payload
+
+        if not parsed.has_valid_indices:
+            self._apply_no_valid_keep_result(context=context, parsed=parsed)
+            return context.payload
+
+        self._apply_valid_keep_result(context=context, parsed=parsed)
+        return context.payload
+
+    def _parsed_llm_response(
+        self,
+        *,
         payload: RetrievalPayload,
         query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        sliced_events: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        total: int,
         raw: Any,
         elapsed_ms: float,
-        owner_screen: dict[str, Any],
-    ) -> RetrievalPayload:
+        event_count: int,
+        total: int,
+    ) -> _ParsedGroundingResponse | None:
         kept_indices, why = self._parse_and_log_keep_response(
             query=query,
             raw=raw,
@@ -522,46 +546,19 @@ class GroundingFilter:
                 payload, total=total, reason="bad_response_shape", elapsed_ms=elapsed_ms
             )
             logger.info("Grounding filter response unparseable; passing raw payload through.")
-            return payload
-
-        n_ev = len(sliced_events)
+            return None
         valid_ev_indices, valid_rel_indices = _valid_keep_indices(
             kept_indices,
-            event_count=n_ev,
+            event_count=event_count,
             total=total,
         )
-        if not valid_ev_indices and not valid_rel_indices:
-            self._apply_no_valid_keep_result(
-                payload=payload,
-                query=query,
-                events=events,
-                rels=rels,
-                sliced_events=sliced_events,
-                sliced_rels=sliced_rels,
-                total=total,
-                kept_indices=kept_indices,
-                why=why,
-                elapsed_ms=elapsed_ms,
-            )
-            return payload
-
-        self._apply_valid_keep_result(
-            payload=payload,
-            query=query,
-            events=events,
-            rels=rels,
-            sliced_events=sliced_events,
-            sliced_rels=sliced_rels,
-            total=total,
+        return _ParsedGroundingResponse(
             kept_indices=kept_indices,
+            why=why,
             valid_ev_indices=valid_ev_indices,
             valid_rel_indices=valid_rel_indices,
-            n_ev=n_ev,
-            why=why,
-            elapsed_ms=elapsed_ms,
-            owner_screen=owner_screen,
+            event_count=event_count,
         )
-        return payload
 
     def _parse_and_log_keep_response(
         self,
@@ -587,79 +584,69 @@ class GroundingFilter:
     def _apply_no_valid_keep_result(
         self,
         *,
-        payload: RetrievalPayload,
-        query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        sliced_events: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        total: int,
-        kept_indices: list[int],
-        why: str | None,
-        elapsed_ms: float,
+        context: _GroundingResponseContext,
+        parsed: _ParsedGroundingResponse,
     ) -> None:
-        if not kept_indices:
-            self._apply_empty_keep_result(
-                payload=payload,
-                query=query,
-                events=events,
-                rels=rels,
-                sliced_events=sliced_events,
-                sliced_rels=sliced_rels,
-                total=total,
-                why=why,
-                elapsed_ms=elapsed_ms,
-            )
+        if not parsed.kept_indices:
+            self._apply_empty_keep_result(context=context, parsed=parsed)
             return
         self._write_degraded_trace(
-            payload, total=total, reason="no_valid_indices", elapsed_ms=elapsed_ms
+            context.payload,
+            total=context.total,
+            reason="no_valid_indices",
+            elapsed_ms=context.elapsed_ms,
         )
 
     def _apply_empty_keep_result(
         self,
         *,
-        payload: RetrievalPayload,
-        query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        sliced_events: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        total: int,
-        why: str | None,
-        elapsed_ms: float,
+        context: _GroundingResponseContext,
+        parsed: _ParsedGroundingResponse,
     ) -> None:
+        payload = context.payload
         payload.l1_events = []
         payload.l2_relationships = []
         success_trace: dict[str, Any] = {
             "applied": True,
-            "input_count": total,
-            "input_events": len(events),
-            "input_relationships": len(rels),
+            "input_count": context.total,
+            "input_events": len(context.events),
+            "input_relationships": len(context.rels),
             "kept_events": 0,
             "kept_relationships": 0,
             "kept_count": 0,
-            "elapsed_ms": round(elapsed_ms, 1),
-            "why": why or None,
+            "elapsed_ms": round(context.elapsed_ms, 1),
+            "why": parsed.why or None,
             "all_dropped": True,
         }
         payload.trace["grounding_filter"] = success_trace
         payload.trace["grounding_filter_l2"] = {
             "applied": True,
-            "input_count": len(rels),
+            "input_count": len(context.rels),
             "kept_count": 0,
             "all_dropped": True,
         }
+        self._log_empty_keep_output(context, parsed, success_trace)
+
+    def _log_empty_keep_output(
+        self,
+        context: _GroundingResponseContext,
+        parsed: _ParsedGroundingResponse,
+        success_trace: dict[str, Any],
+    ) -> None:
         log_detail(
             logger,
             "GROUNDING FILTER OUTPUT DETAIL",
             {
-                "query": query,
+                "query": context.query,
                 "kept_indices": [],
-                "dropped_event_ids": [str(item.get("event_id") or "") for item in sliced_events],
-                "dropped_relationship_ids": [
-                    str(item.get("triple_id") or item.get("id") or "") for item in sliced_rels
+                "dropped_event_ids": [
+                    str(item.get("event_id") or "") for item in context.sliced_events
                 ],
-                "why": why or None,
+                "dropped_relationship_ids": [
+                    str(item.get("triple_id") or item.get("id") or "")
+                    for item in context.sliced_rels
+                ],
+                "why": parsed.why or None,
                 "trace": success_trace,
             },
         )
@@ -667,66 +654,69 @@ class GroundingFilter:
             "Grounding filter applied | query=%r input_events=%d "
             "input_relationships=%d kept_events=0 kept_relationships=0 "
             "why=%r all_dropped=True",
-            query,
-            len(events),
-            len(rels),
-            why or None,
+            context.query,
+            len(context.events),
+            len(context.rels),
+            parsed.why or None,
         )
 
     def _apply_valid_keep_result(
         self,
         *,
-        payload: RetrievalPayload,
-        query: str,
-        events: list[dict[str, Any]],
-        rels: list[dict[str, Any]],
-        sliced_events: list[dict[str, Any]],
-        sliced_rels: list[dict[str, Any]],
-        total: int,
-        kept_indices: list[int],
-        valid_ev_indices: list[int],
-        valid_rel_indices: list[int],
-        n_ev: int,
-        why: str | None,
-        elapsed_ms: float,
-        owner_screen: dict[str, Any],
+        context: _GroundingResponseContext,
+        parsed: _ParsedGroundingResponse,
     ) -> None:
-        kept_events = [sliced_events[i - 1] for i in valid_ev_indices]
-        kept_rels = [sliced_rels[i - n_ev - 1] for i in valid_rel_indices]
-        payload.l1_events = kept_events
-        payload.l2_relationships = kept_rels
+        kept_events = [context.sliced_events[i - 1] for i in parsed.valid_ev_indices]
+        kept_rels = [
+            context.sliced_rels[i - parsed.event_count - 1]
+            for i in parsed.valid_rel_indices
+        ]
+        context.payload.l1_events = kept_events
+        context.payload.l2_relationships = kept_rels
 
         success_trace = self._valid_keep_trace(
-            events=events,
-            rels=rels,
+            events=context.events,
+            rels=context.rels,
             kept_events=kept_events,
             kept_rels=kept_rels,
-            total=total,
-            why=why,
-            elapsed_ms=elapsed_ms,
-            owner_screen=owner_screen,
+            total=context.total,
+            why=parsed.why,
+            elapsed_ms=context.elapsed_ms,
+            owner_screen=context.owner_screen,
         )
-        payload.trace["grounding_filter"] = success_trace
-        payload.trace["grounding_filter_l2"] = _valid_keep_l2_trace(rels, kept_rels)
+        context.payload.trace["grounding_filter"] = success_trace
+        context.payload.trace["grounding_filter_l2"] = _valid_keep_l2_trace(
+            context.rels,
+            kept_rels,
+        )
         self._log_valid_keep_output(
-            query=query,
-            kept_indices=kept_indices,
-            valid_ev_indices=valid_ev_indices,
-            valid_rel_indices=valid_rel_indices,
+            query=context.query,
+            kept_indices=parsed.kept_indices,
+            valid_ev_indices=parsed.valid_ev_indices,
+            valid_rel_indices=parsed.valid_rel_indices,
             kept_events=kept_events,
             kept_rels=kept_rels,
-            sliced_events=sliced_events,
-            sliced_rels=sliced_rels,
-            n_ev=n_ev,
-            why=why,
+            sliced_events=context.sliced_events,
+            sliced_rels=context.sliced_rels,
+            n_ev=parsed.event_count,
+            why=parsed.why,
             trace=success_trace,
         )
+        self._log_valid_keep_summary(context, kept_events, kept_rels, parsed.why)
+
+    def _log_valid_keep_summary(
+        self,
+        context: _GroundingResponseContext,
+        kept_events: list[dict[str, Any]],
+        kept_rels: list[dict[str, Any]],
+        why: str | None,
+    ) -> None:
         logger.info(
             "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
             "kept_events=%d kept_relationships=%d why=%r",
-            query,
-            len(events),
-            len(rels),
+            context.query,
+            len(context.events),
+            len(context.rels),
             len(kept_events),
             len(kept_rels),
             why or None,
