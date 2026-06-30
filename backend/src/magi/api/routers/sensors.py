@@ -1,4 +1,5 @@
 """Sensor operations API router."""
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["_derive_sensor_status", "sensors_router"]
 
+
 class SensorSourceAuthorizationRequest(BaseModel):
     field_values: dict[str, Any] = Field(default_factory=dict)
 
@@ -49,6 +51,7 @@ async def get_sensor_source_status():
         sensor_registry=sensor_registry,
     )
 
+
 @sensors_router.post("/{source_name}/sync")
 async def trigger_sensor_source_sync(source_name: str):
     _ = get_config()
@@ -57,7 +60,9 @@ async def trigger_sensor_source_sync(source_name: str):
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+            detail=core_i18n.t(
+                "sensors.errors.source_not_found", fallback="Sensor source not found"
+            ),
         )
     _, _, sensor, _ = resolved
     if not bool(getattr(sensor, "supports_pull_sync", False)):
@@ -74,7 +79,9 @@ async def trigger_sensor_source_sync(source_name: str):
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=core_i18n.t("sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"),
+            detail=core_i18n.t(
+                "sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"
+            ),
         ) from exc
     command_id = await runtime_command_queue.enqueue_sensor_sync(
         SensorSyncCommand(
@@ -93,7 +100,9 @@ async def trigger_sensor_state_flush(source_name: str):
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+            detail=core_i18n.t(
+                "sensors.errors.source_not_found", fallback="Sensor source not found"
+            ),
         )
     _, _, sensor, _ = resolved
     if not bool(getattr(sensor, "supports_state_flush", False)):
@@ -110,7 +119,9 @@ async def trigger_sensor_state_flush(source_name: str):
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=core_i18n.t("sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"),
+            detail=core_i18n.t(
+                "sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"
+            ),
         ) from exc
     command_id = await runtime_command_queue.enqueue_sensor_state_flush(
         SensorStateFlushCommand(
@@ -129,7 +140,9 @@ async def authorize_sensor_source(source_name: str, request: SensorSourceAuthori
     if resolved is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=core_i18n.t("sensors.errors.source_not_found", fallback="Sensor source not found"),
+            detail=core_i18n.t(
+                "sensors.errors.source_not_found", fallback="Sensor source not found"
+            ),
         )
 
     _, _, sensor, _ = resolved
@@ -181,7 +194,9 @@ def _resolve_day_range(day_value: str | None) -> tuple[date, float, float]:
 
 @sensors_router.get("/today-summary")
 async def get_sensor_today_summary(
-    day: str | None = Query(default=None, description="Optional ISO date (YYYY-MM-DD); defaults to server-local today."),
+    day: str | None = Query(
+        default=None, description="Optional ISO date (YYYY-MM-DD); defaults to server-local today."
+    ),
 ):
     """Return per-source L1 event counts for the requested day.
 
@@ -190,7 +205,27 @@ async def get_sensor_today_summary(
     can render human-friendly labels without a second round trip.
     """
     target_day, start_time, end_time = _resolve_day_range(day)
+    counts_by_source, last_event_by_source = await _summarize_l1_sources_by_day(
+        start_time=start_time,
+        end_time=end_time,
+    )
+    sensor_metadata = _sensor_today_metadata()
+    return {
+        "date": target_day.isoformat(),
+        "weekday": target_day.weekday(),
+        "sources": _build_sensor_today_sources(
+            counts_by_source=counts_by_source,
+            last_event_by_source=last_event_by_source,
+            sensor_metadata=sensor_metadata,
+        ),
+    }
 
+
+async def _summarize_l1_sources_by_day(
+    *,
+    start_time: float,
+    end_time: float,
+) -> tuple[dict[str, int], dict[str, float | None]]:
     try:
         unified_memory = get_unified_memory()
     except RuntimeError:
@@ -210,7 +245,10 @@ async def get_sensor_today_summary(
             counts_by_source[source_name] = int(row.get("event_count") or 0)
             max_ts = row.get("max_timestamp")
             last_event_by_source[source_name] = float(max_ts) if max_ts is not None else None
+    return counts_by_source, last_event_by_source
 
+
+def _sensor_today_metadata() -> dict[str, dict[str, Any]]:
     sensor_metadata: dict[str, dict[str, Any]] = {}
     try:
         manager = resolve_plugin_manager()
@@ -220,12 +258,11 @@ async def get_sensor_today_summary(
         sensor_registry = resolve_sensor_registry()
         packages = {state.manifest.plugin_id: state for state in manager.list_packages()}
         for item in sensor_registry.list_contributions():
-            source_name = str(item.metadata.get("source_type") or item.contribution_id.split(".")[-1])
-            current_settings = (
-                packages.get(item.plugin_id).current_settings
-                if packages.get(item.plugin_id) is not None
-                else {}
+            source_name = str(
+                item.metadata.get("source_type") or item.contribution_id.split(".")[-1]
             )
+            package_state = packages.get(item.plugin_id)
+            current_settings = package_state.current_settings if package_state is not None else {}
             enabled = bool(
                 _get_nested_value(
                     current_settings,
@@ -238,47 +275,66 @@ async def get_sensor_today_summary(
                 "display_name": item.display_name,
                 "enabled": enabled,
             }
+    return sensor_metadata
 
+
+def _build_sensor_today_sources(
+    *,
+    counts_by_source: dict[str, int],
+    last_event_by_source: dict[str, float | None],
+    sensor_metadata: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     sources: list[dict[str, Any]] = []
     seen_source_names: set[str] = set()
     for source_name, count in counts_by_source.items():
         meta = sensor_metadata.get(source_name, {})
         sources.append(
-            {
-                "source_name": source_name,
-                "plugin_id": meta.get("plugin_id"),
-                "display_name": meta.get("display_name") or source_name,
-                "enabled": bool(meta.get("enabled", True)),
-                "count": count,
-                "last_event_at": last_event_by_source.get(source_name),
-            }
+            _sensor_today_source_entry(
+                source_name=source_name,
+                meta=meta,
+                count=count,
+                last_event_at=last_event_by_source.get(source_name),
+                enabled=bool(meta.get("enabled", True)),
+                display_name=meta.get("display_name") or source_name,
+            )
         )
         seen_source_names.add(source_name)
 
-    # Surface enabled sensors with zero events so the UI can decide whether to
-    # show a quiet placeholder rather than hide the sensor entirely.
     for source_name, meta in sensor_metadata.items():
         if source_name in seen_source_names:
             continue
         if not meta.get("enabled", True):
             continue
         sources.append(
-            {
-                "source_name": source_name,
-                "plugin_id": meta.get("plugin_id"),
-                "display_name": meta.get("display_name") or source_name,
-                "enabled": True,
-                "count": 0,
-                "last_event_at": None,
-            }
+            _sensor_today_source_entry(
+                source_name=source_name,
+                meta=meta,
+                count=0,
+                last_event_at=None,
+                enabled=True,
+                display_name=meta.get("display_name") or source_name,
+            )
         )
-
     sources.sort(key=lambda entry: (-int(entry["count"]), str(entry["source_name"])))
+    return sources
 
+
+def _sensor_today_source_entry(
+    *,
+    source_name: str,
+    meta: dict[str, Any],
+    count: int,
+    last_event_at: float | None,
+    enabled: bool,
+    display_name: Any,
+) -> dict[str, Any]:
     return {
-        "date": target_day.isoformat(),
-        "weekday": target_day.weekday(),
-        "sources": sources,
+        "source_name": source_name,
+        "plugin_id": meta.get("plugin_id"),
+        "display_name": display_name,
+        "enabled": enabled,
+        "count": count,
+        "last_event_at": last_event_at,
     }
 
 
@@ -332,4 +388,6 @@ async def get_sensor_memory_readiness(
             break
         await asyncio.sleep(0.5)
 
-    return MemoryReadinessResponse(source_name=source_name, l1_event_count=l1_count, l2_ready=l2_ready)
+    return MemoryReadinessResponse(
+        source_name=source_name, l1_event_count=l1_count, l2_ready=l2_ready
+    )
