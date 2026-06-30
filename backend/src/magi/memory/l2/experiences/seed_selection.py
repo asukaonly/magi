@@ -34,6 +34,21 @@ class ExperienceSeedSelection:
     primary_topic_keys: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _DefaultSelectionContext:
+    seed_entities: set[str]
+    seed_places: set[str]
+    seed_topics: set[str]
+    seed_type: str
+    trigger_ids: set[Any]
+    evidence_episode_ids: set[str]
+    candidate_episodes: list[dict[str, Any]]
+
+    @property
+    def has_concrete_anchor(self) -> bool:
+        return bool(self.seed_entities or self.seed_places or self.seed_topics)
+
+
 def _ordered_unique(values: Sequence[Any]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -148,8 +163,8 @@ async def _selector_result(
 
 
 def _default_selection(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> ExperienceSeedSelection:
-    seed_entities, seed_places, seed_topics = _seed_anchor_sets(seed)
-    if not seed_entities and not seed_places and not seed_topics:
+    context = _default_selection_context(seed, evidence_pack)
+    if not context.has_concrete_anchor:
         return ExperienceSeedSelection(
             is_experience=False,
             title=str(seed.get("title") or ""),
@@ -157,32 +172,7 @@ def _default_selection(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> E
             reason="Seed has no concrete anchors.",
         )
 
-    seed_type = str(seed.get("seed_type") or "")
-    trigger_ids = set(evidence_pack.get("trigger_episode_ids") or [])
-    evidence_episode_ids = {
-        str(item.get("ref_id") or "")
-        for item in (evidence_pack.get("seed_evidence") or [])
-        if isinstance(item, Mapping)
-        and str(item.get("ref_type") or "") == "episode"
-        and str(item.get("role") or "") in {"trigger", "support"}
-    }
-    candidate_episodes = list(evidence_pack.get("candidate_episodes") or [])
-    included = [
-        episode
-        for episode in candidate_episodes
-        if str(episode["episode_id"]) in trigger_ids
-        or (
-            seed_type == "repeated_goal"
-            and str(episode["episode_id"]) in evidence_episode_ids
-        )
-        or _episode_shares_seed_anchor(
-            episode,
-            seed_entities=seed_entities,
-            seed_places=seed_places,
-            seed_topics=seed_topics,
-        )
-    ]
-    included_ids = [str(episode["episode_id"]) for episode in included]
+    included = _matching_seed_episodes(context)
     if not included:
         return ExperienceSeedSelection(
             is_experience=False,
@@ -191,6 +181,56 @@ def _default_selection(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> E
             reason="No candidate episodes matched the seed anchors.",
         )
 
+    return _build_default_selection(seed, context, included)
+
+
+def _default_selection_context(
+    seed: dict[str, Any],
+    evidence_pack: dict[str, Any],
+) -> _DefaultSelectionContext:
+    seed_entities, seed_places, seed_topics = _seed_anchor_sets(seed)
+    evidence_episode_ids = {
+        str(item.get("ref_id") or "")
+        for item in (evidence_pack.get("seed_evidence") or [])
+        if isinstance(item, Mapping)
+        and str(item.get("ref_type") or "") == "episode"
+        and str(item.get("role") or "") in {"trigger", "support"}
+    }
+    return _DefaultSelectionContext(
+        seed_entities=seed_entities,
+        seed_places=seed_places,
+        seed_topics=seed_topics,
+        seed_type=str(seed.get("seed_type") or ""),
+        trigger_ids=set(evidence_pack.get("trigger_episode_ids") or []),
+        evidence_episode_ids=evidence_episode_ids,
+        candidate_episodes=list(evidence_pack.get("candidate_episodes") or []),
+    )
+
+
+def _matching_seed_episodes(context: _DefaultSelectionContext) -> list[dict[str, Any]]:
+    return [
+        episode
+        for episode in context.candidate_episodes
+        if str(episode["episode_id"]) in context.trigger_ids
+        or (
+            context.seed_type == "repeated_goal"
+            and str(episode["episode_id"]) in context.evidence_episode_ids
+        )
+        or _episode_shares_seed_anchor(
+            episode,
+            seed_entities=context.seed_entities,
+            seed_places=context.seed_places,
+            seed_topics=context.seed_topics,
+        )
+    ]
+
+
+def _build_default_selection(
+    seed: dict[str, Any],
+    context: _DefaultSelectionContext,
+    included: list[dict[str, Any]],
+) -> ExperienceSeedSelection:
+    included_ids = [str(episode["episode_id"]) for episode in included]
     confidence = float(seed.get("confidence") or 0.0)
     is_accepted = str(seed.get("status") or "") == "accepted"
     is_experience = is_accepted or (confidence >= 0.6 and len(included) >= 2)
@@ -208,7 +248,7 @@ def _default_selection(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> E
                 "ref_id": str(episode["episode_id"]),
                 "reason": "Does not match the seed anchors.",
             }
-            for episode in candidate_episodes
+            for episode in context.candidate_episodes
             if str(episode["episode_id"]) not in included_ids
         ],
         time_start=min(float(episode["time_start"]) for episode in included),
