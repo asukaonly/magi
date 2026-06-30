@@ -2,15 +2,54 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import time
-from typing import Any, Dict, List, cast
+from typing import Any, Callable, Dict, List, Protocol, cast
 
 import aiosqlite
 
+from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from .snapshot_assembly import L2SnapshotAssemblyMixin
 from .snapshot_persistence import L2SnapshotPersistenceMixin
 from .snapshot_protocols import _SnapshotHostProtocol
+
+logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _SnapshotRefreshRelations:
+    outgoing: List[Dict[str, Any]]
+    incoming: List[Dict[str, Any]]
+    superseded_outgoing: List[Dict[str, Any]]
+    superseded_incoming: List[Dict[str, Any]]
+
+
+@dataclass(slots=True)
+class _SnapshotRefreshAssertions:
+    expired: List[Dict[str, Any]]
+    active: List[Dict[str, Any]]
+    tentative: List[Dict[str, Any]]
+    stable: List[Dict[str, Any]]
+
+
+class _SnapshotRefreshHostProtocol(_SnapshotHostProtocol, Protocol):
+    async def list_tom_assertions(
+        self,
+        *,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def batch_get_relationships(
+        self,
+        *,
+        entity_ids: List[str],
+        direction: str = "outgoing",
+        status_filters: List[str] | None = None,
+        limit_per_entity: int = 100,
+    ) -> Dict[str, List[Dict[str, Any]]]: ...
 
 
 class L2StoreSnapshotMixin(
@@ -18,6 +57,74 @@ class L2StoreSnapshotMixin(
     L2SnapshotPersistenceMixin,
 ):
     """Persist ToM snapshots derived from assertions and graph relations."""
+
+    async def refresh_entity_snapshot(
+        self,
+        *,
+        entity_id: str,
+        entity_type: str | None = None,
+    ) -> Dict[str, Any] | None:
+        """Rebuild one snapshot from reconciled assertions and graph edges."""
+        host = cast(_SnapshotRefreshHostProtocol, self)
+        assertions = await host.list_tom_assertions(
+            entity_id=entity_id,
+            entity_type=entity_type,
+            limit=500,
+        )
+        relations = await self._snapshot_refresh_relations(
+            host=host,
+            entity_id=entity_id,
+        )
+        if _snapshot_refresh_is_empty(assertions=assertions, relations=relations):
+            return None
+
+        assertion_groups = _group_snapshot_refresh_assertions(
+            assertions=assertions,
+            is_expired=host._is_assertion_expired,
+        )
+        normalized_entity_type = _snapshot_refresh_entity_type(
+            entity_id=entity_id,
+            entity_type=entity_type,
+            assertions=assertions,
+        )
+        snapshot = await self._upsert_snapshot(
+            entity_id=entity_id,
+            entity_type=normalized_entity_type,
+            assertions=assertion_groups.active,
+            expired_assertions=assertion_groups.expired,
+            stable_assertions=assertion_groups.stable,
+            tentative_assertions=assertion_groups.tentative,
+            all_raw_assertions=assertions,
+            outgoing_relations=relations.outgoing,
+            incoming_relations=relations.incoming,
+            superseded_outgoing_relations=relations.superseded_outgoing,
+            superseded_incoming_relations=relations.superseded_incoming,
+        )
+        _log_snapshot_refreshed(
+            entity_id=entity_id,
+            entity_type=normalized_entity_type,
+            assertion_groups=assertion_groups,
+            relations=relations,
+            snapshot=snapshot,
+        )
+        return snapshot
+
+    async def _snapshot_refresh_relations(
+        self,
+        *,
+        host: _SnapshotRefreshHostProtocol,
+        entity_id: str,
+    ) -> _SnapshotRefreshRelations:
+        batch_result = await host.batch_get_relationships(
+            entity_ids=[entity_id],
+            direction="both",
+            status_filters=["active", "deprecated", "conflicted"],
+            limit_per_entity=400,
+        )
+        return _group_snapshot_refresh_relations(
+            entity_id=entity_id,
+            all_edges=batch_result.get(entity_id, []),
+        )
 
     async def _upsert_snapshot(
         self,
@@ -89,6 +196,108 @@ class L2StoreSnapshotMixin(
         snapshot = await host.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
         assert snapshot is not None
         return snapshot
+
+
+def _group_snapshot_refresh_relations(
+    *,
+    entity_id: str,
+    all_edges: List[Dict[str, Any]],
+) -> _SnapshotRefreshRelations:
+    superseded_statuses = {"deprecated", "conflicted"}
+    return _SnapshotRefreshRelations(
+        outgoing=[
+            item
+            for item in all_edges
+            if item["subject_id"] == entity_id and item["status"] == "active"
+        ],
+        incoming=[
+            item
+            for item in all_edges
+            if item["object_id"] == entity_id and item["status"] == "active"
+        ],
+        superseded_outgoing=[
+            item
+            for item in all_edges
+            if item["subject_id"] == entity_id and item["status"] in superseded_statuses
+        ],
+        superseded_incoming=[
+            item
+            for item in all_edges
+            if item["object_id"] == entity_id and item["status"] in superseded_statuses
+        ],
+    )
+
+
+def _group_snapshot_refresh_assertions(
+    *,
+    assertions: List[Dict[str, Any]],
+    is_expired: Callable[[Dict[str, Any]], bool],
+) -> _SnapshotRefreshAssertions:
+    return _SnapshotRefreshAssertions(
+        expired=[item for item in assertions if is_expired(item)],
+        active=[
+            item
+            for item in assertions
+            if item.get("status", item["validation_state"]) in {"stable", "corroborated"}
+            and not is_expired(item)
+            and item.get("user_feedback") != "rejected"
+        ],
+        tentative=[
+            item
+            for item in assertions
+            if item.get("status", item["validation_state"]) == "tentative"
+            and not is_expired(item)
+            and item.get("user_feedback") != "rejected"
+        ],
+        stable=[item for item in assertions if item["validation_state"] == "stable"],
+    )
+
+
+def _snapshot_refresh_is_empty(
+    *,
+    assertions: List[Dict[str, Any]],
+    relations: _SnapshotRefreshRelations,
+) -> bool:
+    return (
+        not assertions
+        and not relations.outgoing
+        and not relations.incoming
+        and not relations.superseded_outgoing
+        and not relations.superseded_incoming
+    )
+
+
+def _snapshot_refresh_entity_type(
+    *,
+    entity_id: str,
+    entity_type: str | None,
+    assertions: List[Dict[str, Any]],
+) -> str:
+    if entity_type:
+        return entity_type
+    if assertions:
+        return str(assertions[0]["entity_type"])
+    return entity_id.split(":", 1)[0]
+
+
+def _log_snapshot_refreshed(
+    *,
+    entity_id: str,
+    entity_type: str,
+    assertion_groups: _SnapshotRefreshAssertions,
+    relations: _SnapshotRefreshRelations,
+    snapshot: Dict[str, Any],
+) -> None:
+    logger.info(
+        "L2 snapshot refreshed",
+        entity_id=entity_id,
+        entity_type=entity_type,
+        active_assertion_count=len(assertion_groups.active),
+        stable_assertion_count=len(assertion_groups.stable),
+        outgoing_relation_count=len(relations.outgoing),
+        incoming_relation_count=len(relations.incoming),
+        snapshot_version=snapshot.get("snapshot_version"),
+    )
 
 
 __all__ = [

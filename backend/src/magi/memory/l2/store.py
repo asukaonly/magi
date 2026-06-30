@@ -5,13 +5,16 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping
 
-from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
-from .graph_conflicts import GraphConflictRule, build_exclusive_group_index, build_graph_conflict_matrix
-from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite, ReconciledTraitOutcome
+from .graph_conflicts import (
+    GraphConflictRule,
+    build_exclusive_group_index,
+    build_graph_conflict_matrix,
+)
+from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -31,7 +34,6 @@ from .projection.jobs import L2ProjectionJobStoreMixin
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
 
-logger = get_logger(__name__)
 
 class L2CognitionStore(
     L2EntityFacetStoreMixin,
@@ -87,7 +89,9 @@ class L2CognitionStore(
         rule: GraphConflictRule | Mapping[str, Any],
     ) -> Dict[str, Any]:
         """Persist and activate a graph conflict rule."""
-        normalized = rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
+        normalized = (
+            rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
+        )
         now = time.time()
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
@@ -145,8 +149,7 @@ class L2CognitionStore(
             async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
-            await db.executescript(
-                """
+            await db.executescript("""
                 DELETE FROM knowledge_graph;
                 DELETE FROM entity_facets;
                 DELETE FROM tom_trait_assertions;
@@ -160,170 +163,10 @@ class L2CognitionStore(
                 DELETE FROM experiences;
                 DELETE FROM episodes;
                 DELETE FROM episode_events;
-                """
-            )
+                """)
             await db.commit()
         await self._projection_queue.clear_all()
         return count
 
-    async def reconcile_entity(
-        self,
-        *,
-        entity_id: str,
-        entity_type: Optional[str] = None,
-        evidence_timestamps: Optional[Dict[str, float]] = None,
-    ) -> list[ReconciledTraitOutcome]:
-        """Re-evaluate assertion confidence and stability for one entity."""
-        assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
-        assertions = [
-            item for item in assertions
-            if item.get("status", item["validation_state"]) not in {"superseded", "archived", "expired", "user_rejected"}
-        ]
-        if not assertions:
-            return []
-
-        normalized_entity_type = entity_type or assertions[0]["entity_type"]
-        now = time.time()
-        outcomes: list[ReconciledTraitOutcome] = []
-
-        async with sqlite_connection_async(self.db_path) as db:
-            for assertion in assertions:
-                evidence_events = [str(item) for item in assertion.get("evidence_events", [])]
-                timestamps = sorted(
-                    float(evidence_timestamps[item])
-                    for item in evidence_events
-                    if evidence_timestamps and item in evidence_timestamps
-                )
-                first_seen = timestamps[0] if timestamps else float(assertion["first_inferred_at"])
-                last_seen = timestamps[-1] if timestamps else float(assertion["last_validated_at"])
-                time_span_hours = max(0.0, (last_seen - first_seen) / 3600.0)
-                evidence_count = len(set(evidence_events))
-
-                status, confidence, stability_kind = self._derive_reconcile_state(
-                    current_state=str(assertion["validation_state"]),
-                    current_confidence=float(assertion["confidence_score"]),
-                    evidence_count=evidence_count,
-                    time_span_hours=time_span_hours,
-                    trait_name=str(assertion["trait_name"]),
-                    user_feedback=assertion.get("user_feedback"),
-                )
-                snapshot_field = self._recommend_snapshot_field(
-                    trait_name=str(assertion["trait_name"]),
-                    status=status,
-                )
-
-                await db.execute(
-                    """
-                    UPDATE tom_trait_assertions
-                    SET confidence_score = ?, validation_state = ?, status = ?,
-                        last_validated_at = ?, updated_at = ?
-                    WHERE assertion_id = ?
-                    """,
-                    (
-                        confidence,
-                        status,
-                        status,
-                        last_seen,
-                        now,
-                        assertion["assertion_id"],
-                    ),
-                )
-                outcomes.append(
-                    ReconciledTraitOutcome(
-                        entity_id=entity_id,
-                        entity_type=normalized_entity_type,
-                        trait_name=str(assertion["trait_name"]),
-                        winning_value=str(assertion["trait_value"]),
-                        status=status,
-                        confidence=confidence,
-                        evidence_event_ids=evidence_events,
-                        time_span_hours=round(time_span_hours, 2),
-                        stability_kind=stability_kind,
-                        recommended_snapshot_field=snapshot_field,
-                        natural_summary=str(assertion.get("natural_summary") or "").strip(),
-                        expires_at=(float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None),
-                        trait_family=str(assertion.get("trait_family") or "").strip(),
-                    )
-                )
-            await db.commit()
-        status_counts: dict[str, int] = {}
-        for item in outcomes:
-            status = str(item.status or "unknown")
-            status_counts[status] = status_counts.get(status, 0) + 1
-        logger.info(
-            "L2 reconcile entity completed",
-            entity_id=entity_id,
-            entity_type=normalized_entity_type,
-            outcome_count=len(outcomes),
-            status_counts=status_counts,
-        )
-        return outcomes
-
-    async def refresh_entity_snapshot(
-        self,
-        *,
-        entity_id: str,
-        entity_type: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Rebuild one snapshot from reconciled assertions and graph edges."""
-        assertions = await self.list_tom_assertions(entity_id=entity_id, entity_type=entity_type, limit=500)
-        batch_result = await self.batch_get_relationships(
-            entity_ids=[entity_id],
-            direction="both",
-            status_filters=["active", "deprecated", "conflicted"],
-            limit_per_entity=400,
-        )
-        all_edges = batch_result.get(entity_id, [])
-        _superseded = {"deprecated", "conflicted"}
-        outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] == "active"]
-        incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] == "active"]
-        superseded_outgoing = [e for e in all_edges if e["subject_id"] == entity_id and e["status"] in _superseded]
-        superseded_incoming = [e for e in all_edges if e["object_id"] == entity_id and e["status"] in _superseded]
-        expired_assertions = [item for item in assertions if self._is_assertion_expired(item)]
-        _active_statuses = {"stable", "corroborated", "tentative"}
-        active_assertions = [
-            item
-            for item in assertions
-            if item.get("status", item["validation_state"]) in {"stable", "corroborated"}
-            and not self._is_assertion_expired(item)
-            and item.get("user_feedback") != "rejected"
-        ]
-        tentative_assertions = [
-            item
-            for item in assertions
-            if item.get("status", item["validation_state"]) == "tentative"
-            and not self._is_assertion_expired(item)
-            and item.get("user_feedback") != "rejected"
-        ]
-        if not assertions and not outgoing and not incoming and not superseded_outgoing and not superseded_incoming:
-            return None
-
-        normalized_entity_type = entity_type or (assertions[0]["entity_type"] if assertions else entity_id.split(":", 1)[0])
-        stable_assertions = [item for item in assertions if item["validation_state"] == "stable"]
-        snapshot = await self._upsert_snapshot(
-            entity_id=entity_id,
-            entity_type=normalized_entity_type,
-            assertions=active_assertions,
-            expired_assertions=expired_assertions,
-            stable_assertions=stable_assertions,
-            tentative_assertions=tentative_assertions,
-            all_raw_assertions=assertions,
-            outgoing_relations=outgoing,
-            incoming_relations=incoming,
-            superseded_outgoing_relations=superseded_outgoing,
-            superseded_incoming_relations=superseded_incoming,
-        )
-        if snapshot is not None:
-            logger.info(
-                "L2 snapshot refreshed",
-                entity_id=entity_id,
-                entity_type=normalized_entity_type,
-                active_assertion_count=len(active_assertions),
-                stable_assertion_count=len(stable_assertions),
-                outgoing_relation_count=len(outgoing),
-                incoming_relation_count=len(incoming),
-                snapshot_version=snapshot.get("snapshot_version"),
-            )
-        return snapshot
 
 __all__ = ["L2CognitionStore"]
