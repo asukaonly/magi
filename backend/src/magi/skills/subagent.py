@@ -6,6 +6,7 @@ Provides a dedicated agent instance for skill execution with:
 - Script execution capability
 - Independent conversation context
 """
+
 from __future__ import annotations
 
 import logging
@@ -157,70 +158,85 @@ class SkillSubagent:
         # latency without bound, so we cut it off here.
         depth = _fork_depth.get()
         if depth >= MAX_FORK_DEPTH:
-            logger.warning(
-                "SkillSubagent fork depth exceeded | skill=%s depth=%d max=%d",
-                self.skill.name,
-                depth,
-                MAX_FORK_DEPTH,
-            )
-            return SkillResult(
-                success=False,
-                error=(
-                    f"Fork-mode skill '{self.skill.name}' rejected: nesting "
-                    f"depth would exceed MAX_FORK_DEPTH={MAX_FORK_DEPTH}. "
-                    f"Set MAGI_SKILLS_MAX_FORK_DEPTH to override."
-                ),
-                execution_time=0.0,
-            )
+            return self._fork_depth_exceeded_result(depth)
         depth_token = _fork_depth.set(depth + 1)
 
-        logger.info(
-            f"SkillSubagent executing | id={self.subagent_id} | depth={depth + 1}"
-        )
+        logger.info(f"SkillSubagent executing | id={self.subagent_id} | depth={depth + 1}")
 
         try:
-            # Check if we need tools
-            needs_tools = len(self._available_tools) > 0 and self._should_use_tools(user_message)
-
-            if needs_tools:
-                result_content = await self._execute_with_tools(
-                    user_message=user_message,
-                    system_prompt=system_prompt,
-                    context=context,
-                )
-            else:
-                result_content = await self._execute_direct(
-                    user_message=user_message,
-                    system_prompt=system_prompt,
-                    context=context,
-                )
-
-            execution_time = time.time() - start_time
-
-            return SkillResult(
-                success=True,
-                content=result_content,
-                metadata={
-                    "subagent_id": self.subagent_id,
-                    "skill_name": self.skill.name,
-                    "allowed_tools": list(self.allowed_tools) if self.allowed_tools else None,
-                    "available_tools": self._available_tools,
-                    "execution_time": execution_time,
-                    "mode": "subagent",
-                },
-                execution_time=execution_time,
+            result_content = await self._execute_selected_mode(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                context=context,
             )
+            execution_time = time.time() - start_time
+            return self._success_result(result_content, execution_time)
 
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(f"SkillSubagent execution failed | id={self.subagent_id} | error={e}")
-            return SkillResult(
-                success=False,
-                error=str(e),
-                execution_time=execution_time,
-            )
+            return self._failure_result(e, execution_time)
         finally:
             _fork_depth.reset(depth_token)
+
+    def _fork_depth_exceeded_result(self, depth: int) -> SkillResult:
+        logger.warning(
+            "SkillSubagent fork depth exceeded | skill=%s depth=%d max=%d",
+            self.skill.name,
+            depth,
+            MAX_FORK_DEPTH,
+        )
+        return SkillResult(
+            success=False,
+            error=(
+                f"Fork-mode skill '{self.skill.name}' rejected: nesting "
+                f"depth would exceed MAX_FORK_DEPTH={MAX_FORK_DEPTH}. "
+                f"Set MAGI_SKILLS_MAX_FORK_DEPTH to override."
+            ),
+            execution_time=0.0,
+        )
+
+    async def _execute_selected_mode(
+        self,
+        *,
+        user_message: str,
+        system_prompt: str,
+        context: Dict[str, Any],
+    ) -> str:
+        if len(self._available_tools) > 0 and self._should_use_tools(user_message):
+            return await self._execute_with_tools(
+                user_message=user_message,
+                system_prompt=system_prompt,
+                context=context,
+            )
+        return await self._execute_direct(
+            user_message=user_message,
+            system_prompt=system_prompt,
+            context=context,
+        )
+
+    def _success_result(self, content: str, execution_time: float) -> SkillResult:
+        return SkillResult(
+            success=True,
+            content=content,
+            metadata={
+                "subagent_id": self.subagent_id,
+                "skill_name": self.skill.name,
+                "allowed_tools": list(self.allowed_tools) if self.allowed_tools else None,
+                "available_tools": self._available_tools,
+                "execution_time": execution_time,
+                "mode": "subagent",
+            },
+            execution_time=execution_time,
+        )
+
+    @staticmethod
+    def _failure_result(error: Exception, execution_time: float) -> SkillResult:
+        return SkillResult(
+            success=False,
+            error=str(error),
+            execution_time=execution_time,
+        )
 
     def _should_use_tools(self, user_message: str) -> bool:
         """
@@ -241,8 +257,18 @@ class SkillSubagent:
 
         # Simple heuristics for tool need
         tool_keywords = [
-            "read", "write", "file", "search", "execute", "run",
-            "bash", "command", "fetch", "get", "list", "directory",
+            "read",
+            "write",
+            "file",
+            "search",
+            "execute",
+            "run",
+            "bash",
+            "command",
+            "fetch",
+            "get",
+            "list",
+            "directory",
         ]
         message_lower = user_message.lower()
         return any(kw in message_lower for kw in tool_keywords)
