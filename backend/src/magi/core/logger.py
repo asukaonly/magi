@@ -89,9 +89,25 @@ def configure_logging(
         json_logs: Whether to output JSON format logs
     """
     global _LOGGING_CONFIGURED
-    log_level = getattr(logging, level.upper(), logging.INFO)
+    log_level = _log_level_value(level)
+    shared_processors = _shared_log_processors()
+    root_logger = logging.getLogger()
 
-    shared_processors = [
+    _reset_root_logger(root_logger, log_level)
+    _add_stream_handler(root_logger, log_level, shared_processors, json_logs)
+    _configure_structlog(shared_processors, json_logs)
+    if log_file:
+        _add_file_handler(root_logger, log_file, log_level, shared_processors, json_logs)
+    _set_noisy_library_levels()
+    _LOGGING_CONFIGURED = True
+
+
+def _log_level_value(level: str) -> int:
+    return getattr(logging, level.upper(), logging.INFO)
+
+
+def _shared_log_processors() -> list[Any]:
+    return [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
@@ -100,12 +116,20 @@ def configure_logging(
         structlog.stdlib.PositionalArgumentsFormatter(),
     ]
 
-    root_logger = logging.getLogger()
+
+def _reset_root_logger(root_logger: logging.Logger, log_level: int) -> None:
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
         handler.close()
     root_logger.setLevel(log_level)
 
+
+def _add_stream_handler(
+    root_logger: logging.Logger,
+    log_level: int,
+    shared_processors: list[Any],
+    json_logs: bool,
+) -> None:
     stream_handler = SafeStreamHandler(sys.stdout)
     stream_handler.setLevel(log_level)
     stream_handler.setFormatter(
@@ -113,6 +137,8 @@ def configure_logging(
     )
     root_logger.addHandler(stream_handler)
 
+
+def _configure_structlog(shared_processors: list[Any], json_logs: bool) -> None:
     if json_logs:
         processors = shared_processors + [
             structlog.processors.format_exc_info,
@@ -133,31 +159,37 @@ def configure_logging(
         cache_logger_on_first_use=True,
     )
 
-    # Configure file logging
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        file_handler = RotatingFileHandler(
-            log_file,
-            maxBytes=DEFAULT_LOG_FILE_MAX_BYTES,
-            backupCount=DEFAULT_LOG_FILE_BACKUP_COUNT,
-            encoding="utf-8",
-        )
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(
-            _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)
-        )
-        root_logger.addHandler(file_handler)
+def _add_file_handler(
+    root_logger: logging.Logger,
+    log_file: str,
+    log_level: int,
+    shared_processors: list[Any],
+    json_logs: bool,
+) -> None:
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Set log levels for noisy libraries
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=DEFAULT_LOG_FILE_MAX_BYTES,
+        backupCount=DEFAULT_LOG_FILE_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(
+        _build_processor_formatter(shared_processors=shared_processors, json_logs=json_logs)
+    )
+    root_logger.addHandler(file_handler)
+
+
+def _set_noisy_library_levels() -> None:
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-    _LOGGING_CONFIGURED = True
 
 
 def get_logger(
