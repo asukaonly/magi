@@ -1,4 +1,5 @@
 """HTTP API for the notification center (durable user_notifications)."""
+
 from __future__ import annotations
 
 import json
@@ -50,22 +51,65 @@ def build_default_notifications_router(
     unified_memory_dep: "Callable[[], object] | None" = None,
 ) -> APIRouter:
     router = APIRouter()
+    router.add_api_route(
+        "/notifications",
+        _list_notifications_endpoint(service_dep),
+        methods=["GET"],
+        response_model=ListResponse,
+    )
+    router.add_api_route(
+        "/notifications/mark-read",
+        _mark_read_endpoint(service_dep),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/notifications/dismiss-all",
+        _dismiss_all_endpoint(service_dep),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/notifications/{notification_id}/dismiss",
+        _dismiss_endpoint(service_dep),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/notifications/{notification_id}/action",
+        _action_endpoint(service_dep),
+        methods=["POST"],
+    )
+    router.add_api_route(
+        "/notifications/{notification_id}/resolve-conflict",
+        _resolve_conflict_endpoint(service_dep, unified_memory_dep),
+        methods=["POST"],
+        response_model=ResolveConflictResponse,
+    )
+    return router
 
-    @router.get("/notifications", response_model=ListResponse)
+
+def _list_notifications_endpoint(service_dep: Callable[[], NotificationService]):
     async def list_notifications() -> ListResponse:
-        svc = service_dep()
-        result = svc.list(_USER_ID)
-        items = [
-            NotificationItemModel(
-                id=r.id, kind=r.kind, dedupe_key=r.dedupe_key, title=r.title, body=r.body,
-                payload=json.loads(r.payload_json or "{}"), status=r.status,
-                created_at_ms=r.created_at_ms, read_at_ms=r.read_at_ms,
-            )
-            for r in result["items"]
-        ]
+        result = service_dep().list(_USER_ID)
+        items = [_notification_item_model(row) for row in result["items"]]
         return ListResponse(items=items, unread_count=result["unread_count"])
 
-    @router.post("/notifications/mark-read")
+    return list_notifications
+
+
+def _notification_item_model(row) -> NotificationItemModel:
+    return NotificationItemModel(
+        id=row.id,
+        kind=row.kind,
+        dedupe_key=row.dedupe_key,
+        title=row.title,
+        body=row.body,
+        payload=json.loads(row.payload_json or "{}"),
+        status=row.status,
+        created_at_ms=row.created_at_ms,
+        read_at_ms=row.read_at_ms,
+    )
+
+
+def _mark_read_endpoint(service_dep: Callable[[], NotificationService]):
     async def mark_read(req: MarkReadRequest) -> dict:
         svc = service_dep()
         if req.all:
@@ -74,96 +118,121 @@ def build_default_notifications_router(
             svc.mark_read(req.ids)
         return {"ok": True}
 
-    @router.post("/notifications/dismiss-all")
+    return mark_read
+
+
+def _dismiss_all_endpoint(service_dep: Callable[[], NotificationService]):
     async def dismiss_all() -> dict:
         dismissed = service_dep().dismiss_all(_USER_ID, "explicit")
         return {"ok": True, "dismissed": dismissed}
 
-    @router.post("/notifications/{notification_id}/dismiss")
+    return dismiss_all
+
+
+def _dismiss_endpoint(service_dep: Callable[[], NotificationService]):
     async def dismiss(notification_id: int) -> dict:
         service_dep().dismiss(notification_id, "explicit")
         return {"ok": True}
 
-    @router.post("/notifications/{notification_id}/action")
+    return dismiss
+
+
+def _action_endpoint(service_dep: Callable[[], NotificationService]):
     async def action(notification_id: int) -> dict:
         service_dep().action(notification_id)
         return {"ok": True}
 
-    @router.post(
-        "/notifications/{notification_id}/resolve-conflict",
-        response_model=ResolveConflictResponse,
-    )
+    return action
+
+
+def _resolve_conflict_endpoint(
+    service_dep: Callable[[], NotificationService],
+    unified_memory_dep: "Callable[[], object] | None",
+):
     async def resolve_conflict(
         notification_id: int,
         body: ResolveConflictRequest,
     ) -> ResolveConflictResponse:
-        """Resolve a profile-conflict notification by confirming or rejecting the shadow assertion.
-
-        action="confirm" promotes the inferred shadow to the authoritative value.
-        action="reject"  discards the shadow; the existing authoritative value is kept.
-        """
-        svc = service_dep()
-
-        # 1. Load the notification; 404 if absent.
-        row = svc._store.get(notification_id)
-        if row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Notification not found",
-            )
-
-        # 2. Parse payload and verify it is a profile_conflict notification.
-        try:
-            payload = json.loads(row.payload_json or "{}")
-        except (ValueError, TypeError):
-            payload = {}
-
-        if payload.get("conflict_type") != "profile_conflict" or not payload.get("shadow_id"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Notification is not a resolvable profile-conflict notification",
-            )
-
-        shadow_id: str = payload["shadow_id"]
-
-        # 3. Resolve via the L2 store.
-        _get_unified_memory = (
-            unified_memory_dep if unified_memory_dep is not None else _default_unified_memory_dep
-        )
-        unified_memory = _get_unified_memory()
-        if unified_memory is None or unified_memory.l2 is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Memory system not available",
-            )
-
-        result = await unified_memory.l2.resolve_shadow_conflict(
-            shadow_id=shadow_id,
-            action=body.action,
+        return await _resolve_profile_conflict_notification(
+            notification_id=notification_id,
+            body=body,
+            service_dep=service_dep,
+            unified_memory_dep=unified_memory_dep,
         )
 
-        # 4. Mark the notification as actioned regardless of whether the shadow
-        #    was already resolved (idempotency: shadow may be gone on retry).
-        svc.action(notification_id)
+    return resolve_conflict
 
-        return ResolveConflictResponse(
-            status="resolved",
-            action=body.action,
-            resolved=result is not None,
+
+async def _resolve_profile_conflict_notification(
+    *,
+    notification_id: int,
+    body: ResolveConflictRequest,
+    service_dep: Callable[[], NotificationService],
+    unified_memory_dep: "Callable[[], object] | None",
+) -> ResolveConflictResponse:
+    svc = service_dep()
+    payload = _load_notification_payload(svc, notification_id)
+    shadow_id = _profile_conflict_shadow_id(payload)
+    unified_memory = _resolve_unified_memory(unified_memory_dep)
+    result = await unified_memory.l2.resolve_shadow_conflict(
+        shadow_id=shadow_id,
+        action=body.action,
+    )
+    svc.action(notification_id)
+    return ResolveConflictResponse(
+        status="resolved",
+        action=body.action,
+        resolved=result is not None,
+    )
+
+
+def _load_notification_payload(svc: NotificationService, notification_id: int) -> dict:
+    row = svc._store.get(notification_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found",
         )
+    try:
+        return json.loads(row.payload_json or "{}")
+    except (ValueError, TypeError):
+        return {}
 
-    return router
+
+def _profile_conflict_shadow_id(payload: dict) -> str:
+    shadow_id = payload.get("shadow_id")
+    if payload.get("conflict_type") == "profile_conflict" and shadow_id:
+        return str(shadow_id)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Notification is not a resolvable profile-conflict notification",
+    )
+
+
+def _resolve_unified_memory(unified_memory_dep: "Callable[[], object] | None"):
+    get_unified_memory = (
+        unified_memory_dep if unified_memory_dep is not None else _default_unified_memory_dep
+    )
+    unified_memory = get_unified_memory()
+    if unified_memory is None or unified_memory.l2 is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Memory system not available",
+        )
+    return unified_memory
 
 
 def _default_service() -> NotificationService:
     from magi.notifications.store import get_notification_store
     from magi.system_suggestions.dismissals import record_dismissal
+
     return NotificationService(store=get_notification_store(), record_dismissal=record_dismissal)
 
 
 def _default_unified_memory_dep():
     try:
         from magi.memory.provider import get_unified_memory
+
         return get_unified_memory()
     except RuntimeError:
         return None
