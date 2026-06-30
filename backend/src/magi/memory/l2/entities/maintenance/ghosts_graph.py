@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any, cast
 
 import aiosqlite
@@ -19,6 +20,14 @@ from .ghosts_common import (
 logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
+@dataclass(slots=True, frozen=True)
+class _GraphRewriteTarget:
+    triple_id: str
+    predicate: str
+    new_subject: str
+    new_object: str
+
+
 class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
     """Resolve ghost catalog IDs and rewrite affected knowledge_graph rows."""
 
@@ -30,22 +39,18 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
         host = self._catalog_maintenance_host()
         async with sqlite_connection_async(host._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT DISTINCT object_id FROM knowledge_graph
                 WHERE object_id NOT IN (SELECT entity_id FROM entity_catalog)
                   AND object_id NOT LIKE 'other:%'
-                """
-            ) as cur:
+                """) as cur:
                 ghost_objects = [str(r[0]) for r in await cur.fetchall()]
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT DISTINCT subject_id FROM knowledge_graph
                 WHERE subject_id NOT IN (SELECT entity_id FROM entity_catalog)
                   AND subject_id NOT LIKE 'other:%'
                   AND subject_id NOT LIKE 'user:%'
-                """
-            ) as cur:
+                """) as cur:
                 ghost_subjects = [str(r[0]) for r in await cur.fetchall()]
 
         for ghost_id in ghost_objects:
@@ -131,8 +136,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
                 catalog_rows = await cur.fetchall()
 
         evidence_blob = "\n".join(
-            f"{row['evidence_text'] or ''}\n{row['natural_summary'] or ''}"
-            for row in evidence_rows
+            f"{row['evidence_text'] or ''}\n{row['natural_summary'] or ''}" for row in evidence_rows
         ).casefold()
         if not evidence_blob.strip():
             return None
@@ -195,78 +199,131 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
         async with sqlite_connection_async(host._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
-                async with db.execute(
-                    f"""
-                    SELECT triple_id, subject_id, subject_type, predicate, object_id, object_type,
-                           confidence, evidence_event_ids, observation_count,
-                           first_observed_at, last_observed_at, last_confirmed_at,
-                           source_type, extraction_method, status, created_at, updated_at
-                    FROM knowledge_graph
-                    WHERE {column} = ?
-                    """,
-                    (from_id,),
-                ) as cur:
-                    rows = await cur.fetchall()
+                rows = await self._fetch_graph_rewrite_rows(db, column, from_id)
                 for row in rows:
-                    triple_id = str(row[0])
-                    subject_id = str(row[1])
-                    predicate = str(row[3])
-                    object_id = str(row[4])
-                    if column == "subject_id":
-                        new_subject = to_id
-                        new_object = object_id
-                    else:
-                        new_subject = subject_id
-                        new_object = to_id
-                    async with db.execute(
-                        """
-                        SELECT triple_id, evidence_event_ids, observation_count,
-                               first_observed_at, last_observed_at, confidence
-                        FROM knowledge_graph
-                        WHERE subject_id = ? AND predicate = ? AND object_id = ?
-                        """,
-                        (new_subject, predicate, new_object),
-                    ) as dup_cur:
-                        dup = await dup_cur.fetchone()
-                    if dup is None:
-                        if column == "subject_id":
-                            await db.execute(
-                                "UPDATE knowledge_graph SET subject_id = ?, updated_at = ? WHERE triple_id = ?",
-                                (to_id, now, triple_id),
-                            )
-                        else:
-                            await db.execute(
-                                "UPDATE knowledge_graph SET object_id = ?, updated_at = ? WHERE triple_id = ?",
-                                (to_id, now, triple_id),
-                            )
-                        rewritten += 1
-                    else:
-                        dup_id = str(dup[0])
-                        ev = _merge_evidence_json(str(row[7]), str(dup[1]))
-                        obs = int(row[8]) + int(dup[2])
-                        first_at = min(float(row[9]), float(dup[3]))
-                        last_at = max(float(row[10]), float(dup[4]))
-                        conf = max(float(row[6]), float(dup[5]))
-                        await db.execute(
-                            """
-                            UPDATE knowledge_graph
-                            SET evidence_event_ids = ?, observation_count = ?,
-                                first_observed_at = ?, last_observed_at = ?,
-                                confidence = ?, updated_at = ?
-                            WHERE triple_id = ?
-                            """,
-                            (ev, obs, first_at, last_at, conf, now, dup_id),
-                        )
-                        await db.execute(
-                            "DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,)
-                        )
-                        merged += 1
+                    row_rewritten, row_merged = await self._rewrite_graph_row_locked(
+                        db=db,
+                        column=column,
+                        row=row,
+                        to_id=to_id,
+                        now=now,
+                    )
+                    rewritten += row_rewritten
+                    merged += row_merged
                 await db.commit()
             except Exception as exc:
                 await db.rollback()
                 logger.warning("L2 ghost graph rewrite failed", error=str(exc))
                 raise
         return (rewritten, merged)
+
+    async def _fetch_graph_rewrite_rows(
+        self,
+        db: aiosqlite.Connection,
+        column: str,
+        from_id: str,
+    ) -> list[Any]:
+        async with db.execute(
+            f"""
+            SELECT triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                   confidence, evidence_event_ids, observation_count,
+                   first_observed_at, last_observed_at, last_confirmed_at,
+                   source_type, extraction_method, status, created_at, updated_at
+            FROM knowledge_graph
+            WHERE {column} = ?
+            """,
+            (from_id,),
+        ) as cur:
+            return await cur.fetchall()
+
+    async def _rewrite_graph_row_locked(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        column: str,
+        row: Any,
+        to_id: str,
+        now: float,
+    ) -> tuple[int, int]:
+        target = _graph_rewrite_target(row=row, column=column, to_id=to_id)
+        duplicate = await self._find_graph_duplicate_locked(db, target)
+        if duplicate is None:
+            await self._update_graph_reference_locked(
+                db=db,
+                column=column,
+                target=target,
+                to_id=to_id,
+                now=now,
+            )
+            return (1, 0)
+        await self._merge_graph_duplicate_locked(
+            db=db,
+            row=row,
+            duplicate=duplicate,
+            target=target,
+            now=now,
+        )
+        return (0, 1)
+
+    async def _find_graph_duplicate_locked(
+        self,
+        db: aiosqlite.Connection,
+        target: _GraphRewriteTarget,
+    ) -> Any | None:
+        async with db.execute(
+            """
+            SELECT triple_id, evidence_event_ids, observation_count,
+                   first_observed_at, last_observed_at, confidence
+            FROM knowledge_graph
+            WHERE subject_id = ? AND predicate = ? AND object_id = ?
+            """,
+            (target.new_subject, target.predicate, target.new_object),
+        ) as dup_cur:
+            return await dup_cur.fetchone()
+
+    async def _update_graph_reference_locked(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        column: str,
+        target: _GraphRewriteTarget,
+        to_id: str,
+        now: float,
+    ) -> None:
+        await db.execute(
+            f"UPDATE knowledge_graph SET {column} = ?, updated_at = ? WHERE triple_id = ?",
+            (to_id, now, target.triple_id),
+        )
+
+    async def _merge_graph_duplicate_locked(
+        self,
+        *,
+        db: aiosqlite.Connection,
+        row: Any,
+        duplicate: Any,
+        target: _GraphRewriteTarget,
+        now: float,
+    ) -> None:
+        dup_id = str(duplicate[0])
+        await db.execute(
+            """
+            UPDATE knowledge_graph
+            SET evidence_event_ids = ?, observation_count = ?,
+                first_observed_at = ?, last_observed_at = ?,
+                confidence = ?, updated_at = ?
+            WHERE triple_id = ?
+            """,
+            (
+                _merge_evidence_json(str(row[7]), str(duplicate[1])),
+                int(row[8]) + int(duplicate[2]),
+                min(float(row[9]), float(duplicate[3])),
+                max(float(row[10]), float(duplicate[4])),
+                max(float(row[6]), float(duplicate[5])),
+                now,
+                dup_id,
+            ),
+        )
+        await db.execute("DELETE FROM knowledge_graph WHERE triple_id = ?", (target.triple_id,))
 
     async def _merge_kg_ids_locked(
         self,
@@ -327,6 +384,22 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
                     (ev, obs, first_at, last_at, conf, now, dup_id),
                 )
                 await db.execute("DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,))
+
+
+def _graph_rewrite_target(
+    *,
+    row: Any,
+    column: str,
+    to_id: str,
+) -> _GraphRewriteTarget:
+    subject_id = str(row[1])
+    object_id = str(row[4])
+    return _GraphRewriteTarget(
+        triple_id=str(row[0]),
+        predicate=str(row[3]),
+        new_subject=to_id if column == "subject_id" else subject_id,
+        new_object=to_id if column == "object_id" else object_id,
+    )
 
 
 __all__ = ["L2EntityGhostGraphMaintenanceMixin"]
