@@ -11,6 +11,7 @@ import platform
 import re
 import shutil
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
@@ -60,6 +61,12 @@ class _RipgrepMatchState:
     matched_files: set[str] = field(default_factory=set)
     files_searched: int = 0
     truncated: bool = False
+
+
+@dataclass
+class _PythonGrepState:
+    matches: list[dict[str, Any]] = field(default_factory=list)
+    files_searched: int = 0
 
 
 def _ripgrep_executable_name() -> str:
@@ -741,57 +748,27 @@ class GrepTool(Tool):
         context_lines: int,
         exclude_patterns: list[str],
     ) -> dict[str, Any]:
-        matches: list[dict[str, Any]] = []
-        files_searched = 0
-
-        def append_file_matches(file_path: str) -> None:
-            nonlocal files_searched
-            if len(matches) >= max_results:
-                return
-            file_matches = _search_file_python(file_path, regex, context_lines)
-            files_searched += 1
-            for match in file_matches:
-                if len(matches) >= max_results:
-                    break
-                matches.append(match)
+        state = _PythonGrepState()
 
         if os.path.isfile(search_path):
-            append_file_matches(search_path)
+            self._append_python_file_matches(search_path, regex, context_lines, state, max_results)
         elif recursive:
-            for root, dirs, files in os.walk(search_path):
-                dirs[:] = [directory for directory in dirs if not directory.startswith(".")]
-                relative_dirs = [
-                    (directory, os.path.relpath(os.path.join(root, directory), search_path))
-                    for directory in dirs
-                ]
-                dirs[:] = [
-                    name
-                    for name, relative_path in relative_dirs
-                    if not matches_exclude_path(relative_path, exclude_patterns)
-                ]
-
-                for filename in files:
-                    file_path = os.path.join(root, filename)
-                    relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
-                    if matches_exclude_path(relative_path, exclude_patterns):
-                        continue
-                    if not _matches_file_glob(relative_path, filename, file_pattern):
-                        continue
-                    append_file_matches(file_path)
-
-                if len(matches) >= max_results:
+            for file_path in self._iter_recursive_python_files(
+                search_path,
+                file_pattern,
+                exclude_patterns,
+            ):
+                self._append_python_file_matches(file_path, regex, context_lines, state, max_results)
+                if len(state.matches) >= max_results:
                     break
         else:
-            for item in os.listdir(search_path):
-                file_path = os.path.join(search_path, item)
-                relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
-                if matches_exclude_path(relative_path, exclude_patterns):
-                    continue
-                if not _matches_file_glob(relative_path, item, file_pattern):
-                    continue
-                if os.path.isfile(file_path):
-                    append_file_matches(file_path)
-                if len(matches) >= max_results:
+            for file_path in self._iter_shallow_python_files(
+                search_path,
+                file_pattern,
+                exclude_patterns,
+            ):
+                self._append_python_file_matches(file_path, regex, context_lines, state, max_results)
+                if len(state.matches) >= max_results:
                     break
 
         return _build_result_data(
@@ -799,11 +776,70 @@ class GrepTool(Tool):
             search_path=search_path,
             file_pattern=file_pattern,
             exclude_patterns=exclude_patterns,
-            matches=matches,
-            files_searched=files_searched,
+            matches=state.matches,
+            files_searched=state.files_searched,
             max_results=max_results,
             engine="python",
         )
+
+    @staticmethod
+    def _append_python_file_matches(
+        file_path: str,
+        regex: re.Pattern[str],
+        context_lines: int,
+        state: _PythonGrepState,
+        max_results: int,
+    ) -> None:
+        if len(state.matches) >= max_results:
+            return
+        file_matches = _search_file_python(file_path, regex, context_lines)
+        state.files_searched += 1
+        for match in file_matches:
+            if len(state.matches) >= max_results:
+                break
+            state.matches.append(match)
+
+    @staticmethod
+    def _iter_recursive_python_files(
+        search_path: str,
+        file_pattern: str,
+        exclude_patterns: list[str],
+    ) -> Iterator[str]:
+        for root, dirs, files in os.walk(search_path):
+            dirs[:] = [directory for directory in dirs if not directory.startswith(".")]
+            relative_dirs = [
+                (directory, os.path.relpath(os.path.join(root, directory), search_path))
+                for directory in dirs
+            ]
+            dirs[:] = [
+                name
+                for name, relative_path in relative_dirs
+                if not matches_exclude_path(relative_path, exclude_patterns)
+            ]
+
+            for filename in files:
+                file_path = os.path.join(root, filename)
+                relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+                if matches_exclude_path(relative_path, exclude_patterns):
+                    continue
+                if _matches_file_glob(relative_path, filename, file_pattern):
+                    yield file_path
+
+    @staticmethod
+    def _iter_shallow_python_files(
+        search_path: str,
+        file_pattern: str,
+        exclude_patterns: list[str],
+    ) -> Iterator[str]:
+        for item in os.listdir(search_path):
+            file_path = os.path.join(search_path, item)
+            relative_path = os.path.relpath(file_path, search_path).replace(os.sep, "/")
+            if matches_exclude_path(relative_path, exclude_patterns):
+                continue
+            if not _matches_file_glob(relative_path, item, file_pattern):
+                continue
+            if os.path.isfile(file_path):
+                yield file_path
 
 
 async def _empty_bytes() -> bytes:
