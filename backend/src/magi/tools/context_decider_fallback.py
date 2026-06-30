@@ -66,47 +66,88 @@ class ContextDeciderFallbackMixin:
 
         Phase B: returns RouteDecision instead of ContextDecision.
         """
-        user_lower = user_message.lower()
         available_tools = self.tool_registry.list_tools()
 
-        if any(kw in user_lower for kw in _RETRY_KEYWORDS) and context:
-            recent_tool_errors = context.get("recent_tool_errors")
-            if isinstance(recent_tool_errors, list) and recent_tool_errors:
-                last_tool = str(recent_tool_errors[0].get("tool_name", "")).strip()
-                if last_tool and last_tool in available_tools:
-                    logger.info(
-                        "[ContextDecider] Retry fallback matched last failed tool: %s",
-                        last_tool,
-                    )
-                    return RouteDecision(
-                        profile="chat",
-                        graph_shape="tool_loop",
-                        complexity="simple",
-                        tools=[last_tool],
-                        reasoning=(
-                            "Retry request detected, reusing last failed tool: "
-                            f"{last_tool}"
-                        ),
-                    )
+        retry_decision = self._retry_fallback_decision(
+            user_message,
+            context,
+            available_tools,
+        )
+        if retry_decision is not None:
+            return retry_decision
 
-        if "trace_query" in available_tools and context:
-            recent_tool_state = context.get("recent_tool_state")
-            if isinstance(recent_tool_state, list) and recent_tool_state:
-                logger.info(
-                    "[ContextDecider] Trace fallback matched recent tool state"
-                )
-                return RouteDecision(
-                    profile="chat",
-                    graph_shape="tool_loop",
-                    complexity="simple",
-                    tools=["trace_query"],
-                    reasoning=(
-                        "LLM router unavailable; recent tool execution state "
-                        "exists, surfacing trace_query so the user can ask "
-                        "follow-up questions about the last tool call."
-                    ),
-                )
+        trace_decision = self._trace_fallback_decision(context, available_tools)
+        if trace_decision is not None:
+            return trace_decision
 
+        return self._conservative_chat_decision()
+
+    def _retry_fallback_decision(
+        self,
+        user_message: str,
+        context: Optional[dict[str, Any]],
+        available_tools: list[str],
+    ) -> RouteDecision | None:
+        if not context or not self._is_retry_request(user_message):
+            return None
+        last_tool = self._last_failed_tool(context)
+        if not last_tool or last_tool not in available_tools:
+            return None
+
+        logger.info(
+            "[ContextDecider] Retry fallback matched last failed tool: %s",
+            last_tool,
+        )
+        return RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
+            tools=[last_tool],
+            reasoning=f"Retry request detected, reusing last failed tool: {last_tool}",
+        )
+
+    @staticmethod
+    def _is_retry_request(user_message: str) -> bool:
+        user_lower = user_message.lower()
+        return any(kw in user_lower for kw in _RETRY_KEYWORDS)
+
+    @staticmethod
+    def _last_failed_tool(context: dict[str, Any]) -> str:
+        recent_tool_errors = context.get("recent_tool_errors")
+        if not isinstance(recent_tool_errors, list) or not recent_tool_errors:
+            return ""
+        return str(recent_tool_errors[0].get("tool_name", "")).strip()
+
+    def _trace_fallback_decision(
+        self,
+        context: Optional[dict[str, Any]],
+        available_tools: list[str],
+    ) -> RouteDecision | None:
+        if "trace_query" not in available_tools or not context:
+            return None
+        if not self._has_recent_tool_state(context):
+            return None
+
+        logger.info("[ContextDecider] Trace fallback matched recent tool state")
+        return RouteDecision(
+            profile="chat",
+            graph_shape="tool_loop",
+            complexity="simple",
+            tools=["trace_query"],
+            reasoning=(
+                "LLM router unavailable; recent tool execution state "
+                "exists, surfacing trace_query so the user can ask "
+                "follow-up questions about the last tool call."
+            ),
+        )
+
+    @staticmethod
+    def _has_recent_tool_state(context: dict[str, Any]) -> bool:
+        recent_tool_state = context.get("recent_tool_state")
+        return isinstance(recent_tool_state, list) and bool(recent_tool_state)
+
+    @staticmethod
+    def _conservative_chat_decision() -> RouteDecision:
         logger.info("[ContextDecider] Rule-based fallback returned conservative chat intent")
         return RouteDecision(
             profile="chat",
