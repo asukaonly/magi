@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 from magi.agent.runtime.contracts import FactRecord
@@ -16,6 +17,18 @@ from magi.agent.task_agents.common import ExecutionResult, IncomingFactKind
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _MemoryUpdateRequest:
+    user_id: str
+    user_message: str
+    response_text: str
+    incoming_fact_kind: str | None
+    execution_mode: str | None
+    session_id: str | None
+    turn_id: str | None
+    persona_id: str | None
 
 
 class _MemoryPostprocessHostProtocol(Protocol):
@@ -179,72 +192,106 @@ class ChatPostprocessMemoryMixin:
         turn_id: str | None = None,
         persona_id: str | None = None,
     ) -> bool:
-        host = cast(_MemoryPostprocessHostProtocol, self)
         features = get_personality_feature_flags()
         if not (features.state_memory_enabled or features.deep_persona_enabled):
             return False
 
-        logger.info(
-            "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
-            "incoming_fact_kind=%s execution_mode=%s",
+        request = _MemoryUpdateRequest(
             user_id,
-            session_id,
-            turn_id,
-            incoming_fact_kind,
-            execution_mode,
-        )
-
-        milestone_conditions: dict[str, str] | None = None
-        if host._memory is not None:
-            try:
-                config = await host._memory.get_core_personality()
-                if (
-                    features.deep_persona_enabled
-                    and hasattr(config, "milestone_conditions")
-                    and config.milestone_conditions
-                ):
-                    milestone_conditions = config.milestone_conditions
-            except Exception:
-                pass
-
-        analysis = await analyze_interaction(
             user_message,
             response_text,
+            incoming_fact_kind,
+            execution_mode,
+            session_id,
+            turn_id,
+            persona_id,
+        )
+        self._log_memory_update_scope(request)
+        milestone_conditions = await self._load_milestone_conditions(features)
+        analysis = await analyze_interaction(
+            request.user_message,
+            request.response_text,
             milestone_conditions=milestone_conditions,
         )
 
-        updated: bool = False
+        updated = await self._process_personality_turn_outcome(
+            request,
+            analysis,
+            milestone_conditions,
+        )
+        if not analysis.memory_observations:
+            return updated
+
+        return (
+            await self._apply_memory_observations(request, analysis.memory_observations)
+        ) or updated
+
+    def _log_memory_update_scope(self, request: _MemoryUpdateRequest) -> None:
+        logger.info(
+            "[chat.memory] interaction analysis scope user_id=%s session_id=%s turn_id=%s "
+            "incoming_fact_kind=%s execution_mode=%s",
+            request.user_id,
+            request.session_id,
+            request.turn_id,
+            request.incoming_fact_kind,
+            request.execution_mode,
+        )
+
+    async def _load_milestone_conditions(self, features: Any) -> dict[str, str] | None:
+        host = cast(_MemoryPostprocessHostProtocol, self)
+        if host._memory is None or not features.deep_persona_enabled:
+            return None
+        try:
+            config = await host._memory.get_core_personality()
+        except Exception:
+            return None
+        if not hasattr(config, "milestone_conditions"):
+            return None
+        return config.milestone_conditions or None
+
+    async def _process_personality_turn_outcome(
+        self,
+        request: _MemoryUpdateRequest,
+        analysis: Any,
+        milestone_conditions: dict[str, str] | None,
+    ) -> bool:
+        host = cast(_MemoryPostprocessHostProtocol, self)
         if host._memory is not None:
             try:
-                updated = bool(
+                return bool(
                     await host._memory.process_turn_outcome(
-                        user_id=user_id,
-                        user_message=user_message,
+                        user_id=request.user_id,
+                        user_message=request.user_message,
                         analysis=analysis,
                         milestone_conditions=milestone_conditions,
                     )
                 )
             except Exception as exc:
                 logger.warning("Failed to process turn outcome: %s", exc)
+        return False
 
-        if analysis.memory_observations:
-            try:
-                updated = bool(
-                    await apply_interaction_observations(
-                        observations=analysis.memory_observations,
-                        user_id=user_id,
-                        user_message=user_message,
-                        unified_memory=host._unified_memory,
-                        self_memory=host._memory,
-                        persona_id=persona_id,
-                        session_id=session_id,
-                        turn_id=turn_id,
-                    )
-                ) or updated
-            except Exception as exc:
-                logger.warning("Failed to apply interaction observations: %s", exc)
-
-        return updated
+    async def _apply_memory_observations(
+        self,
+        request: _MemoryUpdateRequest,
+        observations: list[Any],
+    ) -> bool:
+        host = cast(_MemoryPostprocessHostProtocol, self)
+        try:
+            return bool(
+                await apply_interaction_observations(
+                    observations=observations,
+                    user_id=request.user_id,
+                    user_message=request.user_message,
+                    unified_memory=host._unified_memory,
+                    self_memory=host._memory,
+                    persona_id=request.persona_id,
+                    session_id=request.session_id,
+                    turn_id=request.turn_id,
+                )
+            )
+        except Exception as exc:
+            logger.warning("Failed to apply interaction observations: %s", exc)
+            return False
 
     @staticmethod
     def _enum_value(value: Any) -> str:
