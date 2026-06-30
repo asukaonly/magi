@@ -2,11 +2,11 @@
 
 Three production wiring concerns are deliberately deferred until the dependency
 callables fire on first request:
-- ``persona_loader_dep`` resolves a ``(seed_slug, locale)`` pair to a flat
-  system prompt. The production implementation reads the bundled preset file at
-  ``personalities/{locale}/{seed_slug}.json`` — the same source the onboarding
-  seed-previews list comes from — and raises :class:`ValueError` when the seed
-  is unknown so the router can return HTTP 400.
+- ``persona_loader_dep`` resolves a ``(seed_slug, locale)`` pair to a lightweight
+  persona-preview prompt. The production implementation reads the bundled preset
+  file at ``personalities/{locale}/{seed_slug}.json`` — the same source the
+  onboarding seed-previews list comes from — and raises :class:`ValueError` when
+  the seed is unknown so the router can return HTTP 400.
 - ``llm_call_dep`` returns a callable that streams text chunks. The production
   implementation adapts the configured ``core`` scenario's
   :meth:`LLMAdapter.chat_stream` into the
@@ -40,8 +40,10 @@ logger = get_logger(__name__)
 
 # Persona preview replies are short; cap output so a chatty model can't run long.
 _PREVIEW_MAX_TOKENS = 512
+_PREVIEW_LIST_LIMIT = 6
+_PREVIEW_EXAMPLE_LIMIT = 4
 
-# The persona loader resolves a (seed_slug, locale) pair to a flat prompt.
+# The persona loader resolves a (seed_slug, locale) pair to a preview prompt.
 PersonaLoaderDep = Callable[[], Callable[[str, str], str]]
 # Both LLM deps accept an optional unsaved override (onboarding sends its
 # not-yet-persisted config so the preview can run before the user saves).
@@ -129,9 +131,7 @@ def _resolve_persona_prompt(seed_slug: str, locale: str) -> str:
     the onboarding seed-previews list is built from
     (:func:`magi.personality.persona_seed.list_seed_previews`) — so any slug the
     UI can show is resolvable here, even before the persona registry has been
-    seeded (which only happens at the end of onboarding). Produces the simple
-    voice-only prompt (no registers/layers/quiet hours), mirroring
-    :func:`_build_override_prompt`.
+    seeded (which only happens at the end of onboarding).
     """
     from magi.personality.persona_seed import _seed_dir
 
@@ -141,25 +141,129 @@ def _resolve_persona_prompt(seed_slug: str, locale: str) -> str:
     except Exception as exc:  # FileNotFoundError, JSON errors, etc.
         raise ValueError(f"unknown seed: {seed_slug}") from exc
 
-    name = data.get("name", seed_slug)
-    identity = (data.get("identity_core") or {}).get("identity_statement", "")
-    style = (data.get("idiolect") or {}).get("sentence_style", "")
-    return f"You are {name}. {identity}\n\nLanguage style: {style}\n"
+    return _build_seed_preview_prompt(data, seed_slug=seed_slug)
 
 
 def _build_override_prompt(override: PreviewPersonaOverride) -> str:
     """Build a flat preview system prompt from an inline persona identity.
 
-    Mirrors the format produced by :func:`_resolve_persona_prompt` so an
-    onboarding-generated (unsaved) persona previews identically to a seed.
+    Generated onboarding personas currently send only their distilled identity
+    fields, so the prompt adds the same preview-scene guardrails used by seed
+    personas without inventing unavailable registers or examples.
     """
     return (
         f"You are {override.name}. {override.identity_statement}\n\n"
+        f"{_preview_scene_instructions()}\n\n"
         f"Language style: {override.sentence_style}\n"
     )
 
 
-def _default_persona_loader_dep() -> Callable[[str], str]:
+def _build_seed_preview_prompt(data: dict[str, Any], *, seed_slug: str) -> str:
+    name = str(data.get("name") or seed_slug)
+    identity_core = data.get("identity_core") if isinstance(data.get("identity_core"), dict) else {}
+    idiolect = data.get("idiolect") if isinstance(data.get("idiolect"), dict) else {}
+    registers = data.get("registers") if isinstance(data.get("registers"), dict) else {}
+    chat_register = (
+        registers.get("chat")
+        if isinstance(registers.get("chat"), dict)
+        else {}
+    )
+
+    identity = str(identity_core.get("identity_statement") or "").strip()
+    style = str(idiolect.get("sentence_style") or "").strip()
+    lines = [
+        f"You are {name}. {identity}".strip(),
+        "",
+        _preview_scene_instructions(),
+    ]
+
+    values = _string_list(identity_core.get("values_loved"), limit=3)
+    rejected = _string_list(identity_core.get("values_rejected"), limit=3)
+    biases = _string_list(identity_core.get("attention_biases"), limit=3)
+    if values or rejected or biases:
+        lines.extend(["", "Stable persona core:"])
+        if values:
+            lines.append(f"- Values loved: {'; '.join(values)}")
+        if rejected:
+            lines.append(f"- Values rejected: {'; '.join(rejected)}")
+        if biases:
+            lines.append(f"- Attention biases: {'; '.join(biases)}")
+
+    lines.extend(["", f"Language style: {style}"])
+
+    quirks = _string_list(idiolect.get("structural_quirks"), limit=_PREVIEW_LIST_LIMIT)
+    avoided = _string_list(idiolect.get("vocab_avoided"), limit=_PREVIEW_LIST_LIMIT)
+    if quirks or avoided:
+        lines.extend(["", "Voice boundaries:"])
+        for quirk in quirks:
+            lines.append(f"- {quirk}")
+        if avoided:
+            lines.append(f"- Avoid these service-like phrases: {'; '.join(avoided)}")
+
+    behavior = str(chat_register.get("behavior") or "").strip()
+    description = str(chat_register.get("description") or "").strip()
+    if description or behavior:
+        lines.extend(["", "Default chat behavior:"])
+        if description:
+            lines.append(f"- Situation: {description}")
+        if behavior:
+            lines.append(f"- Behavior: {behavior}")
+
+    quiet_hours = _preview_quiet_hours(data.get("quiet_hours"))
+    if quiet_hours:
+        lines.extend(["", "Tone-down rules:"])
+        lines.extend(quiet_hours)
+
+    examples = _string_list(chat_register.get("examples"), limit=_PREVIEW_EXAMPLE_LIMIT)
+    if examples:
+        lines.extend(["", "Examples to imitate for voice, length, and restraint:"])
+        for example in examples:
+            lines.append(example)
+
+    lines.extend(
+        [
+            "",
+            "Reply rule: answer the user's latest message in character. Do not explain this "
+            "persona card or describe your own design. Keep ordinary preview replies compact; "
+            "only expand when the user asks for analysis or concrete help.",
+        ]
+    )
+    return "\n".join(line for line in lines if line is not None).strip() + "\n"
+
+
+def _preview_scene_instructions() -> str:
+    return (
+        "Persona preview scene: this is a short onboarding test chat. Respond as the persona "
+        "in normal conversation, not as a narrator explaining the persona."
+    )
+
+
+def _preview_quiet_hours(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    lines: list[str] = []
+    for item in raw[:2]:
+        if not isinstance(item, dict):
+            continue
+        condition = str(item.get("condition") or "").strip()
+        clamps = item.get("clamps") if isinstance(item.get("clamps"), dict) else {}
+        if not condition and not clamps:
+            continue
+        line = f"- When {condition}, tone the persona down."
+        clamp_parts = [f"{key}: {value}" for key, value in clamps.items()]
+        if clamp_parts:
+            line = f"{line} Constraints: {'; '.join(clamp_parts)}."
+        lines.append(line)
+    return lines
+
+
+def _string_list(raw: Any, *, limit: int) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()][:limit]
+
+
+def _default_persona_loader_dep() -> Callable[[str, str], str]:
     return _resolve_persona_prompt
 
 

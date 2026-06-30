@@ -257,6 +257,21 @@ def test_resolve_persona_prompt_reads_locale_preset() -> None:
     assert "Language style:" in prompt
 
 
+def test_resolve_persona_prompt_includes_seed_preview_behavior_rules() -> None:
+    """Onboarding preview should show the persona's behavior, not just a bio."""
+    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+
+    prompt = _resolve_persona_prompt("seven_hacker", "zh")
+
+    assert "Persona preview" in prompt
+    assert "默认 1-3 句" in prompt
+    assert "不用bullet list处理日常对话" in prompt
+    assert "[User: 几点了？]" in prompt
+    assert "* Good: 4 点。" in prompt
+    assert "seven_guard_down" not in prompt
+    assert "当场认大哥" not in prompt
+
+
 def test_resolve_persona_prompt_unknown_seed_raises() -> None:
     from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
 

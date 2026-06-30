@@ -464,6 +464,14 @@ Post-generation cleanup should correct deterministic quality issues before valid
 
 Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config.
 
+Onboarding persona preview prompts are also separate from the full chat runtime.
+They should remain lightweight and skip memory, tools, relationship depth,
+dynamic state, and trigger classification, but they must include enough of the
+seed persona to be recognizable: stable identity, baseline voice, ordinary chat
+behavior, tone-down rules, and a small set of examples that demonstrate both
+voice and restraint. Preview prompts should make the test-chat scene explicit so
+the model answers in character instead of explaining the persona card.
+
 ## Migration From Current Code
 
 The current code has these legacy surfaces that should be removed or rewritten during implementation:

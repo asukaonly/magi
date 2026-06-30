@@ -6,7 +6,7 @@ The runner MUST:
 - Skip the memory pipeline entirely
 - Skip context_decider routing
 - Stream output tokens via an async generator
-- Build the system prompt from the persona seed's identity_statement + idiolect
+- Build the system prompt from the caller-supplied persona preview prompt
 """
 
 from __future__ import annotations
