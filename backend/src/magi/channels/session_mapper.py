@@ -74,36 +74,12 @@ class ChannelSessionMapper:
         """Look up existing mapping; if none, create a new Magi session."""
         existing = await self.lookup(channel_type, external_chat_id)
         if existing is not None:
-            now_ms = int(time.time() * 1000)
-            await self._touch(channel_type, external_chat_id, now_ms)
-            return ChannelSessionMapping(
-                channel_type=existing.channel_type,
-                external_chat_id=existing.external_chat_id,
-                magi_session_id=existing.magi_session_id,
-                magi_user_id=existing.magi_user_id,
-                is_group=existing.is_group,
-                created_at_ms=existing.created_at_ms,
-                last_active_at_ms=now_ms,
-                metadata_json=existing.metadata_json,
-            )
+            return await self._touch_existing_mapping(existing)
 
-        # Phase H+2 identity layer: external_user_id flows through the
-        # IdentityResolver so the magi_user_id column stores the
-        # canonical MagiUserID, never the raw external id. Legacy
-        # callers without a resolver still get the canonical default
-        # (single-user assumption); the old f"channel_{type}_{ext}"
-        # synthesis is gone.
-        if self._identity_resolver is not None:
-            magi_user_id = str(
-                await self._identity_resolver.resolve(
-                    ExternalIdentity(
-                        channel_type=channel_type,
-                        external_user_id=external_user_id,
-                    )
-                )
-            )
-        else:
-            magi_user_id = str(CANONICAL_LOCAL_USER)
+        magi_user_id = await self._resolve_magi_user_id(
+            channel_type=channel_type,
+            external_user_id=external_user_id,
+        )
         now_ms = int(time.time() * 1000)
         session_id = await self._session_provisioner.create_channel_session(
             channel_type=channel_type,
@@ -113,12 +89,71 @@ class ChannelSessionMapper:
             created_at_ms=now_ms,
         )
 
-        meta = {
+        mapping = self._build_new_mapping(
+            channel_type=channel_type,
+            external_chat_id=external_chat_id,
+            magi_user_id=magi_user_id,
+            session_id=session_id,
+            is_group=is_group,
+            display_name=display_name,
+            external_user_id=external_user_id,
+            now_ms=now_ms,
+        )
+        await self._insert(mapping)
+        self._log_mapping_created(mapping)
+        return mapping
+
+    async def _touch_existing_mapping(
+        self,
+        existing: ChannelSessionMapping,
+    ) -> ChannelSessionMapping:
+        now_ms = int(time.time() * 1000)
+        await self._touch(existing.channel_type, existing.external_chat_id, now_ms)
+        return ChannelSessionMapping(
+            channel_type=existing.channel_type,
+            external_chat_id=existing.external_chat_id,
+            magi_session_id=existing.magi_session_id,
+            magi_user_id=existing.magi_user_id,
+            is_group=existing.is_group,
+            created_at_ms=existing.created_at_ms,
+            last_active_at_ms=now_ms,
+            metadata_json=existing.metadata_json,
+        )
+
+    async def _resolve_magi_user_id(
+        self,
+        *,
+        channel_type: str,
+        external_user_id: str,
+    ) -> str:
+        if self._identity_resolver is None:
+            return str(CANONICAL_LOCAL_USER)
+        return str(
+            await self._identity_resolver.resolve(
+                ExternalIdentity(
+                    channel_type=channel_type,
+                    external_user_id=external_user_id,
+                )
+            )
+        )
+
+    def _build_new_mapping(
+        self,
+        *,
+        channel_type: str,
+        external_chat_id: str,
+        magi_user_id: str,
+        session_id: str,
+        is_group: bool,
+        display_name: str | None,
+        external_user_id: str,
+        now_ms: int,
+    ) -> ChannelSessionMapping:
+        metadata = {
             "external_user_id": external_user_id,
             "display_name": display_name,
         }
-
-        mapping = ChannelSessionMapping(
+        return ChannelSessionMapping(
             channel_type=channel_type,
             external_chat_id=external_chat_id,
             magi_session_id=session_id,
@@ -126,16 +161,16 @@ class ChannelSessionMapper:
             is_group=is_group,
             created_at_ms=now_ms,
             last_active_at_ms=now_ms,
-            metadata_json=json.dumps(meta, ensure_ascii=False),
+            metadata_json=json.dumps(metadata, ensure_ascii=False),
         )
-        await self._insert(mapping)
+
+    def _log_mapping_created(self, mapping: ChannelSessionMapping) -> None:
         logger.info(
             "Channel session created",
-            channel_type=channel_type,
-            external_chat_id=external_chat_id,
-            session_id=session_id,
+            channel_type=mapping.channel_type,
+            external_chat_id=mapping.external_chat_id,
+            session_id=mapping.magi_session_id,
         )
-        return mapping
 
     async def lookup(
         self,
