@@ -148,6 +148,102 @@ def source_types_for_event_ids(
     return list(dict.fromkeys(source_types))
 
 
+def reflection_theme_cards(
+    *,
+    reflections: list[dict[str, Any]],
+    clusters: list[dict[str, Any]],
+    seen_titles: set[str],
+    existing_count: int,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for reflection in reflections:
+        if existing_count + len(cards) >= MAX_THEME_CARDS:
+            break
+        title = str(reflection.get("title") or "").strip()
+        if not _reserve_theme_title(title, seen_titles):
+            continue
+        cards.append(_reflection_theme_card(reflection, title, clusters))
+    return cards
+
+
+def cluster_label_theme_cards(
+    *,
+    clusters: list[dict[str, Any]],
+    seen_titles: set[str],
+    existing_count: int,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for cluster in _clusters_by_event_count(clusters):
+        if existing_count + len(cards) >= MAX_THEME_CARDS:
+            break
+        if not cluster.get("label_is_themeable"):
+            continue
+        title = str(cluster.get("label") or "").strip()
+        if not _reserve_theme_title(title, seen_titles):
+            continue
+        cards.append(_cluster_label_theme_card(cluster, title, existing_count + len(cards)))
+    return cards
+
+
+def _reserve_theme_title(title: str, seen_titles: set[str]) -> bool:
+    if not is_acceptable_theme_title(title):
+        return False
+    normalized = title.casefold()
+    if normalized in seen_titles:
+        return False
+    seen_titles.add(normalized)
+    return True
+
+
+def _reflection_theme_card(
+    reflection: dict[str, Any],
+    title: str,
+    clusters: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event_ids = [
+        str(event_id)
+        for event_id in reflection.get("source_event_ids") or []
+        if str(event_id).strip()
+    ]
+    return {
+        "theme_id": f"reflection:{reflection.get('reflection_id')}",
+        "title": title,
+        "summary": str(reflection.get("summary") or ""),
+        "source_types": source_types_for_event_ids(event_ids, clusters),
+        "event_count": len(event_ids),
+        "anchor": {
+            "anchor_type": "event" if event_ids else "reflection",
+            "anchor_id": event_ids[0] if event_ids else "",
+            "representative_event_ids": event_ids[:5],
+            "time_start": float(reflection.get("time_start") or 0.0),
+            "time_end": float(reflection.get("time_end") or 0.0),
+        },
+    }
+
+
+def _cluster_label_theme_card(
+    cluster: dict[str, Any],
+    title: str,
+    fallback_index: int,
+) -> dict[str, Any]:
+    return {
+        "theme_id": str(cluster.get("block_id") or f"cluster:{fallback_index}"),
+        "title": title,
+        "summary": str(cluster.get("summary") or ""),
+        "source_types": [str(s) for s in cluster.get("source_types") or [] if str(s).strip()],
+        "event_count": int(cluster.get("event_count") or 0),
+        "anchor": cluster_anchor(cluster),
+    }
+
+
+def _clusters_by_event_count(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        clusters,
+        key=lambda item: int(item.get("event_count") or 0),
+        reverse=True,
+    )
+
+
 class ThemeCardBuilder:
     """Per-viewport assembly of the "你那时关心的" chip row.
 
@@ -180,70 +276,24 @@ class ThemeCardBuilder:
             return cards
 
         seen_titles: set[str] = {str(c["title"]).casefold() for c in cards}
-
-        for reflection in reflections:
-            if len(cards) >= MAX_THEME_CARDS:
-                break
-            title = str(reflection.get("title") or "").strip()
-            if not is_acceptable_theme_title(title):
-                continue
-            normalized = title.casefold()
-            if normalized in seen_titles:
-                continue
-            seen_titles.add(normalized)
-            event_ids = [
-                str(eid) for eid in reflection.get("source_event_ids") or [] if str(eid).strip()
-            ]
-            cards.append(
-                {
-                    "theme_id": f"reflection:{reflection.get('reflection_id')}",
-                    "title": title,
-                    "summary": str(reflection.get("summary") or ""),
-                    "source_types": source_types_for_event_ids(event_ids, clusters),
-                    "event_count": len(event_ids),
-                    "anchor": {
-                        "anchor_type": "event" if event_ids else "reflection",
-                        "anchor_id": event_ids[0] if event_ids else "",
-                        "representative_event_ids": event_ids[:5],
-                        "time_start": float(reflection.get("time_start") or 0.0),
-                        "time_end": float(reflection.get("time_end") or 0.0),
-                    },
-                }
+        cards.extend(
+            reflection_theme_cards(
+                reflections=reflections,
+                clusters=clusters,
+                seen_titles=seen_titles,
+                existing_count=len(cards),
             )
+        )
+        if len(cards) >= MAX_THEME_CARDS:
+            return cards
 
-        for cluster in sorted(
-            clusters,
-            key=lambda item: int(item.get("event_count") or 0),
-            reverse=True,
-        ):
-            if len(cards) >= MAX_THEME_CARDS:
-                break
-            # Only labels backed by real signal are themes. A label
-            # synthesized from a source id ("chat_projector" → "Chat
-            # Projector") or the "activity"/episode-type placeholder is
-            # plumbing, not a concern — skip it rather than leak it into
-            # the "你那时关心的" row.
-            if not cluster.get("label_is_themeable"):
-                continue
-            title = str(cluster.get("label") or "").strip()
-            if not is_acceptable_theme_title(title):
-                continue
-            normalized = title.casefold()
-            if normalized in seen_titles:
-                continue
-            seen_titles.add(normalized)
-            cards.append(
-                {
-                    "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
-                    "title": title,
-                    "summary": str(cluster.get("summary") or ""),
-                    "source_types": [
-                        str(s) for s in cluster.get("source_types") or [] if str(s).strip()
-                    ],
-                    "event_count": int(cluster.get("event_count") or 0),
-                    "anchor": cluster_anchor(cluster),
-                }
+        cards.extend(
+            cluster_label_theme_cards(
+                clusters=clusters,
+                seen_titles=seen_titles,
+                existing_count=len(cards),
             )
+        )
 
         return cards
 
