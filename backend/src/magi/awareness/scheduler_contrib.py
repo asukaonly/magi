@@ -1,9 +1,11 @@
 """Sensor layer's integration with the unified scheduler."""
+
 from __future__ import annotations
 
 import asyncio
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..core.container import get_container
@@ -28,6 +30,20 @@ if TYPE_CHECKING:
     from .ingestion_gateway import SensorIngestionGateway
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class _ResolvedSensorSyncTarget:
+    plugin_id: str
+    sensor: Any
+    spec: Any
+
+
+@dataclass(slots=True)
+class _SensorSyncSettings:
+    package_settings: dict[str, Any]
+    allowed_edge_whitelist: list[str]
+    limit: int
 
 
 def request_sensor_schedule_refresh() -> None:
@@ -105,7 +121,10 @@ class SensorSchedulerContrib:
 
     async def sync_schedules(self) -> None:
         for contribution in self._sensor_registry.list_contributions():
-            source_type = str(contribution.metadata.get("source_type") or contribution.contribution_id.split(".")[-1])
+            source_type = str(
+                contribution.metadata.get("source_type")
+                or contribution.contribution_id.split(".")[-1]
+            )
             resolved = self._sensor_registry.resolve_source_sensor(source_type)
             if resolved is None:
                 continue
@@ -116,9 +135,13 @@ class SensorSchedulerContrib:
             default_settings = dict(spec.metadata.get("default_settings", {}))
             source_settings = dict(current_settings.get("sensors", {}).get(source_type, {}))
             enabled = bool(source_settings.get("enabled", default_settings.get("enabled", True)))
-            sync_mode = str(source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode)))
+            sync_mode = str(
+                source_settings.get("sync_mode", default_settings.get("sync_mode", spec.sync_mode))
+            )
             interval_minutes = float(
-                source_settings.get("sync_interval_minutes", default_settings.get("sync_interval_minutes", 1))
+                source_settings.get(
+                    "sync_interval_minutes", default_settings.get("sync_interval_minutes", 1)
+                )
             )
             supports_pull_sync = bool(getattr(sensor, "supports_pull_sync", False))
             if (not enabled) or (not supports_pull_sync) or sync_mode == "manual":
@@ -202,7 +225,9 @@ class SensorSchedulerContrib:
             raise RuntimeError(f"Sensor source does not support state flush: {source_type}")
         package_state = self._plugin_manager.get_package(plugin_id)
         package_settings = package_state.current_settings if package_state is not None else {}
-        return await flush_state(runtime_paths=self._runtime_paths, plugin_settings=package_settings)
+        return await flush_state(
+            runtime_paths=self._runtime_paths, plugin_settings=package_settings
+        )
 
     async def _run_sensor_sync(
         self,
@@ -213,18 +238,15 @@ class SensorSchedulerContrib:
         manual: bool,
         target_state: Any,
     ) -> ScheduledExecutionResult:
-        resolved = self._sensor_registry.resolve_source_sensor(source_type)
-        if resolved is None:
-            raise RuntimeError(f"Sensor source not found: {source_type}")
-        plugin_id, _, sensor, spec = resolved
-        if not bool(getattr(sensor, "supports_pull_sync", False)):
-            raise RuntimeError(f"Sensor source does not support pull sync: {source_type}")
-        package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = dict(package_state.current_settings) if package_state is not None else {}
+        target = self._resolve_sensor_sync_target(source_type)
+        settings = self._sensor_sync_settings(
+            plugin_id=target.plugin_id,
+            source_type=source_type,
+            spec=target.spec,
+        )
         preferred_language = get_preferred_language()
         if preferred_language:
-            package_settings.setdefault("locale", preferred_language)
-        source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
+            settings.package_settings.setdefault("locale", preferred_language)
         previous_language = get_plugin_current_language()
         set_plugin_current_language(preferred_language or None)
         try:
@@ -233,70 +255,19 @@ class SensorSchedulerContrib:
                 manual=manual,
                 last_cursor=target_state.last_cursor,
                 last_success_at=target_state.last_success_at,
-                limit=int(source_settings.get("max_items_per_sync", 200)),
+                limit=settings.limit,
                 runtime_paths=self._runtime_paths,
-                plugin_settings=package_settings,
+                plugin_settings=settings.package_settings,
             )
-            result = await sensor.collect_items(pull_context)
-            stats = dict(result.stats or {})
-            cursor_kind = str(stats.get("cursor_kind") or "modified_at").strip().lower()
-            checkpoint_modified_cursor = cursor_kind in {"modified_at", "mtime", "timestamp"}
-            allowed_edge_whitelist = [
-                str(edge_type)
-                for edge_type in source_settings.get(
-                    "edge_whitelist",
-                    spec.metadata.get("default_settings", {}).get("edge_whitelist", []),
-                )
-            ]
-
-            # Sort items by modified_at so mid-batch cursor saves are monotonic
-            sorted_items = sorted(
-                result.items,
-                key=lambda it: float(it.get("modified_at") or 0.0),
+            result = await target.sensor.collect_items(pull_context)
+            await self._ingest_sensor_sync_items(
+                sensor=target.sensor,
+                result=result,
+                schedule_id=schedule_id,
+                target_key=target_key,
+                manual=manual,
+                allowed_edge_whitelist=settings.allowed_edge_whitelist,
             )
-
-            total_items = len(sorted_items)
-            checkpoint_interval = 50
-            target_type_enum = ScheduledTargetType.SENSOR_SYNC
-
-            # (sensor_sync_progress notification deleted in Phase G+4 — was a dead
-            # write; no frontend listener handled the channel, so the event went
-            # nowhere. Re-add with a frontend handler if progress UI is needed.)
-
-            for idx, item in enumerate(sorted_items):
-                fetched = await sensor.fetch_item(item)
-
-                if self._ingestion_gateway is None:
-                    raise RuntimeError("SensorIngestionGateway is required for sensor sync")
-
-                output = await sensor.build_output(fetched)
-                metadata = await sensor.extract_metadata(fetched)
-                output.provenance.update(
-                    {
-                        "scheduler_schedule_id": schedule_id,
-                        "scheduler_target_key": target_key,
-                        "sensor_sync_mode": "manual" if manual else "scheduled",
-                    }
-                )
-                await self._ingestion_gateway.ingest(
-                    sensor, output, metadata,
-                    allowed_edge_whitelist=allowed_edge_whitelist,
-                )
-
-                # Mid-batch cursor checkpoint
-                if checkpoint_modified_cursor and (idx + 1) % checkpoint_interval == 0:
-                    # Mid-batch cursor save (skip on last item — final cursor is set below)
-                    if idx + 1 < total_items:
-                        item_mtime = float(item.get("modified_at") or 0.0)
-                        if item_mtime > 0:
-                            try:
-                                await self._scheduler_service.update_target_cursor(
-                                    target_type_enum, target_key,
-                                    cursor=str(item_mtime), watermark_ts=item_mtime,
-                                )
-                            except Exception:
-                                logger.debug("Mid-batch cursor save failed", target_key=target_key)
-
             return ScheduledExecutionResult(
                 success=True,
                 message="sensor_sync_completed",
@@ -306,3 +277,131 @@ class SensorSchedulerContrib:
             )
         finally:
             set_plugin_current_language(previous_language or None)
+
+    def _resolve_sensor_sync_target(self, source_type: str) -> _ResolvedSensorSyncTarget:
+        resolved = self._sensor_registry.resolve_source_sensor(source_type)
+        if resolved is None:
+            raise RuntimeError(f"Sensor source not found: {source_type}")
+        plugin_id, _, sensor, spec = resolved
+        if not bool(getattr(sensor, "supports_pull_sync", False)):
+            raise RuntimeError(f"Sensor source does not support pull sync: {source_type}")
+        return _ResolvedSensorSyncTarget(plugin_id=plugin_id, sensor=sensor, spec=spec)
+
+    def _sensor_sync_settings(
+        self,
+        *,
+        plugin_id: str,
+        source_type: str,
+        spec: Any,
+    ) -> _SensorSyncSettings:
+        package_state = self._plugin_manager.get_package(plugin_id)
+        package_settings = dict(package_state.current_settings) if package_state is not None else {}
+        source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
+        default_settings = spec.metadata.get("default_settings", {})
+        allowed_edge_whitelist = [
+            str(edge_type)
+            for edge_type in source_settings.get(
+                "edge_whitelist",
+                default_settings.get("edge_whitelist", []),
+            )
+        ]
+        return _SensorSyncSettings(
+            package_settings=package_settings,
+            allowed_edge_whitelist=allowed_edge_whitelist,
+            limit=int(source_settings.get("max_items_per_sync", 200)),
+        )
+
+    async def _ingest_sensor_sync_items(
+        self,
+        *,
+        sensor: Any,
+        result: Any,
+        schedule_id: str,
+        target_key: str,
+        manual: bool,
+        allowed_edge_whitelist: list[str],
+    ) -> None:
+        sorted_items = sorted(
+            result.items,
+            key=lambda it: float(it.get("modified_at") or 0.0),
+        )
+        checkpoint_modified_cursor = _should_checkpoint_modified_cursor(result.stats)
+        total_items = len(sorted_items)
+        for idx, item in enumerate(sorted_items):
+            await self._ingest_sensor_sync_item(
+                sensor=sensor,
+                item=item,
+                schedule_id=schedule_id,
+                target_key=target_key,
+                manual=manual,
+                allowed_edge_whitelist=allowed_edge_whitelist,
+            )
+            await self._checkpoint_sensor_sync_cursor(
+                item=item,
+                item_index=idx,
+                total_items=total_items,
+                target_key=target_key,
+                checkpoint_modified_cursor=checkpoint_modified_cursor,
+            )
+
+    async def _ingest_sensor_sync_item(
+        self,
+        *,
+        sensor: Any,
+        item: dict[str, Any],
+        schedule_id: str,
+        target_key: str,
+        manual: bool,
+        allowed_edge_whitelist: list[str],
+    ) -> None:
+        fetched = await sensor.fetch_item(item)
+        if self._ingestion_gateway is None:
+            raise RuntimeError("SensorIngestionGateway is required for sensor sync")
+        output = await sensor.build_output(fetched)
+        metadata = await sensor.extract_metadata(fetched)
+        output.provenance.update(
+            {
+                "scheduler_schedule_id": schedule_id,
+                "scheduler_target_key": target_key,
+                "sensor_sync_mode": "manual" if manual else "scheduled",
+            }
+        )
+        await self._ingestion_gateway.ingest(
+            sensor,
+            output,
+            metadata,
+            allowed_edge_whitelist=allowed_edge_whitelist,
+        )
+
+    async def _checkpoint_sensor_sync_cursor(
+        self,
+        *,
+        item: dict[str, Any],
+        item_index: int,
+        total_items: int,
+        target_key: str,
+        checkpoint_modified_cursor: bool,
+    ) -> None:
+        checkpoint_interval = 50
+        if not checkpoint_modified_cursor or (item_index + 1) % checkpoint_interval != 0:
+            return
+        if item_index + 1 >= total_items:
+            return
+        item_mtime = float(item.get("modified_at") or 0.0)
+        if item_mtime <= 0:
+            return
+        try:
+            await self._scheduler_service.update_target_cursor(
+                ScheduledTargetType.SENSOR_SYNC,
+                target_key,
+                cursor=str(item_mtime),
+                watermark_ts=item_mtime,
+            )
+        except Exception:
+            logger.debug("Mid-batch cursor save failed", target_key=target_key)
+
+
+def _should_checkpoint_modified_cursor(stats: Any) -> bool:
+    stats_dict = dict(stats or {})
+    cursor_kind = str(stats_dict.get("cursor_kind") or "modified_at").strip().lower()
+    return cursor_kind in {"modified_at", "mtime", "timestamp"}
