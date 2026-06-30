@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PersonaPreviewChat } from '../components/onboarding/PersonaPreviewChat';
@@ -268,6 +268,35 @@ describe('PersonaPreviewChat', () => {
 
     expect(await screen.findByText('personaPreview.generationStages.base')).toBeInTheDocument();
     expect(screen.queryByText('Understand persona spine')).not.toBeInTheDocument();
+
+    resolveGen({ success: true, message: 'ok', data: makeGeneratedConfig(), stages: [] });
+  });
+
+  it('marks the running generation stage with motion-friendly state', async () => {
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      (_request, onProgress) => {
+        onProgress?.({
+          job_id: 'job-1',
+          status: 'running',
+          stages: [
+            { stage_id: 'base', status: 'completed' },
+            { stage_id: 'registers', status: 'running' },
+            { stage_id: 'rules', status: 'pending' },
+          ],
+        });
+        return new Promise((resolve) => { resolveGen = resolve; });
+      },
+    );
+
+    render(<PersonaPreviewChat previews={previews} />);
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    const runningStage = await screen.findByTestId('persona-generation-stage-running');
+    expect(runningStage).toHaveAttribute('aria-current', 'step');
+    expect(within(runningStage).getByTestId('persona-generation-stage-spinner')).toHaveClass('animate-spin');
 
     resolveGen({ success: true, message: 'ok', data: makeGeneratedConfig(), stages: [] });
   });

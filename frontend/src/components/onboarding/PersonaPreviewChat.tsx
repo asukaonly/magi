@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReducedMotion } from 'framer-motion';
+import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { cn } from '@/lib/utils';
 import { streamChatPreview, type PreviewTurn } from '../../api/modules/chatPreview';
 import {
   personasApi,
@@ -64,6 +66,22 @@ interface RailItem {
   avatar?: string;
   isCustom: boolean;
   config?: PersonalityConfig;
+}
+
+function stageStatusIcon(status: string, shouldReduceMotion: boolean): JSX.Element {
+  if (status === 'completed') {
+    return <CheckCircle2 className="h-4 w-4 text-primary" aria-hidden="true" />;
+  }
+  if (status === 'running') {
+    return (
+      <Loader2
+        data-testid="persona-generation-stage-spinner"
+        className={cn('h-4 w-4 text-primary', !shouldReduceMotion && 'animate-spin')}
+        aria-hidden="true"
+      />
+    );
+  }
+  return <Circle className="h-3.5 w-3.5 text-muted-foreground/45" aria-hidden="true" />;
 }
 
 /** Avatar with graceful fallback to the persona's initial when the image fails. */
@@ -380,8 +398,8 @@ export function PersonaPreviewChat({
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
         <div className="flex min-h-0 flex-col gap-3">
-          <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
-            <h3 className="text-sm font-medium text-foreground">{t('personaPreview.createCustomTitle')}</h3>
+          <div className="flex-1 overflow-y-auto rounded-lg border border-border/50 bg-muted/10 p-4">
+            <h3 className="text-base font-semibold text-foreground">{t('personaPreview.createCustomTitle')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
               {t('personaPreview.createCustomHint')}
             </p>
@@ -392,30 +410,52 @@ export function PersonaPreviewChat({
               placeholder={t('personaPreview.customDescriptionPlaceholder')}
               disabled={generating}
               rows={3}
-              className="mt-3 w-full rounded-md border border-border/55 bg-card px-3 py-2 text-sm text-foreground"
+              className="mt-4 w-full rounded-lg border border-border/45 bg-muted/35 px-4 py-3 text-base leading-7 text-foreground shadow-inner shadow-background/40 outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-primary/35 focus:bg-background/80 focus:ring-2 focus:ring-primary/15 disabled:opacity-70"
             />
 
             {generating && (
               <div
                 data-testid="persona-generation-progress"
-                className="mt-3 rounded-md border border-border/55 bg-card p-3"
+                role="status"
+                aria-live="polite"
+                className="mt-4 overflow-hidden rounded-lg border border-border/45 bg-muted/30 p-4"
               >
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t('personaPreview.generating')}
-                </p>
+                <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <span
+                    className={cn(
+                      'h-2 w-2 rounded-full bg-primary',
+                      !shouldReduceMotion && 'animate-pulse',
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span>{t('personaPreview.generating')}</span>
+                </div>
                 {genStages.length > 0 && (
-                  <ul className="mt-2 space-y-1">
-                    {genStages.map((s) => (
-                      <li
-                        key={s.stage_id}
-                        className="flex items-center gap-2 text-xs text-muted-foreground"
-                      >
-                        <span aria-hidden>
-                          {s.status === 'completed' ? '✓' : s.status === 'running' ? '…' : '·'}
-                        </span>
-                        <span>{getGenerationStageLabel(s)}</span>
-                      </li>
-                    ))}
+                  <ul className="mt-3 space-y-1.5">
+                    {genStages.map((s) => {
+                      const isRunning = s.status === 'running';
+                      const isCompleted = s.status === 'completed';
+                      return (
+                        <li
+                          key={s.stage_id}
+                          data-testid={isRunning ? 'persona-generation-stage-running' : undefined}
+                          aria-current={isRunning ? 'step' : undefined}
+                          className={cn(
+                            'flex items-center gap-3 rounded-md px-2.5 py-2 text-sm transition-colors duration-300',
+                            isRunning && 'bg-background/80 text-foreground shadow-sm',
+                            isCompleted && 'text-foreground/80',
+                            !isRunning && !isCompleted && 'text-muted-foreground/70',
+                          )}
+                        >
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                            {stageStatusIcon(s.status, shouldReduceMotion)}
+                          </span>
+                          <span className={cn(isRunning && 'font-medium')}>
+                            {getGenerationStageLabel(s)}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>
