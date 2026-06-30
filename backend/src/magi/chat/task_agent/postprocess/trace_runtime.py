@@ -32,6 +32,16 @@ class _ResponseTraceContext:
     user_message: str
 
 
+@dataclass(slots=True)
+class _TraceSupersessionContext:
+    event_bus: Any | None
+    turn: Any
+    anchor_turn_id: str
+    status: str
+    started_at_ms: int
+    ended_at_ms: int
+
+
 def _root_turn_attributes(
     *,
     turn_id: str,
@@ -438,29 +448,59 @@ class ChatPostprocessRuntimeTraceMixin:
         existing_turn = await self._runtime_trace_store.get_turn(turn_id)
         if existing_turn is None:
             return
-        bus = self._resolve_trace_event_bus()
+        context = self._trace_supersession_context(
+            existing_turn=existing_turn,
+            anchor_turn_id=anchor_turn_id,
+            reason=reason,
+            updated_at_ms=updated_at_ms,
+        )
+        await self._publish_superseded_trace_turn(context)
+        await self._publish_superseded_root_span(context, turn_id=turn_id)
+
+    def _trace_supersession_context(
+        self,
+        *,
+        existing_turn: Any,
+        anchor_turn_id: str,
+        reason: str,
+        updated_at_ms: int,
+    ) -> _TraceSupersessionContext:
         status = "merged" if reason == "augment" else "interrupted"
         started_at_ms = int(existing_turn.started_at_ms or updated_at_ms)
         ended_at_ms = max(updated_at_ms, started_at_ms)
+        return _TraceSupersessionContext(
+            event_bus=self._resolve_trace_event_bus(),
+            turn=existing_turn,
+            anchor_turn_id=anchor_turn_id,
+            status=status,
+            started_at_ms=started_at_ms,
+            ended_at_ms=ended_at_ms,
+        )
+
+    async def _publish_superseded_trace_turn(
+        self,
+        context: _TraceSupersessionContext,
+    ) -> None:
+        existing_turn = context.turn
         await publish_trace_span(
-            event_bus=bus,
+            event_bus=context.event_bus,
             node_type="turn_record",
             name=f"turn:{existing_turn.turn_id}",
             trace_id=existing_turn.trace_id,
             parent_span_id=None,
             status="ok",
-            started_at_ms=started_at_ms,
-            ended_at_ms=ended_at_ms,
+            started_at_ms=context.started_at_ms,
+            ended_at_ms=context.ended_at_ms,
             turn_id=existing_turn.turn_id,
             attributes=_root_turn_attributes(
                 turn_id=existing_turn.turn_id,
                 session_id=existing_turn.session_id,
                 user_id=existing_turn.user_id,
-                status=status,
+                status=context.status,
                 mode=existing_turn.mode,
-                started_at_ms=started_at_ms,
-                ended_at_ms=ended_at_ms,
-                duration_ms=max(0, ended_at_ms - started_at_ms),
+                started_at_ms=context.started_at_ms,
+                ended_at_ms=context.ended_at_ms,
+                duration_ms=max(0, context.ended_at_ms - context.started_at_ms),
                 orchestration_id=existing_turn.orchestration_id,
                 user_message_preview=existing_turn.user_message_preview,
                 response_preview=existing_turn.response_preview,
@@ -469,26 +509,33 @@ class ChatPostprocessRuntimeTraceMixin:
                 run_revision=int(existing_turn.run_revision or 0),
                 continued_from_turn_id=existing_turn.continued_from_turn_id,
                 continued_from_trace_id=existing_turn.continued_from_trace_id,
-                superseded_by_turn_id=anchor_turn_id,
-                supersession_reason=status,
-                created_at_ms=int(existing_turn.created_at_ms or started_at_ms),
-                updated_at_ms=ended_at_ms,
+                superseded_by_turn_id=context.anchor_turn_id,
+                supersession_reason=context.status,
+                created_at_ms=int(existing_turn.created_at_ms or context.started_at_ms),
+                updated_at_ms=context.ended_at_ms,
             ),
         )
+
+    async def _publish_superseded_root_span(
+        self,
+        context: _TraceSupersessionContext,
+        *,
+        turn_id: str,
+    ) -> None:
         root_span = await self._runtime_trace_store.get_span(self._build_root_span_id(turn_id))
         if root_span is None:
             return
-        span_started = int(root_span.started_at_ms or started_at_ms)
+        span_started = int(root_span.started_at_ms or context.started_at_ms)
         await publish_trace_span(
-            event_bus=bus,
+            event_bus=context.event_bus,
             node_type=root_span.node_type,
             name=root_span.name,
             span_id=root_span.span_id,
             trace_id=root_span.trace_id,
             parent_span_id=root_span.parent_span_id,
-            status=status,
+            status=context.status,
             started_at_ms=span_started,
-            ended_at_ms=ended_at_ms,
+            ended_at_ms=context.ended_at_ms,
             result_preview=root_span.result_preview,
             turn_id=root_span.turn_id,
             attributes={
