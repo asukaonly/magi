@@ -124,6 +124,9 @@ describe('ProductTour', () => {
     render(<ProductTour onComplete={vi.fn()} />);
 
     expect(await screen.findByText('productTour.memoryModelTitle')).toBeInTheDocument();
+    expect(screen.queryByText('productTour.memoryModelKicker')).not.toBeInTheDocument();
+    expect(screen.getByText('productTour.memoryModelImpact')).toBeInTheDocument();
+    expect(screen.queryByText('productTour.memoryModelNote')).not.toBeInTheDocument();
     expect(screen.queryByText('productTour.firstContextTitle')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'productTour.memoryModelSkip' }));

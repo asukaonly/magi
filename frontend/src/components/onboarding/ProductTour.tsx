@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
+import { cn } from '@/lib/utils';
 import { useChatShellStore } from '@/stores/chat-shell';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
@@ -122,18 +123,25 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent
-        className="max-w-[44rem] overflow-hidden p-0"
+        className={cn('overflow-hidden p-0', showMemoryModelPrompt ? 'max-w-[36rem]' : 'max-w-[44rem]')}
         hideClose
         onEscapeKeyDown={preventDismiss}
         onInteractOutside={preventDismiss}
         onPointerDownOutside={preventDismiss}
       >
-        <DialogHeader className="border-b border-border/55 bg-muted/25 px-7 py-6">
-          <div className="mb-3 w-fit rounded-full border border-primary/20 bg-background px-3 py-1 text-xs font-medium text-primary">
-            {showMemoryModelPrompt
-              ? t('productTour.memoryModelKicker')
-              : t('productTour.firstContextKicker')}
-          </div>
+        <DialogHeader
+          className={cn(
+            'px-7',
+            showMemoryModelPrompt
+              ? 'pb-2 pt-7'
+              : 'border-b border-border/55 bg-muted/25 py-6'
+          )}
+        >
+          {showMemoryModelPrompt ? null : (
+            <div className="mb-3 w-fit rounded-full border border-primary/20 bg-background px-3 py-1 text-xs font-medium text-primary">
+              {t('productTour.firstContextKicker')}
+            </div>
+          )}
           <DialogTitle className="max-w-xl text-xl font-semibold leading-7">
             {showMemoryModelPrompt
               ? t('productTour.memoryModelTitle')
@@ -147,12 +155,9 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
         </DialogHeader>
 
         {showMemoryModelPrompt ? (
-          <div className="px-7 py-5">
-            <div className="rounded-lg border border-amber-200 bg-amber-50/75 px-4 py-3 text-sm leading-6 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <div className="px-7 pb-6 pt-2">
+            <p className="max-w-xl text-sm leading-6 text-muted-foreground">
               {t('productTour.memoryModelImpact')}
-            </div>
-            <p className="mt-4 text-xs leading-5 text-muted-foreground">
-              {t('productTour.memoryModelNote')}
             </p>
           </div>
         ) : (
@@ -172,7 +177,7 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
           </div>
         )}
 
-        <DialogFooter className="justify-end bg-background/95 px-7">
+        <DialogFooter className="justify-end border-border/55 bg-background px-7 py-4">
           {showMemoryModelPrompt ? (
             <>
               <Button

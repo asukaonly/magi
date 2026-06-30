@@ -14,13 +14,11 @@
     "firstContextTitle": "给 Magi 一个愿意分享的起点",
     "firstContextBody": "连接一个日常数据源，它会先整理第一份上下文。你也可以跳过，之后随时再打开。",
     "firstContextNote": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
-    "memoryModelKicker": "建议先补上",
-    "memoryModelTitle": "先配置向量模型",
-    "memoryModelBody": "接下来连接的数据源会进入 Magi 的记忆。没有向量模型时，Magi 只能按关键词查找，可能漏掉意思相近的内容。",
-    "memoryModelImpact": "不配置也可以继续使用；只是之后回忆旧内容、串起相似经历时会弱一些。",
-    "memoryModelNote": "你可以在设置里选择在线向量模型，也可以选择本地向量模型；本地模型不是默认要求。",
-    "memoryModelConfigure": "配置向量模型",
-    "memoryModelSkip": "暂时跳过",
+    "memoryModelTitle": "向量模型可以稍后配置",
+    "memoryModelBody": "接下来连接的数据源会进入 Magi 的记忆。未配置向量模型时，Magi 会先按关键词查找旧内容。",
+    "memoryModelImpact": "你可以先继续完成设置，之后到设置页单独添加在线或本地向量模型。",
+    "memoryModelConfigure": "去设置页配置",
+    "memoryModelSkip": "继续完成设置",
     "chat": {
       "title": "和我聊天",
       "body": "在这里和你的人格对话。"

@@ -14,13 +14,11 @@
     "firstContextTitle": "Give Magi one starting point",
     "firstContextBody": "Connect a daily source and Magi will build its first piece of context. You can skip this now and add sources later.",
     "firstContextNote": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
-    "memoryModelKicker": "Recommended first",
-    "memoryModelTitle": "Set up a vector model first",
-    "memoryModelBody": "The sources you connect next will flow into Magi's memory. Without a vector model, Magi can only search by keywords and may miss similar ideas.",
-    "memoryModelImpact": "You can continue without this; older context and similar experiences will just be harder for Magi to find.",
-    "memoryModelNote": "Settings lets you choose an online vector model or a local vector model. Local setup is available, but not required by default.",
-    "memoryModelConfigure": "Configure vector model",
-    "memoryModelSkip": "Skip for now",
+    "memoryModelTitle": "You can set up a vector model later",
+    "memoryModelBody": "The sources you connect next will flow into Magi's memory. Until a vector model is configured, Magi will search older context by keyword.",
+    "memoryModelImpact": "You can continue setup now and add an online or local vector model separately from Settings later.",
+    "memoryModelConfigure": "Open Settings",
+    "memoryModelSkip": "Continue setup",
     "chat": {
       "title": "Chat with me",
       "body": "Talk with your persona right here."
