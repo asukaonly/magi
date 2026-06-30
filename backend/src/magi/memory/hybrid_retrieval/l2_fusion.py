@@ -22,9 +22,11 @@ logger = logging.getLogger(__name__)
 # L2Candidate (normalized candidate model)
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class L2Candidate:
     """Normalized L2 retrieval candidate for cross-subdomain ranking."""
+
     candidate_id: str
     kind: Literal["knowledge_edge", "assertion", "snapshot", "snapshot_history", "episode"]
     payload: dict[str, Any]
@@ -106,6 +108,7 @@ def get_domain_weight(query_kind: str, candidate_kind: str) -> float:
 # Work Item 11: Structured filtering
 # ---------------------------------------------------------------------------
 
+
 def apply_structured_filter(
     candidate: L2Candidate,
     plan: L2GroundingPlan,
@@ -118,7 +121,8 @@ def apply_structured_filter(
     if (
         plan.subject_scope == "self"
         and plan.subject_entity_ids
-        and candidate.payload.get("_hop") != 2  # hop2 edges reached via traversal: subject is the bridge, not the user
+        and candidate.payload.get("_hop")
+        != 2  # hop2 edges reached via traversal: subject is the bridge, not the user
     ):
         subject_id = candidate.payload.get("subject_id", "")
         if subject_id and subject_id not in plan.subject_entity_ids:
@@ -156,8 +160,8 @@ def apply_structured_filter(
 RRF_K = 60
 SOFT_EDGE_WEIGHT = 0.6
 HOP2_DECAY = 0.5
-STRUCT_RESERVED_SLOTS = 3          # min structured_graph edges guaranteed past top-k
-STRUCT_RESERVE_MIN_SCORE = 0.05    # ...but only if they clear this floor (never force in garbage)
+STRUCT_RESERVED_SLOTS = 3  # min structured_graph edges guaranteed past top-k
+STRUCT_RESERVE_MIN_SCORE = 0.05  # ...but only if they clear this floor (never force in garbage)
 
 
 def fuse_l2_candidates(
@@ -170,10 +174,39 @@ def fuse_l2_candidates(
     top_k: int = 30,
 ) -> list[L2Candidate]:
     """Normalize, filter, score, and rank all L2 candidates."""
-    candidates: list[L2Candidate] = []
+    candidates = _collect_l2_candidates(
+        knowledge_edges=knowledge_edges,
+        assertions=assertions,
+        snapshots=snapshots,
+        episodes=episodes,
+    )
+    _assign_domain_weights(candidates, plan)
+    _apply_structured_filters(candidates, plan)
+    _score_l2_candidates(candidates, plan)
+    candidates.sort(key=lambda c: c.final_score, reverse=True)
 
-    for i, edge in enumerate(knowledge_edges):
-        c = L2Candidate(
+    passed = [c for c in candidates if c.gate_status != "filtered"]
+    return _select_with_channel_quota(passed, top_k)
+
+
+def _collect_l2_candidates(
+    *,
+    knowledge_edges: list[dict[str, Any]],
+    assertions: list[dict[str, Any]],
+    snapshots: list[dict[str, Any]],
+    episodes: list[dict[str, Any]],
+) -> list[L2Candidate]:
+    return (
+        _knowledge_edge_candidates(knowledge_edges)
+        + _assertion_candidates(assertions)
+        + _snapshot_candidates(snapshots)
+        + _episode_candidates(episodes)
+    )
+
+
+def _knowledge_edge_candidates(knowledge_edges: list[dict[str, Any]]) -> list[L2Candidate]:
+    return [
+        L2Candidate(
             candidate_id=edge.get("triple_id", f"ke_{i}"),
             kind="knowledge_edge",
             payload=edge,
@@ -187,10 +220,13 @@ def fuse_l2_candidates(
             evidence_score=min(1.0, (edge.get("observation_count", 1) or 1) / 5.0),
             confidence_score=edge.get("confidence", 0.5),
         )
-        candidates.append(c)
+        for i, edge in enumerate(knowledge_edges)
+    ]
 
-    for i, assertion in enumerate(assertions):
-        c = L2Candidate(
+
+def _assertion_candidates(assertions: list[dict[str, Any]]) -> list[L2Candidate]:
+    return [
+        L2Candidate(
             candidate_id=assertion.get("assertion_id", f"as_{i}"),
             kind="assertion",
             payload=assertion,
@@ -199,22 +235,27 @@ def fuse_l2_candidates(
             confidence_score=assertion.get("confidence_score", 0.5),
             evidence_score=min(1.0, len(assertion.get("evidence_events", []) or []) / 3.0),
         )
-        candidates.append(c)
+        for i, assertion in enumerate(assertions)
+    ]
 
-    for i, snap in enumerate(snapshots):
-        kind = snap.get("_candidate_kind", "snapshot")
-        c = L2Candidate(
+
+def _snapshot_candidates(snapshots: list[dict[str, Any]]) -> list[L2Candidate]:
+    return [
+        L2Candidate(
             candidate_id=snap.get("snapshot_id", f"sn_{i}"),
-            kind=kind,
+            kind=snap.get("_candidate_kind", "snapshot"),
             payload=snap,
             text="",
             temporal_score=snap.get("_temporal_score", 1.0),
             confidence_score=0.8,
         )
-        candidates.append(c)
+        for i, snap in enumerate(snapshots)
+    ]
 
-    for i, ep in enumerate(episodes):
-        c = L2Candidate(
+
+def _episode_candidates(episodes: list[dict[str, Any]]) -> list[L2Candidate]:
+    return [
+        L2Candidate(
             candidate_id=ep.get("episode_id", f"ep_{i}"),
             kind="episode",
             payload=ep,
@@ -223,25 +264,27 @@ def fuse_l2_candidates(
             evidence_score=ep.get("_entity_overlap_score", 0.0),
             confidence_score=ep.get("confidence", 0.5),
         )
-        candidates.append(c)
+        for i, ep in enumerate(episodes)
+    ]
 
-    for c in candidates:
-        c.domain_weight = get_domain_weight(plan.query_kind, c.kind)
 
-    for c in candidates:
-        apply_structured_filter(c, plan)
+def _assign_domain_weights(candidates: list[L2Candidate], plan: L2GroundingPlan) -> None:
+    for candidate in candidates:
+        candidate.domain_weight = get_domain_weight(plan.query_kind, candidate.kind)
 
-    for c in candidates:
-        if c.gate_status == "filtered":
-            c.final_score = 0.0
+
+def _apply_structured_filters(candidates: list[L2Candidate], plan: L2GroundingPlan) -> None:
+    for candidate in candidates:
+        apply_structured_filter(candidate, plan)
+
+
+def _score_l2_candidates(candidates: list[L2Candidate], plan: L2GroundingPlan) -> None:
+    for candidate in candidates:
+        if candidate.gate_status == "filtered":
+            candidate.final_score = 0.0
             continue
-        c.final_score = _compute_final_score(c, plan)
-        c.trace = _build_score_trace(c)
-
-    candidates.sort(key=lambda c: c.final_score, reverse=True)
-
-    passed = [c for c in candidates if c.gate_status != "filtered"]
-    return _select_with_channel_quota(passed, top_k)
+        candidate.final_score = _compute_final_score(candidate, plan)
+        candidate.trace = _build_score_trace(candidate)
 
 
 def _is_structured(c: L2Candidate) -> bool:
@@ -353,10 +396,9 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
             # Only decay speculative 2-hop inferences. If the edge's object_type
             # matches the answer type the plan is looking for, this IS the answer —
             # skip the decay so it can rank above 1-hop noise. (RFC #65 P0 fix)
-            is_answer = (
-                plan.hop2_target_type is not None
-                and str(c.payload.get("object_type")) == str(plan.hop2_target_type)
-            )
+            is_answer = plan.hop2_target_type is not None and str(
+                c.payload.get("object_type")
+            ) == str(plan.hop2_target_type)
             if not is_answer:
                 final *= HOP2_DECAY
         elif is_soft_edge(c.payload):
@@ -388,6 +430,7 @@ def _build_score_trace(c: L2Candidate) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Projection: convert ranked candidates back to typed output dicts
 # ---------------------------------------------------------------------------
+
 
 def project_candidates(
     candidates: list[L2Candidate],
