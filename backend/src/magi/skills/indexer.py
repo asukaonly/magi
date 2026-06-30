@@ -6,10 +6,11 @@ Implements the "Index" phase of the skill system:
 - Parses only YAML frontmatter (not full content)
 - Returns lightweight SkillMetadata for skill discovery
 """
+
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..utils.packaged_paths import get_repo_root
 from .allowed_tools_rules import parse_allowed_tools, rules_to_strings
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # - Lowercase alphanumeric with hyphens
 # - Must start with letter or digit
 # - Pattern: ^[a-z0-9][a-z0-9-]*$
-SKILL_NAME_PATTERN = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 MAX_NAME_LENGTH = 64
 
 
@@ -43,10 +44,10 @@ class SkillIndexer:
     # scan_all().
     _REPO_ROOT = get_repo_root()
     SKILL_LOCATIONS = [
-        Path.home() / ".claude" / "skills",     # Personal — Claude Code compatible
-        Path.home() / ".agents" / "skills",     # Personal — agents-style layout
-        _REPO_ROOT / "skills",                  # Project predefined skills (magi/skills)
-        _REPO_ROOT / ".claude" / "skills",      # Project local (lower priority)
+        Path.home() / ".claude" / "skills",  # Personal — Claude Code compatible
+        Path.home() / ".agents" / "skills",  # Personal — agents-style layout
+        _REPO_ROOT / "skills",  # Project predefined skills (magi/skills)
+        _REPO_ROOT / ".claude" / "skills",  # Project local (lower priority)
     ]
 
     def __init__(self, skill_locations: Optional[List[Path]] = None):
@@ -60,7 +61,9 @@ class SkillIndexer:
         self._cache: Dict[str, SkillMetadata] = {}
 
     @staticmethod
-    def validate_skill_name(name: str, directory_name: Optional[str] = None) -> tuple[bool, Optional[str]]:
+    def validate_skill_name(
+        name: str, directory_name: Optional[str] = None
+    ) -> tuple[bool, Optional[str]]:
         """
         Validate skill name according to Claude Code Skills specification.
 
@@ -82,7 +85,10 @@ class SkillIndexer:
             return False, "Skill name cannot be empty"
 
         if len(name) > MAX_NAME_LENGTH:
-            return False, f"Skill name must be {MAX_NAME_LENGTH} characters or less, got {len(name)}"
+            return (
+                False,
+                f"Skill name must be {MAX_NAME_LENGTH} characters or less, got {len(name)}",
+            )
 
         if not SKILL_NAME_PATTERN.match(name):
             return False, (
@@ -90,7 +96,7 @@ class SkillIndexer:
                 f"start with letter or digit, and not end with hyphen: '{name}'"
             )
 
-        if name.endswith('-'):
+        if name.endswith("-"):
             return False, f"Skill name cannot end with hyphen: '{name}'"
 
         if directory_name and name != directory_name:
@@ -176,7 +182,7 @@ class SkillIndexer:
             return None
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n', content, re.DOTALL)
+        frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
         if not frontmatter_match:
             logger.warning(f"No frontmatter found in {skill_file}")
             return None
@@ -204,7 +210,9 @@ class SkillIndexer:
             allowed_tools=frontmatter.allowed_tools,
         )
 
-    def _parse_yaml_frontmatter(self, yaml_content: str, source_file: Path) -> Optional[SkillFrontmatter]:
+    def _parse_yaml_frontmatter(
+        self, yaml_content: str, source_file: Path
+    ) -> Optional[SkillFrontmatter]:
         """
         Parse YAML frontmatter into SkillFrontmatter
 
@@ -215,77 +223,42 @@ class SkillIndexer:
         Returns:
             SkillFrontmatter or None
         """
-        import yaml
-
-        try:
-            data = yaml.safe_load(yaml_content)
-            if not isinstance(data, dict):
-                logger.warning(f"Invalid frontmatter in {source_file}: not a dict")
-                return None
-
-            # Required fields
-            name = data.get("name")
-            if not name:
-                logger.warning(f"Skill missing 'name' field in {source_file}")
-                return None
-
-            # Validate name format and consistency
-            directory_name = source_file.parent.name
-            is_valid, error_msg = self.validate_skill_name(str(name), directory_name)
-            if not is_valid:
-                logger.warning(f"Invalid skill name in {source_file}: {error_msg}")
-                return None
-
-            description = data.get("description", "")
-            if not description:
-                description = f"Skill: {name}"
-
-            # Validate description length (max 1024 characters per spec)
-            if len(description) > 1024:
-                logger.warning(f"Description too long in {source_file}: {len(description)} chars (max 1024)")
-                description = description[:1024]
-
-            # Validate compatibility field (max 500 characters per spec)
-            compatibility = data.get("compatibility")
-            if compatibility and len(str(compatibility)) > 500:
-                logger.warning(f"Compatibility too long in {source_file}: {len(str(compatibility))} chars (max 500)")
-                compatibility = str(compatibility)[:500]
-
-            # Normalize allowed-tools. Per the Claude Code spec this field
-            # accepts a YAML list *or* a whitespace/comma-separated string
-            # containing entries like ``Bash(git add *)``. We canonicalise
-            # to a list of display strings here; downstream code reparses
-            # the strings into ToolRule objects when matching.
-            allowed_tools_raw = data.get("allowed-tools")
-            parsed_rules = parse_allowed_tools(allowed_tools_raw)
-            if allowed_tools_raw is not None and not parsed_rules:
-                logger.warning(
-                    "allowed-tools in %s could not be parsed; ignoring",
-                    source_file,
-                )
-            allowed_tools = rules_to_strings(parsed_rules) if parsed_rules else None
-
-            return SkillFrontmatter(
-                name=name,
-                description=description,
-                argument_hint=data.get("argument_hint"),
-                disable_model_invocation=data.get("disable_model_invocation", False),
-                user_invocable=data.get("user_invocable", True),
-                context=data.get("context"),
-                agent=data.get("agent"),
-                category=data.get("category"),
-                tags=data.get("tags", []),
-                examples=data.get("examples", []),
-                # New fields for Claude Code Skills spec compliance
-                license=data.get("license"),
-                compatibility=compatibility,
-                allowed_tools=allowed_tools,
-                metadata=data.get("metadata", {}),
-            )
-
-        except yaml.YAMLError as e:
-            logger.warning(f"Failed to parse YAML in {source_file}: {e}")
+        data = _load_frontmatter_mapping(yaml_content, source_file)
+        if data is None:
             return None
+        name = self._validated_frontmatter_name(data, source_file)
+        if name is None:
+            return None
+        return SkillFrontmatter(
+            name=name,
+            description=_normalized_description(data, name, source_file),
+            argument_hint=data.get("argument_hint"),
+            disable_model_invocation=data.get("disable_model_invocation", False),
+            user_invocable=data.get("user_invocable", True),
+            context=data.get("context"),
+            agent=data.get("agent"),
+            category=data.get("category"),
+            tags=data.get("tags", []),
+            examples=data.get("examples", []),
+            # New fields for Claude Code Skills spec compliance
+            license=data.get("license"),
+            compatibility=_normalized_compatibility(data, source_file),
+            allowed_tools=_normalized_allowed_tools(data, source_file),
+            metadata=data.get("metadata", {}),
+        )
+
+    def _validated_frontmatter_name(self, data: dict[str, Any], source_file: Path) -> Any | None:
+        name = data.get("name")
+        if not name:
+            logger.warning(f"Skill missing 'name' field in {source_file}")
+            return None
+
+        directory_name = source_file.parent.name
+        is_valid, error_msg = self.validate_skill_name(str(name), directory_name)
+        if not is_valid:
+            logger.warning(f"Invalid skill name in {source_file}: {error_msg}")
+            return None
+        return name
 
     def get_skill_names(self) -> List[str]:
         """
@@ -322,3 +295,50 @@ class SkillIndexer:
         """Clear the cached skill index"""
         self._cache.clear()
         logger.info("Skill index cache cleared")
+
+
+def _load_frontmatter_mapping(yaml_content: str, source_file: Path) -> dict[str, Any] | None:
+    import yaml
+
+    try:
+        data = yaml.safe_load(yaml_content)
+    except yaml.YAMLError as e:
+        logger.warning(f"Failed to parse YAML in {source_file}: {e}")
+        return None
+    if not isinstance(data, dict):
+        logger.warning(f"Invalid frontmatter in {source_file}: not a dict")
+        return None
+    return data
+
+
+def _normalized_description(data: dict[str, Any], name: Any, source_file: Path) -> Any:
+    description = data.get("description", "")
+    if not description:
+        description = f"Skill: {name}"
+    if len(description) > 1024:
+        logger.warning(
+            f"Description too long in {source_file}: {len(description)} chars (max 1024)"
+        )
+        description = description[:1024]
+    return description
+
+
+def _normalized_compatibility(data: dict[str, Any], source_file: Path) -> Any:
+    compatibility = data.get("compatibility")
+    if compatibility and len(str(compatibility)) > 500:
+        logger.warning(
+            f"Compatibility too long in {source_file}: {len(str(compatibility))} chars (max 500)"
+        )
+        compatibility = str(compatibility)[:500]
+    return compatibility
+
+
+def _normalized_allowed_tools(data: dict[str, Any], source_file: Path) -> list[str] | None:
+    allowed_tools_raw = data.get("allowed-tools")
+    parsed_rules = parse_allowed_tools(allowed_tools_raw)
+    if allowed_tools_raw is not None and not parsed_rules:
+        logger.warning(
+            "allowed-tools in %s could not be parsed; ignoring",
+            source_file,
+        )
+    return rules_to_strings(parsed_rules) if parsed_rules else None
