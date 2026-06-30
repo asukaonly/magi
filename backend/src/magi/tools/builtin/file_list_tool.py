@@ -5,10 +5,12 @@ Returns JSON-friendly metadata for the entries of a directory using
 no shell text parsing is required. Prefer this over ``bash dir`` /
 ``bash ls`` for any agent workflow that needs to enumerate files.
 """
+
 from __future__ import annotations
 
 import os
 import stat as stat_mod
+from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from ..schema import (
@@ -29,8 +31,18 @@ from ..utils.path_utils import (
     resolve_path_from_workspace,
 )
 
-
 _SORT_KEYS = {"name", "size", "modified", "type"}
+
+
+@dataclass(frozen=True)
+class _FileListRequest:
+    target_path: str
+    recursive: bool
+    include_hidden: bool
+    max_depth: int
+    max_entries: int
+    exclude_patterns: list[str]
+    sort_by: str
 
 
 def _entry_kind(entry_stat: os.stat_result, is_symlink: bool) -> str:
@@ -46,6 +58,108 @@ def _entry_kind(entry_stat: os.stat_result, is_symlink: bool) -> str:
     if stat_mod.S_ISSOCK(mode):
         return "socket"
     return "other"
+
+
+def _file_list_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="path",
+            type=ParameterType.STRING,
+            description="Directory to list",
+            required=False,
+            default=".",
+        ),
+        ToolParameter(
+            name="recursive",
+            type=ParameterType.BOOLEAN,
+            description="Recurse into subdirectories",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="include_hidden",
+            type=ParameterType.BOOLEAN,
+            description="Include entries whose name starts with '.'",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="max_depth",
+            type=ParameterType.INTEGER,
+            description="Maximum recursion depth (only when recursive=True)",
+            required=False,
+            default=8,
+            min_value=1,
+            max_value=64,
+        ),
+        ToolParameter(
+            name="max_entries",
+            type=ParameterType.INTEGER,
+            description="Maximum number of entries to return",
+            required=False,
+            default=500,
+            min_value=1,
+            max_value=10000,
+        ),
+        ToolParameter(
+            name="exclude",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.STRING,
+            description="Path patterns to exclude (defaults skip vendored dirs)",
+            required=False,
+            default=list(DEFAULT_EXCLUDE_PATTERNS),
+        ),
+        ToolParameter(
+            name="sort_by",
+            type=ParameterType.STRING,
+            description="Sort key: name | size | modified | type",
+            required=False,
+            default="name",
+            enum=sorted(_SORT_KEYS),
+        ),
+    ]
+
+
+def _file_list_examples() -> list[dict[str, Any]]:
+    return [
+        {
+            "input": {"path": "Z:/测试目录"},
+            "output": "Lists files inside Z:/测试目录 with Unicode names intact.",
+        },
+        {
+            "input": {"path": "src", "recursive": True, "max_depth": 2},
+            "output": "Two-level deep listing of src/.",
+        },
+    ]
+
+
+def _file_list_request(
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+) -> _FileListRequest:
+    return _FileListRequest(
+        target_path=resolve_path_from_workspace(
+            parameters.get("path", "."),
+            workspace=context.workspace,
+            default=".",
+        ),
+        recursive=bool(parameters.get("recursive", False)),
+        include_hidden=bool(parameters.get("include_hidden", False)),
+        max_depth=int(parameters.get("max_depth", 8)),
+        max_entries=int(parameters.get("max_entries", 500)),
+        exclude_patterns=normalize_exclude_patterns(parameters.get("exclude")),
+        sort_by=str(parameters.get("sort_by", "name")).lower(),
+    )
+
+
+def _sort_entries(entries: list[dict[str, Any]], sort_by: str) -> None:
+    sort_key_map = {
+        "name": lambda item: item["name"].lower(),
+        "size": lambda item: item.get("size", 0) or 0,
+        "modified": lambda item: item.get("modified", 0) or 0,
+        "type": lambda item: (item.get("kind", ""), item["name"].lower()),
+    }
+    entries.sort(key=sort_key_map[sort_by])
 
 
 class FileListTool(Tool):
@@ -64,73 +178,8 @@ class FileListTool(Tool):
             category="file",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="path",
-                    type=ParameterType.STRING,
-                    description="Directory to list",
-                    required=False,
-                    default=".",
-                ),
-                ToolParameter(
-                    name="recursive",
-                    type=ParameterType.BOOLEAN,
-                    description="Recurse into subdirectories",
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="include_hidden",
-                    type=ParameterType.BOOLEAN,
-                    description="Include entries whose name starts with '.'",
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="max_depth",
-                    type=ParameterType.INTEGER,
-                    description="Maximum recursion depth (only when recursive=True)",
-                    required=False,
-                    default=8,
-                    min_value=1,
-                    max_value=64,
-                ),
-                ToolParameter(
-                    name="max_entries",
-                    type=ParameterType.INTEGER,
-                    description="Maximum number of entries to return",
-                    required=False,
-                    default=500,
-                    min_value=1,
-                    max_value=10000,
-                ),
-                ToolParameter(
-                    name="exclude",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description="Path patterns to exclude (defaults skip vendored dirs)",
-                    required=False,
-                    default=list(DEFAULT_EXCLUDE_PATTERNS),
-                ),
-                ToolParameter(
-                    name="sort_by",
-                    type=ParameterType.STRING,
-                    description="Sort key: name | size | modified | type",
-                    required=False,
-                    default="name",
-                    enum=sorted(_SORT_KEYS),
-                ),
-            ],
-            examples=[
-                {
-                    "input": {"path": "Z:/测试目录"},
-                    "output": "Lists files inside Z:/测试目录 with Unicode names intact.",
-                },
-                {
-                    "input": {"path": "src", "recursive": True, "max_depth": 2},
-                    "output": "Two-level deep listing of src/.",
-                },
-            ],
+            parameters=_file_list_parameters(),
+            examples=_file_list_examples(),
             timeout=15,
             retry_on_failure=False,
             dangerous=False,
@@ -142,51 +191,21 @@ class FileListTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        target_path = resolve_path_from_workspace(
-            parameters.get("path", "."),
-            workspace=context.workspace,
-            default=".",
-        )
-        recursive = bool(parameters.get("recursive", False))
-        include_hidden = bool(parameters.get("include_hidden", False))
-        max_depth = int(parameters.get("max_depth", 8))
-        max_entries = int(parameters.get("max_entries", 500))
-        exclude_patterns = normalize_exclude_patterns(parameters.get("exclude"))
-        sort_by = str(parameters.get("sort_by", "name")).lower()
-        if sort_by not in _SORT_KEYS:
+        request = _file_list_request(parameters, context)
+        if request.sort_by not in _SORT_KEYS:
             return ToolResult(
                 success=False,
-                error=f"Invalid sort_by '{sort_by}'. Allowed: {sorted(_SORT_KEYS)}",
+                error=f"Invalid sort_by '{request.sort_by}'. Allowed: {sorted(_SORT_KEYS)}",
                 error_code=ToolErrorCode.INVALID_PARAMETERS.value,
             )
 
-        if not os.path.exists(target_path):
-            return ToolResult(
-                success=False,
-                error=f"Path not found: {target_path}",
-                error_code=ToolErrorCode.PATH_NOT_FOUND.value,
-            )
-        if not os.path.isdir(target_path):
-            return ToolResult(
-                success=False,
-                error=f"Path is not a directory: {target_path}",
-                error_code=ToolErrorCode.NOT_A_DIRECTORY.value,
-            )
+        target_error = self._validate_target(request.target_path)
+        if target_error is not None:
+            return target_error
 
         entries: List[Dict[str, Any]] = []
-        truncated = False
-
         try:
-            truncated = self._walk(
-                target_path,
-                base_path=target_path,
-                depth=0,
-                max_depth=max_depth if recursive else 1,
-                include_hidden=include_hidden,
-                exclude_patterns=exclude_patterns,
-                max_entries=max_entries,
-                entries=entries,
-            )
+            truncated = self._collect_entries(request, entries)
         except PermissionError as exc:
             return ToolResult(
                 success=False,
@@ -200,17 +219,52 @@ class FileListTool(Tool):
                 error_code=ToolErrorCode.LIST_ERROR.value,
             )
 
-        sort_key_map = {
-            "name": lambda item: item["name"].lower(),
-            "size": lambda item: item.get("size", 0) or 0,
-            "modified": lambda item: item.get("modified", 0) or 0,
-            "type": lambda item: (item.get("kind", ""), item["name"].lower()),
-        }
-        entries.sort(key=sort_key_map[sort_by])
+        _sort_entries(entries, request.sort_by)
+        return ToolResult(
+            success=True,
+            data=self._result_data(request, entries, truncated),
+        )
 
+    def _validate_target(self, target_path: str) -> ToolResult | None:
+        if not os.path.exists(target_path):
+            return ToolResult(
+                success=False,
+                error=f"Path not found: {target_path}",
+                error_code=ToolErrorCode.PATH_NOT_FOUND.value,
+            )
+        if not os.path.isdir(target_path):
+            return ToolResult(
+                success=False,
+                error=f"Path is not a directory: {target_path}",
+                error_code=ToolErrorCode.NOT_A_DIRECTORY.value,
+            )
+        return None
+
+    def _collect_entries(
+        self,
+        request: _FileListRequest,
+        entries: List[Dict[str, Any]],
+    ) -> bool:
+        return self._walk(
+            request.target_path,
+            base_path=request.target_path,
+            depth=0,
+            max_depth=request.max_depth if request.recursive else 1,
+            include_hidden=request.include_hidden,
+            exclude_patterns=request.exclude_patterns,
+            max_entries=request.max_entries,
+            entries=entries,
+        )
+
+    def _result_data(
+        self,
+        request: _FileListRequest,
+        entries: list[dict[str, Any]],
+        truncated: bool,
+    ) -> Dict[str, Any]:
         data: Dict[str, Any] = {
-            "path": target_path,
-            "recursive": recursive,
+            "path": request.target_path,
+            "recursive": request.recursive,
             "count": len(entries),
             "truncated": truncated,
             "entries": entries,
@@ -218,13 +272,10 @@ class FileListTool(Tool):
         # Nudge the model toward the batch orchestrator when a listing surfaces
         # many homogeneous files, so it hands off to batch_create instead of
         # looping one-by-one into the per-turn iteration cap.
-        batch_hint = suggest_batch(
-            [item["name"] for item in entries if item.get("is_file")]
-        )
+        batch_hint = suggest_batch([item["name"] for item in entries if item.get("is_file")])
         if batch_hint:
             data["batch_hint"] = batch_hint
-
-        return ToolResult(success=True, data=data)
+        return data
 
     def _walk(
         self,
@@ -251,43 +302,19 @@ class FileListTool(Tool):
                 if len(entries) >= max_entries:
                     return True
 
-                try:
-                    relative_path = os.path.relpath(entry.path, base_path)
-                except ValueError:
-                    relative_path = entry.path
-
-                if not include_hidden and has_hidden_path_component(relative_path):
-                    continue
-                if matches_exclude_path(relative_path, exclude_patterns):
-                    continue
-
-                try:
-                    is_symlink = entry.is_symlink()
-                    entry_stat = entry.stat(follow_symlinks=False)
-                except (PermissionError, OSError):
-                    continue
-
-                kind = _entry_kind(entry_stat, is_symlink)
-                is_dir = kind == "directory" or (
-                    is_symlink and entry.is_dir(follow_symlinks=True)
+                entry_data = self._entry_data(
+                    entry,
+                    base_path=base_path,
+                    depth=depth,
+                    include_hidden=include_hidden,
+                    exclude_patterns=exclude_patterns,
                 )
+                if entry_data is None:
+                    continue
 
-                entries.append(
-                    {
-                        "name": entry.name,
-                        "path": entry.path,
-                        "relative_path": relative_path,
-                        "kind": kind,
-                        "is_dir": is_dir,
-                        "is_file": kind == "file",
-                        "is_symlink": is_symlink,
-                        "size": entry_stat.st_size if kind == "file" else 0,
-                        "modified": entry_stat.st_mtime,
-                        "depth": depth,
-                    }
-                )
+                entries.append(entry_data)
 
-                if is_dir and not is_symlink and depth + 1 < max_depth:
+                if entry_data["is_dir"] and not entry_data["is_symlink"] and depth + 1 < max_depth:
                     if self._walk(
                         entry.path,
                         base_path=base_path,
@@ -301,3 +328,45 @@ class FileListTool(Tool):
                         return True
 
         return False
+
+    def _entry_data(
+        self,
+        entry: os.DirEntry,
+        *,
+        base_path: str,
+        depth: int,
+        include_hidden: bool,
+        exclude_patterns: List[str],
+    ) -> Dict[str, Any] | None:
+        relative_path = self._relative_path(entry, base_path)
+        if not include_hidden and has_hidden_path_component(relative_path):
+            return None
+        if matches_exclude_path(relative_path, exclude_patterns):
+            return None
+
+        try:
+            is_symlink = entry.is_symlink()
+            entry_stat = entry.stat(follow_symlinks=False)
+        except (PermissionError, OSError):
+            return None
+
+        kind = _entry_kind(entry_stat, is_symlink)
+        is_dir = kind == "directory" or (is_symlink and entry.is_dir(follow_symlinks=True))
+        return {
+            "name": entry.name,
+            "path": entry.path,
+            "relative_path": relative_path,
+            "kind": kind,
+            "is_dir": is_dir,
+            "is_file": kind == "file",
+            "is_symlink": is_symlink,
+            "size": entry_stat.st_size if kind == "file" else 0,
+            "modified": entry_stat.st_mtime,
+            "depth": depth,
+        }
+
+    def _relative_path(self, entry: os.DirEntry, base_path: str) -> str:
+        try:
+            return os.path.relpath(entry.path, base_path)
+        except ValueError:
+            return entry.path
