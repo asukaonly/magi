@@ -100,7 +100,9 @@ class EntityScopedSemanticBuilder:
 
         try:
             return await self._build_edges_impl(
-                event_id, entity_ids, observed_at,
+                event_id,
+                entity_ids,
+                observed_at,
                 threshold=threshold,
                 max_siblings=max_siblings,
                 max_edges=max_edges,
@@ -122,87 +124,34 @@ class EntityScopedSemanticBuilder:
         max_siblings: int,
         max_edges: int,
     ) -> int:
-        # Step 1: Find sibling events per entity
-        entity_event_map: Dict[str, List[str]] = await self._l1_store.get_entity_event_ids(
-            entity_ids, limit_per_entity=max_siblings,
+        sibling_ids = await self._find_sibling_event_ids(
+            event_id=event_id,
+            entity_ids=entity_ids,
+            max_siblings=max_siblings,
         )
-
-        # Collect all unique sibling event IDs (excluding the new event)
-        sibling_ids: Set[str] = set()
-        for eids in entity_event_map.values():
-            sibling_ids.update(eids)
-        sibling_ids.discard(event_id)
-
         if not sibling_ids:
             return 0
 
-        # Step 2: Get embeddings for the new event and siblings
-        all_event_ids = [event_id] + list(sibling_ids)
-        vectors: Dict[str, List[float]] = await self._l1_store.get_event_vectors(all_event_ids)
-
-        new_vec = vectors.get(event_id)
-        if new_vec is None:
-            logger.debug("No embedding for new event %s, skipping semantic edges", event_id)
-            return 0
-
-        # Step 3: Compute similarities and find matches
-        similar_pairs: List[Tuple[str, float]] = []  # (sibling_event_id, similarity)
-        for sib_id in sibling_ids:
-            sib_vec = vectors.get(sib_id)
-            if sib_vec is None:
-                continue
-            sim = cosine_similarity(new_vec, sib_vec)
-            if sim >= threshold:
-                similar_pairs.append((sib_id, sim))
-
+        similar_pairs = await self._find_similar_sibling_pairs(
+            event_id=event_id,
+            sibling_ids=sibling_ids,
+            threshold=threshold,
+            max_edges=max_edges,
+        )
         if not similar_pairs:
             return 0
 
-        # Sort by similarity desc, cap at max_edges
-        similar_pairs.sort(key=lambda x: x[1], reverse=True)
-        similar_pairs = similar_pairs[: max_edges]
-
-        # Step 4: Get entity memberships for new event and similar siblings
-        similar_sib_ids = [s[0] for s in similar_pairs]
-        event_entities: Dict[str, List[str]] = await self._l1_store.get_event_entity_ids(
-            [event_id] + similar_sib_ids,
+        event_entities = await self._event_entities_for_semantic_pairs(
+            event_id=event_id,
+            similar_pairs=similar_pairs,
         )
-        new_entities = set(event_entities.get(event_id, entity_ids))
-
-        # Step 5: Create cross-entity edges
-        edge_count = 0
-        for sib_id, sim in similar_pairs:
-            sib_entities = set(event_entities.get(sib_id, []))
-            # Find the shared entity (scope) and cross-entity pairs
-            shared = new_entities & sib_entities
-            if not shared:
-                continue
-
-            # Build edges between entities that are NOT shared (cross-entity)
-            new_only = new_entities - shared
-            sib_only = sib_entities - shared
-            pairs = _select_cross_entity_pairs(new_only, sib_only, shared)
-
-            for subj_id, obj_id, subj_type, obj_type in pairs:
-                try:
-                    await self._l2_store.upsert_knowledge_edge(
-                        subject_id=subj_id,
-                        subject_type=subj_type,
-                        predicate=SEMANTIC_EDGE_PREDICATE,
-                        object_id=obj_id,
-                        object_type=obj_type,
-                        fact_kind=SEMANTIC_EDGE_FACT_KIND,
-                        evidence_event_ids=[event_id, sib_id],
-                        confidence=sim,
-                        observed_at=observed_at,
-                        source_type="entity_semantic_builder",
-                        extraction_method="embedding_similarity",
-                        evidence_text=f"Cosine similarity {sim:.3f} within shared entity scope",
-                    )
-                    edge_count += 1
-                except Exception as exc:
-                    logger.debug("Failed to upsert semantic edge: %s", exc)
-
+        edge_count = await self._upsert_semantic_context_edges(
+            event_id=event_id,
+            entity_ids=entity_ids,
+            observed_at=observed_at,
+            similar_pairs=similar_pairs,
+            event_entities=event_entities,
+        )
         logger.debug(
             "Entity-scoped semantic edges built",
             extra={
@@ -214,6 +163,130 @@ class EntityScopedSemanticBuilder:
             },
         )
         return edge_count
+
+    async def _find_sibling_event_ids(
+        self,
+        *,
+        event_id: str,
+        entity_ids: List[str],
+        max_siblings: int,
+    ) -> Set[str]:
+        entity_event_map: Dict[str, List[str]] = await self._l1_store.get_entity_event_ids(
+            entity_ids,
+            limit_per_entity=max_siblings,
+        )
+        sibling_ids: Set[str] = set()
+        for eids in entity_event_map.values():
+            sibling_ids.update(eids)
+        sibling_ids.discard(event_id)
+        return sibling_ids
+
+    async def _find_similar_sibling_pairs(
+        self,
+        *,
+        event_id: str,
+        sibling_ids: Set[str],
+        threshold: float,
+        max_edges: int,
+    ) -> List[Tuple[str, float]]:
+        all_event_ids = [event_id] + list(sibling_ids)
+        vectors: Dict[str, List[float]] = await self._l1_store.get_event_vectors(all_event_ids)
+        new_vec = vectors.get(event_id)
+        if new_vec is None:
+            logger.debug("No embedding for new event %s, skipping semantic edges", event_id)
+            return []
+
+        similar_pairs: List[Tuple[str, float]] = []  # (sibling_event_id, similarity)
+        for sib_id in sibling_ids:
+            sib_vec = vectors.get(sib_id)
+            if sib_vec is None:
+                continue
+            sim = cosine_similarity(new_vec, sib_vec)
+            if sim >= threshold:
+                similar_pairs.append((sib_id, sim))
+        similar_pairs.sort(key=lambda x: x[1], reverse=True)
+        return similar_pairs[:max_edges]
+
+    async def _event_entities_for_semantic_pairs(
+        self,
+        *,
+        event_id: str,
+        similar_pairs: List[Tuple[str, float]],
+    ) -> Dict[str, List[str]]:
+        similar_sib_ids = [s[0] for s in similar_pairs]
+        return await self._l1_store.get_event_entity_ids([event_id] + similar_sib_ids)
+
+    async def _upsert_semantic_context_edges(
+        self,
+        *,
+        event_id: str,
+        entity_ids: List[str],
+        observed_at: float,
+        similar_pairs: List[Tuple[str, float]],
+        event_entities: Dict[str, List[str]],
+    ) -> int:
+        new_entities = set(event_entities.get(event_id, entity_ids))
+        edge_count = 0
+        for sib_id, sim in similar_pairs:
+            pairs = self._semantic_context_pairs_for_sibling(
+                new_entities=new_entities,
+                sibling_entities=set(event_entities.get(sib_id, [])),
+            )
+            for pair in pairs:
+                if await self._upsert_semantic_context_edge(
+                    event_id=event_id,
+                    sibling_event_id=sib_id,
+                    observed_at=observed_at,
+                    similarity=sim,
+                    pair=pair,
+                ):
+                    edge_count += 1
+        return edge_count
+
+    @staticmethod
+    def _semantic_context_pairs_for_sibling(
+        *,
+        new_entities: Set[str],
+        sibling_entities: Set[str],
+    ) -> List[Tuple[str, str, str, str]]:
+        shared = new_entities & sibling_entities
+        if not shared:
+            return []
+        return _select_cross_entity_pairs(
+            new_entities - shared,
+            sibling_entities - shared,
+            shared,
+        )
+
+    async def _upsert_semantic_context_edge(
+        self,
+        *,
+        event_id: str,
+        sibling_event_id: str,
+        observed_at: float,
+        similarity: float,
+        pair: Tuple[str, str, str, str],
+    ) -> bool:
+        subj_id, obj_id, subj_type, obj_type = pair
+        try:
+            await self._l2_store.upsert_knowledge_edge(
+                subject_id=subj_id,
+                subject_type=subj_type,
+                predicate=SEMANTIC_EDGE_PREDICATE,
+                object_id=obj_id,
+                object_type=obj_type,
+                fact_kind=SEMANTIC_EDGE_FACT_KIND,
+                evidence_event_ids=[event_id, sibling_event_id],
+                confidence=similarity,
+                observed_at=observed_at,
+                source_type="entity_semantic_builder",
+                extraction_method="embedding_similarity",
+                evidence_text=f"Cosine similarity {similarity:.3f} within shared entity scope",
+            )
+            return True
+        except Exception as exc:
+            logger.debug("Failed to upsert semantic edge: %s", exc)
+            return False
 
 
 def _select_cross_entity_pairs(
