@@ -4,7 +4,7 @@ These tests apply the chat-domain DDL directly to a tmp sqlite file
 rather than going through Alembic, mirroring the pattern used by
 ``test_conversation_log_store.py``. The DDL block below is a verbatim
 copy of the relevant tables from
-``backend/src/magi/db/migrations/chat/versions/0001_initial.py``.
+``backend/src/magi/db/migrations/chat/versions/v1_initial.py``.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from magi.chat.store import ChatStore
 from magi_plugin_sdk.conversation import ContentBlock, ConversationEvent
 
 
-# Verbatim subset of magi.db.migrations.chat.versions.0001_initial.SCHEMA_SQL
+# Verbatim subset of magi.db.migrations.chat.versions.v1_initial.SCHEMA_SQL
 # limited to the tables ConversationLog + the messages repository touch.
 DDL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (

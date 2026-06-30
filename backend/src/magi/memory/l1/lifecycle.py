@@ -18,22 +18,12 @@ from .embeddings.common import (
     EMBEDDING_TEXT_BUILDER_VERSION,
 )
 
-# Compose the canonical L1 schema from each alembic revision's SCHEMA_SQL in
-# order. _ensure_schema() applies this (idempotent CREATE TABLE IF NOT EXISTS);
-# each new revision file appends its module here so the runtime "verify schema"
-# path stays in lockstep with the migration chain.
+# Compose the canonical L1 schema from the release baseline migration.
 _L1_MIGRATION_MODULES = (
-    "magi.db.migrations.l1.versions.0001_initial",
-    "magi.db.migrations.l1.versions.0002_l1_event_payload",
-    "magi.db.migrations.l1.versions.0003_l1_session_sequence",
-    "magi.db.migrations.l1.versions.0004_l1_source_facets",
+    "magi.db.migrations.l1.versions.v1_initial",
 )
 SCHEMA_SQL = "\n".join(
     importlib.import_module(_module).SCHEMA_SQL for _module in _L1_MIGRATION_MODULES
-)
-
-_SESSION_SEQUENCE_MIGRATION = importlib.import_module(
-    "magi.db.migrations.l1.versions.0003_l1_session_sequence"
 )
 
 EMBEDDING_QUEUE_MAXSIZE = 512
@@ -76,17 +66,7 @@ class L1EventLifecycleMixin:
     async def _ensure_schema(self) -> None:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.executescript(SCHEMA_SQL)
-            await self._ensure_session_sequence_schema(db)
             await db.commit()
-
-    @staticmethod
-    async def _ensure_session_sequence_schema(db: Any) -> None:
-        async with db.execute("PRAGMA table_info(fact_events)") as cursor:
-            columns = {str(row[1]) for row in await cursor.fetchall()}
-        if "session_seq" not in columns:
-            await db.execute("ALTER TABLE fact_events ADD COLUMN session_seq INTEGER")
-        await db.executescript(_SESSION_SEQUENCE_MIGRATION.INDEX_SQL)
-        await db.executescript(_SESSION_SEQUENCE_MIGRATION.BACKFILL_SQL)
 
     async def shutdown(self) -> None:
         if self._embedding_queue is not None and self._embedding_workers:

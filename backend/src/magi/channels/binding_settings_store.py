@@ -11,10 +11,8 @@ Default state is "no row" → ``auto_approve=False``. Bootstrap and
 the API layer both treat absence as "not auto-approved" without
 materializing rows for every binding the user has ever used.
 
-Schema is part of the channels alembic baseline
-(``backend/src/magi/db/migrations/channels/versions/0001_initial.py``).
-Pre-launch convention: no separate migration script for this
-table — extended in-place on 0001_initial.
+Schema is part of the channels v1 alembic baseline
+(``backend/src/magi/db/migrations/channels/versions/v1_initial.py``).
 """
 from __future__ import annotations
 
@@ -55,7 +53,7 @@ class ChannelBindingSettingsStore:
     async def initialize(self) -> None:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         # Defensive idempotent schema bring-up. The canonical schema
-        # lives in the channels alembic baseline (0001_initial), but
+        # lives in the channels alembic baseline (v1), but
         # existing dev DBs that were initialized before CF-7 landed
         # are stamped as 0001-applied and so alembic will NOT re-run
         # the baseline — leaving the new table missing. This CREATE

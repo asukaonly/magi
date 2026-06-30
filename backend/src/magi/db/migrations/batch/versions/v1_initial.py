@@ -1,23 +1,13 @@
-"""batch baseline schema
+"""Magi v1 release baseline schema."""
 
-Creates the ``batch_job`` and ``batch_item`` tables — the manifest for the
-batch orchestrator. ``handler_config``/``seed_spec``/``input``/``result``/
-``review_decision`` are opaque JSON text blobs the engine never interprets.
-
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-06-03
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS batch_job (
@@ -37,6 +27,7 @@ CREATE TABLE IF NOT EXISTS batch_job (
     created_at_ms         INTEGER NOT NULL,
     updated_at_ms         INTEGER NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS batch_item (
     job_id               TEXT    NOT NULL,
     item_id              TEXT    NOT NULL,
@@ -52,20 +43,22 @@ CREATE TABLE IF NOT EXISTS batch_item (
     updated_at_ms        INTEGER NOT NULL,
     PRIMARY KEY (job_id, item_id)
 );
+
 CREATE INDEX IF NOT EXISTS idx_batch_item_job_status
     ON batch_item(job_id, status);
 """
 
+DROP_SQL = """
+DROP INDEX IF EXISTS idx_batch_item_job_status;
+
+DROP TABLE IF EXISTS batch_item;
+
+DROP TABLE IF EXISTS batch_job;
+"""
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:
-    op.get_bind().connection.executescript(
-        """
-        DROP INDEX IF EXISTS idx_batch_item_job_status;
-        DROP TABLE IF EXISTS batch_item;
-        DROP TABLE IF EXISTS batch_job;
-        """
-    )
+    op.get_bind().connection.executescript(DROP_SQL)

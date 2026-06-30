@@ -1,24 +1,13 @@
-"""persona_registry baseline schema
+"""Magi v1 release baseline schema."""
 
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-06
-
-Materialises the canonical persona-registry schema (personas,
-persona_active) on a fresh database. This revision is the snapshot
-of the schema as it stood the day Alembic took ownership; any
-further evolution is a new revision file.
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS personas (
@@ -46,9 +35,9 @@ CREATE TABLE IF NOT EXISTS persona_active (
 
 DROP_SQL = """
 DROP TABLE IF EXISTS persona_active;
+
 DROP TABLE IF EXISTS personas;
 """
-
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)

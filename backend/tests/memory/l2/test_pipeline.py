@@ -3638,8 +3638,13 @@ async def test_accumulate_session_entities_ignores_empty_inputs():
 async def test_unified_memory_on_session_end_delegates_to_pipeline():
     """UnifiedMemoryStore.on_session_end should call l2_pipeline.flush_session."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        memory_db = str(Path(temp_dir) / "memory.db")
-        store = UnifiedMemoryStore(db_path=memory_db, enable_l2=True)
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            enable_l2=True,
+        )
         await store.initialize()
         try:
             # Inject pre-accumulated entities
@@ -3657,8 +3662,13 @@ async def test_unified_memory_on_session_end_delegates_to_pipeline():
 async def test_unified_memory_on_session_end_noop_without_l2():
     """on_session_end should return [] when L2 pipeline is disabled."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        memory_db = str(Path(temp_dir) / "memory.db")
-        store = UnifiedMemoryStore(db_path=memory_db, enable_l2=False)
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            enable_l2=False,
+        )
         await store.initialize()
         try:
             result = await store.on_session_end("s-end")

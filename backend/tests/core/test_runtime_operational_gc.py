@@ -13,13 +13,10 @@ from magi.core.sqlite import sqlite_connection_async
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 
 
-message_queue_initial = import_module("magi.db.migrations.message_queue.versions.0001_initial")
-runtime_trace_initial = import_module("magi.db.migrations.runtime_trace.versions.0001_initial")
-runtime_trace_user_notifications = import_module(
-	"magi.db.migrations.runtime_trace.versions.0003_user_notifications"
-)
-scheduler_initial = import_module("magi.db.migrations.scheduler.versions.0001_initial")
-sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.0001_initial")
+message_queue_initial = import_module("magi.db.migrations.message_queue.versions.v1_initial")
+runtime_trace_initial = import_module("magi.db.migrations.runtime_trace.versions.v1_initial")
+scheduler_initial = import_module("magi.db.migrations.scheduler.versions.v1_initial")
+sensor_state_initial = import_module("magi.db.migrations.sensor_state.versions.v1_initial")
 
 
 def _gc(base_dir: Path, *, now: float = 2_000_000.0, lifecycle: LifecycleSettings | None = None) -> RuntimeOperationalGC:
@@ -123,7 +120,6 @@ async def test_runtime_trace_gc_deletes_expired_user_notifications_but_keeps_unr
 
 	async with sqlite_connection_async(db_path) as db:
 		await db.executescript(runtime_trace_initial.SCHEMA_SQL)
-		await db.executescript(runtime_trace_user_notifications.SCHEMA_SQL)
 		await db.executemany(
 			"""
 			INSERT INTO user_notifications (

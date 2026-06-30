@@ -1,19 +1,13 @@
-"""background_tasks baseline schema
+"""Magi v1 release baseline schema."""
 
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-07
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS background_tasks (
@@ -37,12 +31,6 @@ CREATE TABLE IF NOT EXISTS background_tasks (
     finished_at REAL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_bg_tasks_user_status
-    ON background_tasks(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_bg_tasks_session
-    ON background_tasks(session_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_bg_tasks_status_created
-    ON background_tasks(status, created_at);
 
 CREATE TABLE IF NOT EXISTS background_task_events (
     event_id TEXT PRIMARY KEY,
@@ -56,19 +44,37 @@ CREATE TABLE IF NOT EXISTS background_task_events (
     created_at REAL NOT NULL,
     FOREIGN KEY (task_id) REFERENCES background_tasks(task_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_user_status
+    ON background_tasks(user_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_session
+    ON background_tasks(session_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bg_tasks_status_created
+    ON background_tasks(status, created_at);
+
 CREATE INDEX IF NOT EXISTS idx_bg_events_task_created
     ON background_task_events(task_id, created_at);
 """
 
+DROP_SQL = """
+DROP INDEX IF EXISTS idx_bg_events_task_created;
+
+DROP INDEX IF EXISTS idx_bg_tasks_status_created;
+
+DROP INDEX IF EXISTS idx_bg_tasks_session;
+
+DROP INDEX IF EXISTS idx_bg_tasks_user_status;
+
+DROP TABLE IF EXISTS background_task_events;
+
+DROP TABLE IF EXISTS background_tasks;
+"""
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:
-    op.get_bind().connection.executescript(
-        """
-        DROP TABLE IF EXISTS background_task_events;
-        DROP TABLE IF EXISTS background_tasks;
-        """
-    )
+    op.get_bind().connection.executescript(DROP_SQL)

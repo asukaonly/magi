@@ -1,24 +1,13 @@
-"""chat baseline schema
+"""Magi v1 release baseline schema."""
 
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-06
-
-Materialises the canonical chat-store schema (sessions, turns,
-messages, attachments, context summaries) on a fresh database. This
-revision is the snapshot of the schema as it stood the day Alembic
-took ownership; any further evolution is a new revision file.
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -39,8 +28,6 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     archived_at_ms INTEGER,
     deleted_at_ms INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
-    ON chat_sessions(user_id, updated_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS chat_turns (
     turn_id TEXT PRIMARY KEY,
@@ -63,10 +50,6 @@ CREATE TABLE IF NOT EXISTS chat_turns (
     superseded_by_turn_id TEXT,
     supersession_reason TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
-    ON chat_turns(session_id, created_at_ms ASC);
-CREATE INDEX IF NOT EXISTS idx_chat_turns_user_updated
-    ON chat_turns(user_id, updated_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     message_id TEXT PRIMARY KEY,
@@ -87,10 +70,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     reply_to_message_id TEXT,
     label_json TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
-    ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
-CREATE INDEX IF NOT EXISTS idx_chat_messages_turn_sequence
-    ON chat_messages(turn_id, sequence_no ASC);
 
 CREATE TABLE IF NOT EXISTS chat_attachments (
     attachment_id TEXT PRIMARY KEY,
@@ -106,10 +85,6 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
     sha256 TEXT,
     created_at_ms INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_chat_attachments_session_created
-    ON chat_attachments(session_id, created_at_ms ASC);
-CREATE INDEX IF NOT EXISTS idx_chat_attachments_message_id
-    ON chat_attachments(message_id);
 
 CREATE TABLE IF NOT EXISTS chat_context_summaries (
     summary_id TEXT PRIMARY KEY,
@@ -133,20 +108,85 @@ CREATE TABLE IF NOT EXISTS chat_context_summaries (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
+    session_id     TEXT    NOT NULL,
+    run_id         TEXT    NOT NULL,
+    revision       INTEGER NOT NULL DEFAULT 0,
+    message_id     TEXT    NOT NULL,
+    recorded_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (session_id, run_id, revision, message_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
+    ON chat_sessions(user_id, updated_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_turns_session_created
+    ON chat_turns(session_id, created_at_ms ASC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_turns_user_updated
+    ON chat_turns(user_id, updated_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created
+    ON chat_messages(session_id, created_at_ms ASC, sequence_no ASC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_turn_sequence
+    ON chat_messages(turn_id, sequence_no ASC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_session_created
+    ON chat_attachments(session_id, created_at_ms ASC);
+
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_message_id
+    ON chat_attachments(message_id);
+
 CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_session_status
     ON chat_context_summaries(session_id, status, updated_at_ms DESC);
+
 CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_frontier
     ON chat_context_summaries(session_id, summary_kind, persona_scope, covered_to_sequence_no DESC);
+
+CREATE INDEX IF NOT EXISTS idx_crce_message
+    ON chat_run_consumed_events(session_id, message_id);
+
+CREATE INDEX IF NOT EXISTS idx_crce_run
+    ON chat_run_consumed_events(session_id, run_id, revision);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_crce_run;
+
+DROP INDEX IF EXISTS idx_crce_message;
+
+DROP INDEX IF EXISTS idx_chat_context_summaries_frontier;
+
+DROP INDEX IF EXISTS idx_chat_context_summaries_session_status;
+
+DROP INDEX IF EXISTS idx_chat_attachments_message_id;
+
+DROP INDEX IF EXISTS idx_chat_attachments_session_created;
+
+DROP INDEX IF EXISTS idx_chat_messages_turn_sequence;
+
+DROP INDEX IF EXISTS idx_chat_messages_session_created;
+
+DROP INDEX IF EXISTS idx_chat_turns_user_updated;
+
+DROP INDEX IF EXISTS idx_chat_turns_session_created;
+
+DROP INDEX IF EXISTS idx_chat_sessions_user_updated;
+
+DROP TABLE IF EXISTS chat_run_consumed_events;
+
 DROP TABLE IF EXISTS chat_context_summaries;
+
 DROP TABLE IF EXISTS chat_attachments;
+
 DROP TABLE IF EXISTS chat_messages;
+
 DROP TABLE IF EXISTS chat_turns;
+
 DROP TABLE IF EXISTS chat_sessions;
 """
-
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)

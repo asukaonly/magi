@@ -7,7 +7,7 @@ the channel-native message identifier. Coupling them on a single
 snapshot also dropped retract capability — this store fixes that.
 
 Schema is alembic-managed; see
-``backend/src/magi/db/migrations/channels/versions/0002_delivery_receipts.py``.
+``backend/src/magi/db/migrations/channels/versions/v1_initial.py``.
 """
 from __future__ import annotations
 

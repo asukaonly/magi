@@ -12,8 +12,8 @@ from magi.memory.l1.chat_sessions import (
 
 # Schema ownership moved to Alembic (commit bb7eb92d); the per-connection
 # ``ensure_chat_sessions_schema_async`` helper was removed. The canonical
-# ``chat_sessions`` projection DDL now lives in the L1 migration
-# (src/magi/db/migrations/l1/versions/0001_initial.py). Mirror it here so these
+# ``chat_sessions`` projection DDL now lives in the L1 v1 migration.
+# Mirror it here so these
 # unit tests can exercise the projection helpers against the canonical shape.
 _CHAT_SESSIONS_SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {CHAT_SESSIONS_TABLE} (

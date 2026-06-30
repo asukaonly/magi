@@ -39,7 +39,7 @@ from magi.memory.subscribers.memory_ingestion_subscriber import (
 
 
 def _init_l1_schema(db_path: Path) -> None:
-    migration = importlib.import_module("magi.db.migrations.l1.versions.0001_initial")
+    migration = importlib.import_module("magi.db.migrations.l1.versions.v1_initial")
     conn = sqlite3.connect(str(db_path))
     try:
         conn.executescript(migration.SCHEMA_SQL)

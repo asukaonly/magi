@@ -8,7 +8,7 @@ from magi.channels.receipts_store import DeliveryReceiptsStore
 from magi_plugin_sdk.delivery import DeliveryReceipt
 
 
-# Mirrors backend/src/magi/db/migrations/channels/versions/0002_delivery_receipts.py
+# Mirrors the delivery_receipts table in the channels v1 migration.
 DELIVERY_RECEIPTS_DDL = """
 CREATE TABLE IF NOT EXISTS delivery_receipts (
     receipt_id           INTEGER PRIMARY KEY AUTOINCREMENT,

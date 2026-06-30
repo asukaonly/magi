@@ -1,7 +1,7 @@
 """Runtime constants for L2 experience persistence.
 
-The actual DDL lives in the memory_shared Alembic migration
-``0015_l2_experiences``. Runtime code imports these names to avoid string drift.
+The actual DDL lives in the memory_shared v1 Alembic baseline. Runtime code
+imports these names to avoid string drift.
 """
 
 from __future__ import annotations

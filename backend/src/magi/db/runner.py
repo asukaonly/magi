@@ -8,10 +8,9 @@ paths have been resolved; this brings the on-disk schema up to the
 latest committed revision before any store opens its connection.
 
 Migration files are written by hand (no SQLAlchemy models, no
-autogenerate). The ``0001_initial`` revision in each environment
-loads the canonical baseline DDL via ``op.executescript``; later
-revisions use the high-level ``op.add_column`` / ``op.create_index``
-APIs.
+autogenerate). The ``v1`` revision in each environment loads the
+canonical baseline DDL via ``op.executescript``; later revisions use
+the high-level ``op.add_column`` / ``op.create_index`` APIs.
 """
 
 from __future__ import annotations

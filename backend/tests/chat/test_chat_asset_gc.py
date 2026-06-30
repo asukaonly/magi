@@ -11,7 +11,7 @@ from magi.core.sqlite import sqlite_connection_async
 from magi.utils.runtime import RuntimePaths
 
 
-chat_initial = import_module("magi.db.migrations.chat.versions.0001_initial")
+chat_initial = import_module("magi.db.migrations.chat.versions.v1_initial")
 
 
 def _write_asset(root: Path, session_id: str, turn_id: str, filename: str) -> Path:

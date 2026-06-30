@@ -11,7 +11,7 @@ Three concerns covered:
   externals to CANONICAL_LOCAL_USER (single-user default).
 
 The bindings store schema is set up directly via SQL (the alembic
-``0001_initial`` script), so these tests don't depend on the
+v1 baseline), so these tests don't depend on the
 alembic runner — they're pure unit tests of the store + resolver
 classes.
 """
@@ -33,7 +33,7 @@ from magi.identity import (
 )
 
 
-# Schema copied from db/migrations/identity/versions/0001_initial.py;
+# Schema copied from db/migrations/identity/versions/v1_initial.py;
 # duplication is intentional — tests should not depend on alembic
 # infrastructure to verify the store works.
 _SCHEMA = """

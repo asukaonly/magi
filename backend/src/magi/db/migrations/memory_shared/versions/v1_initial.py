@@ -1,78 +1,15 @@
-"""memory_shared baseline schema
-
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-06
-
-Materialises the canonical shared memory database (memory.db) on a
-fresh runtime. The four cognitive layers (L0 working memory, L2
-cognition graph, L3 summary store, L4 procedural memory) co-locate
-their tables in this single file. This revision is the snapshot of
-the schema as it stood the day Alembic took ownership; any further
-evolution is a new revision file.
-"""
+"""Magi v1 release baseline schema."""
 
 from __future__ import annotations
 
-import json
-import time
-
 from alembic import op
 
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
 
-
-_DEFAULT_GRAPH_CONFLICT_RULES: tuple[dict[str, object], ...] = (
-    {
-        "predicate": "LIKES",
-        "opposite_predicates": ["DISLIKES"],
-        "opposite_resolution": "mark_deprecated",
-        "exclusive_group": None,
-        "exclusive_scope": "same_subject",
-        "exclusive_resolution": "mark_deprecated",
-    },
-    {
-        "predicate": "DISLIKES",
-        "opposite_predicates": ["LIKES"],
-        "opposite_resolution": "mark_deprecated",
-        "exclusive_group": None,
-        "exclusive_scope": "same_subject",
-        "exclusive_resolution": "mark_deprecated",
-    },
-    {
-        "predicate": "CURRENT_WORKS_AT",
-        "opposite_predicates": [],
-        "opposite_resolution": "mark_deprecated",
-        "exclusive_group": "current_work",
-        "exclusive_scope": "same_subject",
-        "exclusive_resolution": "mark_deprecated",
-    },
-    {
-        "predicate": "CURRENT_LIVES_IN",
-        "opposite_predicates": [],
-        "opposite_resolution": "mark_deprecated",
-        "exclusive_group": "current_residence",
-        "exclusive_scope": "same_subject",
-        "exclusive_resolution": "mark_deprecated",
-    },
-    {
-        "predicate": "CURRENT_RELATIONSHIP_WITH",
-        "opposite_predicates": [],
-        "opposite_resolution": "mark_deprecated",
-        "exclusive_group": "current_relationship",
-        "exclusive_scope": "same_subject",
-        "exclusive_resolution": "mark_deprecated",
-    },
-)
-
-
 SCHEMA_SQL = """
--- ---------------------------------------------------------------------------
--- L0: working-memory checkpoints
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS l0_sessions (
     session_id TEXT PRIMARY KEY,
     user_id TEXT,
@@ -137,7 +74,8 @@ CREATE TABLE IF NOT EXISTS l0_execution_runs (
     cancel_requested_by TEXT,
     cancel_anchor_turn_id TEXT,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    trigger_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS l0_execution_pending_turns (
@@ -161,9 +99,6 @@ CREATE TABLE IF NOT EXISTS l0_execution_results (
     created_at REAL NOT NULL
 );
 
--- ---------------------------------------------------------------------------
--- L2: cognition graph + ToM + projection jobs + episodes
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS knowledge_graph (
     triple_id TEXT PRIMARY KEY,
     subject_id TEXT NOT NULL,
@@ -192,9 +127,9 @@ CREATE TABLE IF NOT EXISTS knowledge_graph (
     status_reason TEXT,
     deprecated_by TEXT,
     deprecated_at REAL,
-    privacy_scope TEXT NOT NULL DEFAULT 'private',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
+    evidence_class TEXT DEFAULT NULL,
     UNIQUE(subject_id, predicate, object_id)
 );
 
@@ -211,22 +146,10 @@ CREATE TABLE IF NOT EXISTS entity_facets (
     source_type TEXT,
     extraction_method TEXT,
     status TEXT NOT NULL DEFAULT 'active',
-    privacy_scope TEXT NOT NULL DEFAULT 'private',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     UNIQUE(entity_id, facet_name, facet_value)
 );
-CREATE INDEX IF NOT EXISTS idx_entity_facets_name_value
-    ON entity_facets(facet_name, facet_value);
-
-CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_subject
-    ON knowledge_graph(status, subject_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_object
-    ON knowledge_graph(status, object_id, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_predicate
-    ON knowledge_graph(status, predicate);
-CREATE INDEX IF NOT EXISTS idx_knowledge_graph_embedding_profile
-    ON knowledge_graph(embedding_profile_id);
 
 CREATE TABLE IF NOT EXISTS tom_trait_assertions (
     assertion_id TEXT PRIMARY KEY,
@@ -256,17 +179,11 @@ CREATE TABLE IF NOT EXISTS tom_trait_assertions (
     status TEXT NOT NULL DEFAULT 'active',
     superseded_by TEXT,
     superseded_at REAL,
-    privacy_scope TEXT NOT NULL DEFAULT 'private',
     memory_subdomain TEXT NOT NULL DEFAULT 'state',
     natural_summary TEXT NOT NULL DEFAULT '',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
-    ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tom_assertions_active_unique
-    ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id)
-    WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected');
 
 CREATE TABLE IF NOT EXISTS tom_snapshots (
     snapshot_id TEXT PRIMARY KEY,
@@ -329,15 +246,6 @@ CREATE TABLE IF NOT EXISTS l2_projection_jobs (
     updated_at REAL NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_status_created
-    ON l2_projection_jobs(status, created_at ASC);
-
-CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_owner_status_created
-    ON l2_projection_jobs(batch_owner, status, created_at ASC);
-
-CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_catch_up_owner_status_created
-    ON l2_projection_jobs(catch_up_owner, status, created_at ASC);
-
 CREATE TABLE IF NOT EXISTS episodes (
     episode_id TEXT PRIMARY KEY,
     episode_type TEXT NOT NULL DEFAULT 'activity',
@@ -355,7 +263,6 @@ CREATE TABLE IF NOT EXISTS episodes (
     formation_method TEXT NOT NULL DEFAULT 'time_gap_cluster',
     confidence REAL NOT NULL DEFAULT 0.5,
     source_event_count INTEGER NOT NULL DEFAULT 0,
-    privacy_scope TEXT NOT NULL DEFAULT 'private',
     user_label TEXT,
     user_note TEXT,
     user_pinned INTEGER NOT NULL DEFAULT 0,
@@ -364,16 +271,14 @@ CREATE TABLE IF NOT EXISTS episodes (
     last_embedded_at REAL,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
-    last_recomputed_at REAL
+    last_recomputed_at REAL,
+    slice_narrative TEXT,
+    slice_sensory_detail TEXT,
+    magi_standout INTEGER NOT NULL DEFAULT 0,
+    standout_score REAL NOT NULL DEFAULT 0.0,
+    standout_reason TEXT,
+    representative_asset_ref TEXT
 );
-
-CREATE INDEX IF NOT EXISTS idx_episodes_status_time
-    ON episodes(status, time_start DESC);
-CREATE INDEX IF NOT EXISTS idx_episodes_parent
-    ON episodes(parent_episode_id)
-    WHERE parent_episode_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_episodes_type_status
-    ON episodes(episode_type, status);
 
 CREATE TABLE IF NOT EXISTS episode_events (
     episode_id TEXT NOT NULL,
@@ -384,12 +289,6 @@ CREATE TABLE IF NOT EXISTS episode_events (
     PRIMARY KEY (episode_id, event_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_episode_events_event
-    ON episode_events(event_id);
-
--- ---------------------------------------------------------------------------
--- L3: summary store
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS summaries (
     summary_id TEXT PRIMARY KEY,
     summary_type TEXT NOT NULL,
@@ -416,12 +315,10 @@ CREATE TABLE IF NOT EXISTS summaries (
     embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
     last_embedded_at REAL,
     created_at REAL NOT NULL,
-    updated_at REAL NOT NULL
+    updated_at REAL NOT NULL,
+    narrative_style TEXT NOT NULL DEFAULT 'default',
+    essence_prose TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_summaries_period
-    ON summaries(summary_type, summary_category, period_start, period_end);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_summaries_insight_key
-    ON summaries(insight_key) WHERE insight_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS summary_event_links (
     link_id TEXT PRIMARY KEY,
@@ -432,8 +329,6 @@ CREATE TABLE IF NOT EXISTS summary_event_links (
     created_at REAL NOT NULL,
     UNIQUE(summary_id, event_id, link_role)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_event_links_event
-    ON summary_event_links(event_id);
 
 CREATE TABLE IF NOT EXISTS summary_task_links (
     link_id TEXT PRIMARY KEY,
@@ -443,8 +338,6 @@ CREATE TABLE IF NOT EXISTS summary_task_links (
     created_at REAL NOT NULL,
     UNIQUE(summary_id, task_id, link_role)
 );
-CREATE INDEX IF NOT EXISTS idx_summary_task_links_task
-    ON summary_task_links(task_id);
 
 CREATE TABLE IF NOT EXISTS l3_summary_chunks (
     chunk_id TEXT PRIMARY KEY,
@@ -457,8 +350,6 @@ CREATE TABLE IF NOT EXISTS l3_summary_chunks (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_index
-    ON l3_summary_chunks(summary_id, chunk_index);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS l3_summaries_fts USING fts5(
     summary_id UNINDEXED,
@@ -466,9 +357,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS l3_summaries_fts USING fts5(
     tokenize='unicode61'
 );
 
--- ---------------------------------------------------------------------------
--- L4: procedural memory (skills + traces)
--- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS procedural_skills (
     skill_id TEXT PRIMARY KEY,
     skill_name TEXT NOT NULL,
@@ -517,8 +405,6 @@ CREATE TABLE IF NOT EXISTS l4_skill_chunks (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_l4_skill_chunks_index
-    ON l4_skill_chunks(skill_id, chunk_index);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS l4_skills_fts USING fts5(
     skill_id UNINDEXED,
@@ -539,12 +425,7 @@ CREATE TABLE IF NOT EXISTS l4_execution_traces (
     task_context TEXT,
     created_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
-    ON l4_execution_traces(skill_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_l4_traces_turn
-    ON l4_execution_traces(turn_id, created_at ASC);
 
--- L2 Entity Catalog
 CREATE TABLE IF NOT EXISTS entity_catalog (
     entity_id TEXT PRIMARY KEY,
     canonical_name TEXT NOT NULL,
@@ -555,7 +436,6 @@ CREATE TABLE IF NOT EXISTS entity_catalog (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_entity_catalog_type ON entity_catalog(entity_type);
 
 CREATE TABLE IF NOT EXISTS entity_aliases (
     alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -568,7 +448,6 @@ CREATE TABLE IF NOT EXISTS entity_aliases (
     UNIQUE(entity_id, normalized_alias),
     FOREIGN KEY(entity_id) REFERENCES entity_catalog(entity_id)
 );
-CREATE INDEX IF NOT EXISTS idx_entity_aliases_lookup ON entity_aliases(normalized_alias, confidence DESC);
 
 CREATE TABLE IF NOT EXISTS entity_mentions (
     mention_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -582,9 +461,7 @@ CREATE TABLE IF NOT EXISTS entity_mentions (
     created_at REAL NOT NULL,
     FOREIGN KEY(resolved_entity_id) REFERENCES entity_catalog(entity_id)
 );
-CREATE INDEX IF NOT EXISTS idx_entity_mentions_entity ON entity_mentions(resolved_entity_id);
 
--- L2 episodes FTS5 (text search over episode label/summary)
 CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
     episode_id,
     summary,
@@ -592,7 +469,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
     user_label
 );
 
--- Memory embedding rebuild jobs
 CREATE TABLE IF NOT EXISTS embedding_rebuild_jobs (
     job_id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -609,8 +485,6 @@ CREATE TABLE IF NOT EXISTS embedding_rebuild_jobs (
     finished_at REAL,
     updated_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_embedding_rebuild_jobs_status_updated
-    ON embedding_rebuild_jobs(status, updated_at);
 
 CREATE TABLE IF NOT EXISTS embedding_rebuild_job_layers (
     job_id TEXT NOT NULL,
@@ -626,74 +500,520 @@ CREATE TABLE IF NOT EXISTS embedding_rebuild_job_layers (
     updated_at REAL NOT NULL,
     PRIMARY KEY (job_id, layer)
 );
+
+CREATE TABLE IF NOT EXISTS user_profile_projection (
+    user_id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL,
+    display_name TEXT NOT NULL DEFAULT '',
+    preferred_form_of_address TEXT NOT NULL DEFAULT '',
+    real_name TEXT NOT NULL DEFAULT '',
+    birth_date TEXT NOT NULL DEFAULT '',
+    birth_year INTEGER,
+    age_years INTEGER,
+    age_as_of TEXT NOT NULL DEFAULT '',
+    home_location TEXT NOT NULL DEFAULT '',
+    communication_json TEXT NOT NULL DEFAULT '{}',
+    identity_json TEXT NOT NULL DEFAULT '{}',
+    preferences_json TEXT NOT NULL DEFAULT '{}',
+    state_json TEXT NOT NULL DEFAULT '{}',
+    field_sources_json TEXT NOT NULL DEFAULT '{}',
+    field_conflicts_json TEXT NOT NULL DEFAULT '{}',
+    completeness_score REAL NOT NULL DEFAULT 0,
+    refreshed_at REAL NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_mood_aggregate (
+    day_local_date TEXT PRIMARY KEY,
+    dominant_valence TEXT NOT NULL DEFAULT 'neutral',
+    volatility_score REAL NOT NULL DEFAULT 0.0,
+    state_curve_compact TEXT NOT NULL DEFAULT '[]',
+    event_count INTEGER NOT NULL DEFAULT 0,
+    computed_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS location_samples (
+    sample_id      TEXT PRIMARY KEY,
+    source         TEXT NOT NULL,
+    sampled_at     REAL NOT NULL,
+    lat            REAL,
+    lng            REAL,
+    accuracy_m     REAL,
+    city           TEXT,
+    region         TEXT,
+    country        TEXT,
+    metadata_json  TEXT NOT NULL DEFAULT '{}',
+    created_at     REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS place_geocode_cache (
+    grid_key   TEXT PRIMARY KEY,
+    city       TEXT,
+    region     TEXT,
+    country    TEXT,
+    poi_name   TEXT,
+    cached_at  REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS place_labels (
+    label_id    TEXT PRIMARY KEY,
+    center_lat  REAL NOT NULL,
+    center_lng  REAL NOT NULL,
+    radius_m    REAL NOT NULL DEFAULT 100.0,
+    user_label  TEXT NOT NULL,
+    created_at  REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS manual_entries (
+    entry_id          TEXT PRIMARY KEY,
+    created_at        REAL NOT NULL,
+    event_at          REAL NOT NULL,
+    kind              TEXT NOT NULL DEFAULT 'quick',
+    body              TEXT NOT NULL,
+    mood              TEXT,
+    location_label    TEXT,
+    location_lat      REAL,
+    location_lng      REAL,
+    attachments_json  TEXT NOT NULL DEFAULT '[]',
+    exclude_from_llm  INTEGER NOT NULL DEFAULT 0,
+    user_pinned       INTEGER NOT NULL DEFAULT 0,
+    deleted_at        REAL,
+    l1_event_id       TEXT,
+    weather_json TEXT,
+    body_doc TEXT
+);
+
+CREATE TABLE IF NOT EXISTS experiences (
+    experience_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'candidate',
+    title TEXT,
+    time_start REAL NOT NULL,
+    time_end REAL NOT NULL,
+    experience_type TEXT,
+    intent TEXT,
+    outcome TEXT,
+    magi_interpretation TEXT,
+    narrative_score REAL NOT NULL DEFAULT 0.0,
+    primary_entity_ids TEXT NOT NULL DEFAULT '[]',
+    primary_place_ids TEXT NOT NULL DEFAULT '[]',
+    primary_topic_keys TEXT NOT NULL DEFAULT '[]',
+    source_episode_count INTEGER NOT NULL DEFAULT 0,
+    source_event_count INTEGER NOT NULL DEFAULT 0,
+    parent_experience_id TEXT,
+    merged_into_experience_id TEXT,
+    user_label TEXT,
+    user_note TEXT,
+    user_pinned INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    last_recomputed_at REAL,
+    source_seed_id TEXT,
+    user_cover_asset_ref TEXT
+);
+
+CREATE TABLE IF NOT EXISTS experience_members (
+    experience_id TEXT NOT NULL,
+    member_type TEXT NOT NULL,
+    member_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'core',
+    confidence REAL NOT NULL DEFAULT 0.5,
+    added_at REAL NOT NULL,
+    PRIMARY KEY (experience_id, member_type, member_id)
+);
+
+CREATE TABLE IF NOT EXISTS experience_key_events (
+    experience_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    reason TEXT,
+    confidence REAL NOT NULL DEFAULT 0.5,
+    added_at REAL NOT NULL,
+    PRIMARY KEY (experience_id, event_id, role)
+);
+
+CREATE TABLE IF NOT EXISTS experience_seeds (
+            seed_id TEXT PRIMARY KEY,
+            seed_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'candidate',
+            title TEXT,
+            description TEXT,
+            anchor_entity_ids TEXT NOT NULL DEFAULT '[]',
+            anchor_place_ids TEXT NOT NULL DEFAULT '[]',
+            anchor_topic_keys TEXT NOT NULL DEFAULT '[]',
+            time_start REAL,
+            time_end REAL,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            created_by TEXT NOT NULL DEFAULT 'system',
+            source_ref_type TEXT,
+            source_ref_id TEXT,
+            promoted_experience_id TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            last_evaluated_at REAL
+        );
+
+CREATE TABLE IF NOT EXISTS experience_seed_evidence (
+            seed_id TEXT NOT NULL,
+            ref_type TEXT NOT NULL,
+            ref_id TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'support',
+            confidence REAL NOT NULL DEFAULT 0.5,
+            reason TEXT,
+            created_at REAL NOT NULL,
+            PRIMARY KEY (seed_id, ref_type, ref_id, role)
+        );
+
+CREATE TABLE IF NOT EXISTS user_portrait_projection (
+    user_id TEXT PRIMARY KEY,
+    entity_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL DEFAULT 'user',
+    version INTEGER NOT NULL DEFAULT 1,
+    world_json TEXT NOT NULL DEFAULT '{}',
+    review_json TEXT NOT NULL DEFAULT '{}',
+    recent_json TEXT NOT NULL DEFAULT '{}',
+    prompt_summary_json TEXT NOT NULL DEFAULT '[]',
+    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+    source_counts_json TEXT NOT NULL DEFAULT '{}',
+    generated_by TEXT NOT NULL DEFAULT 'rule',
+    generated_at REAL NOT NULL,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_entity_facets_name_value
+    ON entity_facets(facet_name, facet_value);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_subject
+    ON knowledge_graph(status, subject_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_object
+    ON knowledge_graph(status, object_id, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_status_predicate
+    ON knowledge_graph(status, predicate);
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_embedding_profile
+    ON knowledge_graph(embedding_profile_id);
+
+CREATE INDEX IF NOT EXISTS idx_tom_assertions_entity_updated
+    ON tom_trait_assertions(entity_id, entity_type, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_status_created
+    ON l2_projection_jobs(status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_owner_status_created
+    ON l2_projection_jobs(batch_owner, status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_l2_projection_jobs_catch_up_owner_status_created
+    ON l2_projection_jobs(catch_up_owner, status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_status_time
+    ON episodes(status, time_start DESC);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_parent
+    ON episodes(parent_episode_id)
+    WHERE parent_episode_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_episodes_type_status
+    ON episodes(episode_type, status);
+
+CREATE INDEX IF NOT EXISTS idx_episode_events_event
+    ON episode_events(event_id);
+
+CREATE INDEX IF NOT EXISTS idx_summaries_period
+    ON summaries(summary_type, summary_category, period_start, period_end);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_summaries_insight_key
+    ON summaries(insight_key) WHERE insight_key IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_summary_event_links_event
+    ON summary_event_links(event_id);
+
+CREATE INDEX IF NOT EXISTS idx_summary_task_links_task
+    ON summary_task_links(task_id);
+
+CREATE INDEX IF NOT EXISTS idx_l3_summary_chunks_index
+    ON l3_summary_chunks(summary_id, chunk_index);
+
+CREATE INDEX IF NOT EXISTS idx_l4_skill_chunks_index
+    ON l4_skill_chunks(skill_id, chunk_index);
+
+CREATE INDEX IF NOT EXISTS idx_l4_traces_skill
+    ON l4_execution_traces(skill_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_l4_traces_turn
+    ON l4_execution_traces(turn_id, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_entity_catalog_type ON entity_catalog(entity_type);
+
+CREATE INDEX IF NOT EXISTS idx_entity_aliases_lookup ON entity_aliases(normalized_alias, confidence DESC);
+
+CREATE INDEX IF NOT EXISTS idx_entity_mentions_entity ON entity_mentions(resolved_entity_id);
+
+CREATE INDEX IF NOT EXISTS idx_embedding_rebuild_jobs_status_updated
+    ON embedding_rebuild_jobs(status, updated_at);
+
 CREATE INDEX IF NOT EXISTS idx_embedding_rebuild_job_layers_status
     ON embedding_rebuild_job_layers(status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_projection_entity
+    ON user_profile_projection(entity_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_profile_projection_refreshed
+    ON user_profile_projection(refreshed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_episodes_standout
+    ON episodes(magi_standout, standout_score DESC, time_start DESC)
+    WHERE magi_standout = 1 OR user_pinned = 1;
+
+CREATE INDEX IF NOT EXISTS idx_summaries_narrative_style
+    ON summaries(narrative_style, summary_type, period_start DESC);
+
+CREATE INDEX IF NOT EXISTS idx_daily_mood_aggregate_computed
+    ON daily_mood_aggregate(computed_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_loc_samples_time
+    ON location_samples(sampled_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_loc_samples_source_time
+    ON location_samples(source, sampled_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_manual_entries_event_at
+    ON manual_entries(event_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_manual_entries_active
+    ON manual_entries(deleted_at, event_at DESC)
+    WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_knowledge_graph_evidence_class
+    ON knowledge_graph(evidence_class)
+    WHERE evidence_class IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tom_assertions_active_unique ON tom_trait_assertions(entity_id, entity_type, trait_name, target_entity_id) WHERE status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow');
+
+CREATE INDEX IF NOT EXISTS idx_experiences_status_time
+    ON experiences(status, time_start DESC, time_end DESC);
+
+CREATE INDEX IF NOT EXISTS idx_experiences_parent
+    ON experiences(parent_experience_id)
+    WHERE parent_experience_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_experiences_merged_into
+    ON experiences(merged_into_experience_id)
+    WHERE merged_into_experience_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_experience_members_member
+    ON experience_members(member_type, member_id);
+
+CREATE INDEX IF NOT EXISTS idx_experience_key_events_event
+    ON experience_key_events(event_id);
+
+CREATE INDEX IF NOT EXISTS idx_experiences_source_seed
+            ON experiences(source_seed_id)
+            WHERE source_seed_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_experience_seeds_status_time
+            ON experience_seeds(status, time_start DESC, time_end DESC);
+
+CREATE INDEX IF NOT EXISTS idx_experience_seeds_source_ref
+            ON experience_seeds(source_ref_type, source_ref_id)
+            WHERE source_ref_type IS NOT NULL AND source_ref_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_experience_seed_evidence_ref
+            ON experience_seed_evidence(ref_type, ref_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_portrait_projection_entity
+    ON user_portrait_projection(entity_id, entity_type);
+
+CREATE INDEX IF NOT EXISTS idx_user_portrait_projection_updated
+    ON user_portrait_projection(updated_at DESC);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_user_portrait_projection_updated;
+
+DROP INDEX IF EXISTS idx_user_portrait_projection_entity;
+
+DROP INDEX IF EXISTS idx_experience_seed_evidence_ref;
+
+DROP INDEX IF EXISTS idx_experience_seeds_source_ref;
+
+DROP INDEX IF EXISTS idx_experience_seeds_status_time;
+
+DROP INDEX IF EXISTS idx_experiences_source_seed;
+
+DROP INDEX IF EXISTS idx_experience_key_events_event;
+
+DROP INDEX IF EXISTS idx_experience_members_member;
+
+DROP INDEX IF EXISTS idx_experiences_merged_into;
+
+DROP INDEX IF EXISTS idx_experiences_parent;
+
+DROP INDEX IF EXISTS idx_experiences_status_time;
+
+DROP INDEX IF EXISTS idx_tom_assertions_active_unique;
+
+DROP INDEX IF EXISTS idx_knowledge_graph_evidence_class;
+
+DROP INDEX IF EXISTS idx_manual_entries_active;
+
+DROP INDEX IF EXISTS idx_manual_entries_event_at;
+
+DROP INDEX IF EXISTS idx_loc_samples_source_time;
+
+DROP INDEX IF EXISTS idx_loc_samples_time;
+
+DROP INDEX IF EXISTS idx_daily_mood_aggregate_computed;
+
+DROP INDEX IF EXISTS idx_summaries_narrative_style;
+
+DROP INDEX IF EXISTS idx_episodes_standout;
+
+DROP INDEX IF EXISTS idx_user_profile_projection_refreshed;
+
+DROP INDEX IF EXISTS idx_user_profile_projection_entity;
+
+DROP INDEX IF EXISTS idx_embedding_rebuild_job_layers_status;
+
+DROP INDEX IF EXISTS idx_embedding_rebuild_jobs_status_updated;
+
+DROP INDEX IF EXISTS idx_entity_mentions_entity;
+
+DROP INDEX IF EXISTS idx_entity_aliases_lookup;
+
+DROP INDEX IF EXISTS idx_entity_catalog_type;
+
+DROP INDEX IF EXISTS idx_l4_traces_turn;
+
+DROP INDEX IF EXISTS idx_l4_traces_skill;
+
+DROP INDEX IF EXISTS idx_l4_skill_chunks_index;
+
+DROP INDEX IF EXISTS idx_l3_summary_chunks_index;
+
+DROP INDEX IF EXISTS idx_summary_task_links_task;
+
+DROP INDEX IF EXISTS idx_summary_event_links_event;
+
+DROP INDEX IF EXISTS idx_summaries_insight_key;
+
+DROP INDEX IF EXISTS idx_summaries_period;
+
+DROP INDEX IF EXISTS idx_episode_events_event;
+
+DROP INDEX IF EXISTS idx_episodes_type_status;
+
+DROP INDEX IF EXISTS idx_episodes_parent;
+
+DROP INDEX IF EXISTS idx_episodes_status_time;
+
+DROP INDEX IF EXISTS idx_l2_projection_jobs_catch_up_owner_status_created;
+
+DROP INDEX IF EXISTS idx_l2_projection_jobs_owner_status_created;
+
+DROP INDEX IF EXISTS idx_l2_projection_jobs_status_created;
+
+DROP INDEX IF EXISTS idx_tom_assertions_entity_updated;
+
+DROP INDEX IF EXISTS idx_knowledge_graph_embedding_profile;
+
+DROP INDEX IF EXISTS idx_knowledge_graph_status_predicate;
+
+DROP INDEX IF EXISTS idx_knowledge_graph_status_object;
+
+DROP INDEX IF EXISTS idx_knowledge_graph_status_subject;
+
+DROP INDEX IF EXISTS idx_entity_facets_name_value;
+
+DROP TABLE IF EXISTS user_portrait_projection;
+
+DROP TABLE IF EXISTS experience_seed_evidence;
+
+DROP TABLE IF EXISTS experience_seeds;
+
+DROP TABLE IF EXISTS experience_key_events;
+
+DROP TABLE IF EXISTS experience_members;
+
+DROP TABLE IF EXISTS experiences;
+
+DROP TABLE IF EXISTS manual_entries;
+
+DROP TABLE IF EXISTS place_labels;
+
+DROP TABLE IF EXISTS place_geocode_cache;
+
+DROP TABLE IF EXISTS location_samples;
+
+DROP TABLE IF EXISTS daily_mood_aggregate;
+
+DROP TABLE IF EXISTS user_profile_projection;
+
 DROP TABLE IF EXISTS embedding_rebuild_job_layers;
+
 DROP TABLE IF EXISTS embedding_rebuild_jobs;
--- L2 Entity Catalog
-DROP TABLE IF EXISTS entity_mentions;
-DROP TABLE IF EXISTS entity_aliases;
-DROP TABLE IF EXISTS entity_catalog;
+
 DROP TABLE IF EXISTS episodes_fts;
--- L4
+
+DROP TABLE IF EXISTS entity_mentions;
+
+DROP TABLE IF EXISTS entity_aliases;
+
+DROP TABLE IF EXISTS entity_catalog;
+
 DROP TABLE IF EXISTS l4_execution_traces;
+
 DROP TABLE IF EXISTS l4_skills_fts;
+
 DROP TABLE IF EXISTS l4_skill_chunks;
+
 DROP TABLE IF EXISTS procedural_skills;
--- L3
+
 DROP TABLE IF EXISTS l3_summaries_fts;
+
 DROP TABLE IF EXISTS l3_summary_chunks;
+
 DROP TABLE IF EXISTS summary_task_links;
+
 DROP TABLE IF EXISTS summary_event_links;
+
 DROP TABLE IF EXISTS summaries;
--- L2
+
 DROP TABLE IF EXISTS episode_events;
+
 DROP TABLE IF EXISTS episodes;
+
 DROP TABLE IF EXISTS l2_projection_jobs;
+
 DROP TABLE IF EXISTS graph_conflict_rules;
+
 DROP TABLE IF EXISTS tom_snapshots;
+
 DROP TABLE IF EXISTS tom_trait_assertions;
+
 DROP TABLE IF EXISTS entity_facets;
+
 DROP TABLE IF EXISTS knowledge_graph;
--- L0
+
 DROP TABLE IF EXISTS l0_execution_results;
+
 DROP TABLE IF EXISTS l0_execution_pending_turns;
+
 DROP TABLE IF EXISTS l0_execution_runs;
+
 DROP TABLE IF EXISTS l0_temporary_tactics;
+
 DROP TABLE IF EXISTS l0_active_entities;
+
 DROP TABLE IF EXISTS l0_goal_stack;
+
 DROP TABLE IF EXISTS l0_sessions;
 """
 
-
 def upgrade() -> None:
-    bind = op.get_bind().connection
-    bind.executescript(SCHEMA_SQL)
-
-    now = time.time()
-    for rule in _DEFAULT_GRAPH_CONFLICT_RULES:
-        bind.execute(
-            """
-            INSERT OR IGNORE INTO graph_conflict_rules(
-                predicate, opposite_predicates, opposite_resolution,
-                exclusive_group, exclusive_scope, exclusive_resolution,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                rule["predicate"],
-                json.dumps(rule["opposite_predicates"], ensure_ascii=False),
-                rule["opposite_resolution"],
-                rule["exclusive_group"],
-                rule["exclusive_scope"],
-                rule["exclusive_resolution"],
-                now,
-                now,
-            ),
-        )
+    op.get_bind().connection.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:

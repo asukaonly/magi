@@ -6,7 +6,7 @@ from magi.agent.batch.contracts import BatchItemStatus, BatchJobStatus, ItemOutc
 from magi.agent.batch.store import BatchStore
 
 # Baseline schema copied from
-# backend/src/magi/db/migrations/batch/versions/0001_initial.py SCHEMA_SQL.
+# backend/src/magi/db/migrations/batch/versions/v1_initial.py SCHEMA_SQL.
 _SCHEMA = """
 CREATE TABLE batch_job (
     job_id TEXT PRIMARY KEY, title TEXT NOT NULL, owner TEXT NOT NULL,

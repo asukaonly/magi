@@ -1,19 +1,13 @@
-"""scheduler baseline schema
+"""Magi v1 release baseline schema."""
 
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-07
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schedules (
@@ -63,12 +57,6 @@ CREATE TABLE IF NOT EXISTS schedule_executions (
     scheduler_job_id TEXT,
     created_at REAL NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_schedule_executions_schedule_id
-    ON schedule_executions(schedule_id);
-CREATE INDEX IF NOT EXISTS idx_schedule_executions_target
-    ON schedule_executions(target_type, target_key);
-CREATE INDEX IF NOT EXISTS idx_schedule_executions_started_at
-    ON schedule_executions(started_at DESC);
 
 CREATE TABLE IF NOT EXISTS sensor_sync_jobs (
     job_id TEXT PRIMARY KEY,
@@ -93,24 +81,47 @@ CREATE TABLE IF NOT EXISTS sensor_sync_jobs (
     next_cursor TEXT,
     watermark_ts REAL
 );
+
+CREATE INDEX IF NOT EXISTS idx_schedule_executions_schedule_id
+    ON schedule_executions(schedule_id);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_executions_target
+    ON schedule_executions(target_type, target_key);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_executions_started_at
+    ON schedule_executions(started_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_sensor_sync_jobs_status_created
     ON sensor_sync_jobs(status, created_at ASC);
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sensor_sync_jobs_one_outstanding_per_target
     ON sensor_sync_jobs(target_type, target_key)
     WHERE status IN ('queued', 'running');
 """
 
+DROP_SQL = """
+DROP INDEX IF EXISTS idx_sensor_sync_jobs_one_outstanding_per_target;
+
+DROP INDEX IF EXISTS idx_sensor_sync_jobs_status_created;
+
+DROP INDEX IF EXISTS idx_schedule_executions_started_at;
+
+DROP INDEX IF EXISTS idx_schedule_executions_target;
+
+DROP INDEX IF EXISTS idx_schedule_executions_schedule_id;
+
+DROP TABLE IF EXISTS sensor_sync_jobs;
+
+DROP TABLE IF EXISTS schedule_executions;
+
+DROP TABLE IF EXISTS target_state;
+
+DROP TABLE IF EXISTS schedules;
+"""
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)
 
 
 def downgrade() -> None:
-    op.get_bind().connection.executescript(
-        """
-        DROP TABLE IF EXISTS sensor_sync_jobs;
-        DROP TABLE IF EXISTS schedule_executions;
-        DROP TABLE IF EXISTS target_state;
-        DROP TABLE IF EXISTS schedules;
-        """
-    )
+    op.get_bind().connection.executescript(DROP_SQL)

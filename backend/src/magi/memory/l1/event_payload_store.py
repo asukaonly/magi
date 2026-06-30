@@ -9,9 +9,9 @@ extraction time and falls back to ``content`` when no row exists.
 Hard rule (RFC #56 P3): L2 reads the pinned snapshot or ``content``; it never
 re-fetches from the live source. The snapshot is frozen at capture.
 
-Schema is alembic-owned (migration ``0002_l1_event_payload`` + the composed
-``SCHEMA_SQL`` applied by ``L1EventLifecycleMixin._ensure_schema``); this store
-only reads/writes rows and never issues DDL.
+Schema is alembic-owned (the L1 v1 baseline plus the composed ``SCHEMA_SQL``
+applied by ``L1EventLifecycleMixin._ensure_schema``); this store only
+reads/writes rows and never issues DDL.
 """
 from __future__ import annotations
 

@@ -28,6 +28,8 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 | `runtime/background_tasks.db` | runtime | background-task durability |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
 | `data/channels/channels.db` | channels | external channel session mapping |
+| `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
+| `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
 
 Each subsystem owns the schema for its own file. There is no
@@ -57,6 +59,8 @@ independent Alembic environment with its own version chain:
 | `message_queue` | `message_queue.db` |
 | `permission_rules` | `permission_rules.db` |
 | `channels` | `channels.db` |
+| `identity` | `identity.db` |
+| `batch` | `batch.db` |
 
 Layout under `backend/src/magi/db/`:
 
@@ -71,7 +75,7 @@ db/
       env.py
       script.py.mako
       versions/
-        0001_initial.py
+        v1_initial.py
     l1/...
     memory_shared/...
     runtime_trace/...
@@ -123,10 +127,10 @@ each. A failure aborts startup with a logged error.
 Every store also keeps its own baseline `executescript(...)` of
 `CREATE TABLE IF NOT EXISTS` statements as a fast path on fresh
 installs. Because every CREATE in both the store baseline and
-`0001_initial` uses `IF NOT EXISTS`, the two paths are idempotent
+`v1_initial` uses `IF NOT EXISTS`, the two paths are idempotent
 relative to each other. The first time Alembic runs against an
-already-populated DB it simply stamps `0001_initial` into a new
-`alembic_version` table without rewriting anything.
+already-populated DB without an Alembic stamp it records `v1` in a
+new `alembic_version` table without rewriting anything.
 
 ## CLI
 
@@ -178,7 +182,7 @@ The workflow for any change to a Tier-1 DB:
    import sqlalchemy as sa
 
    revision = "0002_add_foo"
-   down_revision = "0001_initial"
+   down_revision = "v1"
    branch_labels = None
    depends_on = None
 
@@ -239,8 +243,8 @@ needing column-level migrations):
 4. Add a `"magi.db.migrations.<name>" = ["script.py.mako"]` entry
    under `[tool.setuptools.package-data]` in
    `backend/pyproject.toml` so the template ships with the wheel.
-5. Write `0001_initial.py` using the same shape as
-   `db/migrations/chat/versions/0001_initial.py`: a SCHEMA_SQL string
+5. Write `v1_initial.py` using the same shape as
+   `db/migrations/chat/versions/v1_initial.py`: a SCHEMA_SQL string
    with `CREATE … IF NOT EXISTS` everywhere, a DROP_SQL string in
    reverse-dependency order, and `upgrade()` /  `downgrade()` calling
    `op.get_bind().connection.executescript(...)`. Copy the live

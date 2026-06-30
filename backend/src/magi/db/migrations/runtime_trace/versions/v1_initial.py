@@ -1,25 +1,13 @@
-"""runtime_trace baseline schema
+"""Magi v1 release baseline schema."""
 
-Revision ID: 0001_initial
-Revises:
-Create Date: 2026-05-06
-
-Materialises the canonical runtime_trace schema (trace turns, spans,
-intent resolutions, LLM calls, tool calls, runtime notifications,
-heartbeats, plugin ingress events) on a fresh database. This revision
-is the snapshot of the schema as it stood the day Alembic took
-ownership; any further evolution is a new revision file.
-"""
 from __future__ import annotations
 
 from alembic import op
 
-
-revision = "0001_initial"
+revision = "v1"
 down_revision = None
 branch_labels = None
 depends_on = None
-
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS trace_turns (
@@ -45,10 +33,6 @@ CREATE TABLE IF NOT EXISTS trace_turns (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_trace_turns_session_turn
-    ON trace_turns(session_id, turn_id);
-CREATE INDEX IF NOT EXISTS idx_trace_turns_user_updated
-    ON trace_turns(user_id, updated_at_ms DESC);
 
 CREATE TABLE IF NOT EXISTS trace_spans (
     span_id TEXT PRIMARY KEY,
@@ -74,12 +58,6 @@ CREATE TABLE IF NOT EXISTS trace_spans (
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_parent_started
-    ON trace_spans(trace_id, parent_span_id, started_at_ms);
-CREATE INDEX IF NOT EXISTS idx_trace_spans_turn_started
-    ON trace_spans(turn_id, started_at_ms);
-CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_node_type
-    ON trace_spans(trace_id, node_type);
 
 CREATE TABLE IF NOT EXISTS trace_intent_resolutions (
     span_id TEXT PRIMARY KEY,
@@ -91,8 +69,6 @@ CREATE TABLE IF NOT EXISTS trace_intent_resolutions (
     selected_tools_json TEXT NOT NULL,
     selected_worker_type TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_trace_intent_trace
-    ON trace_intent_resolutions(trace_id);
 
 CREATE TABLE IF NOT EXISTS trace_llm_calls (
     span_id TEXT PRIMARY KEY,
@@ -111,8 +87,6 @@ CREATE TABLE IF NOT EXISTS trace_llm_calls (
     request_preview TEXT,
     response_preview TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_trace_llm_calls_trace
-    ON trace_llm_calls(trace_id);
 
 CREATE TABLE IF NOT EXISTS trace_tools (
     span_id TEXT PRIMARY KEY,
@@ -128,8 +102,6 @@ CREATE TABLE IF NOT EXISTS trace_tools (
     result_preview TEXT,
     result_json TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_trace_tools_trace
-    ON trace_tools(trace_id);
 
 CREATE TABLE IF NOT EXISTS runtime_notifications (
     notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,23 +144,108 @@ CREATE TABLE IF NOT EXISTS plugin_ingress_events (
     last_error TEXT,
     created_at_ms INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS user_notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL DEFAULT 'default_user',
+    kind TEXT NOT NULL,
+    dedupe_key TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'unread',
+    created_at_ms INTEGER NOT NULL,
+    read_at_ms INTEGER,
+    actioned_at_ms INTEGER,
+    dismissed_at_ms INTEGER,
+    dismiss_kind TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_trace_turns_session_turn
+    ON trace_turns(session_id, turn_id);
+
+CREATE INDEX IF NOT EXISTS idx_trace_turns_user_updated
+    ON trace_turns(user_id, updated_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_parent_started
+    ON trace_spans(trace_id, parent_span_id, started_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_trace_spans_turn_started
+    ON trace_spans(turn_id, started_at_ms);
+
+CREATE INDEX IF NOT EXISTS idx_trace_spans_trace_node_type
+    ON trace_spans(trace_id, node_type);
+
+CREATE INDEX IF NOT EXISTS idx_trace_intent_trace
+    ON trace_intent_resolutions(trace_id);
+
+CREATE INDEX IF NOT EXISTS idx_trace_llm_calls_trace
+    ON trace_llm_calls(trace_id);
+
+CREATE INDEX IF NOT EXISTS idx_trace_tools_trace
+    ON trace_tools(trace_id);
+
 CREATE INDEX IF NOT EXISTS idx_plugin_ingress_events_status_created
     ON plugin_ingress_events(status, created_at_ms ASC, event_id ASC);
+
 CREATE INDEX IF NOT EXISTS idx_plugin_ingress_events_target_type_status
     ON plugin_ingress_events(plugin_target, event_type, status, created_at_ms ASC, event_id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_notifications_user_session
+    ON runtime_notifications(user_id, session_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_feed
+    ON user_notifications(user_id, created_at_ms DESC);
+
+CREATE INDEX IF NOT EXISTS idx_user_notifications_dedup
+    ON user_notifications(user_id, kind, dedupe_key);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_user_notifications_dedup;
+
+DROP INDEX IF EXISTS idx_user_notifications_feed;
+
+DROP INDEX IF EXISTS idx_runtime_notifications_user_session;
+
+DROP INDEX IF EXISTS idx_plugin_ingress_events_target_type_status;
+
+DROP INDEX IF EXISTS idx_plugin_ingress_events_status_created;
+
+DROP INDEX IF EXISTS idx_trace_tools_trace;
+
+DROP INDEX IF EXISTS idx_trace_llm_calls_trace;
+
+DROP INDEX IF EXISTS idx_trace_intent_trace;
+
+DROP INDEX IF EXISTS idx_trace_spans_trace_node_type;
+
+DROP INDEX IF EXISTS idx_trace_spans_turn_started;
+
+DROP INDEX IF EXISTS idx_trace_spans_trace_parent_started;
+
+DROP INDEX IF EXISTS idx_trace_turns_user_updated;
+
+DROP INDEX IF EXISTS idx_trace_turns_session_turn;
+
+DROP TABLE IF EXISTS user_notifications;
+
 DROP TABLE IF EXISTS plugin_ingress_events;
+
 DROP TABLE IF EXISTS runtime_heartbeats;
+
 DROP TABLE IF EXISTS runtime_notifications;
+
 DROP TABLE IF EXISTS trace_tools;
+
 DROP TABLE IF EXISTS trace_llm_calls;
+
 DROP TABLE IF EXISTS trace_intent_resolutions;
+
 DROP TABLE IF EXISTS trace_spans;
+
 DROP TABLE IF EXISTS trace_turns;
 """
-
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)
