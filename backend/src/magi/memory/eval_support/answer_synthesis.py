@@ -1,4 +1,4 @@
-"""Eval memory answer synthesis helpers for memory API routes."""
+"""LLM-backed answer synthesis for memory evaluation queries."""
 
 from __future__ import annotations
 
@@ -6,27 +6,16 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
-from fastapi import HTTPException, status
-
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm import LLMProviderBridge
-from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.answering import build_answer_prompt_payload
-from magi.memory.eval_support.answer_normalization import normalize_eval_answer
 
-from ..helpers import memory_t
+from .answer_normalization import normalize_eval_answer
 
 logger = get_logger(__name__)
 
 EVAL_ANSWER_TIMEOUT = 300
-
-
-def _resolve_scenario_llm_pool():
-    try:
-        return get_scenario_llm_pool()
-    except RuntimeError:
-        return None
 
 
 def format_l2_context(
@@ -84,6 +73,77 @@ def is_temporal_reasoning_question(question: str) -> bool:
     )
 
 
+async def synthesize_eval_answer(
+    *,
+    question: str,
+    hits: list[dict[str, Any]],
+    evidence_bundles: list[dict[str, Any]] | None = None,
+    timeline_summary: list[dict[str, Any]] | None = None,
+    l2_entity_cards: list[dict[str, Any]] | None = None,
+    l2_relationships: list[dict[str, Any]] | None = None,
+    l2_assertions: list[dict[str, Any]] | None = None,
+    l2_episodes: list[dict[str, Any]] | None = None,
+    l2_experiences: list[dict[str, Any]] | None = None,
+    query_timestamp: float | None = None,
+    show_prompt: bool = False,
+    llm_pool: Any,
+    log: Any | None = None,
+) -> tuple[str, dict[str, Any]]:
+    _ = l2_experiences
+    active_logger = log if log is not None else logger
+    adapter = llm_pool.get(LLMScenario.CORE)
+    bridge = LLMProviderBridge(adapter)
+    prompt_payload = build_answer_prompt_payload(
+        question=question,
+        hits=hits,
+        evidence_bundles=evidence_bundles,
+        timeline_summary=timeline_summary,
+        l2_episodes=l2_episodes,
+    )
+    system_prompt = _build_eval_answer_system_prompt()
+    l2_context_text = format_l2_context(
+        entity_cards=l2_entity_cards,
+        relationships=l2_relationships,
+        assertions=l2_assertions,
+    )
+    user_prompt = _build_eval_answer_user_prompt(
+        question=question,
+        prompt_payload=prompt_payload,
+        l2_context_text=l2_context_text,
+        question_date_line=_build_question_date_line(query_timestamp),
+    )
+    _log_answer_synthesis_started(
+        active_logger,
+        question=question,
+        hits=hits,
+        evidence_bundles=evidence_bundles,
+        prompt_payload=prompt_payload,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+    )
+    raw_answer = await _chat_eval_answer(
+        bridge, system_prompt=system_prompt, user_prompt=user_prompt
+    )
+    normalized_answer = normalize_eval_answer(raw_answer)
+    _log_answer_synthesis_completed(
+        active_logger,
+        question=question,
+        hits=hits,
+        raw_answer=raw_answer,
+        normalized_answer=normalized_answer,
+    )
+    return normalized_answer, _build_answer_trace(
+        hits=hits,
+        evidence_bundles=evidence_bundles,
+        timeline_summary=timeline_summary,
+        l2_entity_cards=l2_entity_cards,
+        l2_relationships=l2_relationships,
+        l2_assertions=l2_assertions,
+        show_prompt=show_prompt,
+        user_prompt=user_prompt,
+    )
+
+
 def _build_eval_answer_system_prompt() -> str:
     return (
         "You are answering a question using retrieved memory evidence only.\n"
@@ -135,58 +195,17 @@ def _build_eval_answer_system_prompt() -> str:
     )
 
 
-async def synthesize_eval_answer(
-    *,
-    question: str,
-    hits: list[dict[str, Any]],
-    evidence_bundles: list[dict[str, Any]] | None = None,
-    timeline_summary: list[dict[str, Any]] | None = None,
-    l2_entity_cards: list[dict[str, Any]] | None = None,
-    l2_relationships: list[dict[str, Any]] | None = None,
-    l2_assertions: list[dict[str, Any]] | None = None,
-    l2_episodes: list[dict[str, Any]] | None = None,
-    l2_experiences: list[dict[str, Any]] | None = None,
-    query_timestamp: float | None = None,
-    show_prompt: bool = False,
-    llm_pool: Any | None = None,
-    log: Any | None = None,
-) -> tuple[str, dict[str, Any]]:
-    resolved_llm_pool = llm_pool if llm_pool is not None else _resolve_scenario_llm_pool()
-    if resolved_llm_pool is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t(
-                "memory.errors.scenario_llm_pool_uninitialized",
-                "Scenario LLM pool is not initialized",
-            ),
-        )
-    active_logger = log if log is not None else logger
-
-    adapter = resolved_llm_pool.get(LLMScenario.CORE)
-    bridge = LLMProviderBridge(adapter)
-    prompt_payload = build_answer_prompt_payload(
-        question=question,
-        hits=hits,
-        evidence_bundles=evidence_bundles,
-        timeline_summary=timeline_summary,
-        l2_episodes=l2_episodes,
+def _build_question_date_line(query_timestamp: float | None) -> str:
+    if query_timestamp is None:
+        return ""
+    qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+    return (
+        f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
     )
-    system_prompt = _build_eval_answer_system_prompt()
-    l2_context_text = format_l2_context(
-        entity_cards=l2_entity_cards,
-        relationships=l2_relationships,
-        assertions=l2_assertions,
-    )
-    question_date_line = ""
-    if query_timestamp is not None:
-        qdt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
-        question_date_line = f"Question date: {qdt.strftime('%Y-%m-%d (%a) %H:%M')} UTC (timestamp={query_timestamp})\n"
 
-    episode_section = ""
-    if prompt_payload.episode_text:
-        episode_section = f"\nEpisode Summaries:\n{prompt_payload.episode_text}\n"
 
-    relative_time_instruction = (
+def _relative_time_instruction() -> str:
+    return (
         "Use relative time expressions in the evidence when comparing event order.\n"
         "Do not rely only on replay timestamps if the content itself gives a clearer time relation.\n"
         "When the evidence provides a dated reference, convert relative time answers "
@@ -195,31 +214,57 @@ async def synthesize_eval_answer(
         "Prefer the absolute form over repeating the relative phrase.\n\n"
     )
 
+
+def _episode_section(prompt_payload: Any) -> str:
+    if not prompt_payload.episode_text:
+        return ""
+    return f"\nEpisode Summaries:\n{prompt_payload.episode_text}\n"
+
+
+def _build_eval_answer_user_prompt(
+    *,
+    question: str,
+    prompt_payload: Any,
+    l2_context_text: str,
+    question_date_line: str,
+) -> str:
+    prefix = (
+        _relative_time_instruction()
+        + f"{prompt_payload.timeline_instruction}"
+        + f"{prompt_payload.preference_instruction}"
+        + f"{question_date_line}"
+        + f"Question:\n{question}\n\n"
+    )
     if prompt_payload.prioritize_timeline:
-        user_prompt = (
-            relative_time_instruction + f"{prompt_payload.timeline_instruction}"
-            f"{prompt_payload.preference_instruction}"
-            f"{question_date_line}"
-            f"Question:\n{question}\n\n"
-            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
-            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-            f"Knowledge Graph Context:\n{l2_context_text}\n"
-            f"{episode_section}\n"
-            f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
+        return (
+            prefix
+            + f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+            + f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+            + f"Knowledge Graph Context:\n{l2_context_text}\n"
+            + f"{_episode_section(prompt_payload)}\n"
+            + f"Timeline Summary (use this for temporal/ordering questions):\n{prompt_payload.timeline_text}\n"
         )
-    else:
-        user_prompt = (
-            relative_time_instruction + f"{prompt_payload.timeline_instruction}"
-            f"{prompt_payload.preference_instruction}"
-            f"{question_date_line}"
-            f"Question:\n{question}\n\n"
-            f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
-            f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
-            f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
-            f"Knowledge Graph Context:\n{l2_context_text}\n"
-            f"{episode_section}"
-        )
-    active_logger.info(
+    return (
+        prefix
+        + f"Timeline Summary:\n{prompt_payload.timeline_text}\n\n"
+        + f"Session Evidence Bundles:\n{prompt_payload.bundle_text}\n\n"
+        + f"Retrieved Evidence:\n{prompt_payload.evidence_text}\n\n"
+        + f"Knowledge Graph Context:\n{l2_context_text}\n"
+        + f"{_episode_section(prompt_payload)}"
+    )
+
+
+def _log_answer_synthesis_started(
+    log: Any,
+    *,
+    question: str,
+    hits: list[dict[str, Any]],
+    evidence_bundles: list[dict[str, Any]] | None,
+    prompt_payload: Any,
+    system_prompt: str,
+    user_prompt: str,
+) -> None:
+    log.info(
         "Eval query answer synthesis started",
         question=question,
         evidence_hit_count=len(hits),
@@ -233,6 +278,14 @@ async def synthesize_eval_answer(
             "==== END ANSWER LLM INPUT ===="
         ),
     )
+
+
+async def _chat_eval_answer(
+    bridge: LLMProviderBridge,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
     raw_answer = await bridge.chat(
         system_prompt=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
@@ -245,15 +298,37 @@ async def synthesize_eval_answer(
             "agent_id": "memory_eval",
         },
     )
-    raw_answer = str(raw_answer or "")
-    normalized_answer = normalize_eval_answer(raw_answer)
-    active_logger.info(
+    return str(raw_answer or "")
+
+
+def _log_answer_synthesis_completed(
+    log: Any,
+    *,
+    question: str,
+    hits: list[dict[str, Any]],
+    raw_answer: str,
+    normalized_answer: str,
+) -> None:
+    log.info(
         "Eval query answer synthesis completed",
         question=question,
         evidence_hit_count=len(hits),
         raw_answer=raw_answer,
         answer=normalized_answer,
     )
+
+
+def _build_answer_trace(
+    *,
+    hits: list[dict[str, Any]],
+    evidence_bundles: list[dict[str, Any]] | None,
+    timeline_summary: list[dict[str, Any]] | None,
+    l2_entity_cards: list[dict[str, Any]] | None,
+    l2_relationships: list[dict[str, Any]] | None,
+    l2_assertions: list[dict[str, Any]] | None,
+    show_prompt: bool,
+    user_prompt: str,
+) -> dict[str, Any]:
     l2_count = len(l2_entity_cards or []) + len(l2_relationships or []) + len(l2_assertions or [])
     answer_trace = {
         "answer_source": "llm",
@@ -264,4 +339,4 @@ async def synthesize_eval_answer(
     }
     if show_prompt:
         answer_trace["prompt"] = user_prompt
-    return normalized_answer, answer_trace
+    return answer_trace

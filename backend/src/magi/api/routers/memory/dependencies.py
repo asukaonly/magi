@@ -5,12 +5,19 @@ from __future__ import annotations
 import sys
 from typing import Any, Callable, TypeVar
 
+from fastapi import HTTPException, status
+
 from magi.chat import get_chat_read_service as _get_chat_read_service
 from magi.core.logger import get_logger
 from magi.llm.provider import get_scenario_llm_pool
-from magi.memory.provider import get_hybrid_retrieval_service, get_memory_integration, get_unified_memory
+from magi.memory.eval_support.answer_synthesis import synthesize_eval_answer
+from magi.memory.provider import (
+    get_hybrid_retrieval_service,
+    get_memory_integration,
+    get_unified_memory,
+)
 
-from .eval.answering import synthesize_eval_answer
+from .helpers import memory_t
 
 T = TypeVar("T", bound=Callable[..., Any])
 
@@ -43,6 +50,7 @@ def _resolve_location_sample_store():
         return override()
     try:
         from magi.location.provider import get_location_sample_store
+
         return get_location_sample_store()
     except RuntimeError:
         return None
@@ -54,28 +62,35 @@ def _resolve_manual_entry_store():
         return override()
     try:
         from magi.memory.provider import get_manual_entry_store
+
         return get_manual_entry_store()
     except RuntimeError:
         return None
 
 
 def _resolve_manual_entry_asset_store():
-    override = _package_override("_resolve_manual_entry_asset_store", _resolve_manual_entry_asset_store)
+    override = _package_override(
+        "_resolve_manual_entry_asset_store", _resolve_manual_entry_asset_store
+    )
     if override is not None:
         return override()
     try:
         from magi.memory.provider import get_manual_entry_asset_store
+
         return get_manual_entry_asset_store()
     except RuntimeError:
         return None
 
 
 def _resolve_manual_entry_weather_fetcher():
-    override = _package_override("_resolve_manual_entry_weather_fetcher", _resolve_manual_entry_weather_fetcher)
+    override = _package_override(
+        "_resolve_manual_entry_weather_fetcher", _resolve_manual_entry_weather_fetcher
+    )
     if override is not None:
         return override()
     try:
         from magi.memory.provider import get_manual_entry_weather_fetcher
+
         return get_manual_entry_weather_fetcher()
     except RuntimeError:
         return None
@@ -92,7 +107,9 @@ def _resolve_memory_integration():
 
 
 def _resolve_hybrid_retrieval_service():
-    override = _package_override("_resolve_hybrid_retrieval_service", _resolve_hybrid_retrieval_service)
+    override = _package_override(
+        "_resolve_hybrid_retrieval_service", _resolve_hybrid_retrieval_service
+    )
     if override is not None:
         return override()
     try:
@@ -119,8 +136,17 @@ def get_chat_read_service():
 
 
 async def _synthesize_eval_answer(**kwargs: Any) -> tuple[str, dict[str, Any]]:
+    llm_pool = _resolve_scenario_llm_pool()
+    if llm_pool is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t(
+                "memory.errors.scenario_llm_pool_uninitialized",
+                "Scenario LLM pool is not initialized",
+            ),
+        )
     return await synthesize_eval_answer(
         **kwargs,
-        llm_pool=_resolve_scenario_llm_pool(),
+        llm_pool=llm_pool,
         log=logger,
     )
