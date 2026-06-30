@@ -197,62 +197,89 @@ def build_l2_edge_embedding_text_v2(
     - Deduplicates natural_summary and evidence_text
     - Bounds evidence text length
     """
-    from ..l2.predicate_catalog import get_natural_label, get_spec
-
     subj = subject_name or subject_id
     obj = object_name or object_id
 
-    parts: list[str] = []
-
-    label = get_natural_label(predicate, "en")
-    spec = get_spec(predicate)
-    family = spec.family if spec else None
-    if label:
-        parts.append(f"Subject: {subj}")
-        parts.append(f"Relation: {label} / {predicate}" + (f" / {family}" if family else ""))
-        parts.append(f"Object: {obj}")
-    else:
-        parts.append(f"{subj} {predicate} {obj}")
+    parts = _l2_edge_v2_identity_lines(
+        subject=subj,
+        predicate=predicate,
+        object_value=obj,
+    )
 
     if object_type:
         parts.append(f"Object type: {object_type}")
     if status:
         parts.append(f"Status: {status}")
     if first_observed_at:
-        import time as _time
-
-        age_days = (_time.time() - first_observed_at) / 86400
-        if age_days < 7:
-            parts.append("Observed: recent (within a week)")
-        elif age_days < 30:
-            parts.append("Observed: this month")
-        elif age_days < 90:
-            parts.append("Observed: within 3 months")
-        elif age_days < 365:
-            parts.append("Observed: within a year")
-        else:
-            parts.append("Observed: over a year ago")
+        parts.append(_l2_edge_v2_observed_hint(first_observed_at))
 
     summary = str(natural_summary or "").strip()
     evidence = str(evidence_text or "").strip()
-
-    if summary and evidence:
-        if summary.lower() == evidence.lower():
-            evidence = ""
-        elif summary.lower() in evidence.lower():
-            summary = ""
-        elif evidence.lower() in summary.lower():
-            evidence = ""
+    summary, evidence = _deduplicate_summary_and_evidence(summary, evidence)
 
     if summary:
         parts.append(f"Summary: {summary}")
     if evidence:
-        max_evidence_len = 500
-        if len(evidence) > max_evidence_len:
-            evidence = evidence[:max_evidence_len].rsplit(" ", 1)[0] + "..."
-        parts.append(f"Evidence: {evidence}")
+        parts.append(f"Evidence: {_bounded_edge_evidence(evidence)}")
 
     return "\n".join(parts)
+
+
+def _l2_edge_v2_identity_lines(
+    *,
+    subject: str,
+    predicate: str,
+    object_value: str,
+) -> list[str]:
+    from ..l2.predicate_catalog import get_natural_label, get_spec
+
+    label = get_natural_label(predicate, "en")
+    spec = get_spec(predicate)
+    family = spec.family if spec else None
+    if not label:
+        return [f"{subject} {predicate} {object_value}"]
+    relation = f"Relation: {label} / {predicate}" + (f" / {family}" if family else "")
+    return [
+        f"Subject: {subject}",
+        relation,
+        f"Object: {object_value}",
+    ]
+
+
+def _l2_edge_v2_observed_hint(first_observed_at: float) -> str:
+    import time as _time
+
+    age_days = (_time.time() - first_observed_at) / 86400
+    if age_days < 7:
+        return "Observed: recent (within a week)"
+    if age_days < 30:
+        return "Observed: this month"
+    if age_days < 90:
+        return "Observed: within 3 months"
+    if age_days < 365:
+        return "Observed: within a year"
+    return "Observed: over a year ago"
+
+
+def _deduplicate_summary_and_evidence(summary: str, evidence: str) -> tuple[str, str]:
+    if not summary or not evidence:
+        return summary, evidence
+    summary_lower = summary.lower()
+    evidence_lower = evidence.lower()
+    if summary_lower == evidence_lower:
+        return summary, ""
+    if summary_lower in evidence_lower:
+        return "", evidence
+    if evidence_lower in summary_lower:
+        return summary, ""
+    return summary, evidence
+
+
+def _bounded_edge_evidence(evidence: str) -> str:
+    max_evidence_len = 500
+    if len(evidence) <= max_evidence_len:
+        return evidence
+    return evidence[:max_evidence_len].rsplit(" ", 1)[0] + "..."
 
 
 __all__ = [
