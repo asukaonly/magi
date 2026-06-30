@@ -42,6 +42,7 @@ Tests inject their own callables for isolation.
 from __future__ import annotations
 
 import inspect
+from dataclasses import dataclass
 from threading import Lock
 from typing import Awaitable, Callable, Union
 
@@ -71,15 +72,11 @@ logger = get_logger(__name__)
 
 # A candidates builder returns the installed∪registry union; production awaits
 # the registry, so the inner callable may return a list directly OR a coroutine.
-CandidatesResult = Union[
-    list[SuggestionCandidate], Awaitable[list[SuggestionCandidate]]
-]
+CandidatesResult = Union[list[SuggestionCandidate], Awaitable[list[SuggestionCandidate]]]
 CandidatesDep = Callable[[], Callable[[], CandidatesResult]]
 # Given the resolved candidate list, return a (plugin_id) -> bool adapter so the
 # engine can resolve availability per-candidate (installed vs registry-only).
-AvailabilityDep = Callable[
-    [], Callable[[list[SuggestionCandidate]], Callable[[str], bool]]
-]
+AvailabilityDep = Callable[[], Callable[[list[SuggestionCandidate]], Callable[[str], bool]]]
 IsDismissedDep = Callable[[], Callable[[str], bool]]
 # The inner writer accepts (dedupe_key, kind, title=None); title is optional so
 # callers may pass two or three args. ``...`` keeps two-arg fakes type-valid.
@@ -91,6 +88,92 @@ ClassifyDep = Callable[[], ClassifyFn]
 # Process-wide throttle: avoids re-running the LLM classifier on every /check.
 # State is keyed by session_id; resets on worker restart.
 _THROTTLE = SuggestionThrottle(reclassify_after=3)
+
+
+@dataclass(slots=True)
+class _SystemSuggestionsRouteHandlers:
+    candidates_dep: CandidatesDep
+    availability_dep: AvailabilityDep
+    is_dismissed_dep: IsDismissedDep
+    record_dismissal_dep: RecordDismissalDep
+    list_dismissals_dep: ListDismissalsDep
+    clear_dismissal_dep: ClearDismissalDep
+    classify_dep: ClassifyDep
+
+    async def check(self, request: CheckRequest) -> CheckResponse:
+        candidates = await self._resolve_candidates()
+        is_available = self.availability_dep()(candidates)
+        proposals = await run_suggestion_check(
+            recent_text=request.text,
+            locale=request.locale,
+            session_id=request.session_id,
+            candidates=candidates,
+            is_available=is_available,
+            is_dismissed=self.is_dismissed_dep(),
+            classify=self.classify_dep(),
+            throttle=_THROTTLE,
+        )
+        await _try_materialize_suggestion_notifications(
+            locale=request.locale,
+            proposals=proposals,
+        )
+        return CheckResponse(suggestions=proposals)
+
+    async def dismiss(self, request: DismissRequest) -> DismissResponse:
+        record = self.record_dismissal_dep()
+        record(request.dedupe_key, request.kind.value, request.title)
+        return DismissResponse(dedupe_key=request.dedupe_key, dismissed=True)
+
+    async def list_dismissals(self) -> ListDismissalsResponse:
+        return ListDismissalsResponse(dismissals=self.list_dismissals_dep()())
+
+    async def clear_dismissal(self, dedupe_key: str) -> ClearDismissalResponse:
+        cleared = self.clear_dismissal_dep()(dedupe_key)
+        return ClearDismissalResponse(dedupe_key=dedupe_key, cleared=cleared)
+
+    async def list_installable(self) -> ListInstallableResponse:
+        candidates = await self._resolve_candidates()
+        is_available = self.availability_dep()(candidates)
+        return ListInstallableResponse(
+            items=[
+                _installable_item(candidate)
+                for candidate in candidates
+                if is_available(candidate.plugin_id)
+            ]
+        )
+
+    async def _resolve_candidates(self) -> list[SuggestionCandidate]:
+        result = self.candidates_dep()()
+        return await result if inspect.isawaitable(result) else result
+
+
+def _installable_item(candidate: SuggestionCandidate) -> InstallableItem:
+    return InstallableItem(
+        plugin_id=candidate.plugin_id,
+        category=candidate.descriptor.category,
+        installed=candidate.installed,
+        rationale={
+            "zh": candidate.descriptor.rationale.zh,
+            "en": candidate.descriptor.rationale.en,
+        },
+    )
+
+
+async def _try_materialize_suggestion_notifications(
+    *,
+    locale: str,
+    proposals: object,
+) -> None:
+    try:
+        from magi.notifications.service import materialize_suggestion_notifications
+
+        await materialize_suggestion_notifications(
+            user_id="default_user",
+            locale=locale,
+            proposals=proposals,
+        )
+    except Exception:
+        logger.warning("notification materialization failed", exc_info=True)
 
 
 def build_default_system_suggestions_router(
@@ -110,79 +193,28 @@ def build_default_system_suggestions_router(
     without prefix in tests that POST to ``/system-suggestions/*`` directly.
     """
     router = APIRouter()
-
-    @router.post("/system-suggestions/check", response_model=CheckResponse)
-    async def check(request: CheckRequest) -> CheckResponse:
-        # Resolve the installed∪registry candidate union. The builder may be
-        # async (production awaits the registry) or sync (tests/degrade path).
-        result = candidates_dep()()
-        candidates = await result if inspect.isawaitable(result) else result
-        # Per-candidate availability: installed vs registry-only resolve through
-        # different resolver entry points (see ``_default_availability``).
-        is_available = availability_dep()(candidates)
-        proposals = await run_suggestion_check(
-            recent_text=request.text,
-            locale=request.locale,
-            session_id=request.session_id,
-            candidates=candidates,
-            is_available=is_available,
-            is_dismissed=is_dismissed_dep(),
-            classify=classify_dep(),
-            throttle=_THROTTLE,
-        )
-        try:
-            from magi.notifications.service import materialize_suggestion_notifications
-            await materialize_suggestion_notifications(
-                user_id="default_user", locale=request.locale, proposals=proposals,
-            )
-        except Exception:
-            logger.warning("notification materialization failed", exc_info=True)
-        return CheckResponse(suggestions=proposals)
-
-    @router.post("/system-suggestions/dismiss", response_model=DismissResponse)
-    async def dismiss(request: DismissRequest) -> DismissResponse:
-        record = record_dismissal_dep()
-        record(request.dedupe_key, request.kind.value, request.title)
-        return DismissResponse(dedupe_key=request.dedupe_key, dismissed=True)
-
-    @router.get(
-        "/system-suggestions/dismissals", response_model=ListDismissalsResponse
+    handlers = _SystemSuggestionsRouteHandlers(
+        candidates_dep=candidates_dep,
+        availability_dep=availability_dep,
+        is_dismissed_dep=is_dismissed_dep,
+        record_dismissal_dep=record_dismissal_dep,
+        list_dismissals_dep=list_dismissals_dep,
+        clear_dismissal_dep=clear_dismissal_dep,
+        classify_dep=classify_dep,
     )
-    async def list_dismissals() -> ListDismissalsResponse:
-        return ListDismissalsResponse(dismissals=list_dismissals_dep()())
 
-    @router.delete(
+    router.post("/system-suggestions/check", response_model=CheckResponse)(handlers.check)
+    router.post("/system-suggestions/dismiss", response_model=DismissResponse)(handlers.dismiss)
+    router.get("/system-suggestions/dismissals", response_model=ListDismissalsResponse)(
+        handlers.list_dismissals
+    )
+    router.delete(
         "/system-suggestions/dismissals/{dedupe_key}",
         response_model=ClearDismissalResponse,
+    )(handlers.clear_dismissal)
+    router.get("/system-suggestions/installable", response_model=ListInstallableResponse)(
+        handlers.list_installable
     )
-    async def clear_dismissal(dedupe_key: str) -> ClearDismissalResponse:
-        cleared = clear_dismissal_dep()(dedupe_key)
-        return ClearDismissalResponse(dedupe_key=dedupe_key, cleared=cleared)
-
-    @router.get(
-        "/system-suggestions/installable",
-        response_model=ListInstallableResponse,
-    )
-    async def list_installable() -> ListInstallableResponse:
-        # Resolve the installed∪registry candidate union (same shape as
-        # ``/check``: the builder may be async in production, sync in tests).
-        result = candidates_dep()()
-        candidates = await result if inspect.isawaitable(result) else result
-        is_available = availability_dep()(candidates)
-        items = [
-            InstallableItem(
-                plugin_id=c.plugin_id,
-                category=c.descriptor.category,
-                installed=c.installed,
-                rationale={
-                    "zh": c.descriptor.rationale.zh,
-                    "en": c.descriptor.rationale.en,
-                },
-            )
-            for c in candidates
-            if is_available(c.plugin_id)
-        ]
-        return ListInstallableResponse(items=items)
 
     return router
 
@@ -248,8 +280,7 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
             registry_entries = list(index.plugins)
         except Exception as exc:  # degrade to installed-only
             logger.warning(
-                "registry fetch failed for suggestion candidates; "
-                "degrading to installed-only",
+                ("registry fetch failed for suggestion candidates; " "degrading to installed-only"),
                 error=str(exc),
             )
             registry_entries = []
@@ -268,9 +299,7 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
 _AVAILABILITY_ADAPTER_LOCK = Lock()
 
 
-def _default_availability() -> Callable[
-    [list[SuggestionCandidate]], Callable[[str], bool]
-]:
+def _default_availability() -> Callable[[list[SuggestionCandidate]], Callable[[str], bool]]:
     """Return a factory that builds a per-candidate availability adapter.
 
     Given the resolved candidate list, returns a ``(plugin_id) -> bool`` that
@@ -300,9 +329,7 @@ def _default_availability() -> Callable[
                 return resolver.is_available(plugin_id).available
             if cand.installed:
                 return resolver.is_available(plugin_id).available
-            return resolver.evaluate_descriptor(
-                cand.descriptor, plugin_id=plugin_id
-            ).available
+            return resolver.evaluate_descriptor(cand.descriptor, plugin_id=plugin_id).available
 
         return _is_available
 
