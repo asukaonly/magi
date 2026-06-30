@@ -6,6 +6,7 @@ Implements the "Load" phase of the skill system:
 - Resolves variable references (!`command`, template.md, examples/)
 - Returns executable SkillContent
 """
+
 import logging
 import os
 import re
@@ -128,7 +129,7 @@ class SkillLoader:
         import yaml
 
         # Extract YAML frontmatter
-        frontmatter_match = re.match(r'^---\s*\n(.*?)\n---\s*\n(.*)', content, re.DOTALL)
+        frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", content, re.DOTALL)
         if not frontmatter_match:
             logger.warning("No frontmatter found, using defaults")
             return SkillFrontmatter(name="", description=""), content
@@ -187,8 +188,7 @@ class SkillLoader:
         # Truncate on a UTF-8 boundary by decoding with errors='ignore'.
         truncated = encoded[:MAX_SKILL_BODY_BYTES].decode("utf-8", errors="ignore")
         return (
-            truncated
-            + f"\n\n<!-- SKILL.md truncated at {MAX_SKILL_BODY_BYTES} bytes by magi -->\n"
+            truncated + f"\n\n<!-- SKILL.md truncated at {MAX_SKILL_BODY_BYTES} bytes by magi -->\n"
         )
 
     def _resolve_references(self, content: str, skill_dir: Path) -> str:
@@ -235,7 +235,7 @@ class SkillLoader:
         sees the intent (and can choose to run it via the Bash tool, which
         is permission-gated).
         """
-        pattern = r'!`([^`]+)`'
+        pattern = r"!`([^`]+)`"
 
         if not _command_resolution_enabled():
             if pattern_matches := re.findall(pattern, content):
@@ -293,7 +293,7 @@ class SkillLoader:
         Returns:
             Content with file references replaced by their content
         """
-        pattern = r'\[([^\]]*)\]\(([^)]+)\)'
+        pattern = r"\[([^\]]*)\]\(([^)]+)\)"
         skill_dir_resolved = skill_dir.resolve()
 
         def replace_file(match):
@@ -301,7 +301,7 @@ class SkillLoader:
             filename = match.group(2)
 
             # Skip external urls
-            if filename.startswith(('http://', 'https://', 'mailto:')):
+            if filename.startswith(("http://", "https://", "mailto:")):
                 return match.group(0)
 
             # Reject absolute paths up front — they could only ever escape.
@@ -319,7 +319,7 @@ class SkillLoader:
 
             # Resolve relative to skill_dir and verify the result stays
             # inside the directory (defeats ``../../`` and symlink escapes).
-            file_path = (skill_dir / filename)
+            file_path = skill_dir / filename
             try:
                 resolved = file_path.resolve()
             except (OSError, RuntimeError) as exc:
@@ -343,7 +343,7 @@ class SkillLoader:
             try:
                 file_content = resolved.read_text(encoding="utf-8")
                 # Format as code block for markdown files
-                if filename.endswith('.md'):
+                if filename.endswith(".md"):
                     return f"\n```\n{file_content}\n```\n"
                 return file_content
             except Exception as e:
@@ -373,73 +373,37 @@ class SkillLoader:
         """
         data = {}
 
-        # Load examples if present
         examples_dir = skill_dir / "examples"
         if examples_dir.exists() and examples_dir.is_dir():
-            examples = []
-            for example_file in examples_dir.iterdir():
-                if example_file.is_file() and example_file.suffix in ['.md', '.txt']:
-                    try:
-                        examples.append({
-                            "name": example_file.name,
-                            "content": example_file.read_text(encoding="utf-8"),
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to load example {example_file}: {e}")
-            data["examples"] = examples
+            data["examples"] = _load_text_supporting_files(
+                examples_dir,
+                suffixes={".md", ".txt"},
+                warning_label="example",
+            )
 
-        # Load scripts directory (standard directory per spec)
         scripts_dir = skill_dir / "scripts"
         if scripts_dir.exists() and scripts_dir.is_dir():
-            scripts = []
-            for script_file in scripts_dir.iterdir():
-                if script_file.is_file():
-                    try:
-                        scripts.append({
-                            "name": script_file.name,
-                            "path": str(script_file),
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to scan script {script_file}: {e}")
-            data["scripts"] = scripts
+            data["scripts"] = _load_path_supporting_files(
+                scripts_dir,
+                warning_label="script",
+            )
 
-        # Load references directory (standard directory per spec)
         references_dir = skill_dir / "references"
         if references_dir.exists() and references_dir.is_dir():
-            references = []
-            for ref_file in references_dir.iterdir():
-                if ref_file.is_file() and ref_file.suffix in ['.md', '.txt', '.json']:
-                    try:
-                        references.append({
-                            "name": ref_file.name,
-                            "content": ref_file.read_text(encoding="utf-8"),
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to load reference {ref_file}: {e}")
-            data["references"] = references
+            data["references"] = _load_text_supporting_files(
+                references_dir,
+                suffixes={".md", ".txt", ".json"},
+                warning_label="reference",
+            )
 
-        # Load assets directory (standard directory per spec)
         assets_dir = skill_dir / "assets"
         if assets_dir.exists() and assets_dir.is_dir():
-            assets = []
-            for asset_file in assets_dir.iterdir():
-                if asset_file.is_file():
-                    try:
-                        assets.append({
-                            "name": asset_file.name,
-                            "path": str(asset_file),
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to scan asset {asset_file}: {e}")
-            data["assets"] = assets
+            data["assets"] = _load_path_supporting_files(
+                assets_dir,
+                warning_label="asset",
+            )
 
-        # Look for template files
-        for template_file in skill_dir.glob("template*.md"):
-            try:
-                data[f"template_{template_file.stem}"] = template_file.read_text(encoding="utf-8")
-            except Exception as e:
-                logger.warning(f"Failed to load template {template_file}: {e}")
-
+        data.update(_load_template_files(skill_dir))
         return data
 
     def clear_cache(self, name: Optional[str] = None) -> None:
@@ -455,3 +419,56 @@ class SkillLoader:
         else:
             self._content_cache.clear()
             logger.info("Cleared all skill content cache")
+
+
+def _load_text_supporting_files(
+    directory: Path,
+    *,
+    suffixes: set[str],
+    warning_label: str,
+) -> list[dict[str, str]]:
+    files: list[dict[str, str]] = []
+    for item in directory.iterdir():
+        if not item.is_file() or item.suffix not in suffixes:
+            continue
+        try:
+            files.append(
+                {
+                    "name": item.name,
+                    "content": item.read_text(encoding="utf-8"),
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load {warning_label} {item}: {e}")
+    return files
+
+
+def _load_path_supporting_files(
+    directory: Path,
+    *,
+    warning_label: str,
+) -> list[dict[str, str]]:
+    files: list[dict[str, str]] = []
+    for item in directory.iterdir():
+        if not item.is_file():
+            continue
+        try:
+            files.append(
+                {
+                    "name": item.name,
+                    "path": str(item),
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to scan {warning_label} {item}: {e}")
+    return files
+
+
+def _load_template_files(skill_dir: Path) -> dict[str, str]:
+    templates: dict[str, str] = {}
+    for template_file in skill_dir.glob("template*.md"):
+        try:
+            templates[f"template_{template_file.stem}"] = template_file.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to load template {template_file}: {e}")
+    return templates
