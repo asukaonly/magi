@@ -19,7 +19,9 @@ class L2StoreRelationshipQueryMixin:
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'") as cursor:
+            async with db.execute(
+                "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'"
+            ) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -133,27 +135,98 @@ class L2StoreRelationshipQueryMixin:
             return {}
 
         unique_ids = list(dict.fromkeys(entity_ids))
-        id_placeholders = ", ".join("?" for _ in unique_ids)
+        query, args = self._build_batch_relationship_query(
+            unique_ids=unique_ids,
+            direction=direction,
+            status=status,
+            status_filters=status_filters,
+            predicates=predicates,
+            target_object_id=target_object_id,
+            object_types=object_types,
+            temporal_clause=temporal_clause,
+            evidence_classes=evidence_classes,
+        )
+        rows = await self._fetch_relationship_rows(host, query, args)
+        return self._bucket_relationship_rows(
+            host=host,
+            rows=rows,
+            entity_ids=entity_ids,
+            direction=direction,
+            limit_per_entity=limit_per_entity,
+        )
 
-        if status_filters:
-            status_ph = ", ".join("?" for _ in status_filters)
-            status_clause = f"status IN ({status_ph})"
-            status_args = [str(s).strip() for s in status_filters]
-        else:
-            status_clause = "status = ?"
-            status_args = [status]
-
-        direction_clause: str
-        if direction == "incoming":
-            direction_clause = f"object_id IN ({id_placeholders})"
-        elif direction == "both":
-            direction_clause = f"(subject_id IN ({id_placeholders}) OR object_id IN ({id_placeholders}))"
-            unique_ids = unique_ids + unique_ids
-        else:
-            direction_clause = f"subject_id IN ({id_placeholders})"
-
-        args: list[Any] = status_args + unique_ids
+    def _build_batch_relationship_query(
+        self,
+        *,
+        unique_ids: List[str],
+        direction: str,
+        status: str,
+        status_filters: Optional[List[str]],
+        predicates: Optional[List[str]],
+        target_object_id: Optional[str],
+        object_types: Optional[List[str]],
+        temporal_clause: Optional[tuple[str, list[Any]]],
+        evidence_classes: Optional[List[str]],
+    ) -> tuple[str, list[Any]]:
+        status_clause, status_args = self._relationship_status_clause(
+            status=status,
+            status_filters=status_filters,
+        )
+        direction_clause, direction_args = self._relationship_direction_clause(
+            direction=direction,
+            unique_ids=unique_ids,
+        )
         query = f"SELECT * FROM knowledge_graph WHERE {status_clause} AND {direction_clause}"
+        args = status_args + direction_args
+        query, args = self._append_batch_relationship_filters(
+            query=query,
+            args=args,
+            predicates=predicates,
+            target_object_id=target_object_id,
+            object_types=object_types,
+            temporal_clause=temporal_clause,
+            evidence_classes=evidence_classes,
+        )
+        return f"{query} ORDER BY updated_at DESC", args
+
+    def _relationship_status_clause(
+        self,
+        *,
+        status: str,
+        status_filters: Optional[List[str]],
+    ) -> tuple[str, list[Any]]:
+        if not status_filters:
+            return "status = ?", [status]
+        status_ph = ", ".join("?" for _ in status_filters)
+        return f"status IN ({status_ph})", [str(s).strip() for s in status_filters]
+
+    def _relationship_direction_clause(
+        self,
+        *,
+        direction: str,
+        unique_ids: List[str],
+    ) -> tuple[str, list[Any]]:
+        id_placeholders = ", ".join("?" for _ in unique_ids)
+        if direction == "incoming":
+            return f"object_id IN ({id_placeholders})", list(unique_ids)
+        if direction == "both":
+            return (
+                f"(subject_id IN ({id_placeholders}) OR object_id IN ({id_placeholders}))",
+                list(unique_ids) + list(unique_ids),
+            )
+        return f"subject_id IN ({id_placeholders})", list(unique_ids)
+
+    def _append_batch_relationship_filters(
+        self,
+        *,
+        query: str,
+        args: list[Any],
+        predicates: Optional[List[str]],
+        target_object_id: Optional[str],
+        object_types: Optional[List[str]],
+        temporal_clause: Optional[tuple[str, list[Any]]],
+        evidence_classes: Optional[List[str]],
+    ) -> tuple[str, list[Any]]:
         if predicates:
             pred_ph = ", ".join("?" for _ in predicates)
             query += f" AND predicate IN ({pred_ph})"
@@ -175,27 +248,65 @@ class L2StoreRelationshipQueryMixin:
             # NULL passes through: pre-backfill rows must not be silently excluded.
             query += f" AND (evidence_class IN ({ec_ph}) OR evidence_class IS NULL)"
             args.extend(str(c).strip() for c in evidence_classes)
-        query += " ORDER BY updated_at DESC"
+        return query, args
 
+    async def _fetch_relationship_rows(
+        self,
+        host: L2RetrievalQueryHostProtocol,
+        query: str,
+        args: list[Any],
+    ) -> list[aiosqlite.Row]:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
+                return await cursor.fetchall()
 
+    def _bucket_relationship_rows(
+        self,
+        *,
+        host: L2RetrievalQueryHostProtocol,
+        rows: list[aiosqlite.Row],
+        entity_ids: List[str],
+        direction: str,
+        limit_per_entity: int,
+    ) -> Dict[str, List[Dict[str, Any]]]:
         result: Dict[str, List[Dict[str, Any]]] = {eid: [] for eid in dict.fromkeys(entity_ids)}
         for row in rows:
             edge = host._relation_row_to_dict(row)
-            subject_id = edge["subject_id"]
-            object_id = edge["object_id"]
-            if direction == "incoming":
-                if object_id in result and len(result[object_id]) < limit_per_entity:
-                    result[object_id].append(edge)
-            elif direction == "both":
-                if subject_id in result and len(result[subject_id]) < limit_per_entity:
-                    result[subject_id].append(edge)
-                if object_id in result and object_id != subject_id and len(result[object_id]) < limit_per_entity:
-                    result[object_id].append(edge)
-            else:
-                if subject_id in result and len(result[subject_id]) < limit_per_entity:
-                    result[subject_id].append(edge)
+            self._append_edge_to_relationship_bucket(
+                result=result,
+                edge=edge,
+                direction=direction,
+                limit_per_entity=limit_per_entity,
+            )
         return result
+
+    def _append_edge_to_relationship_bucket(
+        self,
+        *,
+        result: Dict[str, List[Dict[str, Any]]],
+        edge: Dict[str, Any],
+        direction: str,
+        limit_per_entity: int,
+    ) -> None:
+        subject_id = edge["subject_id"]
+        object_id = edge["object_id"]
+        if direction == "incoming":
+            self._append_limited_relationship(result, object_id, edge, limit_per_entity)
+            return
+        if direction == "both":
+            self._append_limited_relationship(result, subject_id, edge, limit_per_entity)
+            if object_id != subject_id:
+                self._append_limited_relationship(result, object_id, edge, limit_per_entity)
+            return
+        self._append_limited_relationship(result, subject_id, edge, limit_per_entity)
+
+    def _append_limited_relationship(
+        self,
+        result: Dict[str, List[Dict[str, Any]]],
+        entity_id: str,
+        edge: Dict[str, Any],
+        limit_per_entity: int,
+    ) -> None:
+        if entity_id in result and len(result[entity_id]) < limit_per_entity:
+            result[entity_id].append(edge)
