@@ -5,6 +5,7 @@ Phase 5 migration: SpanCompleted events instead of direct upserts.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 from magi.agent.runtime.contracts import FactRecord
@@ -16,6 +17,13 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
 def _preview_text(value: Any, *, limit: int = 240) -> str | None:
     text = " ".join(str(value or "").strip().split())
     return text[:limit] or None
+
+
+@dataclass(slots=True, frozen=True)
+class _IntentTraceScope:
+    turn_id: str
+    trace_id: str
+    started_at_ms: int
 
 
 class _IntentPostprocessHostProtocol(Protocol):
@@ -128,66 +136,161 @@ def _intent_resolution_attributes(
     }
 
 
+def _resolve_intent_trace_scope(
+    *,
+    host: _IntentPostprocessHostProtocol,
+    context: ChatRuntimeContext,
+) -> _IntentTraceScope | None:
+    latest_fact = context.latest_fact
+    if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
+        return None
+    turn_id = host._resolve_turn_id(
+        context,
+        latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
+    )
+    if not turn_id:
+        return None
+    return _IntentTraceScope(
+        turn_id=turn_id,
+        trace_id=host._build_trace_id(turn_id),
+        started_at_ms=host._resolve_started_at_ms(None, latest_fact),
+    )
+
+
+def _intent_result_preview(decision: Any) -> str | None:
+    return str(getattr(decision, "intent", "") or "")[:240] or None
+
+
+def _intent_output_preview(
+    *,
+    host: _IntentPostprocessHostProtocol,
+    decision: Any,
+) -> str | None:
+    return _preview_text(
+        f"{getattr(decision, 'intent', '')} / {host._normalize_mode(getattr(decision, 'execution_mode', None))}"
+    )
+
+
+def _intent_attributes_with_previews(
+    *,
+    context: ChatRuntimeContext,
+    decision: Any,
+    host: _IntentPostprocessHostProtocol,
+    selected_tools: list[str] | None = None,
+    task_hint: Any = None,
+    recommended_tools: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    attributes = _intent_resolution_attributes(
+        decision=decision,
+        host=host,
+        selected_tools=selected_tools,
+        task_hint=task_hint,
+        recommended_tools=recommended_tools,
+    )
+    attributes["input_preview"] = _preview_text(context.latest_user_message)
+    attributes["output_preview"] = _intent_output_preview(host=host, decision=decision)
+    return attributes
+
+
 class ChatPostprocessIntentMixin:
     """Persist intent-routing and selected-tool trace details."""
 
     async def record_intent_resolution(self, context: ChatRuntimeContext, decision: Any) -> None:
         host = cast(_IntentPostprocessHostProtocol, self)
-        latest_fact = context.latest_fact
-        if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
+        scope = _resolve_intent_trace_scope(host=host, context=context)
+        if scope is None:
             return
-        turn_id = host._resolve_turn_id(
-            context,
-            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
+        await self._ensure_intent_trace_started(
+            host=host,
+            context=context,
+            decision=decision,
+            scope=scope,
         )
-        if not turn_id:
-            return
-        trace_id = host._build_trace_id(turn_id)
-        started_at_ms = host._resolve_started_at_ms(None, latest_fact)
+        ended_at_ms = now_wall_ms()
+        await self._publish_intent_resolution_span(
+            host=host,
+            scope=scope,
+            started_at_ms=scope.started_at_ms,
+            ended_at_ms=ended_at_ms,
+            result_preview=_intent_result_preview(decision),
+            attributes=_intent_attributes_with_previews(
+                context=context,
+                decision=decision,
+                host=host,
+            ),
+        )
+        # Note: llm_call SpanCompleted is now published by provider_bridge
+        # (see llm/provider_bridge/responses.py:_emit_usage_event). The intent
+        # resolution parent span above is the only chat-side publish needed.
+        await self._persist_and_emit_intent_ux_plan(
+            host=host,
+            context=context,
+            decision=decision,
+            turn_id=scope.turn_id,
+            updated_at_ms=ended_at_ms,
+        )
+
+    async def _ensure_intent_trace_started(
+        self,
+        *,
+        host: _IntentPostprocessHostProtocol,
+        context: ChatRuntimeContext,
+        decision: Any,
+        scope: _IntentTraceScope,
+    ) -> None:
         await host._ensure_turn_trace_started(
-            trace_id=trace_id,
-            turn_id=turn_id,
+            trace_id=scope.trace_id,
+            turn_id=scope.turn_id,
             user_id=context.user_id,
             session_id=context.session_id,
-            started_at_ms=started_at_ms,
+            started_at_ms=scope.started_at_ms,
             user_message=context.latest_user_message,
             mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
         )
+
+    async def _publish_intent_resolution_span(
+        self,
+        *,
+        host: _IntentPostprocessHostProtocol,
+        scope: _IntentTraceScope,
+        started_at_ms: int,
+        ended_at_ms: int,
+        attributes: dict[str, Any],
+        result_preview: str | None = None,
+    ) -> None:
         bus = getattr(host, "_event_bus", None) or resolve_event_bus()
-        ended_at_ms = now_wall_ms()
-        span_id = host._build_span_id(turn_id, "intent_resolution")
-        intent_preview = str(getattr(decision, "intent", "") or "")[:240] or None
-        # intent_resolution sub-table row (subscriber writes trace_spans + trace_intent_resolutions)
-        attributes = _intent_resolution_attributes(decision=decision, host=host)
-        attributes["input_preview"] = _preview_text(context.latest_user_message)
-        attributes["output_preview"] = _preview_text(
-            f"{getattr(decision, 'intent', '')} / {host._normalize_mode(getattr(decision, 'execution_mode', None))}"
-        )
         await publish_trace_span(
             event_bus=bus,
             node_type="intent_resolution",
             name="Intent resolution",
-            span_id=span_id,
-            trace_id=trace_id,
-            parent_span_id=host._build_root_span_id(turn_id),
+            span_id=host._build_span_id(scope.turn_id, "intent_resolution"),
+            trace_id=scope.trace_id,
+            parent_span_id=host._build_root_span_id(scope.turn_id),
             status="completed",
             started_at_ms=started_at_ms,
             ended_at_ms=ended_at_ms,
-            result_preview=intent_preview,
-            turn_id=turn_id,
+            result_preview=result_preview,
+            turn_id=scope.turn_id,
             attributes=attributes,
         )
-        # Note: llm_call SpanCompleted is now published by provider_bridge
-        # (see llm/provider_bridge/responses.py:_emit_usage_event). The intent
-        # resolution parent span above is the only chat-side publish needed.
+
+    async def _persist_and_emit_intent_ux_plan(
+        self,
+        *,
+        host: _IntentPostprocessHostProtocol,
+        context: ChatRuntimeContext,
+        decision: Any,
+        turn_id: str,
+        updated_at_ms: int,
+    ) -> None:
         ux_plan = host._serialize_ux_plan(decision)
         await host._persist_turn_ux_plan(
             turn_id=turn_id,
             execution_mode=host._normalize_mode(getattr(decision, "execution_mode", None)),
             ux_plan=ux_plan,
-            updated_at_ms=ended_at_ms,
+            updated_at_ms=updated_at_ms,
             run_id=context.session_run_id,
             run_revision=context.session_run_revision,
             run_disposition=context.session_run_disposition,
@@ -210,43 +313,24 @@ class ChatPostprocessIntentMixin:
         self, context: ChatRuntimeContext, decision: Any, tool_selection: Any
     ) -> None:
         host = cast(_IntentPostprocessHostProtocol, self)
-        latest_fact = context.latest_fact
-        if host._runtime_trace_store is None or not isinstance(latest_fact, FactRecord):
+        scope = _resolve_intent_trace_scope(host=host, context=context)
+        if scope is None:
             return
-        turn_id = host._resolve_turn_id(
-            context,
-            latest_fact.payload if isinstance(latest_fact.payload, dict) else {},
-        )
-        if not turn_id:
-            return
-        bus = getattr(host, "_event_bus", None) or resolve_event_bus()
-        span_id = host._build_span_id(turn_id, "intent_resolution")
-        trace_id = host._build_trace_id(turn_id)
         now_ms = now_wall_ms()
-        attributes = _intent_resolution_attributes(
-            decision=decision,
+        await self._publish_intent_resolution_span(
             host=host,
-            selected_tools=list(getattr(tool_selection, "tools", []) or []),
-            task_hint=getattr(tool_selection, "task_hint", None)
-            or getattr(decision, "task_hint", None),
-            recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
-        )
-        attributes["input_preview"] = _preview_text(context.latest_user_message)
-        attributes["output_preview"] = _preview_text(
-            f"{getattr(decision, 'intent', '')} / {host._normalize_mode(getattr(decision, 'execution_mode', None))}"
-        )
-        await publish_trace_span(
-            event_bus=bus,
-            node_type="intent_resolution",
-            name="Intent resolution",
-            span_id=span_id,
-            trace_id=trace_id,
-            parent_span_id=host._build_root_span_id(turn_id),
-            status="completed",
+            scope=scope,
             started_at_ms=now_ms,
             ended_at_ms=now_ms,
-            turn_id=turn_id,
-            attributes=attributes,
+            attributes=_intent_attributes_with_previews(
+                context=context,
+                decision=decision,
+                host=host,
+                selected_tools=list(getattr(tool_selection, "tools", []) or []),
+                task_hint=getattr(tool_selection, "task_hint", None)
+                or getattr(decision, "task_hint", None),
+                recommended_tools=list(getattr(tool_selection, "recommended_tools", []) or []),
+            ),
         )
 
 
