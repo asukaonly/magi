@@ -6,7 +6,6 @@ from typing import Any
 
 from .. import i18n as core_i18n
 
-
 _TONE_TO_VALENCE = {
     "positive": 0.75,
     "warm": 0.65,
@@ -69,74 +68,143 @@ class TimelineStateBandBuilder:
         locale: str = "en",
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         zh = core_i18n.is_zh_language(locale, default="en")
-        relevant_summaries = [
+        bands: list[dict[str, Any]] = []
+        markers: list[dict[str, Any]] = []
+        previous_band: dict[str, Any] | None = None
+
+        for summary in self._relevant_summaries(summaries, start=start, end=end):
+            band = self._build_band(
+                summary,
+                viewport_start=start,
+                assertions=assertions,
+                snapshots=snapshots,
+            )
+            bands.append(band)
+
+            marker = self._build_shift_marker(
+                previous_band=previous_band,
+                band=band,
+                summary=summary,
+                locale=locale,
+                zh=zh,
+            )
+            if marker is not None:
+                markers.append(marker)
+            previous_band = band
+
+        return bands, markers
+
+    @staticmethod
+    def _relevant_summaries(
+        summaries: list[dict[str, Any]],
+        *,
+        start: float,
+        end: float,
+    ) -> list[dict[str, Any]]:
+        relevant = [
             summary
             for summary in summaries
             if float(summary.get("period_end") or 0.0) >= float(start)
             and float(summary.get("period_start") or 0.0) <= float(end)
         ]
-        relevant_summaries.sort(key=lambda item: float(item.get("period_start") or 0.0))
+        return sorted(relevant, key=lambda item: float(item.get("period_start") or 0.0))
 
-        bands: list[dict[str, Any]] = []
-        markers: list[dict[str, Any]] = []
-        previous_band: dict[str, Any] | None = None
+    def _build_band(
+        self,
+        summary: dict[str, Any],
+        *,
+        viewport_start: float,
+        assertions: list[dict[str, Any]],
+        snapshots: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        summary_id = str(summary.get("summary_id") or "summary")
+        period_start = float(summary.get("period_start") or viewport_start)
+        period_end = float(summary.get("period_end") or period_start)
+        overlapping_assertions = self._assertions_for_period(assertions, period_start, period_end)
+        nearest_snapshot = self._nearest_snapshot(snapshots, period_start, period_end)
+        sentiment_summary = self._sentiment_summary(summary)
+        stress_level = self._resolve_stress_level(
+            sentiment_summary, overlapping_assertions, nearest_snapshot
+        )
+        engagement = self._resolve_engagement(
+            sentiment_summary, overlapping_assertions, nearest_snapshot
+        )
+        label = self._resolve_label(overlapping_assertions, nearest_snapshot, sentiment_summary)
+        return {
+            "band_id": f"state-band:{summary_id}",
+            "time_start": period_start,
+            "time_end": period_end,
+            "valence": self._resolve_valence(sentiment_summary, label),
+            "stress_level": stress_level,
+            "engagement": engagement,
+            "confidence": self._resolve_confidence(overlapping_assertions),
+            "label": label,
+            "source_summary_ids": [summary_id],
+            "source_assertion_ids": self._source_assertion_ids(overlapping_assertions),
+        }
 
-        for summary in relevant_summaries:
-            summary_id = str(summary.get("summary_id") or "summary")
-            period_start = float(summary.get("period_start") or start)
-            period_end = float(summary.get("period_end") or period_start)
-            overlapping_assertions = self._assertions_for_period(assertions, period_start, period_end)
-            nearest_snapshot = self._nearest_snapshot(snapshots, period_start, period_end)
-            sentiment_summary = summary.get("sentiment_summary") if isinstance(summary.get("sentiment_summary"), dict) else {}
+    @staticmethod
+    def _sentiment_summary(summary: dict[str, Any]) -> dict[str, Any]:
+        sentiment_summary = summary.get("sentiment_summary")
+        return sentiment_summary if isinstance(sentiment_summary, dict) else {}
 
-            stress_level = self._resolve_stress_level(sentiment_summary, overlapping_assertions, nearest_snapshot)
-            engagement = self._resolve_engagement(sentiment_summary, overlapping_assertions, nearest_snapshot)
-            label = self._resolve_label(overlapping_assertions, nearest_snapshot, sentiment_summary)
-            band = {
-                "band_id": f"state-band:{summary_id}",
-                "time_start": period_start,
-                "time_end": period_end,
-                "valence": self._resolve_valence(sentiment_summary, label),
-                "stress_level": stress_level,
-                "engagement": engagement,
-                "confidence": self._resolve_confidence(overlapping_assertions),
-                "label": label,
-                "source_summary_ids": [summary_id],
-                "source_assertion_ids": [
-                    str(assertion.get("assertion_id"))
-                    for assertion in overlapping_assertions
-                    if assertion.get("assertion_id")
-                ],
-            }
-            bands.append(band)
+    @staticmethod
+    def _source_assertion_ids(assertions: list[dict[str, Any]]) -> list[str]:
+        return [
+            str(assertion.get("assertion_id"))
+            for assertion in assertions
+            if assertion.get("assertion_id")
+        ]
 
-            if previous_band is not None and abs(float(previous_band["stress_level"]) - float(stress_level)) >= 0.25:
-                changes = []
-                change_and_pattern = summary.get("change_and_pattern")
-                if isinstance(change_and_pattern, dict):
-                    changes = [str(item) for item in change_and_pattern.get("changes", []) if str(item).strip()]
-                markers.append(
-                    {
-                        "marker_id": f"state-marker:{summary_id}",
-                        "timestamp": period_start,
-                        "kind": "shift",
-                        "label": core_i18n.t("timeline.state.shift", language=locale, fallback="状态变化" if zh else "State shift"),
-                        "summary": changes[0] if changes else (
-                            core_i18n.t(
-                                "timeline.state.marker.stress_changed",
-                                language=locale,
-                                fallback="压力变化为 {stress_level}。" if zh else "Stress changed to {stress_level}.",
-                                stress_level=f"{stress_level:.2f}",
-                            )
-                        ),
-                        "source_band_ids": [str(previous_band["band_id"]), band["band_id"]],
-                        "source_summary_ids": [summary_id],
-                    }
-                )
+    def _build_shift_marker(
+        self,
+        *,
+        previous_band: dict[str, Any] | None,
+        band: dict[str, Any],
+        summary: dict[str, Any],
+        locale: str,
+        zh: bool,
+    ) -> dict[str, Any] | None:
+        if previous_band is None:
+            return None
+        stress_delta = abs(float(previous_band["stress_level"]) - float(band["stress_level"]))
+        if stress_delta < 0.25:
+            return None
+        summary_id = str(summary.get("summary_id") or "summary")
+        changes = self._summary_changes(summary)
+        return {
+            "marker_id": f"state-marker:{summary_id}",
+            "timestamp": float(band["time_start"]),
+            "kind": "shift",
+            "label": core_i18n.t(
+                "timeline.state.shift",
+                language=locale,
+                fallback="状态变化" if zh else "State shift",
+            ),
+            "summary": changes[0] if changes else self._stress_changed_summary(band, locale, zh),
+            "source_band_ids": [str(previous_band["band_id"]), band["band_id"]],
+            "source_summary_ids": [summary_id],
+        }
 
-            previous_band = band
+    @staticmethod
+    def _summary_changes(summary: dict[str, Any]) -> list[str]:
+        change_and_pattern = summary.get("change_and_pattern")
+        if not isinstance(change_and_pattern, dict):
+            return []
+        return [str(item) for item in change_and_pattern.get("changes", []) if str(item).strip()]
 
-        return bands, markers
+    @staticmethod
+    def _stress_changed_summary(
+        band: dict[str, Any],
+        locale: str,
+        zh: bool,
+    ) -> str:
+        return core_i18n.t(
+            "timeline.state.marker.stress_changed",
+            language=locale,
+            fallback="压力变化为 {stress_level}。" if zh else "Stress changed to {stress_level}.",
+            stress_level=f"{float(band['stress_level']):.2f}",
+        )
 
     def _assertions_for_period(
         self,
@@ -244,4 +312,3 @@ class TimelineStateBandBuilder:
             return float(value)
         except (TypeError, ValueError):
             return float(default)
-
