@@ -10,6 +10,12 @@ from magi.tools.schema import ToolExecutionContext
 from magi.tools.tool_hint_resolver import ToolHintResolver
 from magi.tools.capabilities import build_tool_capabilities
 from magi.agent.orchestration import PlannedSubtask
+from .planning_fallbacks import (
+    CODE_EXPLORE_LEAF_TYPE,
+    GENERAL_PURPOSE_LEAF_TYPE,
+    LEAF_SUBAGENT_TYPES,
+    build_fallback_subtask_plan,
+)
 from .planning_prompt_rendering import (
     LeafWorkerPromptInput,
     build_leaf_worker_prompt,
@@ -25,10 +31,6 @@ from .planning_heuristics import (
     looks_like_external_evidence_subtask,
     needs_research_fetch,
 )
-
-CODE_EXPLORE_LEAF_TYPE = "CodeExplore"
-GENERAL_PURPOSE_LEAF_TYPE = "general-purpose"
-LEAF_SUBAGENT_TYPES = {CODE_EXPLORE_LEAF_TYPE, GENERAL_PURPOSE_LEAF_TYPE}
 
 
 class ChatPlanningPromptMixin:
@@ -48,78 +50,11 @@ class ChatPlanningPromptMixin:
         *,
         request_profile: str,
     ) -> list[PlannedSubtask]:
-        is_repo_architecture = any(
-            keyword in user_message.lower()
-            for keyword in [
-                "architecture",
-                "codebase",
-                "repo",
-                "代码架构",
-                "项目架构",
-                "代码库",
-                "目录结构",
-            ]
+        return build_fallback_subtask_plan(
+            user_message,
+            default_leaf_type,
+            request_profile=request_profile,
         )
-        leaf_type = (
-            default_leaf_type
-            if default_leaf_type in LEAF_SUBAGENT_TYPES
-            else CODE_EXPLORE_LEAF_TYPE
-        )
-        if request_profile == "research":
-            return self._build_research_seed_subtasks(user_message)
-        if is_repo_architecture:
-            return [
-                PlannedSubtask(
-                    description="Map repository layout",
-                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
-                    prompt="Analyze the top-level directory structure, major modules, and entry folders.",
-                    parallel_group="group_a",
-                ),
-                PlannedSubtask(
-                    description="Identify technology stack",
-                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
-                    prompt="Inspect dependency manifests and boot files to identify the backend, frontend, storage, and runtime stack.",
-                    parallel_group="group_a",
-                ),
-                PlannedSubtask(
-                    description="Analyze frontend structure",
-                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
-                    prompt="Focus on frontend organization, bootstrap flow, routing, and the main UI entry points.",
-                    parallel_group="group_a",
-                ),
-                PlannedSubtask(
-                    description="Analyze backend modules",
-                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
-                    prompt="Focus on backend module boundaries, runtime startup, task agent chain, and the main execution flow.",
-                    parallel_group="group_a",
-                ),
-                PlannedSubtask(
-                    description="Inspect project progress",
-                    subagent_type=CODE_EXPLORE_LEAF_TYPE,
-                    prompt="Look for docs, progress trackers, release notes, or TODO-style files that indicate the current project status and recent progress.",
-                    parallel_group="group_a",
-                ),
-            ]
-        return [
-            PlannedSubtask(
-                description="Locate the primary anchor",
-                subagent_type=leaf_type,
-                prompt="Find the smallest set of files, symbols, or entry modules most likely to control the requested behavior or answer.",
-                parallel_group="group_a",
-            ),
-            PlannedSubtask(
-                description="Trace the owning implementation path",
-                subagent_type=leaf_type,
-                prompt="Follow the code path that directly computes, routes, or controls the requested behavior, pulling in only the nearby dependencies needed to explain it.",
-                parallel_group="group_a",
-            ),
-            PlannedSubtask(
-                description="Validate gaps and edge cases",
-                subagent_type=leaf_type,
-                prompt="Validate important edge cases, unresolved assumptions, and remaining gaps from source evidence instead of repeating broad summary prose.",
-                parallel_group="group_b",
-            ),
-        ]
 
     def _build_leaf_worker_prompt(
         self,
