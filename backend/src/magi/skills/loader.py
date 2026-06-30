@@ -296,61 +296,84 @@ class SkillLoader:
         pattern = r"\[([^\]]*)\]\(([^)]+)\)"
         skill_dir_resolved = skill_dir.resolve()
 
-        def replace_file(match):
-            alt_text = match.group(1)
-            filename = match.group(2)
+        return re.sub(
+            pattern,
+            lambda match: self._replace_file_reference(
+                match,
+                skill_dir,
+                skill_dir_resolved,
+            ),
+            content,
+        )
 
-            # Skip external urls
-            if filename.startswith(("http://", "https://", "mailto:")):
-                return match.group(0)
+    def _replace_file_reference(
+        self,
+        match: re.Match[str],
+        skill_dir: Path,
+        skill_dir_resolved: Path,
+    ) -> str:
+        filename = match.group(2)
+        if filename.startswith(("http://", "https://", "mailto:")):
+            return match.group(0)
 
-            # Reject absolute paths up front — they could only ever escape.
-            try:
-                candidate = Path(filename)
-            except (ValueError, OSError):
-                return match.group(0)
-            if candidate.is_absolute():
-                logger.warning(
-                    "Rejecting absolute SKILL.md file reference: %s (skill_dir=%s)",
-                    filename,
-                    skill_dir_resolved,
-                )
-                return match.group(0)
+        resolved = self._resolve_safe_skill_file_reference(
+            filename,
+            skill_dir,
+            skill_dir_resolved,
+        )
+        if resolved is None or not resolved.is_file():
+            return match.group(0)
+        return self._read_skill_file_reference(filename, resolved, match.group(0))
 
-            # Resolve relative to skill_dir and verify the result stays
-            # inside the directory (defeats ``../../`` and symlink escapes).
-            file_path = skill_dir / filename
-            try:
-                resolved = file_path.resolve()
-            except (OSError, RuntimeError) as exc:
-                logger.warning("SKILL.md file reference unresolvable: %s (%s)", filename, exc)
-                return match.group(0)
-            try:
-                resolved.relative_to(skill_dir_resolved)
-            except ValueError:
-                logger.warning(
-                    "Rejecting out-of-tree SKILL.md file reference: %s -> %s (skill_dir=%s)",
-                    filename,
-                    resolved,
-                    skill_dir_resolved,
-                )
-                return match.group(0)
+    @staticmethod
+    def _resolve_safe_skill_file_reference(
+        filename: str,
+        skill_dir: Path,
+        skill_dir_resolved: Path,
+    ) -> Path | None:
+        try:
+            candidate = Path(filename)
+        except (ValueError, OSError):
+            return None
+        if candidate.is_absolute():
+            logger.warning(
+                "Rejecting absolute SKILL.md file reference: %s (skill_dir=%s)",
+                filename,
+                skill_dir_resolved,
+            )
+            return None
 
-            if not resolved.is_file():
-                # Keep original if file doesn't exist or isn't a regular file.
-                return match.group(0)
+        try:
+            resolved = (skill_dir / filename).resolve()
+        except (OSError, RuntimeError) as exc:
+            logger.warning("SKILL.md file reference unresolvable: %s (%s)", filename, exc)
+            return None
+        try:
+            resolved.relative_to(skill_dir_resolved)
+        except ValueError:
+            logger.warning(
+                "Rejecting out-of-tree SKILL.md file reference: %s -> %s (skill_dir=%s)",
+                filename,
+                resolved,
+                skill_dir_resolved,
+            )
+            return None
+        return resolved
 
-            try:
-                file_content = resolved.read_text(encoding="utf-8")
-                # Format as code block for markdown files
-                if filename.endswith(".md"):
-                    return f"\n```\n{file_content}\n```\n"
-                return file_content
-            except Exception as e:
-                logger.warning(f"Failed to read file {resolved}: {e}")
-                return match.group(0)
-
-        return re.sub(pattern, replace_file, content)
+    @staticmethod
+    def _read_skill_file_reference(
+        filename: str,
+        resolved: Path,
+        original_markdown: str,
+    ) -> str:
+        try:
+            file_content = resolved.read_text(encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Failed to read file {resolved}: {e}")
+            return original_markdown
+        if filename.endswith(".md"):
+            return f"\n```\n{file_content}\n```\n"
+        return file_content
 
     def _load_supporting_data(self, skill_dir: Path) -> Dict[str, Any]:
         """
