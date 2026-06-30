@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
@@ -137,106 +138,133 @@ class RuntimeCommandProcessorModule(LifecycleModule):
 
         while self._running:
             try:
-                if self._draining:
-                    await asyncio.sleep(self._poll_interval_seconds)
-                    continue
-
-                command = await queue.claim_next(
-                    consumer_name="runtime_worker",
-                    command_types=(
-                        RuntimeCommandType.USER_MESSAGE,
-                        RuntimeCommandType.REFRESH_LLM_CONFIG,
-                        RuntimeCommandType.REFRESH_CHANNELS,
-                        RuntimeCommandType.SENSOR_SYNC,
-                        RuntimeCommandType.SENSOR_STATE_FLUSH,
-                    ),
-                )
-                if command is None:
-                    await asyncio.sleep(self._poll_interval_seconds)
-                    continue
-
-                self._active_commands += 1
-                self._idle_event.clear()
-                if command.command_type is RuntimeCommandType.USER_MESSAGE:
-                    user_message = command.as_user_message()
-                    published = await message_bus.publish(
-                        Event(
-                            type=EventTypes.USER_MESSAGE,
-                            data={
-                                "content": user_message.message,
-                                "attachments": list(user_message.attachments),
-                                "author_type": "user",
-                                "content_type": "text",
-                                "user_id": user_message.user_id,
-                                "runtime_namespace": user_message.runtime_namespace,
-                                "session_id": user_message.session_id,
-                                "turn_id": user_message.turn_id,
-                                "workspace_path": user_message.workspace_path,
-                                "timestamp": float(user_message.created_at),
-                                "metadata": dict(user_message.metadata),
-                                # Phase H+1: propagate dispatcher source into
-                                # the fact payload so UserMessagePayload.from_dict
-                                # can tag the resulting RunTrigger
-                                # (api → user_message; telegram/weixin → external_inbound).
-                                "source": user_message.source,
-                            },
-                            source=user_message.source,
-                            level=EventLevel.INFO,
-                            correlation_id=user_message.correlation_id,
-                            metadata={
-                                REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True,
-                            },
-                        )
-                    )
-                elif command.command_type is RuntimeCommandType.REFRESH_LLM_CONFIG:
-                    from ..bootstrap.backend import refresh_runtime_llm_config
-                    from ..config.loader import reload_config
-
-                    refreshed_config = reload_config()
-                    refresh_runtime_llm_config(refreshed_config)
-                    published = True
-                elif command.command_type is RuntimeCommandType.REFRESH_CHANNELS:
-                    from ..config.loader import reload_config
-
-                    reload_config()
-                    channels_module = self._context.channels.module
-                    if channels_module is not None:
-                        await channels_module.restart()
-                    published = True
-                elif command.command_type is RuntimeCommandType.SENSOR_SYNC:
-                    sensor_sync = command.as_sensor_sync()
-                    sensor_scheduler = require_initialized(
-                        self._context.agent_runtime.sensor_scheduler_contrib,
-                        "sensor scheduler contributor",
-                    )
-                    await sensor_scheduler.queue_manual_sync(sensor_sync.source_name)
-                    published = True
-                elif command.command_type is RuntimeCommandType.SENSOR_STATE_FLUSH:
-                    sensor_flush = command.as_sensor_state_flush()
-                    sensor_sync_executor = require_initialized(
-                        self._context.agent_runtime.sensor_sync_executor,
-                        "sensor sync executor",
-                    )
-                    await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name)
-                    published = True
-                else:
-                    raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")
-
-                if published:
-                    await queue.ack(command.command_id)
-                else:
-                    await queue.requeue(command.command_id, error_text="LOCAL_MESSAGE_BUS_PUBLISH_FAILED")
-                self._active_commands = max(0, self._active_commands - 1)
-                if self._active_commands == 0:
-                    self._idle_event.set()
+                await self._run_next_command(queue=queue, message_bus=message_bus)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self._active_commands = max(0, self._active_commands - 1)
-                if self._active_commands == 0:
-                    self._idle_event.set()
+                self._mark_command_finished()
                 logger.warning("Runtime command processing failed", error=str(exc))
                 await asyncio.sleep(self._poll_interval_seconds)
+
+    async def _run_next_command(self, *, queue: Any, message_bus: Any) -> None:
+        if self._draining:
+            await asyncio.sleep(self._poll_interval_seconds)
+            return
+
+        command = await self._claim_next_command(queue)
+        if command is None:
+            await asyncio.sleep(self._poll_interval_seconds)
+            return
+
+        self._mark_command_started()
+        published = await self._execute_runtime_command(command, message_bus)
+        await self._complete_runtime_command(queue, command, published)
+
+    async def _claim_next_command(self, queue: Any) -> Any | None:
+        return await queue.claim_next(
+            consumer_name="runtime_worker",
+            command_types=(
+                RuntimeCommandType.USER_MESSAGE,
+                RuntimeCommandType.REFRESH_LLM_CONFIG,
+                RuntimeCommandType.REFRESH_CHANNELS,
+                RuntimeCommandType.SENSOR_SYNC,
+                RuntimeCommandType.SENSOR_STATE_FLUSH,
+            ),
+        )
+
+    def _mark_command_started(self) -> None:
+        self._active_commands += 1
+        self._idle_event.clear()
+
+    def _mark_command_finished(self) -> None:
+        self._active_commands = max(0, self._active_commands - 1)
+        if self._active_commands == 0:
+            self._idle_event.set()
+
+    async def _execute_runtime_command(self, command: Any, message_bus: Any) -> bool:
+        if command.command_type is RuntimeCommandType.USER_MESSAGE:
+            return await self._publish_user_message_command(command, message_bus)
+        if command.command_type is RuntimeCommandType.REFRESH_LLM_CONFIG:
+            self._refresh_runtime_llm_config()
+            return True
+        if command.command_type is RuntimeCommandType.REFRESH_CHANNELS:
+            await self._refresh_channels()
+            return True
+        if command.command_type is RuntimeCommandType.SENSOR_SYNC:
+            await self._queue_sensor_sync(command)
+            return True
+        if command.command_type is RuntimeCommandType.SENSOR_STATE_FLUSH:
+            await self._flush_sensor_state(command)
+            return True
+        raise RuntimeError(f"Unsupported runtime command type: {command.command_type}")
+
+    async def _complete_runtime_command(self, queue: Any, command: Any, published: bool) -> None:
+        if published:
+            await queue.ack(command.command_id)
+        else:
+            await queue.requeue(
+                command.command_id,
+                error_text="LOCAL_MESSAGE_BUS_PUBLISH_FAILED",
+            )
+        self._mark_command_finished()
+
+    async def _publish_user_message_command(self, command: Any, message_bus: Any) -> bool:
+        user_message = command.as_user_message()
+        return await message_bus.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "content": user_message.message,
+                    "attachments": list(user_message.attachments),
+                    "author_type": "user",
+                    "content_type": "text",
+                    "user_id": user_message.user_id,
+                    "runtime_namespace": user_message.runtime_namespace,
+                    "session_id": user_message.session_id,
+                    "turn_id": user_message.turn_id,
+                    "workspace_path": user_message.workspace_path,
+                    "timestamp": float(user_message.created_at),
+                    "metadata": dict(user_message.metadata),
+                    "source": user_message.source,
+                },
+                source=user_message.source,
+                level=EventLevel.INFO,
+                correlation_id=user_message.correlation_id,
+                metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
+            )
+        )
+
+    @staticmethod
+    def _refresh_runtime_llm_config() -> None:
+        from ..bootstrap.backend import refresh_runtime_llm_config
+        from ..config.loader import reload_config
+
+        refreshed_config = reload_config()
+        refresh_runtime_llm_config(refreshed_config)
+
+    async def _refresh_channels(self) -> None:
+        from ..config.loader import reload_config
+
+        reload_config()
+        channels_module = self._context.channels.module
+        if channels_module is not None:
+            await channels_module.restart()
+
+    async def _queue_sensor_sync(self, command: Any) -> None:
+        sensor_sync = command.as_sensor_sync()
+        sensor_scheduler = require_initialized(
+            self._context.agent_runtime.sensor_scheduler_contrib,
+            "sensor scheduler contributor",
+        )
+        await sensor_scheduler.queue_manual_sync(sensor_sync.source_name)
+
+    async def _flush_sensor_state(self, command: Any) -> None:
+        sensor_flush = command.as_sensor_state_flush()
+        sensor_sync_executor = require_initialized(
+            self._context.agent_runtime.sensor_sync_executor,
+            "sensor sync executor",
+        )
+        await sensor_sync_executor.flush_sensor_state(sensor_flush.source_name)
 
 
 class PluginIngressProcessorModule(LifecycleModule):
@@ -269,7 +297,9 @@ class PluginIngressProcessorModule(LifecycleModule):
             for plugin in plugin_manager.iter_loaded_plugins():
                 registrations = plugin.get_plugin_ingress_registrations(runtime_paths=runtime_paths)
                 for registration in registrations:
-                    self._handlers[(registration.plugin_target, registration.event_type)] = registration.handler
+                    self._handlers[(registration.plugin_target, registration.event_type)] = (
+                        registration.handler
+                    )
         self._running = True
         self._task = asyncio.create_task(self._run_loop())
 
