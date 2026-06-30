@@ -88,7 +88,9 @@ class RuntimeOperationalGC:
             try:
                 results.update(await cleanup())
             except Exception as exc:
-                logger.warning("runtime_operational_gc.%s_failed", label, error=str(exc), exc_info=True)
+                logger.warning(
+                    "runtime_operational_gc.%s_failed", label, error=str(exc), exc_info=True
+                )
                 results[f"runtime_gc_{label}_errors"] = 1
         return results
 
@@ -109,7 +111,12 @@ class RuntimeOperationalGC:
                 return {}
 
             counts: dict[str, int] = {}
-            for table_name in ("trace_intent_resolutions", "trace_llm_calls", "trace_tools", "trace_spans"):
+            for table_name in (
+                "trace_intent_resolutions",
+                "trace_llm_calls",
+                "trace_tools",
+                "trace_spans",
+            ):
                 if await self._table_exists(db, table_name):
                     counts[f"runtime_trace_{table_name}_deleted"] = await self._delete_rows(
                         db,
@@ -182,52 +189,13 @@ class RuntimeOperationalGC:
                 "DELETE FROM llm_usage WHERE created_at < ?",
                 (cutoff,),
             )
-            cache_observations_deleted = 0
-            cache_observations_trimmed = 0
-            if await self._table_exists(db, "llm_cache_observations"):
-                cache_observability = getattr(settings, "cache_observability", None)
-                if cache_observability is not None and not bool(
-                    getattr(cache_observability, "enabled", True)
-                ):
-                    cache_observations_deleted = await self._delete_rows(
-                        db,
-                        "DELETE FROM llm_cache_observations",
-                        (),
-                    )
-                else:
-                    retention_days = int(
-                        getattr(cache_observability, "retention_days", 30)
-                        if cache_observability is not None
-                        else 30
-                    )
-                    max_rows = int(
-                        getattr(cache_observability, "max_rows", 50_000)
-                        if cache_observability is not None
-                        else 50_000
-                    )
-                    observation_cutoff = self._cutoff_seconds(retention_days)
-                    cache_observations_deleted = await self._delete_rows(
-                        db,
-                        "DELETE FROM llm_cache_observations WHERE created_at < ?",
-                        (observation_cutoff,),
-                    )
-                    cache_observations_trimmed = await self._delete_rows(
-                        db,
-                        """
-                        DELETE FROM llm_cache_observations
-                        WHERE id IN (
-                            SELECT id
-                            FROM llm_cache_observations
-                            ORDER BY created_at DESC, id DESC
-                            LIMIT -1 OFFSET ?
-                        )
-                        """,
-                        (max_rows,),
-                    )
-            rollups_deleted = await self._delete_rows(
+            cache_observations_deleted, cache_observations_trimmed = (
+                await self._cleanup_llm_cache_observations(db, settings)
+            )
+            rollups_deleted = await self._cleanup_llm_usage_rollups(
                 db,
-                "DELETE FROM llm_usage_rollups WHERE granularity = ? AND bucket_start < ?",
-                (settings.rollup_granularity, rollup_cutoff_bucket),
+                granularity=settings.rollup_granularity,
+                cutoff_bucket=rollup_cutoff_bucket,
             )
             await db.commit()
 
@@ -238,6 +206,66 @@ class RuntimeOperationalGC:
             "llm_cache_observations_deleted": cache_observations_deleted,
             "llm_cache_observations_trimmed": cache_observations_trimmed,
         }
+
+    async def _cleanup_llm_cache_observations(
+        self, db: aiosqlite.Connection, settings: Any
+    ) -> tuple[int, int]:
+        if not await self._table_exists(db, "llm_cache_observations"):
+            return 0, 0
+        cache_observability = getattr(settings, "cache_observability", None)
+        if cache_observability is not None and not bool(
+            getattr(cache_observability, "enabled", True)
+        ):
+            deleted = await self._delete_rows(
+                db,
+                "DELETE FROM llm_cache_observations",
+                (),
+            )
+            return deleted, 0
+        return await self._prune_llm_cache_observations(db, cache_observability)
+
+    async def _prune_llm_cache_observations(
+        self, db: aiosqlite.Connection, cache_observability: Any
+    ) -> tuple[int, int]:
+        retention_days = int(
+            getattr(cache_observability, "retention_days", 30)
+            if cache_observability is not None
+            else 30
+        )
+        max_rows = int(
+            getattr(cache_observability, "max_rows", 50_000)
+            if cache_observability is not None
+            else 50_000
+        )
+        observation_cutoff = self._cutoff_seconds(retention_days)
+        deleted = await self._delete_rows(
+            db,
+            "DELETE FROM llm_cache_observations WHERE created_at < ?",
+            (observation_cutoff,),
+        )
+        trimmed = await self._delete_rows(
+            db,
+            """
+            DELETE FROM llm_cache_observations
+            WHERE id IN (
+                SELECT id
+                FROM llm_cache_observations
+                ORDER BY created_at DESC, id DESC
+                LIMIT -1 OFFSET ?
+            )
+            """,
+            (max_rows,),
+        )
+        return deleted, trimmed
+
+    async def _cleanup_llm_usage_rollups(
+        self, db: aiosqlite.Connection, *, granularity: str, cutoff_bucket: str
+    ) -> int:
+        return await self._delete_rows(
+            db,
+            "DELETE FROM llm_usage_rollups WHERE granularity = ? AND bucket_start < ?",
+            (granularity, cutoff_bucket),
+        )
 
     async def cleanup_message_queue(self) -> dict[str, int]:
         """Roll up completed commands and delete terminal queue history."""
@@ -358,7 +386,9 @@ class RuntimeOperationalGC:
             deleted = 0
             for row in rows:
                 sensor_id = str(row[0])
-                deleted += await self._prune_sensor_fingerprints(db, sensor_id, keep_latest=keep_latest)
+                deleted += await self._prune_sensor_fingerprints(
+                    db, sensor_id, keep_latest=keep_latest
+                )
             await db.commit()
         return {"sensor_state_fingerprints_deleted": deleted}
 
