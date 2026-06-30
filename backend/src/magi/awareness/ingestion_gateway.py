@@ -4,6 +4,7 @@ Builds a SensorEventEmitted payload from sensor + output + metadata and publishe
 to the event bus. Side-effects (memory / timeline / KG / sensor_state) are handled
 by independent subscribers (see magi.awareness.subscribers).
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -46,39 +47,30 @@ class SensorIngestionGateway:
         allowed_edge_whitelist: list[str] | None = None,
     ) -> SensorIngestionResult:
         event_id = str(ULID())
+        payload = self._build_sensor_event_payload(
+            sensor=sensor,
+            output=output,
+            metadata=metadata,
+            allowed_edge_whitelist=allowed_edge_whitelist,
+        )
+        await self._publish_sensor_event(
+            event_id=event_id,
+            sensor_id=sensor.sensor_id,
+            payload=payload,
+        )
+        return SensorIngestionResult(event_id=event_id, ingested=True, stats={})
+
+    def _build_sensor_event_payload(
+        self,
+        *,
+        sensor: SensorBase,
+        output: SensorOutput,
+        metadata: SensorOutputMetadata | None,
+        allowed_edge_whitelist: list[str] | None,
+    ) -> SensorEventEmitted:
         owner_user_id = self._resolve_memory_owner_user_id(output)
         projection = build_sensor_projection(sensor, output, metadata)
-
-        # Compute sensor-attached values now; subscribers can't reach sensor.
-        idempotency_key = sensor.idempotency_key(output)
-        memory_event_type = str(getattr(sensor, "memory_event_type", "SENSOR_EVENT"))
-        fingerprint = sensor.source_item_version_fingerprint(output.to_dict())
-        l2_batch_policy = sensor.l2_batch_policy(output)
-        l2_batch_dict: dict[str, Any] | None = None
-        if l2_batch_policy is not None:
-            l2_batch_dict = {
-                "owner": l2_batch_policy.owner,
-                "catch_up_owner": l2_batch_policy.catch_up_owner,
-                "max_events": l2_batch_policy.max_events,
-                "min_ready_events": l2_batch_policy.min_ready_events,
-                "max_estimated_tokens": l2_batch_policy.max_estimated_tokens,
-                "max_wait_seconds": l2_batch_policy.max_wait_seconds,
-            }
-
-        relation_candidates: tuple = ()
-        if metadata is not None and metadata.relation_candidates:
-            relation_candidates = tuple(metadata.relation_candidates)
-
-        metadata_dict = None
-        if metadata is not None:
-            metadata_dict = {
-                "entities": list(metadata.entities or []),
-                "tags": list(metadata.tags or []),
-                "relation_candidates": list(metadata.relation_candidates or []),
-                "fact_hints": list(metadata.fact_hints or []),
-            }
-
-        payload = SensorEventEmitted(
+        return SensorEventEmitted(
             sensor_name=sensor.sensor_id,
             payload=output.to_dict(),
             output_dict=output.to_dict(),
@@ -89,19 +81,62 @@ class SensorIngestionGateway:
                 user_id=owner_user_id,
             ),
             sensor_id=sensor.sensor_id,
-            metadata_dict=metadata_dict,
+            metadata_dict=self._metadata_dict(metadata),
             policy_dict=sensor.memory_policy.to_dict(),
             projection_dict=projection.to_dict(),
             occurred_at=output.occurred_at,
             owner_user_id=owner_user_id,
-            relation_candidates=relation_candidates,
+            relation_candidates=self._relation_candidates(metadata),
             allowed_edge_whitelist=tuple(allowed_edge_whitelist or ()),
-            sensor_fingerprint=fingerprint,
-            idempotency_key=idempotency_key,
-            memory_event_type=memory_event_type,
-            l2_batch_policy_dict=l2_batch_dict,
+            sensor_fingerprint=sensor.source_item_version_fingerprint(output.to_dict()),
+            idempotency_key=sensor.idempotency_key(output),
+            memory_event_type=str(getattr(sensor, "memory_event_type", "SENSOR_EVENT")),
+            l2_batch_policy_dict=self._l2_batch_policy_dict(sensor, output),
         )
 
+    @staticmethod
+    def _metadata_dict(
+        metadata: SensorOutputMetadata | None,
+    ) -> dict[str, list[Any]] | None:
+        if metadata is None:
+            return None
+        return {
+            "entities": list(metadata.entities or []),
+            "tags": list(metadata.tags or []),
+            "relation_candidates": list(metadata.relation_candidates or []),
+            "fact_hints": list(metadata.fact_hints or []),
+        }
+
+    @staticmethod
+    def _relation_candidates(metadata: SensorOutputMetadata | None) -> tuple[Any, ...]:
+        if metadata is not None and metadata.relation_candidates:
+            return tuple(metadata.relation_candidates)
+        return ()
+
+    @staticmethod
+    def _l2_batch_policy_dict(
+        sensor: SensorBase,
+        output: SensorOutput,
+    ) -> dict[str, Any] | None:
+        policy = sensor.l2_batch_policy(output)
+        if policy is None:
+            return None
+        return {
+            "owner": policy.owner,
+            "catch_up_owner": policy.catch_up_owner,
+            "max_events": policy.max_events,
+            "min_ready_events": policy.min_ready_events,
+            "max_estimated_tokens": policy.max_estimated_tokens,
+            "max_wait_seconds": policy.max_wait_seconds,
+        }
+
+    async def _publish_sensor_event(
+        self,
+        *,
+        event_id: str,
+        sensor_id: str,
+        payload: SensorEventEmitted,
+    ) -> None:
         try:
             await self._event_bus.publish(
                 Event(
@@ -112,11 +147,7 @@ class SensorIngestionGateway:
                 )
             )
         except Exception:
-            logger.exception(
-                "publish SensorEventEmitted failed (sensor=%s)", sensor.sensor_id
-            )
-
-        return SensorIngestionResult(event_id=event_id, ingested=True, stats={})
+            logger.exception("publish SensorEventEmitted failed (sensor=%s)", sensor_id)
 
     @staticmethod
     def _resolve_memory_owner_user_id(output: SensorOutput) -> str:
