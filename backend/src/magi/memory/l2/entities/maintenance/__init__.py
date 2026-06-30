@@ -57,7 +57,6 @@ class L2MaintenanceLifecycle:
     reconcile_max_total: int = 500
 
 
-
 @dataclass
 class L2EntityMaintenanceStats:
     """Counters from one maintenance run."""
@@ -83,6 +82,22 @@ class L2EntityMaintenanceStats:
     episodes_invalidated: int = 0
     promoted_episode_ids: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _L2MaintenanceRunPlan:
+    min_mentions_to_keep: int
+    resolve_ghosts: bool
+    merge_fragments: bool
+    prune_orphans: bool
+    expire_future_intents: bool
+    expire_decayed_assertions: bool
+    clean_stale_snapshots: bool
+    reconcile_stale: bool
+    consolidate_open_predicates: bool
+    archive_stale_edges: bool
+    purge_terminal_edges: bool
+    consolidate_episodes: bool
 
 
 class L2EntityMaintenance(
@@ -185,70 +200,120 @@ class L2EntityMaintenance(
         purge_terminal_edges: bool,
         consolidate_episodes: bool,
     ) -> L2EntityMaintenanceStats:
+        plan = _L2MaintenanceRunPlan(
+            min_mentions_to_keep=min_mentions_to_keep,
+            resolve_ghosts=resolve_ghosts,
+            merge_fragments=merge_fragments,
+            prune_orphans=prune_orphans,
+            expire_future_intents=expire_future_intents,
+            expire_decayed_assertions=expire_decayed_assertions,
+            clean_stale_snapshots=clean_stale_snapshots,
+            reconcile_stale=reconcile_stale,
+            consolidate_open_predicates=consolidate_open_predicates,
+            archive_stale_edges=archive_stale_edges,
+            purge_terminal_edges=purge_terminal_edges,
+            consolidate_episodes=consolidate_episodes,
+        )
         stats = L2EntityMaintenanceStats()
-        if resolve_ghosts:
-            await self._resolve_ghost_graph_refs(stats)
-        if merge_fragments:
-            await self._merge_fragmented_entities(stats)
-        if prune_orphans:
-            await self._prune_orphan_low_mention_entities(stats, min_mentions=min_mentions_to_keep)
-        if expire_future_intents:
-            await self._expire_stale_future_intents(stats)
-        if expire_decayed_assertions:
-            await self._expire_decayed_assertions(stats)
-        if clean_stale_snapshots:
-            await self._clean_stale_snapshots(stats)
-        if reconcile_stale:
-            await self._reconcile_stale_entities(stats)
-        if consolidate_open_predicates:
-            await self._consolidate_open_predicates(stats)
-        if archive_stale_edges:
-            await self._archive_stale_edges(stats)
-        if purge_terminal_edges:
-            await self._purge_terminal_edges(stats)
-        if consolidate_episodes:
-            await self._consolidate_episodes(stats)
-        if any(
-            (
-                stats.ghost_edges_rewritten,
-                stats.ghost_rows_merged,
-                stats.tom_entity_refs_rewritten,
-                stats.fragment_entities_merged,
-                stats.orphans_pruned,
-                stats.expired_future_intents,
-                stats.expired_assertions,
-                stats.stale_snapshots_cleaned,
-                stats.entities_reconciled,
-                stats.snapshots_refreshed,
-                stats.open_predicates_consolidated,
-                stats.edges_archived,
-                stats.edges_purged,
-                stats.edge_embeddings_cleaned,
-                stats.episodes_promoted,
-                stats.episodes_merged,
-                stats.episodes_invalidated,
-            )
-        ):
-            logger.info(
-                "L2 entity maintenance completed",
-                ghost_edges_rewritten=stats.ghost_edges_rewritten,
-                ghost_rows_merged=stats.ghost_rows_merged,
-                ghost_skipped=stats.ghost_skipped_no_target,
-                tom_entity_refs_rewritten=stats.tom_entity_refs_rewritten,
-                fragment_entities_merged=stats.fragment_entities_merged,
-                fragment_groups=stats.fragment_groups_processed,
-                orphans_pruned=stats.orphans_pruned,
-                expired_future_intents=stats.expired_future_intents,
-                expired_assertions=stats.expired_assertions,
-                stale_snapshots_cleaned=stats.stale_snapshots_cleaned,
-                entities_reconciled=stats.entities_reconciled,
-                snapshots_refreshed=stats.snapshots_refreshed,
-                open_predicates_consolidated=stats.open_predicates_consolidated,
-                edges_archived=stats.edges_archived,
-                edges_purged=stats.edges_purged,
-                edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
-                episodes_promoted=stats.episodes_promoted,
-                episodes_merged=stats.episodes_merged,
-                episodes_invalidated=stats.episodes_invalidated,
-            )
+        await self._run_entity_cleanup_steps(plan, stats)
+        await self._run_assertion_decay_steps(plan, stats)
+        await self._run_snapshot_reconciliation_steps(plan, stats)
+        await self._run_edge_cleanup_steps(plan, stats)
+        await self._run_episode_cleanup_steps(plan, stats)
+        _log_maintenance_stats(stats)
         return stats
+
+    async def _run_entity_cleanup_steps(
+        self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
+    ) -> None:
+        if plan.resolve_ghosts:
+            await self._resolve_ghost_graph_refs(stats)
+        if plan.merge_fragments:
+            await self._merge_fragmented_entities(stats)
+        if plan.prune_orphans:
+            await self._prune_orphan_low_mention_entities(
+                stats, min_mentions=plan.min_mentions_to_keep
+            )
+
+    async def _run_assertion_decay_steps(
+        self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
+    ) -> None:
+        if plan.expire_future_intents:
+            await self._expire_stale_future_intents(stats)
+        if plan.expire_decayed_assertions:
+            await self._expire_decayed_assertions(stats)
+
+    async def _run_snapshot_reconciliation_steps(
+        self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
+    ) -> None:
+        if plan.clean_stale_snapshots:
+            await self._clean_stale_snapshots(stats)
+        if plan.reconcile_stale:
+            await self._reconcile_stale_entities(stats)
+        if plan.consolidate_open_predicates:
+            await self._consolidate_open_predicates(stats)
+
+    async def _run_edge_cleanup_steps(
+        self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
+    ) -> None:
+        if plan.archive_stale_edges:
+            await self._archive_stale_edges(stats)
+        if plan.purge_terminal_edges:
+            await self._purge_terminal_edges(stats)
+
+    async def _run_episode_cleanup_steps(
+        self, plan: _L2MaintenanceRunPlan, stats: L2EntityMaintenanceStats
+    ) -> None:
+        if plan.consolidate_episodes:
+            await self._consolidate_episodes(stats)
+
+
+def _log_maintenance_stats(stats: L2EntityMaintenanceStats) -> None:
+    if not _maintenance_has_changes(stats):
+        return
+    logger.info(
+        "L2 entity maintenance completed",
+        ghost_edges_rewritten=stats.ghost_edges_rewritten,
+        ghost_rows_merged=stats.ghost_rows_merged,
+        ghost_skipped=stats.ghost_skipped_no_target,
+        tom_entity_refs_rewritten=stats.tom_entity_refs_rewritten,
+        fragment_entities_merged=stats.fragment_entities_merged,
+        fragment_groups=stats.fragment_groups_processed,
+        orphans_pruned=stats.orphans_pruned,
+        expired_future_intents=stats.expired_future_intents,
+        expired_assertions=stats.expired_assertions,
+        stale_snapshots_cleaned=stats.stale_snapshots_cleaned,
+        entities_reconciled=stats.entities_reconciled,
+        snapshots_refreshed=stats.snapshots_refreshed,
+        open_predicates_consolidated=stats.open_predicates_consolidated,
+        edges_archived=stats.edges_archived,
+        edges_purged=stats.edges_purged,
+        edge_embeddings_cleaned=stats.edge_embeddings_cleaned,
+        episodes_promoted=stats.episodes_promoted,
+        episodes_merged=stats.episodes_merged,
+        episodes_invalidated=stats.episodes_invalidated,
+    )
+
+
+def _maintenance_has_changes(stats: L2EntityMaintenanceStats) -> bool:
+    return any(
+        (
+            stats.ghost_edges_rewritten,
+            stats.ghost_rows_merged,
+            stats.tom_entity_refs_rewritten,
+            stats.fragment_entities_merged,
+            stats.orphans_pruned,
+            stats.expired_future_intents,
+            stats.expired_assertions,
+            stats.stale_snapshots_cleaned,
+            stats.entities_reconciled,
+            stats.snapshots_refreshed,
+            stats.open_predicates_consolidated,
+            stats.edges_archived,
+            stats.edges_purged,
+            stats.edge_embeddings_cleaned,
+            stats.episodes_promoted,
+            stats.episodes_merged,
+            stats.episodes_invalidated,
+        )
+    )
