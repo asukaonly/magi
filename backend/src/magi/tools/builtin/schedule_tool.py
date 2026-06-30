@@ -79,65 +79,81 @@ class ScheduleTool(Tool):
                 "and tools_allow are also accepted. Interval schedules must be at least 60 seconds."
             ),
             category="automation",
-            parameters=[
-                ToolParameter(
-                    name="action",
-                    type=ParameterType.STRING,
-                    description="Action to perform: list, get, add, update, remove, run, or activity.",
-                    required=True,
-                    enum=SCHEDULE_ACTIONS,
-                ),
-                ToolParameter(
-                    name="schedule_id",
-                    type=ParameterType.STRING,
-                    description="Schedule id for get/update/remove/run/activity.",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="schedule",
-                    type=ParameterType.OBJECT,
-                    description="Schedule object for add. Contains trigger, target, title/name, and enabled.",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="patch",
-                    type=ParameterType.OBJECT,
-                    description="Patch object for update. Supports trigger, target prompt/tools, title/name, and enabled.",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="include_disabled",
-                    type=ParameterType.BOOLEAN,
-                    description="Whether list includes disabled schedules.",
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="include_system",
-                    type=ParameterType.BOOLEAN,
-                    description="Whether list includes system-owned schedules as read-only context.",
-                    required=False,
-                    default=True,
-                ),
-                ToolParameter(
-                    name="limit",
-                    type=ParameterType.INTEGER,
-                    description="Maximum execution rows for activity.",
-                    required=False,
-                    default=20,
-                    min_value=1,
-                    max_value=100,
-                ),
-            ],
+            parameters=self._schema_parameters(),
             tags=["schedule", "automation", "background", "reminder"],
             timeout=30,
-            metadata={
-                "task_intents": ["schedule_task", "manage_reminder", "automation"],
-                "domains": ["automation", "scheduler"],
-                "operations": ["list", "create", "update", "delete", "run"],
-                "tool_hint": "Use for reminders and recurring agent tasks; do not emulate scheduling with shell sleeps.",
-            },
+            metadata=self._schema_metadata(),
         )
+
+    def _schema_parameters(self) -> list[ToolParameter]:
+        return self._schedule_object_parameters() + self._schedule_option_parameters()
+
+    @staticmethod
+    def _schedule_object_parameters() -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="action",
+                type=ParameterType.STRING,
+                description="Action to perform: list, get, add, update, remove, run, or activity.",
+                required=True,
+                enum=SCHEDULE_ACTIONS,
+            ),
+            ToolParameter(
+                name="schedule_id",
+                type=ParameterType.STRING,
+                description="Schedule id for get/update/remove/run/activity.",
+                required=False,
+            ),
+            ToolParameter(
+                name="schedule",
+                type=ParameterType.OBJECT,
+                description="Schedule object for add. Contains trigger, target, title/name, and enabled.",
+                required=False,
+            ),
+            ToolParameter(
+                name="patch",
+                type=ParameterType.OBJECT,
+                description="Patch object for update. Supports trigger, target prompt/tools, title/name, and enabled.",
+                required=False,
+            ),
+        ]
+
+    @staticmethod
+    def _schedule_option_parameters() -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="include_disabled",
+                type=ParameterType.BOOLEAN,
+                description="Whether list includes disabled schedules.",
+                required=False,
+                default=False,
+            ),
+            ToolParameter(
+                name="include_system",
+                type=ParameterType.BOOLEAN,
+                description="Whether list includes system-owned schedules as read-only context.",
+                required=False,
+                default=True,
+            ),
+            ToolParameter(
+                name="limit",
+                type=ParameterType.INTEGER,
+                description="Maximum execution rows for activity.",
+                required=False,
+                default=20,
+                min_value=1,
+                max_value=100,
+            ),
+        ]
+
+    @staticmethod
+    def _schema_metadata() -> dict[str, Any]:
+        return {
+            "task_intents": ["schedule_task", "manage_reminder", "automation"],
+            "domains": ["automation", "scheduler"],
+            "operations": ["list", "create", "update", "delete", "run"],
+            "tool_hint": "Use for reminders and recurring agent tasks; do not emulate scheduling with shell sleeps.",
+        }
 
     def _service(self) -> ScheduleManagementService:
         return ScheduleManagementService(require_scheduler_service())
