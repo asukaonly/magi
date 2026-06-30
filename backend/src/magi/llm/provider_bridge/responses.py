@@ -52,8 +52,7 @@ def _openai_cache_write_tokens(usage: Any) -> int:
 def _openai_cache_fields_seen(usage: Any) -> bool:
     details = getattr(usage, "prompt_tokens_details", None)
     if details is not None and (
-        hasattr(details, "cached_tokens")
-        or hasattr(details, "cache_creation_input_tokens")
+        hasattr(details, "cached_tokens") or hasattr(details, "cache_creation_input_tokens")
     ):
         return True
     return hasattr(usage, "prompt_cache_hit_tokens") or hasattr(usage, "prompt_cache_miss_tokens")
@@ -63,6 +62,41 @@ def _anthropic_cache_fields_seen(usage: Any) -> bool:
     if hasattr(usage, "cache_read_input_tokens") or hasattr(usage, "cache_creation_input_tokens"):
         return True
     return getattr(usage, "cache_creation", None) is not None
+
+
+def _usage_event_timing_ms(latency_ms: int) -> tuple[int, int]:
+    ended_at = time.time()
+    started_at = ended_at - (latency_ms / 1000.0)
+    started_at_ms = int(started_at * 1000)
+    return started_at_ms, started_at_ms + int(latency_ms)
+
+
+def _usage_trace_parent(
+    context: dict[str, Any],
+    trace_context: Any,
+) -> tuple[str, str | None]:
+    if trace_context is not None:
+        return trace_context.trace_id, trace_context.span_id
+    return (
+        str(context.get("trace_id") or ""),
+        str(context.get("parent_span_id") or "").strip() or None,
+    )
+
+
+def _usage_event_previews(context: dict[str, Any]) -> tuple[str | None, str | None]:
+    request_preview = (
+        str(context.get("request_preview") or context.get("input_preview") or "").strip() or None
+    )
+    response_preview = (
+        str(context.get("response_preview") or context.get("output_preview") or "").strip() or None
+    )
+    return request_preview, response_preview
+
+
+def _usage_cache_fields_seen(usage: ProviderUsage | dict[str, Any] | None) -> bool:
+    if isinstance(usage, dict):
+        return bool(usage.get("cache_fields_seen"))
+    return bool(getattr(usage, "cache_fields_seen", False))
 
 
 class ProviderBridgeResponseMixin:
@@ -494,47 +528,11 @@ class ProviderBridgeResponseMixin:
         from magi.events.domain_payloads import ToolError
 
         context = enrich_event_context_with_turn_trace(event_context)
-        request_id = str(context.get("request_id") or uuid.uuid4().hex[:8])
-        provider = self._provider_name() or type(self.llm).__name__
-        provider_plan = str(getattr(self.llm, "provider_plan", "") or "").strip() or None
-        model = str(getattr(self.llm, "model_name", "unknown"))
-        request_kind = str(context.get("request_kind") or "chat")
-
-        prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
-        completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
-        total_tokens = self._usage_int(usage, "total_tokens") or prompt_tokens + completion_tokens
-        reasoning_tokens = self._usage_int(usage, "reasoning_tokens")
-        cache_read_tokens = self._usage_int(usage, "cache_read_tokens")
-        cache_write_tokens = self._usage_int(usage, "cache_write_tokens")
-        cache_write_1h_tokens = self._usage_int(usage, "cache_write_1h_tokens")
-        cache_fields_seen = (
-            bool(usage.get("cache_fields_seen")) if isinstance(usage, dict)
-            else bool(getattr(usage, "cache_fields_seen", False))
-        )
-        request_preview = (
-            str(context.get("request_preview") or context.get("input_preview") or "").strip()
-            or None
-        )
-        response_preview = (
-            str(context.get("response_preview") or context.get("output_preview") or "").strip()
-            or None
-        )
-
-        ended_at = time.time()
-        started_at = ended_at - (latency_ms / 1000.0)
-        started_at_ms = int(started_at * 1000)
-        ended_at_ms = started_at_ms + int(latency_ms)
-
-        error_obj = None
-        if not success and error:
-            error_obj = ToolError(type="LLMError", message=str(error)[:1000])
-
-        ctx = current_trace_context()
-        trace_id = ctx.trace_id if ctx is not None else str(context.get("trace_id") or "")
-        parent_span_id = (
-            ctx.span_id
-            if ctx is not None
-            else str(context.get("parent_span_id") or "").strip() or None
+        model = self._usage_event_model()
+        started_at_ms, ended_at_ms = _usage_event_timing_ms(latency_ms)
+        trace_id, parent_span_id = _usage_trace_parent(context, current_trace_context())
+        error_obj = (
+            ToolError(type="LLMError", message=str(error)[:1000]) if not success and error else None
         )
 
         try:
@@ -549,33 +547,62 @@ class ProviderBridgeResponseMixin:
                 ended_at_ms=ended_at_ms,
                 error=error_obj,
                 turn_id=context.get("turn_id"),
-                attributes={
-                    "request_id": request_id,
-                    "provider": provider,
-                    "provider_plan": provider_plan,
-                    "model": model,
-                    "request_kind": request_kind,
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "input_tokens": prompt_tokens,
-                    "output_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                    "reasoning_tokens": reasoning_tokens,
-                    "cache_read_tokens": cache_read_tokens,
-                    "cache_write_tokens": cache_write_tokens,
-                    "cache_write_1h_tokens": cache_write_1h_tokens,
-                    "cache_fields_seen": cache_fields_seen,
-                    "cache_observation": context.get("cache_observation"),
-                    "usage_available": usage is not None,
-                    "request_preview": request_preview,
-                    "response_preview": response_preview,
-                    "input_preview": request_preview,
-                    "output_preview": response_preview,
-                    "correlation_id": context.get("correlation_id"),
-                    "session_id": context.get("session_id"),
-                    "turn_id": context.get("turn_id"),
-                    "agent_id": context.get("agent_id"),
-                },
+                attributes=self._usage_event_attributes(context=context, usage=usage),
             )
         except Exception:
             logger.exception("publish llm_call SpanCompleted failed")
+
+    def _usage_event_model(self) -> str:
+        return str(getattr(self.llm, "model_name", "unknown"))
+
+    def _usage_event_attributes(
+        self,
+        *,
+        context: dict[str, Any],
+        usage: ProviderUsage | dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        request_preview, response_preview = _usage_event_previews(context)
+        return {
+            **self._usage_event_identity_attributes(context),
+            **self._usage_token_attributes(usage),
+            "cache_observation": context.get("cache_observation"),
+            "usage_available": usage is not None,
+            "request_preview": request_preview,
+            "response_preview": response_preview,
+            "input_preview": request_preview,
+            "output_preview": response_preview,
+            "correlation_id": context.get("correlation_id"),
+            "session_id": context.get("session_id"),
+            "turn_id": context.get("turn_id"),
+            "agent_id": context.get("agent_id"),
+        }
+
+    def _usage_event_identity_attributes(self, context: dict[str, Any]) -> dict[str, Any]:
+        provider_plan = str(getattr(self.llm, "provider_plan", "") or "").strip() or None
+        return {
+            "request_id": str(context.get("request_id") or uuid.uuid4().hex[:8]),
+            "provider": self._provider_name() or type(self.llm).__name__,
+            "provider_plan": provider_plan,
+            "model": self._usage_event_model(),
+            "request_kind": str(context.get("request_kind") or "chat"),
+        }
+
+    def _usage_token_attributes(
+        self,
+        usage: ProviderUsage | dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
+        completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "input_tokens": prompt_tokens,
+            "output_tokens": completion_tokens,
+            "total_tokens": self._usage_int(usage, "total_tokens")
+            or prompt_tokens + completion_tokens,
+            "reasoning_tokens": self._usage_int(usage, "reasoning_tokens"),
+            "cache_read_tokens": self._usage_int(usage, "cache_read_tokens"),
+            "cache_write_tokens": self._usage_int(usage, "cache_write_tokens"),
+            "cache_write_1h_tokens": self._usage_int(usage, "cache_write_1h_tokens"),
+            "cache_fields_seen": _usage_cache_fields_seen(usage),
+        }
