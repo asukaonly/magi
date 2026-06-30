@@ -284,9 +284,13 @@ def normalize_runtime_event(
 
     task_id = _first_non_empty(payload.get("task_id"), metadata.get("task_id"))
     payload_tags = payload.get("tags") if isinstance(payload.get("tags"), dict) else {}
-    session_id = _first_non_empty(payload.get("session_id"), payload_tags.get("session_id"), metadata.get("session_id"))
+    session_id = _first_non_empty(
+        payload.get("session_id"), payload_tags.get("session_id"), metadata.get("session_id")
+    )
     turn_id = _first_non_empty(payload.get("turn_id"), metadata.get("turn_id"))
-    user_id = _first_non_empty(payload.get("user_id"), payload_tags.get("user_id"), metadata.get("user_id"))
+    user_id = _first_non_empty(
+        payload.get("user_id"), payload_tags.get("user_id"), metadata.get("user_id")
+    )
     source_item_id = _resolve_source_item_id(event, payload=payload, metadata=metadata)
     normalized_idempotency_key = _first_non_empty(
         idempotency_key,
@@ -346,13 +350,26 @@ def _extract_content(event: Event, *, payload: dict[str, Any], metadata: dict[st
     if event_type == EventTypes.ACTION_EXECUTED:
         return _first_non_empty(payload.get("optimized_prompt"), payload.get("action_type")) or ""
     if event_type in TRACE_RUNTIME_EVENT_TYPES:
-        return _first_non_empty(payload.get("message"), payload.get("status"), payload.get("node_type")) or ""
-    return _first_non_empty(payload.get("summary"), payload.get("title"), payload.get("value")) or ""
+        return (
+            _first_non_empty(
+                payload.get("message"), payload.get("status"), payload.get("node_type")
+            )
+            or ""
+        )
+    return (
+        _first_non_empty(payload.get("summary"), payload.get("title"), payload.get("value")) or ""
+    )
 
 
-def _resolve_source_item_id(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> Optional[str]:
+def _resolve_source_item_id(
+    event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]
+) -> Optional[str]:
     if str(event.type) == EventTypes.ACTION_EXECUTED:
-        return _first_non_empty(payload.get("action_type"), payload.get("source_item_id"), metadata.get("source_item_id"))
+        return _first_non_empty(
+            payload.get("action_type"),
+            payload.get("source_item_id"),
+            metadata.get("source_item_id"),
+        )
     return _first_non_empty(payload.get("source_item_id"), metadata.get("source_item_id"))
 
 
@@ -385,7 +402,9 @@ def _resolve_author_type(event: Event, *, payload: dict[str, Any], metadata: dic
     return AuthorType.EXTERNAL.label
 
 
-def _resolve_content_type(event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]) -> str:
+def _resolve_content_type(
+    event: Event, *, payload: dict[str, Any], metadata: dict[str, Any]
+) -> str:
     if _is_runtime_chat_response(event, payload):
         return ContentType.RUNTIME_DERIVATION.label
     content_type = _first_non_empty(payload.get("content_type"), metadata.get("content_type"))
@@ -423,92 +442,132 @@ def _classify_event(event: Event) -> Dict[str, Any]:
     event_type = str(event.type)
 
     if event_type == EventTypes.USER_MESSAGE:
-        return {
-            "memory_domain": MemoryDomain.USER_AUTHORED,
-            "ingest_target": IngestTarget.L1_ONLY,
-            "cognition_eligible": True,
-            "tom_depth": TomDepth.DEFENSIVE_PSYCHOLOGY,
-            "retention_class": RetentionClass.PERMANENT,
-            "importance": 0.8,
-        }
+        return _classification(
+            memory_domain=MemoryDomain.USER_AUTHORED,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=True,
+            tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+            retention_class=RetentionClass.PERMANENT,
+            importance=0.8,
+        )
 
-    if event_type in {
+    if _is_worker_or_loop_control_event(event_type):
+        return _worker_or_loop_control_classification(event_type)
+
+    if event_type in TRACE_RUNTIME_EVENT_TYPES:
+        return _runtime_disposable_classification()
+
+    if _is_task_lifecycle_event(event_type):
+        return _task_lifecycle_classification(event_type)
+
+    if event_type == EventTypes.ERROR_OCCURRED:
+        return _classification(
+            memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=False,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.COMPRESSIBLE,
+            importance=0.9,
+        )
+
+    if event_type == EventTypes.ACTION_EXECUTED:
+        return _runtime_disposable_classification()
+
+    # SENSOR_EVENT is normally routed by SensorIngestionGateway with per-sensor
+    # policy. This fallback handles edge cases where it reaches _classify_event.
+    if event_type == "SENSOR_EVENT":
+        return _external_activity_classification()
+
+    return _external_activity_classification()
+
+
+def _classification(
+    *,
+    memory_domain: MemoryDomain,
+    ingest_target: IngestTarget,
+    cognition_eligible: bool,
+    tom_depth: TomDepth,
+    retention_class: RetentionClass,
+    importance: float,
+) -> Dict[str, Any]:
+    return {
+        "memory_domain": memory_domain,
+        "ingest_target": ingest_target,
+        "cognition_eligible": cognition_eligible,
+        "tom_depth": tom_depth,
+        "retention_class": retention_class,
+        "importance": importance,
+    }
+
+
+def _is_worker_or_loop_control_event(event_type: str) -> bool:
+    return event_type in {
         "WORKER_AGENT_PROGRESS",
         "WORKER_AGENT_COMPLETED",
         "WORKER_AGENT_FAILED",
         EventTypes.LOOP_STARTED,
         EventTypes.LOOP_PHASE_STARTED,
         "Heartbeat",
-    }:
-        return {
-            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY if event_type == "WORKER_AGENT_PROGRESS" else MemoryDomain.SYSTEM_CONTROL,
-            "ingest_target": IngestTarget.L0_ONLY,
-            "cognition_eligible": False,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.DISPOSABLE,
-            "importance": 0.1,
-        }
-
-    if event_type in TRACE_RUNTIME_EVENT_TYPES:
-        return {
-            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L0_ONLY,
-            "cognition_eligible": False,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.DISPOSABLE,
-            "importance": 0.1,
-        }
-
-    if event_type in {EventTypes.TASK_ASSIGNED, EventTypes.TASK_STARTED, EventTypes.TASK_COMPLETED, EventTypes.TASK_FAILED}:
-        return {
-            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L0_AND_L1,
-            "cognition_eligible": False,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.COMPRESSIBLE,
-            "importance": 0.6 if event_type in {EventTypes.TASK_ASSIGNED, EventTypes.TASK_STARTED} else 0.7,
-        }
-
-    if event_type == EventTypes.ERROR_OCCURRED:
-        return {
-            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L1_ONLY,
-            "cognition_eligible": False,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.COMPRESSIBLE,
-            "importance": 0.9,
-        }
-
-    if event_type == EventTypes.ACTION_EXECUTED:
-        return {
-            "memory_domain": MemoryDomain.RUNTIME_TELEMETRY,
-            "ingest_target": IngestTarget.L0_ONLY,
-            "cognition_eligible": False,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.DISPOSABLE,
-            "importance": 0.1,
-        }
-
-    # SENSOR_EVENT is normally routed by SensorIngestionGateway with per-sensor
-    # policy. This fallback handles edge cases where it reaches _classify_event.
-    if event_type == "SENSOR_EVENT":
-        return {
-            "memory_domain": MemoryDomain.EXTERNAL_ACTIVITY,
-            "ingest_target": IngestTarget.L1_ONLY,
-            "cognition_eligible": True,
-            "tom_depth": TomDepth.NONE,
-            "retention_class": RetentionClass.COMPRESSIBLE,
-            "importance": 0.5,
-        }
-
-    return {
-        "memory_domain": MemoryDomain.EXTERNAL_ACTIVITY,
-        "ingest_target": IngestTarget.L1_ONLY,
-        "cognition_eligible": True,
-        "tom_depth": TomDepth.NONE,
-        "retention_class": RetentionClass.COMPRESSIBLE,
-        "importance": 0.5,
     }
+
+
+def _worker_or_loop_control_classification(event_type: str) -> Dict[str, Any]:
+    return _classification(
+        memory_domain=(
+            MemoryDomain.RUNTIME_TELEMETRY
+            if event_type == "WORKER_AGENT_PROGRESS"
+            else MemoryDomain.SYSTEM_CONTROL
+        ),
+        ingest_target=IngestTarget.L0_ONLY,
+        cognition_eligible=False,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.DISPOSABLE,
+        importance=0.1,
+    )
+
+
+def _runtime_disposable_classification() -> Dict[str, Any]:
+    return _classification(
+        memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
+        ingest_target=IngestTarget.L0_ONLY,
+        cognition_eligible=False,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.DISPOSABLE,
+        importance=0.1,
+    )
+
+
+def _is_task_lifecycle_event(event_type: str) -> bool:
+    return event_type in {
+        EventTypes.TASK_ASSIGNED,
+        EventTypes.TASK_STARTED,
+        EventTypes.TASK_COMPLETED,
+        EventTypes.TASK_FAILED,
+    }
+
+
+def _task_lifecycle_classification(event_type: str) -> Dict[str, Any]:
+    return _classification(
+        memory_domain=MemoryDomain.RUNTIME_TELEMETRY,
+        ingest_target=IngestTarget.L0_AND_L1,
+        cognition_eligible=False,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        importance=(
+            0.6 if event_type in {EventTypes.TASK_ASSIGNED, EventTypes.TASK_STARTED} else 0.7
+        ),
+    )
+
+
+def _external_activity_classification() -> Dict[str, Any]:
+    return _classification(
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.NONE,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        importance=0.5,
+    )
 
 
 __all__ = [
