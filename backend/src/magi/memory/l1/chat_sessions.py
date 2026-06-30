@@ -14,6 +14,14 @@ CHAT_SESSIONS_TABLE = "chat_sessions"
 
 
 @dataclass(slots=True)
+class _ChatSessionProjection:
+    user_id: str
+    session_id: str
+    preview: str
+    timestamp: float
+
+
+@dataclass(slots=True)
 class ChatSessionRecord:
     """Canonical chat session row."""
 
@@ -66,6 +74,42 @@ def create_chat_session_record(
     )
 
 
+_INSERT_CHAT_SESSION_SQL = f"""
+INSERT INTO {CHAT_SESSIONS_TABLE} (
+    session_id, user_id, title, title_overridden, summary, created_at, updated_at,
+    last_message_at, last_user_message_at, last_message_preview,
+    last_user_message_preview, message_count, workspace_path, archived_at, deleted_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(session_id) DO NOTHING
+"""
+
+_UPDATE_USER_MESSAGE_SQL = f"""
+UPDATE {CHAT_SESSIONS_TABLE}
+SET
+    updated_at = ?,
+    last_message_at = ?,
+    last_user_message_at = ?,
+    last_message_preview = ?,
+    last_user_message_preview = ?,
+    message_count = message_count + 1
+WHERE session_id = ?
+  AND user_id = ?
+  AND deleted_at IS NULL
+"""
+
+_UPDATE_AI_RESPONSE_SQL = f"""
+UPDATE {CHAT_SESSIONS_TABLE}
+SET
+    updated_at = ?,
+    last_message_at = ?,
+    last_message_preview = ?,
+    message_count = message_count + 1
+WHERE session_id = ?
+  AND user_id = ?
+  AND deleted_at IS NULL
+"""
+
+
 async def project_chat_event_to_session(
     db: aiosqlite.Connection,
     *,
@@ -77,29 +121,58 @@ async def project_chat_event_to_session(
 ) -> None:
     """Project chat fact activity into the canonical session row."""
 
+    projection = _chat_session_projection(
+        user_id=user_id,
+        session_id=session_id,
+        content=content,
+        timestamp=timestamp,
+    )
+    if projection is None:
+        return
+
+    await _ensure_projected_chat_session_row(db, projection)
+    if event_type == EventTypes.USER_MESSAGE:
+        await _project_user_message_to_session(db, projection)
+        return
+
+    if event_type == EventTypes.AI_RESPONSE:
+        await _project_ai_response_to_session(db, projection)
+
+
+def _chat_session_projection(
+    *,
+    user_id: str | None,
+    session_id: str | None,
+    content: str | None,
+    timestamp: float,
+) -> _ChatSessionProjection | None:
     normalized_user_id = str(user_id or "").strip()
     normalized_session_id = str(session_id or "").strip()
     normalized_content = str(content or "").strip()
     if not normalized_user_id or not normalized_session_id or not normalized_content:
-        return
+        return None
+    return _ChatSessionProjection(
+        user_id=normalized_user_id,
+        session_id=normalized_session_id,
+        preview=normalized_content[:120],
+        timestamp=float(timestamp),
+    )
 
+
+async def _ensure_projected_chat_session_row(
+    db: aiosqlite.Connection,
+    projection: _ChatSessionProjection,
+) -> None:
     await db.execute(
-        f"""
-        INSERT INTO {CHAT_SESSIONS_TABLE} (
-            session_id, user_id, title, title_overridden, summary, created_at, updated_at,
-            last_message_at, last_user_message_at, last_message_preview,
-            last_user_message_preview, message_count, workspace_path, archived_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(session_id) DO NOTHING
-        """,
+        _INSERT_CHAT_SESSION_SQL,
         (
-            normalized_session_id,
-            normalized_user_id,
+            projection.session_id,
+            projection.user_id,
             "",
             0,
             "",
-            float(timestamp),
-            float(timestamp),
+            projection.timestamp,
+            projection.timestamp,
             None,
             None,
             "",
@@ -110,51 +183,37 @@ async def project_chat_event_to_session(
             None,
         ),
     )
-    if event_type == EventTypes.USER_MESSAGE:
-        await db.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET
-                updated_at = ?,
-                last_message_at = ?,
-                last_user_message_at = ?,
-                last_message_preview = ?,
-                last_user_message_preview = ?,
-                message_count = message_count + 1
-            WHERE session_id = ?
-              AND user_id = ?
-              AND deleted_at IS NULL
-            """,
-            (
-                float(timestamp),
-                float(timestamp),
-                float(timestamp),
-                normalized_content[:120],
-                normalized_content[:120],
-                normalized_session_id,
-                normalized_user_id,
-            ),
-        )
-        return
 
-    if event_type == EventTypes.AI_RESPONSE:
-        await db.execute(
-            f"""
-            UPDATE {CHAT_SESSIONS_TABLE}
-            SET
-                updated_at = ?,
-                last_message_at = ?,
-                last_message_preview = ?,
-                message_count = message_count + 1
-            WHERE session_id = ?
-              AND user_id = ?
-              AND deleted_at IS NULL
-            """,
-            (
-                float(timestamp),
-                float(timestamp),
-                normalized_content[:120],
-                normalized_session_id,
-                normalized_user_id,
-            ),
-        )
+
+async def _project_user_message_to_session(
+    db: aiosqlite.Connection,
+    projection: _ChatSessionProjection,
+) -> None:
+    await db.execute(
+        _UPDATE_USER_MESSAGE_SQL,
+        (
+            projection.timestamp,
+            projection.timestamp,
+            projection.timestamp,
+            projection.preview,
+            projection.preview,
+            projection.session_id,
+            projection.user_id,
+        ),
+    )
+
+
+async def _project_ai_response_to_session(
+    db: aiosqlite.Connection,
+    projection: _ChatSessionProjection,
+) -> None:
+    await db.execute(
+        _UPDATE_AI_RESPONSE_SQL,
+        (
+            projection.timestamp,
+            projection.timestamp,
+            projection.preview,
+            projection.session_id,
+            projection.user_id,
+        ),
+    )
