@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from .llm_registry_catalog import build_provider_catalog
-from .llm_registry_defaults import build_runtime_llm_defaults
+from .llm_registry_defaults import build_default_llm_provider_registry, build_runtime_llm_defaults
 from .llm_registry_loading import load_llm_provider_registry
 from .llm_registry_model_resolution import (
     _apply_capability_overrides,
@@ -89,6 +89,7 @@ __all__ = [
     "_resolve_embedding_model",
     "_resolve_image_generation_model",
     "build_provider_catalog",
+    "build_default_llm_provider_registry",
     "build_runtime_llm_defaults",
     "find_chat_model_meta",
     "find_embedding_model_meta",

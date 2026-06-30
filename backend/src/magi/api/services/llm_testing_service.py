@@ -7,30 +7,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import aiohttp
-import yaml
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ... import i18n as core_i18n
 from ...config.llm_registry import (
-    LLMAudioGenerationModelMetaModel,
-    LLMChatCapabilitiesModel,
-    LLMCustomProviderMetaModel,
-    LLMEmbeddingModelMetaModel,
-    LLMImageGenerationModelMetaModel,
-    LLMLimitsSettings,
-    LLMModelMetaModel,
-    LLMProviderFieldModel,
-    LLMProviderMetaModel,
     LLMProviderRegistryModel,
+    build_default_llm_provider_registry,
     find_provider_meta,
     load_llm_provider_registry,
     resolve_provider_plan_meta,
 )
-from ...config.models import (
-    LLMCapabilitiesSettings,
-    LLMProviderSettings,
-)
+from ...config.models import LLMProviderSettings
 from ...config import get_config
 from ...core.logger import get_logger
 from ...llm import LLMProviderBridge, create_llm_adapter
@@ -122,100 +110,15 @@ def _llm_provider_registry_path() -> Path:
 
 
 def _default_llm_provider_registry() -> LLMProviderRegistryModel:
-    try:
-        with open(_llm_provider_registry_path(), "r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
-        return LLMProviderRegistryModel(**data)
-    except Exception:
-        return LLMProviderRegistryModel(
-            providers=[
-                LLMProviderMetaModel(
-                    id="openai",
-                    display_name="OpenAI",
-                    description="General purpose, strongest ecosystem",
-                    icon="openai",
-                    default_model="gpt-5.2",
-                    default_classify_model="gpt-5.2",
-                    default_base_url="https://api.openai.com/v1",
-                    chat_models=[
-                        LLMModelMetaModel(
-                            id="gpt-5.2",
-                            label="GPT-5.2",
-                            capabilities=LLMChatCapabilitiesModel(
-                                vision=True,
-                                image_output=False,
-                                tool_calling=True,
-                                reasoning=True,
-                            ),
-                            limits=LLMLimitsSettings(
-                                context_window=400000,
-                                max_output_tokens=128000,
-                                max_concurrency=2,
-                            ),
-                        )
-                    ],
-                    embedding_models=[
-                        LLMEmbeddingModelMetaModel(
-                            id="text-embedding-3-small",
-                            label="Text Embedding 3 Small",
-                            dimensions=[1536, 512],
-                            limits=LLMLimitsSettings(max_concurrency=6),
-                        )
-                    ],
-                    image_generation_models=[
-                        LLMImageGenerationModelMetaModel(
-                            id="gpt-image-1",
-                            label="GPT Image 1",
-                            supported_sizes=["1024x1024", "1536x1024", "1024x1536"],
-                            supported_qualities=["auto", "high", "medium", "low"],
-                            native_protocol="openai_images",
-                        )
-                    ],
-                    audio_generation_models=[
-                        LLMAudioGenerationModelMetaModel(
-                            id="gpt-4o-mini-tts", label="GPT-4o Mini TTS"
-                        )
-                    ],
-                    fields={
-                        "model": LLMProviderFieldModel(visible=True, required=True),
-                        "api_key": LLMProviderFieldModel(visible=True, required=True),
-                        "base_url": LLMProviderFieldModel(visible=True, required=False),
-                    },
-                )
-            ],
-            custom_provider=LLMCustomProviderMetaModel(
-                enabled=True,
-                display_name="Custom Provider",
-                description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
-                icon="custom",
-                capabilities=LLMCapabilitiesSettings(
-                    vision=False,
-                    image_output=False,
-                    tool_calling=True,
-                    reasoning=True,
-                    embedding=False,
-                ),
-                fields={
-                    "custom_name": LLMProviderFieldModel(
-                        visible=True, required=True, placeholder="My Provider"
-                    ),
-                    "api_format": LLMProviderFieldModel(
-                        visible=True, required=True, options=["openai", "anthropic"]
-                    ),
-                    "model": LLMProviderFieldModel(visible=True, required=True),
-                    "api_key": LLMProviderFieldModel(visible=True, required=True),
-                    "base_url": LLMProviderFieldModel(visible=True, required=False),
-                },
-            ),
-        )
+    return load_llm_provider_registry(
+        _llm_provider_registry_path(),
+        fallback=build_default_llm_provider_registry(),
+    )
 
 
 def get_llm_provider_registry() -> LLMProviderRegistryModel:
     """Load the LLM provider registry from disk with built-in fallback."""
-    return load_llm_provider_registry(
-        _llm_provider_registry_path(),
-        fallback=_default_llm_provider_registry(),
-    )
+    return _default_llm_provider_registry()
 
 
 # ── Model discovery ─────────────────────────────────────────────────────

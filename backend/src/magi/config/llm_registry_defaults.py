@@ -5,7 +5,133 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from .constants import DEFAULT_MAX_TOKENS
-from .llm_registry_models import LLMProviderRegistryModel
+from .models import LLMCapabilitiesSettings, LLMLimitsSettings
+from .llm_registry_models import (
+    LLMAudioGenerationModelMetaModel,
+    LLMChatCapabilitiesModel,
+    LLMCustomProviderMetaModel,
+    LLMEmbeddingModelMetaModel,
+    LLMImageGenerationModelMetaModel,
+    LLMModelMetaModel,
+    LLMProviderFieldModel,
+    LLMProviderMetaModel,
+    LLMProviderRegistryModel,
+)
+
+
+def build_default_llm_provider_registry() -> LLMProviderRegistryModel:
+    """Build the minimal provider registry used when packaged YAML is unavailable."""
+    return LLMProviderRegistryModel(
+        providers=[_default_openai_provider_meta()],
+        custom_provider=_default_custom_provider_meta(),
+    )
+
+
+def _default_openai_provider_meta() -> LLMProviderMetaModel:
+    return LLMProviderMetaModel(
+        id="openai",
+        display_name="OpenAI",
+        description="General purpose, strongest ecosystem",
+        icon="openai",
+        default_model="gpt-5.2",
+        default_classify_model="gpt-5.2",
+        default_base_url="https://api.openai.com/v1",
+        chat_models=_default_openai_chat_models(),
+        embedding_models=_default_openai_embedding_models(),
+        image_generation_models=_default_openai_image_generation_models(),
+        audio_generation_models=_default_openai_audio_generation_models(),
+        fields=_default_openai_fields(),
+    )
+
+
+def _default_openai_chat_models() -> list[LLMModelMetaModel]:
+    return [
+        LLMModelMetaModel(
+            id="gpt-5.2",
+            label="GPT-5.2",
+            capabilities=LLMChatCapabilitiesModel(
+                vision=True,
+                image_output=False,
+                tool_calling=True,
+                reasoning=True,
+            ),
+            limits=LLMLimitsSettings(
+                context_window=400000,
+                max_output_tokens=128000,
+                max_concurrency=2,
+            ),
+        )
+    ]
+
+
+def _default_openai_embedding_models() -> list[LLMEmbeddingModelMetaModel]:
+    return [
+        LLMEmbeddingModelMetaModel(
+            id="text-embedding-3-small",
+            label="Text Embedding 3 Small",
+            dimensions=[1536, 512],
+            limits=LLMLimitsSettings(max_concurrency=6),
+        )
+    ]
+
+
+def _default_openai_image_generation_models() -> list[LLMImageGenerationModelMetaModel]:
+    return [
+        LLMImageGenerationModelMetaModel(
+            id="gpt-image-1",
+            label="GPT Image 1",
+            supported_sizes=["1024x1024", "1536x1024", "1024x1536"],
+            supported_qualities=["auto", "high", "medium", "low"],
+            native_protocol="openai_images",
+        )
+    ]
+
+
+def _default_openai_audio_generation_models() -> list[LLMAudioGenerationModelMetaModel]:
+    return [LLMAudioGenerationModelMetaModel(id="gpt-4o-mini-tts", label="GPT-4o Mini TTS")]
+
+
+def _default_openai_fields() -> dict[str, LLMProviderFieldModel]:
+    return {
+        "model": LLMProviderFieldModel(visible=True, required=True),
+        "api_key": LLMProviderFieldModel(visible=True, required=True),
+        "base_url": LLMProviderFieldModel(visible=True, required=False),
+    }
+
+
+def _default_custom_provider_meta() -> LLMCustomProviderMetaModel:
+    return LLMCustomProviderMetaModel(
+        enabled=True,
+        display_name="Custom Provider",
+        description="Connect OpenAI-compatible or Anthropic-compatible endpoints",
+        icon="custom",
+        capabilities=LLMCapabilitiesSettings(
+            vision=False,
+            image_output=False,
+            tool_calling=True,
+            reasoning=True,
+            embedding=False,
+        ),
+        fields=_default_custom_provider_fields(),
+    )
+
+
+def _default_custom_provider_fields() -> dict[str, LLMProviderFieldModel]:
+    return {
+        "custom_name": LLMProviderFieldModel(
+            visible=True,
+            required=True,
+            placeholder="My Provider",
+        ),
+        "api_format": LLMProviderFieldModel(
+            visible=True,
+            required=True,
+            options=["openai", "anthropic"],
+        ),
+        "model": LLMProviderFieldModel(visible=True, required=True),
+        "api_key": LLMProviderFieldModel(visible=True, required=True),
+        "base_url": LLMProviderFieldModel(visible=True, required=False),
+    }
 
 
 def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, Any]:
@@ -69,4 +195,4 @@ def build_runtime_llm_defaults(registry: LLMProviderRegistryModel) -> Dict[str, 
     }
 
 
-__all__ = ["build_runtime_llm_defaults"]
+__all__ = ["build_default_llm_provider_registry", "build_runtime_llm_defaults"]
