@@ -76,24 +76,108 @@ class TraceSnapshotBuilderMixin:
             intent_resolutions=intent_resolutions,
         )
         orchestration_id = str(turn.get("orchestration_id") or "").strip() or None
-        mode = str(turn.get("mode") or self._resolve_normalized_mode(
+        mode = self._snapshot_mode(
+            turn=turn,
             root=root,
             orchestration_id=orchestration_id,
             orchestration_state=orchestration_state,
-        ))
+        )
         if mode == "orchestration":
             root = self._reshape_orchestration_trace_root(root)
+
+        started_at, ended_at, status = self._apply_turn_status(root=root, turn=turn)
+        summary = self._build_trace_summary(
+            turn_id=turn_id,
+            mode=mode,
+            status=status,
+            root=root,
+            started_at=started_at,
+            ended_at=ended_at,
+            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            orchestration_state=orchestration_state,
+            llm_calls=llm_calls,
+            turn=turn,
+        )
+        return ExecutionTraceSnapshot(
+            turn_id=turn_id,
+            user_id=user_id,
+            session_id=session_id,
+            status=status,
+            mode=mode,
+            orchestration_id=orchestration_id,
+            started_at=started_at,
+            ended_at=root.ended_at,
+            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
+            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
+            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
+            supersession_reason=self._optional_text(turn.get("supersession_reason")),
+            summary=summary,
+            root=root,
+        )
+
+    def _snapshot_mode(
+        self,
+        *,
+        turn: dict[str, Any],
+        root: ExecutionTraceNode,
+        orchestration_id: Optional[str],
+        orchestration_state: Optional[dict[str, Any]],
+    ) -> str:
+        return str(
+            turn.get("mode")
+            or self._resolve_normalized_mode(
+                root=root,
+                orchestration_id=orchestration_id,
+                orchestration_state=orchestration_state,
+            )
+        )
+
+    def _apply_turn_status(
+        self,
+        *,
+        root: ExecutionTraceNode,
+        turn: dict[str, Any],
+    ) -> tuple[Optional[float], Optional[float], str]:
         started_at = self._ms_to_seconds(turn.get("started_at_ms"))
         ended_at = self._ms_to_seconds(turn.get("ended_at_ms"))
         status = self._normalize_status(str(turn.get("status") or "running"))
         root.status = status
         root.started_at = root.started_at if root.started_at is not None else started_at
         root.ended_at = ended_at if self._is_terminal_status(status) else None
+        return started_at, ended_at, status
+
+    def _trace_token_totals(
+        self,
+        llm_calls: list[dict[str, Any]],
+    ) -> tuple[int, int, int]:
+        total_input_tokens = sum(
+            self._safe_int(call.get("input_tokens"), default=0) for call in llm_calls
+        )
+        total_output_tokens = sum(
+            self._safe_int(call.get("output_tokens"), default=0) for call in llm_calls
+        )
+        total_reasoning_tokens = sum(
+            self._safe_int(call.get("reasoning_tokens"), default=0) for call in llm_calls
+        )
+        return total_input_tokens, total_output_tokens, total_reasoning_tokens
+
+    def _build_trace_summary(
+        self,
+        *,
+        turn_id: str,
+        mode: str,
+        status: str,
+        root: ExecutionTraceNode,
+        started_at: Optional[float],
+        ended_at: Optional[float],
+        orchestration_id: Optional[str],
+        orchestration_state: Optional[dict[str, Any]],
+        llm_calls: list[dict[str, Any]],
+        turn: dict[str, Any],
+    ) -> ExecutionTraceSummary:
         active_steps, completed_steps, failed_steps = self._count_steps(root)
-        total_input_tokens = sum(self._safe_int(lc.get("input_tokens"), default=0) for lc in llm_calls)
-        total_output_tokens = sum(self._safe_int(lc.get("output_tokens"), default=0) for lc in llm_calls)
-        total_reasoning_tokens = sum(self._safe_int(lc.get("reasoning_tokens"), default=0) for lc in llm_calls)
-        summary = ExecutionTraceSummary(
+        input_tokens, output_tokens, reasoning_tokens = self._trace_token_totals(llm_calls)
+        return ExecutionTraceSummary(
             turn_id=turn_id,
             mode=mode,
             status=status,
@@ -112,31 +196,15 @@ class TraceSnapshotBuilderMixin:
                 3,
             ),
             trace_available=bool(root.children),
-            orchestration_id=str(turn.get("orchestration_id") or "").strip() or None,
+            orchestration_id=orchestration_id,
             plan_summary=self._build_plan_summary(orchestration_state),
             continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
             continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
             superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
             supersession_reason=self._optional_text(turn.get("supersession_reason")),
-            total_input_tokens=total_input_tokens,
-            total_output_tokens=total_output_tokens,
-            total_reasoning_tokens=total_reasoning_tokens,
-        )
-        return ExecutionTraceSnapshot(
-            turn_id=turn_id,
-            user_id=user_id,
-            session_id=session_id,
-            status=status,
-            mode=mode,
-            orchestration_id=orchestration_id,
-            started_at=started_at,
-            ended_at=root.ended_at,
-            continued_from_turn_id=self._optional_text(turn.get("continued_from_turn_id")),
-            continued_from_trace_id=self._optional_text(turn.get("continued_from_trace_id")),
-            superseded_by_turn_id=self._optional_text(turn.get("superseded_by_turn_id")),
-            supersession_reason=self._optional_text(turn.get("supersession_reason")),
-            summary=summary,
-            root=root,
+            total_input_tokens=input_tokens,
+            total_output_tokens=output_tokens,
+            total_reasoning_tokens=reasoning_tokens,
         )
 
     def _resolve_normalized_mode(
@@ -175,7 +243,9 @@ class TraceSnapshotBuilderMixin:
                 completed += 1
         return active, completed, failed
 
-    def _build_plan_summary(self, orchestration_state: Optional[dict[str, Any]]) -> Optional[ExecutionPlanSummary]:
+    def _build_plan_summary(
+        self, orchestration_state: Optional[dict[str, Any]]
+    ) -> Optional[ExecutionPlanSummary]:
         if not isinstance(orchestration_state, dict):
             return None
         raw_subtasks = orchestration_state.get("subtasks")
@@ -207,7 +277,11 @@ class TraceSnapshotBuilderMixin:
         preview_steps = steps[:MAX_PLAN_PREVIEW_STEPS]
         return ExecutionPlanSummary(
             planner=self._optional_text(orchestration_state.get("planner")),
-            parallel_mode="parallel" if bool(orchestration_state.get("allow_parallel", True)) else "sequential",
+            parallel_mode=(
+                "parallel"
+                if bool(orchestration_state.get("allow_parallel", True))
+                else "sequential"
+            ),
             total_steps=len(steps),
             remaining_steps=max(0, len(steps) - len(preview_steps)),
             steps=preview_steps,
@@ -227,14 +301,20 @@ class TraceSnapshotBuilderMixin:
         if status == "failed":
             return "Tool chain failed"
         if mode == "orchestration" and completed_steps == 0:
-            subtasks = orchestration_state.get("subtasks") if isinstance(orchestration_state, dict) else None
+            subtasks = (
+                orchestration_state.get("subtasks")
+                if isinstance(orchestration_state, dict)
+                else None
+            )
             if active_steps <= 1 and not subtasks:
                 return "Orchestrating tasks"
         if active_steps > 0 or completed_steps > 0:
             return "Running tool chain"
         return "Thinking"
 
-    def _load_orchestration_state(self, orchestration_id: Optional[str]) -> Optional[dict[str, Any]]:
+    def _load_orchestration_state(
+        self, orchestration_id: Optional[str]
+    ) -> Optional[dict[str, Any]]:
         normalized = str(orchestration_id or "").strip()
         if not normalized or not self._orchestrations_path.exists():
             return None
