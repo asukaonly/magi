@@ -16,13 +16,19 @@ class EpisodeBundleAssembler:
         payload: RetrievalPayload,
         request: RetrievalQuery,
     ) -> EpisodeBundleEvidence:
-        episodes: list[dict[str, Any]] = []
-        key_events: list[dict[str, Any]] = []
-        state_overlays: list[dict[str, Any]] = []
+        episodes = self._episodes(payload)
+        key_events = self._key_events(payload, episodes)
+        state_overlays = self._state_overlays(payload, episodes)
+        return EpisodeBundleEvidence(
+            episodes=episodes,
+            key_events=key_events,
+            state_overlays=state_overlays,
+        )
 
-        # 1. Episodes from L2
-        for ep in payload.l2_episodes:
-            episodes.append({
+    @staticmethod
+    def _episodes(payload: RetrievalPayload) -> list[dict[str, Any]]:
+        return [
+            {
                 "episode_id": ep.get("episode_id", ""),
                 "label": ep.get("user_label") or ep.get("label", ""),
                 "summary": ep.get("summary", ""),
@@ -30,64 +36,82 @@ class EpisodeBundleAssembler:
                 "time_end": ep.get("time_end"),
                 "dominant_mode": ep.get("dominant_mode", ""),
                 "child_episodes": ep.get("child_episodes", []),
-            })
+            }
+            for ep in payload.l2_episodes
+        ]
 
-            # Key events from episode member events
-            member_events = ep.get("member_events", [])
-            # Prefer anchor roles, then sort by importance
-            anchors = [e for e in member_events if e.get("membership_role") == "anchor"]
-            others = [e for e in member_events if e.get("membership_role") != "anchor"]
-            ordered = anchors + sorted(
-                others,
-                key=lambda e: float(e.get("importance_score", 0)),
-                reverse=True,
-            )
-            for evt in ordered[:8]:
-                key_events.append({
-                    "event_id": evt.get("event_id", ""),
-                    "summary": evt.get("summary") or evt.get("content", "")[:200],
-                    "timestamp": evt.get("timestamp"),
-                    "episode_id": ep.get("episode_id", ""),
-                    "membership_role": evt.get("membership_role", "member"),
-                })
-
-        # 2. Fallback: if no episodes found, cluster L1 events by time proximity
+    def _key_events(
+        self,
+        payload: RetrievalPayload,
+        episodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        key_events: list[dict[str, Any]] = []
+        for ep in payload.l2_episodes:
+            key_events.extend(self._episode_key_events(ep))
         if not episodes and payload.l1_events:
-            sorted_events = sorted(payload.l1_events, key=lambda e: float(e.get("timestamp", 0)))
-            for evt in sorted_events[:10]:
-                key_events.append({
-                    "event_id": evt.get("event_id", ""),
-                    "summary": evt.get("summary") or evt.get("content", "")[:200],
-                    "timestamp": evt.get("timestamp"),
-                    "episode_id": "",
-                    "membership_role": "fallback",
-                })
+            key_events.extend(self._fallback_key_events(payload.l1_events))
+        return sorted(key_events, key=lambda e: float(e.get("timestamp", 0) or 0))
 
-        # 3. Sort key events by timestamp for narrative order
-        key_events.sort(key=lambda e: float(e.get("timestamp", 0) or 0))
+    @staticmethod
+    def _episode_key_events(ep: dict[str, Any]) -> list[dict[str, Any]]:
+        member_events = ep.get("member_events", [])
+        anchors = [e for e in member_events if e.get("membership_role") == "anchor"]
+        others = [e for e in member_events if e.get("membership_role") != "anchor"]
+        ordered = anchors + sorted(
+            others,
+            key=lambda e: float(e.get("importance_score", 0)),
+            reverse=True,
+        )
+        return [
+            {
+                "event_id": evt.get("event_id", ""),
+                "summary": evt.get("summary") or evt.get("content", "")[:200],
+                "timestamp": evt.get("timestamp"),
+                "episode_id": ep.get("episode_id", ""),
+                "membership_role": evt.get("membership_role", "member"),
+            }
+            for evt in ordered[:8]
+        ]
 
-        # 4. State overlays: assertions active during episode time range
-        if episodes:
-            ep_start = min(
-                (float(ep.get("time_start", 0) or 0) for ep in episodes),
-                default=0,
-            )
-            ep_end = max(
-                (float(ep.get("time_end", 0) or 0) for ep in episodes),
-                default=0,
-            )
-            for sf in payload.l2_state_facts:
-                inferred_at = float(sf.get("first_inferred_at", 0) or 0)
-                expires_at = float(sf.get("expires_at", 0) or 0) or float("inf")
-                if inferred_at <= ep_end and expires_at >= ep_start:
-                    state_overlays.append({
-                        "trait_name": sf.get("trait_name", ""),
-                        "trait_value": sf.get("trait_value", ""),
-                        "confidence": float(sf.get("confidence_score", 0)),
-                    })
+    @staticmethod
+    def _fallback_key_events(l1_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        sorted_events = sorted(l1_events, key=lambda e: float(e.get("timestamp", 0)))
+        return [
+            {
+                "event_id": evt.get("event_id", ""),
+                "summary": evt.get("summary") or evt.get("content", "")[:200],
+                "timestamp": evt.get("timestamp"),
+                "episode_id": "",
+                "membership_role": "fallback",
+            }
+            for evt in sorted_events[:10]
+        ]
 
-        return EpisodeBundleEvidence(
-            episodes=episodes,
-            key_events=key_events,
-            state_overlays=state_overlays,
+    @staticmethod
+    def _state_overlays(
+        payload: RetrievalPayload,
+        episodes: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not episodes:
+            return []
+        ep_start, ep_end = EpisodeBundleAssembler._episode_time_bounds(episodes)
+        state_overlays: list[dict[str, Any]] = []
+        for state_fact in payload.l2_state_facts:
+            inferred_at = float(state_fact.get("first_inferred_at", 0) or 0)
+            expires_at = float(state_fact.get("expires_at", 0) or 0) or float("inf")
+            if inferred_at <= ep_end and expires_at >= ep_start:
+                state_overlays.append(
+                    {
+                        "trait_name": state_fact.get("trait_name", ""),
+                        "trait_value": state_fact.get("trait_value", ""),
+                        "confidence": float(state_fact.get("confidence_score", 0)),
+                    }
+                )
+        return state_overlays
+
+    @staticmethod
+    def _episode_time_bounds(episodes: list[dict[str, Any]]) -> tuple[float, float]:
+        return (
+            min((float(ep.get("time_start", 0) or 0) for ep in episodes), default=0),
+            max((float(ep.get("time_end", 0) or 0) for ep in episodes), default=0),
         )
