@@ -124,6 +124,15 @@ class GraphDerivedAssertionRule:
         )
 
 
+@dataclass(slots=True, frozen=True)
+class _EdgeCandidateContext:
+    object_id: str
+    object_type: str
+    predicate: str
+    raw_object_slug: str
+    object_slug: str
+
+
 def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
     """Return the host fallback rule for stable profile-worthy interests."""
     return GraphDerivedAssertionRule(
@@ -166,6 +175,43 @@ async def evaluate_graph_derived_assertion_rule(
     limit: int = 500,
 ) -> dict[str, int]:
     """Evaluate one graph-derived assertion rule and persist matching assertions."""
+    edges, edges_seen = await _fetch_rule_edges(
+        store=store,
+        rule=rule,
+        entity_id=entity_id,
+        limit=limit,
+    )
+    qualifying = _qualifying_edges(edges=edges, rule=rule)
+    if not qualifying:
+        _log_no_qualifying_edges(rule=rule, entity_id=entity_id, edges_seen=edges_seen)
+        return {"edges_seen": edges_seen, "assertions_written": 0}
+
+    object_ids = [str(edge.get("object_id") or "") for edge in qualifying]
+    canonical_names = await get_canonical_names(store.db_path, object_ids)
+    assertions_written = await _write_derived_assertion_candidates(
+        store=store,
+        rule=rule,
+        entity_id=entity_id,
+        entity_type=entity_type,
+        qualifying=qualifying,
+        canonical_names=canonical_names,
+    )
+    _log_rule_completed(
+        rule=rule,
+        entity_id=entity_id,
+        edges_seen=edges_seen,
+        assertions_written=assertions_written,
+    )
+    return {"edges_seen": edges_seen, "assertions_written": assertions_written}
+
+
+async def _fetch_rule_edges(
+    *,
+    store: Any,
+    rule: GraphDerivedAssertionRule,
+    entity_id: str,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
     edges: list[dict[str, Any]] = await store.get_relationships(
         subject_id=entity_id,
         predicates=list(rule.source_predicates),
@@ -180,20 +226,40 @@ async def evaluate_graph_derived_assertion_rule(
             entity_id=entity_id,
             limit=limit,
         )
+    return edges, edges_seen
 
-    qualifying = [edge for edge in edges if _edge_meets_rule(edge=edge, rule=rule)]
-    if not qualifying:
-        logger.debug(
-            "graph-derived assertion rule had no qualifying edges",
-            rule_id=rule.rule_id,
-            entity_id=entity_id,
-            edges_seen=edges_seen,
-        )
-        return {"edges_seen": edges_seen, "assertions_written": 0}
 
-    object_ids = [str(edge.get("object_id") or "") for edge in qualifying]
-    canonical_names = await get_canonical_names(store.db_path, object_ids)
+def _qualifying_edges(
+    *,
+    edges: list[dict[str, Any]],
+    rule: GraphDerivedAssertionRule,
+) -> list[dict[str, Any]]:
+    return [edge for edge in edges if _edge_meets_rule(edge=edge, rule=rule)]
 
+
+def _log_no_qualifying_edges(
+    *,
+    rule: GraphDerivedAssertionRule,
+    entity_id: str,
+    edges_seen: int,
+) -> None:
+    logger.debug(
+        "graph-derived assertion rule had no qualifying edges",
+        rule_id=rule.rule_id,
+        entity_id=entity_id,
+        edges_seen=edges_seen,
+    )
+
+
+async def _write_derived_assertion_candidates(
+    *,
+    store: Any,
+    rule: GraphDerivedAssertionRule,
+    entity_id: str,
+    entity_type: str,
+    qualifying: list[dict[str, Any]],
+    canonical_names: dict[str, str],
+) -> int:
     assertions_written = 0
     for edge in qualifying:
         candidate = _candidate_from_edge(
@@ -215,7 +281,16 @@ async def evaluate_graph_derived_assertion_rule(
             object_id=candidate["target_entity_id"],
             evidence_count=len(candidate["evidence_events"]),
         )
+    return assertions_written
 
+
+def _log_rule_completed(
+    *,
+    rule: GraphDerivedAssertionRule,
+    entity_id: str,
+    edges_seen: int,
+    assertions_written: int,
+) -> None:
     logger.info(
         "graph-derived assertion rule completed",
         rule_id=rule.rule_id,
@@ -223,7 +298,6 @@ async def evaluate_graph_derived_assertion_rule(
         edges_seen=edges_seen,
         assertions_written=assertions_written,
     )
-    return {"edges_seen": edges_seen, "assertions_written": assertions_written}
 
 
 def _edge_meets_rule(*, edge: dict[str, Any], rule: GraphDerivedAssertionRule) -> bool:
@@ -256,6 +330,42 @@ def _candidate_from_edge(
     entity_type: str,
     canonical_names: dict[str, str],
 ) -> dict[str, Any] | None:
+    context = _edge_candidate_context(edge=edge, rule=rule)
+    if context is None:
+        return None
+    trait_value = _trait_value_for_edge(
+        edge=edge,
+        rule=rule,
+        object_id=context.object_id,
+        object_slug=context.raw_object_slug,
+        canonical_names=canonical_names,
+    )
+    if _is_low_quality_profile_value(
+        raw_slug=context.raw_object_slug,
+        trait_value=trait_value,
+    ):
+        logger.debug(
+            "graph-derived assertion rule skipped low-quality profile value",
+            rule_id=rule.rule_id,
+            object_id=context.object_id,
+            trait_value=trait_value,
+        )
+        return None
+    return _build_derived_assertion_candidate(
+        edge=edge,
+        rule=rule,
+        entity_id=entity_id,
+        entity_type=entity_type,
+        context=context,
+        trait_value=trait_value,
+    )
+
+
+def _edge_candidate_context(
+    *,
+    edge: dict[str, Any],
+    rule: GraphDerivedAssertionRule,
+) -> _EdgeCandidateContext | None:
     object_id = str(edge.get("object_id") or "").strip()
     object_type = str(edge.get("object_type") or "topic").strip().casefold() or "topic"
     predicate = str(edge.get("predicate") or "").strip().upper()
@@ -270,34 +380,49 @@ def _candidate_from_edge(
         return None
     if slug != raw_slug.lower():
         slug = f"{slug}-{hashlib.sha1(object_id.encode('utf-8')).hexdigest()[:6]}"
-
-    trait_name = rule.trait_name_template.format(
+    return _EdgeCandidateContext(
         object_id=object_id,
         object_type=object_type,
-        object_slug=slug,
-        raw_object_slug=raw_slug,
         predicate=predicate,
+        raw_object_slug=raw_slug,
+        object_slug=slug,
     )
-    trait_value = _trait_value_for_edge(
-        edge=edge,
-        rule=rule,
-        object_id=object_id,
-        object_slug=raw_slug,
-        canonical_names=canonical_names,
-    )
-    if _is_low_quality_profile_value(raw_slug=raw_slug, trait_value=trait_value):
-        logger.debug(
-            "graph-derived assertion rule skipped low-quality profile value",
-            rule_id=rule.rule_id,
-            object_id=object_id,
-            trait_value=trait_value,
-        )
-        return None
 
+
+def _trait_name_for_edge(
+    *,
+    rule: GraphDerivedAssertionRule,
+    context: _EdgeCandidateContext,
+) -> str:
+    return rule.trait_name_template.format(
+        object_id=context.object_id,
+        object_type=context.object_type,
+        object_slug=context.object_slug,
+        raw_object_slug=context.raw_object_slug,
+        predicate=context.predicate,
+    )
+
+
+def _confidence_for_edge(edge: dict[str, Any]) -> float:
     obs_count = int(edge.get("observation_count", 1) or 1)
-    confidence_score = min(
+    return min(
         0.9,
         float(edge.get("confidence", 0.5) or 0.5) * (1 + 0.1 * min(obs_count, 5)),
+    )
+
+
+def _build_derived_assertion_candidate(
+    *,
+    edge: dict[str, Any],
+    rule: GraphDerivedAssertionRule,
+    entity_id: str,
+    entity_type: str,
+    context: _EdgeCandidateContext,
+    trait_value: str,
+) -> dict[str, Any]:
+    trait_name = _trait_name_for_edge(
+        rule=rule,
+        context=context,
     )
     evidence_events = list(edge.get("evidence_event_ids") or [])
     source_domain = rule.source_domains[0] if rule.source_domains else "external_activity"
@@ -308,7 +433,7 @@ def _candidate_from_edge(
         "trait_family": rule.trait_family,
         "trait_name": trait_name,
         "trait_value": trait_value,
-        "confidence_score": confidence_score,
+        "confidence_score": _confidence_for_edge(edge),
         "evidence_events": evidence_events,
         "volatility_index": 0.2,
         "source_domain": source_domain,
@@ -316,12 +441,12 @@ def _candidate_from_edge(
         "validation_state": "tentative",
         "first_inferred_at": float(edge.get("first_observed_at", 0.0) or 0.0),
         "last_validated_at": float(edge.get("last_observed_at", 0.0) or 0.0),
-        "target_entity_id": object_id,
-        "target_entity_type": object_type,
+        "target_entity_id": context.object_id,
+        "target_entity_type": context.object_type,
         "target_scope": "entity_bound",
         "temporal_scope": "stable",
         "decay_policy": "evidence_only",
-        "natural_summary": f"Recurring {predicate.lower()} signal for {trait_value}",
+        "natural_summary": f"Recurring {context.predicate.lower()} signal for {trait_value}",
     }
 
 
