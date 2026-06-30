@@ -56,20 +56,69 @@ async def expand_generic_structured_recall(
     payload: RetrievalPayload,
 ) -> dict[str, Any] | None:
     """Expand a seed result into complete source-facet-backed stats."""
+    spec = _eligible_structured_recall_spec(
+        l1_store=l1_store,
+        recall_shape=recall_shape,
+    )
+    if spec is None:
+        return None
+
+    seed = _structured_recall_seed(spec=spec, payload=payload, query=request.query)
+    if seed is None:
+        return None
+
+    await _ensure_source_facets(l1_store, spec=spec)
+    events = await _find_structured_recall_events(
+        l1_store=l1_store,
+        spec=spec,
+        seed=seed,
+        request=request,
+    )
+    if not events:
+        return None
+
+    return _build_structured_recall_result(
+        spec=spec,
+        recall_shape=recall_shape,
+        request=request,
+        seed=seed,
+        events=events,
+    )
+
+
+def _eligible_structured_recall_spec(
+    *,
+    l1_store: Any,
+    recall_shape: RecallShape,
+) -> _StructuredRecallSpec | None:
     spec = _SPECS.get(recall_shape.domain_hint)
     if spec is None or recall_shape.desired_coverage != "exhaustive":
         return None
     if l1_store is None or not hasattr(l1_store, "find_events_by_source_facets"):
         return None
+    return spec
 
-    seed = _select_seed(spec=spec, payload=payload, query=request.query)
+
+def _structured_recall_seed(
+    *,
+    spec: _StructuredRecallSpec,
+    payload: RetrievalPayload,
+    query: str,
+) -> dict[str, Any] | None:
+    seed = _select_seed(spec=spec, payload=payload, query=query)
     if seed is None and spec.domain == "browser":
-        seed = _browser_seed_from_query(request.query)
-    if seed is None:
-        return None
+        return _browser_seed_from_query(query)
+    return seed
 
-    await _ensure_source_facets(l1_store, spec=spec)
-    events = await l1_store.find_events_by_source_facets(
+
+async def _find_structured_recall_events(
+    *,
+    l1_store: Any,
+    spec: _StructuredRecallSpec,
+    seed: dict[str, Any],
+    request: RetrievalQuery,
+) -> list[dict[str, Any]]:
+    return await l1_store.find_events_by_source_facets(
         sources=list(spec.sources),
         facet_names=[seed["facet_name"]],
         normalized_text_values=sorted(seed["aliases"]),
@@ -78,13 +127,36 @@ async def expand_generic_structured_recall(
         time_end=_coerce_float((request.time_range or {}).get("end")),
         limit=max(int(request.limit or 10) * 50, 1000),
     )
-    if not events:
-        return None
 
+
+def _build_structured_recall_result(
+    *,
+    spec: _StructuredRecallSpec,
+    recall_shape: RecallShape,
+    request: RetrievalQuery,
+    seed: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> dict[str, Any]:
     items = [_event_to_item(event, spec=spec) for event in events]
+    max_items = max(int(request.limit or 10), 20)
+    returned_items = items[:max_items]
+    return {
+        "domain": spec.domain,
+        "operation": recall_shape.operation,
+        "title": f"{spec.domain.title()} structured recall",
+        "coverage": _structured_recall_coverage(spec, seed, items, returned_items),
+        "summary": _structured_recall_summary(spec, seed, items),
+        "items": returned_items,
+    }
+
+
+def _structured_recall_summary(
+    spec: _StructuredRecallSpec,
+    seed: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
     by_year = Counter(_year_from_timestamp(item["timestamp"]) for item in items)
     by_year.pop(None, None)
-
     metric_total = sum(float(item["metric_value"]) for item in items)
     summary: dict[str, Any] = {
         "event_count": len(items),
@@ -98,28 +170,26 @@ async def expand_generic_structured_recall(
     if spec.duration_facet_name:
         duration_total = sum(float(item.get("duration_sec") or 0.0) for item in items)
         summary["duration_total_sec"] = _clean_number(duration_total)
+    return summary
 
-    max_items = max(int(request.limit or 10), 20)
-    returned_items = items[:max_items]
 
+def _structured_recall_coverage(
+    spec: _StructuredRecallSpec,
+    seed: dict[str, Any],
+    items: list[dict[str, Any]],
+    returned_items: list[dict[str, Any]],
+) -> dict[str, Any]:
     return {
-        "domain": spec.domain,
-        "operation": recall_shape.operation,
-        "title": f"{spec.domain.title()} structured recall",
-        "coverage": {
-            "kind": "exhaustive",
-            "can_claim_total": True,
-            "total_count": len(items),
-            "returned_count": len(returned_items),
-            "omitted_count": max(len(items) - len(returned_items), 0),
-            "scope": {
-                "sources": list(spec.sources),
-                "facet_name": seed["facet_name"],
-                "alias_count": len(seed["aliases"]),
-            },
+        "kind": "exhaustive",
+        "can_claim_total": True,
+        "total_count": len(items),
+        "returned_count": len(returned_items),
+        "omitted_count": max(len(items) - len(returned_items), 0),
+        "scope": {
+            "sources": list(spec.sources),
+            "facet_name": seed["facet_name"],
+            "alias_count": len(seed["aliases"]),
         },
-        "summary": summary,
-        "items": returned_items,
     }
 
 
