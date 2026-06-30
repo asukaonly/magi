@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, fields
 from typing import Any, Dict, List, Literal, Optional, cast
 
 import aiosqlite
@@ -14,6 +15,64 @@ from .filters import L1EventFilterMixin
 from .idempotency import L1EventIdempotencyMixin
 from .maintenance import L1EventMaintenanceQueryMixin
 from .timeline import L1TimelineQueryMixin
+
+
+@dataclass(slots=True)
+class _QueryEventsSpec:
+    session_id: Optional[str]
+    user_id: Optional[str]
+    memory_domain: Optional[str]
+    event_id: Optional[str]
+    event_type: Optional[str]
+    exclude_event_types: Optional[List[str]]
+    query: Optional[str]
+    source_filters: Optional[List[str]]
+    source_item_id: Optional[str]
+    idempotency_key: Optional[str]
+    cognition_eligible: Optional[bool]
+    start_time: Optional[float]
+    end_time: Optional[float]
+    exclude_memory_domain: Optional[str]
+    exclude_retention_class: Optional[str]
+    l1_retrieval_scopes: Optional[List[str]]
+    limit: int
+    offset: int
+    include_metadata_json: bool
+    include_embedding_fields: bool
+    order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc"]
+
+    def filter_kwargs(self) -> dict[str, Any]:
+        return {
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "memory_domain": self.memory_domain,
+            "event_id": self.event_id,
+            "event_type": self.event_type,
+            "exclude_event_types": self.exclude_event_types,
+            "query": self.query,
+            "source_filters": self.source_filters,
+            "source_item_id": self.source_item_id,
+            "idempotency_key": self.idempotency_key,
+            "cognition_eligible": self.cognition_eligible,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "exclude_memory_domain": self.exclude_memory_domain,
+            "exclude_retention_class": self.exclude_retention_class,
+            "l1_retrieval_scopes": self.l1_retrieval_scopes,
+        }
+
+    def order_clause(self) -> str:
+        return {
+            "timestamp_desc": "timestamp DESC",
+            "timestamp_asc": "timestamp ASC",
+            "importance_desc": "importance_score DESC, timestamp DESC",
+        }.get(self.order_by, "timestamp DESC")
+
+
+def _query_events_spec_from_call(raw_args: dict[str, Any]) -> _QueryEventsSpec:
+    return _QueryEventsSpec(
+        **{field.name: raw_args[field.name] for field in fields(_QueryEventsSpec)}
+    )
 
 
 class L1EventQueryMixin(
@@ -255,55 +314,58 @@ class L1EventQueryMixin(
         """Query events with SQL-level filters."""
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
-        where_clause, args = self._build_event_filters(
-            session_id=session_id,
-            user_id=user_id,
-            memory_domain=memory_domain,
-            event_id=event_id,
-            event_type=event_type,
-            exclude_event_types=exclude_event_types,
-            query=query,
-            source_filters=source_filters,
-            source_item_id=source_item_id,
-            idempotency_key=idempotency_key,
-            cognition_eligible=cognition_eligible,
-            start_time=start_time,
-            end_time=end_time,
-            exclude_memory_domain=exclude_memory_domain,
-            exclude_retention_class=exclude_retention_class,
-            l1_retrieval_scopes=l1_retrieval_scopes,
-        )
+        spec = _query_events_spec_from_call(locals())
+        where_clause, args = self._build_event_filters(**spec.filter_kwargs())
+        sql, args = self._build_query_events_sql(where_clause, args, spec)
+        rows = await self._fetch_query_event_rows(host, sql, args)
+        return self._query_event_rows_to_dicts(host, rows, spec)
+
+    def _build_query_events_sql(
+        self,
+        where_clause: str,
+        args: list[Any],
+        spec: _QueryEventsSpec,
+    ) -> tuple[str, list[Any]]:
         sql = (
             f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
             f"LEFT JOIN l1_event_embedding_state USING(event_id) WHERE {where_clause}"
         )
-        order_clause = {
-            "timestamp_desc": "timestamp DESC",
-            "timestamp_asc": "timestamp ASC",
-            "importance_desc": "importance_score DESC, timestamp DESC",
-        }.get(order_by, "timestamp DESC")
-        sql += f" ORDER BY {order_clause} LIMIT ? OFFSET ?"
-        args.append(int(limit))
-        args.append(int(offset))
+        sql += f" ORDER BY {spec.order_clause()} LIMIT ? OFFSET ?"
+        query_args = list(args)
+        query_args.append(int(spec.limit))
+        query_args.append(int(spec.offset))
+        return sql, query_args
 
+    async def _fetch_query_event_rows(
+        self,
+        host: L1EventQueryHostProtocol,
+        sql: str,
+        args: list[Any],
+    ) -> list[aiosqlite.Row]:
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
-        if include_embedding_fields:
+                return await cursor.fetchall()
+
+    @staticmethod
+    def _query_event_rows_to_dicts(
+        host: L1EventQueryHostProtocol,
+        rows: list[aiosqlite.Row],
+        spec: _QueryEventsSpec,
+    ) -> List[Dict[str, Any]]:
+        if spec.include_embedding_fields:
             active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
         else:
             active_embedding_profile_id = None
-        items = [
+        return [
             host._row_to_dict(
                 row,
-                include_metadata_json=include_metadata_json,
-                include_embedding_fields=include_embedding_fields,
+                include_metadata_json=spec.include_metadata_json,
+                include_embedding_fields=spec.include_embedding_fields,
                 active_embedding_profile_id=active_embedding_profile_id,
             )
             for row in rows
         ]
-        return items
 
     async def query_session_event_window(
         self,
