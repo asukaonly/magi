@@ -24,7 +24,7 @@ from .episodic_service import EpisodicSummaryLLMService
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
-from .models import L3Candidate
+from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import ensure_l3_summary_schema
@@ -183,6 +183,38 @@ def _experience_fallback_content(
         return "；".join(snippets)[:240]
 
     return f"包含 {event_count} 个事件的经历"
+
+
+def _topic_fallback_summary(
+    *,
+    topic: str,
+    source_event_count: int,
+    topic_events: list[dict[str, Any]],
+) -> str:
+    snippets = [
+        str(event.get("content") or "").strip()
+        for event in topic_events[:4]
+        if str(event.get("content") or "").strip()
+    ]
+    return (
+        f"Topic '{topic}' recurred across {source_event_count} events. " + " ".join(snippets)
+    ).strip()
+
+
+def _event_timestamps(events: list[dict[str, Any]]) -> list[float]:
+    return [float(event["timestamp"]) for event in events if event.get("timestamp") is not None]
+
+
+def _summary_period_start(period_start: float | None, timestamps: list[float]) -> float:
+    if period_start is not None:
+        return float(period_start)
+    return min(timestamps) if timestamps else time.time()
+
+
+def _summary_period_end(period_end: float | None, timestamps: list[float]) -> float:
+    if period_end is not None:
+        return float(period_end)
+    return max(timestamps) if timestamps else time.time()
 
 
 @dataclass(slots=True)
@@ -525,19 +557,12 @@ class L3SummaryStore(
         if not normalized_topic:
             return None
 
-        candidates = await l1_store.query_events(
-            start_time=period_start,
-            end_time=period_end,
-            cognition_eligible=True,
-            limit=500,
+        topic_events = await self._query_thematic_topic_events(
+            l1_store=l1_store,
+            normalized_topic=normalized_topic,
+            period_start=period_start,
+            period_end=period_end,
         )
-        topic_events = [
-            event
-            for event in candidates
-            if event["memory_domain"] != "runtime_telemetry"
-            and event["retention_class"] != "disposable"
-            and normalized_topic in str(event.get("content") or "").lower()
-        ]
         if len(topic_events) < max(1, int(min_source_count)):
             return None
 
@@ -546,15 +571,62 @@ class L3SummaryStore(
             events=topic_events,
         )
         source_event_ids = list(evidence_pack.source_event_ids)
-        snippets = [
-            str(event.get("content") or "").strip()
-            for event in topic_events[:4]
-            if str(event.get("content") or "").strip()
-        ]
-        fallback_summary = (
-            f"Topic '{topic}' recurred across {len(source_event_ids)} events. " + " ".join(snippets)
+        generation = await self._generate_accepted_topic_candidate(
+            evidence_pack=evidence_pack,
+            topic_events=topic_events,
+            fallback_summary=_topic_fallback_summary(
+                topic=topic,
+                source_event_count=len(source_event_ids),
+                topic_events=topic_events,
+            ),
         )
-        fallback_summary = fallback_summary.strip()
+        if generation is None:
+            return None
+
+        summary = await self.upsert_candidate(
+            candidate=generation.candidate,
+            summary_overrides=self._thematic_summary_overrides(
+                topic=topic,
+                normalized_topic=normalized_topic,
+                period_start=period_start,
+                period_end=period_end,
+                topic_events=topic_events,
+                source_event_ids=source_event_ids,
+                evidence_pack=evidence_pack,
+                generation=generation,
+            ),
+        )
+        return summary
+
+    async def _query_thematic_topic_events(
+        self,
+        *,
+        l1_store: L1EventStore,
+        normalized_topic: str,
+        period_start: float | None,
+        period_end: float | None,
+    ) -> list[dict[str, Any]]:
+        candidates = await l1_store.query_events(
+            start_time=period_start,
+            end_time=period_end,
+            cognition_eligible=True,
+            limit=500,
+        )
+        return [
+            event
+            for event in candidates
+            if event["memory_domain"] != "runtime_telemetry"
+            and event["retention_class"] != "disposable"
+            and normalized_topic in str(event.get("content") or "").lower()
+        ]
+
+    async def _generate_accepted_topic_candidate(
+        self,
+        *,
+        evidence_pack: ThematicEvidencePack,
+        topic_events: list[dict[str, Any]],
+        fallback_summary: str,
+    ) -> ThematicGenerationResult | None:
         generation = await self._topic_llm_service.generate_topic_candidate(
             evidence_pack,
             fallback_summary=fallback_summary,
@@ -566,28 +638,27 @@ class L3SummaryStore(
                 fallback_summary,
             )
             decision = validate_candidate(generation.candidate, evidence_events=topic_events)
-        if decision.action != "accept":
-            return None
+        return generation if decision.action == "accept" else None
 
-        timestamps = [
-            float(event["timestamp"])
-            for event in topic_events
-            if event.get("timestamp") is not None
-        ]
+    def _thematic_summary_overrides(
+        self,
+        *,
+        topic: str,
+        normalized_topic: str,
+        period_start: float | None,
+        period_end: float | None,
+        topic_events: list[dict[str, Any]],
+        source_event_ids: list[str],
+        evidence_pack: ThematicEvidencePack,
+        generation: ThematicGenerationResult,
+    ) -> dict[str, Any]:
+        timestamps = _event_timestamps(topic_events)
         summary_overrides = {
             "summary_id": f"summary_{uuid.uuid4().hex}",
             "summary_type": "thematic",
             "summary_category": "topic",
-            "period_start": (
-                float(period_start)
-                if period_start is not None
-                else (min(timestamps) if timestamps else time.time())
-            ),
-            "period_end": (
-                float(period_end)
-                if period_end is not None
-                else (max(timestamps) if timestamps else time.time())
-            ),
+            "period_start": _summary_period_start(period_start, timestamps),
+            "period_end": _summary_period_end(period_end, timestamps),
             "key_topics": [str(topic).strip()],
             "key_entities": [],
             "sentiment_summary": None,
@@ -603,12 +674,7 @@ class L3SummaryStore(
         }
         if not summary_overrides.get("key_topics"):
             summary_overrides["key_topics"] = [str(topic).strip()]
-
-        summary = await self.upsert_candidate(
-            candidate=generation.candidate,
-            summary_overrides=summary_overrides,
-        )
-        return summary
+        return summary_overrides
 
     async def generate_episodic_summary(
         self,
