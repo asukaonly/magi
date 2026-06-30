@@ -10,8 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any, List
 
+from .manifest_candidates import (
+    ManifestCandidate,
+    ManifestCandidates,
+    apply_manifest_selection,
+    build_manifest_candidates,
+)
 from .models import RetrievalConfig, RetrievalPayload
 
 logger = logging.getLogger(__name__)
@@ -51,38 +57,35 @@ class ManifestSelector:
             payload.trace["manifest_selector"] = "skipped_no_bridge"
             return payload
 
-        candidates, index_map = self._build_candidate_list(payload)
-        if not candidates:
+        manifest = build_manifest_candidates(
+            payload,
+            max_chars=self._config.manifest_selector_candidate_max_chars,
+        )
+        if not manifest.candidates:
             payload.trace["manifest_selector"] = "skipped_empty"
             return payload
 
-        top_k = max(1, self._config.manifest_selector_top_k)
-        candidates_for_llm = candidates[:top_k]
-
-        prompt_lines = [f"Query: {query}\n\nCandidates:"]
-        for idx, (layer, text) in enumerate(candidates_for_llm):
-            prompt_lines.append(f"[{idx}] ({layer}) {text}")
-        prompt_lines.append(
-            f"\nSelect up to {self._config.manifest_selector_max_output} "
-            'most relevant candidates. Return JSON: {"selected": [idx, ...]}'
+        return await self._select_with_llm(
+            payload,
+            query=query,
+            llm_bridge=llm_bridge,
+            manifest=manifest,
         )
-        user_prompt = "\n".join(prompt_lines)
+
+    async def _select_with_llm(
+        self,
+        payload: RetrievalPayload,
+        *,
+        query: str,
+        llm_bridge: Any,
+        manifest: ManifestCandidates,
+    ) -> RetrievalPayload:
+        candidates_for_llm = self._llm_candidates(manifest.candidates)
+        user_prompt = self._build_user_prompt(query, candidates_for_llm)
 
         t0 = time.monotonic()
         try:
-            raw = await llm_bridge.chat(
-                system_prompt=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=256,
-                temperature=0.0,
-                json_mode=True,
-                disable_thinking=True,
-                timeout_seconds=self._config.manifest_selector_timeout_seconds,
-                event_context={
-                    "request_kind": "memory:hybrid_manifest_selector",
-                    "agent_id": "memory:hybrid_retrieval",
-                },
-            )
+            raw = await self._request_selection(llm_bridge, user_prompt)
             elapsed_ms = (time.monotonic() - t0) * 1000
             selected_indices = self._parse_response(
                 raw,
@@ -95,11 +98,17 @@ class ManifestSelector:
                 len(candidates_for_llm),
                 elapsed_ms,
             )
-            payload = self._apply_selection(payload, selected_indices, index_map)
-            payload.trace["manifest_selector"] = "applied"
-            payload.trace["manifest_selector_input_count"] = len(candidates_for_llm)
-            payload.trace["manifest_selector_output_count"] = len(selected_indices)
-            payload.trace["manifest_selector_elapsed_ms"] = round(elapsed_ms, 1)
+            payload = apply_manifest_selection(
+                payload,
+                selected_indices,
+                manifest.index_map,
+            )
+            self._record_success_trace(
+                payload,
+                len(candidates_for_llm),
+                selected_indices,
+                elapsed_ms,
+            )
             return payload
         except Exception:
             elapsed_ms = (time.monotonic() - t0) * 1000
@@ -111,78 +120,50 @@ class ManifestSelector:
             payload.trace["manifest_selector"] = "error_fallback"
             return payload
 
-    def _build_candidate_list(
+    def _llm_candidates(self, candidates: List[ManifestCandidate]) -> List[ManifestCandidate]:
+        top_k = max(1, self._config.manifest_selector_top_k)
+        return candidates[:top_k]
+
+    def _build_user_prompt(
         self,
+        query: str,
+        candidates_for_llm: List[ManifestCandidate],
+    ) -> str:
+        prompt_lines = [f"Query: {query}\n\nCandidates:"]
+        for idx, (layer, text) in enumerate(candidates_for_llm):
+            prompt_lines.append(f"[{idx}] ({layer}) {text}")
+        prompt_lines.append(
+            f"\nSelect up to {self._config.manifest_selector_max_output} "
+            'most relevant candidates. Return JSON: {"selected": [idx, ...]}'
+        )
+        return "\n".join(prompt_lines)
+
+    async def _request_selection(self, llm_bridge: Any, user_prompt: str) -> Any:
+        return await llm_bridge.chat(
+            system_prompt=_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=256,
+            temperature=0.0,
+            json_mode=True,
+            disable_thinking=True,
+            timeout_seconds=self._config.manifest_selector_timeout_seconds,
+            event_context={
+                "request_kind": "memory:hybrid_manifest_selector",
+                "agent_id": "memory:hybrid_retrieval",
+            },
+        )
+
+    @staticmethod
+    def _record_success_trace(
         payload: RetrievalPayload,
-    ) -> Tuple[List[Tuple[str, str]], List[Tuple[str, int]]]:
-        """Build a flat numbered list of candidates across all layers.
-
-        Returns:
-            (candidates, index_map) where:
-            - candidates: list of (layer_tag, text_snippet)
-            - index_map: list of (layer_tag, original_index) for each candidate
-        """
-        max_chars = max(50, self._config.manifest_selector_candidate_max_chars)
-        candidates: List[Tuple[str, str]] = []
-        index_map: List[Tuple[str, int]] = []
-
-        for i, ev in enumerate(payload.l1_events):
-            text = _truncate(str(ev.get("content") or ""), max_chars)
-            ts = ev.get("timestamp") or ""
-            snippet = f"[{ts}] {text}" if ts else text
-            candidates.append(("L1", snippet))
-            index_map.append(("l1_events", i))
-
-        for i, card in enumerate(payload.l2_entity_cards):
-            name = card.get("name") or card.get("entity_id") or ""
-            etype = card.get("entity_type") or ""
-            attrs = card.get("attributes") or {}
-            text = _truncate(
-                f"{name} ({etype}): {json.dumps(attrs, ensure_ascii=False)}", max_chars
-            )
-            candidates.append(("L2", text))
-            index_map.append(("l2_entity_cards", i))
-
-        for i, rel in enumerate(payload.l2_relationships):
-            subj = rel.get("subject_name") or rel.get("subject_id") or ""
-            pred = rel.get("predicate") or ""
-            obj = rel.get("object_name") or rel.get("object_id") or ""
-            text = _truncate(f"{subj} --{pred}--> {obj}", max_chars)
-            candidates.append(("L2", text))
-            index_map.append(("l2_relationships", i))
-
-        for i, assertion in enumerate(payload.l2_assertions):
-            entity = assertion.get("entity_name") or assertion.get("entity_id") or ""
-            trait = assertion.get("trait_family") or ""
-            value = assertion.get("value") or assertion.get("content") or ""
-            text = _truncate(f"{entity} [{trait}]: {value}", max_chars)
-            candidates.append(("L2", text))
-            index_map.append(("l2_assertions", i))
-
-        for i, experience in enumerate(payload.l2_experiences):
-            title = experience.get("user_label") or experience.get("title") or ""
-            interpretation = (
-                experience.get("magi_interpretation") or experience.get("user_note") or ""
-            )
-            text = _truncate(f"{title}: {interpretation}", max_chars)
-            candidates.append(("L2", text))
-            index_map.append(("l2_experiences", i))
-
-        for i, refl in enumerate(payload.l3_reflections):
-            text = _truncate(str(refl.get("content") or refl.get("summary") or ""), max_chars)
-            period = refl.get("period") or ""
-            snippet = f"[{period}] {text}" if period else text
-            candidates.append(("L3", snippet))
-            index_map.append(("l3_reflections", i))
-
-        for i, proc in enumerate(payload.l4_procedures):
-            text = _truncate(
-                str(proc.get("optimized_prompt") or proc.get("content") or ""), max_chars
-            )
-            candidates.append(("L4", text))
-            index_map.append(("l4_procedures", i))
-
-        return candidates, index_map
+        input_count: int,
+        selected_indices: List[int],
+        elapsed_ms: float,
+    ) -> None:
+        payload.trace["manifest_selector"] = "applied"
+        payload.trace["manifest_selector_input_count"] = input_count
+        payload.trace["manifest_selector_output_count"] = len(selected_indices)
+        payload.trace["manifest_selector_elapsed_ms"] = round(elapsed_ms, 1)
 
     @staticmethod
     def _parse_response(raw: Any, candidate_count: int, *, max_output: int = 10) -> List[int]:
@@ -213,48 +194,3 @@ class ManifestSelector:
                 valid.append(idx)
                 seen.add(idx)
         return valid if valid else fallback
-
-    @staticmethod
-    def _apply_selection(
-        payload: RetrievalPayload,
-        selected_indices: List[int],
-        index_map: List[Tuple[str, int]],
-    ) -> RetrievalPayload:
-        """Rebuild payload keeping only selected candidates in LLM-ranked order."""
-        selected_by_field: Dict[str, List[int]] = {}
-        for global_idx in selected_indices:
-            if global_idx >= len(index_map):
-                continue
-            field_name, original_idx = index_map[global_idx]
-            selected_by_field.setdefault(field_name, []).append(original_idx)
-
-        field_to_attr = {
-            "l1_events": "l1_events",
-            "l2_entity_cards": "l2_entity_cards",
-            "l2_relationships": "l2_relationships",
-            "l2_assertions": "l2_assertions",
-            "l2_experiences": "l2_experiences",
-            "l3_reflections": "l3_reflections",
-            "l4_procedures": "l4_procedures",
-        }
-
-        for field_name, attr_name in field_to_attr.items():
-            original = getattr(payload, attr_name)
-            if field_name in selected_by_field:
-                ordered_indices = selected_by_field[field_name]
-                setattr(
-                    payload,
-                    attr_name,
-                    [original[i] for i in ordered_indices if i < len(original)],
-                )
-            else:
-                setattr(payload, attr_name, [])
-
-        return payload
-
-
-def _truncate(text: str, max_chars: int) -> str:
-    """Truncate text to max_chars with ellipsis."""
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 3] + "..."

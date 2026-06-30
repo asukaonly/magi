@@ -8,7 +8,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.memory.hybrid_retrieval.manifest_selector import ManifestSelector, _truncate
+from magi.memory.hybrid_retrieval.manifest_candidates import (
+    apply_manifest_selection,
+    build_manifest_candidates,
+    truncate_manifest_text,
+)
+from magi.memory.hybrid_retrieval.manifest_selector import ManifestSelector
 from magi.memory.hybrid_retrieval.models import RetrievalConfig, RetrievalPayload
 
 
@@ -26,10 +31,19 @@ def _sample_payload() -> RetrievalPayload:
         l1_events=[
             {"event_id": "e1", "content": "Had dinner at Sushi place", "timestamp": 1700000000},
             {"event_id": "e2", "content": "Went to the gym", "timestamp": 1700100000},
-            {"event_id": "e3", "content": "Bought groceries at Trader Joe", "timestamp": 1700200000},
+            {
+                "event_id": "e3",
+                "content": "Bought groceries at Trader Joe",
+                "timestamp": 1700200000,
+            },
         ],
         l2_entity_cards=[
-            {"entity_id": "ent1", "name": "Alice", "entity_type": "person", "attributes": {"role": "friend"}},
+            {
+                "entity_id": "ent1",
+                "name": "Alice",
+                "entity_type": "person",
+                "attributes": {"role": "friend"},
+            },
         ],
         l3_reflections=[
             {"summary_id": "s1", "content": "User exercises regularly", "period": "2024-W01"},
@@ -58,26 +72,30 @@ def test_manifest_selector_default_config():
 
 
 def test_build_candidate_list_covers_all_layers():
-    selector = ManifestSelector(RetrievalConfig())
     payload = _sample_payload()
-    candidates, index_map = selector._build_candidate_list(payload)
+    manifest = build_manifest_candidates(payload, max_chars=400)
+    candidates = manifest.candidates
+    index_map = manifest.index_map
     assert len(candidates) == 6  # 3 L1 + 1 L2 + 1 L3 + 1 L4
     assert len(index_map) == 6
     layers = [c[0] for c in candidates]
     assert layers == ["L1", "L1", "L1", "L2", "L3", "L4"]
     fields = [m[0] for m in index_map]
     assert fields == [
-        "l1_events", "l1_events", "l1_events",
-        "l2_entity_cards", "l3_reflections", "l4_procedures",
+        "l1_events",
+        "l1_events",
+        "l1_events",
+        "l2_entity_cards",
+        "l3_reflections",
+        "l4_procedures",
     ]
 
 
 def test_build_candidate_list_empty_payload():
-    selector = ManifestSelector(RetrievalConfig())
     payload = _make_payload()
-    candidates, index_map = selector._build_candidate_list(payload)
-    assert candidates == []
-    assert index_map == []
+    manifest = build_manifest_candidates(payload, max_chars=400)
+    assert manifest.candidates == []
+    assert manifest.index_map == []
 
 
 # ---------------------------------------------------------------------------
@@ -129,14 +147,16 @@ def test_parse_response_empty_selected_returns_all():
 def test_apply_selection_reorders_and_prunes():
     payload = _sample_payload()
     index_map = [
-        ("l1_events", 0), ("l1_events", 1), ("l1_events", 2),
+        ("l1_events", 0),
+        ("l1_events", 1),
+        ("l1_events", 2),
         ("l2_entity_cards", 0),
         ("l3_reflections", 0),
         ("l4_procedures", 0),
     ]
     # Select only index 2 (L1 event #2), 3 (L2 card #0), 5 (L4 proc #0)
     selected = [2, 3, 5]
-    result = ManifestSelector._apply_selection(payload, selected, index_map)
+    result = apply_manifest_selection(payload, selected, index_map)
     assert len(result.l1_events) == 1
     assert result.l1_events[0]["event_id"] == "e3"
     assert len(result.l2_entity_cards) == 1
@@ -148,14 +168,16 @@ def test_apply_selection_reorders_and_prunes():
 def test_apply_selection_preserves_order():
     payload = _sample_payload()
     index_map = [
-        ("l1_events", 0), ("l1_events", 1), ("l1_events", 2),
+        ("l1_events", 0),
+        ("l1_events", 1),
+        ("l1_events", 2),
         ("l2_entity_cards", 0),
         ("l3_reflections", 0),
         ("l4_procedures", 0),
     ]
     # Select L1 events in reverse order: index 2, then 0
     selected = [2, 0]
-    result = ManifestSelector._apply_selection(payload, selected, index_map)
+    result = apply_manifest_selection(payload, selected, index_map)
     assert len(result.l1_events) == 2
     assert result.l1_events[0]["event_id"] == "e3"  # index 2 first
     assert result.l1_events[1]["event_id"] == "e1"  # index 0 second
@@ -177,9 +199,7 @@ async def test_select_calls_llm_and_prunes():
     payload = _sample_payload()
 
     bridge = SimpleNamespace(
-        chat=AsyncMock(
-            return_value=SimpleNamespace(content='{"selected": [0, 4]}')
-        ),
+        chat=AsyncMock(return_value=SimpleNamespace(content='{"selected": [0, 4]}')),
     )
     result = await selector.select(payload, query="Where did I eat?", llm_bridge=bridge)
     bridge.chat.assert_awaited_once()
@@ -235,9 +255,7 @@ async def test_select_falls_back_on_invalid_json():
     selector = ManifestSelector(config)
     payload = _sample_payload()
     bridge = SimpleNamespace(
-        chat=AsyncMock(
-            return_value=SimpleNamespace(content="not json at all")
-        ),
+        chat=AsyncMock(return_value=SimpleNamespace(content="not json at all")),
     )
     result = await selector.select(payload, query="test", llm_bridge=bridge)
     # Invalid JSON → parse returns all indices → payload unchanged
@@ -251,12 +269,12 @@ async def test_select_falls_back_on_invalid_json():
 
 
 def test_truncate_short():
-    assert _truncate("hello", 100) == "hello"
+    assert truncate_manifest_text("hello", 100) == "hello"
 
 
 def test_truncate_long():
-    assert _truncate("a" * 50, 20) == "a" * 17 + "..."
+    assert truncate_manifest_text("a" * 50, 20) == "a" * 17 + "..."
 
 
 def test_truncate_exact():
-    assert _truncate("abcde", 5) == "abcde"
+    assert truncate_manifest_text("abcde", 5) == "abcde"
