@@ -3,6 +3,7 @@
 Generates periodic persona-perspective reflections on recent interactions
 and stores them as growth milestones for injection into system prompt context.
 """
+
 from __future__ import annotations
 
 import json
@@ -71,6 +72,109 @@ Requirements:
 - Output ONLY the journal entry text, no titles or formatting."""
 
 
+def _build_reflection_prompt(
+    *,
+    config: PersonalityConfig,
+    persona_name: str,
+    emotional_state: Optional[Dict[str, Any]],
+    relationship: Optional[Dict[str, Any]],
+    recent_milestones: Optional[List[Dict[str, Any]]],
+) -> str:
+    context_parts: List[str] = [_persona_context_line(config, persona_name)]
+    identity_line = _identity_context_line(config)
+    if identity_line:
+        context_parts.append(identity_line)
+    if emotional_state:
+        context_parts.append(_emotional_context_line(emotional_state))
+    if relationship:
+        context_parts.append(_relationship_context_line(relationship))
+    milestone_block = _recent_milestones_block(recent_milestones)
+    if milestone_block:
+        context_parts.append(milestone_block)
+    return "\n\n".join(context_parts) if context_parts else "Reflect on your recent state."
+
+
+def _persona_context_line(config: PersonalityConfig, persona_name: str) -> str:
+    persona_desc = f"You are {config.name or persona_name}"
+    if config.description:
+        persona_desc += f": {config.description}"
+    return f"Persona: {persona_desc}"
+
+
+def _identity_context_line(config: PersonalityConfig) -> str | None:
+    identity_statement = config.identity_core.identity_statement
+    if not identity_statement:
+        return None
+    return f"Identity core: {identity_statement}"
+
+
+def _emotional_context_line(emotional_state: Dict[str, Any]) -> str:
+    mood = emotional_state.get("mood", "neutral")
+    energy = emotional_state.get("energy_level", 0.7)
+    stress = emotional_state.get("stress_level", 0.2)
+    return (
+        f"Current emotional state: mood={mood}, "
+        f"energy={int(float(energy) * 100)}%, "
+        f"stress={int(float(stress) * 100)}%"
+    )
+
+
+def _relationship_context_line(relationship: Dict[str, Any]) -> str:
+    trust = relationship.get("trust_level", 0.5)
+    total = relationship.get("total_interactions", 0)
+    sentiment = relationship.get("sentiment_score", 0.0)
+    return (
+        f"Relationship with user: trust={float(trust):.2f}, "
+        f"interactions={total}, sentiment={float(sentiment):.2f}"
+    )
+
+
+def _recent_milestones_block(
+    recent_milestones: Optional[List[Dict[str, Any]]],
+) -> str | None:
+    milestone_lines = []
+    for milestone in (recent_milestones or [])[:5]:
+        title = milestone.get("title", "")
+        description = milestone.get("description", "")
+        if title:
+            milestone_lines.append(f"- {title}: {description}" if description else f"- {title}")
+    if not milestone_lines:
+        return None
+    return "Recent events:\n" + "\n".join(milestone_lines)
+
+
+def _reflection_has_voice_drift(
+    reflection_text: str,
+    *,
+    config: PersonalityConfig,
+    persona_name: str,
+) -> bool:
+    drift = _detect_voice_drift(reflection_text, config)
+    if drift is None:
+        return False
+    logger.warning(
+        "Journal reflection rejected (voice drift): persona=%s hits=%s preview=%r",
+        persona_name,
+        drift,
+        reflection_text[:120],
+    )
+    return True
+
+
+def _reflection_metadata(
+    persona_name: str,
+    emotional_state: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    metadata: Dict[str, Any] = {"persona_name": persona_name}
+    if emotional_state:
+        metadata["emotional_snapshot"] = {
+            "mood": emotional_state.get("mood", "neutral"),
+            "energy_level": emotional_state.get("energy_level"),
+            "stress_level": emotional_state.get("stress_level"),
+        }
+    return metadata
+
+
 @dataclass(frozen=True, slots=True)
 class JournalEntry:
     """A single persona journal entry."""
@@ -115,86 +219,45 @@ class PersonaJournalService:
             logger.warning("Cannot generate reflection: persona '%s' not found", persona_name)
             return None
 
-        persona_desc = f"You are {config.name or persona_name}"
-        if config.description:
-            persona_desc += f": {config.description}"
-
-        context_parts: List[str] = []
-        context_parts.append(f"Persona: {persona_desc}")
-        if config.identity_core.identity_statement:
-            context_parts.append(f"Identity core: {config.identity_core.identity_statement}")
-
-        if emotional_state:
-            mood = emotional_state.get("mood", "neutral")
-            energy = emotional_state.get("energy_level", 0.7)
-            stress = emotional_state.get("stress_level", 0.2)
-            context_parts.append(
-                f"Current emotional state: mood={mood}, "
-                f"energy={int(float(energy) * 100)}%, "
-                f"stress={int(float(stress) * 100)}%"
+        reflection_text = await self._call_llm(
+            _build_reflection_prompt(
+                config=config,
+                persona_name=persona_name,
+                emotional_state=emotional_state,
+                relationship=relationship,
+                recent_milestones=recent_milestones,
             )
-
-        if relationship:
-            trust = relationship.get("trust_level", 0.5)
-            total = relationship.get("total_interactions", 0)
-            sentiment = relationship.get("sentiment_score", 0.0)
-            context_parts.append(
-                f"Relationship with user: trust={float(trust):.2f}, "
-                f"interactions={total}, sentiment={float(sentiment):.2f}"
-            )
-
-        if recent_milestones:
-            milestone_lines = []
-            for m in recent_milestones[:5]:
-                title = m.get("title", "")
-                desc = m.get("description", "")
-                if title:
-                    milestone_lines.append(f"- {title}: {desc}" if desc else f"- {title}")
-            if milestone_lines:
-                context_parts.append("Recent events:\n" + "\n".join(milestone_lines))
-
-        user_prompt = "\n\n".join(context_parts) if context_parts else "Reflect on your recent state."
-
-        # Generate reflection via LLM
-        reflection_text = await self._call_llm(user_prompt)
+        )
         if not reflection_text:
             return None
 
-        # Drift guard: a reflection that hits multiple vocab_avoided phrases
-        # is the persona drifting away from its idiolect. Because the new
-        # entry will feed into future system prompts via "# Internal
-        # Reflections", letting a drifted entry persist creates a feedback
-        # loop that amplifies the drift on each subsequent reflection.
-        # Drop the entry rather than persist it — empty journal is safer
-        # than a self-amplifying one.
-        drift = _detect_voice_drift(reflection_text, config)
-        if drift is not None:
-            logger.warning(
-                "Journal reflection rejected (voice drift): persona=%s hits=%s preview=%r",
-                persona_name,
-                drift,
-                reflection_text[:120],
-            )
+        if _reflection_has_voice_drift(
+            reflection_text,
+            config=config,
+            persona_name=persona_name,
+        ):
             return None
 
-        # Store as milestone
-        metadata = {
-            "persona_name": persona_name,
-        }
-        if emotional_state:
-            metadata["emotional_snapshot"] = {
-                "mood": emotional_state.get("mood", "neutral"),
-                "energy_level": emotional_state.get("energy_level"),
-                "stress_level": emotional_state.get("stress_level"),
-            }
+        return await self._store_reflection_entry(
+            persona_name=persona_name,
+            reflection_text=reflection_text,
+            emotional_state=emotional_state,
+        )
 
+    async def _store_reflection_entry(
+        self,
+        *,
+        persona_name: str,
+        reflection_text: str,
+        emotional_state: Optional[Dict[str, Any]],
+    ) -> JournalEntry:
+        metadata = _reflection_metadata(persona_name, emotional_state)
         milestone = await self._growth.record_milestone(
             milestone_type=MilestoneType.JOURNAL_ENTRY,
             title=f"Persona reflection ({persona_name})",
             description=reflection_text,
             metadata=metadata,
         )
-
         logger.info("Generated persona journal entry for '%s': %s", persona_name, milestone.id)
         return JournalEntry(
             milestone_id=milestone.id,
@@ -220,12 +283,14 @@ class PersonaJournalService:
                 meta = m.metadata or {}
                 if meta.get("persona_name") != persona_name:
                     continue
-                entries.append(JournalEntry(
-                    milestone_id=m.id,
-                    content=m.description,
-                    timestamp=m.timestamp,
-                    metadata=meta,
-                ))
+                entries.append(
+                    JournalEntry(
+                        milestone_id=m.id,
+                        content=m.description,
+                        timestamp=m.timestamp,
+                        metadata=meta,
+                    )
+                )
             elif isinstance(m, dict):
                 meta = m.get("metadata", {})
                 if isinstance(meta, str):
@@ -235,12 +300,14 @@ class PersonaJournalService:
                         meta = {}
                 if meta.get("persona_name") != persona_name:
                     continue
-                entries.append(JournalEntry(
-                    milestone_id=m.get("id", ""),
-                    content=m.get("description", ""),
-                    timestamp=m.get("timestamp", 0.0),
-                    metadata=meta,
-                ))
+                entries.append(
+                    JournalEntry(
+                        milestone_id=m.get("id", ""),
+                        content=m.get("description", ""),
+                        timestamp=m.get("timestamp", 0.0),
+                        metadata=meta,
+                    )
+                )
             if len(entries) >= limit:
                 break
 
