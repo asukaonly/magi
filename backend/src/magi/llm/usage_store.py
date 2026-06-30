@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +133,53 @@ GROUP BY cost_currency
 ORDER BY amount DESC
 """
 
+_INSERT_CACHE_OBSERVATION_SQL = """
+INSERT INTO llm_cache_observations (
+    request_id,
+    provider,
+    model,
+    request_kind,
+    session_id,
+    turn_id,
+    agent_id,
+    cache_strategy,
+    cache_eligible,
+    system_head_hash,
+    system_head_chars,
+    turn_context_hash,
+    turn_context_chars,
+    tools_hash,
+    tool_count,
+    tool_names_json,
+    system_head_reused,
+    tools_reused,
+    predicted_miss_reasons_json,
+    cache_fields_seen,
+    cache_read_tokens,
+    cache_write_tokens,
+    cache_write_1h_tokens,
+    created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+
+@dataclass(slots=True)
+class _CacheObservationContext:
+    created_at: float
+    provider: str
+    model: str
+    request_kind: str
+    session_id: Any
+    system_head_hash: str
+    tools_hash: str
+
+
+@dataclass(slots=True)
+class _CacheObservationReuse:
+    system_head_reused: bool | None
+    tools_reused: bool | None
+    miss_reasons: list[str]
+
 
 class LLMUsageStore:
     """Record and query LLM usage statistics."""
@@ -215,98 +263,107 @@ class LLMUsageStore:
     async def record_cache_observation(self, payload: dict[str, Any]) -> None:
         """Persist lightweight prompt-cache diagnostics for one LLM call."""
         await self.initialize()
-        created_at = float(payload.get("created_at") or time.time())
-        provider = str(payload.get("provider") or "unknown")
-        model = str(payload.get("model") or "unknown")
-        request_kind = str(payload.get("request_kind") or "unknown")
-        session_id = payload.get("session_id")
-        system_head_hash = str(payload.get("system_head_hash") or "")
-        tools_hash = str(payload.get("tools_hash") or "")
-
+        context = self._cache_observation_context(payload)
         async with sqlite_connection_async(str(self._db_path), profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             previous = await self._fetch_previous_cache_observation(
                 db,
-                provider=provider,
-                model=model,
-                request_kind=request_kind,
-                session_id=session_id,
-                created_at=created_at,
+                provider=context.provider,
+                model=context.model,
+                request_kind=context.request_kind,
+                session_id=context.session_id,
+                created_at=context.created_at,
             )
-            system_head_reused: bool | None = None
-            tools_reused: bool | None = None
-            miss_reasons: list[str] = []
-            if previous is None:
-                miss_reasons.append("first_observed_call")
-            else:
-                system_head_reused = str(previous["system_head_hash"] or "") == system_head_hash
-                tools_reused = str(previous["tools_hash"] or "") == tools_hash
-                if not system_head_reused:
-                    miss_reasons.append("system_head_changed")
-                if not tools_reused:
-                    miss_reasons.append("tools_changed")
-                if not miss_reasons:
-                    miss_reasons.append("prefix_stable")
-            if not bool(payload.get("cache_eligible")):
-                miss_reasons = ["cache_not_eligible"]
-
-            await db.execute(
-                """
-                INSERT INTO llm_cache_observations (
-                    request_id,
-                    provider,
-                    model,
-                    request_kind,
-                    session_id,
-                    turn_id,
-                    agent_id,
-                    cache_strategy,
-                    cache_eligible,
-                    system_head_hash,
-                    system_head_chars,
-                    turn_context_hash,
-                    turn_context_chars,
-                    tools_hash,
-                    tool_count,
-                    tool_names_json,
-                    system_head_reused,
-                    tools_reused,
-                    predicted_miss_reasons_json,
-                    cache_fields_seen,
-                    cache_read_tokens,
-                    cache_write_tokens,
-                    cache_write_1h_tokens,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    str(payload.get("request_id") or ""),
-                    provider,
-                    model,
-                    request_kind,
-                    session_id,
-                    payload.get("turn_id"),
-                    payload.get("agent_id"),
-                    str(payload.get("cache_strategy") or "none"),
-                    1 if payload.get("cache_eligible") else 0,
-                    system_head_hash,
-                    int(payload.get("system_head_chars") or 0),
-                    str(payload.get("turn_context_hash") or ""),
-                    int(payload.get("turn_context_chars") or 0),
-                    tools_hash,
-                    int(payload.get("tool_count") or 0),
-                    json.dumps(list(payload.get("tool_names") or []), ensure_ascii=False),
-                    self._bool_to_nullable_int(system_head_reused),
-                    self._bool_to_nullable_int(tools_reused),
-                    json.dumps(miss_reasons, ensure_ascii=False),
-                    1 if payload.get("cache_fields_seen") else 0,
-                    int(payload.get("cache_read_tokens") or 0),
-                    int(payload.get("cache_write_tokens") or 0),
-                    int(payload.get("cache_write_1h_tokens") or 0),
-                    created_at,
-                ),
-            )
+            reuse = self._cache_observation_reuse(payload, context, previous)
+            await self._insert_cache_observation(db, payload, context, reuse)
             await db.commit()
+
+    def _cache_observation_context(
+        self,
+        payload: dict[str, Any],
+    ) -> _CacheObservationContext:
+        return _CacheObservationContext(
+            created_at=float(payload.get("created_at") or time.time()),
+            provider=str(payload.get("provider") or "unknown"),
+            model=str(payload.get("model") or "unknown"),
+            request_kind=str(payload.get("request_kind") or "unknown"),
+            session_id=payload.get("session_id"),
+            system_head_hash=str(payload.get("system_head_hash") or ""),
+            tools_hash=str(payload.get("tools_hash") or ""),
+        )
+
+    def _cache_observation_reuse(
+        self,
+        payload: dict[str, Any],
+        context: _CacheObservationContext,
+        previous: aiosqlite.Row | None,
+    ) -> _CacheObservationReuse:
+        system_head_reused: bool | None = None
+        tools_reused: bool | None = None
+        miss_reasons: list[str] = []
+        if previous is None:
+            miss_reasons.append("first_observed_call")
+        else:
+            system_head_reused = str(previous["system_head_hash"] or "") == context.system_head_hash
+            tools_reused = str(previous["tools_hash"] or "") == context.tools_hash
+            if not system_head_reused:
+                miss_reasons.append("system_head_changed")
+            if not tools_reused:
+                miss_reasons.append("tools_changed")
+            if not miss_reasons:
+                miss_reasons.append("prefix_stable")
+        if not bool(payload.get("cache_eligible")):
+            miss_reasons = ["cache_not_eligible"]
+        return _CacheObservationReuse(
+            system_head_reused=system_head_reused,
+            tools_reused=tools_reused,
+            miss_reasons=miss_reasons,
+        )
+
+    async def _insert_cache_observation(
+        self,
+        db: aiosqlite.Connection,
+        payload: dict[str, Any],
+        context: _CacheObservationContext,
+        reuse: _CacheObservationReuse,
+    ) -> None:
+        await db.execute(
+            _INSERT_CACHE_OBSERVATION_SQL,
+            self._cache_observation_insert_values(payload, context, reuse),
+        )
+
+    def _cache_observation_insert_values(
+        self,
+        payload: dict[str, Any],
+        context: _CacheObservationContext,
+        reuse: _CacheObservationReuse,
+    ) -> tuple[Any, ...]:
+        return (
+            str(payload.get("request_id") or ""),
+            context.provider,
+            context.model,
+            context.request_kind,
+            context.session_id,
+            payload.get("turn_id"),
+            payload.get("agent_id"),
+            str(payload.get("cache_strategy") or "none"),
+            1 if payload.get("cache_eligible") else 0,
+            context.system_head_hash,
+            int(payload.get("system_head_chars") or 0),
+            str(payload.get("turn_context_hash") or ""),
+            int(payload.get("turn_context_chars") or 0),
+            context.tools_hash,
+            int(payload.get("tool_count") or 0),
+            json.dumps(list(payload.get("tool_names") or []), ensure_ascii=False),
+            self._bool_to_nullable_int(reuse.system_head_reused),
+            self._bool_to_nullable_int(reuse.tools_reused),
+            json.dumps(reuse.miss_reasons, ensure_ascii=False),
+            1 if payload.get("cache_fields_seen") else 0,
+            int(payload.get("cache_read_tokens") or 0),
+            int(payload.get("cache_write_tokens") or 0),
+            int(payload.get("cache_write_1h_tokens") or 0),
+            context.created_at,
+        )
 
     async def list_cache_observations(
         self,
