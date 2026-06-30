@@ -12,11 +12,116 @@ backward-compat with any external diagnostics that probe them.
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Awaitable, Callable
+
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _ChannelDependencies:
+    plugin_manager: Any
+    runtime_paths: Any
+    session_provisioner: Any
+    attachment_store: Any
+    trace_store: Any
+
+
+def _plugin_channel_instances(plugin_manager: Any) -> list[Any]:
+    channel_instances = []
+    for plugin in plugin_manager.iter_loaded_plugins():
+        channel = plugin.get_channel()
+        if channel is not None:
+            channel_instances.append(channel)
+    return channel_instances
+
+
+def _channels_db_path(runtime_paths: Any) -> str:
+    db_path = str(runtime_paths.data_dir / "channels" / "channels.db")
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    return db_path
+
+
+def _binding_origin_resolver(
+    session_mapper: Any,
+) -> Callable[[str | None], Awaitable[tuple[str, str] | None]]:
+    async def resolve(session_id: str | None) -> tuple[str, str] | None:
+        if not session_id:
+            return None
+        mapping = await session_mapper.lookup_by_session(session_id)
+        if mapping is None:
+            return None
+        try:
+            meta = json.loads(mapping.metadata_json) if mapping.metadata_json else {}
+        except (json.JSONDecodeError, TypeError):
+            return None
+        ext_user_id = meta.get("external_user_id")
+        if not ext_user_id:
+            return None
+        return (mapping.channel_type, str(ext_user_id))
+
+    return resolve
+
+
+def _permission_fanout_callback(
+    *,
+    registry: Any,
+    delivery_router: Any,
+) -> Callable[[Any], Awaitable[None]]:
+    from magi_plugin_sdk import ControlRequest
+    from magi_plugin_sdk.channels import ChannelTarget
+
+    from ..control.permission.contracts import PermissionRequest
+    from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+
+    async def fanout(request: Any) -> None:
+        if not isinstance(request, PermissionRequest):
+            return
+        control_req = ControlRequest(
+            request_id=request.request_id,
+            short_id=request.short_id,
+            kind="permission",
+            tool_name=request.tool_name,
+            preview=(request.preview or "")[:200],
+            risk_level=request.risk_level.value,
+            expires_at_ms=int(request.expires_at * 1000) if request.expires_at else None,
+            payload={},
+        )
+        targets: list[ChannelTarget] = []
+        magi_user_id = DEFAULT_USER_ID
+        for channel in registry.all_channels():
+            if not getattr(channel, "supports_control_requests", False):
+                continue
+            targets.append(
+                ChannelTarget(
+                    channel_type=channel.channel_type,
+                    external_chat_id="",
+                    magi_session_id=request.session_id or "",
+                    magi_user_id=str(magi_user_id),
+                )
+            )
+        if not targets:
+            return
+        await delivery_router.fanout_control_request(
+            request=control_req,
+            targets=targets,
+        )
+
+    return fanout
+
+
+def _control_opt_in_channel_count(registry: Any) -> int:
+    return sum(
+        1
+        for channel in registry.all_channels()
+        if getattr(channel, "supports_control_requests", False)
+    )
 
 
 class ChannelsModule(LifecycleModule):
@@ -84,127 +189,50 @@ class ChannelsModule(LifecycleModule):
         self._context.channels.module = None
 
     async def _start_channels(self) -> None:
-        from .chat_sse_channel import ChatSseChannel
-        from .dispatcher import ChannelMessageDispatcher
         from .registry import ChannelRegistry
-        from .session_mapper import ChannelSessionMapper
 
-        plugin_manager = require_initialized(self._context.plugins.plugin_manager, "plugin manager")
-        runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
-        session_provisioner = require_initialized(
-            self._context.chat.channel_session_provisioner,
-            "chat channel session provisioner",
-        )
-        attachment_store = require_initialized(
-            self._context.chat.channel_attachment_store,
-            "chat channel attachment store",
-        )
-        trace_store = require_initialized(self._context.runtime_trace.store, "runtime trace store")
-
-        # Collect channel instances from loaded plugins.
-        channel_instances = []
-        for plugin in plugin_manager.iter_loaded_plugins():
-            channel = plugin.get_channel()
-            if channel is not None:
-                channel_instances.append(channel)
+        deps = self._channel_dependencies()
+        channel_instances = _plugin_channel_instances(deps.plugin_manager)
+        channels_db_path = _channels_db_path(deps.runtime_paths)
 
         # Phase G+1: chat_sse must register even in solo deployments
         # (no plugin channels) — the chat UI depends on the runtime_trace
         # rows that ``ChatSseChannel.deliver`` writes. So we proceed
         # unconditionally and only set up the plugin-binding facades when
         # there are plugin channels that need them.
-        channels_db_path = str(runtime_paths.data_dir / "channels" / "channels.db")
-        from pathlib import Path
-        Path(channels_db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Identity layer (L1): pull the active resolver off the bootstrap
-        # context. IdentityModule initialized earlier in the lifecycle
-        # (infrastructure phase) so it's always present in production;
-        # tests / partial bootstraps may omit it, in which case the
-        # mapper falls back to CANONICAL_LOCAL_USER (single-user default).
-        identity_resolver = getattr(self._context.identity, "resolver", None)
-        session_mapper = ChannelSessionMapper(
+        session_mapper = await self._create_session_mapper(
             db_path=channels_db_path,
-            session_provisioner=session_provisioner,
-            identity_resolver=identity_resolver,
+            session_provisioner=deps.session_provisioner,
         )
-        await session_mapper.initialize()
-
-        from .receipts_store import DeliveryReceiptsStore
-        self._receipts_store = DeliveryReceiptsStore(db_path=channels_db_path)
-        await self._receipts_store.initialize()
-
-        # Phase H+2: per-binding settings store (backs the "外部渠道
-        # 免审批" toggle). Initialized here so CF-8's auto-approve
-        # bypass below can attach it to the gateway.
-        from .binding_settings_store import ChannelBindingSettingsStore
-        binding_settings_store = ChannelBindingSettingsStore(
-            db_path=channels_db_path
-        )
-        await binding_settings_store.initialize()
+        self._receipts_store = await self._create_receipts_store(channels_db_path)
+        binding_settings_store = await self._create_binding_settings_store(channels_db_path)
         self._binding_settings_store = binding_settings_store
 
-        # Pull the control-plane prompter / registry / broker so the dispatcher
-        # can short-circuit /approve|/deny slash commands and the channel layer
-        # can wire external control egress. Defensive None checks because
-        # partial bootstraps (some tests) may skip the control_plane dependency.
-        cp_module = getattr(self._context.control_plane, "module", None)
-        cp_wiring = getattr(cp_module, "wiring", None) if cp_module else None
-        message_dispatcher = ChannelMessageDispatcher(
-            permission_registry=(
-                cp_wiring.pending_permissions if cp_wiring else None
-            ),
-            interaction_broker=(
-                cp_wiring.broker if cp_wiring else None
-            ),
+        cp_wiring = self._control_plane_wiring()
+        message_dispatcher = self._message_dispatcher(
+            cp_wiring=cp_wiring,
             session_mapper=session_mapper,
         )
-        from .control_commands import HostControlPort
-
-        # Unified control-command port (permission + session + /help). Bound to
-        # every channel so plugins can invoke control commands explicitly via the
-        # typed ChannelControlPortProtocol. Runs IN PARALLEL with the dispatcher's
-        # legacy inline command handling during migration — a command is handled by
-        # whichever path the plugin takes, never both.
-        control_port = HostControlPort(
+        control_port = self._control_port(
+            cp_wiring=cp_wiring,
             session_mapper=session_mapper,
-            permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
-            interaction_broker=(cp_wiring.broker if cp_wiring else None),
         )
         registry = ChannelRegistry()
-        for channel in channel_instances:
-            channel.bind_session_mapper(session_mapper)
-            channel.bind_message_dispatcher(message_dispatcher)
-            channel.bind_attachment_store(attachment_store)
-            channel.bind_control_port(control_port)
-            try:
-                registry.register(channel)
-            except ValueError:
-                logger.warning("Duplicate channel type skipped", channel_type=channel.channel_type)
-
-        # Always register the in-process chat SSE channel. It writes
-        # directly to runtime_trace_store, which the chat UI polls — so the
-        # NotificationRelay polling fan-out is no longer required for chat.
-        chat_sse_channel = ChatSseChannel(trace_store=trace_store)
-        try:
-            registry.register(chat_sse_channel)
-        except ValueError:
-            logger.warning("chat_sse channel already registered, skipping duplicate")
+        self._register_plugin_channels(
+            registry=registry,
+            channel_instances=channel_instances,
+            session_mapper=session_mapper,
+            message_dispatcher=message_dispatcher,
+            attachment_store=deps.attachment_store,
+            control_port=control_port,
+        )
+        self._register_chat_sse(registry=registry, trace_store=deps.trace_store)
 
         await registry.start_all()
 
         self._registry = registry
         self._session_mapper = session_mapper
-        from .chat_delivery_dispatcher import (
-            ChatDeliveryDispatcher,
-            read_configured_delivery_prefs,
-        )
-
-        self._chat_delivery_dispatcher = ChatDeliveryDispatcher.from_registry(
-            channel_registry=registry,
-            user_prefs_provider=read_configured_delivery_prefs,
-            receipts_store=self._receipts_store,
-        )
+        self._chat_delivery_dispatcher = self._create_chat_delivery_dispatcher(registry)
 
         # Close the late-binding loop for control fanout:
         #   1) prompter.bind_fanout_callback — outbound side; fans
@@ -238,6 +266,122 @@ class ChannelsModule(LifecycleModule):
             control_fanout_wired=cp_wiring is not None,
         )
 
+    def _channel_dependencies(self) -> _ChannelDependencies:
+        return _ChannelDependencies(
+            plugin_manager=require_initialized(
+                self._context.plugins.plugin_manager,
+                "plugin manager",
+            ),
+            runtime_paths=require_initialized(
+                self._context.core.runtime_paths,
+                "runtime paths",
+            ),
+            session_provisioner=require_initialized(
+                self._context.chat.channel_session_provisioner,
+                "chat channel session provisioner",
+            ),
+            attachment_store=require_initialized(
+                self._context.chat.channel_attachment_store,
+                "chat channel attachment store",
+            ),
+            trace_store=require_initialized(
+                self._context.runtime_trace.store,
+                "runtime trace store",
+            ),
+        )
+
+    async def _create_session_mapper(self, *, db_path: str, session_provisioner: Any):
+        from .session_mapper import ChannelSessionMapper
+
+        identity_resolver = getattr(self._context.identity, "resolver", None)
+        session_mapper = ChannelSessionMapper(
+            db_path=db_path,
+            session_provisioner=session_provisioner,
+            identity_resolver=identity_resolver,
+        )
+        await session_mapper.initialize()
+        return session_mapper
+
+    async def _create_receipts_store(self, db_path: str):
+        from .receipts_store import DeliveryReceiptsStore
+
+        receipts_store = DeliveryReceiptsStore(db_path=db_path)
+        await receipts_store.initialize()
+        return receipts_store
+
+    async def _create_binding_settings_store(self, db_path: str):
+        from .binding_settings_store import ChannelBindingSettingsStore
+
+        binding_settings_store = ChannelBindingSettingsStore(db_path=db_path)
+        await binding_settings_store.initialize()
+        return binding_settings_store
+
+    def _control_plane_wiring(self):
+        cp_module = getattr(self._context.control_plane, "module", None)
+        return getattr(cp_module, "wiring", None) if cp_module else None
+
+    def _message_dispatcher(self, *, cp_wiring: Any, session_mapper: Any):
+        from .dispatcher import ChannelMessageDispatcher
+
+        return ChannelMessageDispatcher(
+            permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
+            interaction_broker=(cp_wiring.broker if cp_wiring else None),
+            session_mapper=session_mapper,
+        )
+
+    def _control_port(self, *, cp_wiring: Any, session_mapper: Any):
+        from .control_commands import HostControlPort
+
+        return HostControlPort(
+            session_mapper=session_mapper,
+            permission_registry=(cp_wiring.pending_permissions if cp_wiring else None),
+            interaction_broker=(cp_wiring.broker if cp_wiring else None),
+        )
+
+    def _register_plugin_channels(
+        self,
+        *,
+        registry,
+        channel_instances: list[Any],
+        session_mapper: Any,
+        message_dispatcher: Any,
+        attachment_store: Any,
+        control_port: Any,
+    ) -> None:
+        for channel in channel_instances:
+            channel.bind_session_mapper(session_mapper)
+            channel.bind_message_dispatcher(message_dispatcher)
+            channel.bind_attachment_store(attachment_store)
+            channel.bind_control_port(control_port)
+            try:
+                registry.register(channel)
+            except ValueError:
+                logger.warning(
+                    "Duplicate channel type skipped",
+                    channel_type=channel.channel_type,
+                )
+
+    def _register_chat_sse(self, *, registry, trace_store: Any) -> None:
+        from .chat_sse_channel import ChatSseChannel
+
+        chat_sse_channel = ChatSseChannel(trace_store=trace_store)
+        try:
+            registry.register(chat_sse_channel)
+        except ValueError:
+            logger.warning("chat_sse channel already registered, skipping duplicate")
+
+    def _create_chat_delivery_dispatcher(self, registry):
+        from .chat_delivery_dispatcher import (
+            ChatDeliveryDispatcher,
+            read_configured_delivery_prefs,
+        )
+
+        return ChatDeliveryDispatcher.from_registry(
+            channel_registry=registry,
+            user_prefs_provider=read_configured_delivery_prefs,
+            receipts_store=self._receipts_store,
+        )
+
     async def _wire_control_fanout(
         self,
         *,
@@ -253,127 +397,59 @@ class ChannelsModule(LifecycleModule):
         any failure in here is logged and swallowed; the host's
         existing desktop-only approval path is unaffected.
         """
-        import json
-        from magi_plugin_sdk import ControlRequest
-        from magi_plugin_sdk.channels import ChannelTarget
         from ..identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
         from .delivery_router import DeliveryRouter
 
         try:
             delivery_router = DeliveryRouter(channel_registry=registry)
-
-            # === Origin resolver for CF-8 auto-approve bypass ===
-            # session_id -> (channel_type, external_user_id) | None
-            # Reads the channel_session_mappings row and parses
-            # external_user_id out of metadata_json.
-            async def _binding_origin_resolver(
-                session_id: str | None,
-            ) -> tuple[str, str] | None:
-                if not session_id:
-                    return None
-                mapping = await session_mapper.lookup_by_session(
-                    session_id
-                )
-                if mapping is None:
-                    return None
-                try:
-                    meta = (
-                        json.loads(mapping.metadata_json)
-                        if mapping.metadata_json
-                        else {}
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    return None
-                ext_user_id = meta.get("external_user_id")
-                if not ext_user_id:
-                    return None
-                return (mapping.channel_type, str(ext_user_id))
-
             cp_wiring.gateway.bind_auto_approve(
                 binding_settings_store=binding_settings_store,
-                binding_origin_resolver=_binding_origin_resolver,
+                binding_origin_resolver=_binding_origin_resolver(session_mapper),
             )
 
-            # === CF-5 fanout_callback ===
-            # On every permission prompt, enumerate channels that
-            # opted in (supports_control_requests=True) and fanout
-            # via DeliveryRouter.fanout_control_request.
-            async def _fanout_callback(request) -> None:
-                from ..control.permission.contracts import PermissionRequest
-                if not isinstance(request, PermissionRequest):
-                    return
-                # Build the SDK payload. Truncate preview to keep
-                # plugin-side rendering predictable (Telegram callback
-                # text caps, WeChat text caps).
-                control_req = ControlRequest(
-                    request_id=request.request_id,
-                    short_id=request.short_id,
-                    kind="permission",
-                    tool_name=request.tool_name,
-                    preview=(request.preview or "")[:200],
-                    risk_level=request.risk_level.value,
-                    expires_at_ms=(
-                        int(request.expires_at * 1000)
-                        if request.expires_at
-                        else None
-                    ),
-                    payload={},
+            cp_wiring.prompter.bind_fanout_callback(
+                _permission_fanout_callback(
+                    registry=registry,
+                    delivery_router=delivery_router,
                 )
-                targets: list[ChannelTarget] = []
-                magi_user_id = DEFAULT_USER_ID  # single-user mode
-                for ch in registry.all_channels():
-                    if not getattr(
-                        ch, "supports_control_requests", False
-                    ):
-                        continue
-                    targets.append(
-                        ChannelTarget(
-                            channel_type=ch.channel_type,
-                            external_chat_id="",
-                            magi_session_id=request.session_id or "",
-                            magi_user_id=str(magi_user_id),
-                        )
-                    )
-                if not targets:
-                    return
-                await delivery_router.fanout_control_request(
-                    request=control_req, targets=targets,
-                )
-
-            cp_wiring.prompter.bind_fanout_callback(_fanout_callback)
+            )
             logger.info(
                 "Channels module: control fanout wired",
-                opted_in_channel_count=sum(
-                    1
-                    for c in registry.all_channels()
-                    if getattr(c, "supports_control_requests", False)
-                ),
+                opted_in_channel_count=_control_opt_in_channel_count(registry),
             )
 
-            # === ask fanout (control-event driven external egress) ===
-            # Control owns the ask lifecycle and emits CONTROL_ASK_REQUESTED.
-            # Channels subscribe and deliver pending asks to the origin channel.
-            from .ask_fanout import AskFanoutSubscriber
-
-            event_bus = require_initialized(
-                self._context.message_bus.message_bus,
-                "message bus",
-            )
-            self._ask_fanout_subscriber = AskFanoutSubscriber(
-                event_bus=event_bus,
+            await self._start_ask_fanout_subscriber(
                 session_mapper=session_mapper,
                 delivery_router=delivery_router,
                 default_user_id=DEFAULT_USER_ID,
             )
-            await self._ask_fanout_subscriber.start()
-            logger.info("Channels module: ask fanout subscriber started")
         except Exception:
             # Bind failures must not abort channels init — the desktop
             # approval path stays working, fanout / auto-approve just
             # don't fire. Logged for diagnosis.
-            logger.exception(
-                "Channels module: control fanout wiring failed"
-            )
+            logger.exception("Channels module: control fanout wiring failed")
+
+    async def _start_ask_fanout_subscriber(
+        self,
+        *,
+        session_mapper: Any,
+        delivery_router: Any,
+        default_user_id: Any,
+    ) -> None:
+        from .ask_fanout import AskFanoutSubscriber
+
+        event_bus = require_initialized(
+            self._context.message_bus.message_bus,
+            "message bus",
+        )
+        self._ask_fanout_subscriber = AskFanoutSubscriber(
+            event_bus=event_bus,
+            session_mapper=session_mapper,
+            delivery_router=delivery_router,
+            default_user_id=default_user_id,
+        )
+        await self._ask_fanout_subscriber.start()
+        logger.info("Channels module: ask fanout subscriber started")
 
     async def _stop_channels(self) -> None:
         if self._ask_fanout_subscriber is not None:
