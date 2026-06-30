@@ -56,12 +56,10 @@ class _DerivedAssertionProfile(Protocol):
     allowed_assertion_traits: frozenset[str] | None
 
     @property
-    def effective_structured_allowed_predicates(self) -> frozenset[str]:
-        ...
+    def effective_structured_allowed_predicates(self) -> frozenset[str]: ...
 
     @property
-    def effective_structured_allowed_entity_types(self) -> frozenset[str]:
-        ...
+    def effective_structured_allowed_entity_types(self) -> frozenset[str]: ...
 
 
 @dataclass(slots=True, frozen=True)
@@ -112,7 +110,9 @@ class GraphDerivedAssertionRule:
                 if str(domain).strip()
             ),
         )
-        object.__setattr__(self, "value_strategy", str(self.value_strategy).strip() or "canonical_name")
+        object.__setattr__(
+            self, "value_strategy", str(self.value_strategy).strip() or "canonical_name"
+        )
         object.__setattr__(
             self,
             "object_types",
@@ -181,11 +181,7 @@ async def evaluate_graph_derived_assertion_rule(
             limit=limit,
         )
 
-    qualifying = [
-        edge
-        for edge in edges
-        if _edge_meets_rule(edge=edge, rule=rule)
-    ]
+    qualifying = [edge for edge in edges if _edge_meets_rule(edge=edge, rule=rule)]
     if not qualifying:
         logger.debug(
             "graph-derived assertion rule had no qualifying edges",
@@ -345,11 +341,7 @@ def _trait_value_for_edge(
 
 
 def _is_low_quality_profile_value(*, raw_slug: str, trait_value: str) -> bool:
-    labels = [
-        str(label).strip()
-        for label in (trait_value, raw_slug)
-        if str(label).strip()
-    ]
+    labels = [str(label).strip() for label in (trait_value, raw_slug) if str(label).strip()]
     if not labels:
         return True
     return all(_looks_like_profile_noise(label) for label in labels)
@@ -391,22 +383,74 @@ def _rule_from_profile_spec(
     spec: dict[str, Any],
     index: int,
 ) -> GraphDerivedAssertionRule | None:
-    source_predicates = _normalize_predicates(spec.get("source_predicates") or spec.get("source_predicate"))
-    if not source_predicates or any(predicate not in PREDICATE_REGISTRY for predicate in source_predicates):
+    source_predicates = _profile_rule_source_predicates(profile, spec, index)
+    if not source_predicates:
+        return None
+    trait_family = _profile_rule_trait_family(profile, spec, index)
+    if trait_family is None:
+        return None
+    trait_name_template = _profile_rule_trait_name_template(profile, spec, index)
+    if trait_name_template is None:
+        return None
+    source_types = _profile_rule_source_types(profile, spec, index)
+    if not source_types:
+        return None
+    value_strategy = _profile_rule_value_strategy(profile, spec, index)
+    if value_strategy is None:
+        return None
+    object_types = _profile_rule_object_types(profile, spec, index)
+    if object_types is None:
+        return None
+
+    return GraphDerivedAssertionRule(
+        rule_id=str(spec.get("rule_id") or f"{profile.profile_id}.derived.{index}").strip(),
+        source_predicates=source_predicates,
+        source_types=source_types,
+        trait_family=trait_family,
+        trait_name_template=trait_name_template,
+        min_observations=max(1, int(spec.get("min_observations") or 1)),
+        min_distinct_days=max(0, int(spec.get("min_distinct_days") or 0)),
+        source_domains=_normalize_source_domains(spec.get("source_domains")),
+        value_strategy=value_strategy,
+        object_types=object_types,
+    )
+
+
+def _profile_rule_source_predicates(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> tuple[str, ...] | None:
+    source_predicates = _normalize_predicates(
+        spec.get("source_predicates") or spec.get("source_predicate")
+    )
+    if not source_predicates or any(
+        predicate not in PREDICATE_REGISTRY for predicate in source_predicates
+    ):
         logger.warning(
             "skipping invalid derived assertion spec predicate",
             profile_id=profile.profile_id,
             spec_index=index,
         )
         return None
-    if any(predicate not in profile.effective_structured_allowed_predicates for predicate in source_predicates):
+    if any(
+        predicate not in profile.effective_structured_allowed_predicates
+        for predicate in source_predicates
+    ):
         logger.warning(
             "skipping derived assertion spec outside profile predicates",
             profile_id=profile.profile_id,
             spec_index=index,
         )
         return None
+    return source_predicates
 
+
+def _profile_rule_trait_family(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> str | None:
     trait_family = str(spec.get("trait_family") or "").strip().casefold()
     if (
         trait_family not in ASSERTION_FAMILY_ALLOWLIST
@@ -418,7 +462,14 @@ def _rule_from_profile_spec(
             spec_index=index,
         )
         return None
+    return trait_family
 
+
+def _profile_rule_trait_name_template(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> str | None:
     trait_name_template = str(spec.get("trait_name_template") or "").strip()
     if not trait_name_template or not _trait_template_allowed_by_profile(
         trait_name_template,
@@ -430,7 +481,14 @@ def _rule_from_profile_spec(
             spec_index=index,
         )
         return None
+    return trait_name_template
 
+
+def _profile_rule_source_types(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> tuple[str, ...] | None:
     source_types = _normalize_source_types(spec.get("source_types"), fallback=profile.source_types)
     if not source_types or not set(source_types).issubset(profile.source_types):
         logger.warning(
@@ -439,7 +497,14 @@ def _rule_from_profile_spec(
             spec_index=index,
         )
         return None
+    return source_types
 
+
+def _profile_rule_value_strategy(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> str | None:
     value_strategy = str(spec.get("value_strategy") or "canonical_name").strip()
     if value_strategy not in _VALUE_STRATEGIES:
         logger.warning(
@@ -448,7 +513,14 @@ def _rule_from_profile_spec(
             spec_index=index,
         )
         return None
+    return value_strategy
 
+
+def _profile_rule_object_types(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> tuple[str, ...] | None:
     object_types = _normalize_object_types(spec.get("object_types"))
     if object_types:
         unknown_object_types = set(object_types) - ENTITY_TYPE_REGISTRY
@@ -469,18 +541,7 @@ def _rule_from_profile_spec(
             )
             return None
 
-    return GraphDerivedAssertionRule(
-        rule_id=str(spec.get("rule_id") or f"{profile.profile_id}.derived.{index}").strip(),
-        source_predicates=source_predicates,
-        source_types=source_types,
-        trait_family=trait_family,
-        trait_name_template=trait_name_template,
-        min_observations=max(1, int(spec.get("min_observations") or 1)),
-        min_distinct_days=max(0, int(spec.get("min_distinct_days") or 0)),
-        source_domains=_normalize_source_domains(spec.get("source_domains")),
-        value_strategy=value_strategy,
-        object_types=object_types,
-    )
+    return object_types
 
 
 def _normalize_predicates(value: Any) -> tuple[str, ...]:
