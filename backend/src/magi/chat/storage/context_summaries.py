@@ -16,6 +16,66 @@ SUMMARY_SELECT_COLUMNS = """
     created_at_ms, updated_at_ms
 """
 
+_SUPERSEDE_ACTIVE_CONTEXT_SUMMARIES_SQL = """
+UPDATE chat_context_summaries
+SET status = 'superseded', updated_at_ms = ?
+WHERE session_id = ?
+  AND summary_kind = ?
+  AND COALESCE(persona_scope, '') = ?
+  AND status = 'active'
+  AND summary_id != ?
+"""
+
+_UPSERT_CONTEXT_SUMMARY_SQL = """
+INSERT INTO chat_context_summaries (
+    summary_id,
+    session_id,
+    parent_summary_id,
+    status,
+    summary_kind,
+    persona_scope,
+    covered_from_message_id,
+    covered_to_message_id,
+    first_kept_message_id,
+    covered_to_sequence_no,
+    session_origin,
+    summary_text,
+    prompt_profile,
+    model_provider,
+    model_id,
+    token_count_before,
+    token_count_after,
+    quality_status,
+    created_at_ms,
+    updated_at_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(summary_id) DO UPDATE SET
+    parent_summary_id = excluded.parent_summary_id,
+    status = excluded.status,
+    summary_kind = excluded.summary_kind,
+    persona_scope = excluded.persona_scope,
+    covered_from_message_id = excluded.covered_from_message_id,
+    covered_to_message_id = excluded.covered_to_message_id,
+    first_kept_message_id = excluded.first_kept_message_id,
+    covered_to_sequence_no = excluded.covered_to_sequence_no,
+    session_origin = excluded.session_origin,
+    summary_text = excluded.summary_text,
+    prompt_profile = excluded.prompt_profile,
+    model_provider = excluded.model_provider,
+    model_id = excluded.model_id,
+    token_count_before = excluded.token_count_before,
+    token_count_after = excluded.token_count_after,
+    quality_status = excluded.quality_status,
+    updated_at_ms = excluded.updated_at_ms
+"""
+
+_BUMP_SESSION_HISTORY_VERSION_SQL = """
+UPDATE chat_sessions
+SET history_version = history_version + 1
+WHERE session_id = ?
+"""
+
 
 class ChatContextSummaryPersistenceMixin:
     """Persist and query session-scoped rolling context summaries."""
@@ -58,79 +118,48 @@ class ChatContextSummaryPersistenceMixin:
         await self.initialize()
         normalized_scope = str(record.persona_scope or "").strip()
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
-            await db.execute(
-                """
-                UPDATE chat_context_summaries
-                SET status = 'superseded', updated_at_ms = ?
-                WHERE session_id = ?
-                  AND summary_kind = ?
-                  AND COALESCE(persona_scope, '') = ?
-                  AND status = 'active'
-                  AND summary_id != ?
-                """,
-                (
-                    record.updated_at_ms,
-                    record.session_id,
-                    record.summary_kind,
-                    normalized_scope,
-                    record.summary_id,
-                ),
+            await self._supersede_active_context_summaries(
+                db,
+                record,
+                normalized_scope,
             )
-            await db.execute(
-                """
-                INSERT INTO chat_context_summaries (
-                    summary_id,
-                    session_id,
-                    parent_summary_id,
-                    status,
-                    summary_kind,
-                    persona_scope,
-                    covered_from_message_id,
-                    covered_to_message_id,
-                    first_kept_message_id,
-                    covered_to_sequence_no,
-                    session_origin,
-                    summary_text,
-                    prompt_profile,
-                    model_provider,
-                    model_id,
-                    token_count_before,
-                    token_count_after,
-                    quality_status,
-                    created_at_ms,
-                    updated_at_ms
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(summary_id) DO UPDATE SET
-                    parent_summary_id = excluded.parent_summary_id,
-                    status = excluded.status,
-                    summary_kind = excluded.summary_kind,
-                    persona_scope = excluded.persona_scope,
-                    covered_from_message_id = excluded.covered_from_message_id,
-                    covered_to_message_id = excluded.covered_to_message_id,
-                    first_kept_message_id = excluded.first_kept_message_id,
-                    covered_to_sequence_no = excluded.covered_to_sequence_no,
-                    session_origin = excluded.session_origin,
-                    summary_text = excluded.summary_text,
-                    prompt_profile = excluded.prompt_profile,
-                    model_provider = excluded.model_provider,
-                    model_id = excluded.model_id,
-                    token_count_before = excluded.token_count_before,
-                    token_count_after = excluded.token_count_after,
-                    quality_status = excluded.quality_status,
-                    updated_at_ms = excluded.updated_at_ms
-                """,
-                self._context_summary_values(record, status="active"),
-            )
-            await db.execute(
-                """
-                UPDATE chat_sessions
-                SET history_version = history_version + 1
-                WHERE session_id = ?
-                """,
-                (record.session_id,),
-            )
+            await self._upsert_active_context_summary(db, record)
+            await self._bump_context_summary_history_version(db, record.session_id)
             await db.commit()
+
+    async def _supersede_active_context_summaries(
+        self,
+        db: aiosqlite.Connection,
+        record: ChatContextSummaryRecord,
+        normalized_scope: str,
+    ) -> None:
+        await db.execute(
+            _SUPERSEDE_ACTIVE_CONTEXT_SUMMARIES_SQL,
+            (
+                record.updated_at_ms,
+                record.session_id,
+                record.summary_kind,
+                normalized_scope,
+                record.summary_id,
+            ),
+        )
+
+    async def _upsert_active_context_summary(
+        self,
+        db: aiosqlite.Connection,
+        record: ChatContextSummaryRecord,
+    ) -> None:
+        await db.execute(
+            _UPSERT_CONTEXT_SUMMARY_SQL,
+            self._context_summary_values(record, status="active"),
+        )
+
+    async def _bump_context_summary_history_version(
+        self,
+        db: aiosqlite.Connection,
+        session_id: str,
+    ) -> None:
+        await db.execute(_BUMP_SESSION_HISTORY_VERSION_SQL, (session_id,))
 
     @staticmethod
     def _context_summary_values(
