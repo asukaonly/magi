@@ -26,7 +26,7 @@ class BehaviorEvolutionInteractionMixin:
         self,
         task_id: str,
         task_category: str,
-        user_satisfaction: SatisfactionLevel = SatisfactionLevel.NEUTRAL,
+        user_satisfaction: SatisfactionLevel | str = SatisfactionLevel.NEUTRAL,
         clarification_count: int = 0,
         confirmation_count: int = 0,
         correction_count: int = 0,
@@ -35,27 +35,68 @@ class BehaviorEvolutionInteractionMixin:
         accepted: bool = True,
     ) -> None:
         """Record a task outcome and refresh category statistics."""
+        satisfaction = self._normalize_satisfaction(user_satisfaction)
+        record = self._build_task_interaction_record(
+            task_id=task_id,
+            task_category=task_category,
+            satisfaction=satisfaction,
+            clarification_count=clarification_count,
+            confirmation_count=confirmation_count,
+            correction_count=correction_count,
+            task_complexity=task_complexity,
+            task_duration=task_duration,
+            accepted=accepted,
+        )
+        await self._persist_task_interaction_record(record)
+        self._invalidate_task_category_cache(task_category)
+        await self._update_category_statistics(task_category)
+
+        logger.debug(
+            f"Recorded task outcome: {task_id} in {task_category}, "
+            f"satisfaction={satisfaction.value}, accepted={accepted}"
+        )
+
+    @staticmethod
+    def _normalize_satisfaction(
+        user_satisfaction: SatisfactionLevel | str,
+    ) -> SatisfactionLevel:
         if isinstance(user_satisfaction, str):
             try:
-                user_satisfaction = SatisfactionLevel(user_satisfaction)
+                return SatisfactionLevel(user_satisfaction)
             except ValueError:
                 logger.warning(
                     f"Unknown satisfaction level '{user_satisfaction}', fallback to neutral"
                 )
-                user_satisfaction = SatisfactionLevel.NEUTRAL
+                return SatisfactionLevel.NEUTRAL
+        return user_satisfaction
 
-        record = TaskInteractionRecord(
+    @staticmethod
+    def _build_task_interaction_record(
+        *,
+        task_id: str,
+        task_category: str,
+        satisfaction: SatisfactionLevel,
+        clarification_count: int,
+        confirmation_count: int,
+        correction_count: int,
+        task_complexity: float,
+        task_duration: float,
+        accepted: bool,
+    ) -> TaskInteractionRecord:
+        return TaskInteractionRecord(
             task_id=task_id,
             task_category=task_category,
             timestamp=time.time(),
             clarification_count=clarification_count,
             confirmation_count=confirmation_count,
             correction_count=correction_count,
-            satisfaction=user_satisfaction,
+            satisfaction=satisfaction,
             task_complexity=task_complexity,
             task_duration=task_duration,
             accepted=accepted,
         )
+
+    async def _persist_task_interaction_record(self, record: TaskInteractionRecord) -> None:
         record_data = asdict(record)
         record_data["satisfaction"] = record.satisfaction.value
 
@@ -67,19 +108,19 @@ class BehaviorEvolutionInteractionMixin:
                     task_complexity, task_duration, accepted, data_json, persona_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    task_id,
-                    task_category,
+                    record.task_id,
+                    record.task_category,
                     record.timestamp,
-                    clarification_count,
-                    confirmation_count,
-                    correction_count,
-                    user_satisfaction.value,
-                    task_complexity,
-                    task_duration,
-                    1 if accepted else 0,
+                    record.clarification_count,
+                    record.confirmation_count,
+                    record.correction_count,
+                    record.satisfaction.value,
+                    record.task_complexity,
+                    record.task_duration,
+                    1 if record.accepted else 0,
                     json.dumps(record_data),
                     self.persona_id,
-                )
+                ),
             )
             # The persisted behavior_profiles row is a memoised inference from
             # task_interactions + category_statistics. A new outcome makes that
@@ -89,19 +130,13 @@ class BehaviorEvolutionInteractionMixin:
             # profile forever — exactly the dead-loop the P2 review flagged.
             await db.execute(
                 "DELETE FROM behavior_profiles WHERE task_category = ? AND persona_id = ?",
-                (task_category, self.persona_id),
+                (record.task_category, self.persona_id),
             )
             await db.commit()
 
+    def _invalidate_task_category_cache(self, task_category: str) -> None:
         self._cache.pop(task_category, None)
         self._stats_cache.pop(task_category, None)
-
-        await self._update_category_statistics(task_category)
-
-        logger.debug(
-            f"Recorded task outcome: {task_id} in {task_category}, "
-            f"satisfaction={user_satisfaction.value}, accepted={accepted}"
-        )
 
 
 __all__ = ["BehaviorEvolutionInteractionMixin"]
