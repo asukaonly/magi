@@ -564,13 +564,7 @@ async def rebuild_l2_edge_embeddings(
         return 0
     normalized_batch_size = max(1, int(batch_size))
     await vector_index.clear()
-    async with sqlite_connection_async(db_path) as db:
-        await db.execute("""
-            UPDATE knowledge_graph
-            SET embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL
-            WHERE status = 'active'
-            """)
-        await db.commit()
+    await _disable_active_l2_edge_embeddings(db_path)
 
     pipeline = MemoryEmbeddingPipeline(
         embedding_service=embedding_service,
@@ -580,53 +574,107 @@ async def rebuild_l2_edge_embeddings(
     processed = 0
     offset = 0
     while True:
-        async with sqlite_connection_async(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id,
-                    kg.evidence_text, kg.natural_summary,
-                    sc.canonical_name AS subject_name, oc.canonical_name AS object_name
-                FROM knowledge_graph kg
-                LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id
-                LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id
-                WHERE kg.status = 'active'
-                ORDER BY kg.updated_at DESC, kg.triple_id ASC
-                LIMIT ? OFFSET ?
-                """,
-                (normalized_batch_size, offset),
-            ) as cursor:
-                rows = await cursor.fetchall()
+        rows = await _fetch_l2_edge_embedding_rows(
+            db_path=db_path,
+            batch_size=normalized_batch_size,
+            offset=offset,
+        )
         if not rows:
             break
 
-        items = [_edge_row_to_embedding_item(row) for row in rows]
-        items = [item for item in items if item is not None]
-        if items:
-            results = await pipeline.upsert_items(items)
-            updates = []
-            for result in results:
-                profile = embedding_service.profile_from_result(
-                    result.embeddings[0],
-                    text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
-                )
-                updates.append((profile.profile_id, result.embedded_at, result.parent_id))
-            if updates:
-                async with sqlite_connection_async(db_path) as db:
-                    await db.executemany(
-                        """
-                        UPDATE knowledge_graph
-                        SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
-                        WHERE triple_id = ?
-                        """,
-                        updates,
-                    )
-                    await db.commit()
+        await _embed_l2_edge_rows(
+            db_path=db_path,
+            rows=rows,
+            embedding_service=embedding_service,
+            pipeline=pipeline,
+        )
         processed += len(rows)
         offset += len(rows)
         if progress_callback is not None:
             await progress_callback(processed)
     return processed
+
+
+async def _disable_active_l2_edge_embeddings(db_path: str) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute("""
+            UPDATE knowledge_graph
+            SET embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL
+            WHERE status = 'active'
+            """)
+        await db.commit()
+
+
+async def _fetch_l2_edge_embedding_rows(
+    *,
+    db_path: str,
+    batch_size: int,
+    offset: int,
+) -> list[aiosqlite.Row]:
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id,
+                kg.evidence_text, kg.natural_summary,
+                sc.canonical_name AS subject_name, oc.canonical_name AS object_name
+            FROM knowledge_graph kg
+            LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id
+            LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id
+            WHERE kg.status = 'active'
+            ORDER BY kg.updated_at DESC, kg.triple_id ASC
+            LIMIT ? OFFSET ?
+            """,
+            (batch_size, offset),
+        ) as cursor:
+            return await cursor.fetchall()
+
+
+async def _embed_l2_edge_rows(
+    *,
+    db_path: str,
+    rows: list[aiosqlite.Row],
+    embedding_service: Any,
+    pipeline: MemoryEmbeddingPipeline,
+) -> None:
+    items = [_edge_row_to_embedding_item(row) for row in rows]
+    items = [item for item in items if item is not None]
+    if not items:
+        return
+    results = await pipeline.upsert_items(items)
+    updates = _l2_edge_embedding_updates(results, embedding_service)
+    if updates:
+        await _mark_l2_edge_embeddings_ready(db_path, updates)
+
+
+def _l2_edge_embedding_updates(
+    results: Iterable[Any],
+    embedding_service: Any,
+) -> list[tuple[str, float, str]]:
+    updates: list[tuple[str, float, str]] = []
+    for result in results:
+        profile = embedding_service.profile_from_result(
+            result.embeddings[0],
+            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+        )
+        updates.append((profile.profile_id, result.embedded_at, result.parent_id))
+    return updates
+
+
+async def _mark_l2_edge_embeddings_ready(
+    db_path: str,
+    updates: list[tuple[str, float, str]],
+) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.executemany(
+            """
+            UPDATE knowledge_graph
+            SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
+            WHERE triple_id = ?
+            """,
+            updates,
+        )
+        await db.commit()
 
 
 async def _run_rebuild_layer(
@@ -637,10 +685,18 @@ async def _run_rebuild_layer(
 ) -> int:
     if layer == "l1":
         store = getattr(unified_memory, "l1", None)
-        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
+        return (
+            int(await store.rebuild_embeddings(progress_callback=progress_callback))
+            if store is not None
+            else 0
+        )
     if layer == "l2_entities":
         catalog = getattr(unified_memory, "l2_entity_catalog", None)
-        return int(await catalog.rebuild_embeddings(progress_callback=progress_callback)) if catalog is not None else 0
+        return (
+            int(await catalog.rebuild_embeddings(progress_callback=progress_callback))
+            if catalog is not None
+            else 0
+        )
     if layer == "l2_edges":
         catalog = getattr(unified_memory, "l2_entity_catalog", None)
         l2_store = getattr(unified_memory, "l2", None)
@@ -656,10 +712,18 @@ async def _run_rebuild_layer(
         )
     if layer == "l3":
         store = getattr(unified_memory, "l3", None)
-        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
+        return (
+            int(await store.rebuild_embeddings(progress_callback=progress_callback))
+            if store is not None
+            else 0
+        )
     if layer == "l4":
         store = getattr(unified_memory, "l4", None)
-        return int(await store.rebuild_embeddings(progress_callback=progress_callback)) if store is not None else 0
+        return (
+            int(await store.rebuild_embeddings(progress_callback=progress_callback))
+            if store is not None
+            else 0
+        )
     raise ValueError(f"Unsupported embedding rebuild layer: {layer}")
 
 

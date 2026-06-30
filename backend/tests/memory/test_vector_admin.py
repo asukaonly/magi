@@ -11,11 +11,43 @@ from magi.memory.embedding.vector_admin import (
     EmbeddingRebuildManager,
     build_embedding_config_preflight,
 )
+from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.utils.runtime import RuntimePaths
 
 
 async def _ready_counts(**counts: int) -> dict[str, int]:
     return {"l1": 0, "l2_entities": 0, "l2_edges": 0, "l3": 0, "l4": 0, **counts}
+
+
+class _RecordingVectorIndex:
+    def __init__(self) -> None:
+        self.cleared = False
+        self.items: list[dict] = []
+
+    async def clear(self) -> None:
+        self.cleared = True
+
+    async def upsert_many(self, items: list[dict]) -> None:
+        self.items.extend(items)
+
+
+class _RecordingEmbeddingService:
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    async def embed_texts(self, texts: list[str]):
+        self.texts.extend(texts)
+        return [
+            EmbeddingResult(
+                model_name="test-embedding",
+                dimension=3,
+                vector=[0.1, 0.2, 0.3],
+            )
+            for _ in texts
+        ]
+
+    def profile_from_result(self, result, *, text_builder_version: str):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(profile_id=f"profile:{text_builder_version}")
 
 
 def _memory_layer(enabled: bool = True, vectors_enabled: bool = True):
@@ -48,6 +80,125 @@ def _config(*, provider_id: str, model: str, dimension: int, base_url: str):
             providers={provider_id: provider},
         ),
     )
+
+
+def _create_l2_edge_embedding_db(db_path) -> None:
+    with sqlite3.connect(db_path) as db:
+        db.executescript("""
+            CREATE TABLE entity_catalog (
+                entity_id TEXT PRIMARY KEY,
+                canonical_name TEXT
+            );
+            CREATE TABLE knowledge_graph (
+                triple_id TEXT PRIMARY KEY,
+                subject_id TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                evidence_text TEXT,
+                natural_summary TEXT,
+                status TEXT NOT NULL,
+                updated_at REAL NOT NULL,
+                embedding_status TEXT,
+                embedding_profile_id TEXT,
+                last_embedded_at REAL
+            );
+            """)
+        db.executemany(
+            "INSERT INTO entity_catalog(entity_id, canonical_name) VALUES (?, ?)",
+            [("user:u1", "User"), ("topic:tea", "Tea"), ("topic:coffee", "Coffee")],
+        )
+        db.executemany(
+            """
+            INSERT INTO knowledge_graph(
+                triple_id, subject_id, predicate, object_id, evidence_text,
+                natural_summary, status, updated_at, embedding_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _l2_edge_rows(),
+        )
+        db.commit()
+
+
+def _l2_edge_rows() -> list[tuple]:
+    return [
+        (
+            "edge-new",
+            "user:u1",
+            "LIKES",
+            "topic:tea",
+            "likes tea",
+            "",
+            "active",
+            2,
+            "stale",
+        ),
+        (
+            "edge-old",
+            "user:u1",
+            "DISLIKES",
+            "topic:coffee",
+            "",
+            "dislikes coffee",
+            "active",
+            1,
+            "stale",
+        ),
+        (
+            "edge-inactive",
+            "user:u1",
+            "LIKES",
+            "topic:coffee",
+            "inactive",
+            "",
+            "deprecated",
+            3,
+            "ready",
+        ),
+    ]
+
+
+def _edge_embedding_rows_by_id(db_path) -> dict[str, tuple]:
+    with sqlite3.connect(db_path) as db:
+        return {row[0]: row[1:] for row in db.execute("""
+                SELECT triple_id, embedding_status, embedding_profile_id, last_embedded_at
+                FROM knowledge_graph
+                ORDER BY triple_id
+                """)}
+
+
+@pytest.mark.asyncio
+async def test_rebuild_l2_edge_embeddings_marks_active_edges_ready(tmp_path) -> None:
+    db_path = tmp_path / "memory.db"
+    _create_l2_edge_embedding_db(db_path)
+    progress: list[int] = []
+    index = _RecordingVectorIndex()
+    service = _RecordingEmbeddingService()
+
+    count = await vector_admin.rebuild_l2_edge_embeddings(
+        db_path=str(db_path),
+        embedding_service=service,
+        vector_index=index,
+        batch_size=1,
+        progress_callback=lambda processed: _append_progress(progress, processed),
+    )
+
+    assert count == 2
+    assert progress == [1, 2]
+    assert index.cleared is True
+    assert len(index.items) == 2
+    assert len(service.texts) == 2
+
+    rows = _edge_embedding_rows_by_id(db_path)
+    assert rows["edge-new"][0] == "ready"
+    assert rows["edge-old"][0] == "ready"
+    assert rows["edge-new"][1].startswith("profile:")
+    assert rows["edge-old"][1].startswith("profile:")
+    assert rows["edge-new"][2] is not None
+    assert rows["edge-inactive"][0] == "ready"
+
+
+async def _append_progress(progress: list[int], processed: int) -> None:
+    progress.append(processed)
 
 
 @pytest.mark.asyncio
