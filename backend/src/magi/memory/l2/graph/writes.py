@@ -59,6 +59,26 @@ class _KnowledgeEdgeWrite:
 
 
 @dataclass(frozen=True)
+class _KnowledgeEdgeInput:
+    subject_id: str
+    subject_type: str
+    predicate: str
+    object_id: str
+    object_type: str
+    fact_kind: str | None
+    evidence_event_ids: list[str]
+    confidence: float
+    observed_at: float
+    source_type: str
+    extraction_method: str
+    evidence_text: str
+    expires_at: float | None
+    valid_from: float | None
+    valid_to: float | None
+    evidence_class: str | None
+
+
+@dataclass(frozen=True)
 class _MergedEdgeEvidence:
     event_ids: list[str]
     observation_count: int
@@ -76,6 +96,18 @@ def _normalize_evidence_class(evidence_class: str | None) -> str | None:
 
 def _normalize_edge_evidence_text(evidence_text: str) -> str:
     return str(evidence_text).strip() if evidence_text else ""
+
+
+def _optional_mapping_text(mapping: Mapping[str, Any], key: str) -> str | None:
+    if mapping.get(key) is None:
+        return None
+    return str(mapping[key]).strip() or None
+
+
+def _optional_mapping_float(mapping: Mapping[str, Any], key: str) -> float | None:
+    if mapping.get(key) is None:
+        return None
+    return float(mapping[key])
 
 
 def _edge_natural_summary(
@@ -188,22 +220,24 @@ class L2StoreGraphWriteMixin:
             db.row_factory = aiosqlite.Row
             triple_id = await self._upsert_knowledge_edge_on_connection(
                 db=db,
-                subject_id=subject_id,
-                subject_type=subject_type,
-                predicate=predicate,
-                object_id=object_id,
-                object_type=object_type,
-                fact_kind=fact_kind,
-                evidence_event_ids=evidence_event_ids,
-                confidence=confidence,
-                observed_at=observed_at,
-                source_type=source_type,
-                extraction_method=extraction_method,
-                evidence_text=evidence_text,
-                expires_at=expires_at,
-                valid_from=valid_from,
-                valid_to=valid_to,
-                evidence_class=evidence_class,
+                edge=_KnowledgeEdgeInput(
+                    subject_id=subject_id,
+                    subject_type=subject_type,
+                    predicate=predicate,
+                    object_id=object_id,
+                    object_type=object_type,
+                    fact_kind=fact_kind,
+                    evidence_event_ids=evidence_event_ids,
+                    confidence=confidence,
+                    observed_at=observed_at,
+                    source_type=source_type,
+                    extraction_method=extraction_method,
+                    evidence_text=evidence_text,
+                    expires_at=expires_at,
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    evidence_class=evidence_class,
+                ),
             )
             await db.commit()
         return triple_id
@@ -220,89 +254,45 @@ class L2StoreGraphWriteMixin:
                 triple_ids.append(
                     await self._upsert_knowledge_edge_on_connection(
                         db=db,
-                        subject_id=str(edge_write["subject_id"]),
-                        subject_type=str(edge_write["subject_type"]),
-                        predicate=str(edge_write["predicate"]),
-                        object_id=str(edge_write["object_id"]),
-                        object_type=str(edge_write["object_type"]),
-                        fact_kind=(
-                            str(edge_write["fact_kind"])
-                            if edge_write.get("fact_kind") is not None
-                            else None
-                        ),
-                        evidence_event_ids=[
-                            str(item) for item in edge_write.get("evidence_event_ids", [])
-                        ],
-                        confidence=float(edge_write["confidence"]),
-                        observed_at=float(edge_write["observed_at"]),
-                        source_type=str(edge_write["source_type"]),
-                        extraction_method=str(edge_write.get("extraction_method") or "rule"),
-                        evidence_text=str(edge_write.get("evidence_text") or ""),
-                        expires_at=(
-                            float(edge_write["expires_at"])
-                            if edge_write.get("expires_at") is not None
-                            else None
-                        ),
-                        valid_from=(
-                            float(edge_write["valid_from"])
-                            if edge_write.get("valid_from") is not None
-                            else None
-                        ),
-                        valid_to=(
-                            float(edge_write["valid_to"])
-                            if edge_write.get("valid_to") is not None
-                            else None
-                        ),
-                        evidence_class=(
-                            str(edge_write["evidence_class"]).strip() or None
-                            if edge_write.get("evidence_class") is not None
-                            else None
-                        ),
+                        edge=self._knowledge_edge_input_from_mapping(edge_write),
                     )
                 )
             await db.commit()
         return triple_ids
 
+    @staticmethod
+    def _knowledge_edge_input_from_mapping(edge_write: Mapping[str, Any]) -> _KnowledgeEdgeInput:
+        return _KnowledgeEdgeInput(
+            subject_id=str(edge_write["subject_id"]),
+            subject_type=str(edge_write["subject_type"]),
+            predicate=str(edge_write["predicate"]),
+            object_id=str(edge_write["object_id"]),
+            object_type=str(edge_write["object_type"]),
+            fact_kind=_optional_mapping_text(edge_write, "fact_kind"),
+            evidence_event_ids=[
+                str(item) for item in edge_write.get("evidence_event_ids", [])
+            ],
+            confidence=float(edge_write["confidence"]),
+            observed_at=float(edge_write["observed_at"]),
+            source_type=str(edge_write["source_type"]),
+            extraction_method=str(edge_write.get("extraction_method") or "rule"),
+            evidence_text=str(edge_write.get("evidence_text") or ""),
+            expires_at=_optional_mapping_float(edge_write, "expires_at"),
+            valid_from=_optional_mapping_float(edge_write, "valid_from"),
+            valid_to=_optional_mapping_float(edge_write, "valid_to"),
+            evidence_class=_optional_mapping_text(edge_write, "evidence_class"),
+        )
+
     async def _upsert_knowledge_edge_on_connection(
         self,
         *,
         db: aiosqlite.Connection,
-        subject_id: str,
-        subject_type: str,
-        predicate: str,
-        object_id: str,
-        object_type: str,
-        fact_kind: str | None = None,
-        evidence_event_ids: List[str],
-        confidence: float,
-        observed_at: float,
-        source_type: str,
-        extraction_method: str = "rule",
-        evidence_text: str = "",
-        expires_at: float | None = None,
-        valid_from: float | None = None,
-        valid_to: float | None = None,
-        evidence_class: str | None = None,
+        edge: _KnowledgeEdgeInput,
     ) -> str:
         host = cast(_GraphWriteHostProtocol, self)
         write = self._build_knowledge_edge_write(
             host=host,
-            subject_id=subject_id,
-            subject_type=subject_type,
-            predicate=predicate,
-            object_id=object_id,
-            object_type=object_type,
-            fact_kind=fact_kind,
-            evidence_event_ids=evidence_event_ids,
-            confidence=confidence,
-            observed_at=observed_at,
-            source_type=source_type,
-            extraction_method=extraction_method,
-            evidence_text=evidence_text,
-            expires_at=expires_at,
-            valid_from=valid_from,
-            valid_to=valid_to,
-            evidence_class=evidence_class,
+            edge=edge,
         )
         write = await self._canonicalize_edge_predicate(db=db, write=write)
         triple_id = write.triple_id
@@ -342,59 +332,44 @@ class L2StoreGraphWriteMixin:
         self,
         *,
         host: _GraphWriteHostProtocol,
-        subject_id: str,
-        subject_type: str,
-        predicate: str,
-        object_id: str,
-        object_type: str,
-        fact_kind: str | None,
-        evidence_event_ids: list[str],
-        confidence: float,
-        observed_at: float,
-        source_type: str,
-        extraction_method: str,
-        evidence_text: str,
-        expires_at: float | None,
-        valid_from: float | None,
-        valid_to: float | None,
-        evidence_class: str | None,
+        edge: _KnowledgeEdgeInput,
     ) -> _KnowledgeEdgeWrite:
-        observed_at_float = float(observed_at)
-        confidence_float = float(confidence)
-        normalized_fact_kind = str(fact_kind).strip() if fact_kind is not None else ""
+        observed_at_float = float(edge.observed_at)
+        confidence_float = float(edge.confidence)
+        normalized_fact_kind = str(edge.fact_kind).strip() if edge.fact_kind is not None else ""
         normalized_fact_kind = host._validate_fact_kind(
             normalized_fact_kind,
-            extraction_method,
+            edge.extraction_method,
             confidence_float,
         )
 
-        effective_expires_at = expires_at
+        effective_expires_at = edge.expires_at
         if normalized_fact_kind == "future_intent" and effective_expires_at is None:
             effective_expires_at = observed_at_float + DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
-        normalized_subject_type = normalize_store_entity_type(subject_type) or subject_type
-        normalized_object_type = normalize_store_entity_type(object_type) or object_type
+        normalized_subject_type = normalize_store_entity_type(edge.subject_type) or edge.subject_type
+        normalized_object_type = normalize_store_entity_type(edge.object_type) or edge.object_type
         normalized_object_id = (
-            normalize_store_entity_ref(object_id, normalized_object_type) or object_id
+            normalize_store_entity_ref(edge.object_id, normalized_object_type) or edge.object_id
         )
 
         return _KnowledgeEdgeWrite(
-            subject_id=subject_id,
+            subject_id=edge.subject_id,
             subject_type=normalized_subject_type,
-            predicate=predicate,
+            predicate=edge.predicate,
             object_id=normalized_object_id,
             object_type=normalized_object_type,
             fact_kind=normalized_fact_kind,
-            evidence_event_ids=list(evidence_event_ids),
+            evidence_event_ids=list(edge.evidence_event_ids),
             confidence=confidence_float,
             observed_at=observed_at_float,
-            source_type=source_type,
-            extraction_method=extraction_method,
-            evidence_text=_normalize_edge_evidence_text(evidence_text),
+            source_type=edge.source_type,
+            extraction_method=edge.extraction_method,
+            evidence_text=_normalize_edge_evidence_text(edge.evidence_text),
             expires_at=effective_expires_at,
-            valid_from=float(valid_from) if valid_from is not None else None,
-            valid_to=float(valid_to) if valid_to is not None else None,
-            evidence_class=_normalize_evidence_class(evidence_class),
+            valid_from=float(edge.valid_from) if edge.valid_from is not None else None,
+            valid_to=float(edge.valid_to) if edge.valid_to is not None else None,
+            evidence_class=_normalize_evidence_class(edge.evidence_class),
             now=time.time(),
         )
 
