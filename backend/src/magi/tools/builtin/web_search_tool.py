@@ -58,6 +58,68 @@ class _SearchRequest:
     proxy_url: str | None
 
 
+def _web_search_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="query",
+            type=ParameterType.STRING,
+            description="The search query",
+            required=True,
+        ),
+        ToolParameter(
+            name="num_results",
+            type=ParameterType.INTEGER,
+            description="Number of results to return",
+            required=False,
+            default=10,
+            min_value=1,
+            max_value=50,
+        ),
+        ToolParameter(
+            name="start_date",
+            type=ParameterType.STRING,
+            description="Optional inclusive start date in YYYY-MM-DD format for time-bounded search",
+            required=False,
+        ),
+        ToolParameter(
+            name="end_date",
+            type=ParameterType.STRING,
+            description="Optional inclusive end date in YYYY-MM-DD format for time-bounded search",
+            required=False,
+        ),
+    ]
+
+
+def _web_search_examples() -> list[dict[str, Any]]:
+    return [
+        {
+            "input": {"query": "latest AI news"},
+            "output": "Returns search results",
+        },
+        {
+            "input": {"query": "OpenAI release notes", "num_results": 5},
+            "output": "Returns search results using the configured default provider",
+        },
+    ]
+
+
+def _web_search_metadata() -> dict[str, Any]:
+    return {
+        "task_intents": ["research_external"],
+        "domains": ["web"],
+        "operations": ["discover"],
+        "query_shapes": ["topic_query", "time_bounded_query"],
+        "followed_by": ["web-fetch"],
+        "avoid_task_intents": [
+            "verify_source_claim",
+            "apply_change",
+            "clarify_requirement",
+        ],
+        "cost": "cheap",
+        "tool_hint": "Use first for broad web discovery and source collection; follow with web-fetch only when article details or verification are needed.",
+    }
+
+
 class WebSearchTool(MultiProviderTool):
     """
     Web Search Tool
@@ -88,64 +150,14 @@ class WebSearchTool(MultiProviderTool):
             category="web",
             version="1.1.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="query",
-                    type=ParameterType.STRING,
-                    description="The search query",
-                    required=True,
-                ),
-                ToolParameter(
-                    name="num_results",
-                    type=ParameterType.INTEGER,
-                    description="Number of results to return",
-                    required=False,
-                    default=10,
-                    min_value=1,
-                    max_value=50,
-                ),
-                ToolParameter(
-                    name="start_date",
-                    type=ParameterType.STRING,
-                    description="Optional inclusive start date in YYYY-MM-DD format for time-bounded search",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="end_date",
-                    type=ParameterType.STRING,
-                    description="Optional inclusive end date in YYYY-MM-DD format for time-bounded search",
-                    required=False,
-                ),
-            ],
-            examples=[
-                {
-                    "input": {"query": "latest AI news"},
-                    "output": "Returns search results",
-                },
-                {
-                    "input": {"query": "OpenAI release notes", "num_results": 5},
-                    "output": "Returns search results using the configured default provider",
-                },
-            ],
+            parameters=_web_search_parameters(),
+            examples=_web_search_examples(),
             timeout=30,
             retry_on_failure=False,
             max_retries=0,
             dangerous=False,
             tags=["web", "search", "information"],
-            metadata={
-                "task_intents": ["research_external"],
-                "domains": ["web"],
-                "operations": ["discover"],
-                "query_shapes": ["topic_query", "time_bounded_query"],
-                "followed_by": ["web-fetch"],
-                "avoid_task_intents": [
-                    "verify_source_claim",
-                    "apply_change",
-                    "clarify_requirement",
-                ],
-                "cost": "cheap",
-                "tool_hint": "Use first for broad web discovery and source collection; follow with web-fetch only when article details or verification are needed.",
-            },
+            metadata=_web_search_metadata(),
         )
 
     def _register_providers(self) -> None:
