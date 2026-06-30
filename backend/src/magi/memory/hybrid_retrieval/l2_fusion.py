@@ -330,50 +330,66 @@ def _select_with_channel_quota(passed: list[L2Candidate], top_k: int) -> list[L2
 
 def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
     """Compute the final fusion score for a candidate."""
-    if c.kind == "knowledge_edge":
-        if c.payload.get("_hop") == 2:
-            # hop2: reached via traversal — subject is the bridge, not the user.
-            # Score by the edge's own confidence + object match (NOT subject_match,
-            # which is 0 for non-user subjects). RFC #65 P3.
-            base = c.confidence_score
-            if is_soft_edge(c.payload):
-                base *= SOFT_EDGE_WEIGHT
-            grounding_score = 0.5 * base + 0.5 * c.object_constraint_score
-        elif is_soft_edge(c.payload):
-            # Soft edges arrive via the traversal sparse-fallback (no vector_distance).
-            # Score by the edge's own confidence (co-occurrence cosine); weighted below
-            # hard edges via SOFT_EDGE_WEIGHT. RFC #65 P2.
-            grounding_score = (
-                0.40 * c.subject_match_score
-                + 0.40 * c.confidence_score
-                + 0.20 * c.object_constraint_score
-            )
-        elif not plan.predicate_candidates:
-            # Predicate couldn't be inferred → let edge-vector SEMANTIC similarity
-            # drive relevance instead of the neutral 0.5 predicate_match (which let
-            # structured-fallback whole-profile edges ride high). Edges hit by the
-            # edge_vector channel carry a vector_distance → real semantic score;
-            # structured-only fallback edges (no vector_distance = no semantic
-            # evidence) get 0 and sink. Local fix for RFC #65.
-            vd = c.payload.get("vector_distance")
-            vector_relevance = (1.0 / (1.0 + float(vd))) if vd is not None else 0.0
-            grounding_score = (
-                0.40 * c.subject_match_score
-                + 0.30 * vector_relevance
-                + 0.20 * c.object_constraint_score
-                + 0.10 * c.status_score
-            )
-            c.predicate_missing_vector_relevance = round(vector_relevance, 4)
-        else:
-            grounding_score = (
-                0.40 * c.subject_match_score
-                + 0.30 * c.predicate_match_score
-                + 0.20 * c.object_constraint_score
-                + 0.10 * c.status_score
-            )
-    else:
-        grounding_score = 0.7
+    grounding_score = _grounding_score(c, plan)
+    final = _fusion_score_before_edge_decay(c, plan, grounding_score)
+    final = _apply_edge_decay(final, c, plan)
+    return round(final, 4)
 
+
+def _grounding_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
+    if c.kind != "knowledge_edge":
+        return 0.7
+    if c.payload.get("_hop") == 2:
+        return _hop2_grounding_score(c)
+    if is_soft_edge(c.payload):
+        return _soft_edge_grounding_score(c)
+    if not plan.predicate_candidates:
+        return _predicate_missing_grounding_score(c)
+    return _predicate_grounding_score(c)
+
+
+def _hop2_grounding_score(c: L2Candidate) -> float:
+    # hop2: reached via traversal; subject is the bridge, not the user.
+    base = c.confidence_score
+    if is_soft_edge(c.payload):
+        base *= SOFT_EDGE_WEIGHT
+    return 0.5 * base + 0.5 * c.object_constraint_score
+
+
+def _soft_edge_grounding_score(c: L2Candidate) -> float:
+    return (
+        0.40 * c.subject_match_score
+        + 0.40 * c.confidence_score
+        + 0.20 * c.object_constraint_score
+    )
+
+
+def _predicate_missing_grounding_score(c: L2Candidate) -> float:
+    vd = c.payload.get("vector_distance")
+    vector_relevance = (1.0 / (1.0 + float(vd))) if vd is not None else 0.0
+    c.predicate_missing_vector_relevance = round(vector_relevance, 4)
+    return (
+        0.40 * c.subject_match_score
+        + 0.30 * vector_relevance
+        + 0.20 * c.object_constraint_score
+        + 0.10 * c.status_score
+    )
+
+
+def _predicate_grounding_score(c: L2Candidate) -> float:
+    return (
+        0.40 * c.subject_match_score
+        + 0.30 * c.predicate_match_score
+        + 0.20 * c.object_constraint_score
+        + 0.10 * c.status_score
+    )
+
+
+def _fusion_score_before_edge_decay(
+    c: L2Candidate,
+    plan: L2GroundingPlan,
+    grounding_score: float,
+) -> float:
     tc_confidence = plan.temporal_context.confidence if plan.temporal_context else 0.5
     temporal_floor = 0.5 if tc_confidence < 0.8 else 0.2
 
@@ -391,19 +407,32 @@ def _compute_final_score(c: L2Candidate, plan: L2GroundingPlan) -> float:
         * evidence_boost
         * confidence_boost
     )
-    if c.kind == "knowledge_edge":
-        if c.payload.get("_hop") == 2:
-            # Only decay speculative 2-hop inferences. If the edge's object_type
-            # matches the answer type the plan is looking for, this IS the answer —
-            # skip the decay so it can rank above 1-hop noise. (RFC #65 P0 fix)
-            is_answer = plan.hop2_target_type is not None and str(
-                c.payload.get("object_type")
-            ) == str(plan.hop2_target_type)
-            if not is_answer:
-                final *= HOP2_DECAY
-        elif is_soft_edge(c.payload):
-            final *= SOFT_EDGE_WEIGHT
-    return round(final, 4)
+    return final
+
+
+def _apply_edge_decay(
+    final: float,
+    c: L2Candidate,
+    plan: L2GroundingPlan,
+) -> float:
+    if c.kind != "knowledge_edge":
+        return final
+    if c.payload.get("_hop") == 2:
+        return _apply_hop2_decay(final, c, plan)
+    if is_soft_edge(c.payload):
+        return final * SOFT_EDGE_WEIGHT
+    return final
+
+
+def _apply_hop2_decay(
+    final: float,
+    c: L2Candidate,
+    plan: L2GroundingPlan,
+) -> float:
+    is_answer = plan.hop2_target_type is not None and str(
+        c.payload.get("object_type")
+    ) == str(plan.hop2_target_type)
+    return final if is_answer else final * HOP2_DECAY
 
 
 def _build_score_trace(c: L2Candidate) -> dict[str, Any]:
