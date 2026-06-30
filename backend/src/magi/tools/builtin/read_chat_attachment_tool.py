@@ -1,6 +1,8 @@
 """Builtin tool for reading managed chat attachments by attachment id."""
+
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,56 @@ from ..schema import (
 
 DEFAULT_ATTACHMENT_READ_LIMIT = 24_000
 MAX_ATTACHMENT_READ_LIMIT = 120_000
+
+
+@dataclass(frozen=True)
+class _AttachmentReadRequest:
+    attachment_id: str
+    session_id: str
+    user_id: str
+    offset: int
+    limit: int
+
+
+def _missing_value_result(error: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error=error,
+        error_code=ToolErrorCode.MISSING_VALUE.value,
+    )
+
+
+def _invalid_parameters_result(error: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error=error,
+        error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+    )
+
+
+def _file_not_found_result(error: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error=error,
+        error_code=ToolErrorCode.FILE_NOT_FOUND.value,
+    )
+
+
+def _chat_port(context: ToolExecutionContext) -> Any | None:
+    return context.capabilities.chat if context.capabilities else None
+
+
+def _attachment_kind(attachment: dict[str, Any]) -> str:
+    return str(attachment.get("kind") or "file").strip() or "file"
+
+
+def _source_turn_id(
+    attachment: dict[str, Any],
+    context: ToolExecutionContext,
+) -> str:
+    return str(
+        attachment.get("turn_id") or context.env_vars.get("turn_id") or "attachment_read"
+    ).strip()
 
 
 class ReadChatAttachmentTool(Tool):
@@ -76,7 +128,11 @@ class ReadChatAttachmentTool(Tool):
             dangerous=False,
             tags=["chat", "attachment", "read"],
             metadata={
-                "task_intents": ["inspect_attachment", "recall_context", "answer_from_uploaded_file"],
+                "task_intents": [
+                    "inspect_attachment",
+                    "recall_context",
+                    "answer_from_uploaded_file",
+                ],
                 "domains": ["chat", "attachments"],
                 "operations": ["read", "inspect"],
                 "query_shapes": ["attachment_id", "followup_reference"],
@@ -94,21 +150,55 @@ class ReadChatAttachmentTool(Tool):
         parameters: dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
+        request = self._build_read_request(parameters, context)
+        if isinstance(request, ToolResult):
+            return request
+
+        chat_port = _chat_port(context)
+        if chat_port is None:
+            return ToolResult(
+                success=False,
+                error="Chat capability is not available.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+
+        attachment = self._load_attachment(chat_port, request)
+        if isinstance(attachment, ToolResult):
+            return attachment
+
+        metadata = _public_metadata(attachment)
+        if _attachment_kind(attachment) == "image":
+            return self._image_result(metadata)
+
+        storage_path = Path(str(attachment.get("storage_path") or "").strip())
+        if not storage_path.is_file():
+            return _file_not_found_result("Attachment file not found.")
+
+        return self._read_text_attachment(
+            request=request,
+            context=context,
+            attachment=attachment,
+            metadata=metadata,
+            chat_port=chat_port,
+        )
+
+    def _build_read_request(
+        self,
+        parameters: dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> _AttachmentReadRequest | ToolResult:
         attachment_id = str(parameters.get("attachment_id") or "").strip()
         if not attachment_id:
-            return ToolResult(
-                success=False,
-                error="attachment_id is required.",
-                error_code=ToolErrorCode.MISSING_VALUE.value,
-            )
-        session_id = str(parameters.get("session_id") or context.env_vars.get("session_id") or "").strip()
+            return _missing_value_result("attachment_id is required.")
+
+        session_id = str(
+            parameters.get("session_id") or context.env_vars.get("session_id") or ""
+        ).strip()
         if not session_id:
-            return ToolResult(
-                success=False,
-                error="session_id is required in parameters or tool execution context.",
-                error_code=ToolErrorCode.MISSING_VALUE.value,
+            return _missing_value_result(
+                "session_id is required in parameters or tool execution context."
             )
-        user_id = str(parameters.get("user_id") or context.env_vars.get("user_id") or DEFAULT_USER_ID).strip()
+
         offset = _coerce_int(parameters.get("offset"), default=0, minimum=0)
         limit = _coerce_int(
             parameters.get("limit"),
@@ -117,74 +207,77 @@ class ReadChatAttachmentTool(Tool):
             maximum=MAX_ATTACHMENT_READ_LIMIT,
         )
         if offset is None or limit is None:
-            return ToolResult(
-                success=False,
-                error="offset and limit must be integers within the supported range.",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            return _invalid_parameters_result(
+                "offset and limit must be integers within the supported range."
             )
 
-        chat_port = context.capabilities.chat if context.capabilities else None
-        if chat_port is None:
+        return _AttachmentReadRequest(
+            attachment_id=attachment_id,
+            session_id=session_id,
+            user_id=str(
+                parameters.get("user_id") or context.env_vars.get("user_id") or DEFAULT_USER_ID
+            ).strip(),
+            offset=offset,
+            limit=limit,
+        )
+
+    def _load_attachment(
+        self,
+        chat_port: Any,
+        request: _AttachmentReadRequest,
+    ) -> dict[str, Any] | ToolResult:
+        try:
+            attachment = chat_port.get_attachment_payload(
+                request.user_id,
+                request.session_id,
+                request.attachment_id,
+            )
+        except ValueError as exc:
+            return _invalid_parameters_result(str(exc))
+        except RuntimeError as exc:
             return ToolResult(
                 success=False,
-                error="Chat capability is not available.",
+                error=str(exc),
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
             )
 
-        try:
-            attachment = chat_port.get_attachment_payload(user_id, session_id, attachment_id)
-        except ValueError as exc:
-            return ToolResult(success=False, error=str(exc), error_code=ToolErrorCode.INVALID_PARAMETERS.value)
-        except RuntimeError as exc:
-            return ToolResult(success=False, error=str(exc), error_code=ToolErrorCode.EXECUTION_ERROR.value)
-
         if not isinstance(attachment, dict):
-            return ToolResult(
-                success=False,
-                error="Attachment not found in the current session.",
-                error_code=ToolErrorCode.FILE_NOT_FOUND.value,
-            )
+            return _file_not_found_result("Attachment not found in the current session.")
+        return attachment
 
-        metadata = _public_metadata(attachment)
-        kind = str(attachment.get("kind") or "file").strip() or "file"
-        if kind == "image":
-            return ToolResult(
-                success=True,
-                data={
-                    "attachment": metadata,
-                    "content_kind": "image",
-                    "readable_text": False,
-                    "summary": "Image attachment metadata is available. Use a vision-capable turn to inspect image pixels.",
-                },
-            )
+    def _image_result(self, metadata: dict[str, Any]) -> ToolResult:
+        return ToolResult(
+            success=True,
+            data={
+                "attachment": metadata,
+                "content_kind": "image",
+                "readable_text": False,
+                "summary": "Image attachment metadata is available. Use a vision-capable turn to inspect image pixels.",
+            },
+        )
 
-        storage_path = Path(str(attachment.get("storage_path") or "").strip())
-        if not storage_path.is_file():
-            return ToolResult(
-                success=False,
-                error="Attachment file not found.",
-                error_code=ToolErrorCode.FILE_NOT_FOUND.value,
-            )
-
-        source_turn_id = str(attachment.get("turn_id") or context.env_vars.get("turn_id") or "attachment_read").strip()
+    def _read_text_attachment(
+        self,
+        *,
+        request: _AttachmentReadRequest,
+        context: ToolExecutionContext,
+        attachment: dict[str, Any],
+        metadata: dict[str, Any],
+        chat_port: Any,
+    ) -> ToolResult:
+        source_turn_id = _source_turn_id(attachment, context)
         text, prepared_payload = self._load_text_content(
-            session_id=session_id,
+            session_id=request.session_id,
             turn_id=source_turn_id,
             attachment=attachment,
             chat_port=chat_port,
         )
         if text is None:
-            parse_error = str(prepared_payload.get("parse_error") or "").strip() if isinstance(prepared_payload, dict) else ""
-            return ToolResult(
-                success=False,
-                error=parse_error or "Attachment content is not readable as text.",
-                error_code=ToolErrorCode.READ_ERROR.value,
-                data={"attachment": metadata, "parse_status": prepared_payload.get("parse_status") if isinstance(prepared_payload, dict) else None},
-            )
+            return self._text_read_error(metadata, prepared_payload)
 
         total_chars = len(text)
-        visible_text = text[offset : offset + limit]
-        next_offset = offset + len(visible_text)
+        visible_text = text[request.offset : request.offset + request.limit]
+        next_offset = request.offset + len(visible_text)
         is_complete = next_offset >= total_chars
         return ToolResult(
             success=True,
@@ -192,16 +285,37 @@ class ReadChatAttachmentTool(Tool):
                 "attachment": metadata,
                 "content_kind": "text",
                 "text": visible_text,
-                "offset": offset,
-                "limit": limit,
+                "offset": request.offset,
+                "limit": request.limit,
                 "returned_chars": len(visible_text),
                 "total_chars": total_chars,
                 "is_complete": is_complete,
                 "next_offset": None if is_complete else next_offset,
-                "source_truncated": bool(prepared_payload.get("truncated")) if isinstance(prepared_payload, dict) else False,
-                "parse_status": prepared_payload.get("parse_status") if isinstance(prepared_payload, dict) else "parsed",
-                "page_count": prepared_payload.get("page_count") if isinstance(prepared_payload, dict) else None,
-                "summary": _summary_for_text_read(metadata, len(visible_text), total_chars, is_complete),
+                "source_truncated": bool(prepared_payload.get("truncated")),
+                "parse_status": prepared_payload.get("parse_status") or "parsed",
+                "page_count": prepared_payload.get("page_count"),
+                "summary": _summary_for_text_read(
+                    metadata,
+                    len(visible_text),
+                    total_chars,
+                    is_complete,
+                ),
+            },
+        )
+
+    def _text_read_error(
+        self,
+        metadata: dict[str, Any],
+        prepared_payload: dict[str, Any],
+    ) -> ToolResult:
+        parse_error = str(prepared_payload.get("parse_error") or "").strip()
+        return ToolResult(
+            success=False,
+            error=parse_error or "Attachment content is not readable as text.",
+            error_code=ToolErrorCode.READ_ERROR.value,
+            data={
+                "attachment": metadata,
+                "parse_status": prepared_payload.get("parse_status"),
             },
         )
 
@@ -213,7 +327,9 @@ class ReadChatAttachmentTool(Tool):
         attachment: dict[str, Any],
         chat_port,
     ) -> tuple[str | None, dict[str, Any]]:
-        derived_path = _derived_text_path(session_id, turn_id, str(attachment.get("attachment_id") or ""))
+        derived_path = _derived_text_path(
+            session_id, turn_id, str(attachment.get("attachment_id") or "")
+        )
         if derived_path.is_file():
             try:
                 return derived_path.read_text(encoding="utf-8"), {"parse_status": "parsed"}
