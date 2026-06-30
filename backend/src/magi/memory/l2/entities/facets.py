@@ -41,12 +41,19 @@ class L2EntityFacetStoreMixin:
     ) -> str:
         """Insert or refresh a sidecar facet for one entity."""
         await self.initialize()
-        normalized_entity_type = normalize_store_entity_type(entity_type) or entity_type
-        normalized_entity_id = normalize_store_entity_ref(entity_id, normalized_entity_type) or entity_id
-        normalized_facet_name = str(facet_name or "").strip().casefold()
-        normalized_facet_value = str(facet_value or "").strip().casefold()
+        (
+            facet_id,
+            normalized_entity_id,
+            normalized_entity_type,
+            normalized_facet_name,
+            normalized_facet_value,
+        ) = self._facet_identity(
+            entity_id=entity_id,
+            entity_type=entity_type,
+            facet_name=facet_name,
+            facet_value=facet_value,
+        )
         now = time.time()
-        facet_id = f"facet_{uuid.uuid5(uuid.NAMESPACE_DNS, f'{normalized_entity_id}:{normalized_facet_name}:{normalized_facet_value}')}"
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -57,55 +64,149 @@ class L2EntityFacetStoreMixin:
                 existing = await cursor.fetchone()
 
             if existing:
-                merged_evidence = sorted(set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids))
-                evidence_cap = max_evidence_event_ids()
-                if len(merged_evidence) > evidence_cap:
-                    merged_evidence = merged_evidence[-evidence_cap:]
-                accumulated_confidence = accumulate_confidence(float(existing["confidence"]), float(confidence))
-                await db.execute(
-                    """
-                    UPDATE entity_facets
-                    SET confidence = ?, evidence_event_ids = ?, last_observed_at = ?,
-                        source_type = ?, extraction_method = ?, updated_at = ?
-                    WHERE facet_id = ?
-                    """,
-                    (
-                        accumulated_confidence,
-                        json.dumps(merged_evidence, ensure_ascii=False),
-                        float(observed_at),
-                        source_type,
-                        extraction_method,
-                        now,
-                        facet_id,
-                    ),
+                await self._update_entity_facet(
+                    db,
+                    facet_id=facet_id,
+                    existing=existing,
+                    evidence_event_ids=evidence_event_ids,
+                    confidence=confidence,
+                    observed_at=observed_at,
+                    source_type=source_type,
+                    extraction_method=extraction_method,
+                    now=now,
                 )
             else:
-                await db.execute(
-                    """
-                    INSERT INTO entity_facets(
-                        facet_id, entity_id, entity_type, facet_name, facet_value,
-                        confidence, evidence_event_ids, first_observed_at, last_observed_at,
-                        source_type, extraction_method, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        facet_id,
-                        normalized_entity_id,
-                        normalized_entity_type,
-                        normalized_facet_name,
-                        normalized_facet_value,
-                        float(confidence),
-                        json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
-                        float(observed_at),
-                        float(observed_at),
-                        source_type,
-                        extraction_method,
-                        now,
-                        now,
-                    ),
+                await self._insert_entity_facet(
+                    db,
+                    facet_id=facet_id,
+                    normalized_entity_id=normalized_entity_id,
+                    normalized_entity_type=normalized_entity_type,
+                    normalized_facet_name=normalized_facet_name,
+                    normalized_facet_value=normalized_facet_value,
+                    evidence_event_ids=evidence_event_ids,
+                    confidence=confidence,
+                    observed_at=observed_at,
+                    source_type=source_type,
+                    extraction_method=extraction_method,
+                    now=now,
                 )
             await db.commit()
         return facet_id
+
+    @staticmethod
+    def _facet_identity(
+        *,
+        entity_id: str,
+        entity_type: str,
+        facet_name: str,
+        facet_value: str,
+    ) -> tuple[str, str, str, str, str]:
+        normalized_entity_type = normalize_store_entity_type(entity_type) or entity_type
+        normalized_entity_id = (
+            normalize_store_entity_ref(entity_id, normalized_entity_type) or entity_id
+        )
+        normalized_facet_name = str(facet_name or "").strip().casefold()
+        normalized_facet_value = str(facet_value or "").strip().casefold()
+        facet_uuid = uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            f"{normalized_entity_id}:{normalized_facet_name}:{normalized_facet_value}",
+        )
+        return (
+            f"facet_{facet_uuid}",
+            normalized_entity_id,
+            normalized_entity_type,
+            normalized_facet_name,
+            normalized_facet_value,
+        )
+
+    @staticmethod
+    def _merged_facet_evidence(
+        existing: aiosqlite.Row,
+        evidence_event_ids: List[str],
+    ) -> list[str]:
+        merged_evidence = sorted(
+            set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
+        )
+        evidence_cap = max_evidence_event_ids()
+        if len(merged_evidence) > evidence_cap:
+            return merged_evidence[-evidence_cap:]
+        return merged_evidence
+
+    async def _update_entity_facet(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        facet_id: str,
+        existing: aiosqlite.Row,
+        evidence_event_ids: List[str],
+        confidence: float,
+        observed_at: float,
+        source_type: str,
+        extraction_method: str,
+        now: float,
+    ) -> None:
+        merged_evidence = self._merged_facet_evidence(existing, evidence_event_ids)
+        accumulated_confidence = accumulate_confidence(
+            float(existing["confidence"]), float(confidence)
+        )
+        await db.execute(
+            """
+            UPDATE entity_facets
+            SET confidence = ?, evidence_event_ids = ?, last_observed_at = ?,
+                source_type = ?, extraction_method = ?, updated_at = ?
+            WHERE facet_id = ?
+            """,
+            (
+                accumulated_confidence,
+                json.dumps(merged_evidence, ensure_ascii=False),
+                float(observed_at),
+                source_type,
+                extraction_method,
+                now,
+                facet_id,
+            ),
+        )
+
+    async def _insert_entity_facet(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        facet_id: str,
+        normalized_entity_id: str,
+        normalized_entity_type: str,
+        normalized_facet_name: str,
+        normalized_facet_value: str,
+        evidence_event_ids: List[str],
+        confidence: float,
+        observed_at: float,
+        source_type: str,
+        extraction_method: str,
+        now: float,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO entity_facets(
+                facet_id, entity_id, entity_type, facet_name, facet_value,
+                confidence, evidence_event_ids, first_observed_at, last_observed_at,
+                source_type, extraction_method, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                facet_id,
+                normalized_entity_id,
+                normalized_entity_type,
+                normalized_facet_name,
+                normalized_facet_value,
+                float(confidence),
+                json.dumps(sorted(set(evidence_event_ids)), ensure_ascii=False),
+                float(observed_at),
+                float(observed_at),
+                source_type,
+                extraction_method,
+                now,
+                now,
+            ),
+        )
 
     async def list_entity_facets(
         self,
@@ -125,7 +226,9 @@ class L2EntityFacetStoreMixin:
         if facet_name:
             sql += " AND facet_name = ?"
             args.append(str(facet_name).strip().casefold())
-        normalized_values = [str(item).strip().casefold() for item in (facet_values or []) if str(item).strip()]
+        normalized_values = [
+            str(item).strip().casefold() for item in (facet_values or []) if str(item).strip()
+        ]
         if normalized_values:
             placeholders = ", ".join("?" for _ in normalized_values)
             sql += f" AND facet_value IN ({placeholders})"
@@ -149,7 +252,9 @@ class L2EntityFacetStoreMixin:
         """Filter candidate entity IDs by matching sidecar facets."""
         await self.initialize()
         normalized_entity_ids = [str(item).strip() for item in entity_ids if str(item).strip()]
-        normalized_values = [str(item).strip().casefold() for item in facet_values if str(item).strip()]
+        normalized_values = [
+            str(item).strip().casefold() for item in facet_values if str(item).strip()
+        ]
         normalized_facet_name = str(facet_name or "").strip().casefold()
         if not normalized_entity_ids or not normalized_facet_name or not normalized_values:
             return []
