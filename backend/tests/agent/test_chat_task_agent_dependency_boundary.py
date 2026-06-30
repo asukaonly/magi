@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 import inspect
 
-from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
+from magi.chat.task_agent.chat_task_agent import ChatTaskAgent, _RUNTIME_CONFIG_INIT_FIELDS
 from magi.chat.task_agent import runtime_dependencies
 from magi.chat.task_agent import runtime_context_builder
 from magi.chat.task_agent import runtime_execution_builder
 from magi.chat.task_agent import runtime_handler_builder
 from magi.chat.task_agent.runtime_dependencies import (
+    ChatTaskAgentRuntimeConfig,
     build_chat_task_agent_runtime_parts,
 )
 
@@ -30,6 +32,12 @@ def test_chat_task_agent_delegates_runtime_assembly_to_chat_builder() -> None:
         "ExecutionHandlerRegistry",
     ):
         assert f"{constructor_name}(" not in source
+
+
+def test_chat_task_agent_runtime_config_init_fields_stay_complete() -> None:
+    config_fields = {field.name for field in fields(ChatTaskAgentRuntimeConfig)}
+
+    assert set(_RUNTIME_CONFIG_INIT_FIELDS) == config_fields - {"agent_id", "runtime_key"}
 
 
 def test_chat_runtime_facade_delegates_core_chat_wiring() -> None:

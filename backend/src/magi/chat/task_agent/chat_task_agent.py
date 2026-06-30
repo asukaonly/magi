@@ -43,6 +43,28 @@ from .runtime_dependencies import (
 
 logger = get_logger(__name__)
 
+_RUNTIME_CONFIG_INIT_FIELDS = (
+    "llm_adapter",
+    "llm_pool",
+    "memory",
+    "unified_memory",
+    "hybrid_retrieval_service",
+    "history_cache_max_sessions",
+    "history_fetch_limit",
+    "skill_runner",
+    "runtime_trace_store",
+    "chat_store",
+    "chat_projector",
+    "chat_read_service_factory",
+    "background_dispatcher",
+    "background_launch_service",
+    "permission_gateway_provider",
+    "control_session_store_provider",
+    "delivery_dispatcher_resolver",
+    "conversation_log_resolver",
+    "message_bus",
+)
+
 
 @dataclass(slots=True)
 class _ChatRuntimePreferences:
@@ -104,50 +126,45 @@ class ChatTaskAgent(
         message_bus: Any | None = None,
     ) -> None:
         super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
-        self.llm = llm_adapter
-        self._llm_pool = llm_pool
-        self.memory = memory
-        self.unified_memory = unified_memory
-        self.memory_integration = memory_integration
-        self._chat_store = chat_store
-        self._runtime_trace_store = runtime_trace_store
+        init_values = locals()
+        self._store_runtime_roots(init_values)
         runtime_parts = build_chat_task_agent_runtime_parts(
-            ChatTaskAgentRuntimeConfig(
-                agent_id=self.agent_id,
-                runtime_key=self.runtime_key,
-                llm_adapter=llm_adapter,
-                llm_pool=llm_pool,
-                memory=memory,
-                unified_memory=unified_memory,
-                hybrid_retrieval_service=hybrid_retrieval_service,
-                history_cache_max_sessions=history_cache_max_sessions,
-                history_fetch_limit=history_fetch_limit,
-                skill_runner=skill_runner,
-                runtime_trace_store=runtime_trace_store,
-                chat_store=chat_store,
-                chat_projector=chat_projector,
-                chat_read_service_factory=chat_read_service_factory,
-                background_dispatcher=background_dispatcher,
-                background_launch_service=background_launch_service,
-                permission_gateway_provider=permission_gateway_provider,
-                control_session_store_provider=control_session_store_provider,
-                delivery_dispatcher_resolver=delivery_dispatcher_resolver,
-                conversation_log_resolver=conversation_log_resolver,
-                message_bus=message_bus,
-            ),
-            ChatTaskAgentRuntimeCallbacks(
-                get_event_emitter=lambda: self._event_emitter,
-                get_task_agent_manager=lambda: self._task_agent_manager,
-                get_sensor_hub=lambda: self._sensor_hub,
-                max_fact_memory=self._max_fact_memory,
-                drain_deferred_turns=self._drain_deferred_turns,
-                deliver_final_response=self._deliver_final_response_from_postprocess,
-                tool_advisory_provider=self._get_tool_advisory,
-                session_workspace_provider=self._resolve_session_workspace_path,
-                persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
-            ),
+            self._build_runtime_config(init_values),
+            self._build_runtime_callbacks(),
         )
         self._install_runtime_parts(runtime_parts)
+        self._bind_runtime_views()
+
+    def _store_runtime_roots(self, init_values: dict[str, Any]) -> None:
+        self.llm = init_values["llm_adapter"]
+        self._llm_pool = init_values["llm_pool"]
+        self.memory = init_values["memory"]
+        self.unified_memory = init_values["unified_memory"]
+        self.memory_integration = init_values["memory_integration"]
+        self._chat_store = init_values["chat_store"]
+        self._runtime_trace_store = init_values["runtime_trace_store"]
+
+    def _build_runtime_config(self, init_values: dict[str, Any]) -> ChatTaskAgentRuntimeConfig:
+        return ChatTaskAgentRuntimeConfig(
+            agent_id=self.agent_id,
+            runtime_key=self.runtime_key,
+            **{field: init_values[field] for field in _RUNTIME_CONFIG_INIT_FIELDS},
+        )
+
+    def _build_runtime_callbacks(self) -> ChatTaskAgentRuntimeCallbacks:
+        return ChatTaskAgentRuntimeCallbacks(
+            get_event_emitter=lambda: self._event_emitter,
+            get_task_agent_manager=lambda: self._task_agent_manager,
+            get_sensor_hub=lambda: self._sensor_hub,
+            max_fact_memory=self._max_fact_memory,
+            drain_deferred_turns=self._drain_deferred_turns,
+            deliver_final_response=self._deliver_final_response_from_postprocess,
+            tool_advisory_provider=self._get_tool_advisory,
+            session_workspace_provider=self._resolve_session_workspace_path,
+            persist_turn_supersessions=self._persist_turn_supersessions_from_handler,
+        )
+
+    def _bind_runtime_views(self) -> None:
         self._last_batch_facts: list[FactRecord] = []
 
         # Keep this alias so existing read paths and tests see the same underlying store.

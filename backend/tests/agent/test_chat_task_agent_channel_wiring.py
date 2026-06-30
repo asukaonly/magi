@@ -30,10 +30,12 @@ def test_chat_task_agent_passes_delivery_dispatcher_to_coordinator() -> None:
 
 
 def test_chat_task_agent_wires_delivery_seam_without_private_mutation() -> None:
-    source = inspect.getsource(ChatTaskAgent.__init__)
+    init_source = inspect.getsource(ChatTaskAgent.__init__)
+    callbacks_source = inspect.getsource(ChatTaskAgent._build_runtime_callbacks)
 
-    assert "_postprocess_service._deliver_final_response" not in source
-    assert "deliver_final_response=" in source
+    assert "_postprocess_service._deliver_final_response" not in init_source
+    assert "_build_runtime_callbacks()" in init_source
+    assert "deliver_final_response=" in callbacks_source
 
 
 def test_chat_task_agent_handles_missing_runtime_container() -> None:
