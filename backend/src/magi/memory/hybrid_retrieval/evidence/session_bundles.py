@@ -33,44 +33,82 @@ class EvidenceBundleMixin:
         if not hits or getattr(self._memory, "l1", None) is None:
             return []
 
+        grouped_hits = self._group_hits_by_session(hits)
+        session_best_score = self._score_sessions(grouped_hits)
+        qualified_ids = self._qualified_session_ids(session_best_score)
+        if not qualified_ids:
+            return []
+
+        neighbor_window = self._bundle_neighbor_window(query)
+        session_events_list = await self._load_qualified_session_events(
+            session_ids=qualified_ids,
+            grouped_hits=grouped_hits,
+            neighbor_window=neighbor_window,
+            user_id=user_id,
+        )
+
+        bundles = [
+            self._build_session_bundle(
+                session_id=session_id,
+                session_hits=grouped_hits[session_id],
+                session_events=session_events,
+                neighbor_window=neighbor_window,
+                session_best_score=session_best_score[session_id],
+            )
+            for session_id, session_events in zip(qualified_ids, session_events_list)
+        ]
+
+        bundles.sort(key=lambda bundle: bundle.get("session_best_score", 0.0), reverse=True)
+        return bundles
+
+    def _group_hits_by_session(
+        self,
+        hits: List[Dict[str, Any]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
         grouped_hits: Dict[str, List[Dict[str, Any]]] = {}
         for hit in hits:
             session_id = str(hit.get("session_id") or "").strip()
             if not session_id:
                 continue
             grouped_hits.setdefault(session_id, []).append(hit)
+        return grouped_hits
 
+    def _score_sessions(
+        self,
+        grouped_hits: Dict[str, List[Dict[str, Any]]],
+    ) -> Dict[str, float]:
+        return {
+            session_id: max((self._hit_score(hit) for hit in session_hits), default=0.0)
+            for session_id, session_hits in grouped_hits.items()
+        }
+
+    def _qualified_session_ids(
+        self,
+        session_best_score: Dict[str, float],
+    ) -> List[str]:
         min_score = self._config.evidence_bundle_min_score
         max_bundles = self._config.evidence_bundle_max_count
-        session_best_score: Dict[str, float] = {}
-        for session_id, session_hits in grouped_hits.items():
-            best = max(
-                (self._hit_score(hit) for hit in session_hits),
-                default=0.0,
-            )
-            session_best_score[session_id] = best
-
         qualified_ids = [
-            session_id
-            for session_id, score in session_best_score.items()
-            if score >= min_score
+            session_id for session_id, score in session_best_score.items() if score >= min_score
         ]
         qualified_ids.sort(key=lambda session_id: session_best_score[session_id], reverse=True)
         if max_bundles > 0:
-            qualified_ids = qualified_ids[:max_bundles]
+            return qualified_ids[:max_bundles]
+        return qualified_ids
 
-        if not qualified_ids:
-            return []
-
-        neighbor_window = self._bundle_neighbor_window(query)
-        bundles: List[Dict[str, Any]] = []
-
-        session_ids = qualified_ids
+    async def _load_qualified_session_events(
+        self,
+        *,
+        session_ids: List[str],
+        grouped_hits: Dict[str, List[Dict[str, Any]]],
+        neighbor_window: int,
+        user_id: str | None,
+    ) -> List[List[Dict[str, Any]]]:
         session_limits = [
             max(len(grouped_hits[session_id]) * _SESSION_EVENTS_OVER_FETCH, 24)
             for session_id in session_ids
         ]
-        session_events_list = await asyncio.gather(
+        return await asyncio.gather(
             *(
                 self._load_session_events(
                     session_id,
@@ -83,34 +121,32 @@ class EvidenceBundleMixin:
             ),
         )
 
-        for session_id, session_events in zip(session_ids, session_events_list):
-            session_hits = grouped_hits[session_id]
-            bundle_events, neighbor_expansion_applied = self._select_bundle_events(
-                session_events=session_events,
-                session_hits=session_hits,
-                neighbor_window=neighbor_window,
-            )
-            bundles.append(
-                {
-                    "session_id": session_id,
-                    "session_best_score": session_best_score[session_id],
-                    "hit_event_ids": [
-                        str(hit.get("event_id") or "")
-                        for hit in session_hits
-                        if hit.get("event_id")
-                    ],
-                    "hit_turn_ids": [
-                        str(hit.get("turn_id") or "")
-                        for hit in session_hits
-                        if hit.get("turn_id")
-                    ],
-                    "events": bundle_events,
-                    "neighbor_expansion_applied": neighbor_expansion_applied,
-                }
-            )
-
-        bundles.sort(key=lambda bundle: bundle.get("session_best_score", 0.0), reverse=True)
-        return bundles
+    def _build_session_bundle(
+        self,
+        *,
+        session_id: str,
+        session_hits: List[Dict[str, Any]],
+        session_events: List[Dict[str, Any]],
+        neighbor_window: int,
+        session_best_score: float,
+    ) -> Dict[str, Any]:
+        bundle_events, neighbor_expansion_applied = self._select_bundle_events(
+            session_events=session_events,
+            session_hits=session_hits,
+            neighbor_window=neighbor_window,
+        )
+        return {
+            "session_id": session_id,
+            "session_best_score": session_best_score,
+            "hit_event_ids": [
+                str(hit.get("event_id") or "") for hit in session_hits if hit.get("event_id")
+            ],
+            "hit_turn_ids": [
+                str(hit.get("turn_id") or "") for hit in session_hits if hit.get("turn_id")
+            ],
+            "events": bundle_events,
+            "neighbor_expansion_applied": neighbor_expansion_applied,
+        }
 
     async def _load_session_events(
         self,
@@ -162,7 +198,9 @@ class EvidenceBundleMixin:
         try:
             events = await store.query_events(session_id=session_id, user_id=user_id, limit=limit)
         except Exception:
-            logger.debug("Failed to load session-local L1 events for evidence bundle", exc_info=True)
+            logger.debug(
+                "Failed to load session-local L1 events for evidence bundle", exc_info=True
+            )
             return []
         return sorted(events, key=self._event_sort_key)
 
@@ -243,5 +281,6 @@ class EvidenceBundleMixin:
     def _hit_score(hit: Dict[str, Any]) -> float:
         """Extract the best available relevance score from a retrieval hit."""
         return hit_score(hit)
+
 
 __all__ = ["EvidenceBundleMixin"]
