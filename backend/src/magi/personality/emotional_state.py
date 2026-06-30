@@ -62,6 +62,48 @@ def apply_decay_to_state(
             state.mood_intensity = 0.5
 
 
+def _trigger_emotion_deltas(
+    triggered_emotion_impacts: list[dict[str, float]] | None,
+) -> tuple[float, float, float]:
+    mood_delta = 0.0
+    energy_delta = 0.0
+    stress_delta = 0.0
+    for impact in triggered_emotion_impacts or []:
+        try:
+            mood_delta += float(impact.get("mood", 0.0) or 0.0)
+            energy_delta += float(impact.get("energy", 0.0) or 0.0)
+            stress_delta += float(impact.get("stress", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+    return mood_delta, energy_delta, stress_delta
+
+
+def _interaction_cause(
+    outcome: InteractionOutcome,
+    user_engagement: EngagementLevel,
+    triggered_emotion_impacts: list[dict[str, float]] | None,
+) -> str:
+    cause = f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
+    if triggered_emotion_impacts:
+        cause += f", triggers_applied={len(triggered_emotion_impacts)}"
+    return cause
+
+
+def _log_interaction_update(
+    *,
+    state: EmotionalState,
+    old_mood: str,
+    old_energy: float,
+    old_stress: float,
+) -> None:
+    logger.debug(
+        f"Emotional state updated after interaction: "
+        f"mood {old_mood} -> {state.current_mood}, "
+        f"energy {old_energy:.2f} -> {state.energy_level:.2f}, "
+        f"stress {old_stress:.2f} -> {state.stress_level:.2f}"
+    )
+
+
 class EmotionalStateEngine(EmotionalStateStorageMixin):
     """Persona-scoped emotional state engine: mood/energy/stress with decay and recovery."""
 
@@ -147,74 +189,104 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         share the same outcome math.
         """
         state = await self.get_current_state()
-
-        # recordoldState
         old_mood = state.current_mood
         old_energy = state.energy_level
         old_stress = state.stress_level
 
+        mood_change, energy_change, stress_change = self._interaction_deltas(
+            outcome=outcome,
+            user_engagement=user_engagement,
+            complexity=complexity,
+            triggered_emotion_impacts=triggered_emotion_impacts,
+        )
+        self._apply_interaction_deltas(
+            state=state,
+            user_engagement=user_engagement,
+            mood_change=mood_change,
+            energy_change=energy_change,
+            stress_change=stress_change,
+        )
+        await self._record_interaction_event(
+            state=state,
+            previous_mood=old_mood,
+            outcome=outcome,
+            user_engagement=user_engagement,
+            triggered_emotion_impacts=triggered_emotion_impacts,
+            mood_change=mood_change,
+            energy_change=energy_change,
+            stress_change=stress_change,
+        )
+        await self._save_current_state()
+        _log_interaction_update(
+            state=state,
+            old_mood=old_mood,
+            old_energy=old_energy,
+            old_stress=old_stress,
+        )
+
+        return state
+
+    def _interaction_deltas(
+        self,
+        *,
+        outcome: InteractionOutcome,
+        user_engagement: EngagementLevel,
+        complexity: float,
+        triggered_emotion_impacts: list[dict[str, float]] | None,
+    ) -> tuple[float, float, float]:
         mood_change = self._calculate_mood_change(outcome, user_engagement, complexity)
-
         energy_change = self._calculate_energy_change(outcome, complexity)
-
         stress_change = self._calculate_stress_change(outcome, complexity)
+        trigger_mood, trigger_energy, trigger_stress = _trigger_emotion_deltas(
+            triggered_emotion_impacts
+        )
+        return (
+            mood_change + trigger_mood,
+            energy_change + trigger_energy,
+            stress_change + trigger_stress,
+        )
 
-        trigger_mood_delta = 0.0
-        trigger_energy_delta = 0.0
-        trigger_stress_delta = 0.0
-        for impact in triggered_emotion_impacts or []:
-            try:
-                trigger_mood_delta += float(impact.get("mood", 0.0) or 0.0)
-                trigger_energy_delta += float(impact.get("energy", 0.0) or 0.0)
-                trigger_stress_delta += float(impact.get("stress", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                continue
-        mood_change += trigger_mood_delta
-        energy_change += trigger_energy_delta
-        stress_change += trigger_stress_delta
-
+    def _apply_interaction_deltas(
+        self,
+        *,
+        state: EmotionalState,
+        user_engagement: EngagementLevel,
+        mood_change: float,
+        energy_change: float,
+        stress_change: float,
+    ) -> None:
         state.current_mood = self._apply_mood_change(state.current_mood, mood_change)
         state.mood_intensity = max(0.0, min(1.0, state.mood_intensity + abs(mood_change) * 0.3))
         state.energy_level = max(0.0, min(1.0, state.energy_level + energy_change))
         state.stress_level = max(0.0, min(1.0, state.stress_level + stress_change))
         state.updated_at = time.time()
-
-        # updatenoteState
         state.focus_state = self._determine_focus_state(state)
-
         state.social_state = self._determine_social_state(user_engagement, state.social_state)
 
-        cause = f"Interaction: {outcome.value}, engagement: {user_engagement.value}"
-        if triggered_emotion_impacts:
-            cause += f", triggers_applied={len(triggered_emotion_impacts)}"
-        # recordevent
+    async def _record_interaction_event(
+        self,
+        *,
+        state: EmotionalState,
+        previous_mood: str,
+        outcome: InteractionOutcome,
+        user_engagement: EngagementLevel,
+        triggered_emotion_impacts: list[dict[str, float]] | None,
+        mood_change: float,
+        energy_change: float,
+        stress_change: float,
+    ) -> None:
         await self._record_event(
             event_type="interaction",
-            previous_mood=old_mood,
+            previous_mood=previous_mood,
             new_mood=state.current_mood,
             mood_delta=mood_change,
             energy_delta=energy_change,
             stress_delta=stress_change,
-            cause=cause,
+            cause=_interaction_cause(outcome, user_engagement, triggered_emotion_impacts),
         )
-
-        # saveState
-        await self._save_current_state()
-
-        logger.debug(
-            f"Emotional state updated after interaction: "
-            f"mood {old_mood} -> {state.current_mood}, "
-            f"energy {old_energy:.2f} -> {state.energy_level:.2f}, "
-            f"stress {old_stress:.2f} -> {state.stress_level:.2f}"
-        )
-
-        return state
 
     async def update_after_task_completion(
-        self,
-        success: bool,
-        complexity: float,
-        duration: float
+        self, success: bool, complexity: float, duration: float
     ) -> EmotionalState:
         """Update emotional state after a task ends; reduces energy on long-running tasks."""
         state = await self.get_current_state()
@@ -248,7 +320,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         return state
 
-
     async def decay_over_time(self, elapsed_minutes: float) -> EmotionalState:
         """Apply time-based decay: energy fades, stress recovers, mood drifts back to neutral."""
         if elapsed_minutes <= 0:
@@ -266,7 +337,6 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
         )
 
         return state
-
 
     async def recover(self, recovery_type: str = "rest") -> EmotionalState:
         """Boost energy and clear stress; ``recovery_type`` is one of rest/sleep/deep_sleep."""
@@ -299,20 +369,19 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
             mood_delta=0,
             energy_delta=recovery["energy"],
             stress_delta=recovery["stress"],
-            cause=f"Recovery: {recovery_type}"
+            cause=f"Recovery: {recovery_type}",
         )
 
-        logger.info(f"Emotional state recovered: type={recovery_type}, energy={state.energy_level:.2f}")
+        logger.info(
+            f"Emotional state recovered: type={recovery_type}, energy={state.energy_level:.2f}"
+        )
 
         return state
 
     # ===== internalcalculateMethod =====
 
     def _calculate_mood_change(
-        self,
-        outcome: InteractionOutcome,
-        engagement: EngagementLevel,
-        complexity: float
+        self, outcome: InteractionOutcome, engagement: EngagementLevel, complexity: float
     ) -> float:
         """Calculate mood delta"""
         base_changes = {
@@ -401,13 +470,9 @@ class EmotionalStateEngine(EmotionalStateStorageMixin):
 
         # Use explicit mood transition maps instead of enum index arithmetic
         if change > 0.15:
-            target = self._MOOD_POSITIVE_TRANSITION.get(
-                current_mood, MoodType.NEUTRAL
-            )
+            target = self._MOOD_POSITIVE_TRANSITION.get(current_mood, MoodType.NEUTRAL)
         elif change < -0.1:
-            target = self._MOOD_NEGATIVE_TRANSITION.get(
-                current_mood, MoodType.NEUTRAL
-            )
+            target = self._MOOD_NEGATIVE_TRANSITION.get(current_mood, MoodType.NEUTRAL)
         else:
             return current_mood
 
