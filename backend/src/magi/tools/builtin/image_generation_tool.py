@@ -182,26 +182,7 @@ class ImageGenerationTool(Tool):
             )
 
         try:
-            execution, failure = self._prepare_execution(inputs, context, start)
-            if failure is not None:
-                return failure
-            assert execution is not None
-
-            result = await self._generate_images(execution, inputs)
-            if not result.images:
-                return self._failure_result(
-                    start,
-                    error="No images were returned by the provider.",
-                    error_code=ToolErrorCode.EXECUTION_ERROR.value,
-                )
-
-            return await self._success_result(
-                start,
-                result=result,
-                execution=execution,
-                context=context,
-            )
-
+            return await self._execute_generation(inputs, context, start)
         except ImageGenProviderError as exc:
             logger.error(
                 "Image generation failed",
@@ -223,6 +204,32 @@ class ImageGenerationTool(Tool):
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
             )
 
+    async def _execute_generation(
+        self,
+        inputs: _ImageGenerationInputs,
+        context: ToolExecutionContext,
+        start: float,
+    ) -> ToolResult:
+        execution, failure = self._prepare_execution(inputs, context, start)
+        if failure is not None:
+            return failure
+        assert execution is not None
+
+        result = await self._generate_images(execution, inputs)
+        if not result.images:
+            return self._failure_result(
+                start,
+                error="No images were returned by the provider.",
+                error_code=ToolErrorCode.EXECUTION_ERROR.value,
+            )
+
+        return await self._success_result(
+            start,
+            result=result,
+            execution=execution,
+            context=context,
+        )
+
     @staticmethod
     def _parse_inputs(parameters: Dict[str, Any]) -> _ImageGenerationInputs:
         return _ImageGenerationInputs(
@@ -238,6 +245,46 @@ class ImageGenerationTool(Tool):
         start: float,
     ) -> tuple[_ImageGenerationExecution | None, ToolResult | None]:
         config = self._load_execution_config()
+        selection, failure = self._resolve_image_selection(config, start)
+        if failure is not None:
+            return None, failure
+        assert selection is not None
+
+        provider_settings, failure = self._resolve_provider_settings(config, selection, start)
+        if failure is not None:
+            return None, failure
+        assert provider_settings is not None
+
+        image_gen, failure = self._resolve_image_generation_capability(context, start)
+        if failure is not None:
+            return None, failure
+        assert image_gen is not None
+
+        proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
+        adapter = self._create_image_adapter(
+            config=config,
+            selection=selection,
+            provider_settings=provider_settings,
+            image_gen=image_gen,
+            proxy_url=proxy_url,
+        )
+        return (
+            _ImageGenerationExecution(
+                selection=selection,
+                image_gen=image_gen,
+                proxy_url=proxy_url,
+                adapter=adapter,
+                request_size=inputs.size or self._default_size_for_adapter(adapter),
+                event_context=self._event_context(context),
+            ),
+            None,
+        )
+
+    def _resolve_image_selection(
+        self,
+        config: Any,
+        start: float,
+    ) -> tuple[Any | None, ToolResult | None]:
         selection = config.llm.selections.get(LLMScenario.IMAGE_GENERATION.value)
         if selection is None or not selection.model:
             return None, self._failure_result(
@@ -248,7 +295,14 @@ class ImageGenerationTool(Tool):
                 ),
                 error_code=ToolErrorCode.PROVIDER_NOT_CONFIGURED.value,
             )
+        return selection, None
 
+    def _resolve_provider_settings(
+        self,
+        config: Any,
+        selection: Any,
+        start: float,
+    ) -> tuple[Any | None, ToolResult | None]:
         provider_settings = config.llm.providers.get(selection.provider_id)
         if provider_settings is None or not provider_settings.enabled:
             return None, self._failure_result(
@@ -274,7 +328,13 @@ class ImageGenerationTool(Tool):
                 error=f"Provider '{selection.provider_id}' is missing an API key.",
                 error_code=ToolErrorCode.AUTH_REQUIRED.value,
             )
+        return provider_settings, None
 
+    def _resolve_image_generation_capability(
+        self,
+        context: ToolExecutionContext,
+        start: float,
+    ) -> tuple[Any | None, ToolResult | None]:
         image_gen = context.capabilities.image_gen if context.capabilities else None
         if image_gen is None:
             return None, self._failure_result(
@@ -282,30 +342,28 @@ class ImageGenerationTool(Tool):
                 error="Image generation capability is not available.",
                 error_code=ToolErrorCode.EXECUTION_ERROR.value,
             )
+        return image_gen, None
 
-        proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
+    def _create_image_adapter(
+        self,
+        *,
+        config: Any,
+        selection: Any,
+        provider_settings: Any,
+        image_gen: Any,
+        proxy_url: str | None,
+    ) -> Any:
         registry = load_llm_provider_registry(
             get_llm_provider_registry_file(),
             fallback=LLMProviderRegistryModel(),
         )
-        adapter = image_gen.create_adapter(
+        return image_gen.create_adapter(
             provider_id=selection.provider_id,
             provider_settings=provider_settings,
             model=selection.model,
             registry=registry,
             timeout=self._timeout_seconds_from_config(config),
             proxy_url=proxy_url,
-        )
-        return (
-            _ImageGenerationExecution(
-                selection=selection,
-                image_gen=image_gen,
-                proxy_url=proxy_url,
-                adapter=adapter,
-                request_size=inputs.size or self._default_size_for_adapter(adapter),
-                event_context=self._event_context(context),
-            ),
-            None,
         )
 
     async def _generate_images(
