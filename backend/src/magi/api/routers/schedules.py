@@ -136,6 +136,133 @@ def _schedule_title(schedule: ScheduleDefinition) -> str:
     return schedule.schedule_id
 
 
+def _sensor_job_activity(job: dict[str, Any], schedule: ScheduleDefinition | None) -> dict[str, Any]:
+    title = _schedule_title(schedule) if schedule is not None else str(job["source_type"])
+    queued = str(job["status"]) == "queued"
+    return {
+        "activity_id": f"sensor_job:{job['job_id']}",
+        "schedule_id": job["schedule_id"],
+        "title": title,
+        "target_type": job["target_type"],
+        "target_key": job["target_key"],
+        "status": job["status"],
+        "planned_at": job["created_at"],
+        "started_at": job["started_at"],
+        "duration_ms": None,
+        "cancellable": queued,
+        "cancel_kind": "sensor_sync_job" if queued else None,
+        "error": job["error"],
+    }
+
+
+async def _sensor_job_activities(
+    repository: ScheduleRepository,
+    *,
+    schedules: list[ScheduleDefinition],
+    limit: int,
+) -> list[dict[str, Any]]:
+    schedule_by_id = {schedule.schedule_id: schedule for schedule in schedules}
+    return [
+        _sensor_job_activity(
+            job,
+            schedule_by_id.get(str(job["schedule_id"])),
+        )
+        for job in await repository.list_outstanding_sensor_sync_jobs(limit=limit)
+    ]
+
+
+def _running_schedule_activity(schedule: ScheduleDefinition, state: Any) -> dict[str, Any]:
+    return {
+        "activity_id": f"target:{schedule.target_type.value}:{schedule.target_key}",
+        "schedule_id": schedule.schedule_id,
+        "title": _schedule_title(schedule),
+        "target_type": schedule.target_type.value,
+        "target_key": schedule.target_key,
+        "status": "running",
+        "planned_at": None,
+        "started_at": state.last_run_at,
+        "duration_ms": (
+            max(0.0, (time.time() - state.last_run_at) * 1000.0)
+            if state.last_run_at
+            else None
+        ),
+        "cancellable": False,
+        "cancel_kind": None,
+        "error": state.last_error,
+    }
+
+
+def _upcoming_schedule_activity(schedule: ScheduleDefinition, state: Any) -> dict[str, Any]:
+    return {
+        "activity_id": f"upcoming:{schedule.schedule_id}",
+        "schedule_id": schedule.schedule_id,
+        "title": _schedule_title(schedule),
+        "target_type": schedule.target_type.value,
+        "target_key": schedule.target_key,
+        "status": "upcoming",
+        "planned_at": state.next_run_at,
+        "started_at": None,
+        "duration_ms": None,
+        "cancellable": False,
+        "cancel_kind": None,
+        "error": state.last_error,
+    }
+
+
+async def _schedule_state_activities(
+    repository: ScheduleRepository,
+    schedules: list[ScheduleDefinition],
+) -> list[dict[str, Any]]:
+    activities: list[dict[str, Any]] = []
+    for schedule in schedules:
+        state = await repository.get_schedule_runtime_state(schedule)
+        if state.running and schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
+            activities.append(_running_schedule_activity(schedule, state))
+        if state.next_run_at is not None and not state.running:
+            activities.append(_upcoming_schedule_activity(schedule, state))
+    return activities
+
+
+async def _get_schedule_or_404(
+    repository: ScheduleRepository,
+    schedule_id: str,
+) -> ScheduleDefinition:
+    schedule = await repository.get_schedule(schedule_id)
+    if schedule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
+    return schedule
+
+
+def _scheduler_service_or_503():
+    try:
+        return require_scheduler_service()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=core_i18n.t(
+                "schedules.errors.service_unavailable",
+                fallback="Scheduler service is not available",
+            ),
+        ) from exc
+
+
+def _raise_schedule_run_error(message: str) -> None:
+    if message == "schedule_not_found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
+        )
+    if message == "target_busy":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=core_i18n.t("schedules.errors.target_busy", fallback="Schedule target is busy"),
+        )
+    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message)
+
+
 @schedules_router.get("")
 async def list_schedules(
     enabled_only: bool = Query(default=False),
@@ -182,71 +309,8 @@ async def list_schedule_activity(
     repository = _repository()
     await repository.initialize()
     schedules = await repository.list_schedules(enabled_only=True)
-    activities: list[dict[str, Any]] = []
-    schedule_by_id = {schedule.schedule_id: schedule for schedule in schedules}
-
-    for job in await repository.list_outstanding_sensor_sync_jobs(limit=limit):
-        schedule = schedule_by_id.get(str(job["schedule_id"]))
-        title = _schedule_title(schedule) if schedule is not None else str(job["source_type"])
-        queued = str(job["status"]) == "queued"
-        activities.append(
-            {
-                "activity_id": f"sensor_job:{job['job_id']}",
-                "schedule_id": job["schedule_id"],
-                "title": title,
-                "target_type": job["target_type"],
-                "target_key": job["target_key"],
-                "status": job["status"],
-                "planned_at": job["created_at"],
-                "started_at": job["started_at"],
-                "duration_ms": None,
-                "cancellable": queued,
-                "cancel_kind": "sensor_sync_job" if queued else None,
-                "error": job["error"],
-            }
-        )
-
-    for schedule in schedules:
-        state = await repository.get_schedule_runtime_state(schedule)
-        if state.running and schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
-            activities.append(
-                {
-                    "activity_id": f"target:{schedule.target_type.value}:{schedule.target_key}",
-                    "schedule_id": schedule.schedule_id,
-                    "title": _schedule_title(schedule),
-                    "target_type": schedule.target_type.value,
-                    "target_key": schedule.target_key,
-                    "status": "running",
-                    "planned_at": None,
-                    "started_at": state.last_run_at,
-                    "duration_ms": (
-                        max(0.0, (time.time() - state.last_run_at) * 1000.0)
-                        if state.last_run_at
-                        else None
-                    ),
-                    "cancellable": False,
-                    "cancel_kind": None,
-                    "error": state.last_error,
-                }
-            )
-        if state.next_run_at is not None and not state.running:
-            activities.append(
-                {
-                    "activity_id": f"upcoming:{schedule.schedule_id}",
-                    "schedule_id": schedule.schedule_id,
-                    "title": _schedule_title(schedule),
-                    "target_type": schedule.target_type.value,
-                    "target_key": schedule.target_key,
-                    "status": "upcoming",
-                    "planned_at": state.next_run_at,
-                    "started_at": None,
-                    "duration_ms": None,
-                    "cancellable": False,
-                    "cancel_kind": None,
-                    "error": state.last_error,
-                }
-            )
-
+    activities = await _sensor_job_activities(repository, schedules=schedules, limit=limit)
+    activities.extend(await _schedule_state_activities(repository, schedules))
     activities.sort(key=lambda item: (item["status"] != "running", item.get("planned_at") or 0))
     return {"activities": activities[:limit]}
 
@@ -344,22 +408,8 @@ async def run_schedule_now(
 ) -> dict[str, Any]:
     repository = _repository()
     await repository.initialize()
-    existing = await repository.get_schedule(schedule_id)
-    if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
-        )
-    try:
-        scheduler_service = require_scheduler_service()
-    except RuntimeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=core_i18n.t(
-                "schedules.errors.service_unavailable",
-                fallback="Scheduler service is not available",
-            ),
-        ) from exc
+    existing = await _get_schedule_or_404(repository, schedule_id)
+    scheduler_service = _scheduler_service_or_503()
 
     override_params = (body.override_params if body is not None else {}) or {}
     # Fire-and-forget: returns after setup (lock + execution record); the
@@ -371,17 +421,7 @@ async def run_schedule_now(
         schedule_id, manual=True, override_payload=override_params or None,
     )
     if not result.success:
-        if result.message == "schedule_not_found":
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=core_i18n.t("schedules.errors.not_found", fallback="Schedule not found"),
-            )
-        if result.message == "target_busy":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=core_i18n.t("schedules.errors.target_busy", fallback="Schedule target is busy"),
-            )
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
+        _raise_schedule_run_error(result.message)
 
     saved = await repository.get_schedule(schedule_id)
     state = await repository.get_schedule_runtime_state(saved or existing)
