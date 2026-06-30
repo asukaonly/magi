@@ -402,66 +402,20 @@ class SkillSubagent:
             Dict with stdout, stderr, return_code, success
         """
         args = args or []
+        script_path = _find_skill_script_path(self.skill.supporting_data, script_name)
+        if script_path is None:
+            return _script_not_found_result(script_name)
 
-        # Find the script
-        scripts = self.skill.supporting_data.get("scripts", [])
-        script_path = None
-        for script in scripts:
-            if script.get("name") == script_name:
-                script_path = Path(script.get("path", ""))
-                break
-
-        if not script_path or not script_path.exists():
-            return {
-                "success": False,
-                "error": f"Script not found: {script_name}",
-                "stdout": "",
-                "stderr": "",
-                "return_code": -1,
-            }
-
-        # Check if script is executable
-        if not script_path.stat().st_mode & 0o111:
-            # Try to make it executable
-            try:
-                script_path.chmod(script_path.stat().st_mode | 0o111)
-            except Exception as e:
-                logger.warning(f"Could not make script executable: {e}")
+        _ensure_script_executable(script_path)
 
         logger.info(f"Executing script | skill={self.skill.name} | script={script_name}")
 
         try:
-            result = subprocess.run(
-                [str(script_path)] + args,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                cwd=str(script_path.parent),
-            )
-
-            return {
-                "success": result.returncode == 0,
-                "stdout": result.stdout,
-                "stderr": result.stderr,
-                "return_code": result.returncode,
-            }
-
+            return _script_run_result(_run_skill_script(script_path, args, timeout))
         except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "error": f"Script execution timed out after {timeout}s",
-                "stdout": "",
-                "stderr": "",
-                "return_code": -1,
-            }
+            return _script_timeout_result(timeout)
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "stdout": "",
-                "stderr": "",
-                "return_code": -1,
-            }
+            return _script_error_result(e)
 
     def get_script_names(self) -> List[str]:
         """
@@ -507,3 +461,77 @@ def create_skill_subagent(
         orchestrator_factory=orchestrator_factory,
         engine_run_input_factory=engine_run_input_factory,
     )
+
+
+def _find_skill_script_path(
+    supporting_data: Dict[str, Any],
+    script_name: str,
+) -> Path | None:
+    for script in supporting_data.get("scripts", []):
+        if script.get("name") != script_name:
+            continue
+        script_path = Path(script.get("path", ""))
+        return script_path if script_path.exists() else None
+    return None
+
+
+def _ensure_script_executable(script_path: Path) -> None:
+    if script_path.stat().st_mode & 0o111:
+        return
+    try:
+        script_path.chmod(script_path.stat().st_mode | 0o111)
+    except Exception as e:
+        logger.warning(f"Could not make script executable: {e}")
+
+
+def _run_skill_script(
+    script_path: Path,
+    args: List[str],
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(script_path)] + args,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=str(script_path.parent),
+    )
+
+
+def _script_run_result(result: subprocess.CompletedProcess[str]) -> Dict[str, Any]:
+    return {
+        "success": result.returncode == 0,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "return_code": result.returncode,
+    }
+
+
+def _script_not_found_result(script_name: str) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": f"Script not found: {script_name}",
+        "stdout": "",
+        "stderr": "",
+        "return_code": -1,
+    }
+
+
+def _script_timeout_result(timeout: int) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": f"Script execution timed out after {timeout}s",
+        "stdout": "",
+        "stderr": "",
+        "return_code": -1,
+    }
+
+
+def _script_error_result(error: Exception) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": str(error),
+        "stdout": "",
+        "stderr": "",
+        "return_code": -1,
+    }
