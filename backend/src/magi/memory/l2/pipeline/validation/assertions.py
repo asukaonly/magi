@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol
 
 from ....event_contracts import MemoryEvent
@@ -82,6 +83,16 @@ class _L2AssertionHostProtocol(Protocol):
     def _normalize_entity_type(self, raw_value: Any) -> Optional[str]: ...
 
 
+@dataclass(frozen=True)
+class Phase2AssertionValidationContext:
+    event: MemoryEvent
+    profile: ExtractionProfile
+    host: _L2AssertionHostProtocol
+    duplicate_check_candidates: list[dict[str, Any]]
+    default_event_ids: list[str]
+    profile_values_by_trait: dict[str, str]
+
+
 class L2AssertionValidationMixin:
     """Own assertion normalization, decay, and scope filtering."""
 
@@ -108,93 +119,133 @@ class L2AssertionValidationMixin:
             assertion_scope=getattr(policy, "assertion_scope", None) or "full",
         )
 
-        host = self._assertion_host()
+        context = Phase2AssertionValidationContext(
+            event=event,
+            profile=profile,
+            host=self._assertion_host(),
+            duplicate_check_candidates=[
+                {"predicate": c["predicate"], "object_ref": c["object_id"]}
+                for c in graph_candidates
+            ],
+            default_event_ids=default_event_ids,
+            profile_values_by_trait=_profile_values_by_trait(phase1_result),
+        )
         prepared: list[dict[str, Any]] = []
         rejected_count = max(0, len(raw_assertions) - len(scoped_assertions))
-        duplicate_check_candidates = [
-            {"predicate": c["predicate"], "object_ref": c["object_id"]} for c in graph_candidates
-        ]
-        profile_values_by_trait = _profile_values_by_trait(phase1_result)
         for assertion in scoped_assertions:
-            trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
-            if trait_family not in profile.allowed_assertion_families:
+            prepared_assertion = self._prepare_phase2_assertion(assertion, context)
+            if prepared_assertion is None:
                 rejected_count += 1
                 continue
-            trait_name = str(getattr(assertion, "trait_name", "") or "")
-            if not _profile_allows_assertion_trait(profile, trait_name):
-                rejected_count += 1
-                continue
-            assertion_dict = (
-                assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
-            )
-            is_valid, _ = validate_assertion_candidate(assertion_dict)
-            if not is_valid:
-                rejected_count += 1
-                continue
-            if is_leaf_fact_duplicate(duplicate_check_candidates, assertion_dict):
-                rejected_count += 1
-                continue
-
-            self_entity_id = host._resolve_self_entity_id(event)
-            entity_ref = host._non_empty_text(assertion.entity_ref)
-            if entity_ref and entity_ref.startswith("user:") and self_entity_id:
-                entity_ref = self_entity_id
-
-            if (
-                trait_name in _PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL
-                and trait_name not in profile_values_by_trait
-            ):
-                rejected_count += 1
-                continue
-            trait_value = profile_values_by_trait.get(trait_name) or assertion.trait_value
-            if isinstance(trait_value, (dict, list)):
-                trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
-            elif trait_value is None:
-                trait_value = ""
-            trait_value = str(trait_value)[:40]
-
-            inference_depth = (
-                host._non_empty_text(getattr(assertion, "inference_depth", ""))
-                or event.tom_depth.label
-            )
-            volatility_index = float(getattr(assertion, "volatility_index", 0.5) or 0.5)
-
-            temporal_scope, decay_policy, expires_at = self._derive_assertion_decay_from_family(
-                event=event,
-                trait_family=trait_family,
-                trait_name=str(getattr(assertion, "trait_name", "") or ""),
-            )
-
-            prepared.append(
-                {
-                    "entity_id": entity_ref or self_entity_id or "",
-                    "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
-                    "trait_family": trait_family,
-                    "trait_name": trait_name,
-                    "trait_value": trait_value,
-                    "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
-                    "evidence_events": normalize_event_ids(
-                        getattr(assertion, "supporting_event_ids", None) or default_event_ids
-                    ),
-                    "volatility_index": volatility_index,
-                    "source_domain": event.memory_domain.label,
-                    "inference_depth": inference_depth,
-                    "validation_state": "tentative",
-                    "first_inferred_at": event.timestamp,
-                    "last_validated_at": event.timestamp,
-                    "target_entity_id": "",
-                    "target_entity_type": "",
-                    "target_scope": "global",
-                    "temporal_scope": temporal_scope,
-                    "decay_policy": decay_policy,
-                    "decay_anchor_at": event.timestamp,
-                    "context_ref_id": "",
-                    "expires_at": expires_at,
-                    "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
-                    "natural_summary": str(getattr(assertion, "natural_summary", "") or "")[:500],
-                }
-            )
+            prepared.append(prepared_assertion)
         return prepared, rejected_count
+
+    def _prepare_phase2_assertion(
+        self,
+        assertion: Any,
+        context: Phase2AssertionValidationContext,
+    ) -> dict[str, Any] | None:
+        trait_family = str(getattr(assertion, "trait_family", "") or "").casefold()
+        trait_name = str(getattr(assertion, "trait_name", "") or "")
+        if not self._phase2_assertion_allowed(assertion, context, trait_family, trait_name):
+            return None
+        if not self._phase2_profile_signal_present(trait_name, context):
+            return None
+        return self._normalize_phase2_assertion(
+            assertion,
+            context=context,
+            trait_family=trait_family,
+            trait_name=trait_name,
+        )
+
+    def _phase2_assertion_allowed(
+        self,
+        assertion: Any,
+        context: Phase2AssertionValidationContext,
+        trait_family: str,
+        trait_name: str,
+    ) -> bool:
+        if trait_family not in context.profile.allowed_assertion_families:
+            return False
+        if not _profile_allows_assertion_trait(context.profile, trait_name):
+            return False
+        assertion_dict = assertion.to_dict() if hasattr(assertion, "to_dict") else dict(assertion)
+        is_valid, _ = validate_assertion_candidate(assertion_dict)
+        if not is_valid:
+            return False
+        return not is_leaf_fact_duplicate(context.duplicate_check_candidates, assertion_dict)
+
+    @staticmethod
+    def _phase2_profile_signal_present(
+        trait_name: str,
+        context: Phase2AssertionValidationContext,
+    ) -> bool:
+        return (
+            trait_name not in _PROFILE_TRAITS_REQUIRING_PHASE1_SIGNAL
+            or trait_name in context.profile_values_by_trait
+        )
+
+    def _normalize_phase2_assertion(
+        self,
+        assertion: Any,
+        *,
+        context: Phase2AssertionValidationContext,
+        trait_family: str,
+        trait_name: str,
+    ) -> dict[str, Any]:
+        event = context.event
+        self_entity_id = context.host._resolve_self_entity_id(event)
+        entity_ref = context.host._non_empty_text(assertion.entity_ref)
+        if entity_ref and entity_ref.startswith("user:") and self_entity_id:
+            entity_ref = self_entity_id
+        temporal_scope, decay_policy, expires_at = self._derive_assertion_decay_from_family(
+            event=event,
+            trait_family=trait_family,
+            trait_name=trait_name,
+        )
+        return {
+            "entity_id": entity_ref or self_entity_id or "",
+            "entity_type": str(getattr(assertion, "entity_type", "user") or "user"),
+            "trait_family": trait_family,
+            "trait_name": trait_name,
+            "trait_value": self._phase2_trait_value(assertion, trait_name, context),
+            "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
+            "evidence_events": normalize_event_ids(
+                getattr(assertion, "supporting_event_ids", None) or context.default_event_ids
+            ),
+            "volatility_index": float(getattr(assertion, "volatility_index", 0.5) or 0.5),
+            "source_domain": event.memory_domain.label,
+            "inference_depth": (
+                context.host._non_empty_text(getattr(assertion, "inference_depth", ""))
+                or event.tom_depth.label
+            ),
+            "validation_state": "tentative",
+            "first_inferred_at": event.timestamp,
+            "last_validated_at": event.timestamp,
+            "target_entity_id": "",
+            "target_entity_type": "",
+            "target_scope": "global",
+            "temporal_scope": temporal_scope,
+            "decay_policy": decay_policy,
+            "decay_anchor_at": event.timestamp,
+            "context_ref_id": "",
+            "expires_at": expires_at,
+            "memory_subdomain": classify_memory_subdomain(temporal_scope, decay_policy),
+            "natural_summary": str(getattr(assertion, "natural_summary", "") or "")[:500],
+        }
+
+    @staticmethod
+    def _phase2_trait_value(
+        assertion: Any,
+        trait_name: str,
+        context: Phase2AssertionValidationContext,
+    ) -> str:
+        trait_value = context.profile_values_by_trait.get(trait_name) or assertion.trait_value
+        if isinstance(trait_value, (dict, list)):
+            trait_value = json.dumps(trait_value, ensure_ascii=False, sort_keys=True)
+        elif trait_value is None:
+            trait_value = ""
+        return str(trait_value)[:40]
 
     def _derive_assertion_decay_from_family(
         self,
