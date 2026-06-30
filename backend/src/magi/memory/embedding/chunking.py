@@ -76,20 +76,10 @@ def chunk_text(
     if not normalized:
         return []
 
-    safe_max_chars = max(1, int(max_chars))
-    safe_overlap = max(0, min(int(overlap_chars), safe_max_chars - 1)) if safe_max_chars > 1 else 0
+    safe_max_chars, safe_overlap = _safe_chunk_limits(max_chars, overlap_chars)
 
     if len(normalized) <= safe_max_chars:
-        return [
-            ChunkedText(
-                chunk_id="chunk-0",
-                text=normalized,
-                chunk_index=0,
-                char_start=0,
-                char_end=len(normalized),
-                token_estimate=max(1, len(normalized) // 4),
-            )
-        ]
+        return _single_chunk(normalized)
 
     chunks: list[ChunkedText] = []
     start = 0
@@ -97,51 +87,80 @@ def chunk_text(
     min_break_position = int(safe_max_chars * _MIN_BREAK_RATIO)
 
     while start < len(normalized):
-        candidate_end = min(start + safe_max_chars, len(normalized))
-        end = candidate_end
-        if candidate_end < len(normalized):
-            breakpoints = (
-                normalized.rfind("\n\n", start, candidate_end),
-                normalized.rfind(". ", start, candidate_end),
-                normalized.rfind("。", start, candidate_end),
-                normalized.rfind("! ", start, candidate_end),
-                normalized.rfind("！", start, candidate_end),
-                normalized.rfind("? ", start, candidate_end),
-                normalized.rfind("？", start, candidate_end),
-                normalized.rfind(" ", start, candidate_end),
-            )
-            best_break = max(breakpoints)
-            if best_break >= start + min_break_position:
-                end = best_break + 1
-
-        raw_chunk = normalized[start:end]
-        stripped = raw_chunk.strip()
-        if not stripped:
+        end = _chunk_end(normalized, start, safe_max_chars, min_break_position)
+        chunk = _chunk_from_range(normalized, start, end, chunk_index)
+        if chunk is None:
             if end <= start:
                 break
             start = end
             continue
 
-        left_trim = len(raw_chunk) - len(raw_chunk.lstrip())
-        right_trim = len(raw_chunk) - len(raw_chunk.rstrip())
-        char_start = start + left_trim
-        char_end = end - right_trim
-        chunks.append(
-            ChunkedText(
-                chunk_id=f"chunk-{chunk_index}",
-                text=stripped,
-                chunk_index=chunk_index,
-                char_start=char_start,
-                char_end=char_end,
-                token_estimate=max(1, len(stripped) // 4),
-            )
-        )
+        chunks.append(chunk)
         if end >= len(normalized):
             break
         start = max(end - safe_overlap, start + 1)
         chunk_index += 1
 
     return chunks
+
+
+def _safe_chunk_limits(max_chars: int, overlap_chars: int) -> tuple[int, int]:
+    safe_max_chars = max(1, int(max_chars))
+    safe_overlap = max(0, min(int(overlap_chars), safe_max_chars - 1)) if safe_max_chars > 1 else 0
+    return safe_max_chars, safe_overlap
+
+
+def _chunk_end(
+    normalized: str,
+    start: int,
+    safe_max_chars: int,
+    min_break_position: int,
+) -> int:
+    candidate_end = min(start + safe_max_chars, len(normalized))
+    if candidate_end >= len(normalized):
+        return candidate_end
+    best_break = _best_chunk_break(normalized, start, candidate_end)
+    if best_break >= start + min_break_position:
+        return best_break + 1
+    return candidate_end
+
+
+def _best_chunk_break(normalized: str, start: int, candidate_end: int) -> int:
+    breakpoints = (
+        normalized.rfind("\n\n", start, candidate_end),
+        normalized.rfind(". ", start, candidate_end),
+        normalized.rfind("。", start, candidate_end),
+        normalized.rfind("! ", start, candidate_end),
+        normalized.rfind("！", start, candidate_end),
+        normalized.rfind("? ", start, candidate_end),
+        normalized.rfind("？", start, candidate_end),
+        normalized.rfind(" ", start, candidate_end),
+    )
+    return max(breakpoints)
+
+
+def _chunk_from_range(
+    normalized: str,
+    start: int,
+    end: int,
+    chunk_index: int,
+) -> ChunkedText | None:
+    raw_chunk = normalized[start:end]
+    stripped = raw_chunk.strip()
+    if not stripped:
+        return None
+    left_trim = len(raw_chunk) - len(raw_chunk.lstrip())
+    right_trim = len(raw_chunk) - len(raw_chunk.rstrip())
+    char_start = start + left_trim
+    char_end = end - right_trim
+    return ChunkedText(
+        chunk_id=f"chunk-{chunk_index}",
+        text=stripped,
+        chunk_index=chunk_index,
+        char_start=char_start,
+        char_end=char_end,
+        token_estimate=max(1, len(stripped) // 4),
+    )
 
 
 def chunk_sentences(
