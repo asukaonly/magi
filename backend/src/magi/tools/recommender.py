@@ -49,6 +49,72 @@ class ScenarioType(str, Enum):
     UNKNOWN = "unknown"
 
 
+_SCENARIO_KEYWORDS = {
+    ScenarioType.FILE_OPERATION: [
+        "file",
+        "read",
+        "write",
+        "save",
+        "delete",
+        "list",
+        "directory",
+        "folder",
+        "读取",
+        "写入",
+    ],
+    ScenarioType.SYSTEM_COMMAND: [
+        "command",
+        "execute",
+        "shell",
+        "bash",
+        "terminal",
+        "run",
+        "script",
+        "终端",
+    ],
+    ScenarioType.DATA_ANALYSIS: [
+        "analysis",
+        "analyze",
+        "statistics",
+        "calculate",
+        "data",
+        "process",
+    ],
+    ScenarioType.NETWORK: [
+        "network",
+        "request",
+        "http",
+        "api",
+        "download",
+        "upload",
+        "url",
+        "fetch",
+        "下载",
+        "上传",
+        "访问",
+    ],
+    ScenarioType.DATABASE: [
+        "database",
+        "query",
+        "sql",
+        "storage",
+        "store",
+        "insert",
+        "update",
+    ],
+    ScenarioType.TEXT_PROCESSING: [
+        "text",
+        "string",
+        "replace",
+        "match",
+        "search",
+        "parse",
+        "文本",
+        "匹配",
+    ],
+}
+
+
 class ToolRecommender:
     """
     Tool recommendation engine.
@@ -64,74 +130,8 @@ class ToolRecommender:
             tool_registry: Tool registry instance.
         """
         self.registry = tool_registry
-
-        # Scenario keyword mapping. These keywords are intentionally minimal
-        # and act as a coarse pre-filter; fine-grained scoring relies on
-        # ToolSchema metadata (task_intents/domains/operations) declared by
-        # each tool itself.
         self.scenario_keywords = {
-            ScenarioType.FILE_OPERATION: [
-                "file",
-                "read",
-                "write",
-                "save",
-                "delete",
-                "list",
-                "directory",
-                "folder",
-                "读取",
-                "写入",
-            ],
-            ScenarioType.SYSTEM_COMMAND: [
-                "command",
-                "execute",
-                "shell",
-                "bash",
-                "terminal",
-                "run",
-                "script",
-                "终端",
-            ],
-            ScenarioType.DATA_ANALYSIS: [
-                "analysis",
-                "analyze",
-                "statistics",
-                "calculate",
-                "data",
-                "process",
-            ],
-            ScenarioType.NETWORK: [
-                "network",
-                "request",
-                "http",
-                "api",
-                "download",
-                "upload",
-                "url",
-                "fetch",
-                "下载",
-                "上传",
-                "访问",
-            ],
-            ScenarioType.DATABASE: [
-                "database",
-                "query",
-                "sql",
-                "storage",
-                "store",
-                "insert",
-                "update",
-            ],
-            ScenarioType.TEXT_PROCESSING: [
-                "text",
-                "string",
-                "replace",
-                "match",
-                "search",
-                "parse",
-                "文本",
-                "匹配",
-            ],
+            scenario: list(keywords) for scenario, keywords in _SCENARIO_KEYWORDS.items()
         }
 
     def classify_scenario(self, intent: str) -> ScenarioType:
@@ -384,16 +384,29 @@ class ToolRecommender:
             List of recommendations [{"tool": name, "score": float, "reason": str}, ...].
         """
         logger.info(f"Recommending tools for intent: {intent}")
+        matched_tools = self._matched_tools_for_recommendation(
+            intent,
+            task_hint,
+            candidate_tools,
+        )
+        recommendations = self._collect_recommendations(
+            matched_tools,
+            context,
+            top_k,
+        )
+        logger.info(f"Final recommendations: {len(recommendations)} tools")
+        return recommendations
 
-        # 1. Classify scenario
+    def _matched_tools_for_recommendation(
+        self,
+        intent: str,
+        task_hint: Optional[Dict[str, Any]],
+        candidate_tools: Optional[List[str]],
+    ) -> List[Tuple[str, float]]:
         scenario = self.classify_scenario(intent)
         logger.info(f"Classified scenario: {scenario}")
-
-        # 2. Extract keywords
         keywords = self.extract_intent_keywords(intent)
         logger.info(f"Extracted keywords: {keywords}")
-
-        # 3. Capability matching
         matched_tools = self.match_capabilities(
             intent,
             scenario,
@@ -401,37 +414,44 @@ class ToolRecommender:
             candidate_tools=candidate_tools,
         )
         logger.info(f"Matched tools: {matched_tools}")
+        return matched_tools
 
-        # 4. Evaluate and filter tools
-        recommendations = []
+    def _collect_recommendations(
+        self,
+        matched_tools: List[Tuple[str, float]],
+        context: "ToolExecutionContext",
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        recommendations: List[Dict[str, Any]] = []
         for tool_name, score in matched_tools[: top_k * 2]:  # Take extra candidates
-            is_suitable, reason = self.evaluate_tool(tool_name, context)
-
-            if is_suitable:
-                tool = self.registry.get_tool(tool_name)
-                schema = tool.get_schema()
-
-                recommendations.append(
-                    {
-                        "tool": tool_name,
-                        "score": score,
-                        "reason": str(
-                            (schema.metadata or {}).get("tool_hint") or schema.description
-                        ),
-                        "category": schema.category,
-                        "metadata": dict(schema.metadata or {}),
-                        "parameters": [p.model_dump(mode="json") for p in schema.parameters],
-                    }
-                )
-            else:
-                logger.debug(f"Tool {tool_name} not suitable: {reason}")
-
+            recommendation = self._recommendation_for_tool(tool_name, score, context)
+            if recommendation is not None:
+                recommendations.append(recommendation)
             if len(recommendations) >= top_k:
                 break
-
-        logger.info(f"Final recommendations: {len(recommendations)} tools")
-
         return recommendations
+
+    def _recommendation_for_tool(
+        self,
+        tool_name: str,
+        score: float,
+        context: "ToolExecutionContext",
+    ) -> Optional[Dict[str, Any]]:
+        is_suitable, reason = self.evaluate_tool(tool_name, context)
+        if not is_suitable:
+            logger.debug(f"Tool {tool_name} not suitable: {reason}")
+            return None
+
+        tool = self.registry.get_tool(tool_name)
+        schema = tool.get_schema()
+        return {
+            "tool": tool_name,
+            "score": score,
+            "reason": str((schema.metadata or {}).get("tool_hint") or schema.description),
+            "category": schema.category,
+            "metadata": dict(schema.metadata or {}),
+            "parameters": [p.model_dump(mode="json") for p in schema.parameters],
+        }
 
     def suggest_parameters(
         self, tool_name: str, intent: str, context: "ToolExecutionContext"
