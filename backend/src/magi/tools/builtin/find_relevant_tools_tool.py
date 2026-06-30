@@ -5,16 +5,37 @@ from __future__ import annotations
 import copy
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any, Dict
 
 from ..discovery_index import ToolDiscoveryIndex
 from ..recommender import ToolRecommender
 from ..tool_advisory_reranker import ToolAdvisoryReranker
-from ..schema import Tool, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
+from ..schema import (
+    ParameterType,
+    Tool,
+    ToolExecutionContext,
+    ToolParameter,
+    ToolResult,
+    ToolSchema,
+)
 from ..registry import tool_registry
 
-
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _DiscoveryRequest:
+    query: str
+    current_tools: list[str]
+    limit: int
+
+
+@dataclass(frozen=True)
+class _DiscoveryResult:
+    indexed_recommendations: list[dict[str, Any]]
+    recommendations: list[dict[str, Any]]
+    filtered_tool_count: int
 
 
 class FindRelevantToolsTool(Tool):
@@ -96,40 +117,63 @@ class FindRelevantToolsTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        query = str(parameters.get("query") or "").strip()
-        current_tools = self._normalize_current_tools(parameters.get("current_tools"))
-        limit = int(parameters.get("limit") or 2)
-        limit = 1 if limit < 1 else 2 if limit > 2 else limit
-
+        request = self._build_request(parameters)
         registry = self._get_registry()
-        candidate_limit = max(
-            limit * self._TOOL_CANDIDATE_MULTIPLIER,
-            self._MIN_TOOL_CANDIDATES,
-        )
         cache_key = self._build_cache_key(
             registry=registry,
-            query=query,
-            current_tools=current_tools,
-            limit=limit,
+            query=request.query,
+            current_tools=request.current_tools,
+            limit=request.limit,
             context=context,
         )
         cached_payload = self._get_cached_payload(cache_key)
         if cached_payload is not None:
             return ToolResult(success=True, data=cached_payload)
 
+        discovery = await self._discover(
+            registry=registry,
+            request=request,
+            context=context,
+        )
+        payload = self._build_payload(request, discovery)
+        self._store_cached_payload(cache_key, payload)
+
+        return ToolResult(success=True, data=payload)
+
+    def _build_request(self, parameters: Dict[str, Any]) -> _DiscoveryRequest:
+        query = str(parameters.get("query") or "").strip()
+        limit = int(parameters.get("limit") or 2)
+        return _DiscoveryRequest(
+            query=query,
+            current_tools=self._normalize_current_tools(parameters.get("current_tools")),
+            limit=1 if limit < 1 else 2 if limit > 2 else limit,
+        )
+
+    async def _discover(
+        self,
+        *,
+        registry: Any,
+        request: _DiscoveryRequest,
+        context: ToolExecutionContext,
+    ) -> _DiscoveryResult:
         discovery_index = ToolDiscoveryIndex.from_registry(
             registry,
             enabled_features=context.enabled_features,
         )
+        candidate_limit = max(
+            request.limit * self._TOOL_CANDIDATE_MULTIPLIER,
+            self._MIN_TOOL_CANDIDATES,
+        )
         indexed_recommendations = discovery_index.search(
-            query=query,
+            query=request.query,
             limit=candidate_limit,
-            current_tools=current_tools,
+            current_tools=request.current_tools,
             excluded_names=self._EXCLUDED_TOOL_NAMES,
         )
-        tool_recommendations = [
-            item for item in indexed_recommendations if item.get("type") == "tool"
-        ]
+        tool_recommendations = self._recommendations_by_type(
+            indexed_recommendations,
+            item_type="tool",
+        )
         raw_tool_count = len(tool_recommendations)
         tool_recommendations = self._filter_allowed_tool_recommendations(
             recommendations=tool_recommendations,
@@ -138,18 +182,62 @@ class FindRelevantToolsTool(Tool):
         )
         tool_recommendations = await self._rerank_tool_recommendations(
             recommendations=tool_recommendations,
-            query=query,
+            query=request.query,
             context=context,
         )
-        skill_recommendations = [
-            item for item in indexed_recommendations if item.get("type") == "skill"
-        ]
+        skill_recommendations = self._recommendations_by_type(
+            indexed_recommendations,
+            item_type="skill",
+        )
 
         recommendations = self._rank_recommendations(
             [*tool_recommendations, *skill_recommendations]
-        )[:limit]
-        recommended_names = [str(item.get("name") or "").strip() for item in recommendations if str(item.get("name") or "").strip()]
-        expansion_payload = {
+        )[: request.limit]
+        return _DiscoveryResult(
+            indexed_recommendations=indexed_recommendations,
+            recommendations=recommendations,
+            filtered_tool_count=raw_tool_count - len(tool_recommendations),
+        )
+
+    @staticmethod
+    def _recommendations_by_type(
+        recommendations: list[dict[str, Any]],
+        *,
+        item_type: str,
+    ) -> list[dict[str, Any]]:
+        return [item for item in recommendations if item.get("type") == item_type]
+
+    def _build_payload(
+        self,
+        request: _DiscoveryRequest,
+        discovery: _DiscoveryResult,
+    ) -> dict[str, Any]:
+        recommended_names = self._recommended_names(discovery.recommendations)
+        discovery_metrics = self._build_discovery_metrics(
+            cache_hit=False,
+            indexed_recommendations=discovery.indexed_recommendations,
+            recommendations=discovery.recommendations,
+            filtered_tool_count=discovery.filtered_tool_count,
+        )
+        return {
+            "query": request.query,
+            "recommendations": discovery.recommendations,
+            "recommended_tools": recommended_names,
+            "tool_expansion": self._expansion_payload(recommended_names),
+            "discovery_metrics": discovery_metrics,
+        }
+
+    @staticmethod
+    def _recommended_names(recommendations: list[dict[str, Any]]) -> list[str]:
+        return [
+            name
+            for name in (str(item.get("name") or "").strip() for item in recommendations)
+            if name
+        ]
+
+    @staticmethod
+    def _expansion_payload(recommended_names: list[str]) -> dict[str, Any]:
+        return {
             "append_tools": recommended_names,
             "reason": (
                 "Recommended additional tools for the missing next-step capability. "
@@ -158,25 +246,6 @@ class FindRelevantToolsTool(Tool):
                 else "No additional tools were confidently recommended."
             ),
         }
-        discovery_metrics = self._build_discovery_metrics(
-            cache_hit=False,
-            indexed_recommendations=indexed_recommendations,
-            recommendations=recommendations,
-            filtered_tool_count=raw_tool_count - len(tool_recommendations),
-        )
-        payload = {
-            "query": query,
-            "recommendations": recommendations,
-            "recommended_tools": recommended_names,
-            "tool_expansion": expansion_payload,
-            "discovery_metrics": discovery_metrics,
-        }
-        self._store_cached_payload(cache_key, payload)
-
-        return ToolResult(
-            success=True,
-            data=payload,
-        )
 
     def _filter_allowed_tool_recommendations(
         self,
@@ -221,7 +290,9 @@ class FindRelevantToolsTool(Tool):
             return recommendations
 
         try:
-            advisory_rows = await l4_store.get_tool_advisory(tool_names=tool_names, task_context=query)
+            advisory_rows = await l4_store.get_tool_advisory(
+                tool_names=tool_names, task_context=query
+            )
         except Exception as exc:
             logger.debug("Failed to fetch L4 tool advisory for discovery: %s", exc)
             return recommendations
@@ -307,9 +378,16 @@ class FindRelevantToolsTool(Tool):
         return f"agent_id:{context.agent_id}"
 
     @staticmethod
-    def _registry_signature(registry: Any, *, context: ToolExecutionContext) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def _registry_signature(
+        registry: Any, *, context: ToolExecutionContext
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
         try:
-            tool_names = tuple(sorted(str(name) for name in registry.list_tools(enabled_features=context.enabled_features)))
+            tool_names = tuple(
+                sorted(
+                    str(name)
+                    for name in registry.list_tools(enabled_features=context.enabled_features)
+                )
+            )
         except TypeError:
             tool_names = tuple(sorted(str(name) for name in registry.list_tools()))
         skill_names = tuple(sorted(str(name) for name in registry.get_skill_names()))
