@@ -19,12 +19,18 @@ from ...llm import ScenarioLLMPool
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex
-from .evidence_selector import select_temporal_evidence
+from .evidence_selector import TemporalEvidenceSelection, select_temporal_evidence
 from .episodic_service import EpisodicSummaryLLMService
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
-from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
+from .models import (
+    L3Candidate,
+    TemporalEvidencePack,
+    TemporalGenerationResult,
+    ThematicEvidencePack,
+    ThematicGenerationResult,
+)
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import ensure_l3_summary_schema
@@ -217,6 +223,10 @@ def _summary_period_end(period_end: float | None, timestamps: list[float]) -> fl
     return max(timestamps) if timestamps else time.time()
 
 
+def _temporal_fallback_summary(events: list[dict[str, Any]]) -> str:
+    return " ".join(str(event.get("content") or "") for event in events[:6]).strip()
+
+
 @dataclass(slots=True)
 class _ExperienceSummaryContext:
     experience_id: str
@@ -362,16 +372,73 @@ class L3SummaryStore(
     ) -> Optional[Dict[str, Any]]:
         """Build a temporal summary from eligible L1 events."""
         await self.initialize()
-        selection = await select_temporal_evidence(
+        selection = await self._select_temporal_summary_events(
             l1_store=l1_store,
             period_start=period_start,
             period_end=period_end,
-            source_filter=list(source_filter) if source_filter else None,
+            source_filter=source_filter,
         )
         events = list(selection.selected_events)
         if len(events) < max(1, int(min_events)):
             return None
 
+        evidence_pack = self._build_temporal_summary_evidence_pack(
+            selection=selection,
+            events=events,
+            summary_category=summary_category,
+            period_start=period_start,
+            period_end=period_end,
+            source_filter=source_filter,
+        )
+        if not evidence_pack.source_event_ids:
+            return None
+        await self._attach_temporal_summary_context(evidence_pack)
+
+        generation = await self._generate_accepted_temporal_candidate(
+            evidence_pack=evidence_pack,
+            events=events,
+            fallback_summary=_temporal_fallback_summary(events),
+        )
+        if generation is None:
+            return None
+        summary = await self.upsert_candidate(
+            candidate=generation.candidate,
+            summary_overrides=self._temporal_summary_overrides(
+                selection=selection,
+                evidence_pack=evidence_pack,
+                generation=generation,
+                summary_category=summary_category,
+                period_start=period_start,
+                period_end=period_end,
+            ),
+        )
+        return summary
+
+    async def _select_temporal_summary_events(
+        self,
+        *,
+        l1_store: L1EventStore,
+        period_start: float,
+        period_end: float,
+        source_filter: Optional[List[str]],
+    ) -> TemporalEvidenceSelection:
+        return await select_temporal_evidence(
+            l1_store=l1_store,
+            period_start=period_start,
+            period_end=period_end,
+            source_filter=list(source_filter) if source_filter else None,
+        )
+
+    def _build_temporal_summary_evidence_pack(
+        self,
+        *,
+        selection: TemporalEvidenceSelection,
+        events: list[dict[str, Any]],
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+        source_filter: Optional[List[str]],
+    ) -> TemporalEvidencePack:
         evidence_pack = self._temporal_llm_service.build_evidence_pack(
             events=events,
             summary_category=summary_category,
@@ -382,26 +449,49 @@ class L3SummaryStore(
         evidence_pack.omitted_event_count = int(selection.omitted_event_count)
         evidence_pack.source_distribution = dict(selection.source_distribution)
         evidence_pack.selection_policy = dict(selection.selection_policy)
-        if self._temporal_summary_features_builder is not None:
-            try:
-                evidence_pack.plugin_summary_features = dict(
-                    self._temporal_summary_features_builder(
-                        events=list(selection.feature_events),
-                        summary_category=summary_category,
-                        period_start=period_start,
-                        period_end=period_end,
-                        source_filter=list(source_filter) if source_filter else None,
-                        feature_budgets=dict(selection.feature_budgets),
-                    )
-                    or {}
-                )
-            except Exception as exc:
-                logger.warning("L3 temporal summary features builder failed: %s", exc)
-        if not evidence_pack.source_event_ids:
-            return None
-        await self._attach_temporal_summary_context(evidence_pack)
+        evidence_pack.plugin_summary_features = self._temporal_plugin_summary_features(
+            selection=selection,
+            summary_category=summary_category,
+            period_start=period_start,
+            period_end=period_end,
+            source_filter=source_filter,
+        )
+        return evidence_pack
 
-        fallback_summary = " ".join(event["content"] for event in events[:6]).strip()
+    def _temporal_plugin_summary_features(
+        self,
+        *,
+        selection: TemporalEvidenceSelection,
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+        source_filter: Optional[List[str]],
+    ) -> dict[str, Any]:
+        if self._temporal_summary_features_builder is None:
+            return {}
+        try:
+            return dict(
+                self._temporal_summary_features_builder(
+                    events=list(selection.feature_events),
+                    summary_category=summary_category,
+                    period_start=period_start,
+                    period_end=period_end,
+                    source_filter=list(source_filter) if source_filter else None,
+                    feature_budgets=dict(selection.feature_budgets),
+                )
+                or {}
+            )
+        except Exception as exc:
+            logger.warning("L3 temporal summary features builder failed: %s", exc)
+            return {}
+
+    async def _generate_accepted_temporal_candidate(
+        self,
+        *,
+        evidence_pack: TemporalEvidencePack,
+        events: list[dict[str, Any]],
+        fallback_summary: str,
+    ) -> TemporalGenerationResult | None:
         generation = await self._temporal_llm_service.generate_temporal_candidate(
             evidence_pack,
             fallback_summary=fallback_summary,
@@ -413,8 +503,18 @@ class L3SummaryStore(
                 fallback_summary,
             )
             decision = validate_candidate(generation.candidate, evidence_events=events)
-        if decision.action != "accept":
-            return None
+        return generation if decision.action == "accept" else None
+
+    def _temporal_summary_overrides(
+        self,
+        *,
+        selection: TemporalEvidenceSelection,
+        evidence_pack: TemporalEvidencePack,
+        generation: TemporalGenerationResult,
+        summary_category: str,
+        period_start: float,
+        period_end: float,
+    ) -> dict[str, Any]:
         summary_overrides: dict[str, Any] = {
             "summary_id": f"summary_{uuid.uuid4().hex}",
             "summary_type": "temporal",
@@ -441,11 +541,7 @@ class L3SummaryStore(
             },
         }
         summary_overrides.update(generation.summary_overrides)
-        summary = await self.upsert_candidate(
-            candidate=generation.candidate,
-            summary_overrides=summary_overrides,
-        )
-        return summary
+        return summary_overrides
 
     async def _attach_temporal_summary_context(self, pack: Any) -> None:
         category = str(pack.summary_category)
