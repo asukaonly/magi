@@ -11,6 +11,8 @@ This replaces the old ToolSelector for better tool selection.
 
 import dataclasses
 import logging
+import time
+import uuid
 from typing import Any, Optional
 
 from ..config.constants import DEFAULT_THINKING_TOKENS
@@ -30,6 +32,10 @@ from .registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 llm_logger = get_llm_logger("context_decider")
+
+
+def _new_request_id() -> str:
+    return str(uuid.uuid4())[:8]
 
 
 class ContextDecider(
@@ -88,111 +94,185 @@ class ContextDecider(
         Returns:
             RouteDecision with selected tools
         """
-        pooled_llm = self._resolve_llm_from_pool()
-        if pooled_llm is not None and pooled_llm is not self.llm:
-            self.llm = pooled_llm
-            self.provider_bridge = LLMProviderBridge(pooled_llm)
+        self._refresh_llm_from_pool()
 
         if not self.llm:
             logger.warning("[ContextDecider] LLM not available")
-            return RouteDecision(
-                profile="chat",
-                graph_shape="reply",
-                complexity="simple",
-                reasoning="LLM not available",
-            )
+            return self._no_llm_decision()
 
         available_tools = self._get_available_tools()
         user_prompt = self._build_prompt(user_message, available_tools, context)
 
         try:
-            import time
-            import uuid
-
-            request_id = str(uuid.uuid4())[:8]
-            start_time = time.time()
-
-            log_llm_request(
-                llm_logger,
-                request_id=request_id,
-                model=self.llm.model_name,
-                system_prompt=self.system_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-
-            provider_response = await self.provider_bridge.chat_response(
-                system_prompt=self.system_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-                max_tokens=DEFAULT_THINKING_TOKENS,
-                temperature=0.3,
-                disable_thinking=True,
-                # Routing system prompt is a constant — cache it (marker vendors).
-                cache_system=True,
-                event_context={
-                    "request_id": request_id,
-                    "request_kind": "context_decider",
-                    "agent_id": "context_decider",
-                },
-            )
-            response = provider_response.content
-
-            if not response or not response.strip():
-                logger.warning(
-                    "[ContextDecider] LLM returned empty response, using rule-based fallback"
-                )
-                return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
-
-            stripped = response.strip()
-            if stripped in ("{", "}", "{}"):
-                logger.warning(
-                    f"[ContextDecider] LLM returned incomplete response: {stripped}, using rule-based fallback"
-                )
-                return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
-
-            duration_ms = int((time.time() - start_time) * 1000)
-            log_llm_response(
-                llm_logger,
-                request_id=request_id,
-                response=response,
-                success=True,
-                duration_ms=duration_ms,
-            )
-
-            decision = self._parse_response(response)
-            decision = self._apply_memory_guidance(
+            return await self._decide_with_llm(
                 user_message=user_message,
-                context=context,  # type: ignore[arg-type]
-                decision=decision,
+                context=context,
                 available_tools=available_tools,
+                user_prompt=user_prompt,
             )
-            trace_metadata = self._build_llm_trace(
-                metadata=provider_response.metadata,
-                disable_thinking=True,
-                duration_ms=duration_ms,
-            )
-            trace_metadata.setdefault("request_preview", user_message[:240])
-            trace_metadata.setdefault("response_preview", response[:240])
-            decision = dataclasses.replace(
-                decision,
-                llm_trace={**decision.llm_trace, **trace_metadata},
-            )
-
-            logger.info(
-                f"[ContextDecider] Decision made | Profile: {decision.profile} | "
-                f"Graph: {decision.graph_shape} | Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
-            )
-            logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
-
-            return decision
-
         except Exception as e:
             logger.error(f"[ContextDecider] Decision failed: {e}")
-            return RouteDecision(
-                profile="chat",
-                graph_shape="reply",
-                complexity="simple",
-                reasoning=f"error: {str(e)}",
+            return self._error_decision(e)
+
+    def _refresh_llm_from_pool(self) -> None:
+        pooled_llm = self._resolve_llm_from_pool()
+        if pooled_llm is not None and pooled_llm is not self.llm:
+            self.llm = pooled_llm
+            self.provider_bridge = LLMProviderBridge(pooled_llm)
+
+    def _no_llm_decision(self) -> RouteDecision:
+        return RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
+            reasoning="LLM not available",
+        )
+
+    def _error_decision(self, error: Exception) -> RouteDecision:
+        return RouteDecision(
+            profile="chat",
+            graph_shape="reply",
+            complexity="simple",
+            reasoning=f"error: {str(error)}",
+        )
+
+    async def _decide_with_llm(
+        self,
+        *,
+        user_message: str,
+        context: Optional[ContextDeciderContext],
+        available_tools: list[dict[str, Any]],
+        user_prompt: str,
+    ) -> RouteDecision:
+        request_id = _new_request_id()
+        start_time = time.time()
+        self._log_request(request_id, user_prompt)
+
+        provider_response = await self._call_provider(request_id, user_prompt)
+        response = provider_response.content
+
+        fallback = self._fallback_for_bad_response(response, user_message, context)
+        if fallback is not None:
+            return fallback
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        log_llm_response(
+            llm_logger,
+            request_id=request_id,
+            response=response,
+            success=True,
+            duration_ms=duration_ms,
+        )
+
+        decision = self._finalize_decision(
+            user_message=user_message,
+            context=context,
+            available_tools=available_tools,
+            response=response,
+            metadata=provider_response.metadata,
+            duration_ms=duration_ms,
+        )
+        self._log_decision(decision, response)
+        return decision
+
+    def _log_request(self, request_id: str, user_prompt: str) -> None:
+        log_llm_request(
+            llm_logger,
+            request_id=request_id,
+            model=self.llm.model_name,
+            system_prompt=self.system_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+    async def _call_provider(self, request_id: str, user_prompt: str):
+        return await self.provider_bridge.chat_response(
+            system_prompt=self.system_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+            max_tokens=DEFAULT_THINKING_TOKENS,
+            temperature=0.3,
+            disable_thinking=True,
+            # Routing system prompt is a constant — cache it (marker vendors).
+            cache_system=True,
+            event_context={
+                "request_id": request_id,
+                "request_kind": "context_decider",
+                "agent_id": "context_decider",
+            },
+        )
+
+    def _fallback_for_bad_response(
+        self,
+        response: str,
+        user_message: str,
+        context: Optional[ContextDeciderContext],
+    ) -> RouteDecision | None:
+        if not response or not response.strip():
+            logger.warning(
+                "[ContextDecider] LLM returned empty response, using rule-based fallback"
             )
+            return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
+
+        stripped = response.strip()
+        if stripped in ("{", "}", "{}"):
+            logger.warning(
+                f"[ContextDecider] LLM returned incomplete response: {stripped}, using rule-based fallback"
+            )
+            return self._rule_based_fallback(user_message, context)  # type: ignore[arg-type]
+
+        return None
+
+    def _finalize_decision(
+        self,
+        *,
+        user_message: str,
+        context: Optional[ContextDeciderContext],
+        available_tools: list[dict[str, Any]],
+        response: str,
+        metadata: dict[str, Any],
+        duration_ms: int,
+    ) -> RouteDecision:
+        decision = self._parse_response(response)
+        decision = self._apply_memory_guidance(
+            user_message=user_message,
+            context=context,  # type: ignore[arg-type]
+            decision=decision,
+            available_tools=available_tools,
+        )
+        return self._attach_trace(
+            decision=decision,
+            metadata=metadata,
+            duration_ms=duration_ms,
+            user_message=user_message,
+            response=response,
+        )
+
+    def _attach_trace(
+        self,
+        *,
+        decision: RouteDecision,
+        metadata: dict[str, Any],
+        duration_ms: int,
+        user_message: str,
+        response: str,
+    ) -> RouteDecision:
+        trace_metadata = self._build_llm_trace(
+            metadata=metadata,
+            disable_thinking=True,
+            duration_ms=duration_ms,
+        )
+        trace_metadata.setdefault("request_preview", user_message[:240])
+        trace_metadata.setdefault("response_preview", response[:240])
+        return dataclasses.replace(
+            decision,
+            llm_trace={**decision.llm_trace, **trace_metadata},
+        )
+
+    def _log_decision(self, decision: RouteDecision, response: str) -> None:
+        logger.info(
+            f"[ContextDecider] Decision made | Profile: {decision.profile} | "
+            f"Graph: {decision.graph_shape} | Tools: {decision.tools} | Thinking: {decision.thinking_depth.value} | Reasoning: {decision.reasoning}"
+        )
+        logger.debug(f"[ContextDecider] Raw LLM response: {response[:500]}")
 
     def _get_available_tools(self) -> list[dict[str, Any]]:
         """Get list of available CAPABILITY tools with metadata.
