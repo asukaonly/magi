@@ -172,11 +172,25 @@ class BrokeredPermissionPrompter:
         *,
         timeout_seconds: float,
     ) -> UserPromptResponse:
+        self._apply_timeout(request, timeout_seconds)
+        await self._registry.add(request)
+        await self._notify_permission_requested(request)
+        await self._fanout_permission_request(request)
+        try:
+            response = await self._wait_for_permission_response(request, timeout_seconds)
+        finally:
+            await self._clear_permission_request(request)
+
+        return _coerce_response(response)
+
+    @staticmethod
+    def _apply_timeout(request: PermissionRequest, timeout_seconds: float) -> None:
         if request.timeout_seconds is None:
             request.timeout_seconds = float(timeout_seconds)
         if request.expires_at is None and timeout_seconds > 0:
             request.expires_at = request.created_at + float(timeout_seconds)
-        await self._registry.add(request)
+
+    async def _notify_permission_requested(self, request: PermissionRequest) -> None:
         if self._notify is not None:
             try:
                 await _maybe_await(
@@ -188,6 +202,8 @@ class BrokeredPermissionPrompter:
                     request_id=request.request_id,
                     exc_info=True,
                 )
+
+    async def _fanout_permission_request(self, request: PermissionRequest) -> None:
         if self._fanout is not None:
             try:
                 await _maybe_await(self._fanout(request))
@@ -201,8 +217,14 @@ class BrokeredPermissionPrompter:
                     request_id=request.request_id,
                     exc_info=True,
                 )
+
+    async def _wait_for_permission_response(
+        self,
+        request: PermissionRequest,
+        timeout_seconds: float,
+    ) -> Any:
         try:
-            response = await self._broker.wait(
+            return await self._broker.wait(
                 interaction_id=request.request_id,
                 kind="permission",
                 timeout_seconds=timeout_seconds,
@@ -214,34 +236,32 @@ class BrokeredPermissionPrompter:
                 tool_name=request.tool_name,
             )
             raise
-        finally:
-            await self._registry.remove(request.request_id)
-            # Phase H+2: push a "resolved" event so connected clients
-            # (desktop modal, other channels' inline prompts) can
-            # immediately clear their UI instead of waiting for the
-            # next 5-second poll cycle. Reuses the same notify_callback
-            # transport as the "requested" event. Best-effort: failure
-            # here must not affect the broker.wait result (which is
-            # already returned at this point).
-            if self._notify is not None:
-                try:
-                    await _maybe_await(self._notify(
-                        "control.permission.resolved",
-                        {
-                            "request_id": request.request_id,
-                            "short_id": request.short_id,
-                            "session_id": request.session_id,
-                            "tool_name": request.tool_name,
-                        },
-                    ))
-                except Exception:
-                    logger.warning(
-                        "permission_prompter.notify_resolved_failed",
-                        request_id=request.request_id,
-                        exc_info=True,
-                    )
 
-        return _coerce_response(response)
+    async def _clear_permission_request(self, request: PermissionRequest) -> None:
+        await self._registry.remove(request.request_id)
+        # Phase H+2: push a "resolved" event so connected clients
+        # (desktop modal, other channels' inline prompts) can immediately
+        # clear their UI instead of waiting for poll-based reconciliation.
+        if self._notify is None:
+            return
+        try:
+            await _maybe_await(
+                self._notify(
+                    "control.permission.resolved",
+                    {
+                        "request_id": request.request_id,
+                        "short_id": request.short_id,
+                        "session_id": request.session_id,
+                        "tool_name": request.tool_name,
+                    },
+                )
+            )
+        except Exception:
+            logger.warning(
+                "permission_prompter.notify_resolved_failed",
+                request_id=request.request_id,
+                exc_info=True,
+            )
 
 
 def _coerce_response(raw: Any) -> UserPromptResponse:
