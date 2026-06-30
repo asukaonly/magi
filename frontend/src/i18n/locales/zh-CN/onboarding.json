@@ -219,6 +219,9 @@
   },
   "pluginNames": {
     "chrome-history": "Chrome 历史",
+    "safari-history": "Safari 历史",
+    "firefox-history": "Firefox 历史",
+    "edge-history": "Edge 历史",
     "calendar": "日历",
     "git-activity": "Git 活动",
     "photo-library": "照片库",
@@ -238,6 +241,18 @@
     "plugins": {
       "chromeHistory": {
         "title": "Chrome 历史",
+        "value": "让 magi 看到你最近在网上读什么"
+      },
+      "safariHistory": {
+        "title": "Safari 历史",
+        "value": "让 magi 看到你最近在网上读什么"
+      },
+      "firefoxHistory": {
+        "title": "Firefox 历史",
+        "value": "让 magi 看到你最近在网上读什么"
+      },
+      "edgeHistory": {
+        "title": "Edge 历史",
         "value": "让 magi 看到你最近在网上读什么"
       },
       "screenshotTimeline": {

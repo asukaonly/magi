@@ -5,6 +5,7 @@ import { useInstallableSensors } from '../../hooks/useInstallableSensors';
 import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import { useChatShellStore } from '../../stores/chat-shell';
 import {
+  BROWSER_HISTORY_PRIORITY_PLUGINS,
   EMPTY_STATE_PRIORITY_PLUGINS,
   getEmptyStatePluginMeta,
   type EmptyStatePluginMeta,
@@ -21,9 +22,10 @@ import { EmptyStateSensorCard } from './EmptyStateSensorCard';
  *      `useInstallableSensors`. The backend returns the availability-filtered
  *      union of locally-installed sensors and registry-available plugins, each
  *      tagged with an `installed` flag.
- *   2. Render an `<EmptyStateSensorCard>` for each item that has empty-state
- *      display metadata, sorted by `EMPTY_STATE_PRIORITY_PLUGINS`. Items
- *      without metadata are silently skipped.
+ *   2. Render an `<EmptyStateSensorCard>` for each first-context item that has
+ *      display metadata, sorted by `EMPTY_STATE_PRIORITY_PLUGINS`. Browser
+ *      history plugins share one top slot; items outside the first-context list
+ *      are silently skipped even when they have generic suggestion metadata.
  *   3. On a Connect click, open the single MainLayout-mounted
  *      `<PluginInstallPanel>` via `usePluginInstallPanelStore.openPanel`. For
  *      registry-only items (`installed === false`) we pass `{ install: true }`
@@ -80,8 +82,24 @@ export interface EmptyStateAvailableSensorsProps {
  * a stable sort).
  */
 function priorityIndex(pluginId: string): number {
+  if ((BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).includes(pluginId)) {
+    return 0;
+  }
   const idx = (EMPTY_STATE_PRIORITY_PLUGINS as readonly string[]).indexOf(pluginId);
   return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+}
+
+function browserHistoryIndex(pluginId: string): number {
+  const idx = (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).indexOf(pluginId);
+  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+}
+
+function isBrowserHistoryPlugin(pluginId: string): boolean {
+  return browserHistoryIndex(pluginId) !== Number.MAX_SAFE_INTEGER;
+}
+
+function isFirstContextPlugin(pluginId: string): boolean {
+  return priorityIndex(pluginId) !== Number.MAX_SAFE_INTEGER;
 }
 
 /**
@@ -133,13 +151,18 @@ export function EmptyStateAvailableSensors({
   // marketplace exit so the empty state never grows unbounded.
   const visible = useMemo<{ item: InstallableItem; meta: EmptyStatePluginMeta }[]>(() => {
     const collectWithMeta = (sourceItems: InstallableItem[]) => {
-      const sorted = [...sourceItems].sort(
+      const browserHistory = [...sourceItems]
+        .filter((item) => isBrowserHistoryPlugin(item.plugin_id))
+        .sort((a, b) => browserHistoryIndex(a.plugin_id) - browserHistoryIndex(b.plugin_id))
+        .slice(0, 1);
+      const otherItems = sourceItems.filter((item) => !isBrowserHistoryPlugin(item.plugin_id));
+      const sorted = [...browserHistory, ...otherItems].sort(
         (a, b) => priorityIndex(a.plugin_id) - priorityIndex(b.plugin_id),
       );
       const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] = [];
       for (const item of sorted) {
         const meta = getEmptyStatePluginMeta(item.plugin_id);
-        if (meta) {
+        if (meta && isFirstContextPlugin(item.plugin_id)) {
           withMeta.push({ item, meta });
         }
       }

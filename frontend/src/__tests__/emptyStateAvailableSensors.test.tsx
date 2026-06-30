@@ -165,11 +165,47 @@ describe('EmptyStateAvailableSensors', () => {
     ]);
   });
 
-  it('orders screenshot_timeline above calendar', () => {
+  it('uses another browser history source first when Chrome is unavailable', () => {
     mockUseInstallableSensors.mockReturnValue({
       items: [
-        // Out of priority order in the input; screenshot_timeline ranks above
-        // calendar per EMPTY_STATE_PRIORITY_PLUGINS.
+        item({ plugin_id: 'git-activity', category: 'code_activity', installed: true }),
+        item({ plugin_id: 'safari-history', category: 'browser_history', installed: false }),
+      ],
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<EmptyStateAvailableSensors />);
+    const buttons = screen.getAllByTestId(/empty-state-connect-/);
+    expect(buttons.map((b) => b.getAttribute('data-testid'))).toEqual([
+      'empty-state-connect-safari-history',
+      'empty-state-connect-git-activity',
+    ]);
+  });
+
+  it('renders only one browser history source when multiple browsers are available', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [
+        item({ plugin_id: 'firefox-history', category: 'browser_history', installed: false }),
+        item({ plugin_id: 'safari-history', category: 'browser_history', installed: false }),
+        item({ plugin_id: 'chrome-history', category: 'browser_history', installed: false }),
+        item({ plugin_id: 'git-activity', category: 'code_activity', installed: true }),
+      ],
+      loading: false,
+      refresh: vi.fn(),
+    });
+    render(<EmptyStateAvailableSensors />);
+    const buttons = screen.getAllByTestId(/empty-state-connect-/);
+    expect(buttons.map((b) => b.getAttribute('data-testid'))).toEqual([
+      'empty-state-connect-chrome-history',
+      'empty-state-connect-git-activity',
+    ]);
+    expect(screen.queryByTestId('empty-state-connect-safari-history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-connect-firefox-history')).not.toBeInTheDocument();
+  });
+
+  it('keeps incremental screenshot capture out of first-context suggestions', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [
         item({ plugin_id: 'calendar', category: 'calendar', installed: false }),
         item({ plugin_id: 'screenshot_timeline', category: 'screen_context', installed: false }),
       ],
@@ -179,9 +215,9 @@ describe('EmptyStateAvailableSensors', () => {
     render(<EmptyStateAvailableSensors />);
     const buttons = screen.getAllByTestId(/empty-state-connect-/);
     expect(buttons.map((b) => b.getAttribute('data-testid'))).toEqual([
-      'empty-state-connect-screenshot_timeline',
       'empty-state-connect-calendar',
     ]);
+    expect(screen.queryByTestId('empty-state-connect-screenshot_timeline')).not.toBeInTheDocument();
   });
 
   it('connects an uninstalled item install-first via the panel ({ install: true })', async () => {
@@ -213,8 +249,9 @@ describe('EmptyStateAvailableSensors', () => {
   });
 
   it('caps the rendered cards at 5', () => {
-    // All six whitelisted plugins available -> only the top 5 render; the rest
-    // stays behind the "browse all" marketplace exit.
+    // All five first-context sources plus incremental screenshot capture are
+    // available -> screenshot capture is filtered out, keeping the historical
+    // sources visible.
     mockUseInstallableSensors.mockReturnValue({
       items: [
         item({ plugin_id: 'chrome-history', installed: false }),
@@ -230,10 +267,8 @@ describe('EmptyStateAvailableSensors', () => {
     render(<EmptyStateAvailableSensors />);
     const buttons = screen.getAllByTestId(/empty-state-connect-/);
     expect(buttons).toHaveLength(5);
-    // photo-library is priority index 5 (6th) -> dropped past the cap.
-    expect(
-      screen.queryByTestId('empty-state-connect-photo-library'),
-    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-photo-library')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-connect-screenshot_timeline')).not.toBeInTheDocument();
     // The marketplace exit is still present.
     expect(screen.getByTestId('empty-state-browse-all')).toBeInTheDocument();
   });

@@ -639,6 +639,18 @@
           "title": "Chrome 历史",
           "value": "让我看到你最近在网上读什么"
         },
+        "safariHistory": {
+          "title": "Safari 历史",
+          "value": "让我看到你最近在网上读什么"
+        },
+        "firefoxHistory": {
+          "title": "Firefox 历史",
+          "value": "让我看到你最近在网上读什么"
+        },
+        "edgeHistory": {
+          "title": "Edge 历史",
+          "value": "让我看到你最近在网上读什么"
+        },
         "screenshotTimeline": {
           "title": "屏幕记录",
           "value": "让我看到你屏幕上发生了什么"

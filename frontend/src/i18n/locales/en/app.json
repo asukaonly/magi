@@ -639,6 +639,18 @@
           "title": "Chrome history",
           "value": "Let Magi see what you've been reading online"
         },
+        "safariHistory": {
+          "title": "Safari history",
+          "value": "Let Magi see what you've been reading online"
+        },
+        "firefoxHistory": {
+          "title": "Firefox history",
+          "value": "Let Magi see what you've been reading online"
+        },
+        "edgeHistory": {
+          "title": "Edge history",
+          "value": "Let Magi see what you've been reading online"
+        },
         "screenshotTimeline": {
           "title": "Screen activity",
           "value": "Let Magi see what's on your screen"

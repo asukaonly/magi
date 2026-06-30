@@ -218,6 +218,9 @@
   },
   "pluginNames": {
     "chrome-history": "Chrome history",
+    "safari-history": "Safari history",
+    "firefox-history": "Firefox history",
+    "edge-history": "Edge history",
     "calendar": "Calendar",
     "git-activity": "Git activity",
     "photo-library": "Photo library",
@@ -237,6 +240,18 @@
     "plugins": {
       "chromeHistory": {
         "title": "Chrome history",
+        "value": "Lets magi see what you've been reading online"
+      },
+      "safariHistory": {
+        "title": "Safari history",
+        "value": "Lets magi see what you've been reading online"
+      },
+      "firefoxHistory": {
+        "title": "Firefox history",
+        "value": "Lets magi see what you've been reading online"
+      },
+      "edgeHistory": {
+        "title": "Edge history",
         "value": "Lets magi see what you've been reading online"
       },
       "screenshotTimeline": {

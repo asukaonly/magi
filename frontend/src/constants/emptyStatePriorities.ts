@@ -1,13 +1,14 @@
 /**
- * Plan 3 priority list for empty-state CTA cards on Timeline and Memory pages.
+ * Priority list for first-context CTA cards on Timeline, Memory, and first-run
+ * prompts.
  *
  * Order matters: cards render top-to-bottom (or left-to-right in a grid) in
  * the order declared here. Each plugin's display metadata is consumed by
  * `<EmptyStateSensorCard>` for icon/title/value-statement.
  *
- * Plan 4 will replace this hardcoded list with a category-driven assembly
- * driven by `suggestion_descriptor.category` from each plugin manifest, but
- * for Plan 3 a simple priority order keeps the surface small.
+ * Browser history is handled as a single slot: if Chrome is unavailable, the
+ * first available browser source from BROWSER_HISTORY_PRIORITY_PLUGINS takes
+ * that top position.
  */
 
 export interface EmptyStatePluginMeta {
@@ -28,6 +29,21 @@ const META: Record<string, EmptyStatePluginMeta> = {
     titleKey: 'emptyState.plugins.chromeHistory.title',
     valueKey: 'emptyState.plugins.chromeHistory.value',
     iconId: 'chrome',
+  },
+  'safari-history': {
+    titleKey: 'emptyState.plugins.safariHistory.title',
+    valueKey: 'emptyState.plugins.safariHistory.value',
+    iconId: 'safari',
+  },
+  'firefox-history': {
+    titleKey: 'emptyState.plugins.firefoxHistory.title',
+    valueKey: 'emptyState.plugins.firefoxHistory.value',
+    iconId: 'firefoxbrowser',
+  },
+  'edge-history': {
+    titleKey: 'emptyState.plugins.edgeHistory.title',
+    valueKey: 'emptyState.plugins.edgeHistory.value',
+    iconId: 'browser',
   },
   'screenshot_timeline': {
     titleKey: 'emptyState.plugins.screenshotTimeline.title',
@@ -59,10 +75,16 @@ const META: Record<string, EmptyStatePluginMeta> = {
   },
 };
 
+export const BROWSER_HISTORY_PRIORITY_PLUGINS = [
+  'chrome-history',
+  'safari-history',
+  'firefox-history',
+  'edge-history',
+] as const;
+
 export const EMPTY_STATE_PRIORITY_PLUGINS = [
   'chrome-history',
   'coding_agent_history',
-  'screenshot_timeline',
   'calendar',
   'git-activity',
   'photo-library',
