@@ -15,6 +15,7 @@ background tasks cannot block on a human prompt by default.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict
 
 from ...core.logger import get_logger
@@ -35,6 +36,214 @@ logger = get_logger(__name__)
 _DEFAULT_TIMEOUT_SECONDS: float = 300.0
 
 
+@dataclass(frozen=True)
+class _AskRequest:
+    session_id: str
+    user_id: str | None
+    turn_id: str | None
+    intent: str
+    question: str
+    options: list[str]
+    allow_free_text: bool
+    timeout_seconds: float
+
+
+def _env_text(context: ToolExecutionContext, key: str) -> str:
+    return str(context.env_vars.get(key) or "").strip()
+
+
+def _optional_env_text(context: ToolExecutionContext, key: str) -> str | None:
+    value = _env_text(context, key)
+    return value or None
+
+
+def _background_ask_allowed(context: ToolExecutionContext) -> bool:
+    pref_allow_ask = False
+    try:
+        from ...config import get_user_preference
+
+        pref_allow_ask = bool(get_user_preference("allow_ask_in_background", False))
+    except Exception:  # pragma: no cover - defensive
+        pref_allow_ask = False
+    return pref_allow_ask or "allow_ask_in_background" in set(context.enabled_features or [])
+
+
+def _parse_question(parameters: Dict[str, Any]) -> str:
+    return str(parameters.get("question") or "").strip()
+
+
+def _parse_options(parameters: Dict[str, Any]) -> list[str]:
+    options_raw = parameters.get("options") or []
+    if not isinstance(options_raw, list):
+        return []
+    return [str(option).strip() for option in options_raw if str(option).strip()]
+
+
+def _parse_timeout_seconds(parameters: Dict[str, Any]) -> float:
+    try:
+        timeout_seconds = float(parameters.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS))
+    except (TypeError, ValueError):
+        timeout_seconds = _DEFAULT_TIMEOUT_SECONDS
+    return max(1.0, min(timeout_seconds, 3600.0))
+
+
+def _interaction_port(context: ToolExecutionContext) -> Any | None:
+    if context.capabilities is None:
+        return None
+    return context.capabilities.interaction
+
+
+async def _cancelled_before_ask(context: ToolExecutionContext) -> bool:
+    cancellation = getattr(context, "cancellation", None)
+    return cancellation is not None and await cancellation.is_cancelled()
+
+
+def _cancelled_result() -> ToolResult:
+    return ToolResult(
+        success=False,
+        error="run cancelled before answer",
+        error_code="CANCELLED",
+    )
+
+
+def _background_task_id(context: ToolExecutionContext, intent: str) -> str | None:
+    if not intent.startswith("background"):
+        return None
+    agent_id = str(getattr(context, "agent_id", "") or "")
+    if not agent_id.startswith(_BACKGROUND_AGENT_PREFIX):
+        return None
+    candidate = agent_id[len(_BACKGROUND_AGENT_PREFIX) :].strip()
+    return candidate or None
+
+
+def _background_port(context: ToolExecutionContext) -> Any | None:
+    if context.capabilities is None:
+        return None
+    return context.capabilities.background
+
+
+def _build_ask_request(
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+    *,
+    session_id: str,
+    intent: str,
+    question: str,
+) -> _AskRequest:
+    return _AskRequest(
+        session_id=session_id,
+        user_id=_optional_env_text(context, "user_id"),
+        turn_id=_optional_env_text(context, "turn_id"),
+        intent=intent,
+        question=question,
+        options=_parse_options(parameters),
+        allow_free_text=bool(parameters.get("allow_free_text", True)),
+        timeout_seconds=_parse_timeout_seconds(parameters),
+    )
+
+
+def _ask_kwargs(
+    request: _AskRequest,
+    context: ToolExecutionContext,
+) -> dict[str, Any]:
+    cancellation = getattr(context, "cancellation", None)
+    return {
+        "session_id": request.session_id,
+        "user_id": request.user_id,
+        "turn_id": request.turn_id,
+        "question": request.question,
+        "options": request.options,
+        "allow_free_text": request.allow_free_text,
+        "timeout_seconds": request.timeout_seconds,
+        "background": request.intent.startswith("background"),
+        "background_task_id": _background_task_id(context, request.intent),
+        "background_port": _background_port(context),
+        "cancellation": cancellation,
+    }
+
+
+def _map_outcome(outcome: Any, timeout_seconds: float) -> ToolResult:
+    if outcome.resolution == "cancelled":
+        return _cancelled_result()
+    if outcome.timed_out:
+        return ToolResult(
+            success=False,
+            error=f"no answer within {timeout_seconds:.0f}s",
+        )
+    return ToolResult(success=True, data={"answer": outcome.answer or ""})
+
+
+def _ask_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="question",
+            type=ParameterType.STRING,
+            description=(
+                "The question to ask the user. Write it in the "
+                "same language as the latest user message."
+            ),
+            required=True,
+        ),
+        ToolParameter(
+            name="options",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.STRING,
+            description=(
+                "Optional list of suggested answers. Keep them "
+                "in the same language as the question unless the "
+                "user explicitly requested otherwise."
+            ),
+            required=False,
+        ),
+        ToolParameter(
+            name="allow_free_text",
+            type=ParameterType.BOOLEAN,
+            description=(
+                "Whether the user may type a freeform reply "
+                "instead of picking an option. Defaults to true."
+            ),
+            required=False,
+            default=True,
+        ),
+        ToolParameter(
+            name="timeout_seconds",
+            type=ParameterType.FLOAT,
+            description=("Max seconds to wait for an answer. Defaults to 300."),
+            required=False,
+            default=_DEFAULT_TIMEOUT_SECONDS,
+            min_value=1,
+            max_value=3600,
+        ),
+    ]
+
+
+def _ask_metadata() -> dict[str, Any]:
+    return {
+        "task_intents": ["clarify_requirement"],
+        "domains": ["user"],
+        "operations": ["clarify"],
+        "query_shapes": ["blocking_decision", "missing_preference"],
+        "followed_by": [],
+        "avoid_task_intents": [
+            "explore_codebase",
+            "trace_implementation",
+            "verify_source_claim",
+            "research_external",
+            "debug_runtime",
+            "apply_change",
+            "recall_context",
+        ],
+        "blocks_on_user": True,
+        "cost": "high",
+        "tool_hint": (
+            "Use only when a missing user decision blocks safe "
+            "progress or would likely cause rework. Write the "
+            "question and options in the same language as the "
+            "latest user message."
+        ),
+    }
+
+
 class AskUserQuestionTool(Tool):
     """Ask the user a single question and wait for the answer."""
 
@@ -51,73 +260,10 @@ class AskUserQuestionTool(Tool):
                 "false. The call returns the user's reply as a string."
             ),
             category="control",
-            parameters=[
-                ToolParameter(
-                    name="question",
-                    type=ParameterType.STRING,
-                    description=(
-                        "The question to ask the user. Write it in the "
-                        "same language as the latest user message."
-                    ),
-                    required=True,
-                ),
-                ToolParameter(
-                    name="options",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description=(
-                        "Optional list of suggested answers. Keep them "
-                        "in the same language as the question unless the "
-                        "user explicitly requested otherwise."
-                    ),
-                    required=False,
-                ),
-                ToolParameter(
-                    name="allow_free_text",
-                    type=ParameterType.BOOLEAN,
-                    description=(
-                        "Whether the user may type a freeform reply "
-                        "instead of picking an option. Defaults to true."
-                    ),
-                    required=False,
-                    default=True,
-                ),
-                ToolParameter(
-                    name="timeout_seconds",
-                    type=ParameterType.FLOAT,
-                    description=("Max seconds to wait for an answer. Defaults to 300."),
-                    required=False,
-                    default=_DEFAULT_TIMEOUT_SECONDS,
-                    min_value=1,
-                    max_value=3600,
-                ),
-            ],
+            parameters=_ask_parameters(),
             tags=["control", "ask"],
             timeout=600,
-            metadata={
-                "task_intents": ["clarify_requirement"],
-                "domains": ["user"],
-                "operations": ["clarify"],
-                "query_shapes": ["blocking_decision", "missing_preference"],
-                "followed_by": [],
-                "avoid_task_intents": [
-                    "explore_codebase",
-                    "trace_implementation",
-                    "verify_source_claim",
-                    "research_external",
-                    "debug_runtime",
-                    "apply_change",
-                    "recall_context",
-                ],
-                "blocks_on_user": True,
-                "cost": "high",
-                "tool_hint": (
-                    "Use only when a missing user decision blocks safe "
-                    "progress or would likely cause rework. Write the "
-                    "question and options in the same language as the "
-                    "latest user message."
-                ),
-            },
+            metadata=_ask_metadata(),
         )
 
     async def execute(
@@ -125,32 +271,15 @@ class AskUserQuestionTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        sid = str(context.env_vars.get("session_id") or "").strip()
-        if not sid:
+        session_id = _env_text(context, "session_id")
+        if not session_id:
             return ToolResult(
                 success=False,
                 error="ask_user_question requires an active session",
             )
 
-        user_id = str(context.env_vars.get("user_id") or "").strip() or None
-        intent = str(context.env_vars.get("intent") or "").strip()
-        turn_id = str(context.env_vars.get("turn_id") or "").strip() or None
-        # Background and scheduled tasks don't have a human waiting on
-        # the UI; refuse unless either the user preference
-        # ``allow_ask_in_background`` is on or the call site opted in
-        # via a ``allow_ask_in_background`` feature flag on the
-        # execution context.
-        pref_allow_ask = False
-        try:
-            from ...config import get_user_preference
-
-            pref_allow_ask = bool(get_user_preference("allow_ask_in_background", False))
-        except Exception:  # pragma: no cover - defensive
-            pref_allow_ask = False
-        if intent.startswith("background") and not (
-            pref_allow_ask
-            or "allow_ask_in_background" in set(context.enabled_features or [])
-        ):
+        intent = _env_text(context, "intent")
+        if intent.startswith("background") and not _background_ask_allowed(context):
             return ToolResult(
                 success=False,
                 error=(
@@ -159,93 +288,37 @@ class AskUserQuestionTool(Tool):
                 ),
             )
 
-        question = str(parameters.get("question") or "").strip()
+        question = _parse_question(parameters)
         if not question:
             return ToolResult(
                 success=False,
                 error="ask_user_question requires a non-empty 'question'",
             )
-        options_raw = parameters.get("options") or []
-        options: list[str] = (
-            [str(o).strip() for o in options_raw if str(o).strip()]
-            if isinstance(options_raw, list)
-            else []
-        )
-        allow_free_text = bool(parameters.get("allow_free_text", True))
-        try:
-            timeout_seconds = float(
-                parameters.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS)
-            )
-        except (TypeError, ValueError):
-            timeout_seconds = _DEFAULT_TIMEOUT_SECONDS
-        timeout_seconds = max(1.0, min(timeout_seconds, 3600.0))
 
-        interaction = (
-            context.capabilities.interaction
-            if context.capabilities is not None
-            else None
-        )
+        interaction = _interaction_port(context)
         if interaction is None:
             return ToolResult(
                 success=False,
                 error="ask_user_question requires the interaction capability",
             )
 
-        cancellation = getattr(context, "cancellation", None)
-        if cancellation is not None and await cancellation.is_cancelled():
-            return ToolResult(
-                success=False,
-                error="run cancelled before answer",
-                error_code="CANCELLED",
-            )
+        if await _cancelled_before_ask(context):
+            return _cancelled_result()
 
-        is_background = intent.startswith("background")
-        # Resolve the owning background task id from the execution
-        # agent id when this call originates from BackgroundTaskManager
-        # (``execute_with_tools`` sets ``execution_agent_id =
-        # f"background:{task_id}"``). Falls back to ``None`` on any
-        # shape mismatch so the tool still works outside a background
-        # context.
-        bg_task_id: str | None = None
-        agent_id = str(getattr(context, "agent_id", "") or "")
-        if is_background and agent_id.startswith(_BACKGROUND_AGENT_PREFIX):
-            candidate = agent_id[len(_BACKGROUND_AGENT_PREFIX) :].strip()
-            bg_task_id = candidate or None
-        background_port = (
-            context.capabilities.background
-            if context.capabilities is not None
-            else None
+        request = _build_ask_request(
+            parameters,
+            context,
+            session_id=session_id,
+            intent=intent,
+            question=question,
         )
 
         try:
-            outcome = await interaction.ask(
-                session_id=sid,
-                user_id=user_id,
-                turn_id=turn_id,
-                question=question,
-                options=options,
-                allow_free_text=allow_free_text,
-                timeout_seconds=timeout_seconds,
-                background=is_background,
-                background_task_id=bg_task_id,
-                background_port=background_port,
-                cancellation=cancellation,
-            )
+            outcome = await interaction.ask(**_ask_kwargs(request, context))
         except RuntimeError as exc:
             return ToolResult(success=False, error=str(exc))
 
-        if outcome.resolution == "cancelled":
-            return ToolResult(
-                success=False,
-                error="run cancelled before answer",
-                error_code="CANCELLED",
-            )
-        if outcome.timed_out:
-            return ToolResult(
-                success=False,
-                error=f"no answer within {timeout_seconds:.0f}s",
-            )
-        return ToolResult(success=True, data={"answer": outcome.answer or ""})
+        return _map_outcome(outcome, request.timeout_seconds)
 
 
 __all__ = ["AskUserQuestionTool"]
