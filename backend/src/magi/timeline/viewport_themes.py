@@ -16,8 +16,8 @@ inline code in viewport_builder.py — only the file boundary changed.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import Any
-
 
 # Maximum chars allowed in a theme chip title. Above this we treat the
 # string as a summary sentence that leaked into the title slot and drop
@@ -35,11 +35,21 @@ BAD_THEME_TITLE_SUFFIXES: tuple[str, ...] = ("反思", "总结", "summary", "Sum
 # parent buckets for their events ("Chrome 历史" → all browsing events).
 # These are catalog entries but are not "things the user cares about"
 # — they're internal categorization. Filtered out of theme chips.
-BAD_THEME_TITLE_EXACT: frozenset[str] = frozenset({
-    "Chrome 历史", "chrome 历史", "应用使用情况", "应用使用",
-    "屏幕使用", "屏幕活动", "屏幕时间", "系统媒体",
-    "Application Usage", "Screen Time", "Chrome History",
-})
+BAD_THEME_TITLE_EXACT: frozenset[str] = frozenset(
+    {
+        "Chrome 历史",
+        "chrome 历史",
+        "应用使用情况",
+        "应用使用",
+        "屏幕使用",
+        "屏幕活动",
+        "屏幕时间",
+        "系统媒体",
+        "Application Usage",
+        "Screen Time",
+        "Chrome History",
+    }
+)
 
 # Minimum number of distinct episode clusters an entity must appear in
 # before it's promoted to a theme chip. A one-off mention is rarely
@@ -47,6 +57,12 @@ BAD_THEME_TITLE_EXACT: frozenset[str] = frozenset({
 MIN_THEME_EPISODE_COUNT = 2
 
 MAX_THEME_CARDS = 5
+
+
+@dataclass(frozen=True)
+class EntityThemeIndex:
+    counts: Counter[str]
+    clusters_by_entity: dict[str, list[dict[str, Any]]]
 
 
 def is_acceptable_theme_title(title: str) -> bool:
@@ -78,7 +94,8 @@ def cluster_anchor(cluster: dict[str, Any]) -> dict[str, Any]:
     """
     episode_id = str(cluster.get("episode_id") or "")
     representative_ids = [
-        str(event_id) for event_id in cluster.get("representative_event_ids") or []
+        str(event_id)
+        for event_id in cluster.get("representative_event_ids") or []
         if str(event_id).strip()
     ]
     if episode_id:
@@ -106,7 +123,8 @@ def cluster_anchor(cluster: dict[str, Any]) -> dict[str, Any]:
 
 
 def source_types_for_event_ids(
-    event_ids: list[str], clusters: list[dict[str, Any]],
+    event_ids: list[str],
+    clusters: list[dict[str, Any]],
 ) -> list[str]:
     """Which source_types do the clusters containing these event_ids cover?
 
@@ -125,8 +143,7 @@ def source_types_for_event_ids(
         if not (representative_ids & event_id_set):
             continue
         source_types.extend(
-            str(source) for source in cluster.get("source_types") or []
-            if str(source).strip()
+            str(source) for source in cluster.get("source_types") or [] if str(source).strip()
         )
     return list(dict.fromkeys(source_types))
 
@@ -175,26 +192,29 @@ class ThemeCardBuilder:
                 continue
             seen_titles.add(normalized)
             event_ids = [
-                str(eid) for eid in reflection.get("source_event_ids") or []
-                if str(eid).strip()
+                str(eid) for eid in reflection.get("source_event_ids") or [] if str(eid).strip()
             ]
-            cards.append({
-                "theme_id": f"reflection:{reflection.get('reflection_id')}",
-                "title": title,
-                "summary": str(reflection.get("summary") or ""),
-                "source_types": source_types_for_event_ids(event_ids, clusters),
-                "event_count": len(event_ids),
-                "anchor": {
-                    "anchor_type": "event" if event_ids else "reflection",
-                    "anchor_id": event_ids[0] if event_ids else "",
-                    "representative_event_ids": event_ids[:5],
-                    "time_start": float(reflection.get("time_start") or 0.0),
-                    "time_end": float(reflection.get("time_end") or 0.0),
-                },
-            })
+            cards.append(
+                {
+                    "theme_id": f"reflection:{reflection.get('reflection_id')}",
+                    "title": title,
+                    "summary": str(reflection.get("summary") or ""),
+                    "source_types": source_types_for_event_ids(event_ids, clusters),
+                    "event_count": len(event_ids),
+                    "anchor": {
+                        "anchor_type": "event" if event_ids else "reflection",
+                        "anchor_id": event_ids[0] if event_ids else "",
+                        "representative_event_ids": event_ids[:5],
+                        "time_start": float(reflection.get("time_start") or 0.0),
+                        "time_end": float(reflection.get("time_end") or 0.0),
+                    },
+                }
+            )
 
         for cluster in sorted(
-            clusters, key=lambda item: int(item.get("event_count") or 0), reverse=True,
+            clusters,
+            key=lambda item: int(item.get("event_count") or 0),
+            reverse=True,
         ):
             if len(cards) >= MAX_THEME_CARDS:
                 break
@@ -212,16 +232,18 @@ class ThemeCardBuilder:
             if normalized in seen_titles:
                 continue
             seen_titles.add(normalized)
-            cards.append({
-                "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
-                "title": title,
-                "summary": str(cluster.get("summary") or ""),
-                "source_types": [
-                    str(s) for s in cluster.get("source_types") or [] if str(s).strip()
-                ],
-                "event_count": int(cluster.get("event_count") or 0),
-                "anchor": cluster_anchor(cluster),
-            })
+            cards.append(
+                {
+                    "theme_id": str(cluster.get("block_id") or f"cluster:{len(cards)}"),
+                    "title": title,
+                    "summary": str(cluster.get("summary") or ""),
+                    "source_types": [
+                        str(s) for s in cluster.get("source_types") or [] if str(s).strip()
+                    ],
+                    "event_count": int(cluster.get("event_count") or 0),
+                    "anchor": cluster_anchor(cluster),
+                }
+            )
 
         return cards
 
@@ -245,90 +267,120 @@ class ThemeCardBuilder:
         if self._entity_catalog is None:
             return []
 
-        entity_id_counts: Counter[str] = Counter()
-        clusters_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
-
-        for cluster in clusters:
-            block_id = str(cluster.get("block_id") or "")
-            if not block_id.startswith("episode:"):
-                continue
-            weight = max(1, int(cluster.get("event_count") or 1))
-            for entity_id in cluster.get("keywords") or []:
-                eid = str(entity_id).strip()
-                if not eid:
-                    continue
-                entity_id_counts[eid] += weight
-                clusters_by_entity[eid].append(cluster)
-
-        # Require an entity to appear in at least MIN_THEME_EPISODE_COUNT
-        # distinct clusters to qualify. Single-mention entities are
-        # usually incidental (a one-off page title, a name that surfaced
-        # once) and shouldn't promote to chip-row visibility.
-        eligible_ids = [
-            eid for eid, _ in entity_id_counts.items()
-            if len(clusters_by_entity[eid]) >= MIN_THEME_EPISODE_COUNT
-        ]
-        if not eligible_ids:
+        index = _index_entity_theme_clusters(clusters)
+        ranked_ids = _rank_eligible_entity_ids(index)
+        if not ranked_ids:
             return []
 
-        # Re-rank only eligible entities by their aggregated weight.
-        ranked_ids = sorted(eligible_ids, key=lambda e: entity_id_counts[e], reverse=True)
+        name_by_id = await self._resolve_entity_names(ranked_ids[: MAX_THEME_CARDS * 2])
+        if not name_by_id:
+            return []
 
-        # Resolve a generous superset; some names will be rejected by the
-        # length/suffix filter and we'd rather over-fetch by ~2x than
-        # refetch.
-        top_ids = ranked_ids[: MAX_THEME_CARDS * 2]
+        return _build_entity_theme_cards(
+            ranked_ids=ranked_ids,
+            index=index,
+            name_by_id=name_by_id,
+        )
+
+    async def _resolve_entity_names(self, entity_ids: list[str]) -> dict[str, str]:
         try:
             resolved = await self._entity_catalog.list_entities(
-                entity_ids=top_ids, limit=len(top_ids),
+                entity_ids=entity_ids,
+                limit=len(entity_ids),
             )
         except Exception:
-            return []
-
-        name_by_id: dict[str, str] = {
+            return {}
+        return {
             str(entity.get("entity_id") or ""): str(entity.get("canonical_name") or "").strip()
             for entity in resolved
         }
 
-        cards: list[dict[str, Any]] = []
-        seen_names: set[str] = set()
-        # Iterate in pre-ranked order (filtered + sorted by weight above).
-        for eid in ranked_ids:
-            if len(cards) >= MAX_THEME_CARDS:
-                break
-            count = entity_id_counts[eid]
-            name = name_by_id.get(eid, "").strip()
-            if not is_acceptable_theme_title(name):
-                continue
-            normalized = name.casefold()
-            if normalized in seen_names:
-                continue
-            seen_names.add(normalized)
 
-            anchor_clusters = clusters_by_entity.get(eid) or []
-            source_types: list[str] = []
-            for ac in anchor_clusters:
-                for s in ac.get("source_types") or []:
-                    if str(s).strip() and str(s) not in source_types:
-                        source_types.append(str(s))
-            anchor = (
-                cluster_anchor(anchor_clusters[0])
-                if anchor_clusters
-                else {
-                    "anchor_type": "entity",
-                    "anchor_id": f"entity:{eid}",
-                    "representative_event_ids": [],
-                    "time_start": 0.0,
-                    "time_end": 0.0,
-                }
-            )
-            cards.append({
-                "theme_id": f"entity:{eid}",
-                "title": name,
-                "summary": "",
-                "source_types": source_types,
-                "event_count": int(count),
-                "anchor": anchor,
-            })
+def _index_entity_theme_clusters(clusters: list[dict[str, Any]]) -> EntityThemeIndex:
+    entity_id_counts: Counter[str] = Counter()
+    clusters_by_entity: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
-        return cards
+    for cluster in clusters:
+        block_id = str(cluster.get("block_id") or "")
+        if not block_id.startswith("episode:"):
+            continue
+        weight = max(1, int(cluster.get("event_count") or 1))
+        for entity_id in cluster.get("keywords") or []:
+            eid = str(entity_id).strip()
+            if not eid:
+                continue
+            entity_id_counts[eid] += weight
+            clusters_by_entity[eid].append(cluster)
+
+    return EntityThemeIndex(
+        counts=entity_id_counts,
+        clusters_by_entity=dict(clusters_by_entity),
+    )
+
+
+def _rank_eligible_entity_ids(index: EntityThemeIndex) -> list[str]:
+    eligible_ids = [
+        eid
+        for eid, _ in index.counts.items()
+        if len(index.clusters_by_entity[eid]) >= MIN_THEME_EPISODE_COUNT
+    ]
+    return sorted(eligible_ids, key=lambda eid: index.counts[eid], reverse=True)
+
+
+def _build_entity_theme_cards(
+    *,
+    ranked_ids: list[str],
+    index: EntityThemeIndex,
+    name_by_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for entity_id in ranked_ids:
+        if len(cards) >= MAX_THEME_CARDS:
+            break
+        name = name_by_id.get(entity_id, "").strip()
+        if not is_acceptable_theme_title(name) or name.casefold() in seen_names:
+            continue
+        seen_names.add(name.casefold())
+        cards.append(_build_entity_theme_card(entity_id, name, index))
+    return cards
+
+
+def _build_entity_theme_card(
+    entity_id: str,
+    name: str,
+    index: EntityThemeIndex,
+) -> dict[str, Any]:
+    anchor_clusters = index.clusters_by_entity.get(entity_id) or []
+    return {
+        "theme_id": f"entity:{entity_id}",
+        "title": name,
+        "summary": "",
+        "source_types": _source_types_for_clusters(anchor_clusters),
+        "event_count": int(index.counts[entity_id]),
+        "anchor": _entity_anchor(entity_id, anchor_clusters),
+    }
+
+
+def _source_types_for_clusters(clusters: list[dict[str, Any]]) -> list[str]:
+    source_types: list[str] = []
+    for cluster in clusters:
+        for source in cluster.get("source_types") or []:
+            if str(source).strip() and str(source) not in source_types:
+                source_types.append(str(source))
+    return source_types
+
+
+def _entity_anchor(
+    entity_id: str,
+    clusters: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if clusters:
+        return cluster_anchor(clusters[0])
+    return {
+        "anchor_type": "entity",
+        "anchor_id": f"entity:{entity_id}",
+        "representative_event_ids": [],
+        "time_start": 0.0,
+        "time_end": 0.0,
+    }
