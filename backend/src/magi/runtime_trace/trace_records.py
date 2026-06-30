@@ -18,6 +18,160 @@ from .contracts import (
 T = TypeVar("T")
 
 
+_UPSERT_SPAN_SQL = """
+    INSERT INTO trace_spans (
+        span_id,
+        trace_id,
+        turn_id,
+        parent_span_id,
+        node_type,
+        name,
+        status,
+        attempt_index,
+        retry_count,
+        iteration,
+        execution_agent_id,
+        result_preview,
+        error_text,
+        input_preview,
+        output_preview,
+        run_id,
+        run_revision,
+        started_at_ms,
+        ended_at_ms,
+        duration_ms,
+        created_at_ms,
+        updated_at_ms
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(span_id) DO UPDATE SET
+        parent_span_id = COALESCE(excluded.parent_span_id, trace_spans.parent_span_id),
+        status = excluded.status,
+        attempt_index = excluded.attempt_index,
+        retry_count = excluded.retry_count,
+        iteration = COALESCE(excluded.iteration, trace_spans.iteration),
+        execution_agent_id = COALESCE(excluded.execution_agent_id, trace_spans.execution_agent_id),
+        result_preview = COALESCE(excluded.result_preview, trace_spans.result_preview),
+        error_text = COALESCE(excluded.error_text, trace_spans.error_text),
+        input_preview = COALESCE(excluded.input_preview, trace_spans.input_preview),
+        output_preview = COALESCE(excluded.output_preview, trace_spans.output_preview),
+        run_id = COALESCE(excluded.run_id, trace_spans.run_id),
+        run_revision = MAX(trace_spans.run_revision, excluded.run_revision),
+        started_at_ms = MIN(trace_spans.started_at_ms, excluded.started_at_ms),
+        ended_at_ms = COALESCE(excluded.ended_at_ms, trace_spans.ended_at_ms),
+        duration_ms = COALESCE(excluded.duration_ms, trace_spans.duration_ms),
+        updated_at_ms = excluded.updated_at_ms
+"""
+
+
+_UPSERT_TURN_SQL = """
+    INSERT INTO trace_turns (
+        trace_id,
+        turn_id,
+        session_id,
+        user_id,
+        status,
+        mode,
+        orchestration_id,
+        started_at_ms,
+        ended_at_ms,
+        duration_ms,
+        user_message_preview,
+        response_preview,
+        error_summary,
+        run_id,
+        run_revision,
+        continued_from_turn_id,
+        continued_from_trace_id,
+        superseded_by_turn_id,
+        supersession_reason,
+        created_at_ms,
+        updated_at_ms
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(trace_id) DO UPDATE SET
+        status = excluded.status,
+        mode = excluded.mode,
+        orchestration_id = COALESCE(excluded.orchestration_id, trace_turns.orchestration_id),
+        started_at_ms = MIN(trace_turns.started_at_ms, excluded.started_at_ms),
+        ended_at_ms = COALESCE(excluded.ended_at_ms, trace_turns.ended_at_ms),
+        duration_ms = COALESCE(excluded.duration_ms, trace_turns.duration_ms),
+        user_message_preview = COALESCE(excluded.user_message_preview, trace_turns.user_message_preview),
+        response_preview = COALESCE(excluded.response_preview, trace_turns.response_preview),
+        error_summary = COALESCE(excluded.error_summary, trace_turns.error_summary),
+        run_id = COALESCE(excluded.run_id, trace_turns.run_id),
+        run_revision = MAX(trace_turns.run_revision, excluded.run_revision),
+        continued_from_turn_id = COALESCE(excluded.continued_from_turn_id, trace_turns.continued_from_turn_id),
+        continued_from_trace_id = COALESCE(excluded.continued_from_trace_id, trace_turns.continued_from_trace_id),
+        superseded_by_turn_id = COALESCE(excluded.superseded_by_turn_id, trace_turns.superseded_by_turn_id),
+        supersession_reason = COALESCE(excluded.supersession_reason, trace_turns.supersession_reason),
+        updated_at_ms = excluded.updated_at_ms
+"""
+
+
+def _turn_params(
+    record: TraceTurnRecord,
+    *,
+    created_at_ms: int,
+    now_ms: int,
+) -> tuple[Any, ...]:
+    return (
+        record.trace_id,
+        record.turn_id,
+        record.session_id,
+        record.user_id,
+        record.status,
+        record.mode,
+        record.orchestration_id,
+        record.started_at_ms,
+        record.ended_at_ms,
+        record.duration_ms,
+        record.user_message_preview,
+        record.response_preview,
+        record.error_summary,
+        record.run_id,
+        record.run_revision,
+        record.continued_from_turn_id,
+        record.continued_from_trace_id,
+        record.superseded_by_turn_id,
+        record.supersession_reason,
+        created_at_ms,
+        now_ms,
+    )
+
+
+def _span_params(
+    record: TraceSpanRecord,
+    *,
+    created_at_ms: int,
+    now_ms: int,
+) -> tuple[Any, ...]:
+    return (
+        record.span_id,
+        record.trace_id,
+        record.turn_id,
+        record.parent_span_id,
+        record.node_type,
+        record.name,
+        record.status,
+        record.attempt_index,
+        record.retry_count,
+        record.iteration,
+        record.execution_agent_id,
+        record.result_preview,
+        record.error_text,
+        record.input_preview,
+        record.output_preview,
+        record.run_id,
+        record.run_revision,
+        record.started_at_ms,
+        record.ended_at_ms,
+        record.duration_ms,
+        created_at_ms,
+        now_ms,
+    )
+
+
 class TraceRecordPersistenceMixin:
     """Persist trace turns, spans, and span detail rows."""
 
@@ -41,72 +195,8 @@ class TraceRecordPersistenceMixin:
         created_at_ms = max(0, int(record.created_at_ms or now_ms))
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
-                """
-                INSERT INTO trace_turns (
-                    trace_id,
-                    turn_id,
-                    session_id,
-                    user_id,
-                    status,
-                    mode,
-                    orchestration_id,
-                    started_at_ms,
-                    ended_at_ms,
-                    duration_ms,
-                    user_message_preview,
-                    response_preview,
-                    error_summary,
-                    run_id,
-                    run_revision,
-                    continued_from_turn_id,
-                    continued_from_trace_id,
-                    superseded_by_turn_id,
-                    supersession_reason,
-                    created_at_ms,
-                    updated_at_ms
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(trace_id) DO UPDATE SET
-                    status = excluded.status,
-                    mode = excluded.mode,
-                    orchestration_id = COALESCE(excluded.orchestration_id, trace_turns.orchestration_id),
-                    started_at_ms = MIN(trace_turns.started_at_ms, excluded.started_at_ms),
-                    ended_at_ms = COALESCE(excluded.ended_at_ms, trace_turns.ended_at_ms),
-                    duration_ms = COALESCE(excluded.duration_ms, trace_turns.duration_ms),
-                    user_message_preview = COALESCE(excluded.user_message_preview, trace_turns.user_message_preview),
-                    response_preview = COALESCE(excluded.response_preview, trace_turns.response_preview),
-                    error_summary = COALESCE(excluded.error_summary, trace_turns.error_summary),
-                    run_id = COALESCE(excluded.run_id, trace_turns.run_id),
-                    run_revision = MAX(trace_turns.run_revision, excluded.run_revision),
-                    continued_from_turn_id = COALESCE(excluded.continued_from_turn_id, trace_turns.continued_from_turn_id),
-                    continued_from_trace_id = COALESCE(excluded.continued_from_trace_id, trace_turns.continued_from_trace_id),
-                    superseded_by_turn_id = COALESCE(excluded.superseded_by_turn_id, trace_turns.superseded_by_turn_id),
-                    supersession_reason = COALESCE(excluded.supersession_reason, trace_turns.supersession_reason),
-                    updated_at_ms = excluded.updated_at_ms
-                """,
-                (
-                    record.trace_id,
-                    record.turn_id,
-                    record.session_id,
-                    record.user_id,
-                    record.status,
-                    record.mode,
-                    record.orchestration_id,
-                    record.started_at_ms,
-                    record.ended_at_ms,
-                    record.duration_ms,
-                    record.user_message_preview,
-                    record.response_preview,
-                    record.error_summary,
-                    record.run_id,
-                    record.run_revision,
-                    record.continued_from_turn_id,
-                    record.continued_from_trace_id,
-                    record.superseded_by_turn_id,
-                    record.supersession_reason,
-                    created_at_ms,
-                    now_ms,
-                ),
+                _UPSERT_TURN_SQL,
+                _turn_params(record, created_at_ms=created_at_ms, now_ms=now_ms),
             )
             await db.commit()
 
@@ -115,74 +205,8 @@ class TraceRecordPersistenceMixin:
         created_at_ms = max(0, int(record.created_at_ms or now_ms))
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
             await db.execute(
-                """
-                INSERT INTO trace_spans (
-                    span_id,
-                    trace_id,
-                    turn_id,
-                    parent_span_id,
-                    node_type,
-                    name,
-                    status,
-                    attempt_index,
-                    retry_count,
-                    iteration,
-                    execution_agent_id,
-                    result_preview,
-                    error_text,
-                    input_preview,
-                    output_preview,
-                    run_id,
-                    run_revision,
-                    started_at_ms,
-                    ended_at_ms,
-                    duration_ms,
-                    created_at_ms,
-                    updated_at_ms
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(span_id) DO UPDATE SET
-                    parent_span_id = COALESCE(excluded.parent_span_id, trace_spans.parent_span_id),
-                    status = excluded.status,
-                    attempt_index = excluded.attempt_index,
-                    retry_count = excluded.retry_count,
-                    iteration = COALESCE(excluded.iteration, trace_spans.iteration),
-                    execution_agent_id = COALESCE(excluded.execution_agent_id, trace_spans.execution_agent_id),
-                    result_preview = COALESCE(excluded.result_preview, trace_spans.result_preview),
-                    error_text = COALESCE(excluded.error_text, trace_spans.error_text),
-                    input_preview = COALESCE(excluded.input_preview, trace_spans.input_preview),
-                    output_preview = COALESCE(excluded.output_preview, trace_spans.output_preview),
-                    run_id = COALESCE(excluded.run_id, trace_spans.run_id),
-                    run_revision = MAX(trace_spans.run_revision, excluded.run_revision),
-                    started_at_ms = MIN(trace_spans.started_at_ms, excluded.started_at_ms),
-                    ended_at_ms = COALESCE(excluded.ended_at_ms, trace_spans.ended_at_ms),
-                    duration_ms = COALESCE(excluded.duration_ms, trace_spans.duration_ms),
-                    updated_at_ms = excluded.updated_at_ms
-                """,
-                (
-                    record.span_id,
-                    record.trace_id,
-                    record.turn_id,
-                    record.parent_span_id,
-                    record.node_type,
-                    record.name,
-                    record.status,
-                    record.attempt_index,
-                    record.retry_count,
-                    record.iteration,
-                    record.execution_agent_id,
-                    record.result_preview,
-                    record.error_text,
-                    record.input_preview,
-                    record.output_preview,
-                    record.run_id,
-                    record.run_revision,
-                    record.started_at_ms,
-                    record.ended_at_ms,
-                    record.duration_ms,
-                    created_at_ms,
-                    now_ms,
-                ),
+                _UPSERT_SPAN_SQL,
+                _span_params(record, created_at_ms=created_at_ms, now_ms=now_ms),
             )
             await db.commit()
 
