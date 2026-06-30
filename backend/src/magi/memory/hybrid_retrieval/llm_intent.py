@@ -152,6 +152,13 @@ class LLMRefinement:
     reasoning: str = ""
 
 
+@dataclass(frozen=True)
+class _SemanticRefinement:
+    entities: list[str]
+    subject_hint: str | None
+    predicate_family: str | None
+
+
 class LLMIntentDecider:
     """LLM-based retrieval refinement.
 
@@ -172,9 +179,13 @@ class LLMIntentDecider:
         if inp.query_mode_hint:
             prompt_lines.append(f"query_mode_hint: {inp.query_mode_hint}")
         if inp.source_filters:
-            prompt_lines.append(f"source_filters_hint: {json.dumps(inp.source_filters, ensure_ascii=False)}")
+            prompt_lines.append(
+                f"source_filters_hint: {json.dumps(inp.source_filters, ensure_ascii=False)}"
+            )
         if inp.domain_filters:
-            prompt_lines.append(f"domain_filters_hint: {json.dumps(inp.domain_filters, ensure_ascii=False)}")
+            prompt_lines.append(
+                f"domain_filters_hint: {json.dumps(inp.domain_filters, ensure_ascii=False)}"
+            )
         user_prompt = "\n".join(prompt_lines)
         model = getattr(getattr(self._bridge, "llm", None), "model_name", "unknown")
         base_url = str(getattr(getattr(self._bridge, "llm", None), "base_url", "unknown"))
@@ -196,7 +207,11 @@ class LLMIntentDecider:
             elapsed_ms = (time.monotonic() - t0) * 1000
             logger.info(
                 "LLM intent decider completed model=%s base_url=%s elapsed_ms=%.1f timeout=%s prompt_len=%d",
-                model, base_url, elapsed_ms, self._timeout, len(user_prompt),
+                model,
+                base_url,
+                elapsed_ms,
+                self._timeout,
+                len(user_prompt),
             )
             return self._parse_response(raw)
         except Exception:
@@ -206,8 +221,13 @@ class LLMIntentDecider:
                 "\n  disable_thinking=True json_mode=True max_tokens=512 temperature=0.3"
                 "\n  system_prompt:\n%s"
                 "\n  user_prompt:\n%s",
-                model, base_url, elapsed_ms, self._timeout, len(user_prompt),
-                _LLM_SYSTEM_PROMPT, user_prompt,
+                model,
+                base_url,
+                elapsed_ms,
+                self._timeout,
+                len(user_prompt),
+                _LLM_SYSTEM_PROMPT,
+                user_prompt,
                 exc_info=True,
             )
             return None
@@ -226,7 +246,9 @@ class LLMIntentDecider:
         entities_raw = data.get("entities")
         entities: Optional[list[str]] = None
         if isinstance(entities_raw, list):
-            entities = [str(entity) for entity in entities_raw if isinstance(entity, (str, int, float))]
+            entities = [
+                str(entity) for entity in entities_raw if isinstance(entity, (str, int, float))
+            ]
             entities = [entity for entity in entities if entity]
             if not entities:
                 entities = None
@@ -241,7 +263,8 @@ class LLMIntentDecider:
         predicate_family_raw = data.get("predicate_family")
         predicate_family = (
             str(predicate_family_raw)
-            if isinstance(predicate_family_raw, str) and predicate_family_raw in _VALID_PREDICATE_FAMILIES
+            if isinstance(predicate_family_raw, str)
+            and predicate_family_raw in _VALID_PREDICATE_FAMILIES
             else None
         )
 
@@ -300,77 +323,67 @@ class LLMIntentDecider:
         for plan in rule_decision.plans:
             conditions = plan.conditions
             if plan.layer == "L1" and isinstance(conditions, L1Conditions):
-                conditions.content_query = self._validate_l1_content_query(
-                    original_query=original_query,
-                    content_query=refined_query or conditions.content_query,
-                )
+                self._apply_l1_refinement(original_query, refined_query, conditions)
             elif plan.layer == "L2" and isinstance(conditions, L2Conditions):
-                semantic_entities = (
-                    mentions_from_semantic_frame(refinement.semantic_frame)
-                    if refinement.semantic_frame is not None
-                    else []
-                )
-                semantic_subject_hint = (
-                    subject_hint_from_semantic_frame(refinement.semantic_frame)
-                    if refinement.semantic_frame is not None
-                    else None
-                )
-                semantic_predicate_family = (
-                    predicate_family_from_query_family(refinement.semantic_frame.query_family)
-                    if refinement.semantic_frame is not None
-                    else None
-                )
-                if refined_query:
-                    conditions.content_query = refined_query
-                if refinement.entities is not None:
-                    conditions.entities = refinement.entities
-                elif semantic_entities:
-                    conditions.entities = semantic_entities
-                if refinement.subject_hint is not None:
-                    conditions.subject_hint = refinement.subject_hint
-                elif semantic_subject_hint is not None:
-                    conditions.subject_hint = semantic_subject_hint
-                if refinement.predicate_family is not None:
-                    conditions.predicate_family = refinement.predicate_family
-                elif semantic_predicate_family is not None:
-                    conditions.predicate_family = semantic_predicate_family
-                if refinement.relation_intent is not None:
-                    conditions.relation_intent = refinement.relation_intent
-                if refinement.hop2_target_type is not None:
-                    conditions.hop2_target_type = refinement.hop2_target_type
-                if refinement.semantic_frame is not None:
-                    conditions.semantic_frame = refinement.semantic_frame
-                enrich_l2_conditions(conditions, original_query)
-                if conditions.allowed_evidence_classes is None:
-                    focused = classes_from_focus(refinement.evidence_focus)
-                    if focused is not None:
-                        conditions.allowed_evidence_classes = focused
-                        conditions.evidence_focus_source = "llm"
-                    else:
-                        inferred = infer_allowed_evidence_classes(
-                            predicate_family=conditions.predicate_family,
-                            subject_scope=conditions.subject_hint,
-                        )
-                        if inferred is not None:
-                            conditions.allowed_evidence_classes = inferred
-                            conditions.evidence_focus_source = "family_fallback"
+                self._apply_l2_refinement(original_query, refined_query, refinement, conditions)
             elif plan.layer == "L3" and isinstance(conditions, L3Conditions):
-                if refined_query:
-                    conditions.content_query = refined_query
+                self._apply_content_query_refinement(refined_query, conditions)
             elif plan.layer == "L4" and isinstance(conditions, L4Conditions):
-                if refined_query:
-                    conditions.content_query = refined_query
+                self._apply_content_query_refinement(refined_query, conditions)
 
-        merged_reasoning = rule_decision.reasoning
-        if refinement.reasoning:
-            merged_reasoning = (
-                f"{merged_reasoning}; llm: {refinement.reasoning}"
-                if merged_reasoning
-                else f"llm: {refinement.reasoning}"
-            )
-        rule_decision.reasoning = merged_reasoning
+        rule_decision.reasoning = _merge_reasoning(rule_decision.reasoning, refinement.reasoning)
         rule_decision.source = "llm"
         return rule_decision
+
+    def _apply_l1_refinement(
+        self,
+        original_query: str,
+        refined_query: str,
+        conditions: L1Conditions,
+    ) -> None:
+        conditions.content_query = self._validate_l1_content_query(
+            original_query=original_query,
+            content_query=refined_query or conditions.content_query,
+        )
+
+    def _apply_l2_refinement(
+        self,
+        original_query: str,
+        refined_query: str,
+        refinement: LLMRefinement,
+        conditions: L2Conditions,
+    ) -> None:
+        semantic = _derive_semantic_refinement(refinement)
+        if refined_query:
+            conditions.content_query = refined_query
+        if refinement.entities is not None:
+            conditions.entities = refinement.entities
+        elif semantic.entities:
+            conditions.entities = semantic.entities
+        if refinement.subject_hint is not None:
+            conditions.subject_hint = refinement.subject_hint
+        elif semantic.subject_hint is not None:
+            conditions.subject_hint = semantic.subject_hint
+        if refinement.predicate_family is not None:
+            conditions.predicate_family = refinement.predicate_family
+        elif semantic.predicate_family is not None:
+            conditions.predicate_family = semantic.predicate_family
+        if refinement.relation_intent is not None:
+            conditions.relation_intent = refinement.relation_intent
+        if refinement.hop2_target_type is not None:
+            conditions.hop2_target_type = refinement.hop2_target_type
+        if refinement.semantic_frame is not None:
+            conditions.semantic_frame = refinement.semantic_frame
+        enrich_l2_conditions(conditions, original_query)
+        _apply_l2_evidence_refinement(conditions, refinement)
+
+    @staticmethod
+    def _apply_content_query_refinement(
+        refined_query: str,
+        conditions: L3Conditions | L4Conditions,
+    ) -> None:
+        if refined_query:
+            conditions.content_query = refined_query
 
     @staticmethod
     def _validate_l1_content_query(*, original_query: str, content_query: str) -> str:
@@ -420,3 +433,36 @@ class LLMIntentDecider:
                 return normalized_query
 
         return normalized_content_query
+
+
+def _derive_semantic_refinement(refinement: LLMRefinement) -> _SemanticRefinement:
+    if refinement.semantic_frame is None:
+        return _SemanticRefinement(entities=[], subject_hint=None, predicate_family=None)
+    return _SemanticRefinement(
+        entities=mentions_from_semantic_frame(refinement.semantic_frame) or [],
+        subject_hint=subject_hint_from_semantic_frame(refinement.semantic_frame),
+        predicate_family=predicate_family_from_query_family(refinement.semantic_frame.query_family),
+    )
+
+
+def _apply_l2_evidence_refinement(conditions: L2Conditions, refinement: LLMRefinement) -> None:
+    if conditions.allowed_evidence_classes is not None:
+        return
+    focused = classes_from_focus(refinement.evidence_focus)
+    if focused is not None:
+        conditions.allowed_evidence_classes = focused
+        conditions.evidence_focus_source = "llm"
+        return
+    inferred = infer_allowed_evidence_classes(
+        predicate_family=conditions.predicate_family,
+        subject_scope=conditions.subject_hint,
+    )
+    if inferred is not None:
+        conditions.allowed_evidence_classes = inferred
+        conditions.evidence_focus_source = "family_fallback"
+
+
+def _merge_reasoning(rule_reasoning: str, llm_reasoning: str) -> str:
+    if not llm_reasoning:
+        return rule_reasoning
+    return f"{rule_reasoning}; llm: {llm_reasoning}" if rule_reasoning else f"llm: {llm_reasoning}"
