@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 from typing import Any, Optional, Protocol, cast
 
 from ...core.logger import get_logger
@@ -13,6 +14,23 @@ from ...llm.error_classifier import is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
 _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+
+
+@dataclass(slots=True)
+class _L2JsonCall:
+    system_prompt: str
+    prompt: str
+    request_kind: str
+    turn_id: str | None
+    session_id: str | None
+    scenario: LLMScenario
+    disable_thinking: bool
+
+
+@dataclass(slots=True)
+class _L2JsonTarget:
+    adapter: Any
+    provider_bridge: LLMProviderBridge
 
 
 class _L2LLMJsonClientHostProtocol(Protocol):
@@ -34,81 +52,177 @@ class L2LLMJsonClientMixin:
         scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER,
         disable_thinking: bool = True,
     ) -> dict[str, Any]:
-        llm_target = self._get_llm_target(scenario=scenario)
-        if llm_target is None:
-            logger.warning(
-                "L2 LLM call skipped: no adapter available",
-                request_kind=request_kind,
-                scenario=scenario.value,
-            )
-            return {}
-        adapter, provider_bridge = llm_target
-        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
-        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
-        context = dict(log_context or {})
-        context.update(
-            {
-                "request_kind": request_kind,
-                "provider": provider,
-                "model": model,
-                "disable_thinking": disable_thinking,
-                "json_mode": True,
-                "prompt_char_count": len(prompt),
-                "system_prompt_char_count": len(system_prompt),
-            }
+        call = _L2JsonCall(
+            system_prompt=system_prompt,
+            prompt=prompt,
+            request_kind=request_kind,
+            turn_id=turn_id,
+            session_id=session_id,
+            scenario=scenario,
+            disable_thinking=disable_thinking,
         )
-
+        target = self._get_json_target(call)
+        if target is None:
+            return {}
+        context = self._json_log_context(call, target=target, log_context=log_context)
         started_at = time.perf_counter()
-
-        response = None
-        max_output_tokens = self._resolve_max_output_tokens(scenario=scenario)
-        for attempt_index in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
-            try:
-                response = await provider_bridge.chat_response(
-                    system_prompt=system_prompt,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=max_output_tokens,
-                    temperature=0.0,
-                    json_mode=True,
-                    disable_thinking=disable_thinking,
-                    # L2 extraction system prompts are constants (dynamic entities
-                    # ride in the user message) — cache them (marker vendors).
-                    cache_system=True,
-                    event_context={
-                        "request_kind": request_kind,
-                        "turn_id": turn_id,
-                        "session_id": session_id,
-                        "agent_id": "memory:l2",
-                    },
-                )
-                break
-            except Exception as exc:
-                is_rate_limited = self._is_rate_limit_error(exc)
-                failure_context = dict(context)
-                failure_context["duration_ms"] = round(
-                    (time.perf_counter() - started_at) * 1000.0, 2
-                )
-                failure_context["error"] = str(exc)
-                failure_context["attempt_index"] = attempt_index + 1
-                if is_rate_limited and attempt_index < len(_RATE_LIMIT_BACKOFF_SECONDS):
-                    backoff_seconds = _RATE_LIMIT_BACKOFF_SECONDS[attempt_index]
-                    failure_context["backoff_seconds"] = backoff_seconds
-                    logger.warning("L2 LLM rate limited", **failure_context)
-                    logger.info("L2 LLM retry scheduled", **failure_context)
-                    await asyncio.sleep(backoff_seconds)
-                    continue
-                logger.warning("L2 LLM call failed", **failure_context)
-                return {}
-
+        response = await self._call_json_with_retries(
+            call=call,
+            target=target,
+            context=context,
+            started_at=started_at,
+        )
         if response is None:
             return {}
 
-        raw = response.content
+        completion_context = self._log_json_completion(context, response, started_at)
+        return self._parse_json_response(response.content, completion_context)
+
+    def _get_json_target(self, call: _L2JsonCall) -> _L2JsonTarget | None:
+        llm_target = self._get_llm_target(scenario=call.scenario)
+        if llm_target is None:
+            logger.warning(
+                "L2 LLM call skipped: no adapter available",
+                request_kind=call.request_kind,
+                scenario=call.scenario.value,
+            )
+            return None
+        adapter, provider_bridge = llm_target
+        return _L2JsonTarget(adapter=adapter, provider_bridge=provider_bridge)
+
+    def _json_log_context(
+        self,
+        call: _L2JsonCall,
+        *,
+        target: _L2JsonTarget,
+        log_context: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        provider = str(getattr(target.adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(target.adapter, "model_name", "unknown") or "unknown")
+        context = dict(log_context or {})
+        context.update(
+            {
+                "request_kind": call.request_kind,
+                "provider": provider,
+                "model": model,
+                "disable_thinking": call.disable_thinking,
+                "json_mode": True,
+                "prompt_char_count": len(call.prompt),
+                "system_prompt_char_count": len(call.system_prompt),
+            }
+        )
+        return context
+
+    async def _call_json_with_retries(
+        self,
+        *,
+        call: _L2JsonCall,
+        target: _L2JsonTarget,
+        context: dict[str, Any],
+        started_at: float,
+    ) -> ProviderResponse | None:
+        max_output_tokens = self._resolve_max_output_tokens(scenario=call.scenario)
+        for attempt_index in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            try:
+                return await self._call_json_once(
+                    call=call,
+                    provider_bridge=target.provider_bridge,
+                    max_output_tokens=max_output_tokens,
+                )
+            except Exception as exc:
+                if await self._handle_json_call_failure(
+                    exc=exc,
+                    attempt_index=attempt_index,
+                    context=context,
+                    started_at=started_at,
+                ):
+                    continue
+                return None
+        return None
+
+    async def _call_json_once(
+        self,
+        *,
+        call: _L2JsonCall,
+        provider_bridge: LLMProviderBridge,
+        max_output_tokens: int,
+    ) -> ProviderResponse:
+        return await provider_bridge.chat_response(
+            system_prompt=call.system_prompt,
+            messages=[{"role": "user", "content": call.prompt}],
+            max_tokens=max_output_tokens,
+            temperature=0.0,
+            json_mode=True,
+            disable_thinking=call.disable_thinking,
+            # L2 extraction system prompts are constants (dynamic entities
+            # ride in the user message) — cache them (marker vendors).
+            cache_system=True,
+            event_context={
+                "request_kind": call.request_kind,
+                "turn_id": call.turn_id,
+                "session_id": call.session_id,
+                "agent_id": "memory:l2",
+            },
+        )
+
+    async def _handle_json_call_failure(
+        self,
+        *,
+        exc: Exception,
+        attempt_index: int,
+        context: dict[str, Any],
+        started_at: float,
+    ) -> bool:
+        failure_context = self._json_failure_context(
+            exc=exc,
+            attempt_index=attempt_index,
+            context=context,
+            started_at=started_at,
+        )
+        if self._is_rate_limit_error(exc) and attempt_index < len(_RATE_LIMIT_BACKOFF_SECONDS):
+            backoff_seconds = _RATE_LIMIT_BACKOFF_SECONDS[attempt_index]
+            failure_context["backoff_seconds"] = backoff_seconds
+            logger.warning("L2 LLM rate limited", **failure_context)
+            logger.info("L2 LLM retry scheduled", **failure_context)
+            await asyncio.sleep(backoff_seconds)
+            return True
+        logger.warning("L2 LLM call failed", **failure_context)
+        return False
+
+    def _json_failure_context(
+        self,
+        *,
+        exc: Exception,
+        attempt_index: int,
+        context: dict[str, Any],
+        started_at: float,
+    ) -> dict[str, Any]:
+        failure_context = dict(context)
+        failure_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
+        failure_context["error"] = str(exc)
+        failure_context["attempt_index"] = attempt_index + 1
+        return failure_context
+
+    def _log_json_completion(
+        self,
+        context: dict[str, Any],
+        response: ProviderResponse,
+        started_at: float,
+    ) -> dict[str, Any]:
         completion_context = dict(context)
         completion_context.update(self._usage_log_fields(response))
-        completion_context["duration_ms"] = round((time.perf_counter() - started_at) * 1000.0, 2)
+        completion_context["duration_ms"] = round(
+            (time.perf_counter() - started_at) * 1000.0,
+            2,
+        )
         logger.info("L2 LLM call completed", **completion_context)
+        return completion_context
 
+    def _parse_json_response(
+        self,
+        raw: str,
+        completion_context: dict[str, Any],
+    ) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
         except Exception:
