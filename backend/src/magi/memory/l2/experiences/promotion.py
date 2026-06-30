@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import time
 import uuid
 from typing import Any
@@ -17,12 +18,19 @@ from .quality import evaluate_experience_quality
 from .seed_recall import recall_candidate_evidence_for_seed
 from .seed_selection import SelectionProvider, select_experience_from_seed
 
-
 DUPLICATE_OVERLAP_RATIO = 0.8
 MIN_CANDIDATE_SEED_CONFIDENCE = 0.6
-LEGACY_GENERIC_INTERPRETATION = (
-    "magi grouped related episode evidence into a narratable memory."
-)
+LEGACY_GENERIC_INTERPRETATION = "magi grouped related episode evidence into a narratable memory."
+
+
+@dataclass(frozen=True)
+class SeedPromotionOutcome:
+    processed: int = 0
+    promoted: int = 0
+    skipped_duplicates: int = 0
+    rejected: int = 0
+    promoted_experience_id: str | None = None
+    included_episode_ids: list[str] = field(default_factory=list)
 
 
 def _ordered_unique(values: list[Any]) -> list[str]:
@@ -37,11 +45,7 @@ def _ordered_unique(values: list[Any]) -> list[str]:
 
 
 def _concrete(values: list[Any]) -> list[str]:
-    return _ordered_unique([
-        value
-        for value in values
-        if not is_generic_experience_anchor(value)
-    ])
+    return _ordered_unique([value for value in values if not is_generic_experience_anchor(value)])
 
 
 def _experience_has_only_generic_anchors(experience: dict[str, Any]) -> bool:
@@ -142,7 +146,9 @@ def _is_duplicate(included_episode_ids: list[str], existing_sets: list[set[str]]
     candidate_ids = set(included_episode_ids)
     if not candidate_ids:
         return False
-    duplicate_ratio = float(_l2_setting("experience", "duplicate_overlap_ratio", DUPLICATE_OVERLAP_RATIO))
+    duplicate_ratio = float(
+        _l2_setting("experience", "duplicate_overlap_ratio", DUPLICATE_OVERLAP_RATIO)
+    )
     for existing in existing_sets:
         overlap = len(candidate_ids & existing) / min(len(candidate_ids), len(existing))
         if overlap >= duplicate_ratio:
@@ -238,6 +244,127 @@ async def _promote_seed_selection(
     return experience_id
 
 
+async def _load_promotion_seeds(
+    store: Any,
+    *,
+    repeated_goal_selector: Any | None = None,
+    target_seed_id: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    if target_seed_id:
+        seed = await store.get_experience_seed(seed_id=target_seed_id)
+        return ([seed] if seed is not None else []), 0
+
+    discovery_stats = await discover_experience_seeds(
+        store,
+        repeated_goal_selector=repeated_goal_selector,
+    )
+    seeds = await store.list_experience_seeds(
+        statuses=["accepted", "candidate"],
+        limit=500,
+    )
+    return sorted(seeds, key=_seed_processing_key), discovery_stats.candidates
+
+
+async def _promote_single_seed(
+    store: Any,
+    *,
+    seed: dict[str, Any],
+    selector: SelectionProvider | None,
+    existing_sets: list[set[str]],
+) -> SeedPromotionOutcome:
+    if seed.get("promoted_experience_id"):
+        return SeedPromotionOutcome()
+    if _candidate_confidence_below_threshold(seed):
+        await _reject_seed(
+            store,
+            seed_id=str(seed["seed_id"]),
+            reason="Candidate confidence is below the promotion threshold.",
+        )
+        return SeedPromotionOutcome(rejected=1)
+
+    pack = await recall_candidate_evidence_for_seed(store, seed_id=str(seed["seed_id"]))
+    selection = await select_experience_from_seed(
+        seed=pack["seed"],
+        evidence_pack=pack,
+        selector=selector,
+    )
+    if not _selection_can_form_experience(selection):
+        await _reject_seed(
+            store,
+            seed_id=str(seed["seed_id"]),
+            reason=selection.reason or "Selection did not form an experience.",
+        )
+        return SeedPromotionOutcome(processed=1, rejected=1)
+
+    quality = evaluate_experience_quality(
+        seed=pack["seed"],
+        selection=selection,
+        evidence_pack=pack,
+    )
+    if not quality.accepted:
+        await _reject_seed(store, seed_id=str(seed["seed_id"]), reason=quality.reason)
+        return SeedPromotionOutcome(processed=1, rejected=1)
+
+    if _is_duplicate(selection.included_episode_ids, existing_sets):
+        await _reject_seed(
+            store,
+            seed_id=str(seed["seed_id"]),
+            status="stale",
+            reason="Duplicate of an existing experience.",
+        )
+        return SeedPromotionOutcome(processed=1, skipped_duplicates=1)
+
+    experience_id = await _promote_seed_selection(
+        store,
+        seed=seed,
+        selection=selection,
+    )
+    return SeedPromotionOutcome(
+        processed=1,
+        promoted=1,
+        promoted_experience_id=experience_id,
+        included_episode_ids=list(selection.included_episode_ids),
+    )
+
+
+def _candidate_confidence_below_threshold(seed: dict[str, Any]) -> bool:
+    return (
+        str(seed.get("status") or "") == "candidate"
+        and float(seed.get("confidence") or 0.0) < MIN_CANDIDATE_SEED_CONFIDENCE
+    )
+
+
+def _selection_can_form_experience(selection: Any) -> bool:
+    return (
+        bool(selection.is_experience)
+        and bool(selection.included_episode_ids)
+        and selection.time_start is not None
+        and selection.time_end is not None
+    )
+
+
+def _promotion_stats(
+    *,
+    outcomes: list[SeedPromotionOutcome],
+    discovery_candidates: int,
+    active_episode_count: int,
+) -> ExperiencePromotionStats:
+    processed = sum(outcome.processed for outcome in outcomes)
+    promoted = sum(outcome.promoted for outcome in outcomes)
+    rejected = sum(outcome.rejected for outcome in outcomes)
+    if processed == 0 and promoted == 0 and active_episode_count:
+        rejected += active_episode_count
+    return ExperiencePromotionStats(
+        candidates=max(processed, discovery_candidates),
+        promoted=promoted,
+        skipped_duplicates=sum(outcome.skipped_duplicates for outcome in outcomes),
+        rejected=rejected,
+        promoted_experience_ids=[
+            outcome.promoted_experience_id for outcome in outcomes if outcome.promoted_experience_id
+        ],
+    )
+
+
 async def promote_experiences_from_episodes(
     store: Any,
     *,
@@ -248,101 +375,29 @@ async def promote_experiences_from_episodes(
     """Promote active episode substrate rows through durable experience seeds."""
     active_episodes = await store.list_episodes(status="active", limit=500)
     await _hide_bad_existing_experiences(store)
-    discovery_candidates = 0
-    if target_seed_id:
-        seed = await store.get_experience_seed(seed_id=target_seed_id)
-        seeds = [seed] if seed is not None else []
-    else:
-        discovery_stats = await discover_experience_seeds(
-            store,
-            repeated_goal_selector=repeated_goal_selector,
-        )
-        discovery_candidates = discovery_stats.candidates
-        seeds = await store.list_experience_seeds(statuses=["accepted", "candidate"], limit=500)
-        seeds = sorted(seeds, key=_seed_processing_key)
+    seeds, discovery_candidates = await _load_promotion_seeds(
+        store,
+        repeated_goal_selector=repeated_goal_selector,
+        target_seed_id=target_seed_id,
+    )
     existing_sets = await _existing_active_episode_member_sets(store)
-
-    processed = 0
-    promoted = 0
-    skipped_duplicates = 0
-    rejected = 0
-    promoted_experience_ids: list[str] = []
+    outcomes: list[SeedPromotionOutcome] = []
 
     for seed in seeds:
-        if seed.get("promoted_experience_id"):
-            continue
-        if str(seed.get("status") or "") == "candidate" and float(seed.get("confidence") or 0.0) < MIN_CANDIDATE_SEED_CONFIDENCE:
-            rejected += 1
-            await _reject_seed(
-                store,
-                seed_id=str(seed["seed_id"]),
-                reason="Candidate confidence is below the promotion threshold.",
-            )
-            continue
-
-        processed += 1
-        pack = await recall_candidate_evidence_for_seed(store, seed_id=str(seed["seed_id"]))
-        selection = await select_experience_from_seed(
-            seed=pack["seed"],
-            evidence_pack=pack,
-            selector=selector,
-        )
-        if (
-            not selection.is_experience
-            or not selection.included_episode_ids
-            or selection.time_start is None
-            or selection.time_end is None
-        ):
-            rejected += 1
-            await _reject_seed(
-                store,
-                seed_id=str(seed["seed_id"]),
-                reason=selection.reason or "Selection did not form an experience.",
-            )
-            continue
-
-        quality = evaluate_experience_quality(
-            seed=pack["seed"],
-            selection=selection,
-            evidence_pack=pack,
-        )
-        if not quality.accepted:
-            rejected += 1
-            await _reject_seed(
-                store,
-                seed_id=str(seed["seed_id"]),
-                reason=quality.reason,
-            )
-            continue
-
-        if _is_duplicate(selection.included_episode_ids, existing_sets):
-            skipped_duplicates += 1
-            await _reject_seed(
-                store,
-                seed_id=str(seed["seed_id"]),
-                status="stale",
-                reason="Duplicate of an existing experience.",
-            )
-            continue
-
-        experience_id = await _promote_seed_selection(
+        outcome = await _promote_single_seed(
             store,
             seed=seed,
-            selection=selection,
+            selector=selector,
+            existing_sets=existing_sets,
         )
-        existing_sets.append(set(selection.included_episode_ids))
-        promoted_experience_ids.append(experience_id)
-        promoted += 1
+        outcomes.append(outcome)
+        if outcome.included_episode_ids:
+            existing_sets.append(set(outcome.included_episode_ids))
 
-    if processed == 0 and promoted == 0 and active_episodes:
-        rejected += len(active_episodes)
-
-    return ExperiencePromotionStats(
-        candidates=max(processed, discovery_candidates),
-        promoted=promoted,
-        skipped_duplicates=skipped_duplicates,
-        rejected=rejected,
-        promoted_experience_ids=promoted_experience_ids,
+    return _promotion_stats(
+        outcomes=outcomes,
+        discovery_candidates=discovery_candidates,
+        active_episode_count=len(active_episodes),
     )
 
 
