@@ -14,7 +14,6 @@ from typing import Any
 
 from .models import EpisodicEvidenceItem, EpisodicEvidencePack
 
-
 # Sources whose events get folded into a single summary line per episode.
 # Sensor streams that produce many near-identical rows.
 _FOLDED_SOURCES = {"chrome_history", "screen_time"}
@@ -73,7 +72,7 @@ def _fold_chrome_history(events: list[dict[str, Any]]) -> str | None:
         title = content
         for prefix in ("Chrome 浏览 ", "Chrome browsed "):
             if title.startswith(prefix):
-                title = title[len(prefix):]
+                title = title[len(prefix) :]
                 break
         key = title[:40].casefold()
         if key in seen:
@@ -158,64 +157,9 @@ class EpisodicEvidencePackMixin:
         events: list[dict[str, Any]],
         max_events: int = _MAX_VERBATIM_EVENTS,
     ) -> EpisodicEvidencePack:
-        # Sort chronologically.
         sorted_events = sorted(events, key=lambda e: float(e.get("timestamp") or 0))
-
-        # Split into folded vs verbatim.
-        by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        verbatim_raw: list[dict[str, Any]] = []
-        for event in sorted_events:
-            source = str(event.get("source") or "").strip()
-            if source in _FOLDED_SOURCES:
-                by_source[source].append(event)
-            else:
-                verbatim_raw.append(event)
-
-        # Build folded group strings.
-        folded_groups: list[str] = []
-        if "chrome_history" in by_source:
-            line = _fold_chrome_history(by_source["chrome_history"])
-            if line:
-                folded_groups.append(line)
-        if "screen_time" in by_source:
-            line = _fold_screen_time(by_source["screen_time"])
-            if line:
-                folded_groups.append(line)
-
-        # source_event_ids covers ALL events in the pack (both folded + verbatim)
-        # so downstream queries can still find them.
-        source_event_ids: list[str] = []
-        for event in sorted_events:
-            eid = str(event.get("event_id") or "").strip()
-            if eid:
-                source_event_ids.append(eid)
-
-        # Build verbatim items (capped at max_events).
-        items: list[EpisodicEvidenceItem] = []
-        for event in verbatim_raw[:max_events]:
-            event_id = str(event.get("event_id") or "").strip()
-            if not event_id:
-                continue
-            content = str(event.get("content") or "").strip()
-            if len(content) > 200:
-                content = content[:200].rstrip() + "..."
-            source = str(event.get("source") or "").strip() or None
-            role = _role_from_author_type(event.get("author_type"))
-            items.append(EpisodicEvidenceItem(
-                event_id=event_id,
-                event_type=str(event.get("event_type") or ""),
-                content=content,
-                timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
-                importance_score=float(event["importance_score"]) if event.get("importance_score") is not None else None,
-                source=source,
-                role=role,
-            ))
-
-        # Derive topics fallback if primary_topic_keys is empty.
-        episode_topics = list(episode.get("primary_topic_keys") or [])
-        derived: list[str] = []
-        if not episode_topics:
-            derived = _derive_topics(sorted_events)
+        by_source, verbatim_raw = self._partition_events(sorted_events)
+        episode_topics, derived_topics = self._episode_topics(episode, sorted_events)
 
         return EpisodicEvidencePack(
             episode_id=str(episode.get("episode_id") or ""),
@@ -225,11 +169,93 @@ class EpisodicEvidencePackMixin:
             primary_entity_ids=list(episode.get("primary_entity_ids") or []),
             primary_topic_keys=episode_topics,
             source_event_count=len(sorted_events),
-            source_event_ids=source_event_ids,
-            events=items,
-            folded_groups=folded_groups,
-            derived_topics=derived,
+            source_event_ids=self._source_event_ids(sorted_events),
+            events=self._verbatim_items(verbatim_raw, max_events=max_events),
+            folded_groups=self._folded_groups(by_source),
+            derived_topics=derived_topics,
         )
+
+    @staticmethod
+    def _partition_events(
+        sorted_events: list[dict[str, Any]],
+    ) -> tuple[dict[str, list[dict[str, Any]]], list[dict[str, Any]]]:
+        by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        verbatim_raw: list[dict[str, Any]] = []
+        for event in sorted_events:
+            source = str(event.get("source") or "").strip()
+            if source in _FOLDED_SOURCES:
+                by_source[source].append(event)
+            else:
+                verbatim_raw.append(event)
+        return by_source, verbatim_raw
+
+    @staticmethod
+    def _folded_groups(by_source: dict[str, list[dict[str, Any]]]) -> list[str]:
+        folded_groups: list[str] = []
+        if "chrome_history" in by_source:
+            line = _fold_chrome_history(by_source["chrome_history"])
+            if line:
+                folded_groups.append(line)
+        if "screen_time" in by_source:
+            line = _fold_screen_time(by_source["screen_time"])
+            if line:
+                folded_groups.append(line)
+        return folded_groups
+
+    @staticmethod
+    def _source_event_ids(sorted_events: list[dict[str, Any]]) -> list[str]:
+        source_event_ids: list[str] = []
+        for event in sorted_events:
+            event_id = str(event.get("event_id") or "").strip()
+            if event_id:
+                source_event_ids.append(event_id)
+        return source_event_ids
+
+    def _verbatim_items(
+        self,
+        verbatim_raw: list[dict[str, Any]],
+        *,
+        max_events: int,
+    ) -> list[EpisodicEvidenceItem]:
+        items: list[EpisodicEvidenceItem] = []
+        for event in verbatim_raw[:max_events]:
+            item = self._verbatim_item(event)
+            if item is not None:
+                items.append(item)
+        return items
+
+    @staticmethod
+    def _verbatim_item(event: dict[str, Any]) -> EpisodicEvidenceItem | None:
+        event_id = str(event.get("event_id") or "").strip()
+        if not event_id:
+            return None
+        content = str(event.get("content") or "").strip()
+        if len(content) > 200:
+            content = content[:200].rstrip() + "..."
+        source = str(event.get("source") or "").strip() or None
+        return EpisodicEvidenceItem(
+            event_id=event_id,
+            event_type=str(event.get("event_type") or ""),
+            content=content,
+            timestamp=(float(event["timestamp"]) if event.get("timestamp") is not None else None),
+            importance_score=(
+                float(event["importance_score"])
+                if event.get("importance_score") is not None
+                else None
+            ),
+            source=source,
+            role=_role_from_author_type(event.get("author_type")),
+        )
+
+    @staticmethod
+    def _episode_topics(
+        episode: dict[str, Any],
+        sorted_events: list[dict[str, Any]],
+    ) -> tuple[list[str], list[str]]:
+        episode_topics = list(episode.get("primary_topic_keys") or [])
+        if episode_topics:
+            return episode_topics, []
+        return episode_topics, _derive_topics(sorted_events)
 
 
 __all__ = ["EpisodicEvidencePackMixin"]
