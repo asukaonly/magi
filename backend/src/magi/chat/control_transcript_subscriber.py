@@ -157,6 +157,170 @@ def _ask_state_payload(
     }
 
 
+def _get_chat_store_or_none() -> Any | None:
+    try:
+        return get_chat_store()
+    except RuntimeError:
+        return None
+
+
+async def _next_sequence_no(
+    chat_store: Any,
+    *,
+    previous_message: ChatMessageRecord | None,
+    session_id: str,
+) -> int:
+    if previous_message is not None:
+        return previous_message.sequence_no
+    return await chat_store.next_sequence_no(session_id=session_id)
+
+
+async def _append_message_and_bump(
+    chat_store: Any,
+    *,
+    message: ChatMessageRecord,
+    session_id: str,
+) -> None:
+    await chat_store.append_message(message)
+    await chat_store.bump_history_version(session_id)
+
+
+async def _broadcast_upsert_safely(
+    *,
+    message: ChatMessageRecord,
+    session_id: str,
+    log_key: str,
+) -> None:
+    try:
+        await broadcast_chat_message_upsert(
+            user_id=message.user_id,
+            session_id=session_id,
+            message_id=message.message_id,
+        )
+    except Exception:
+        logger.debug(log_key, exc_info=True)
+
+
+def _ask_request_inputs(session_id: str, ask: Any) -> tuple[str, str, str] | None:
+    normalized_session_id = str(session_id or "").strip()
+    request_id = str(getattr(ask, "request_id", "") or "").strip()
+    question = str(getattr(ask, "question", "") or "").strip()
+    if not normalized_session_id or not request_id or not question:
+        return None
+    return normalized_session_id, request_id, question
+
+
+def _ask_response_inputs(
+    session_id: str,
+    ask: Any,
+    answer: str,
+) -> tuple[str, str, str] | None:
+    normalized_session_id = str(session_id or "").strip()
+    request_id = str(getattr(ask, "request_id", "") or "").strip()
+    answer_text = str(answer or "").strip()
+    if not normalized_session_id or not request_id or not answer_text:
+        return None
+    return normalized_session_id, request_id, answer_text
+
+
+def _ask_response_payload(
+    *,
+    request_id: str,
+    session_id: str,
+    ask: Any,
+    answer_text: str,
+) -> dict[str, Any]:
+    return {
+        "ask_request_id": request_id,
+        "session_id": session_id,
+        "answer": answer_text,
+        "answered_at_ms": _coerce_created_at_ms(getattr(ask, "answered_at", None)),
+    }
+
+
+async def _build_ask_request_message(
+    chat_store: Any,
+    *,
+    session_id: str,
+    user_id: str | None,
+    turn_id: str | None,
+    request_id: str,
+    question: str,
+    ask: Any,
+    background: bool,
+    previous_message: ChatMessageRecord | None,
+) -> ChatMessageRecord:
+    created_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None)) or _now_ms()
+    sequence_no = await _next_sequence_no(
+        chat_store,
+        previous_message=previous_message,
+        session_id=session_id,
+    )
+    payload = _ask_state_payload(session_id=session_id, ask=ask, background=background)
+    return ChatMessageRecord(
+        message_id=_ask_request_message_id(request_id),
+        session_id=session_id,
+        turn_id=str(turn_id or "").strip() or None,
+        user_id=_resolve_user_id(user_id),
+        role="assistant",
+        message_kind="ask_request",
+        content_text=question,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
+        sequence_no=sequence_no,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+        reply_to_message_id=None,
+        persona_id=previous_message.persona_id if previous_message is not None else None,
+    )
+
+
+async def _build_ask_response_message(
+    chat_store: Any,
+    *,
+    session_id: str,
+    user_id: str | None,
+    turn_id: str | None,
+    request_id: str,
+    answer_text: str,
+    ask: Any,
+    ask_message_id: str,
+    previous_message: ChatMessageRecord | None,
+) -> ChatMessageRecord:
+    created_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None)) or _now_ms()
+    sequence_no = await _next_sequence_no(
+        chat_store,
+        previous_message=previous_message,
+        session_id=session_id,
+    )
+    payload = _ask_response_payload(
+        request_id=request_id,
+        session_id=session_id,
+        ask=ask,
+        answer_text=answer_text,
+    )
+    return ChatMessageRecord(
+        message_id=_ask_response_message_id(request_id),
+        session_id=session_id,
+        turn_id=str(turn_id or "").strip() or None,
+        user_id=_resolve_user_id(user_id),
+        role="user",
+        message_kind="ask_response",
+        content_text=answer_text,
+        payload_json=json.dumps(payload, ensure_ascii=False),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
+        sequence_no=sequence_no,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+        reply_to_message_id=ask_message_id,
+        persona_id=None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Projectors (moved verbatim from chat_state_persister).
 # ---------------------------------------------------------------------------
@@ -248,56 +412,58 @@ async def persist_ask_request_message(
     ask: Any,
     background: bool = False,
 ) -> str | None:
-    normalized_session_id = str(session_id or "").strip()
-    request_id = str(getattr(ask, "request_id", "") or "").strip()
-    question = str(getattr(ask, "question", "") or "").strip()
-    if not normalized_session_id or not request_id or not question:
+    inputs = _ask_request_inputs(session_id, ask)
+    if inputs is None:
         return None
+    normalized_session_id, request_id, question = inputs
 
-    try:
-        chat_store = get_chat_store()
-    except RuntimeError:
+    chat_store = _get_chat_store_or_none()
+    if chat_store is None:
         return None
 
     message_id = _ask_request_message_id(request_id)
     previous_message = await chat_store.get_message(message_id)
-    created_at_ms = _coerce_created_at_ms(getattr(ask, "asked_at", None)) or _now_ms()
-    sequence_no = (
-        previous_message.sequence_no
-        if previous_message is not None
-        else await chat_store.next_sequence_no(session_id=normalized_session_id)
-    )
-    payload = _ask_state_payload(session_id=normalized_session_id, ask=ask, background=background)
-
-    next_message = ChatMessageRecord(
-        message_id=message_id,
+    next_message = await _build_ask_request_message(
+        chat_store,
         session_id=normalized_session_id,
-        turn_id=str(turn_id or "").strip() or None,
-        user_id=_resolve_user_id(user_id),
-        role="assistant",
-        message_kind="ask_request",
-        content_text=question,
-        payload_json=json.dumps(payload, ensure_ascii=False),
-        is_final=True,
-        is_visible=True,
-        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
-        sequence_no=sequence_no,
-        replaces_message_id=None,
-        replaced_by_message_id=None,
-        reply_to_message_id=None,
-        persona_id=previous_message.persona_id if previous_message is not None else None,
+        user_id=user_id,
+        turn_id=turn_id,
+        request_id=request_id,
+        question=question,
+        ask=ask,
+        background=background,
+        previous_message=previous_message,
     )
-    await chat_store.append_message(next_message)
-    await chat_store.bump_history_version(normalized_session_id)
-    try:
-        await broadcast_chat_message_upsert(
-            user_id=next_message.user_id,
-            session_id=normalized_session_id,
-            message_id=next_message.message_id,
-        )
-    except Exception:
-        logger.debug("ask_request_message.broadcast_failed", exc_info=True)
+    await _append_message_and_bump(
+        chat_store,
+        message=next_message,
+        session_id=normalized_session_id,
+    )
+    await _broadcast_upsert_safely(
+        message=next_message,
+        session_id=normalized_session_id,
+        log_key="ask_request_message.broadcast_failed",
+    )
     return next_message.message_id
+
+
+async def _ask_reply_target_message_id(
+    *,
+    session_id: str,
+    user_id: str | None,
+    turn_id: str | None,
+    ask: Any,
+    background: bool,
+    request_id: str,
+) -> str:
+    ask_message_id = await persist_ask_request_message(
+        session_id=session_id,
+        user_id=user_id,
+        turn_id=turn_id,
+        ask=ask,
+        background=background,
+    )
+    return ask_message_id or _ask_request_message_id(request_id)
 
 
 async def persist_ask_response_message(
@@ -309,70 +475,167 @@ async def persist_ask_response_message(
     answer: str,
     background: bool = False,
 ) -> str | None:
-    normalized_session_id = str(session_id or "").strip()
-    request_id = str(getattr(ask, "request_id", "") or "").strip()
-    answer_text = str(answer or "").strip()
-    if not normalized_session_id or not request_id or not answer_text:
+    inputs = _ask_response_inputs(session_id, ask, answer)
+    if inputs is None:
         return None
+    normalized_session_id, request_id, answer_text = inputs
 
-    ask_message_id = await persist_ask_request_message(
+    ask_message_id = await _ask_reply_target_message_id(
         session_id=normalized_session_id,
         user_id=user_id,
         turn_id=turn_id,
         ask=ask,
         background=background,
+        request_id=request_id,
     )
-    if ask_message_id is None:
-        ask_message_id = _ask_request_message_id(request_id)
 
-    try:
-        chat_store = get_chat_store()
-    except RuntimeError:
+    chat_store = _get_chat_store_or_none()
+    if chat_store is None:
         return None
 
-    message_id = _ask_response_message_id(request_id)
-    previous_message = await chat_store.get_message(message_id)
-    created_at_ms = _coerce_created_at_ms(getattr(ask, "answered_at", None)) or _now_ms()
-    sequence_no = (
-        previous_message.sequence_no
-        if previous_message is not None
-        else await chat_store.next_sequence_no(session_id=normalized_session_id)
-    )
-    payload = {
-        "ask_request_id": request_id,
-        "session_id": normalized_session_id,
-        "answer": answer_text,
-        "answered_at_ms": _coerce_created_at_ms(getattr(ask, "answered_at", None)),
-    }
-    next_message = ChatMessageRecord(
-        message_id=message_id,
+    previous_message = await chat_store.get_message(_ask_response_message_id(request_id))
+    next_message = await _build_ask_response_message(
+        chat_store,
         session_id=normalized_session_id,
-        turn_id=str(turn_id or "").strip() or None,
+        user_id=user_id,
+        turn_id=turn_id,
+        request_id=request_id,
+        answer_text=answer_text,
+        ask=ask,
+        ask_message_id=ask_message_id,
+        previous_message=previous_message,
+    )
+    await _append_message_and_bump(
+        chat_store,
+        message=next_message,
+        session_id=normalized_session_id,
+    )
+    await _broadcast_upsert_safely(
+        message=next_message,
+        session_id=normalized_session_id,
+        log_key="ask_response_message.broadcast_failed",
+    )
+    return next_message.message_id
+
+
+async def _status_message_context(
+    *,
+    session_id: str,
+    turn_id: str | None,
+    message_kind: str,
+) -> tuple[str, str | None, Any, ChatMessageRecord | None] | None:
+    normalized_session_id = str(session_id or "").strip()
+    normalized_turn_id = str(turn_id or "").strip() or None
+    if not normalized_session_id:
+        return None
+    chat_store = _get_chat_store_or_none()
+    if chat_store is None:
+        return None
+    previous_message = await _latest_status_message(
+        chat_store,
+        turn_id=normalized_turn_id,
+        message_kind=message_kind,
+    )
+    return normalized_session_id, normalized_turn_id, chat_store, previous_message
+
+
+async def _latest_status_message(
+    chat_store: Any,
+    *,
+    turn_id: str | None,
+    message_kind: str,
+) -> ChatMessageRecord | None:
+    if not turn_id:
+        return None
+    return await chat_store.get_latest_message_for_turn(
+        turn_id,
+        message_kind=message_kind,
+    )
+
+
+def _status_message_is_unchanged(
+    previous_message: ChatMessageRecord | None,
+    *,
+    payload: dict[str, Any],
+    content_text: str | None,
+) -> bool:
+    if previous_message is None or not previous_message.is_visible:
+        return False
+    return _payload_json_matches(previous_message.payload_json, payload) and _normalize_optional_text(
+        previous_message.content_text
+    ) == _normalize_optional_text(content_text)
+
+
+async def _build_status_message(
+    chat_store: Any,
+    *,
+    session_id: str,
+    turn_id: str | None,
+    user_id: str | None,
+    message_kind: str,
+    payload: dict[str, Any],
+    content_text: str | None,
+    created_at_ms: int | None,
+    previous_message: ChatMessageRecord | None,
+) -> ChatMessageRecord:
+    return ChatMessageRecord(
+        message_id=f"msg_{uuid.uuid4().hex[:16]}",
+        session_id=session_id,
+        turn_id=turn_id,
         user_id=_resolve_user_id(user_id),
-        role="user",
-        message_kind="ask_response",
-        content_text=answer_text,
+        role="assistant",
+        message_kind=message_kind,
+        content_text=content_text,
         payload_json=json.dumps(payload, ensure_ascii=False),
         is_final=True,
         is_visible=True,
-        created_at_ms=previous_message.created_at_ms if previous_message is not None else created_at_ms,
-        sequence_no=sequence_no,
-        replaces_message_id=None,
+        created_at_ms=int(created_at_ms or 0) or _now_ms(),
+        sequence_no=await chat_store.next_sequence_no(session_id=session_id),
+        replaces_message_id=previous_message.message_id if previous_message is not None else None,
         replaced_by_message_id=None,
-        reply_to_message_id=ask_message_id,
-        persona_id=None,
+        reply_to_message_id=None,
     )
-    await chat_store.append_message(next_message)
-    await chat_store.bump_history_version(normalized_session_id)
+
+
+async def _append_status_message(
+    chat_store: Any,
+    *,
+    session_id: str,
+    next_message: ChatMessageRecord,
+    previous_message: ChatMessageRecord | None,
+) -> None:
+    await _append_message_and_bump(
+        chat_store,
+        message=next_message,
+        session_id=session_id,
+    )
+    if previous_message is not None:
+        await chat_store.mark_message_replaced(
+            message_id=previous_message.message_id,
+            replaced_by_message_id=next_message.message_id,
+        )
+
+
+async def _broadcast_status_message_change(
+    *,
+    next_message: ChatMessageRecord,
+    previous_message: ChatMessageRecord | None,
+    session_id: str,
+) -> None:
     try:
+        if previous_message is not None:
+            await broadcast_chat_message_hidden(
+                user_id=next_message.user_id,
+                session_id=session_id,
+                message_id=previous_message.message_id,
+            )
         await broadcast_chat_message_upsert(
             user_id=next_message.user_id,
-            session_id=normalized_session_id,
+            session_id=session_id,
             message_id=next_message.message_id,
         )
     except Exception:
-        logger.debug("ask_response_message.broadcast_failed", exc_info=True)
-    return next_message.message_id
+        logger.debug("control_status_message.broadcast_failed", exc_info=True)
 
 
 async def _persist_status_message(
@@ -385,68 +648,43 @@ async def _persist_status_message(
     content_text: str | None,
     created_at_ms: int | None,
 ) -> str | None:
-    normalized_session_id = str(session_id or "").strip()
-    normalized_turn_id = str(turn_id or "").strip() or None
-    if not normalized_session_id:
+    context = await _status_message_context(
+        session_id=session_id,
+        turn_id=turn_id,
+        message_kind=message_kind,
+    )
+    if context is None:
         return None
+    normalized_session_id, normalized_turn_id, chat_store, previous_message = context
+    if _status_message_is_unchanged(
+        previous_message,
+        payload=payload,
+        content_text=content_text,
+    ):
+        return previous_message.message_id if previous_message is not None else None
 
-    try:
-        chat_store = get_chat_store()
-    except RuntimeError:
-        return None
-
-    previous_message = None
-    if normalized_turn_id:
-        previous_message = await chat_store.get_latest_message_for_turn(
-            normalized_turn_id,
-            message_kind=message_kind,
-        )
-    if previous_message is not None and previous_message.is_visible:
-        if _payload_json_matches(previous_message.payload_json, payload) and _normalize_optional_text(
-            previous_message.content_text
-        ) == _normalize_optional_text(content_text):
-            return previous_message.message_id
-
-    next_message = ChatMessageRecord(
-        message_id=f"msg_{uuid.uuid4().hex[:16]}",
+    next_message = await _build_status_message(
+        chat_store,
         session_id=normalized_session_id,
         turn_id=normalized_turn_id,
-        user_id=_resolve_user_id(user_id),
-        role="assistant",
+        user_id=user_id,
         message_kind=message_kind,
+        payload=payload,
         content_text=content_text,
-        payload_json=json.dumps(payload, ensure_ascii=False),
-        is_final=True,
-        is_visible=True,
-        created_at_ms=int(created_at_ms or 0) or _now_ms(),
-        sequence_no=await chat_store.next_sequence_no(session_id=normalized_session_id),
-        replaces_message_id=previous_message.message_id if previous_message is not None else None,
-        replaced_by_message_id=None,
-        reply_to_message_id=None,
+        created_at_ms=created_at_ms,
+        previous_message=previous_message,
     )
-    await chat_store.append_message(next_message)
-    await chat_store.bump_history_version(normalized_session_id)
-
-    if previous_message is not None:
-        await chat_store.mark_message_replaced(
-            message_id=previous_message.message_id,
-            replaced_by_message_id=next_message.message_id,
-        )
-
-    try:
-        if previous_message is not None:
-            await broadcast_chat_message_hidden(
-                user_id=next_message.user_id,
-                session_id=normalized_session_id,
-                message_id=previous_message.message_id,
-            )
-        await broadcast_chat_message_upsert(
-            user_id=next_message.user_id,
-            session_id=normalized_session_id,
-            message_id=next_message.message_id,
-        )
-    except Exception:
-        logger.debug("control_status_message.broadcast_failed", exc_info=True)
+    await _append_status_message(
+        chat_store,
+        session_id=normalized_session_id,
+        next_message=next_message,
+        previous_message=previous_message,
+    )
+    await _broadcast_status_message_change(
+        next_message=next_message,
+        previous_message=previous_message,
+        session_id=normalized_session_id,
+    )
     return next_message.message_id
 
 
