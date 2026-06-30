@@ -59,6 +59,34 @@ class _BridgeJsonAdapter:
     async def complete_json(self, *, system_prompt: str, user_prompt: str) -> dict:
         import time as _time
 
+        kwargs = self._chat_kwargs(system_prompt, user_prompt)
+        model, base_url = self._bridge_metadata()
+        debug = _llm_debug_enabled()
+        if debug:
+            self._log_llm_request(system_prompt, user_prompt, model)
+
+        t0 = _time.monotonic()
+        try:
+            text = await self._bridge.chat(**kwargs)
+        except Exception:
+            elapsed_ms = (_time.monotonic() - t0) * 1000
+            self._log_llm_failure(
+                system_prompt,
+                user_prompt,
+                model,
+                base_url,
+                elapsed_ms,
+            )
+            return {}
+
+        elapsed_ms = (_time.monotonic() - t0) * 1000
+        response_text = text or ""
+        self._log_llm_success(user_prompt, response_text, model, base_url, elapsed_ms)
+        if debug:
+            logger.info("portrait %s LLM ◀ raw_response:\n%s", self._label, response_text)
+        return self._parse_json_response(response_text)
+
+    def _chat_kwargs(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "system_prompt": system_prompt,
             "messages": [{"role": "user", "content": user_prompt}],
@@ -69,48 +97,64 @@ class _BridgeJsonAdapter:
             kwargs["thinking_depth"] = self._thinking_depth
         if self._timeout_seconds is not None:
             kwargs["timeout_seconds"] = self._timeout_seconds
+        return kwargs
 
-        model = getattr(getattr(self._bridge, "llm", None), "model_name", "unknown")
-        base_url = str(getattr(getattr(self._bridge, "llm", None), "base_url", "unknown"))
-        debug = _llm_debug_enabled()
+    def _bridge_metadata(self) -> tuple[str, str]:
+        llm = getattr(self._bridge, "llm", None)
+        model = str(getattr(llm, "model_name", "unknown"))
+        base_url = str(getattr(llm, "base_url", "unknown"))
+        return model, base_url
 
-        if debug:
-            logger.info(
-                "portrait %s LLM ▶ model=%s thinking=%s timeout=%s"
-                "\n  system_prompt:\n%s"
-                "\n  user_prompt:\n%s",
-                self._label,
-                model,
-                self._thinking_depth,
-                self._timeout_seconds,
-                system_prompt,
-                user_prompt,
-            )
+    def _log_llm_request(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+    ) -> None:
+        logger.info(
+            "portrait %s LLM ▶ model=%s thinking=%s timeout=%s"
+            "\n  system_prompt:\n%s"
+            "\n  user_prompt:\n%s",
+            self._label,
+            model,
+            self._thinking_depth,
+            self._timeout_seconds,
+            system_prompt,
+            user_prompt,
+        )
 
-        t0 = _time.monotonic()
-        try:
-            text = await self._bridge.chat(**kwargs)
-        except Exception:
-            elapsed_ms = (_time.monotonic() - t0) * 1000
-            logger.warning(
-                "portrait %s LLM failed model=%s base_url=%s elapsed_ms=%.1f"
-                " timeout=%s prompt_len=%d"
-                "\n  system_prompt:\n%s"
-                "\n  user_prompt:\n%s",
-                self._label,
-                model,
-                base_url,
-                elapsed_ms,
-                self._timeout_seconds,
-                len(user_prompt),
-                system_prompt,
-                user_prompt,
-                exc_info=True,
-            )
-            return {}
+    def _log_llm_failure(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        base_url: str,
+        elapsed_ms: float,
+    ) -> None:
+        logger.warning(
+            "portrait %s LLM failed model=%s base_url=%s elapsed_ms=%.1f"
+            " timeout=%s prompt_len=%d"
+            "\n  system_prompt:\n%s"
+            "\n  user_prompt:\n%s",
+            self._label,
+            model,
+            base_url,
+            elapsed_ms,
+            self._timeout_seconds,
+            len(user_prompt),
+            system_prompt,
+            user_prompt,
+            exc_info=True,
+        )
 
-        elapsed_ms = (_time.monotonic() - t0) * 1000
-        response_text = text or ""
+    def _log_llm_success(
+        self,
+        user_prompt: str,
+        response_text: str,
+        model: str,
+        base_url: str,
+        elapsed_ms: float,
+    ) -> None:
         logger.info(
             "portrait %s LLM completed model=%s base_url=%s elapsed_ms=%.1f"
             " timeout=%s prompt_len=%d response_len=%d",
@@ -122,8 +166,8 @@ class _BridgeJsonAdapter:
             len(user_prompt),
             len(response_text),
         )
-        if debug:
-            logger.info("portrait %s LLM ◀ raw_response:\n%s", self._label, response_text)
+
+    def _parse_json_response(self, response_text: str) -> dict:
         try:
             return json.loads(response_text)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
