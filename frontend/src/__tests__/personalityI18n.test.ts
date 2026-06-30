@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import enApp from '@/i18n/locales/en/app.json';
+import enOnboarding from '@/i18n/locales/en/onboarding.json';
 import zhCnApp from '@/i18n/locales/zh-CN/app.json';
+import zhCnOnboarding from '@/i18n/locales/zh-CN/onboarding.json';
 
 const REQUIRED_PERSONALITY_KEYS = [
   'personality.sections.identityCore',
@@ -77,9 +79,24 @@ const REQUIRED_PERSONALITY_KEYS = [
   'personality.validationIssues.bootstrap',
 ] as const;
 
+const REQUIRED_ONBOARDING_PERSONA_KEYS = [
+  'personaPreview.generationStages.base',
+  'personaPreview.generationStages.registers',
+  'personaPreview.generationStages.rules',
+  'personaPreview.generationStages.layers',
+  'personaPreview.generationStages.bootstrap',
+  'personaPreview.generationStages.appearance',
+  'personaPreview.generationStages.integrate',
+] as const;
+
 const localeResources = {
   en: enApp,
   'zh-CN': zhCnApp,
+} as const;
+
+const onboardingLocaleResources = {
+  en: enOnboarding,
+  'zh-CN': zhCnOnboarding,
 } as const;
 
 const getValue = (resource: unknown, key: string): unknown =>
@@ -97,6 +114,17 @@ describe('personality i18n', () => {
       });
 
       expect(missingKeys, `${locale} missing keys`).toEqual([]);
+    }
+  });
+
+  it('keeps onboarding persona generation stages translated in every locale', () => {
+    for (const [locale, resource] of Object.entries(onboardingLocaleResources)) {
+      const missingKeys = REQUIRED_ONBOARDING_PERSONA_KEYS.filter((key) => {
+        const value = getValue(resource, key);
+        return typeof value !== 'string' || value.length === 0;
+      });
+
+      expect(missingKeys, `${locale} missing onboarding keys`).toEqual([]);
     }
   });
 });

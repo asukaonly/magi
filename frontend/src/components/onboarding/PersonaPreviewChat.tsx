@@ -208,6 +208,13 @@ export function PersonaPreviewChat({
   const activeTranscript = activeSeed ? transcripts[activeSeed] ?? [] : [];
   const userTurnCount = activeTranscript.filter((m) => m.role === 'user').length;
   const capReached = userTurnCount >= MAX_USER_TURNS_PER_PERSONA;
+  const getGenerationStageLabel = useCallback(
+    (stage: PersonaGenerationStage) =>
+      t(`personaPreview.generationStages.${stage.stage_id}`, {
+        defaultValue: stage.label || stage.stage_id,
+      }),
+    [t],
+  );
 
   const appendTurn = useCallback((seedSlug: string, turn: PreviewTurn) => {
     setTranscripts((prev) => {
@@ -406,7 +413,7 @@ export function PersonaPreviewChat({
                         <span aria-hidden>
                           {s.status === 'completed' ? '✓' : s.status === 'running' ? '…' : '·'}
                         </span>
-                        <span>{s.label || s.stage_id}</span>
+                        <span>{getGenerationStageLabel(s)}</span>
                       </li>
                     ))}
                   </ul>

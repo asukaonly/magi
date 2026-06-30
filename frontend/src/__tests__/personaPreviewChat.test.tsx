@@ -242,6 +242,36 @@ describe('PersonaPreviewChat', () => {
     );
   });
 
+  it('localizes backend generation stage labels', async () => {
+    let resolveGen: (value: any) => void = () => {};
+    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
+      (_request, onProgress) => {
+        onProgress?.({
+          job_id: 'job-1',
+          status: 'running',
+          stages: [
+            {
+              stage_id: 'base',
+              label: 'Understand persona spine',
+              status: 'running',
+            },
+          ],
+        });
+        return new Promise((resolve) => { resolveGen = resolve; });
+      },
+    );
+
+    render(<PersonaPreviewChat previews={previews} />);
+    await userEvent.click(screen.getByTestId('persona-create-custom'));
+    await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
+    await userEvent.click(screen.getByTestId('persona-custom-generate'));
+
+    expect(await screen.findByText('personaPreview.generationStages.base')).toBeInTheDocument();
+    expect(screen.queryByText('Understand persona spine')).not.toBeInTheDocument();
+
+    resolveGen({ success: true, message: 'ok', data: makeGeneratedConfig(), stages: [] });
+  });
+
   it('reports generating state via onGeneratingChange', async () => {
     let resolveGen: (value: any) => void = () => {};
     vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(

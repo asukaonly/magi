@@ -203,6 +203,15 @@
     "customDescriptionPlaceholder": "e.g. a sharp-tongued but caring coding buddy…",
     "generate": "Generate",
     "generating": "Generating…",
+    "generationStages": {
+      "base": "Understanding persona direction",
+      "registers": "Designing conversation modes",
+      "rules": "Designing triggers and quiet hours",
+      "layers": "Arranging deep persona layers",
+      "bootstrap": "Writing examples and first contact",
+      "appearance": "Drafting portrait prompt",
+      "integrate": "Merging and validating"
+    },
     "cancelCreate": "Cancel",
     "generationFailed": "Generation failed",
     "waiting": "Typing…"

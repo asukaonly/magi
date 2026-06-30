@@ -204,6 +204,15 @@
     "customDescriptionPlaceholder": "比如：一个毒舌但贴心的程序员搭子…",
     "generate": "生成",
     "generating": "生成中…",
+    "generationStages": {
+      "base": "理解人格方向",
+      "registers": "设计对话模式",
+      "rules": "设计触发与安静时段",
+      "layers": "整理深层人格",
+      "bootstrap": "编写示例与初次见面",
+      "appearance": "生成外观提示词",
+      "integrate": "合并并校验"
+    },
     "cancelCreate": "取消",
     "generationFailed": "生成失败",
     "waiting": "正在输入…"
