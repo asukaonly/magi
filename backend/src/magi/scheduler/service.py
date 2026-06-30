@@ -358,39 +358,23 @@ class SchedulerService:
         manual: bool,
         override_payload: dict[str, Any] | None,
     ) -> "_ExecutionPrep":
-        """Synchronous setup shared by sync + async execution paths.
-
-        Returns a prep object carrying either an ``early_result`` (the run
-        should short-circuit and return it — schedule missing, target
-        busy, or sensor_sync already enqueued) OR the values needed to
-        proceed with the handler phase.
-        """
-        schedule = await self._repository.get_schedule(schedule_id)
-        if schedule is None:
-            return _ExecutionPrep(early_result=ScheduledExecutionResult(
-                success=False, message="schedule_not_found",
-            ))
-        if override_payload:
-            schedule = dataclasses.replace(
-                schedule,
-                target_payload={**schedule.target_payload, **override_payload},
-            )
-        if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-            outstanding = await self._repository.get_outstanding_sensor_sync_job(
-                schedule.target_type, schedule.target_key,
-            )
-            if outstanding is not None:
-                return _ExecutionPrep(early_result=ScheduledExecutionResult(
-                    success=False, message="target_busy",
-                ))
-        started_at = time.time()
-        acquired = await self._repository.acquire_target_lock(
-            schedule.target_type, schedule.target_key,
+        """Prepare an execution or return an early terminal result."""
+        schedule, early_result = await self._load_execution_schedule(
+            schedule_id,
+            override_payload=override_payload,
         )
-        if not acquired:
-            return _ExecutionPrep(early_result=ScheduledExecutionResult(
-                success=False, message="target_busy",
-            ))
+        if early_result is not None:
+            return early_result
+        assert schedule is not None
+
+        early_result = await self._sensor_sync_busy_prep(schedule)
+        if early_result is not None:
+            return early_result
+
+        started_at, early_result = await self._acquire_execution_lock(schedule)
+        if early_result is not None:
+            return early_result
+
         effective_manual = manual or bool(schedule.metadata.get("manual", False))
         execution_id = await self._repository.create_execution_record(
             schedule_id=schedule.schedule_id,
@@ -399,26 +383,31 @@ class SchedulerService:
             manual=effective_manual,
             started_at=started_at,
         )
-        # SENSOR_SYNC has its own enqueue-and-return path — finish it here
-        # so the (sync) caller still gets the "sensor_sync_enqueued" reply.
         if schedule.target_type is ScheduledTargetType.SENSOR_SYNC:
-            job_id = await self._repository.enqueue_sensor_sync_job(
+            return await self._prepare_sensor_sync_execution(
                 schedule=schedule,
                 execution_id=execution_id,
-                manual=effective_manual,
+                effective_manual=effective_manual,
             )
-            if job_id is None:
-                return _ExecutionPrep(early_result=ScheduledExecutionResult(
-                    success=False, message="target_busy",
-                ))
-            if schedule.trigger.trigger_type == TriggerType.ONCE:
-                await self._repository.delete_schedule(schedule.schedule_id)
-            return _ExecutionPrep(early_result=ScheduledExecutionResult(
-                success=True, message="sensor_sync_enqueued",
-                stats={"job_id": job_id, "execution_id": execution_id},
-            ))
+
+        return await self._prepare_handler_execution(
+            schedule=schedule,
+            execution_id=execution_id,
+            effective_manual=effective_manual,
+            started_at=started_at,
+        )
+
+    async def _prepare_handler_execution(
+        self,
+        *,
+        schedule: ScheduleDefinition,
+        execution_id: str,
+        effective_manual: bool,
+        started_at: float,
+    ) -> _ExecutionPrep:
         state = await self._repository.get_target_state(
-            schedule.target_type, schedule.target_key,
+            schedule.target_type,
+            schedule.target_key,
         )
         return _ExecutionPrep(
             schedule=schedule,
@@ -426,6 +415,88 @@ class SchedulerService:
             execution_id=execution_id,
             effective_manual=effective_manual,
             started_at=started_at,
+        )
+
+    async def _load_execution_schedule(
+        self,
+        schedule_id: str,
+        *,
+        override_payload: dict[str, Any] | None,
+    ) -> tuple[ScheduleDefinition | None, _ExecutionPrep | None]:
+        schedule = await self._repository.get_schedule(schedule_id)
+        if schedule is None:
+            return None, self._early_execution_prep("schedule_not_found")
+        if override_payload:
+            schedule = dataclasses.replace(
+                schedule,
+                target_payload={**schedule.target_payload, **override_payload},
+            )
+        return schedule, None
+
+    async def _sensor_sync_busy_prep(
+        self,
+        schedule: ScheduleDefinition,
+    ) -> _ExecutionPrep | None:
+        if schedule.target_type is not ScheduledTargetType.SENSOR_SYNC:
+            return None
+        outstanding = await self._repository.get_outstanding_sensor_sync_job(
+            schedule.target_type,
+            schedule.target_key,
+        )
+        if outstanding is None:
+            return None
+        return self._early_execution_prep("target_busy")
+
+    async def _acquire_execution_lock(
+        self,
+        schedule: ScheduleDefinition,
+    ) -> tuple[float, _ExecutionPrep | None]:
+        started_at = time.time()
+        acquired = await self._repository.acquire_target_lock(
+            schedule.target_type,
+            schedule.target_key,
+        )
+        if acquired:
+            return started_at, None
+        return started_at, self._early_execution_prep("target_busy")
+
+    async def _prepare_sensor_sync_execution(
+        self,
+        *,
+        schedule: ScheduleDefinition,
+        execution_id: str,
+        effective_manual: bool,
+    ) -> _ExecutionPrep:
+        # SENSOR_SYNC has its own enqueue-and-return path so the sync caller
+        # still gets the "sensor_sync_enqueued" reply.
+        job_id = await self._repository.enqueue_sensor_sync_job(
+            schedule=schedule,
+            execution_id=execution_id,
+            manual=effective_manual,
+        )
+        if job_id is None:
+            return self._early_execution_prep("target_busy")
+        if schedule.trigger.trigger_type == TriggerType.ONCE:
+            await self._repository.delete_schedule(schedule.schedule_id)
+        return self._early_execution_prep(
+            "sensor_sync_enqueued",
+            success=True,
+            stats={"job_id": job_id, "execution_id": execution_id},
+        )
+
+    @staticmethod
+    def _early_execution_prep(
+        message: str,
+        *,
+        success: bool = False,
+        stats: dict[str, Any] | None = None,
+    ) -> _ExecutionPrep:
+        return _ExecutionPrep(
+            early_result=ScheduledExecutionResult(
+                success=success,
+                message=message,
+                stats=stats or {},
+            )
         )
 
     async def _run_handler_phase(
