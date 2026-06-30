@@ -168,109 +168,148 @@ class PersonalityConfig:
         ic_raw = data.get("identity_core") or {}
         il_raw = data.get("idiolect") or {}
 
-        registers: Dict[str, Register] = {}
-        for key, val in (data.get("registers") or {}).items():
-            if not isinstance(val, dict):
-                continue
-            registers[key] = Register(
-                description=str(val.get("description", "")),
-                behavior=str(val.get("behavior", "")),
-                examples=[str(e) for e in val.get("examples", []) if isinstance(e, str)],
-            )
-
-        quiet_hours: List[QuietHour] = []
-        for qh in (data.get("quiet_hours") or []):
-            if not isinstance(qh, dict):
-                continue
-            quiet_hours.append(QuietHour(
-                condition=str(qh.get("condition", "")),
-                clamps=dict(qh.get("clamps", {})),
-            ))
-
-        signature_triggers: List[SignatureTrigger] = []
-        for st in (data.get("signature_triggers") or []):
-            if not isinstance(st, dict):
-                continue
-            raw_impact = st.get("emotion_impact") or {}
-            emotion_impact: Dict[str, float] = {}
-            if isinstance(raw_impact, dict):
-                for key, value in raw_impact.items():
-                    if key not in {"mood", "stress", "energy"}:
-                        continue
-                    try:
-                        emotion_impact[key] = float(value)
-                    except (TypeError, ValueError):
-                        continue
-            signature_triggers.append(SignatureTrigger(
-                trigger_id=str(st.get("trigger_id", "")),
-                activates_when=str(st.get("activates_when", "")),
-                behavior_shift=str(st.get("behavior_shift", "")),
-                intensity_levels=dict(st.get("intensity_levels", {})),
-                exit_behavior=str(st.get("exit_behavior", "")),
-                emotion_impact=emotion_impact,
-            ))
-
-        persona_layers: List[PersonaLayer] = []
-        for layer in (data.get("persona_layers") or []):
-            if not isinstance(layer, dict):
-                continue
-            persona_layers.append(PersonaLayer(
-                layer_id=str(layer.get("layer_id", "")),
-                unlock_condition=layer.get("unlock_condition") if isinstance(layer.get("unlock_condition"), dict) else None,
-                modifiers=dict(layer.get("modifiers", {})),
-            ))
-
-        bootstrap_raw = data.get("bootstrap")
-        bootstrap = None
-        if isinstance(bootstrap_raw, dict):
-            bootstrap = BootstrapConfig(
-                style_instruction=str(bootstrap_raw.get("style_instruction", "")),
-                opening_line=str(bootstrap_raw.get("opening_line", "")),
-                max_rounds=int(bootstrap_raw.get("max_rounds", 3)),
-            )
-
-        interim: Dict[str, List[str]] = {}
-        for key, value in (data.get("interim_lines") or {}).items():
-            if not isinstance(key, str):
-                continue
-            lines: List[str] = []
-            if isinstance(value, str) and value.strip():
-                lines.append(value.strip())
-            elif isinstance(value, list):
-                lines = [str(v).strip() for v in value if str(v).strip()]
-            if lines:
-                interim[key] = lines
-
         return cls(
             name=str(data.get("name", "AI Assistant")),
             avatar=str(data.get("avatar", "")),
             description=str(data.get("description", "")),
             appearance_prompt=str(data.get("appearance_prompt", "")),
-            identity_core=IdentityCore(
-                identity_statement=str(ic_raw.get("identity_statement", "")),
-                values_loved=[str(v) for v in ic_raw.get("values_loved", [])],
-                values_rejected=[str(v) for v in ic_raw.get("values_rejected", [])],
-                attention_biases=[str(v) for v in ic_raw.get("attention_biases", [])],
-            ),
-            idiolect=Idiolect(
-                sentence_style=str(il_raw.get("sentence_style", "")),
-                vocab_available=[str(v) for v in il_raw.get("vocab_available", [])],
-                vocab_avoided=[str(v) for v in il_raw.get("vocab_avoided", [])],
-                structural_quirks=[str(v) for v in il_raw.get("structural_quirks", [])],
-                chattiness=float(il_raw.get("chattiness", 0.5)),
-            ),
-            registers=registers,
-            quiet_hours=quiet_hours,
-            signature_triggers=signature_triggers,
-            persona_layers=persona_layers,
+            identity_core=_parse_identity_core(ic_raw),
+            idiolect=_parse_idiolect(il_raw),
+            registers=_parse_registers(data.get("registers") or {}),
+            quiet_hours=_parse_quiet_hours(data.get("quiet_hours") or []),
+            signature_triggers=_parse_signature_triggers(data.get("signature_triggers") or []),
+            persona_layers=_parse_persona_layers(data.get("persona_layers") or []),
             dynamic_state_rules=dict(data.get("dynamic_state_rules") or {}),
             milestone_conditions=dict(data.get("milestone_conditions") or {}),
-            interim_lines=interim,
-            bootstrap=bootstrap,
+            interim_lines=_parse_interim_lines(data.get("interim_lines") or {}),
+            bootstrap=_parse_bootstrap(data.get("bootstrap")),
         )
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+
+def _parse_identity_core(raw: Dict[str, Any]) -> IdentityCore:
+    return IdentityCore(
+        identity_statement=str(raw.get("identity_statement", "")),
+        values_loved=[str(v) for v in raw.get("values_loved", [])],
+        values_rejected=[str(v) for v in raw.get("values_rejected", [])],
+        attention_biases=[str(v) for v in raw.get("attention_biases", [])],
+    )
+
+
+def _parse_idiolect(raw: Dict[str, Any]) -> Idiolect:
+    return Idiolect(
+        sentence_style=str(raw.get("sentence_style", "")),
+        vocab_available=[str(v) for v in raw.get("vocab_available", [])],
+        vocab_avoided=[str(v) for v in raw.get("vocab_avoided", [])],
+        structural_quirks=[str(v) for v in raw.get("structural_quirks", [])],
+        chattiness=float(raw.get("chattiness", 0.5)),
+    )
+
+
+def _parse_registers(raw: Dict[str, Any]) -> Dict[str, Register]:
+    registers: Dict[str, Register] = {}
+    for key, val in raw.items():
+        if not isinstance(val, dict):
+            continue
+        registers[key] = Register(
+            description=str(val.get("description", "")),
+            behavior=str(val.get("behavior", "")),
+            examples=[str(e) for e in val.get("examples", []) if isinstance(e, str)],
+        )
+    return registers
+
+
+def _parse_quiet_hours(raw: List[Any]) -> List[QuietHour]:
+    quiet_hours: List[QuietHour] = []
+    for qh in raw:
+        if not isinstance(qh, dict):
+            continue
+        quiet_hours.append(
+            QuietHour(
+                condition=str(qh.get("condition", "")),
+                clamps=dict(qh.get("clamps", {})),
+            )
+        )
+    return quiet_hours
+
+
+def _parse_signature_triggers(raw: List[Any]) -> List[SignatureTrigger]:
+    signature_triggers: List[SignatureTrigger] = []
+    for st in raw:
+        if not isinstance(st, dict):
+            continue
+        signature_triggers.append(
+            SignatureTrigger(
+                trigger_id=str(st.get("trigger_id", "")),
+                activates_when=str(st.get("activates_when", "")),
+                behavior_shift=str(st.get("behavior_shift", "")),
+                intensity_levels=dict(st.get("intensity_levels", {})),
+                exit_behavior=str(st.get("exit_behavior", "")),
+                emotion_impact=_parse_emotion_impact(st.get("emotion_impact") or {}),
+            )
+        )
+    return signature_triggers
+
+
+def _parse_emotion_impact(raw: Any) -> Dict[str, float]:
+    emotion_impact: Dict[str, float] = {}
+    if not isinstance(raw, dict):
+        return emotion_impact
+    for key, value in raw.items():
+        if key not in {"mood", "stress", "energy"}:
+            continue
+        try:
+            emotion_impact[key] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return emotion_impact
+
+
+def _parse_persona_layers(raw: List[Any]) -> List[PersonaLayer]:
+    persona_layers: List[PersonaLayer] = []
+    for layer in raw:
+        if not isinstance(layer, dict):
+            continue
+        unlock_condition = layer.get("unlock_condition")
+        persona_layers.append(
+            PersonaLayer(
+                layer_id=str(layer.get("layer_id", "")),
+                unlock_condition=unlock_condition if isinstance(unlock_condition, dict) else None,
+                modifiers=dict(layer.get("modifiers", {})),
+            )
+        )
+    return persona_layers
+
+
+def _parse_bootstrap(raw: Any) -> Optional[BootstrapConfig]:
+    if not isinstance(raw, dict):
+        return None
+    return BootstrapConfig(
+        style_instruction=str(raw.get("style_instruction", "")),
+        opening_line=str(raw.get("opening_line", "")),
+        max_rounds=int(raw.get("max_rounds", 3)),
+    )
+
+
+def _parse_interim_lines(raw: Dict[str, Any]) -> Dict[str, List[str]]:
+    interim: Dict[str, List[str]] = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            continue
+        lines = _parse_interim_line_value(value)
+        if lines:
+            interim[key] = lines
+    return interim
+
+
+def _parse_interim_line_value(value: Any) -> List[str]:
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +355,9 @@ class PersonalityLoader:
                 data = {k: v for k, v in data.items() if k != "meta"}
             config = PersonalityConfig.from_dict(data)
         except Exception as exc:
-            logger.warning("Failed to parse personality file %s: %s, using defaults", file_path, exc)
+            logger.warning(
+                "Failed to parse personality file %s: %s, using defaults", file_path, exc
+            )
             config = PersonalityConfig()
         self._cache[name] = config
         return config
