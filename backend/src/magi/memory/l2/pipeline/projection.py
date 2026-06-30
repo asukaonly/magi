@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ....core.logger import get_logger
@@ -11,6 +12,13 @@ from ..models import L2BatchJob, L2PendingBatchBucket, build_l2_batch_bucket_key
 from ..store import L2CognitionStore
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _ProjectionBatchBuildState:
+    jobs: list[L2BatchJob] = field(default_factory=list)
+    missing_event_ids: list[str] = field(default_factory=list)
+    buckets: dict[str, L2PendingBatchBucket] = field(default_factory=dict)
 
 
 class _L2PipelineProjectionHostProtocol(Protocol):
@@ -93,9 +101,7 @@ class L2PipelineProjectionMixin:
         rows: list[dict[str, Any]],
     ) -> tuple[list[L2BatchJob], list[str]]:
         host = self._projection_host()
-        jobs: list[L2BatchJob] = []
-        missing_event_ids: list[str] = []
-        buckets: dict[str, L2PendingBatchBucket] = {}
+        state = _ProjectionBatchBuildState()
 
         for row in rows:
             event_id = str(row.get("event_id", "")).strip()
@@ -107,59 +113,74 @@ class L2PipelineProjectionMixin:
                 else None
             )
             if event is None:
-                missing_event_ids.append(event_id)
+                state.missing_event_ids.append(event_id)
                 continue
+            self._add_projection_event_to_batch_state(state, row=row, event=event)
 
-            max_events, max_estimated_tokens = host._resolve_batch_limits(event)
-            owner_key = row.get("effective_batch_owner")
-            if owner_key is None and isinstance(event.metadata_json, dict):
-                owner_key = event.metadata_json.get("l2_batch_owner")
-            if owner_key is None:
-                owner_key = row.get("batch_owner")
-            normalized_owner_key = str(owner_key) if owner_key is not None else None
-            bucket_key = build_l2_batch_bucket_key(
+        self._flush_remaining_projection_buckets(state)
+        return state.jobs, state.missing_event_ids
+
+    def _add_projection_event_to_batch_state(
+        self,
+        state: _ProjectionBatchBuildState,
+        *,
+        row: dict[str, Any],
+        event: MemoryEvent,
+    ) -> None:
+        host = self._projection_host()
+        max_events, max_estimated_tokens = host._resolve_batch_limits(event)
+        normalized_owner_key = _projection_owner_key(row, event)
+        bucket_key = build_l2_batch_bucket_key(
+            session_id=event.session_id,
+            user_id=event.user_id,
+            owner_key=normalized_owner_key,
+        )
+        if bucket_key is None:
+            state.jobs.append(self._build_direct_projection_job(event))
+            return
+
+        bucket = state.buckets.get(bucket_key)
+        if bucket is None:
+            bucket = L2PendingBatchBucket.for_owner(
                 session_id=event.session_id,
                 user_id=event.user_id,
                 owner_key=normalized_owner_key,
-            )
-            if bucket_key is None:
-                direct_job = L2BatchJob(
-                    job_id=f"projection:{event.event_id}",
-                    bucket_key=f"event:{event.event_id}",
-                    events=[host._serialize_event_for_batch(event)],
-                    flush_reason="projection_direct",
-                    estimated_tokens=host._estimate_event_tokens(event.content),
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                )
-                host._record_batch_flush(direct_job, flush_reason=direct_job.flush_reason)
-                jobs.append(direct_job)
-                continue
-
-            bucket = buckets.get(bucket_key)
-            if bucket is None:
-                bucket = L2PendingBatchBucket.for_owner(
-                    session_id=event.session_id,
-                    user_id=event.user_id,
-                    owner_key=normalized_owner_key,
-                    max_events=max_events,
-                    max_estimated_tokens=max_estimated_tokens,
-                )
-                buckets[bucket_key] = bucket
-            bucket.add_event(
-                host._serialize_event_for_batch(event),
-                estimated_tokens=host._estimate_event_tokens(event.content),
                 max_events=max_events,
                 max_estimated_tokens=max_estimated_tokens,
             )
-            flush_reason = host._flush_reason_for_bucket(bucket)
-            if flush_reason is not None:
-                jobs.append(self._build_projection_bucket_job(bucket, flush_reason=flush_reason))
-                buckets.pop(bucket_key, None)
+            state.buckets[bucket_key] = bucket
+        bucket.add_event(
+            host._serialize_event_for_batch(event),
+            estimated_tokens=host._estimate_event_tokens(event.content),
+            max_events=max_events,
+            max_estimated_tokens=max_estimated_tokens,
+        )
+        flush_reason = host._flush_reason_for_bucket(bucket)
+        if flush_reason is None:
+            return
+        state.jobs.append(self._build_projection_bucket_job(bucket, flush_reason=flush_reason))
+        state.buckets.pop(bucket_key, None)
 
-        for bucket in buckets.values():
-            jobs.append(self._build_projection_bucket_job(bucket, flush_reason="projection_ready"))
-        return jobs, missing_event_ids
+    def _build_direct_projection_job(self, event: MemoryEvent) -> L2BatchJob:
+        host = self._projection_host()
+        job = L2BatchJob(
+            job_id=f"projection:{event.event_id}",
+            bucket_key=f"event:{event.event_id}",
+            events=[host._serialize_event_for_batch(event)],
+            flush_reason="projection_direct",
+            estimated_tokens=host._estimate_event_tokens(event.content),
+            session_id=event.session_id,
+            user_id=event.user_id,
+        )
+        host._record_batch_flush(job, flush_reason=job.flush_reason)
+        return job
+
+    def _flush_remaining_projection_buckets(self, state: _ProjectionBatchBuildState) -> None:
+        for bucket in state.buckets.values():
+            state.jobs.append(
+                self._build_projection_bucket_job(bucket, flush_reason="projection_ready")
+            )
+        state.buckets.clear()
 
     def _build_projection_bucket_job(
         self,
@@ -177,6 +198,15 @@ class L2PipelineProjectionMixin:
 
     def _projection_host(self) -> _L2PipelineProjectionHostProtocol:
         return self  # type: ignore[return-value]
+
+
+def _projection_owner_key(row: dict[str, Any], event: MemoryEvent) -> str | None:
+    owner_key = row.get("effective_batch_owner")
+    if owner_key is None and isinstance(event.metadata_json, dict):
+        owner_key = event.metadata_json.get("l2_batch_owner")
+    if owner_key is None:
+        owner_key = row.get("batch_owner")
+    return str(owner_key) if owner_key is not None else None
 
 
 __all__ = ["L2PipelineProjectionMixin"]
