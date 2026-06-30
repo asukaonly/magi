@@ -40,18 +40,14 @@ class MCPManager:
     def __init__(
         self,
         registry,
-        connection_factory: Callable[
-            [MCPServerConfig], MCPConnection
-        ] = _default_factory,
+        connection_factory: Callable[[MCPServerConfig], MCPConnection] = _default_factory,
         reconnect_backoff: list[float] | None = None,
     ):
         self._registry = registry
         self._factory = connection_factory
         self._configs: dict[str, MCPServerConfig] = {}
         self._runtimes: dict[str, _ServerRuntime] = {}
-        self._reconnect_backoff = list(
-            reconnect_backoff or _DEFAULT_RECONNECT_BACKOFF
-        )
+        self._reconnect_backoff = list(reconnect_backoff or _DEFAULT_RECONNECT_BACKOFF)
 
     def add_config(self, cfg: MCPServerConfig) -> None:
         self._configs[cfg.server.id] = cfg
@@ -148,9 +144,7 @@ class MCPManager:
                 out.append({"server_id": sid, **p})
         return out
 
-    async def get_prompt(
-        self, server_id: str, name: str, arguments: dict | None = None
-    ) -> dict:
+    async def get_prompt(self, server_id: str, name: str, arguments: dict | None = None) -> dict:
         rt = self._runtimes[server_id]
         params: dict[str, Any] = {"name": name}
         if arguments:
@@ -202,22 +196,16 @@ class MCPManager:
                 override=override,
             )
             self._registry.register(cls)
-            rt.registered_tool_names.append(
-                f"mcp__{rt.cfg.server.id}__{remote['name']}"
-            )
+            rt.registered_tool_names.append(f"mcp__{rt.cfg.server.id}__{remote['name']}")
 
     async def _reconcile_resources(self, rt: _ServerRuntime) -> None:
         if "resources" not in rt.server_capabilities:
             rt.resources = []
             return
         try:
-            rt.resources = await self._list_paginated(
-                rt, "resources/list", "resources"
-            )
+            rt.resources = await self._list_paginated(rt, "resources/list", "resources")
         except Exception as exc:
-            logger.debug(
-                "resources/list failed for %s: %s", rt.cfg.server.id, exc
-            )
+            logger.debug("resources/list failed for %s: %s", rt.cfg.server.id, exc)
             rt.resources = []
 
     async def _reconcile_resource_templates(self, rt: _ServerRuntime) -> None:
@@ -243,9 +231,7 @@ class MCPManager:
         try:
             rt.prompts = await self._list_paginated(rt, "prompts/list", "prompts")
         except Exception as exc:
-            logger.debug(
-                "prompts/list failed for %s: %s", rt.cfg.server.id, exc
-            )
+            logger.debug("prompts/list failed for %s: %s", rt.cfg.server.id, exc)
             rt.prompts = []
 
     async def _list_paginated(
@@ -258,9 +244,7 @@ class MCPManager:
         items: list[dict] = []
         cursor: str | None = None
         for _ in range(_MAX_LIST_PAGES):
-            params: dict[str, Any] | None = (
-                {"cursor": cursor} if cursor is not None else None
-            )
+            params: dict[str, Any] | None = {"cursor": cursor} if cursor is not None else None
             result = await rt.conn.request(method, params, timeout=timeout)
             page = result.get(items_key)
             if page:
@@ -302,74 +286,104 @@ class MCPManager:
                 rt = self._runtimes.get(server_id)
                 if rt is None:
                     return
-                if rt.conn.state in (
-                    ConnectionState.CONNECTING,
-                    ConnectionState.CONNECTED,
-                    ConnectionState.INIT,
-                ):
+                if _connection_is_alive(rt.conn.state, ConnectionState):
                     await asyncio.sleep(0.05)
                     continue
-                logger.warning(
-                    "MCP server %s disconnected; will attempt reconnect",
-                    server_id,
-                )
-                # Unregister tools while we try to reconnect.
-                for name in rt.registered_tool_names:
-                    self._registry.unregister(name)
-                rt.registered_tool_names.clear()
-                try:
-                    await rt.conn.stop()
-                except Exception:
-                    pass
-
-                attempts = rt.cfg.runtime.max_restart_attempts
-                reconnected = False
-                for i in range(attempts):
-                    delay = self._reconnect_backoff[
-                        min(i, len(self._reconnect_backoff) - 1)
-                    ]
-                    await asyncio.sleep(delay)
-                    try:
-                        new_conn = self._factory(rt.cfg)
-                        try:
-                            await new_conn.start()
-                            if new_conn.state != ConnectionState.CONNECTED:
-                                await new_conn.stop()
-                                continue
-                            rt.conn = new_conn
-                        except BaseException:
-                            # Includes asyncio.CancelledError. Avoid leaking
-                            # the partially-started connection.
-                            try:
-                                await new_conn.stop()
-                            except Exception:
-                                pass
-                            raise
-                        await self._handshake(rt)
-                        await self._reconcile_tools(rt)
-                        await self._reconcile_resources(rt)
-                        await self._reconcile_resource_templates(rt)
-                        await self._reconcile_prompts(rt)
-                        self._wire_change_notifications(rt)
-                        rt.last_error = None
-                        reconnected = True
-                        logger.info("MCP server %s reconnected", server_id)
-                        break
-                    except Exception as exc:
-                        rt.last_error = str(exc)
-                        logger.warning(
-                            "MCP reconnect attempt %d/%d failed for %s: %s",
-                            i + 1,
-                            attempts,
-                            server_id,
-                            exc,
-                        )
-                if not reconnected:
-                    logger.error(
-                        "MCP server %s exhausted reconnect attempts; giving up",
-                        server_id,
-                    )
-                    self._runtimes.pop(server_id, None)
+                if not await self._handle_disconnected_runtime(server_id, rt, ConnectionState):
                     return
         except asyncio.CancelledError:
             return
+
+    async def _handle_disconnected_runtime(
+        self,
+        server_id: str,
+        rt: _ServerRuntime,
+        connection_state: Any,
+    ) -> bool:
+        logger.warning(
+            "MCP server %s disconnected; will attempt reconnect",
+            server_id,
+        )
+        self._unregister_runtime_tools(rt)
+        await _stop_connection_quietly(rt.conn)
+        if await self._reconnect_runtime(server_id, rt, connection_state):
+            return True
+        logger.error(
+            "MCP server %s exhausted reconnect attempts; giving up",
+            server_id,
+        )
+        self._runtimes.pop(server_id, None)
+        return False
+
+    def _unregister_runtime_tools(self, rt: _ServerRuntime) -> None:
+        for name in rt.registered_tool_names:
+            self._registry.unregister(name)
+        rt.registered_tool_names.clear()
+
+    async def _reconnect_runtime(
+        self,
+        server_id: str,
+        rt: _ServerRuntime,
+        connection_state: Any,
+    ) -> bool:
+        attempts = rt.cfg.runtime.max_restart_attempts
+        for i in range(attempts):
+            delay = self._reconnect_backoff[min(i, len(self._reconnect_backoff) - 1)]
+            await asyncio.sleep(delay)
+            try:
+                if not await self._attempt_reconnect(rt, connection_state):
+                    continue
+                rt.last_error = None
+                logger.info("MCP server %s reconnected", server_id)
+                return True
+            except Exception as exc:
+                rt.last_error = str(exc)
+                logger.warning(
+                    "MCP reconnect attempt %d/%d failed for %s: %s",
+                    i + 1,
+                    attempts,
+                    server_id,
+                    exc,
+                )
+        return False
+
+    async def _attempt_reconnect(
+        self,
+        rt: _ServerRuntime,
+        connection_state: Any,
+    ) -> bool:
+        new_conn = self._factory(rt.cfg)
+        try:
+            await new_conn.start()
+            if new_conn.state != connection_state.CONNECTED:
+                await new_conn.stop()
+                return False
+            rt.conn = new_conn
+        except BaseException:
+            await _stop_connection_quietly(new_conn)
+            raise
+        await self._refresh_runtime_bindings(rt)
+        return True
+
+    async def _refresh_runtime_bindings(self, rt: _ServerRuntime) -> None:
+        await self._handshake(rt)
+        await self._reconcile_tools(rt)
+        await self._reconcile_resources(rt)
+        await self._reconcile_resource_templates(rt)
+        await self._reconcile_prompts(rt)
+        self._wire_change_notifications(rt)
+
+
+def _connection_is_alive(state: Any, connection_state: Any) -> bool:
+    return state in (
+        connection_state.CONNECTING,
+        connection_state.CONNECTED,
+        connection_state.INIT,
+    )
+
+
+async def _stop_connection_quietly(conn: MCPConnection) -> None:
+    try:
+        await conn.stop()
+    except Exception:
+        pass
