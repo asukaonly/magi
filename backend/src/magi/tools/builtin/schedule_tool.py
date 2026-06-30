@@ -161,61 +161,19 @@ class ScheduleTool(Tool):
         actor = self._actor_context(context)
         try:
             if action == "list":
-                schedules = await service.list_schedules(
-                    include_disabled=bool(parameters.get("include_disabled", False)),
-                    include_system=bool(parameters.get("include_system", True)),
-                )
-                return ToolResult(success=True, data={"schedules": schedules})
-
+                return await self._execute_list(parameters, service)
             if action == "get":
-                schedule_id = str(parameters.get("schedule_id") or parameters.get("id") or "").strip()
-                if not schedule_id:
-                    raise ScheduleManagementError("schedule_id is required")
-                schedule = await service.get_schedule(schedule_id)
-                if schedule is None:
-                    raise ScheduleManagementError("schedule not found")
-                return ToolResult(success=True, data={"schedule": schedule})
-
+                return await self._execute_get(parameters, service)
             if action == "add":
-                raw_schedule = parameters.get("schedule")
-                if _is_missing_object(raw_schedule):
-                    raw_schedule = _recover_schedule_from_flat_params(dict(parameters))
-                if not isinstance(raw_schedule, dict):
-                    raise ScheduleManagementError("schedule is required")
-                schedule = await service.create_user_agent_task_schedule(raw_schedule, actor)
-                return ToolResult(success=True, data={"schedule": schedule})
-
+                return await self._execute_add(parameters, service, actor)
             if action == "update":
-                schedule_id = str(parameters.get("schedule_id") or parameters.get("id") or "").strip()
-                if not schedule_id:
-                    raise ScheduleManagementError("schedule_id is required")
-                patch = parameters.get("patch")
-                if _is_missing_object(patch):
-                    patch = _recover_schedule_from_flat_params(dict(parameters))
-                if not isinstance(patch, dict):
-                    raise ScheduleManagementError("patch is required")
-                schedule = await service.update_user_schedule(schedule_id, patch, actor)
-                return ToolResult(success=True, data={"schedule": schedule})
-
+                return await self._execute_update(parameters, service, actor)
             if action == "remove":
-                schedule_id = str(parameters.get("schedule_id") or parameters.get("id") or "").strip()
-                if not schedule_id:
-                    raise ScheduleManagementError("schedule_id is required")
-                removed = await service.remove_user_schedule(schedule_id)
-                return ToolResult(success=True, data=removed)
-
+                return await self._execute_remove(parameters, service)
             if action == "run":
-                schedule_id = str(parameters.get("schedule_id") or parameters.get("id") or "").strip()
-                if not schedule_id:
-                    raise ScheduleManagementError("schedule_id is required")
-                result = await service.run_user_schedule(schedule_id)
-                return ToolResult(success=True, data=result)
-
+                return await self._execute_run(parameters, service)
             if action == "activity":
-                schedule_id = str(parameters.get("schedule_id") or parameters.get("id") or "").strip() or None
-                limit = int(parameters.get("limit") or 20)
-                return ToolResult(success=True, data=await service.list_activity(schedule_id=schedule_id, limit=limit))
-
+                return await self._execute_activity(parameters, service)
             return ToolResult(
                 success=False,
                 error=f"Unsupported schedule action: {action}",
@@ -227,6 +185,99 @@ class ScheduleTool(Tool):
             return ToolResult(success=False, error=str(exc), error_code=ToolErrorCode.INVALID_PARAMETERS.value)
         except Exception as exc:
             return ToolResult(success=False, error=str(exc), error_code=ToolErrorCode.EXECUTION_ERROR.value)
+
+    async def _execute_list(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+    ) -> ToolResult:
+        schedules = await service.list_schedules(
+            include_disabled=bool(parameters.get("include_disabled", False)),
+            include_system=bool(parameters.get("include_system", True)),
+        )
+        return ToolResult(success=True, data={"schedules": schedules})
+
+    async def _execute_get(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+    ) -> ToolResult:
+        schedule = await service.get_schedule(self._required_schedule_id(parameters))
+        if schedule is None:
+            raise ScheduleManagementError("schedule not found")
+        return ToolResult(success=True, data={"schedule": schedule})
+
+    async def _execute_add(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+        actor: ScheduleActorContext,
+    ) -> ToolResult:
+        raw_schedule = self._object_payload(parameters, key="schedule")
+        if not isinstance(raw_schedule, dict):
+            raise ScheduleManagementError("schedule is required")
+        schedule = await service.create_user_agent_task_schedule(raw_schedule, actor)
+        return ToolResult(success=True, data={"schedule": schedule})
+
+    async def _execute_update(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+        actor: ScheduleActorContext,
+    ) -> ToolResult:
+        patch = self._object_payload(parameters, key="patch")
+        if not isinstance(patch, dict):
+            raise ScheduleManagementError("patch is required")
+        schedule = await service.update_user_schedule(
+            self._required_schedule_id(parameters),
+            patch,
+            actor,
+        )
+        return ToolResult(success=True, data={"schedule": schedule})
+
+    async def _execute_remove(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+    ) -> ToolResult:
+        removed = await service.remove_user_schedule(self._required_schedule_id(parameters))
+        return ToolResult(success=True, data=removed)
+
+    async def _execute_run(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+    ) -> ToolResult:
+        result = await service.run_user_schedule(self._required_schedule_id(parameters))
+        return ToolResult(success=True, data=result)
+
+    async def _execute_activity(
+        self,
+        parameters: Dict[str, Any],
+        service: ScheduleManagementService,
+    ) -> ToolResult:
+        schedule_id = self._schedule_id(parameters) or None
+        limit = int(parameters.get("limit") or 20)
+        activity = await service.list_activity(schedule_id=schedule_id, limit=limit)
+        return ToolResult(success=True, data=activity)
+
+    @staticmethod
+    def _required_schedule_id(parameters: Dict[str, Any]) -> str:
+        schedule_id = ScheduleTool._schedule_id(parameters)
+        if not schedule_id:
+            raise ScheduleManagementError("schedule_id is required")
+        return schedule_id
+
+    @staticmethod
+    def _schedule_id(parameters: Dict[str, Any]) -> str:
+        return str(parameters.get("schedule_id") or parameters.get("id") or "").strip()
+
+    @staticmethod
+    def _object_payload(parameters: Dict[str, Any], *, key: str) -> Any:
+        value = parameters.get(key)
+        if _is_missing_object(value):
+            return _recover_schedule_from_flat_params(dict(parameters))
+        return value
 
     def is_ready(self) -> bool:
         try:
