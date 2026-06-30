@@ -33,6 +33,15 @@ class _ChannelDependencies:
     trace_store: Any
 
 
+@dataclass(frozen=True)
+class _ChannelStartup:
+    registry: Any
+    session_mapper: Any
+    binding_settings_store: Any
+    cp_wiring: Any
+    plugin_channel_count: int
+
+
 def _plugin_channel_instances(plugin_manager: Any) -> list[Any]:
     channel_instances = []
     for plugin in plugin_manager.iter_loaded_plugins():
@@ -189,17 +198,28 @@ class ChannelsModule(LifecycleModule):
         self._context.channels.module = None
 
     async def _start_channels(self) -> None:
-        from .registry import ChannelRegistry
-
         deps = self._channel_dependencies()
         channel_instances = _plugin_channel_instances(deps.plugin_manager)
-        channels_db_path = _channels_db_path(deps.runtime_paths)
+        startup = await self._prepare_channel_startup(
+            deps=deps,
+            channel_instances=channel_instances,
+        )
+        await startup.registry.start_all()
+        self._activate_channel_runtime(startup)
+        control_fanout_wired = await self._wire_control_fanout_if_available(startup)
 
-        # Phase G+1: chat_sse must register even in solo deployments
-        # (no plugin channels) — the chat UI depends on the runtime_trace
-        # rows that ``ChatSseChannel.deliver`` writes. So we proceed
-        # unconditionally and only set up the plugin-binding facades when
-        # there are plugin channels that need them.
+        self._log_channels_started(
+            plugin_channel_count=startup.plugin_channel_count,
+            control_fanout_wired=control_fanout_wired,
+        )
+
+    async def _prepare_channel_startup(
+        self,
+        *,
+        deps: _ChannelDependencies,
+        channel_instances: list[Any],
+    ) -> _ChannelStartup:
+        channels_db_path = _channels_db_path(deps.runtime_paths)
         session_mapper = await self._create_session_mapper(
             db_path=channels_db_path,
             session_provisioner=deps.session_provisioner,
@@ -207,33 +227,58 @@ class ChannelsModule(LifecycleModule):
         self._receipts_store = await self._create_receipts_store(channels_db_path)
         binding_settings_store = await self._create_binding_settings_store(channels_db_path)
         self._binding_settings_store = binding_settings_store
-
         cp_wiring = self._control_plane_wiring()
-        message_dispatcher = self._message_dispatcher(
-            cp_wiring=cp_wiring,
+        registry = self._build_channel_registry(
+            deps=deps,
+            channel_instances=channel_instances,
             session_mapper=session_mapper,
-        )
-        control_port = self._control_port(
             cp_wiring=cp_wiring,
-            session_mapper=session_mapper,
         )
+        return _ChannelStartup(
+            registry=registry,
+            session_mapper=session_mapper,
+            binding_settings_store=binding_settings_store,
+            cp_wiring=cp_wiring,
+            plugin_channel_count=len(channel_instances),
+        )
+
+    def _build_channel_registry(
+        self,
+        *,
+        deps: _ChannelDependencies,
+        channel_instances: list[Any],
+        session_mapper: Any,
+        cp_wiring: Any,
+    ):
+        from .registry import ChannelRegistry
+
         registry = ChannelRegistry()
         self._register_plugin_channels(
             registry=registry,
             channel_instances=channel_instances,
             session_mapper=session_mapper,
-            message_dispatcher=message_dispatcher,
+            message_dispatcher=self._message_dispatcher(
+                cp_wiring=cp_wiring,
+                session_mapper=session_mapper,
+            ),
             attachment_store=deps.attachment_store,
-            control_port=control_port,
+            control_port=self._control_port(
+                cp_wiring=cp_wiring,
+                session_mapper=session_mapper,
+            ),
         )
+        # chat_sse must register even when no plugin channels are loaded.
         self._register_chat_sse(registry=registry, trace_store=deps.trace_store)
+        return registry
 
-        await registry.start_all()
+    def _activate_channel_runtime(self, startup: _ChannelStartup) -> None:
+        self._registry = startup.registry
+        self._session_mapper = startup.session_mapper
+        self._chat_delivery_dispatcher = self._create_chat_delivery_dispatcher(
+            startup.registry
+        )
 
-        self._registry = registry
-        self._session_mapper = session_mapper
-        self._chat_delivery_dispatcher = self._create_chat_delivery_dispatcher(registry)
-
+    async def _wire_control_fanout_if_available(self, startup: _ChannelStartup) -> bool:
         # Close the late-binding loop for control fanout:
         #   1) prompter.bind_fanout_callback — outbound side; fans
         #      out the permission prompt to every channel that opted
@@ -251,19 +296,27 @@ class ChannelsModule(LifecycleModule):
         # Defensive: cp_wiring may be None in test bootstraps that
         # skip control_plane — every hook silently no-ops in that
         # case.
-        if cp_wiring is not None:
-            await self._wire_control_fanout(
-                registry=registry,
-                session_mapper=session_mapper,
-                binding_settings_store=binding_settings_store,
-                cp_wiring=cp_wiring,
-            )
+        if startup.cp_wiring is None:
+            return False
+        await self._wire_control_fanout(
+            registry=startup.registry,
+            session_mapper=startup.session_mapper,
+            binding_settings_store=startup.binding_settings_store,
+            cp_wiring=startup.cp_wiring,
+        )
+        return True
 
+    def _log_channels_started(
+        self,
+        *,
+        plugin_channel_count: int,
+        control_fanout_wired: bool,
+    ) -> None:
         logger.info(
             "Channels module started",
-            plugin_channel_count=len(channel_instances),
+            plugin_channel_count=plugin_channel_count,
             chat_sse_registered=True,
-            control_fanout_wired=cp_wiring is not None,
+            control_fanout_wired=control_fanout_wired,
         )
 
     def _channel_dependencies(self) -> _ChannelDependencies:
