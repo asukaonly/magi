@@ -245,54 +245,21 @@ def _resolve_image_generation_model(
     max_n: int = 1,
     native_protocol: str = "custom",
 ) -> LLMResolvedImageGenerationModelMetaModel:
-    resolved_capabilities = _apply_capability_overrides(
-        capabilities,
-        override.capabilities if override is not None else None,
-    )
-    resolved_capabilities.image_output = True
-    resolved_capabilities.embedding = False
+    resolved_capabilities = _image_generation_capabilities(capabilities, override)
     resolved_limits = _apply_limit_overrides(
         limits,
         override.limits if override is not None else None,
     )
-    input_modalities, output_modalities = _default_image_generation_modalities(
-        resolved_capabilities
-    )
     return LLMResolvedImageGenerationModelMetaModel(
-        id=model_id,
-        label=(override.label if override is not None and override.label else label or model_id),
-        description=override.description if override is not None else None,
-        icon=override.icon if override is not None else None,
-        source=source,
-        hidden=(
-            bool(override.hidden) if override is not None and override.hidden is not None else False
-        ),
-        preferred=(
-            bool(override.preferred)
-            if override is not None and override.preferred is not None
-            else False
-        ),
-        capabilities=resolved_capabilities,
-        limits=resolved_limits,
-        cost=(
-            override.cost.model_copy(deep=True)
-            if override is not None and override.cost is not None
-            else cost.model_copy(deep=True) if cost is not None else None
-        ),
-        input_modalities=(
-            list(override.input_modalities)
-            if override is not None and override.input_modalities is not None
-            else input_modalities
-        ),
-        output_modalities=(
-            list(override.output_modalities)
-            if override is not None and override.output_modalities is not None
-            else output_modalities
-        ),
-        provider_options_example=(
-            dict(override.provider_options_example)
-            if override is not None and override.provider_options_example is not None
-            else dict(provider_options_example)
+        **_image_generation_base_payload(
+            model_id=model_id,
+            source=source,
+            label=label,
+            capabilities=resolved_capabilities,
+            limits=resolved_limits,
+            cost=cost,
+            provider_options_example=provider_options_example,
+            override=override,
         ),
         supported_sizes=list(supported_sizes or []),
         supported_qualities=list(supported_qualities or []),
@@ -302,6 +269,89 @@ def _resolve_image_generation_model(
         max_n=max(1, int(max_n or 1)),
         native_protocol=str(native_protocol or "custom"),
     )
+
+
+def _image_generation_capabilities(
+    capabilities: LLMCapabilitiesSettings,
+    override: Optional[LLMModelMetadataOverrideSettings],
+) -> LLMCapabilitiesSettings:
+    resolved_capabilities = _apply_capability_overrides(
+        capabilities,
+        override.capabilities if override is not None else None,
+    )
+    resolved_capabilities.image_output = True
+    resolved_capabilities.embedding = False
+    return resolved_capabilities
+
+
+def _image_generation_base_payload(
+    *,
+    model_id: str,
+    source: str,
+    label: Optional[str],
+    capabilities: LLMCapabilitiesSettings,
+    limits: LLMLimitsSettings,
+    cost: Optional[LLMModelCostModel],
+    provider_options_example: Dict[str, Any],
+    override: Optional[LLMModelMetadataOverrideSettings],
+) -> dict[str, Any]:
+    input_modalities, output_modalities = _default_image_generation_modalities(
+        capabilities
+    )
+    return {
+        "id": model_id,
+        "label": (override.label if override is not None and override.label else label or model_id),
+        "description": override.description if override is not None else None,
+        "icon": override.icon if override is not None else None,
+        "source": source,
+        "hidden": (
+            bool(override.hidden) if override is not None and override.hidden is not None else False
+        ),
+        "preferred": (
+            bool(override.preferred)
+            if override is not None and override.preferred is not None
+            else False
+        ),
+        "capabilities": capabilities,
+        "limits": limits,
+        "cost": (
+            override.cost.model_copy(deep=True)
+            if override is not None and override.cost is not None
+            else cost.model_copy(deep=True) if cost is not None else None
+        ),
+        **_image_generation_io_payload(
+            input_modalities=input_modalities,
+            output_modalities=output_modalities,
+            provider_options_example=provider_options_example,
+            override=override,
+        ),
+    }
+
+
+def _image_generation_io_payload(
+    *,
+    input_modalities: list[str],
+    output_modalities: list[str],
+    provider_options_example: Dict[str, Any],
+    override: Optional[LLMModelMetadataOverrideSettings],
+) -> dict[str, Any]:
+    return {
+        "input_modalities": (
+            list(override.input_modalities)
+            if override is not None and override.input_modalities is not None
+            else input_modalities
+        ),
+        "output_modalities": (
+            list(override.output_modalities)
+            if override is not None and override.output_modalities is not None
+            else output_modalities
+        ),
+        "provider_options_example": (
+            dict(override.provider_options_example)
+            if override is not None and override.provider_options_example is not None
+            else dict(provider_options_example)
+        ),
+    }
 
 
 def find_provider_meta(
