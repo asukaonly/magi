@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from ....event_contracts import MemoryEvent
@@ -18,6 +19,20 @@ from .structured_hint_common import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class _StructuredGraphHintShape:
+    hint: StructuredGraphHint
+    object_type: str
+    predicate: str
+    fact_kind: str
+
+
+@dataclass(frozen=True, slots=True)
+class _StructuredGraphHintEndpoints:
+    subject_id: str
+    object_id: str
+
+
 class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
     """Convert source-owned structured graph hints into deterministic candidates."""
 
@@ -32,97 +47,185 @@ class L2StructuredGraphHintMixin(L2StructuredHintHostMixin):
         classification: EvidenceClassification | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """Convert source-owned structured graph hints into deterministic graph candidates."""
-        if not policy.allow_graph_write or not profile.allow_graph or policy.graph_scope != "full":
+        if not self._allows_structured_graph_candidates(profile=profile, policy=policy):
             return [], 0
 
-        metadata_json = event.metadata_json
-        if not isinstance(metadata_json, dict):
-            return [], 0
-        raw_hints = metadata_json.get("structured_graph_hints")
-        if not isinstance(raw_hints, list) or not raw_hints:
+        raw_hints = self._structured_graph_hint_payloads(event)
+        if not raw_hints:
             return [], 0
 
-        host = self._structured_hint_host()
         prepared: list[dict[str, Any]] = []
         rejected_count = 0
         for raw_hint in raw_hints:
             if not isinstance(raw_hint, dict):
                 continue
-            hint = StructuredGraphHint.from_dict(raw_hint)
-            object_type = host._normalize_entity_type(hint.object_type)
-            predicate = host._normalize_predicate(hint.predicate)
-            fact_kind = host._non_empty_text(hint.fact_kind) or "explicit_fact"
-            if not object_type or not predicate:
-                rejected_count += 1
-                continue
-            if fact_kind not in _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS:
-                rejected_count += 1
-                continue
-            if not self._is_structured_graph_hint_directly_admissible(
-                hint=hint,
-                predicate=predicate,
-                fact_kind=fact_kind,
-            ):
-                rejected_count += 1
-                continue
-            if object_type not in profile.effective_structured_allowed_entity_types:
-                rejected_count += 1
-                continue
-            if predicate not in profile.effective_structured_allowed_predicates:
-                rejected_count += 1
-                continue
-            is_valid, _ = validate_graph_candidate(
-                {"predicate": predicate, "object_type": object_type}
-            )
-            if not is_valid:
-                rejected_count += 1
-                continue
-
-            subject_id = host._resolve_phase2_subject_id(event=event, subject_ref=hint.subject_ref)
-            if not subject_id:
-                rejected_count += 1
-                continue
-            object_id = host._resolve_phase2_object_id(
-                raw_object_ref=hint.object_ref,
-                object_type=object_type,
-                resolved_mentions=[],
-                catalog_name_index=catalog_name_index,
-            )
-            if not object_id:
-                rejected_count += 1
-                continue
-            if host._should_reject_preference_graph_candidate(
+            candidate = self._build_structured_graph_candidate(
+                raw_hint=raw_hint,
                 event=event,
-                subject_id=subject_id,
-                predicate=predicate,
-                object_id=object_id,
-                object_type=object_type,
-                raw_object_ref=hint.object_ref,
-            ):
+                profile=profile,
+                evidence_event_ids=evidence_event_ids,
+                catalog_name_index=catalog_name_index,
+                classification=classification,
+            )
+            if candidate is None:
                 rejected_count += 1
                 continue
-
-            prepared.append(
-                {
-                    "subject_id": subject_id,
-                    "subject_type": host._non_empty_text(hint.subject_type) or "user",
-                    "predicate": predicate,
-                    "object_id": object_id,
-                    "object_type": object_type,
-                    "fact_kind": fact_kind,
-                    "evidence_event_ids": normalize_event_ids(
-                        evidence_event_ids or [event.event_id]
-                    ),
-                    "confidence": float(hint.confidence if hint.confidence is not None else 1.0),
-                    "observed_at": event.timestamp,
-                    "source_type": event.source,
-                    "extraction_method": "structured_hint",
-                    "evidence_class": (
-                        classification.evidence_class if classification is not None else None
-                    ),
-                }
-            )
+            prepared.append(candidate)
         return prepared, rejected_count
+
+    @staticmethod
+    def _allows_structured_graph_candidates(*, profile: ExtractionProfile, policy: Any) -> bool:
+        return bool(
+            policy.allow_graph_write and profile.allow_graph and policy.graph_scope == "full"
+        )
+
+    @staticmethod
+    def _structured_graph_hint_payloads(event: MemoryEvent) -> list[Any]:
+        metadata_json = event.metadata_json
+        if not isinstance(metadata_json, dict):
+            return []
+        raw_hints = metadata_json.get("structured_graph_hints")
+        if not isinstance(raw_hints, list):
+            return []
+        return raw_hints
+
+    def _build_structured_graph_candidate(
+        self,
+        *,
+        raw_hint: dict[str, Any],
+        event: MemoryEvent,
+        profile: ExtractionProfile,
+        evidence_event_ids: list[str],
+        catalog_name_index: dict[str, str] | None,
+        classification: EvidenceClassification | None,
+    ) -> dict[str, Any] | None:
+        hint = StructuredGraphHint.from_dict(raw_hint)
+        shape = self._structured_graph_hint_shape(hint=hint, profile=profile)
+        if shape is None:
+            return None
+        endpoints = self._structured_graph_hint_endpoints(
+            event=event,
+            shape=shape,
+            catalog_name_index=catalog_name_index,
+        )
+        if endpoints is None:
+            return None
+        if self._should_reject_structured_graph_hint(
+            event=event,
+            shape=shape,
+            endpoints=endpoints,
+        ):
+            return None
+        return self._structured_graph_candidate_payload(
+            event=event,
+            shape=shape,
+            endpoints=endpoints,
+            evidence_event_ids=evidence_event_ids,
+            classification=classification,
+        )
+
+    def _structured_graph_hint_shape(
+        self,
+        *,
+        hint: StructuredGraphHint,
+        profile: ExtractionProfile,
+    ) -> _StructuredGraphHintShape | None:
+        host = self._structured_hint_host()
+        object_type = host._normalize_entity_type(hint.object_type)
+        predicate = host._normalize_predicate(hint.predicate)
+        fact_kind = host._non_empty_text(hint.fact_kind) or "explicit_fact"
+        if not object_type or not predicate:
+            return None
+        if fact_kind not in _STRUCTURED_GRAPH_HINT_DIRECT_FACT_KINDS:
+            return None
+        if not self._is_structured_graph_hint_directly_admissible(
+            hint=hint,
+            predicate=predicate,
+            fact_kind=fact_kind,
+        ):
+            return None
+        if object_type not in profile.effective_structured_allowed_entity_types:
+            return None
+        if predicate not in profile.effective_structured_allowed_predicates:
+            return None
+        is_valid, _ = validate_graph_candidate({"predicate": predicate, "object_type": object_type})
+        if not is_valid:
+            return None
+        return _StructuredGraphHintShape(
+            hint=hint,
+            object_type=object_type,
+            predicate=predicate,
+            fact_kind=fact_kind,
+        )
+
+    def _structured_graph_hint_endpoints(
+        self,
+        *,
+        event: MemoryEvent,
+        shape: _StructuredGraphHintShape,
+        catalog_name_index: dict[str, str] | None,
+    ) -> _StructuredGraphHintEndpoints | None:
+        host = self._structured_hint_host()
+        subject_id = host._resolve_phase2_subject_id(
+            event=event,
+            subject_ref=shape.hint.subject_ref,
+        )
+        if not subject_id:
+            return None
+        object_id = host._resolve_phase2_object_id(
+            raw_object_ref=shape.hint.object_ref,
+            object_type=shape.object_type,
+            resolved_mentions=[],
+            catalog_name_index=catalog_name_index,
+        )
+        if not object_id:
+            return None
+        return _StructuredGraphHintEndpoints(subject_id=subject_id, object_id=object_id)
+
+    def _should_reject_structured_graph_hint(
+        self,
+        *,
+        event: MemoryEvent,
+        shape: _StructuredGraphHintShape,
+        endpoints: _StructuredGraphHintEndpoints,
+    ) -> bool:
+        return self._structured_hint_host()._should_reject_preference_graph_candidate(
+            event=event,
+            subject_id=endpoints.subject_id,
+            predicate=shape.predicate,
+            object_id=endpoints.object_id,
+            object_type=shape.object_type,
+            raw_object_ref=shape.hint.object_ref,
+        )
+
+    def _structured_graph_candidate_payload(
+        self,
+        *,
+        event: MemoryEvent,
+        shape: _StructuredGraphHintShape,
+        endpoints: _StructuredGraphHintEndpoints,
+        evidence_event_ids: list[str],
+        classification: EvidenceClassification | None,
+    ) -> dict[str, Any]:
+        host = self._structured_hint_host()
+        return {
+            "subject_id": endpoints.subject_id,
+            "subject_type": host._non_empty_text(shape.hint.subject_type) or "user",
+            "predicate": shape.predicate,
+            "object_id": endpoints.object_id,
+            "object_type": shape.object_type,
+            "fact_kind": shape.fact_kind,
+            "evidence_event_ids": normalize_event_ids(evidence_event_ids or [event.event_id]),
+            "confidence": float(
+                shape.hint.confidence if shape.hint.confidence is not None else 1.0
+            ),
+            "observed_at": event.timestamp,
+            "source_type": event.source,
+            "extraction_method": "structured_hint",
+            "evidence_class": (
+                classification.evidence_class if classification is not None else None
+            ),
+        }
 
     def _is_structured_graph_hint_directly_admissible(
         self,
