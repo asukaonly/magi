@@ -47,6 +47,14 @@ class SensorProjection:
         )
 
 
+@dataclass(slots=True, frozen=True)
+class _SensorProjectionText:
+    title: str
+    summary: str
+    content: str
+    embedding_head: str
+
+
 def build_sensor_projection(
     sensor: SensorBase,
     output: SensorOutput,
@@ -54,7 +62,29 @@ def build_sensor_projection(
 ) -> SensorProjection:
     """Render canonical display and embedding projections for one sensor output."""
     _validate_output_contract(output)
+    text = _build_projection_text(sensor=sensor, output=output)
+    projection_metadata = _build_projection_metadata(
+        sensor=sensor,
+        output=output,
+        metadata=metadata,
+        embedding_head=text.embedding_head,
+        summary=text.summary,
+    )
 
+    return SensorProjection(
+        title=text.title,
+        summary=text.summary,
+        content=text.content,
+        embedding_head=text.embedding_head,
+        metadata=projection_metadata,
+    )
+
+
+def _build_projection_text(
+    *,
+    sensor: SensorBase,
+    output: SensorOutput,
+) -> _SensorProjectionText:
     display_prefix = _join_with_space(
         _display_label(sensor, output.activity.source),
         _display_label(sensor, output.activity.action),
@@ -65,7 +95,9 @@ def build_sensor_projection(
     )
 
     narration_title = str(output.narration.title or "").strip()
-    narration_body = _normalize_body(output, display_prefix=display_prefix, embedding_head=embedding_head)
+    narration_body = _normalize_body(
+        output, display_prefix=display_prefix, embedding_head=embedding_head
+    )
     presentation = output.timeline_presentation
 
     full_title = _compose_title(
@@ -81,7 +113,6 @@ def build_sensor_projection(
 
     title = full_title
     summary = full_content
-    content = full_content
     if presentation.mode in {"compact", "evidence_only"}:
         presentation_title = presentation.title or narration_title
         title = _compose_title(
@@ -89,17 +120,29 @@ def build_sensor_projection(
             event_title=presentation_title,
             fallback=full_title,
         )
-        presentation_summary_body = (
-            presentation.summary
-            or presentation.title
-            or narration_title
-        )
+        presentation_summary_body = presentation.summary or presentation.title or narration_title
         summary = _compose_summary(
             display_prefix=display_prefix,
             body=presentation_summary_body or "",
             fallback_title=title,
         )
 
+    return _SensorProjectionText(
+        title=title,
+        summary=summary,
+        content=full_content,
+        embedding_head=embedding_head,
+    )
+
+
+def _build_projection_metadata(
+    *,
+    sensor: SensorBase,
+    output: SensorOutput,
+    metadata: SensorOutputMetadata | None,
+    embedding_head: str,
+    summary: str,
+) -> dict[str, Any]:
     projection_metadata: dict[str, Any] = {
         "plugin_id": sensor.plugin_id,
         "sensor_id": sensor.sensor_id,
@@ -117,6 +160,7 @@ def build_sensor_projection(
         projection_metadata["activity"]["qualifiers"] = dict(output.activity.qualifiers)
     if embedding_head and embedding_head != summary:
         projection_metadata["projection"]["embedding_head"] = embedding_head
+    presentation = output.timeline_presentation
     if presentation.mode != "full":
         projection_metadata["projection"]["timeline_presentation"] = {
             "mode": presentation.mode,
@@ -131,29 +175,27 @@ def build_sensor_projection(
     if retrieval_terms:
         projection_metadata["projection"]["retrieval_terms"] = retrieval_terms
 
-    return SensorProjection(
-        title=title,
-        summary=summary,
-        content=content,
-        embedding_head=embedding_head,
-        metadata=projection_metadata,
-    )
+    return projection_metadata
 
 
 def _validate_output_contract(output: SensorOutput) -> None:
-    for facet_name, facet in (("source", output.activity.source), ("action", output.activity.action)):
+    for facet_name, facet in (
+        ("source", output.activity.source),
+        ("action", output.activity.action),
+    ):
         if not str(facet.code or "").strip():
             raise ValueError(f"Sensor activity facet '{facet_name}' must define a non-empty code")
         if not str(facet.i18n_key or "").strip():
-            raise ValueError(f"Sensor activity facet '{facet_name}' must define a non-empty i18n_key")
+            raise ValueError(
+                f"Sensor activity facet '{facet_name}' must define a non-empty i18n_key"
+            )
     if output.activity.object is not None:
         if not str(output.activity.object.code or "").strip():
             raise ValueError("Sensor activity object facet must define a non-empty code")
         if not str(output.activity.object.i18n_key or "").strip():
             raise ValueError("Sensor activity object facet must define a non-empty i18n_key")
     if not str(output.narration.body or "").strip() and not any(
-        block.kind == "text" and str(block.value or "").strip()
-        for block in output.content_blocks
+        block.kind == "text" and str(block.value or "").strip() for block in output.content_blocks
     ):
         raise ValueError("Sensor narration must define a non-empty body or text content block")
 
@@ -182,7 +224,7 @@ def _normalize_body(
         ).strip()
     for duplicate_prefix in (display_prefix, embedding_head):
         if duplicate_prefix and body.startswith(duplicate_prefix):
-            body = body[len(duplicate_prefix):].strip()
+            body = body[len(duplicate_prefix) :].strip()
     return body
 
 
