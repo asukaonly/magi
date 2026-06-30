@@ -51,6 +51,96 @@ class WebFetchTool(MultiProviderTool):
         ] = {}
         super().__init__()
 
+    def _parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="url",
+                type=ParameterType.STRING,
+                description="The webpage URL to fetch (must start with http:// or https://)",
+                required=True,
+            ),
+            ToolParameter(
+                name="mode",
+                type=ParameterType.STRING,
+                description="Fetch mode: auto/http/browser/curl",
+                required=False,
+                default="auto",
+                enum=["auto", "http", "browser", "curl"],
+            ),
+            ToolParameter(
+                name="output_format",
+                type=ParameterType.STRING,
+                description="Output format: markdown/text/html",
+                required=False,
+                default="markdown",
+                enum=["markdown", "text", "html"],
+            ),
+            ToolParameter(
+                name="wait_until",
+                type=ParameterType.STRING,
+                description="Browser wait strategy when mode uses browser",
+                required=False,
+                default="networkidle",
+                enum=["domcontentloaded", "load", "networkidle"],
+            ),
+            ToolParameter(
+                name="timeout_ms",
+                type=ParameterType.INTEGER,
+                description="Timeout in milliseconds",
+                required=False,
+                default=15000,
+                min_value=1000,
+                max_value=120000,
+            ),
+            ToolParameter(
+                name="max_chars",
+                type=ParameterType.INTEGER,
+                description="Maximum characters returned in content",
+                required=False,
+                default=20000,
+                min_value=1000,
+                max_value=200000,
+            ),
+            ToolParameter(
+                name="include_metadata",
+                type=ParameterType.BOOLEAN,
+                description="Whether to include metadata fields in result",
+                required=False,
+                default=True,
+            ),
+        ]
+
+    def _examples(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "input": {"url": "https://example.com"},
+                "output": "Returns page main content in markdown",
+            },
+            {
+                "input": {
+                    "url": "https://news.ycombinator.com",
+                    "mode": "browser",
+                },
+                "output": "Returns browser-rendered page content",
+            },
+        ]
+
+    def _metadata(self) -> dict[str, Any]:
+        return {
+            "task_intents": ["research_external", "verify_external_claim"],
+            "domains": ["web"],
+            "operations": ["fetch", "verify"],
+            "query_shapes": ["exact_url"],
+            "followed_by": [],
+            "avoid_task_intents": ["explore_codebase", "clarify_requirement"],
+            "requires_known_target": True,
+            "cost": "medium",
+            "tool_hint": (
+                "Use after web-search has identified candidate URLs and only "
+                "when you need full-page details, verification, or source text."
+            ),
+        }
+
     def _init_schema(self) -> None:
         self.schema = ToolSchema(
             name="web-fetch",
@@ -62,88 +152,13 @@ class WebFetchTool(MultiProviderTool):
             category="web",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="url",
-                    type=ParameterType.STRING,
-                    description="The webpage URL to fetch (must start with http:// or https://)",
-                    required=True,
-                ),
-                ToolParameter(
-                    name="mode",
-                    type=ParameterType.STRING,
-                    description="Fetch mode: auto/http/browser/curl",
-                    required=False,
-                    default="auto",
-                    enum=["auto", "http", "browser", "curl"],
-                ),
-                ToolParameter(
-                    name="output_format",
-                    type=ParameterType.STRING,
-                    description="Output format: markdown/text/html",
-                    required=False,
-                    default="markdown",
-                    enum=["markdown", "text", "html"],
-                ),
-                ToolParameter(
-                    name="wait_until",
-                    type=ParameterType.STRING,
-                    description="Browser wait strategy when mode uses browser",
-                    required=False,
-                    default="networkidle",
-                    enum=["domcontentloaded", "load", "networkidle"],
-                ),
-                ToolParameter(
-                    name="timeout_ms",
-                    type=ParameterType.INTEGER,
-                    description="Timeout in milliseconds",
-                    required=False,
-                    default=15000,
-                    min_value=1000,
-                    max_value=120000,
-                ),
-                ToolParameter(
-                    name="max_chars",
-                    type=ParameterType.INTEGER,
-                    description="Maximum characters returned in content",
-                    required=False,
-                    default=20000,
-                    min_value=1000,
-                    max_value=200000,
-                ),
-                ToolParameter(
-                    name="include_metadata",
-                    type=ParameterType.BOOLEAN,
-                    description="Whether to include metadata fields in result",
-                    required=False,
-                    default=True,
-                ),
-            ],
-            examples=[
-                {
-                    "input": {"url": "https://example.com"},
-                    "output": "Returns page main content in markdown",
-                },
-                {
-                    "input": {"url": "https://news.ycombinator.com", "mode": "browser"},
-                    "output": "Returns browser-rendered page content",
-                },
-            ],
+            parameters=self._parameters(),
+            examples=self._examples(),
             timeout=60,
             retry_on_failure=False,
             dangerous=False,
             tags=["web", "fetch", "scrape", "content"],
-            metadata={
-                "task_intents": ["research_external", "verify_external_claim"],
-                "domains": ["web"],
-                "operations": ["fetch", "verify"],
-                "query_shapes": ["exact_url"],
-                "followed_by": [],
-                "avoid_task_intents": ["explore_codebase", "clarify_requirement"],
-                "requires_known_target": True,
-                "cost": "medium",
-                "tool_hint": "Use after web-search has identified candidate URLs and only when you need full-page details, verification, or source text.",
-            },
+            metadata=self._metadata(),
         )
 
     def _register_providers(self) -> None:
