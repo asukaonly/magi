@@ -21,7 +21,10 @@ class _L2EpisodeStoreProtocol(Protocol):
 
 class _L3SummaryStoreProtocol(Protocol):
     async def upsert_candidate(
-        self, *, candidate: L3Candidate, summary_overrides: dict | None = None,
+        self,
+        *,
+        candidate: L3Candidate,
+        summary_overrides: dict | None = None,
     ) -> dict: ...
 
 
@@ -31,8 +34,13 @@ class _L1EventStoreProtocol(Protocol):
 
 class _DiaryLLMClientProtocol(Protocol):
     async def generate(
-        self, *, scale: str, period_start: float, period_end: float,
-        episodes: Iterable[dict], place_hints: Iterable[str] = (),
+        self,
+        *,
+        scale: str,
+        period_start: float,
+        period_end: float,
+        episodes: Iterable[dict],
+        place_hints: Iterable[str] = (),
         excerpts_by_episode: dict[str, list[str]] | None = None,
     ) -> DiaryNarrativeOutput: ...
 
@@ -86,11 +94,9 @@ class DiaryNarrativeOrchestrator:
         insight_key: str,
         place_hints: Iterable[str] = (),
     ) -> OrchestratorResult:
-        episodes = await self._l2_store.list_episodes(
-            statuses=["active", "candidate"],
-            time_start=period_start,
-            time_end=period_end,
-            limit=200,
+        episodes = await self._list_window_episodes(
+            period_start=period_start,
+            period_end=period_end,
         )
 
         if not episodes:
@@ -100,58 +106,121 @@ class DiaryNarrativeOrchestrator:
                 period_start=period_start,
                 period_end=period_end,
             )
-            return OrchestratorResult(
+            return self._result(
                 period_start=period_start,
                 period_end=period_end,
                 scale=scale,
                 episode_count=0,
-                essence_prose_chars=0,
-                slices_written=0,
             )
 
-        excerpts_by_episode = await self._collect_excerpts(episodes)
-
-        output = await self._llm_client.generate(
+        output = await self._generate_diary_output(
             scale=scale,
             period_start=period_start,
             period_end=period_end,
             episodes=episodes,
             place_hints=place_hints,
-            excerpts_by_episode=excerpts_by_episode,
         )
 
-        # If the LLM call failed or returned empty content, be a no-op.
         if not output.essence_prose and not output.slices:
             logger.warning(
                 "Diary generation produced empty output (LLM unavailable or invalid JSON)",
-                scale=scale, period_start=period_start, period_end=period_end,
+                scale=scale,
+                period_start=period_start,
+                period_end=period_end,
                 episode_count=len(episodes),
             )
-            return OrchestratorResult(
-                period_start=period_start, period_end=period_end, scale=scale,
-                episode_count=len(episodes), essence_prose_chars=0, slices_written=0,
+            return self._result(
+                period_start=period_start,
+                period_end=period_end,
+                scale=scale,
+                episode_count=len(episodes),
             )
 
-        # Write essence to L3 (only if non-empty)
-        if output.essence_prose:
-            candidate = L3Candidate(
-                summary_type="temporal",
-                summary_category=scale,
-                content=output.essence_prose,
-                source_event_ids=[],
-                insight_key=insight_key,
-            )
-            await self._l3_store.upsert_candidate(
-                candidate=candidate,
-                summary_overrides={
-                    "narrative_style": output.narrative_style or "diary_2p",
-                    "essence_prose": output.essence_prose,
-                    "period_start": period_start,
-                    "period_end": period_end,
-                },
-            )
+        await self._write_period_essence(
+            output=output,
+            scale=scale,
+            period_start=period_start,
+            period_end=period_end,
+            insight_key=insight_key,
+        )
+        slices_written = await self._write_episode_slices(
+            episodes=episodes,
+            output=output,
+        )
+        return self._result(
+            period_start=period_start,
+            period_end=period_end,
+            scale=scale,
+            episode_count=len(episodes),
+            essence_prose_chars=len(output.essence_prose),
+            slices_written=slices_written,
+        )
 
-        # Write each slice to its episode
+    async def _list_window_episodes(
+        self,
+        *,
+        period_start: float,
+        period_end: float,
+    ) -> list[dict]:
+        return await self._l2_store.list_episodes(
+            statuses=["active", "candidate"],
+            time_start=period_start,
+            time_end=period_end,
+            limit=200,
+        )
+
+    async def _generate_diary_output(
+        self,
+        *,
+        scale: str,
+        period_start: float,
+        period_end: float,
+        episodes: list[dict],
+        place_hints: Iterable[str],
+    ) -> DiaryNarrativeOutput:
+        return await self._llm_client.generate(
+            scale=scale,
+            period_start=period_start,
+            period_end=period_end,
+            episodes=episodes,
+            place_hints=place_hints,
+            excerpts_by_episode=await self._collect_excerpts(episodes),
+        )
+
+    async def _write_period_essence(
+        self,
+        *,
+        output: DiaryNarrativeOutput,
+        scale: str,
+        period_start: float,
+        period_end: float,
+        insight_key: str,
+    ) -> None:
+        if not output.essence_prose:
+            return
+        candidate = L3Candidate(
+            summary_type="temporal",
+            summary_category=scale,
+            content=output.essence_prose,
+            source_event_ids=[],
+            insight_key=insight_key,
+        )
+        await self._l3_store.upsert_candidate(
+            candidate=candidate,
+            summary_overrides={
+                "narrative_style": output.narrative_style or "diary_2p",
+                "essence_prose": output.essence_prose,
+                "period_start": period_start,
+                "period_end": period_end,
+            },
+        )
+
+    async def _write_episode_slices(
+        self,
+        *,
+        episodes: list[dict],
+        output: DiaryNarrativeOutput,
+    ) -> int:
         slices_written = 0
         valid_episode_ids = {ep["episode_id"] for ep in episodes}
         for slice_ in output.slices:
@@ -169,18 +238,30 @@ class DiaryNarrativeOrchestrator:
                 slice_sensory_detail=slice_.slice_sensory_detail or "",
             )
             slices_written += 1
+        return slices_written
 
+    @staticmethod
+    def _result(
+        *,
+        period_start: float,
+        period_end: float,
+        scale: str,
+        episode_count: int,
+        essence_prose_chars: int = 0,
+        slices_written: int = 0,
+    ) -> OrchestratorResult:
         return OrchestratorResult(
             period_start=period_start,
             period_end=period_end,
             scale=scale,
-            episode_count=len(episodes),
-            essence_prose_chars=len(output.essence_prose),
+            episode_count=episode_count,
+            essence_prose_chars=essence_prose_chars,
             slices_written=slices_written,
         )
 
     async def _collect_excerpts(
-        self, episodes: list[dict],
+        self,
+        episodes: list[dict],
     ) -> dict[str, list[str]]:
         """For each episode, fetch L1 events in its window and pack to excerpts.
 
