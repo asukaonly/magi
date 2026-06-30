@@ -72,16 +72,30 @@ def _build_custom_openapi(app: FastAPI):
 
 def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     """Create the FastAPI transport app."""
+    _configure_transport_logging()
+    app = _new_transport_app(lifespan=lifespan)
+    app.openapi = _build_custom_openapi(app)
+
+    _add_transport_middleware(app)
+    register_api_routes(app)
+    _register_health_routes(app)
+    _register_docs_routes(app)
+    _mount_avatar_static(app)
+    return app
+
+
+def _configure_transport_logging() -> None:
     runtime_paths = get_runtime_paths()
     log_file = runtime_paths.logs_dir / "magi.log"
-
     configure_logging(
         level="INFO",
         log_file=str(log_file),
         json_logs=False,
     )
 
-    app = FastAPI(
+
+def _new_transport_app(*, lifespan: Any = None) -> FastAPI:
+    return FastAPI(
         title="Magi AI Agent Framework API",
         description="AI Agent Framework RESTful API",
         version="1.0.0",
@@ -90,14 +104,14 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    app.openapi = _build_custom_openapi(app)
 
+def _add_transport_middleware(app: FastAPI) -> None:
     app.add_middleware(ErrorHandler)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(LanguageContextMiddleware)
 
-    register_api_routes(app)
 
+def _register_health_routes(app: FastAPI) -> None:
     @app.get("/api/health", tags=["Health"])
     async def health_check():
         runtime_status = await get_runtime_system_status(app)
@@ -130,7 +144,8 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "success": True,
             "message": "Backend startup state",
             "data": {
-                "ready": runtime_status["runtime_ready"] and runtime_status["queue_backlog_healthy"],
+                "ready": runtime_status["runtime_ready"]
+                and runtime_status["queue_backlog_healthy"],
                 "status": runtime_status["status"],
                 "runtime_ready": runtime_status["runtime_ready"],
                 "worker_ready": runtime_status["worker_ready"],
@@ -151,6 +166,8 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
             "data": {"scheduled": True},
         }
 
+
+def _register_docs_routes(app: FastAPI) -> None:
     @app.get("/api/docs", include_in_schema=False)
     async def custom_swagger_ui_html():
         return get_swagger_ui_html(
@@ -162,6 +179,8 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
     async def get_openapi_endpoint():
         return app.openapi()
 
+
+def _mount_avatar_static(app: FastAPI) -> None:
     avatar_dir = builtin_avatar_dir()
     if avatar_dir.exists():
         app.mount("/static/avatars", StaticFiles(directory=str(avatar_dir)), name="avatars")
@@ -169,7 +188,7 @@ def create_transport_app(*, lifespan: Any = None) -> FastAPI:
 
     custom_avatar_dir = user_avatar_dir()
     custom_avatar_dir.mkdir(parents=True, exist_ok=True)
-    app.mount("/static/user-avatars", StaticFiles(directory=str(custom_avatar_dir)), name="user-avatars")
+    app.mount(
+        "/static/user-avatars", StaticFiles(directory=str(custom_avatar_dir)), name="user-avatars"
+    )
     logger.info(f"User avatar static files mounted: {custom_avatar_dir}")
-
-    return app
