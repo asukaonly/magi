@@ -1,6 +1,7 @@
 """
 Grep tool - Search file contents using regex patterns
 """
+
 import asyncio
 import base64
 import fnmatch
@@ -10,12 +11,21 @@ import platform
 import re
 import shutil
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
 from magi.utils.packaged_paths import get_repo_root
 
-from ..schema import Tool, ToolSchema, ToolExecutionContext, ToolResult, ToolParameter, ParameterType, ToolErrorCode
+from ..schema import (
+    Tool,
+    ToolSchema,
+    ToolExecutionContext,
+    ToolResult,
+    ToolParameter,
+    ParameterType,
+    ToolErrorCode,
+)
 from ..utils.path_utils import (
     DEFAULT_EXCLUDE_PATTERNS,
     matches_exclude_path,
@@ -23,8 +33,33 @@ from ..utils.path_utils import (
     resolve_path_from_workspace,
 )
 
-
 _RIPGREP_TIMEOUT_SECONDS = 30
+
+
+@dataclass(frozen=True)
+class _GrepRequest:
+    pattern: str
+    search_path: str
+    file_pattern: str
+    ignore_case: bool
+    recursive: bool
+    max_results: int
+    context_lines: int
+    exclude_patterns: list[str]
+
+
+@dataclass(frozen=True)
+class _RipgrepPlan:
+    argv: list[str]
+    run_cwd: str | None
+
+
+@dataclass
+class _RipgrepMatchState:
+    matches: list[dict[str, Any]] = field(default_factory=list)
+    matched_files: set[str] = field(default_factory=set)
+    files_searched: int = 0
+    truncated: bool = False
 
 
 def _ripgrep_executable_name() -> str:
@@ -175,11 +210,17 @@ def _search_file_python(
                     start = max(0, index - context_lines)
                     end = min(len(lines), index + context_lines + 1)
                     context_before = [
-                        {"line_number": line_index + 1, "content": _strip_line_end(lines[line_index])}
+                        {
+                            "line_number": line_index + 1,
+                            "content": _strip_line_end(lines[line_index]),
+                        }
                         for line_index in range(start, index)
                     ]
                     context_after = [
-                        {"line_number": line_index + 1, "content": _strip_line_end(lines[line_index])}
+                        {
+                            "line_number": line_index + 1,
+                            "content": _strip_line_end(lines[line_index]),
+                        }
                         for line_index in range(index + 1, end)
                     ]
 
@@ -231,6 +272,127 @@ def _attach_context_lines(matches: list[dict[str, Any]], context_lines: int) -> 
             ]
 
 
+def _grep_core_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="pattern",
+            type=ParameterType.STRING,
+            description="Regex pattern to search for",
+            required=True,
+        ),
+        ToolParameter(
+            name="path",
+            type=ParameterType.STRING,
+            description="Directory or file path to search in",
+            required=False,
+            default=".",
+        ),
+        ToolParameter(
+            name="glob",
+            type=ParameterType.STRING,
+            description="File pattern to match (e.g., *.py, *.ts)",
+            required=False,
+            default="*",
+        ),
+        ToolParameter(
+            name="ignore_case",
+            type=ParameterType.BOOLEAN,
+            description="Case insensitive search",
+            required=False,
+            default=False,
+        ),
+        ToolParameter(
+            name="recursive",
+            type=ParameterType.BOOLEAN,
+            description="Search recursively in subdirectories",
+            required=False,
+            default=True,
+        ),
+    ]
+
+
+def _grep_scope_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="max_results",
+            type=ParameterType.INTEGER,
+            description="Maximum number of matches to return",
+            required=False,
+            default=100,
+            min_value=1,
+            max_value=1000,
+        ),
+        ToolParameter(
+            name="context_lines",
+            type=ParameterType.INTEGER,
+            description="Number of context lines before and after match",
+            required=False,
+            default=0,
+            min_value=0,
+            max_value=10,
+        ),
+        ToolParameter(
+            name="exclude",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.STRING,
+            description="Path patterns to exclude from traversal",
+            required=False,
+            default=list(DEFAULT_EXCLUDE_PATTERNS),
+        ),
+        ToolParameter(
+            name="outside_workspace_allowed",
+            type=ParameterType.BOOLEAN,
+            description=(
+                "Set to true ONLY when the user has explicitly asked to search "
+                "a path outside the active workspace (e.g. another repository, "
+                "an absolute system path, or a sibling directory). Defaults to "
+                "false; the worker guardrail will reject out-of-workspace "
+                "searches without this flag."
+            ),
+            required=False,
+            default=False,
+        ),
+    ]
+
+
+def _grep_parameters() -> list[ToolParameter]:
+    return [*_grep_core_parameters(), *_grep_scope_parameters()]
+
+
+def _grep_examples() -> list[dict[str, Any]]:
+    return [
+        {
+            "input": {"pattern": "TODO", "path": "/src"},
+            "output": "Find all TODO comments in /src",
+        },
+        {
+            "input": {"pattern": "def \\w+", "glob": "*.py", "ignore_case": False},
+            "output": "Find all function definitions in Python files",
+        },
+    ]
+
+
+def _grep_metadata() -> dict[str, Any]:
+    return {
+        "task_intents": [
+            "explore_codebase",
+            "trace_implementation",
+            "verify_source_claim",
+        ],
+        "domains": ["codebase"],
+        "operations": ["narrow", "verify"],
+        "query_shapes": ["symbol_or_literal", "regex"],
+        "followed_by": ["file_read"],
+        "avoid_task_intents": [
+            "research_external",
+            "clarify_requirement",
+            "recall_context",
+        ],
+        "cost": "cheap",
+        "tool_hint": "Use after narrowing scope to find symbols, strings, routes, flags, or config keys before confirming them in file_read.",
+    }
+
+
 class GrepTool(Tool):
     """
     Grep tool
@@ -246,186 +408,50 @@ class GrepTool(Tool):
             category="file",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="pattern",
-                    type=ParameterType.STRING,
-                    description="Regex pattern to search for",
-                    required=True,
-                ),
-                ToolParameter(
-                    name="path",
-                    type=ParameterType.STRING,
-                    description="Directory or file path to search in",
-                    required=False,
-                    default=".",
-                ),
-                ToolParameter(
-                    name="glob",
-                    type=ParameterType.STRING,
-                    description="File pattern to match (e.g., *.py, *.ts)",
-                    required=False,
-                    default="*",
-                ),
-                ToolParameter(
-                    name="ignore_case",
-                    type=ParameterType.BOOLEAN,
-                    description="Case insensitive search",
-                    required=False,
-                    default=False,
-                ),
-                ToolParameter(
-                    name="recursive",
-                    type=ParameterType.BOOLEAN,
-                    description="Search recursively in subdirectories",
-                    required=False,
-                    default=True,
-                ),
-                ToolParameter(
-                    name="max_results",
-                    type=ParameterType.INTEGER,
-                    description="Maximum number of matches to return",
-                    required=False,
-                    default=100,
-                    min_value=1,
-                    max_value=1000,
-                ),
-                ToolParameter(
-                    name="context_lines",
-                    type=ParameterType.INTEGER,
-                    description="Number of context lines before and after match",
-                    required=False,
-                    default=0,
-                    min_value=0,
-                    max_value=10,
-                ),
-                ToolParameter(
-                    name="exclude",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description="Path patterns to exclude from traversal",
-                    required=False,
-                    default=list(DEFAULT_EXCLUDE_PATTERNS),
-                ),
-                ToolParameter(
-                    name="outside_workspace_allowed",
-                    type=ParameterType.BOOLEAN,
-                    description=(
-                        "Set to true ONLY when the user has explicitly asked to search "
-                        "a path outside the active workspace (e.g. another repository, "
-                        "an absolute system path, or a sibling directory). Defaults to "
-                        "false; the worker guardrail will reject out-of-workspace "
-                        "searches without this flag."
-                    ),
-                    required=False,
-                    default=False,
-                ),
-            ],
-            examples=[
-                {
-                    "input": {"pattern": "TODO", "path": "/src"},
-                    "output": "Find all TODO comments in /src",
-                },
-                {
-                    "input": {"pattern": "def \\w+", "glob": "*.py", "ignore_case": False},
-                    "output": "Find all function definitions in Python files",
-                },
-            ],
+            parameters=_grep_parameters(),
+            examples=_grep_examples(),
             timeout=30,
             retry_on_failure=False,
             dangerous=False,
             tags=["file", "search", "regex", "grep"],
-            metadata={
-                "task_intents": ["explore_codebase", "trace_implementation", "verify_source_claim"],
-                "domains": ["codebase"],
-                "operations": ["narrow", "verify"],
-                "query_shapes": ["symbol_or_literal", "regex"],
-                "followed_by": ["file_read"],
-                "avoid_task_intents": ["research_external", "clarify_requirement", "recall_context"],
-                "cost": "cheap",
-                "tool_hint": "Use after narrowing scope to find symbols, strings, routes, flags, or config keys before confirming them in file_read.",
-            },
+            metadata=_grep_metadata(),
         )
 
     async def execute(
-        self,
-        parameters: Dict[str, Any],
-        context: ToolExecutionContext
+        self, parameters: Dict[str, Any], context: ToolExecutionContext
     ) -> ToolResult:
         """Execute grep search"""
-        pattern = parameters["pattern"]
-        search_path = resolve_path_from_workspace(
-            parameters.get("path", "."),
-            workspace=context.workspace,
-            default=".",
-        )
-        file_pattern = parameters.get("glob", "*")
-        ignore_case = parameters.get("ignore_case", False)
-        recursive = parameters.get("recursive", True)
-        max_results = parameters.get("max_results", 100)
-        context_lines = parameters.get("context_lines", 0)
-        exclude_patterns = normalize_exclude_patterns(parameters.get("exclude"))
+        request = self._build_grep_request(parameters, context)
 
         try:
-            # Validate path exists
-            if not os.path.exists(search_path):
+            if not os.path.exists(request.search_path):
                 return ToolResult(
                     success=False,
-                    error=f"Path not found: {search_path}",
-                    error_code=ToolErrorCode.PATH_NOT_FOUND.value
+                    error=f"Path not found: {request.search_path}",
+                    error_code=ToolErrorCode.PATH_NOT_FOUND.value,
                 )
 
-            # Compile regex pattern
-            flags = re.IGNORECASE if ignore_case else 0
-            try:
-                regex = re.compile(pattern, flags)
-            except re.error as e:
-                return ToolResult(
-                    success=False,
-                    error=f"Invalid regex pattern: {str(e)}",
-                    error_code=ToolErrorCode.INVALID_PARAMETERS.value
-                )
+            regex = self._compile_regex(request)
+            if isinstance(regex, ToolResult):
+                return regex
 
-            # Walk directory or search single file
-            if os.path.isfile(search_path):
-                relative_path = os.path.basename(search_path)
-                if matches_exclude_path(relative_path, exclude_patterns):
-                    return ToolResult(
-                        success=True,
-                        data=_build_result_data(
-                            pattern=pattern,
-                            search_path=search_path,
-                            file_pattern=file_pattern,
-                            exclude_patterns=exclude_patterns,
-                            matches=[],
-                            files_searched=0,
-                            max_results=max_results,
-                            engine="python",
-                        ),
-                    )
+            excluded_file_result = self._build_excluded_file_result(request)
+            if excluded_file_result is not None:
+                return excluded_file_result
 
-            ripgrep_result = await self._try_ripgrep_search(
-                pattern=pattern,
-                search_path=search_path,
-                file_pattern=file_pattern,
-                ignore_case=ignore_case,
-                recursive=recursive,
-                max_results=max_results,
-                context_lines=context_lines,
-                exclude_patterns=exclude_patterns,
-            )
+            ripgrep_result = await self._try_ripgrep_search(request)
             if ripgrep_result is not None:
                 return ToolResult(success=True, data=ripgrep_result)
 
             result_data = self._search_with_python(
-                pattern=pattern,
-                search_path=search_path,
-                file_pattern=file_pattern,
+                pattern=request.pattern,
+                search_path=request.search_path,
+                file_pattern=request.file_pattern,
                 regex=regex,
-                recursive=recursive,
-                max_results=max_results,
-                context_lines=context_lines,
-                exclude_patterns=exclude_patterns,
+                recursive=request.recursive,
+                max_results=request.max_results,
+                context_lines=request.context_lines,
+                exclude_patterns=request.exclude_patterns,
             )
 
             return ToolResult(
@@ -436,32 +462,117 @@ class GrepTool(Tool):
         except PermissionError:
             return ToolResult(
                 success=False,
-                error=f"Permission denied accessing: {search_path}",
-                error_code=ToolErrorCode.PERMISSION_DENIED.value
+                error=f"Permission denied accessing: {request.search_path}",
+                error_code=ToolErrorCode.PERMISSION_DENIED.value,
             )
         except Exception as e:
             return ToolResult(
-                success=False,
-                error=str(e),
-                error_code=ToolErrorCode.EXECUTION_ERROR.value
+                success=False, error=str(e), error_code=ToolErrorCode.EXECUTION_ERROR.value
             )
+
+    @staticmethod
+    def _build_grep_request(
+        parameters: Dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> _GrepRequest:
+        return _GrepRequest(
+            pattern=parameters["pattern"],
+            search_path=resolve_path_from_workspace(
+                parameters.get("path", "."),
+                workspace=context.workspace,
+                default=".",
+            ),
+            file_pattern=parameters.get("glob", "*"),
+            ignore_case=parameters.get("ignore_case", False),
+            recursive=parameters.get("recursive", True),
+            max_results=parameters.get("max_results", 100),
+            context_lines=parameters.get("context_lines", 0),
+            exclude_patterns=normalize_exclude_patterns(parameters.get("exclude")),
+        )
+
+    @staticmethod
+    def _compile_regex(request: _GrepRequest) -> re.Pattern[str] | ToolResult:
+        flags = re.IGNORECASE if request.ignore_case else 0
+        try:
+            return re.compile(request.pattern, flags)
+        except re.error as exc:
+            return ToolResult(
+                success=False,
+                error=f"Invalid regex pattern: {str(exc)}",
+                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+            )
+
+    @staticmethod
+    def _build_excluded_file_result(request: _GrepRequest) -> ToolResult | None:
+        if not os.path.isfile(request.search_path):
+            return None
+        relative_path = os.path.basename(request.search_path)
+        if not matches_exclude_path(relative_path, request.exclude_patterns):
+            return None
+        return ToolResult(
+            success=True,
+            data=_build_result_data(
+                pattern=request.pattern,
+                search_path=request.search_path,
+                file_pattern=request.file_pattern,
+                exclude_patterns=request.exclude_patterns,
+                matches=[],
+                files_searched=0,
+                max_results=request.max_results,
+                engine="python",
+            ),
+        )
 
     async def _try_ripgrep_search(
         self,
-        *,
-        pattern: str,
-        search_path: str,
-        file_pattern: str,
-        ignore_case: bool,
-        recursive: bool,
-        max_results: int,
-        context_lines: int,
-        exclude_patterns: list[str],
+        request: _GrepRequest,
     ) -> dict[str, Any] | None:
         executable = _resolve_ripgrep_executable()
         if executable is None:
             return None
 
+        plan = self._build_ripgrep_plan(executable, request)
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *plan.argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=plan.run_cwd,
+            )
+        except (FileNotFoundError, OSError):
+            return None
+
+        assert process.stdout is not None
+        stderr_task = asyncio.create_task(
+            process.stderr.read() if process.stderr else _empty_bytes()
+        )
+
+        try:
+            state = await self._collect_ripgrep_matches(
+                process=process,
+                stderr_task=stderr_task,
+                run_cwd=plan.run_cwd,
+                max_results=request.max_results,
+            )
+            if state is None:
+                return None
+
+            await self._wait_for_ripgrep_exit(process)
+            stderr = await stderr_task
+            if self._ripgrep_failed(process, stderr, state.truncated):
+                return None
+
+            return self._build_ripgrep_result(request, state)
+        except Exception:  # noqa: BLE001 - fall back to Python search on rg surprises
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
+            await _drain_bytes_task(stderr_task)
+            return None
+
+    @staticmethod
+    def _build_ripgrep_plan(executable: str, request: _GrepRequest) -> _RipgrepPlan:
         argv = [
             executable,
             "--json",
@@ -471,127 +582,152 @@ class GrepTool(Tool):
             "never",
             "--no-ignore",
         ]
-        if ignore_case:
+        if request.ignore_case:
             argv.append("--ignore-case")
-        search_is_dir = os.path.isdir(search_path)
-        # When searching a directory, run ripgrep with cwd=search_path and a
-        # relative "." target so path-bearing globs (e.g. "src/**/*.py") anchor
-        # to the search root. Passing an absolute search path makes ripgrep match
-        # globs against the full absolute path, so a relative glob never hits.
+
+        search_is_dir = os.path.isdir(request.search_path)
         run_cwd: str | None = None
-        if not recursive and search_is_dir:
+        if not request.recursive and search_is_dir:
             argv.extend(["--max-depth", "1"])
         if search_is_dir:
-            argv.extend(_ripgrep_glob_args(file_pattern, exclude_patterns))
-            run_cwd = search_path
-            argv.extend([pattern, "."])
+            argv.extend(_ripgrep_glob_args(request.file_pattern, request.exclude_patterns))
+            run_cwd = request.search_path
+            argv.extend([request.pattern, "."])
         else:
-            argv.extend([pattern, search_path])
+            argv.extend([request.pattern, request.search_path])
+        return _RipgrepPlan(argv=argv, run_cwd=run_cwd)
 
-        matches: list[dict[str, Any]] = []
-        matched_files: set[str] = set()
-        files_searched = 0
-        truncated = False
+    async def _collect_ripgrep_matches(
+        self,
+        *,
+        process: Any,
+        stderr_task: asyncio.Task[bytes],
+        run_cwd: str | None,
+        max_results: int,
+    ) -> _RipgrepMatchState | None:
+        state = _RipgrepMatchState()
+        while True:
+            raw_line = await self._read_ripgrep_line(process, stderr_task)
+            if raw_line is None:
+                return None
+            if not raw_line:
+                return state
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=run_cwd,
-            )
-        except (FileNotFoundError, OSError):
-            return None
-
-        assert process.stdout is not None
-        stderr_task = asyncio.create_task(process.stderr.read() if process.stderr else _empty_bytes())
-
-        try:
-            while True:
-                try:
-                    raw_line = await asyncio.wait_for(
-                        process.stdout.readline(),
-                        timeout=_RIPGREP_TIMEOUT_SECONDS,
-                    )
-                except asyncio.TimeoutError:
-                    process.kill()
-                    await process.wait()
-                    await _drain_bytes_task(stderr_task)
-                    return None
-
-                if not raw_line:
-                    break
-
-                try:
-                    message = json.loads(raw_line.decode("utf-8", errors="replace"))
-                except json.JSONDecodeError:
-                    continue
-
-                message_type = message.get("type")
-                data = message.get("data") if isinstance(message.get("data"), dict) else {}
-                if message_type == "begin":
-                    files_searched += 1
-                    continue
-                if message_type != "match":
-                    continue
-
-                path_text = _json_text(data.get("path"))
-                line_text = _strip_line_end(_json_text(data.get("lines")))
-                line_number = int(data.get("line_number") or 0)
-                if not path_text or line_number <= 0:
-                    continue
-                # ripgrep emits paths relative to run_cwd when set; resolve them
-                # back to absolute so callers always receive absolute file paths.
-                if run_cwd is not None and not os.path.isabs(path_text):
-                    path_text = os.path.join(run_cwd, path_text)
-                normalized_path = os.path.normpath(path_text)
-                matched_files.add(normalized_path)
-                matches.append(
-                    {
-                        "file": normalized_path,
-                        "line_number": line_number,
-                        "content": line_text,
-                        "context_before": [],
-                        "context_after": [],
-                    }
-                )
-
-                if len(matches) >= max_results:
-                    truncated = True
-                    process.terminate()
-                    break
-
-            try:
-                await asyncio.wait_for(process.wait(), timeout=2)
-            except asyncio.TimeoutError:
-                process.kill()
-                await process.wait()
-
-            stderr = await stderr_task
-            if process.returncode not in (0, 1) and not truncated:
-                error_text = stderr.decode("utf-8", errors="replace").strip()
-                if error_text:
-                    return None
-
-            _attach_context_lines(matches, context_lines)
-            result_data = _build_result_data(
-                pattern=pattern,
-                search_path=search_path,
-                file_pattern=file_pattern,
-                exclude_patterns=exclude_patterns,
-                matches=matches,
-                files_searched=files_searched or len(matched_files),
+            message = self._decode_ripgrep_message(raw_line)
+            if message is None:
+                continue
+            should_stop = self._apply_ripgrep_message(
+                message=message,
+                state=state,
+                run_cwd=run_cwd,
                 max_results=max_results,
-                engine="ripgrep",
             )
-            result_data["truncated"] = truncated or result_data["truncated"]
-            return result_data
-        except Exception:  # noqa: BLE001 - fall back to Python search on rg surprises
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
+            if should_stop:
+                process.terminate()
+                return state
+
+    @staticmethod
+    async def _read_ripgrep_line(
+        process: Any,
+        stderr_task: asyncio.Task[bytes],
+    ) -> bytes | None:
+        try:
+            return await asyncio.wait_for(
+                process.stdout.readline(),
+                timeout=_RIPGREP_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
             await _drain_bytes_task(stderr_task)
             return None
+
+    @staticmethod
+    def _decode_ripgrep_message(raw_line: bytes) -> dict[str, Any] | None:
+        try:
+            message = json.loads(raw_line.decode("utf-8", errors="replace"))
+        except json.JSONDecodeError:
+            return None
+        return message if isinstance(message, dict) else None
+
+    def _apply_ripgrep_message(
+        self,
+        *,
+        message: dict[str, Any],
+        state: _RipgrepMatchState,
+        run_cwd: str | None,
+        max_results: int,
+    ) -> bool:
+        message_type = message.get("type")
+        if message_type == "begin":
+            state.files_searched += 1
+            return False
+        if message_type != "match":
+            return False
+
+        match = self._project_ripgrep_match(message, run_cwd)
+        if match is None:
+            return False
+        state.matches.append(match)
+        state.matched_files.add(str(match["file"]))
+        if len(state.matches) < max_results:
+            return False
+        state.truncated = True
+        return True
+
+    @staticmethod
+    def _project_ripgrep_match(
+        message: dict[str, Any],
+        run_cwd: str | None,
+    ) -> dict[str, Any] | None:
+        data = message.get("data") if isinstance(message.get("data"), dict) else {}
+        path_text = _json_text(data.get("path"))
+        line_text = _strip_line_end(_json_text(data.get("lines")))
+        line_number = int(data.get("line_number") or 0)
+        if not path_text or line_number <= 0:
+            return None
+        if run_cwd is not None and not os.path.isabs(path_text):
+            path_text = os.path.join(run_cwd, path_text)
+        return {
+            "file": os.path.normpath(path_text),
+            "line_number": line_number,
+            "content": line_text,
+            "context_before": [],
+            "context_after": [],
+        }
+
+    @staticmethod
+    async def _wait_for_ripgrep_exit(process: Any) -> None:
+        try:
+            await asyncio.wait_for(process.wait(), timeout=2)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+
+    @staticmethod
+    def _ripgrep_failed(process: Any, stderr: bytes, truncated: bool) -> bool:
+        if process.returncode in (0, 1) or truncated:
+            return False
+        return bool(stderr.decode("utf-8", errors="replace").strip())
+
+    @staticmethod
+    def _build_ripgrep_result(
+        request: _GrepRequest,
+        state: _RipgrepMatchState,
+    ) -> dict[str, Any]:
+        _attach_context_lines(state.matches, request.context_lines)
+        result_data = _build_result_data(
+            pattern=request.pattern,
+            search_path=request.search_path,
+            file_pattern=request.file_pattern,
+            exclude_patterns=request.exclude_patterns,
+            matches=state.matches,
+            files_searched=state.files_searched or len(state.matched_files),
+            max_results=request.max_results,
+            engine="ripgrep",
+        )
+        result_data["truncated"] = state.truncated or result_data["truncated"]
+        return result_data
 
     def _search_with_python(
         self,
