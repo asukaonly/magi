@@ -10,6 +10,7 @@ from magi.config.models import AppConfig
 from magi.i18n import language_context
 from magi.tools.builtin.weather_tool import WeatherTool
 from magi.tools.providers.weather.open_meteo import OpenMeteoProvider
+from magi.tools.providers.weather.qweather import QWeatherProvider
 from magi.tools.schema import ToolExecutionContext
 
 
@@ -160,3 +161,94 @@ async def test_weather_tool_uses_current_language_when_lang_is_omitted(monkeypat
     assert result.success is True
     assert captured["provider_name"] == "openmeteo"
     assert captured["params"]["lang"] == "zh"
+
+
+@pytest.mark.asyncio
+async def test_qweather_forecast_maps_daily_items(monkeypatch):
+    calls: list[tuple[str, dict, dict | None]] = []
+
+    class FakeResponse:
+        status = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def json(self):
+            return {
+                "code": "200",
+                "daily": [
+                    {
+                        "fxDate": "2026-06-30",
+                        "sunrise": "05:00",
+                        "sunset": "19:00",
+                        "tempMax": "31",
+                        "tempMin": "24",
+                        "textDay": "Sunny",
+                        "textNight": "Cloudy",
+                        "iconDay": "100",
+                        "iconNight": "104",
+                        "windDirDay": "NE",
+                        "windScaleDay": "3",
+                        "windSpeedDay": "16",
+                        "windDirNight": "E",
+                        "windScaleNight": "2",
+                        "windSpeedNight": "9",
+                        "humidity": "65",
+                        "precip": "0.0",
+                        "pressure": "1005",
+                        "vis": "10",
+                        "cloud": "20",
+                        "uvIndex": "7",
+                        "moonPhase": "Waxing",
+                        "moonPhaseIcon": "801",
+                    },
+                    {"fxDate": "2026-07-01", "tempMax": "32"},
+                ],
+            }
+
+        async def text(self):
+            return ""
+
+    class FakeSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        def get(self, url, *, headers=None, params=None, proxy=None):
+            calls.append((url, dict(params or {}), headers))
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "magi.tools.providers.weather.qweather.aiohttp.ClientSession",
+        FakeSession,
+    )
+
+    forecast = await QWeatherProvider()._query_forecast(
+        location_id="101010100",
+        api_key="key",
+        api_host="devapi.qweather.com",
+        lang="en",
+        days=1,
+        auth_headers={"X-QW-Api-Key": "key"},
+    )
+
+    assert len(forecast) == 1
+    assert forecast[0]["date"] == "2026-06-30"
+    assert forecast[0]["temp_max"] == "31"
+    assert forecast[0]["condition_night"] == "Cloudy"
+    assert forecast[0]["moon_phase_icon"] == "801"
+    assert calls == [
+        (
+            "https://devapi.qweather.com/v7/weather/7d",
+            {"location": "101010100", "lang": "en"},
+            {"X-QW-Api-Key": "key"},
+        )
+    ]

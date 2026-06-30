@@ -3,6 +3,7 @@ QWeather Provider
 
 Query weather using QWeather (和风天气) API.
 """
+
 import aiohttp
 from typing import Dict, Any, Optional
 from urllib.parse import urlparse
@@ -12,6 +13,34 @@ import json
 from ..base import Provider, ProviderConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _forecast_item(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "date": item.get("fxDate"),
+        "sunrise": item.get("sunrise"),
+        "sunset": item.get("sunset"),
+        "temp_max": item.get("tempMax"),
+        "temp_min": item.get("tempMin"),
+        "condition_day": item.get("textDay"),
+        "condition_night": item.get("textNight"),
+        "icon_day": item.get("iconDay"),
+        "icon_night": item.get("iconNight"),
+        "wind_dir_day": item.get("windDirDay"),
+        "wind_scale_day": item.get("windScaleDay"),
+        "wind_speed_day": item.get("windSpeedDay"),
+        "wind_dir_night": item.get("windDirNight"),
+        "wind_scale_night": item.get("windScaleNight"),
+        "wind_speed_night": item.get("windSpeedNight"),
+        "humidity": item.get("humidity"),
+        "precipitation": item.get("precip"),
+        "pressure": item.get("pressure"),
+        "visibility": item.get("vis"),
+        "cloud_cover": item.get("cloud"),
+        "uv_index": item.get("uvIndex"),
+        "moon_phase": item.get("moonPhase"),
+        "moon_phase_icon": item.get("moonPhaseIcon"),
+    }
 
 
 class QWeatherProvider(Provider):
@@ -110,11 +139,7 @@ class QWeatherProvider(Provider):
             f"body={raw_text[:300]}"
         )
 
-    async def execute(
-        self,
-        params: Dict[str, Any],
-        config: ProviderConfig
-    ) -> Dict[str, Any]:
+    async def execute(self, params: Dict[str, Any], config: ProviderConfig) -> Dict[str, Any]:
         """
         Execute QWeather API call.
 
@@ -227,7 +252,9 @@ class QWeatherProvider(Provider):
         )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
-            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
+            async with session.get(
+                url, headers=headers, params=params, proxy=proxy_url
+            ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(
@@ -281,7 +308,9 @@ class QWeatherProvider(Provider):
         )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
-            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
+            async with session.get(
+                url, headers=headers, params=params, proxy=proxy_url
+            ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(
@@ -351,7 +380,9 @@ class QWeatherProvider(Provider):
         )
 
         async with aiohttp.ClientSession(trust_env=False) as session:
-            async with session.get(url, headers=headers, params=params, proxy=proxy_url) as response:
+            async with session.get(
+                url, headers=headers, params=params, proxy=proxy_url
+            ) as response:
                 if response.status != 200:
                     error_text = await response.text()
                     logger.warning(
@@ -377,37 +408,7 @@ class QWeatherProvider(Provider):
             raise Exception(f"Forecast API returned error code: {data.get('code')}")
 
         daily_items = data.get("daily", [])[:days]
-        forecast: list[Dict[str, Any]] = []
-        for item in daily_items:
-            forecast.append(
-                {
-                    "date": item.get("fxDate"),
-                    "sunrise": item.get("sunrise"),
-                    "sunset": item.get("sunset"),
-                    "temp_max": item.get("tempMax"),
-                    "temp_min": item.get("tempMin"),
-                    "condition_day": item.get("textDay"),
-                    "condition_night": item.get("textNight"),
-                    "icon_day": item.get("iconDay"),
-                    "icon_night": item.get("iconNight"),
-                    "wind_dir_day": item.get("windDirDay"),
-                    "wind_scale_day": item.get("windScaleDay"),
-                    "wind_speed_day": item.get("windSpeedDay"),
-                    "wind_dir_night": item.get("windDirNight"),
-                    "wind_scale_night": item.get("windScaleNight"),
-                    "wind_speed_night": item.get("windSpeedNight"),
-                    "humidity": item.get("humidity"),
-                    "precipitation": item.get("precip"),
-                    "pressure": item.get("pressure"),
-                    "visibility": item.get("vis"),
-                    "cloud_cover": item.get("cloud"),
-                    "uv_index": item.get("uvIndex"),
-                    "moon_phase": item.get("moonPhase"),
-                    "moon_phase_icon": item.get("moonPhaseIcon"),
-                }
-            )
-
-        return forecast
+        return [_forecast_item(item) for item in daily_items]
 
     def get_config_schema(self) -> Dict[str, Any]:
         """Return QWeather-specific config schema."""
