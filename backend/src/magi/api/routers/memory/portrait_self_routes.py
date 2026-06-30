@@ -29,7 +29,6 @@ from ....user_profile.portrait_values import snapshot_recent_values
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +54,9 @@ _l2_override: Any = None
 
 
 @contextmanager
-def override_dependencies_for_test(*, profile_repo: Any = None, portrait_repo: Any = None, l2: Any = None):
+def override_dependencies_for_test(
+    *, profile_repo: Any = None, portrait_repo: Any = None, l2: Any = None
+):
     global _profile_repo_override, _portrait_repo_override, _l2_override
     _profile_repo_override = profile_repo
     _portrait_repo_override = portrait_repo
@@ -111,111 +112,202 @@ def build_router() -> APIRouter:
     async def get_self_portrait(
         user_id: str = Query(..., min_length=1),
     ) -> dict[str, Any]:
-        portrait_repo = _resolve_portrait_repo()
-        l2 = _resolve_l2()
-        profile_repo = _resolve_profile_repo()
-        projection = None
-        if profile_repo is not None:
-            try:
-                projection = await profile_repo.get(user_id)
-            except Exception as exc:
-                logger.debug("self portrait: profile lookup failed: %s", exc)
-        if portrait_repo is not None:
-            try:
-                portrait_projection = await portrait_repo.get(user_id)
-            except Exception as exc:
-                logger.debug("self portrait: portrait projection lookup failed: %s", exc)
-                portrait_projection = None
-            if portrait_projection is not None:
-                is_stale = await portrait_projection_is_stale(
-                    portrait_projection,
-                    user_id=user_id,
-                    l2_store=l2,
-                    profile_projection=projection,
-                )
-                if not is_stale:
-                    return _payload_from_portrait_projection(portrait_projection)
-                try:
-                    rebuilt = await UserPortraitProjectionBuilder(
-                        l2,
-                        profile_projection=projection,
-                    ).build(user_id)
-                    portrait_projection = await portrait_repo.upsert(rebuilt)
-                    return _payload_from_portrait_projection(portrait_projection)
-                except Exception as exc:
-                    logger.debug("self portrait: stale projection rebuild failed: %s", exc)
-
-        observations: list[UserPortraitObservation] = []
-        observations.extend(_observations_from_projection(projection))
-
-        snapshot = None
-        if l2 is not None:
-            try:
-                snapshots = await l2.list_tom_snapshots(
-                    entity_id=f"user:{user_id}", limit=1
-                )
-                snapshot = snapshots[0] if snapshots else None
-            except Exception as exc:
-                logger.debug("self portrait: tom snapshot lookup failed: %s", exc)
-        observations.extend(_observations_from_snapshot(snapshot))
-
-        if l2 is not None:
-            try:
-                assertion_items = await l2.list_tom_assertions(
-                    entity_id=f"user:{user_id}", limit=50, offset=0,
-                )
-            except Exception as exc:
-                logger.debug("self portrait: assertion lookup failed: %s", exc)
-                assertion_items = []
-            if assertion_items:
-                observations.extend(_observations_from_assertion_items(assertion_items))
-
-        if l2 is not None:
-            try:
-                observations.extend(await _observations_from_graph_relationships(
-                    l2,
-                    entity_id=f"user:{user_id}",
-                ))
-            except Exception as exc:
-                logger.debug("self portrait: graph relationship lookup failed: %s", exc)
-
-        fallback_projection = None
-        try:
-            fallback_projection = await UserPortraitProjectionBuilder(
-                l2,
-                profile_projection=projection,
-            ).build(user_id)
-        except Exception as exc:
-            logger.debug("self portrait: fallback projection build failed: %s", exc)
-
-        is_cold_start = (
-            not _projection_has_content(fallback_projection)
-            if fallback_projection is not None
-            else len(observations) == 0
-        )
-        payload = UserPortraitPayload(
-            session_id="",
-            persona_id="",
-            topic="self",
-            generated_at=int(time.time()),
-            observations=observations,
-            is_cold_start=is_cold_start,
-            cold_start_line=None,
-            cold_start_reason=("no_observations" if is_cold_start else None),
-        )
-        data = payload.to_dict()
-        if fallback_projection is not None:
-            data["self_view"] = {
-                "world": fallback_projection.world or _empty_world(),
-                "review": fallback_projection.review or {"items": []},
-                "recent": fallback_projection.recent or {"items": []},
-            }
-            data["prompt_summary"] = list(fallback_projection.prompt_summary)
-        else:
-            data["self_view"] = _build_self_view(observations)
-        return data
+        return await _get_self_portrait(user_id)
 
     return router
+
+
+async def _get_self_portrait(user_id: str) -> dict[str, Any]:
+    portrait_repo = _resolve_portrait_repo()
+    l2 = _resolve_l2()
+    projection = await _load_profile_projection(user_id)
+    cached_payload = await _payload_from_cached_or_rebuilt_portrait(
+        portrait_repo=portrait_repo,
+        l2=l2,
+        projection=projection,
+        user_id=user_id,
+    )
+    if cached_payload is not None:
+        return cached_payload
+
+    observations = await _collect_fallback_observations(
+        l2=l2,
+        projection=projection,
+        user_id=user_id,
+    )
+    fallback_projection = await _build_fallback_portrait_projection(
+        l2=l2,
+        projection=projection,
+        user_id=user_id,
+    )
+    return _payload_from_fallback_projection(
+        observations=observations,
+        fallback_projection=fallback_projection,
+    )
+
+
+async def _load_profile_projection(user_id: str) -> Any:
+    profile_repo = _resolve_profile_repo()
+    if profile_repo is None:
+        return None
+    try:
+        return await profile_repo.get(user_id)
+    except Exception as exc:
+        logger.debug("self portrait: profile lookup failed: %s", exc)
+        return None
+
+
+async def _payload_from_cached_or_rebuilt_portrait(
+    *,
+    portrait_repo: Any,
+    l2: Any,
+    projection: Any,
+    user_id: str,
+) -> dict[str, Any] | None:
+    if portrait_repo is None:
+        return None
+    portrait_projection = await _load_portrait_projection(portrait_repo, user_id)
+    if portrait_projection is None:
+        return None
+    is_stale = await portrait_projection_is_stale(
+        portrait_projection,
+        user_id=user_id,
+        l2_store=l2,
+        profile_projection=projection,
+    )
+    if not is_stale:
+        return _payload_from_portrait_projection(portrait_projection)
+    rebuilt = await _rebuild_portrait_projection(
+        portrait_repo=portrait_repo,
+        l2=l2,
+        projection=projection,
+        user_id=user_id,
+    )
+    return _payload_from_portrait_projection(rebuilt) if rebuilt is not None else None
+
+
+async def _load_portrait_projection(portrait_repo: Any, user_id: str) -> Any:
+    try:
+        return await portrait_repo.get(user_id)
+    except Exception as exc:
+        logger.debug("self portrait: portrait projection lookup failed: %s", exc)
+        return None
+
+
+async def _rebuild_portrait_projection(
+    *,
+    portrait_repo: Any,
+    l2: Any,
+    projection: Any,
+    user_id: str,
+) -> Any:
+    try:
+        rebuilt = await UserPortraitProjectionBuilder(
+            l2,
+            profile_projection=projection,
+        ).build(user_id)
+        return await portrait_repo.upsert(rebuilt)
+    except Exception as exc:
+        logger.debug("self portrait: stale projection rebuild failed: %s", exc)
+        return None
+
+
+async def _collect_fallback_observations(
+    *,
+    l2: Any,
+    projection: Any,
+    user_id: str,
+) -> list[UserPortraitObservation]:
+    observations = _observations_from_projection(projection)
+    if l2 is None:
+        return observations
+
+    snapshot = await _load_latest_tom_snapshot(l2, user_id)
+    observations.extend(_observations_from_snapshot(snapshot))
+    observations.extend(_observations_from_assertion_items(await _load_tom_assertions(l2, user_id)))
+    observations.extend(await _load_graph_relationship_observations(l2, user_id))
+    return observations
+
+
+async def _load_latest_tom_snapshot(l2: Any, user_id: str) -> dict[str, Any] | None:
+    try:
+        snapshots = await l2.list_tom_snapshots(entity_id=f"user:{user_id}", limit=1)
+    except Exception as exc:
+        logger.debug("self portrait: tom snapshot lookup failed: %s", exc)
+        return None
+    return snapshots[0] if snapshots else None
+
+
+async def _load_tom_assertions(l2: Any, user_id: str) -> list[dict[str, Any]]:
+    try:
+        return await l2.list_tom_assertions(
+            entity_id=f"user:{user_id}",
+            limit=50,
+            offset=0,
+        )
+    except Exception as exc:
+        logger.debug("self portrait: assertion lookup failed: %s", exc)
+        return []
+
+
+async def _load_graph_relationship_observations(
+    l2: Any,
+    user_id: str,
+) -> list[UserPortraitObservation]:
+    try:
+        return await _observations_from_graph_relationships(l2, entity_id=f"user:{user_id}")
+    except Exception as exc:
+        logger.debug("self portrait: graph relationship lookup failed: %s", exc)
+        return []
+
+
+async def _build_fallback_portrait_projection(
+    *,
+    l2: Any,
+    projection: Any,
+    user_id: str,
+) -> Any:
+    try:
+        return await UserPortraitProjectionBuilder(
+            l2,
+            profile_projection=projection,
+        ).build(user_id)
+    except Exception as exc:
+        logger.debug("self portrait: fallback projection build failed: %s", exc)
+        return None
+
+
+def _payload_from_fallback_projection(
+    *,
+    observations: list[UserPortraitObservation],
+    fallback_projection: Any,
+) -> dict[str, Any]:
+    is_cold_start = (
+        not _projection_has_content(fallback_projection)
+        if fallback_projection is not None
+        else len(observations) == 0
+    )
+    payload = UserPortraitPayload(
+        session_id="",
+        persona_id="",
+        topic="self",
+        generated_at=int(time.time()),
+        observations=observations,
+        is_cold_start=is_cold_start,
+        cold_start_line=None,
+        cold_start_reason=("no_observations" if is_cold_start else None),
+    )
+    data = payload.to_dict()
+    if fallback_projection is None:
+        data["self_view"] = _build_self_view(observations)
+        return data
+    data["self_view"] = {
+        "world": fallback_projection.world or _empty_world(),
+        "review": fallback_projection.review or {"items": []},
+        "recent": fallback_projection.recent or {"items": []},
+    }
+    data["prompt_summary"] = list(fallback_projection.prompt_summary)
+    return data
 
 
 def _payload_from_portrait_projection(portrait_projection: Any) -> dict[str, Any]:
@@ -247,17 +339,27 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
     if projection.real_name:
         facts.append((f"你叫 {projection.real_name}", "identity_profile", "real_name"))
     if projection.preferred_form_of_address:
-        facts.append((
-            f"称呼你「{projection.preferred_form_of_address}」",
-            "identity_profile",
-            "preferred_form_of_address",
-        ))
+        facts.append(
+            (
+                f"称呼你「{projection.preferred_form_of_address}」",
+                "identity_profile",
+                "preferred_form_of_address",
+            )
+        )
     if projection.home_location:
-        facts.append((f"住在{projection.home_location}", "identity_profile", "home_location|world_group:invariants"))
+        facts.append(
+            (
+                f"住在{projection.home_location}",
+                "identity_profile",
+                "home_location|world_group:invariants",
+            )
+        )
     for key, value in (projection.preferences or {}).items():
         facts.append((f"偏好：{key} = {value}", "preference_profile", f"preference:{key}"))
     for key, value in (projection.communication or {}).items():
-        facts.append((f"沟通风格：{key} = {value}", "communication_profile", f"communication:{key}"))
+        facts.append(
+            (f"沟通风格：{key} = {value}", "communication_profile", f"communication:{key}")
+        )
     for key, value in (projection.state or {}).items():
         facts.append((f"近期状态：{key} = {value}", "state_profile", f"state:{key}"))
 
@@ -265,13 +367,15 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
     for text, family, ref in facts:
         basis_refs = [f"family:{family}"]
         basis_refs.extend(part for part in ref.split("|") if part)
-        observations.append(UserPortraitObservation(
-            kind="assertion",
-            text=text,
-            basis_count=1,
-            basis_summary="user_profile_projection",
-            basis_refs=basis_refs,
-        ))
+        observations.append(
+            UserPortraitObservation(
+                kind="assertion",
+                text=text,
+                basis_count=1,
+                basis_summary="user_profile_projection",
+                basis_refs=basis_refs,
+            )
+        )
     return observations
 
 
@@ -293,7 +397,9 @@ def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[UserPor
     ]
 
 
-def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[UserPortraitObservation]:
+def _observations_from_assertion_items(
+    items: list[dict[str, Any]],
+) -> list[UserPortraitObservation]:
     if not items:
         return []
     obs: list[UserPortraitObservation] = []
@@ -317,13 +423,15 @@ def _observations_from_assertion_items(items: list[dict[str, Any]]) -> list[User
             raw_value = str(item.get(key) or "").strip()
             if raw_value:
                 refs.append(f"{prefix}:{raw_value}")
-        obs.append(UserPortraitObservation(
-            kind="assertion",
-            text=f"{trait}: {value}",
-            basis_count=int(item.get("evidence_count") or 1),
-            basis_summary="L2 assertion",
-            basis_refs=refs,
-        ))
+        obs.append(
+            UserPortraitObservation(
+                kind="assertion",
+                text=f"{trait}: {value}",
+                basis_count=int(item.get("evidence_count") or 1),
+                basis_summary="L2 assertion",
+                basis_refs=refs,
+            )
+        )
         if len(obs) >= 20:
             break
     return obs
@@ -478,7 +586,9 @@ def _dedupe_and_sort_world_items(items: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
-    texts = [str(item.get("text") or "").strip() for item in items if str(item.get("text") or "").strip()]
+    texts = [
+        str(item.get("text") or "").strip() for item in items if str(item.get("text") or "").strip()
+    ]
     if not texts:
         return ""
     short = texts[:4]
@@ -535,7 +645,9 @@ def _extract_assertion_id(observation: UserPortraitObservation) -> str | None:
             value = ref.removeprefix("assertion:").strip()
             return value or None
         compact = ref.replace("-", "")
-        if len(ref) >= _ASSERTION_REF_MIN_LENGTH and all(c in "0123456789abcdefABCDEF" for c in compact):
+        if len(ref) >= _ASSERTION_REF_MIN_LENGTH and all(
+            c in "0123456789abcdefABCDEF" for c in compact
+        ):
             return ref
     return None
 
@@ -553,10 +665,10 @@ def _simplify_observation_text(text: str) -> str:
     trimmed = text.strip()
     eq_index = trimmed.rfind(" = ")
     if eq_index >= 0:
-        return trimmed[eq_index + 3:].strip()
+        return trimmed[eq_index + 3 :].strip()
     colon_index = trimmed.find(": ")
     if colon_index >= 0:
-        return trimmed[colon_index + 2:].strip()
+        return trimmed[colon_index + 2 :].strip()
     for prefix in ("偏好：", "沟通风格：", "近期状态：", "常用工具："):
         if trimmed.startswith(prefix):
             return trimmed.removeprefix(prefix).strip()
