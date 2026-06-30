@@ -125,71 +125,122 @@ class ResultFusion:
         reflections, and L4 procedures share the remainder.
         """
         remaining = float(budget)
+        remaining = ResultFusion._apply_l0_budget(
+            payload,
+            remaining,
+            char_per_token,
+            l0_max_tokens,
+            l0_budget_ratio,
+        )
+        remaining = ResultFusion._apply_l1_budget(
+            payload, remaining, char_per_token, l1_budget_ratio
+        )
+        remaining = ResultFusion._apply_l2_budget(
+            payload, remaining, char_per_token, l2_budget_ratio
+        )
+        remaining = ResultFusion._apply_l3_budget(
+            payload, remaining, char_per_token, l3_budget_ratio
+        )
+        ResultFusion._apply_l4_budget(payload, remaining, char_per_token)
 
-        # L0: preserve priority, but cap its share so other layers still surface.
+        return payload
+
+    @staticmethod
+    def _apply_l0_budget(
+        payload: RetrievalPayload,
+        remaining: float,
+        char_per_token: float,
+        l0_max_tokens: int,
+        l0_budget_ratio: float,
+    ) -> float:
         l0_budget = min(float(max(l0_max_tokens, 0)), remaining * max(l0_budget_ratio, 0.0))
         payload.l0_workbench = truncate_to_budget(payload.l0_workbench, l0_budget, char_per_token)
-        remaining -= estimate_tokens(payload.l0_workbench, char_per_token)
+        return remaining - estimate_tokens(payload.l0_workbench, char_per_token)
 
-        # L1: primary layer — configurable share of remaining budget.
-        l1_budget = remaining * l1_budget_ratio
+    @staticmethod
+    def _apply_l1_budget(
+        payload: RetrievalPayload,
+        remaining: float,
+        char_per_token: float,
+        l1_budget_ratio: float,
+    ) -> float:
         payload.l1_events = ResultFusion._truncate_l1_with_session_coverage(
             payload.l1_events,
-            l1_budget,
+            remaining * l1_budget_ratio,
             char_per_token,
         )
-        remaining -= estimate_tokens(payload.l1_events, char_per_token)
+        return remaining - estimate_tokens(payload.l1_events, char_per_token)
 
-        # L2: configurable share of remaining.
+    @staticmethod
+    def _apply_l2_budget(
+        payload: RetrievalPayload,
+        remaining: float,
+        char_per_token: float,
+        l2_budget_ratio: float,
+    ) -> float:
         l2_budget = remaining * l2_budget_ratio
-        l2_all = (
+        l2_all = ResultFusion._l2_items(payload)
+        if estimate_tokens(l2_all, char_per_token) > l2_budget:
+            ResultFusion._truncate_l2_sections(payload, l2_budget, char_per_token)
+            l2_all = ResultFusion._l2_items(payload)
+        return remaining - estimate_tokens(l2_all, char_per_token)
+
+    @staticmethod
+    def _truncate_l2_sections(
+        payload: RetrievalPayload,
+        l2_budget: float,
+        char_per_token: float,
+    ) -> None:
+        payload.l2_experiences = truncate_to_budget(
+            payload.l2_experiences, l2_budget * 0.35, char_per_token
+        )
+        l2_budget_left = l2_budget - estimate_tokens(payload.l2_experiences, char_per_token)
+        payload.l2_entity_cards = truncate_to_budget(
+            payload.l2_entity_cards, l2_budget_left * 0.25, char_per_token
+        )
+        l2_budget_left -= estimate_tokens(payload.l2_entity_cards, char_per_token)
+        payload.l2_relationships = truncate_to_budget(
+            payload.l2_relationships, l2_budget_left * 0.5, char_per_token
+        )
+        l2_budget_left -= estimate_tokens(payload.l2_relationships, char_per_token)
+        payload.l2_assertions = truncate_to_budget(
+            payload.l2_assertions, l2_budget_left, char_per_token
+        )
+
+    @staticmethod
+    def _l2_items(payload: RetrievalPayload) -> List[Dict[str, Any]]:
+        return (
             payload.l2_experiences
             + payload.l2_entity_cards
             + payload.l2_relationships
             + payload.l2_assertions
         )
-        l2_tokens = estimate_tokens(l2_all, char_per_token)
-        if l2_tokens > l2_budget:
-            payload.l2_experiences = truncate_to_budget(
-                payload.l2_experiences, l2_budget * 0.35, char_per_token
-            )
-            l2_budget_left = l2_budget - estimate_tokens(payload.l2_experiences, char_per_token)
-            payload.l2_entity_cards = truncate_to_budget(
-                payload.l2_entity_cards, l2_budget_left * 0.25, char_per_token
-            )
-            l2_budget_left -= estimate_tokens(payload.l2_entity_cards, char_per_token)
-            payload.l2_relationships = truncate_to_budget(
-                payload.l2_relationships, l2_budget_left * 0.5, char_per_token
-            )
-            l2_budget_left -= estimate_tokens(payload.l2_relationships, char_per_token)
-            payload.l2_assertions = truncate_to_budget(
-                payload.l2_assertions, l2_budget_left, char_per_token
-            )
-            l2_all = (
-                payload.l2_experiences
-                + payload.l2_entity_cards
-                + payload.l2_relationships
-                + payload.l2_assertions
-            )
-        remaining -= estimate_tokens(l2_all, char_per_token)
 
-        # L3: configurable share of remaining
-        l3_budget = remaining * l3_budget_ratio
+    @staticmethod
+    def _apply_l3_budget(
+        payload: RetrievalPayload,
+        remaining: float,
+        char_per_token: float,
+        l3_budget_ratio: float,
+    ) -> float:
         payload.l3_reflections = truncate_to_budget(
             payload.l3_reflections,
-            l3_budget,
+            remaining * l3_budget_ratio,
             char_per_token,
         )
-        remaining -= estimate_tokens(payload.l3_reflections, char_per_token)
+        return remaining - estimate_tokens(payload.l3_reflections, char_per_token)
 
-        # L4: eats the rest
+    @staticmethod
+    def _apply_l4_budget(
+        payload: RetrievalPayload,
+        remaining: float,
+        char_per_token: float,
+    ) -> None:
         payload.l4_procedures = truncate_to_budget(
             payload.l4_procedures,
             remaining,
             char_per_token,
         )
-
-        return payload
 
     @staticmethod
     def _truncate_l1_with_session_coverage(
