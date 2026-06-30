@@ -65,6 +65,37 @@ class HybridRetrievalExecutionMixin(
         host = cast(_HybridRetrievalExecutionHost, self)
         l1 = effective_l1 if effective_l1 is not None else host._l1
 
+        primary_plans = self._prepare_primary_plans(
+            decision,
+            request=request,
+            payload=payload,
+        )
+        await self._execute_primary_plans(primary_plans, payload, l1=l1, request=request)
+        await self._maybe_run_query_expansion(host, decision, request, payload, l1=l1)
+        await self._run_retrieval_backstops(
+            decision,
+            intent_input,
+            payload,
+            l1=l1,
+            request=request,
+            primary_plans=primary_plans,
+        )
+        await self._maybe_supplement_activity_summary(
+            host,
+            decision,
+            mode_plan,
+            request,
+            payload,
+        )
+        return await host._apply_post_processing(payload, request=request, mode_plan=mode_plan)
+
+    def _prepare_primary_plans(
+        self,
+        decision: Any,
+        *,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> list[Any]:
         primary_plans = self._augment_primary_plans(
             [p for p in decision.plans if not p.is_fallback],
             request=request,
@@ -78,6 +109,16 @@ class HybridRetrievalExecutionMixin(
                 for p in primary_plans
             ],
         )
+        return primary_plans
+
+    async def _execute_primary_plans(
+        self,
+        primary_plans: list[Any],
+        payload: RetrievalPayload,
+        *,
+        l1: L1Handler | None,
+        request: RetrievalQuery,
+    ) -> None:
         await self._execute_and_merge_plans(
             primary_plans,
             payload,
@@ -86,6 +127,15 @@ class HybridRetrievalExecutionMixin(
             label="Primary plan",
         )
 
+    async def _maybe_run_query_expansion(
+        self,
+        host: _HybridRetrievalExecutionHost,
+        decision: Any,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+        *,
+        l1: L1Handler | None,
+    ) -> None:
         if host._config.query_expansion_enabled and host._llm_provider_bridge:
             await self._run_query_expansion(
                 original_query=request.query,
@@ -95,6 +145,16 @@ class HybridRetrievalExecutionMixin(
                 l1=l1,
             )
 
+    async def _run_retrieval_backstops(
+        self,
+        decision: Any,
+        intent_input: IntentDeciderInput,
+        payload: RetrievalPayload,
+        *,
+        l1: L1Handler | None,
+        request: RetrievalQuery,
+        primary_plans: list[Any],
+    ) -> None:
         await self._run_backstops(
             request,
             decision,
@@ -110,6 +170,14 @@ class HybridRetrievalExecutionMixin(
             request=request,
         )
 
+    async def _maybe_supplement_activity_summary(
+        self,
+        host: _HybridRetrievalExecutionHost,
+        decision: Any,
+        mode_plan: Any,
+        request: RetrievalQuery,
+        payload: RetrievalPayload,
+    ) -> None:
         if (
             mode_plan is not None
             and mode_plan.mode == "activity_summary"
@@ -121,8 +189,6 @@ class HybridRetrievalExecutionMixin(
                 payload=payload,
                 time_range=decision.time_range,
             )
-
-        return await host._apply_post_processing(payload, request=request, mode_plan=mode_plan)
 
 
 __all__ = ["HybridRetrievalExecutionMixin"]
