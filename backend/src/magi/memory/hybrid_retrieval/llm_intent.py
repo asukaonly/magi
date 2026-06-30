@@ -159,6 +159,84 @@ class _SemanticRefinement:
     predicate_family: str | None
 
 
+@dataclass(frozen=True)
+class _ParsedLLMIntentFields:
+    content_query: str
+    entities: Optional[list[str]]
+    subject_hint: Optional[str]
+    predicate_family: Optional[str]
+    relation_intent: Optional[str]
+    hop2_target_type: Optional[str]
+    evidence_focus: Optional[EvidenceFocus]
+    semantic_frame: Optional[L2SemanticFrame]
+    reasoning: str
+
+
+def _response_dict(raw: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning("LLM intent decider returned invalid JSON")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _parse_llm_intent_fields(
+    data: dict[str, Any],
+    semantic_frame: Optional[L2SemanticFrame],
+) -> _ParsedLLMIntentFields:
+    entities = _parse_entities(data.get("entities"))
+    subject_hint = _parse_valid_string(data.get("subject_hint"), _VALID_SUBJECT_HINTS)
+    predicate_family = _parse_valid_string(
+        data.get("predicate_family"),
+        _VALID_PREDICATE_FAMILIES,
+    )
+
+    if entities is None and semantic_frame is not None:
+        entities = mentions_from_semantic_frame(semantic_frame) or None
+    if subject_hint is None and semantic_frame is not None:
+        subject_hint = subject_hint_from_semantic_frame(semantic_frame)
+    if predicate_family is None and semantic_frame is not None:
+        predicate_family = predicate_family_from_query_family(semantic_frame.query_family)
+
+    return _ParsedLLMIntentFields(
+        content_query=str(data.get("content_query") or "").strip(),
+        entities=entities,
+        subject_hint=subject_hint,
+        predicate_family=predicate_family,
+        relation_intent=_parse_optional_string(data.get("relation_intent")),
+        hop2_target_type=_parse_optional_string(data.get("hop2_target_type")),
+        evidence_focus=_parse_evidence_focus(data.get("evidence_focus")),
+        semantic_frame=semantic_frame,
+        reasoning=str(data.get("reasoning") or ""),
+    )
+
+
+def _parse_entities(value: Any) -> Optional[list[str]]:
+    if not isinstance(value, list):
+        return None
+    entities = [str(entity) for entity in value if isinstance(entity, (str, int, float))]
+    entities = [entity for entity in entities if entity]
+    return entities or None
+
+
+def _parse_valid_string(value: Any, valid_values: frozenset[str]) -> Optional[str]:
+    return str(value) if isinstance(value, str) and value in valid_values else None
+
+
+def _parse_optional_string(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _parse_evidence_focus(value: Any) -> Optional[EvidenceFocus]:
+    if isinstance(value, str) and value in _VALID_EVIDENCE_FOCI:
+        return value  # type: ignore[return-value]
+    return None
+
+
 class LLMIntentDecider:
     """LLM-based retrieval refinement.
 
@@ -234,81 +312,26 @@ class LLMIntentDecider:
 
     def _parse_response(self, raw: str) -> LLMRefinement | None:
         """Parse the LLM JSON response into a :class:`LLMRefinement`."""
-        try:
-            data = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            logger.warning("LLM intent decider returned invalid JSON")
+        data = _response_dict(raw)
+        if data is None:
             return None
-        if not isinstance(data, dict):
-            return None
-
-        content_query = str(data.get("content_query") or "").strip()
-        entities_raw = data.get("entities")
-        entities: Optional[list[str]] = None
-        if isinstance(entities_raw, list):
-            entities = [
-                str(entity) for entity in entities_raw if isinstance(entity, (str, int, float))
-            ]
-            entities = [entity for entity in entities if entity]
-            if not entities:
-                entities = None
-
-        subject_hint_raw = data.get("subject_hint")
-        subject_hint = (
-            str(subject_hint_raw)
-            if isinstance(subject_hint_raw, str) and subject_hint_raw in _VALID_SUBJECT_HINTS
-            else None
-        )
-
-        predicate_family_raw = data.get("predicate_family")
-        predicate_family = (
-            str(predicate_family_raw)
-            if isinstance(predicate_family_raw, str)
-            and predicate_family_raw in _VALID_PREDICATE_FAMILIES
-            else None
-        )
-
-        relation_intent_raw = data.get("relation_intent")
-        relation_intent = (
-            str(relation_intent_raw).strip()
-            if isinstance(relation_intent_raw, str) and str(relation_intent_raw).strip()
-            else None
-        )
-
-        hop2_target_type_raw = data.get("hop2_target_type")
-        hop2_target_type = (
-            str(hop2_target_type_raw).strip()
-            if isinstance(hop2_target_type_raw, str) and str(hop2_target_type_raw).strip()
-            else None
-        )
-
-        evidence_focus_raw = data.get("evidence_focus")
-        evidence_focus: Optional[EvidenceFocus] = None
-        if isinstance(evidence_focus_raw, str) and evidence_focus_raw in _VALID_EVIDENCE_FOCI:
-            evidence_focus = evidence_focus_raw  # type: ignore[assignment]
 
         semantic_frame = _parse_semantic_frame(data.get("semantic_frame"))
-        if entities is None and semantic_frame is not None:
-            entities = mentions_from_semantic_frame(semantic_frame) or None
-        if subject_hint is None and semantic_frame is not None:
-            subject_hint = subject_hint_from_semantic_frame(semantic_frame)
-        if predicate_family is None and semantic_frame is not None:
-            predicate_family = predicate_family_from_query_family(semantic_frame.query_family)
-        reasoning = str(data.get("reasoning") or "")
+        fields = _parse_llm_intent_fields(data, semantic_frame)
 
-        if not content_query and entities is None and semantic_frame is None:
+        if not fields.content_query and fields.entities is None and semantic_frame is None:
             return None
 
         return LLMRefinement(
-            content_query=content_query,
-            entities=entities,
-            subject_hint=subject_hint,
-            predicate_family=predicate_family,
-            relation_intent=relation_intent,
-            hop2_target_type=hop2_target_type,
-            evidence_focus=evidence_focus,
-            semantic_frame=semantic_frame,
-            reasoning=reasoning,
+            content_query=fields.content_query,
+            entities=fields.entities,
+            subject_hint=fields.subject_hint,
+            predicate_family=fields.predicate_family,
+            relation_intent=fields.relation_intent,
+            hop2_target_type=fields.hop2_target_type,
+            evidence_focus=fields.evidence_focus,
+            semantic_frame=fields.semantic_frame,
+            reasoning=fields.reasoning,
         )
 
     def apply(
