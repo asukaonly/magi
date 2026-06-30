@@ -27,17 +27,21 @@ from .reranker import (
 
 logger = logging.getLogger(__name__)
 
-_HEURISTIC_METADATA_KEYS = frozenset({
-    "role_bias",
-    "fact_density",
-    "eventness_score",
-    "temporal_anchor_score",
-})
-_HEURISTIC_PENALTY_KEYS = frozenset({
-    "verbosity_penalty",
-    "generic_guidance_penalty",
-    "generic_penalty",
-})
+_HEURISTIC_METADATA_KEYS = frozenset(
+    {
+        "role_bias",
+        "fact_density",
+        "eventness_score",
+        "temporal_anchor_score",
+    }
+)
+_HEURISTIC_PENALTY_KEYS = frozenset(
+    {
+        "verbosity_penalty",
+        "generic_guidance_penalty",
+        "generic_penalty",
+    }
+)
 
 _scorer_cache: dict[tuple[str, str], CrossEncoderScorer] = {}
 _scorer_lock = asyncio.Lock()
@@ -130,26 +134,18 @@ class CrossEncoderReranker(BaseRetrievalReranker):
         if paths is None:
             logger.debug("Cross-encoder model not available, using heuristic only")
             return heuristic_results
-        model_dir, model_file = paths
 
         top_k = max(1, int(self._config.reranker_top_k))
         rerank_slice = list(heuristic_results[:top_k])
         remainder = list(heuristic_results[top_k:])
 
         try:
-            scorer = await _get_or_create_scorer(model_dir, model_file_path=model_file)
-            pairs = [
-                (
-                    query,
-                    _candidate_text_for_item(
-                        layer=layer,
-                        item=item,
-                        max_chars=self._config.reranker_candidate_max_chars,
-                    ),
-                )
-                for item in rerank_slice
-            ]
-            ce_scores = await scorer.score_pairs(pairs)
+            scored = await self._score_cross_encoder_slice(
+                layer=layer,
+                query=query,
+                rerank_slice=rerank_slice,
+                paths=paths,
+            )
         except Exception:
             logger.warning(
                 "Cross-encoder scoring failed, falling back to heuristic",
@@ -157,44 +153,106 @@ class CrossEncoderReranker(BaseRetrievalReranker):
             )
             return heuristic_results
 
-        scored: list[tuple[float, Dict[str, Any]]] = []
-        for item, ce_score in zip(rerank_slice, ce_scores):
-            trace = dict(item.get("retrieval_trace") or {})
-            metadata_bonus = sum(
-                float(trace.get(key, 0.0) or 0.0) for key in _HEURISTIC_METADATA_KEYS
-            )
-            metadata_penalty = sum(
-                float(trace.get(key, 0.0) or 0.0) for key in _HEURISTIC_PENALTY_KEYS
-            )
-            final_score = ce_score + metadata_bonus - metadata_penalty
+        reranked = self._sort_cross_encoder_scores(scored)
+        remainder_annotated = await self._annotate_remainder(
+            layer=layer,
+            remainder=remainder,
+            query=query,
+            fused_scores=fused_scores,
+        )
+        return reranked + remainder_annotated
 
-            trace.update({
+    async def _score_cross_encoder_slice(
+        self,
+        *,
+        layer: str,
+        query: str,
+        rerank_slice: List[Dict[str, Any]],
+        paths: tuple[Path, Path],
+    ) -> list[tuple[float, Dict[str, Any]]]:
+        model_dir, model_file = paths
+        scorer = await _get_or_create_scorer(model_dir, model_file_path=model_file)
+        ce_scores = await scorer.score_pairs(
+            self._cross_encoder_pairs(
+                layer=layer,
+                query=query,
+                rerank_slice=rerank_slice,
+            )
+        )
+        return [
+            self._score_cross_encoder_item(item, ce_score)
+            for item, ce_score in zip(rerank_slice, ce_scores)
+        ]
+
+    def _cross_encoder_pairs(
+        self,
+        *,
+        layer: str,
+        query: str,
+        rerank_slice: List[Dict[str, Any]],
+    ) -> list[tuple[str, str]]:
+        return [
+            (
+                query,
+                _candidate_text_for_item(
+                    layer=layer,
+                    item=item,
+                    max_chars=self._config.reranker_candidate_max_chars,
+                ),
+            )
+            for item in rerank_slice
+        ]
+
+    def _score_cross_encoder_item(
+        self,
+        item: Dict[str, Any],
+        ce_score: float,
+    ) -> tuple[float, Dict[str, Any]]:
+        trace = dict(item.get("retrieval_trace") or {})
+        metadata_bonus = sum(float(trace.get(key, 0.0) or 0.0) for key in _HEURISTIC_METADATA_KEYS)
+        metadata_penalty = sum(float(trace.get(key, 0.0) or 0.0) for key in _HEURISTIC_PENALTY_KEYS)
+        final_score = ce_score + metadata_bonus - metadata_penalty
+
+        trace.update(
+            {
                 "backend": "cross_encoder",
                 "base_backend": "heuristic",
                 "ce_score": round(ce_score, 6),
                 "metadata_bonus": round(metadata_bonus, 6),
                 "metadata_penalty": round(metadata_penalty, 6),
-            })
-            enriched = dict(item)
-            enriched["retrieval_score"] = final_score
-            enriched["retrieval_trace"] = trace
-            enriched["reranker_backend"] = "cross_encoder"
-            enriched["reranker_score"] = ce_score
-            scored.append((final_score, enriched))
+            }
+        )
+        enriched = dict(item)
+        enriched["retrieval_score"] = final_score
+        enriched["retrieval_trace"] = trace
+        enriched["reranker_backend"] = "cross_encoder"
+        enriched["reranker_score"] = ce_score
+        return final_score, enriched
 
+    def _sort_cross_encoder_scores(
+        self,
+        scored: list[tuple[float, Dict[str, Any]]],
+    ) -> List[Dict[str, Any]]:
         scored.sort(
             key=lambda pair: (pair[0], _secondary_timestamp(pair[1])),
             reverse=True,
         )
-        reranked = [item for _, item in scored]
+        return [item for _, item in scored]
 
-        remainder_annotated = await NoopRetrievalReranker(self._config).rerank(
+    async def _annotate_remainder(
+        self,
+        *,
+        layer: str,
+        remainder: List[Dict[str, Any]],
+        query: str,
+        fused_scores: Dict[str, float],
+    ) -> List[Dict[str, Any]]:
+        return await NoopRetrievalReranker(self._config).rerank(
             layer=layer,
             results=remainder,
             query=query,
             fused_scores=fused_scores,
         )
-        return reranked + remainder_annotated
 
 
 __all__ = [
