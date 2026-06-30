@@ -141,8 +141,47 @@ class PersonaTurnPlan:
     selected_examples: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True, frozen=True)
+class _TurnPlanningContext:
+    config: PersonalityConfig
+    user_message: str
+    tools: list[str]
+    relationship: dict[str, Any]
+    milestones: list[dict[str, Any]]
+
+
+@dataclass(slots=True, frozen=True)
+class _TurnPlanState:
+    register_name: str
+    register: Register
+    situation_strength: str
+    quiet_hours: list[dict[str, Any]]
+    persona_intensity: int
+    active_triggers: list[ActivePersonaTrigger]
+    active_layer: str | None
+    layer_modifiers: dict[str, Any]
+    dynamic_modulations: dict[str, Any]
+
+
 def _normalized_tools(tools: list[str] | None) -> list[str]:
     return [str(tool) for tool in (tools or []) if str(tool).strip()]
+
+
+def _turn_planning_context(
+    *,
+    config: PersonalityConfig | None,
+    user_message: str,
+    tools: list[str] | None,
+    relationship: dict[str, Any] | None,
+    milestones: list[dict[str, Any]] | None,
+) -> _TurnPlanningContext:
+    return _TurnPlanningContext(
+        config=config or PersonalityConfig(),
+        user_message=str(user_message or ""),
+        tools=_normalized_tools(tools),
+        relationship=relationship or {},
+        milestones=milestones or [],
+    )
 
 
 def _signature_triggers_by_id(config: PersonalityConfig) -> dict[str, SignatureTrigger]:
@@ -249,58 +288,89 @@ class PersonaTurnPlanner:
         previous_trigger_ids: list[str] | None = None,
     ) -> PersonaTurnPlan:
         """Build a per-turn persona behavior plan."""
-        persona_config = config or PersonalityConfig()
-        normalized_message = str(user_message or "")
-        selected_tools = _normalized_tools(tools)
+        turn = _turn_planning_context(
+            config=config,
+            user_message=user_message,
+            tools=tools,
+            relationship=relationship,
+            milestones=milestones,
+        )
         register_name = self._select_register(
-            config=persona_config,
-            user_message=normalized_message,
+            config=turn.config,
+            user_message=turn.user_message,
             scenario=scenario,
             task_category=task_category,
-            tools=selected_tools,
+            tools=turn.tools,
             routing_hint=routing_hint,
         )
-        register = persona_config.registers.get(register_name) or Register()
-        active_layer, layer_modifiers = self._select_layer(
-            config=persona_config,
-            relationship=relationship or {},
-            milestones=milestones or [],
-        )
-        dynamic_modulations = self._dynamic_modulations(
-            config=persona_config,
-            emotional_state=emotional_state,
-        )
-        active_triggers = self._select_active_triggers_for_turn(
-            config=persona_config,
-            user_message=normalized_message,
-            register=register_name,
+        state = self._select_turn_plan_state(
+            turn=turn,
+            register_name=register_name,
             scenario=scenario,
             task_category=task_category,
-            tools=selected_tools,
+            emotional_state=emotional_state,
             routing_hint=routing_hint,
             previous_trigger_ids=previous_trigger_ids,
         )
-        quiet_hours = self._select_quiet_hours(
-            config=persona_config,
-            user_message=normalized_message,
+        return self._assemble_turn_plan(turn, state)
+
+    def _assemble_turn_plan(
+        self,
+        turn: _TurnPlanningContext,
+        state: _TurnPlanState,
+    ) -> PersonaTurnPlan:
+        return self._build_turn_plan(
+            config=turn.config,
+            register_name=state.register_name,
+            register=state.register,
+            situation_strength=state.situation_strength,
+            quiet_hours=state.quiet_hours,
+            persona_intensity=state.persona_intensity,
+            active_triggers=state.active_triggers,
+            active_layer=state.active_layer,
+            layer_modifiers=state.layer_modifiers,
+            dynamic_modulations=state.dynamic_modulations,
+            user_message=turn.user_message,
+        )
+
+    def _select_turn_plan_state(
+        self,
+        *,
+        turn: _TurnPlanningContext,
+        register_name: str,
+        scenario: str,
+        task_category: str,
+        emotional_state: Any | None,
+        routing_hint: "PersonaRoutingHint | None",
+        previous_trigger_ids: list[str] | None,
+    ) -> _TurnPlanState:
+        register = turn.config.registers.get(register_name) or Register()
+        active_layer, layer_modifiers, dynamic_modulations = self._select_expression_state(
+            turn,
+            emotional_state=emotional_state,
+        )
+        active_triggers = self._select_turn_triggers(
+            turn=turn,
             register=register_name,
             scenario=scenario,
             task_category=task_category,
-            tools=selected_tools,
+            routing_hint=routing_hint,
+            previous_trigger_ids=previous_trigger_ids,
+        )
+        quiet_hours = self._select_turn_quiet_hours(
+            turn=turn,
+            register=register_name,
+            scenario=scenario,
+            task_category=task_category,
             routing_hint=routing_hint,
         )
-        persona_intensity = self._persona_intensity(
+        persona_intensity, situation_strength = self._select_turn_strengths(
             register=register_name,
             active_triggers=active_triggers,
             quiet_hours=quiet_hours,
-        )
-        situation_strength = self._resolve_situation_strength(
-            register=register_name,
-            active_triggers=active_triggers,
             routing_hint=routing_hint,
         )
-        return self._build_turn_plan(
-            config=persona_config,
+        return _TurnPlanState(
             register_name=register_name,
             register=register,
             situation_strength=situation_strength,
@@ -310,7 +380,83 @@ class PersonaTurnPlanner:
             active_layer=active_layer,
             layer_modifiers=layer_modifiers,
             dynamic_modulations=dynamic_modulations,
-            user_message=normalized_message,
+        )
+
+    def _select_expression_state(
+        self,
+        turn: _TurnPlanningContext,
+        *,
+        emotional_state: Any | None,
+    ) -> tuple[str | None, dict[str, Any], dict[str, Any]]:
+        active_layer, layer_modifiers = self._select_layer(
+            config=turn.config,
+            relationship=turn.relationship,
+            milestones=turn.milestones,
+        )
+        dynamic_modulations = self._dynamic_modulations(
+            config=turn.config,
+            emotional_state=emotional_state,
+        )
+        return active_layer, layer_modifiers, dynamic_modulations
+
+    def _select_turn_strengths(
+        self,
+        *,
+        register: str,
+        active_triggers: list[ActivePersonaTrigger],
+        quiet_hours: list[dict[str, Any]],
+        routing_hint: "PersonaRoutingHint | None",
+    ) -> tuple[int, str]:
+        persona_intensity = self._persona_intensity(
+            register=register,
+            active_triggers=active_triggers,
+            quiet_hours=quiet_hours,
+        )
+        situation_strength = self._resolve_situation_strength(
+            register=register,
+            active_triggers=active_triggers,
+            routing_hint=routing_hint,
+        )
+        return persona_intensity, situation_strength
+
+    def _select_turn_triggers(
+        self,
+        *,
+        turn: _TurnPlanningContext,
+        register: str,
+        scenario: str,
+        task_category: str,
+        routing_hint: "PersonaRoutingHint | None",
+        previous_trigger_ids: list[str] | None,
+    ) -> list[ActivePersonaTrigger]:
+        return self._select_active_triggers_for_turn(
+            config=turn.config,
+            user_message=turn.user_message,
+            register=register,
+            scenario=scenario,
+            task_category=task_category,
+            tools=turn.tools,
+            routing_hint=routing_hint,
+            previous_trigger_ids=previous_trigger_ids,
+        )
+
+    def _select_turn_quiet_hours(
+        self,
+        *,
+        turn: _TurnPlanningContext,
+        register: str,
+        scenario: str,
+        task_category: str,
+        routing_hint: "PersonaRoutingHint | None",
+    ) -> list[dict[str, Any]]:
+        return self._select_quiet_hours(
+            config=turn.config,
+            user_message=turn.user_message,
+            register=register,
+            scenario=scenario,
+            task_category=task_category,
+            tools=turn.tools,
+            routing_hint=routing_hint,
         )
 
     def _select_active_triggers_for_turn(
