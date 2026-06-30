@@ -36,12 +36,17 @@ class EdgeEmbeddingDrainer:
         if self._embedding_service is None or self._edge_vector_index is None:
             return 0
 
-        pipeline = MemoryEmbeddingPipeline(
-            embedding_service=self._embedding_service,
-            vector_index=self._edge_vector_index,
-            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
-        )
+        rows = await self._fetch_pending_edges(batch_limit=batch_limit)
+        if not rows:
+            return 0
 
+        items = self._build_pipeline_items(rows)
+        if not items:
+            return 0
+
+        return await self._upsert_pending_edges(items)
+
+    async def _fetch_pending_edges(self, *, batch_limit: int) -> list[Any]:
         async with sqlite_connection_async(self._db_path) as db:
             async with db.execute(
                 "SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id, "
@@ -54,22 +59,12 @@ class EdgeEmbeddingDrainer:
                 "ORDER BY kg.updated_at DESC LIMIT ?",
                 (batch_limit,),
             ) as cur:
-                rows = await cur.fetchall()
+                return await cur.fetchall()
 
-        if not rows:
-            return 0
-
+    def _build_pipeline_items(self, rows: list[Any]) -> list[EmbeddingPipelineItem]:
         items: list[EmbeddingPipelineItem] = []
         for row in rows:
-            text = build_l2_edge_embedding_text(
-                subject_id=str(row["subject_id"]),
-                predicate=str(row["predicate"]),
-                object_id=str(row["object_id"]),
-                evidence_text=row["evidence_text"],
-                natural_summary=row["natural_summary"],
-                subject_name=row["subject_name"],
-                object_name=row["object_name"],
-            )
+            text = self._embedding_text_for_row(row)
             if not text.strip():
                 continue
             triple_id = str(row["triple_id"])
@@ -89,39 +84,69 @@ class EdgeEmbeddingDrainer:
                     metadata={"kind": "edge"},
                 )
             )
+        return items
 
-        if not items:
-            return 0
+    @staticmethod
+    def _embedding_text_for_row(row: Any) -> str:
+        return build_l2_edge_embedding_text(
+            subject_id=str(row["subject_id"]),
+            predicate=str(row["predicate"]),
+            object_id=str(row["object_id"]),
+            evidence_text=row["evidence_text"],
+            natural_summary=row["natural_summary"],
+            subject_name=row["subject_name"],
+            object_name=row["object_name"],
+        )
+
+    async def _upsert_pending_edges(self, items: list[EmbeddingPipelineItem]) -> int:
+        pipeline = MemoryEmbeddingPipeline(
+            embedding_service=self._embedding_service,
+            vector_index=self._edge_vector_index,
+            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+        )
 
         embedded_count = 0
         try:
             results = await pipeline.upsert_items(items)
-            state_updates: list[tuple[str, str | None, float | None]] = []
-            for result in results:
-                profile = self._embedding_service.profile_from_result(
-                    result.embeddings[0],
-                    text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
-                )
-                state_updates.append((result.parent_id, profile.profile_id, result.embedded_at))
+            state_updates = self._edge_embedding_state_updates(results)
             if state_updates:
-                async with sqlite_connection_async(self._db_path) as db:
-                    await db.executemany(
-                        """
-                        UPDATE knowledge_graph
-                        SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
-                        WHERE triple_id = ?
-                        """,
-                        [
-                            (profile_id, embedded_at, triple_id)
-                            for triple_id, profile_id, embedded_at in state_updates
-                        ],
-                    )
-                    await db.commit()
+                await self._mark_edges_embedded(state_updates)
             embedded_count = len(state_updates)
         except Exception as exc:
             logger.warning("Failed to embed pending edges: %s", exc)
 
         return embedded_count
+
+    def _edge_embedding_state_updates(
+        self,
+        results: list[Any],
+    ) -> list[tuple[str, str | None, float | None]]:
+        state_updates: list[tuple[str, str | None, float | None]] = []
+        for result in results:
+            profile = self._embedding_service.profile_from_result(
+                result.embeddings[0],
+                text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+            )
+            state_updates.append((result.parent_id, profile.profile_id, result.embedded_at))
+        return state_updates
+
+    async def _mark_edges_embedded(
+        self,
+        state_updates: list[tuple[str, str | None, float | None]],
+    ) -> None:
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.executemany(
+                """
+                UPDATE knowledge_graph
+                SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
+                WHERE triple_id = ?
+                """,
+                [
+                    (profile_id, embedded_at, triple_id)
+                    for triple_id, profile_id, embedded_at in state_updates
+                ],
+            )
+            await db.commit()
 
 
 class L2EdgeEmbeddingWorker:
