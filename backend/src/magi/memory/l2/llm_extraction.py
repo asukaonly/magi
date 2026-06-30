@@ -103,37 +103,20 @@ class L2LLMExtractionMixin:
         started_at = time.perf_counter()
         event_ids = list(event_window.event_ids)
         session_id = self._non_empty_text(event_window.summary.session_id)
-        logger.info(
-            "L2 Phase 2 integration started",
+        _log_phase2_started(
             event_ids=event_ids,
-            fact_claim_count=len(phase1_result.fact_claims),
-            existing_edge_count=len(existing_graph_edges) if existing_graph_edges else 0,
-            existing_assertion_count=len(existing_assertions) if existing_assertions else 0,
+            phase1_result=phase1_result,
+            existing_graph_edges=existing_graph_edges,
+            existing_assertions=existing_assertions,
         )
-        # Resolve user language so the LLM knows what to write natural_summary
-        # in. Falls back to the baseline prompt (which only says "user's
-        # language") when no language context is available — extraction often
-        # runs in background tasks without an HTTP request scope.
-        from ...i18n import get_effective_language
-        try:
-            user_language = get_effective_language(default="")
-        except Exception:
-            user_language = ""
-
-        evidence_packet = build_phase2_evidence_packet(
+        user_language = _phase2_user_language()
+        prompt = _phase2_prompt(
             phase1_result=phase1_result,
             existing_graph_edges=existing_graph_edges,
             existing_assertions=existing_assertions,
             event_window=event_window,
-        )
-        prompt = render_phase2_integrate_prompt(
-            phase1_result=phase1_result.to_dict(),
-            existing_graph_edges=existing_graph_edges,
-            existing_assertions=existing_assertions,
-            event_window=event_window,
             focal_subject=focal_subject,
-            source_integration_instructions=phase2_instructions,
-            evidence_packet=evidence_packet,
+            phase2_instructions=phase2_instructions,
         )
         payload = await self._generate_json(
             system_prompt=build_phase2_integrate_system_prompt(user_language or None),
@@ -141,36 +124,121 @@ class L2LLMExtractionMixin:
             request_kind="memory:l2_phase2_integrate",
             turn_id=event_ids[0] if event_ids else None,
             session_id=session_id,
-            log_context={
-                "event_ids": event_ids,
-                "fact_claim_count": len(phase1_result.fact_claims),
-                "existing_edge_count": len(existing_graph_edges) if existing_graph_edges else 0,
-                "existing_assertion_count": len(existing_assertions) if existing_assertions else 0,
-                "history_context_count": len(event_window.history_contexts),
-            },
+            log_context=_phase2_log_context(
+                event_ids=event_ids,
+                phase1_result=phase1_result,
+                existing_graph_edges=existing_graph_edges,
+                existing_assertions=existing_assertions,
+                event_window=event_window,
+            ),
         )
         result = L2Phase2Result.from_dict(payload)
-        is_single_event = len(event_window.event_ids) <= 1
-        if is_single_event:
-            cap = single_event_confidence_cap()
-            for assertion in result.assertion_candidates:
-                assertion.confidence = min(assertion.confidence, cap)
-        duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
-        logger.info(
-            "L2 Phase 2 integration completed",
-            duration_ms=duration_ms,
+        _cap_single_event_assertions(result, event_window)
+        _log_phase2_completed(
+            started_at=started_at,
             event_ids=event_ids,
-            graph_edge_count=len(result.graph_edges),
-            assertion_count=len(result.assertion_candidates),
-            contradiction_hint_count=len(result.contradiction_hints),
-        )
-        logger.info(
-            "L2 Phase 2 candidate summary",
-            event_ids=event_ids,
-            graph_edges=_summarize_phase2_graph_edges(result),
-            assertion_candidates=_summarize_phase2_assertions(result),
+            result=result,
         )
         return result
+
+
+def _log_phase2_started(
+    *,
+    event_ids: list[str],
+    phase1_result: L2Phase1Result,
+    existing_graph_edges: list[dict[str, Any]] | None,
+    existing_assertions: list[dict[str, Any]] | None,
+) -> None:
+    logger.info(
+        "L2 Phase 2 integration started",
+        event_ids=event_ids,
+        fact_claim_count=len(phase1_result.fact_claims),
+        existing_edge_count=len(existing_graph_edges) if existing_graph_edges else 0,
+        existing_assertion_count=len(existing_assertions) if existing_assertions else 0,
+    )
+
+
+def _phase2_user_language() -> str:
+    from ...i18n import get_effective_language
+
+    try:
+        return get_effective_language(default="")
+    except Exception:
+        return ""
+
+
+def _phase2_prompt(
+    *,
+    phase1_result: L2Phase1Result,
+    existing_graph_edges: list[dict[str, Any]] | None,
+    existing_assertions: list[dict[str, Any]] | None,
+    event_window: L2EventWindow,
+    focal_subject: dict[str, Any],
+    phase2_instructions: str | None,
+) -> str:
+    evidence_packet = build_phase2_evidence_packet(
+        phase1_result=phase1_result,
+        existing_graph_edges=existing_graph_edges,
+        existing_assertions=existing_assertions,
+        event_window=event_window,
+    )
+    return render_phase2_integrate_prompt(
+        phase1_result=phase1_result.to_dict(),
+        existing_graph_edges=existing_graph_edges,
+        existing_assertions=existing_assertions,
+        event_window=event_window,
+        focal_subject=focal_subject,
+        source_integration_instructions=phase2_instructions,
+        evidence_packet=evidence_packet,
+    )
+
+
+def _phase2_log_context(
+    *,
+    event_ids: list[str],
+    phase1_result: L2Phase1Result,
+    existing_graph_edges: list[dict[str, Any]] | None,
+    existing_assertions: list[dict[str, Any]] | None,
+    event_window: L2EventWindow,
+) -> dict[str, Any]:
+    return {
+        "event_ids": event_ids,
+        "fact_claim_count": len(phase1_result.fact_claims),
+        "existing_edge_count": len(existing_graph_edges) if existing_graph_edges else 0,
+        "existing_assertion_count": len(existing_assertions) if existing_assertions else 0,
+        "history_context_count": len(event_window.history_contexts),
+    }
+
+
+def _cap_single_event_assertions(result: L2Phase2Result, event_window: L2EventWindow) -> None:
+    if len(event_window.event_ids) > 1:
+        return
+    cap = single_event_confidence_cap()
+    for assertion in result.assertion_candidates:
+        assertion.confidence = min(assertion.confidence, cap)
+
+
+def _log_phase2_completed(
+    *,
+    started_at: float,
+    event_ids: list[str],
+    result: L2Phase2Result,
+) -> None:
+    duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
+    logger.info(
+        "L2 Phase 2 integration completed",
+        duration_ms=duration_ms,
+        event_ids=event_ids,
+        graph_edge_count=len(result.graph_edges),
+        assertion_count=len(result.assertion_candidates),
+        contradiction_hint_count=len(result.contradiction_hints),
+    )
+    logger.info(
+        "L2 Phase 2 candidate summary",
+        event_ids=event_ids,
+        graph_edges=_summarize_phase2_graph_edges(result),
+        assertion_candidates=_summarize_phase2_assertions(result),
+    )
 
 
 def _summarize_phase1_entities(result: L2Phase1Result) -> list[dict[str, Any]]:
