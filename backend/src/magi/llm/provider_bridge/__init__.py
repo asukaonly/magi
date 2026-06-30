@@ -86,9 +86,11 @@ def _with_trace_previews(
     request_preview = _compact_trace_preview(
         context.get("request_preview")
     ) or _build_request_preview(messages)
-    response_preview = _compact_trace_preview(
-        context.get("response_preview")
-    ) or _compact_trace_preview(response_text) or _build_tool_call_preview(tool_calls)
+    response_preview = (
+        _compact_trace_preview(context.get("response_preview"))
+        or _compact_trace_preview(response_text)
+        or _build_tool_call_preview(tool_calls)
+    )
     if request_preview:
         context.setdefault("request_preview", request_preview)
         context.setdefault("input_preview", request_preview)
@@ -253,19 +255,13 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
     ) -> ProviderResponse:
-        """
-        Unified tool-calling chat call.
-        """
+        """Unified tool-calling chat call."""
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
-        event_context = self._operations._with_cache_observation(
-            event_context,
-            system_prompt=system_prompt,
-            tools=tools,
-        )
+        event_context = self._tool_event_context(event_context, system_prompt, tools)
         started_at = time.time()
         try:
-            if getattr(self.llm, "_client", None) is None and not self._operations.is_anthropic():
-                provider_response = await self.chat_response(
+            if self._should_fallback_to_chat_response():
+                return await self._chat_response_for_tool_fallback(
                     system_prompt=system_prompt,
                     messages=messages,
                     max_tokens=max_tokens,
@@ -274,51 +270,129 @@ class LLMProviderBridge:
                     event_context=event_context,
                     thinking_depth=depth,
                 )
-                return provider_response
 
-            provider_response = await self._operations._run_with_concurrency_limit(
-                request_family="chat",
-                limit=self._operations._resolve_chat_concurrency_limit(),
-                operation=lambda: self._operations._chat_with_tools_impl(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    timeout_seconds=timeout_seconds,
-                    event_context=event_context,
-                ),
-            )
-
-            latency_ms = int((time.time() - started_at) * 1000)
-            self._operations._attach_trace_metrics(
-                provider_response=provider_response,
-                usage=provider_response.usage,
-                latency_ms=latency_ms,
+            provider_response = await self._run_chat_with_tools(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 thinking_depth=depth,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
             )
-            await self._operations._emit_usage_event(
-                success=True,
-                latency_ms=latency_ms,
-                usage=provider_response.usage,
-                event_context=_with_trace_previews(
-                    event_context,
-                    messages=messages,
-                    response_text=provider_response.content,
-                    tool_calls=provider_response.tool_calls,
-                ),
+            await self._record_chat_with_tools_success(
+                provider_response, started_at, depth, event_context, messages
             )
             return provider_response
         except Exception as exc:
-            await self._operations._emit_usage_event(
-                success=False,
-                latency_ms=int((time.time() - started_at) * 1000),
-                usage=None,
-                event_context=_with_trace_previews(event_context, messages=messages),
-                error=str(exc),
-            )
+            await self._record_chat_with_tools_failure(exc, started_at, event_context, messages)
             raise
+
+    def _should_fallback_to_chat_response(self) -> bool:
+        return getattr(self.llm, "_client", None) is None and not self._operations.is_anthropic()
+
+    def _tool_event_context(
+        self,
+        event_context: Optional[Dict[str, Any]],
+        system_prompt: str,
+        tools: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        return self._operations._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=tools,
+        )
+
+    async def _chat_response_for_tool_fallback(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]],
+        thinking_depth: ThinkingDepth,
+    ) -> ProviderResponse:
+        return await self.chat_response(
+            system_prompt=system_prompt,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            timeout_seconds=timeout_seconds,
+            event_context=event_context,
+            thinking_depth=thinking_depth,
+        )
+
+    async def _run_chat_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]],
+    ) -> ProviderResponse:
+        return await self._operations._run_with_concurrency_limit(
+            request_family="chat",
+            limit=self._operations._resolve_chat_concurrency_limit(),
+            operation=lambda: self._operations._chat_with_tools_impl(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                thinking_depth=thinking_depth,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+            ),
+        )
+
+    async def _record_chat_with_tools_success(
+        self,
+        provider_response: ProviderResponse,
+        started_at: float,
+        thinking_depth: ThinkingDepth,
+        event_context: Optional[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
+    ) -> None:
+        latency_ms = int((time.time() - started_at) * 1000)
+        self._operations._attach_trace_metrics(
+            provider_response=provider_response,
+            usage=provider_response.usage,
+            latency_ms=latency_ms,
+            thinking_depth=thinking_depth,
+        )
+        await self._operations._emit_usage_event(
+            success=True,
+            latency_ms=latency_ms,
+            usage=provider_response.usage,
+            event_context=_with_trace_previews(
+                event_context,
+                messages=messages,
+                response_text=provider_response.content,
+                tool_calls=provider_response.tool_calls,
+            ),
+        )
+
+    async def _record_chat_with_tools_failure(
+        self,
+        exc: Exception,
+        started_at: float,
+        event_context: Optional[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
+    ) -> None:
+        await self._operations._emit_usage_event(
+            success=False,
+            latency_ms=int((time.time() - started_at) * 1000),
+            usage=None,
+            event_context=_with_trace_previews(event_context, messages=messages),
+            error=str(exc),
+        )
 
     async def chat_with_tools_stream(
         self,
