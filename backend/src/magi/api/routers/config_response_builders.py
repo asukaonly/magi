@@ -55,69 +55,99 @@ def build_memory_config(raw: Dict[str, Any], runtime_config: Any) -> MemoryConfi
             memory_cfg.history_behavior, "value", str(memory_cfg.history_behavior)
         ),
         archive_path=memory_cfg.archive_path,
-        embedding=EmbeddingConfigModel(
-            mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
-            local=EmbeddingLocalConfigModel(
-                model_source=getattr(
-                    memory_cfg.embedding.local.model_source,
-                    "value",
-                    str(memory_cfg.embedding.local.model_source),
-                ),
-                managed_model_id=memory_cfg.embedding.local.managed_model_id,
-                model_dir_path=memory_cfg.embedding.local.model_dir_path,
-                idle_timeout_seconds=memory_cfg.embedding.local.idle_timeout_seconds,
-            ),
-        ),
-        reranker=MemoryRerankerConfigModel(
-            top_k=memory_cfg.reranker.top_k,
-            cross_encoder=CrossEncoderConfigModel(
-                enabled=memory_cfg.reranker.cross_encoder.enabled,
-                managed_model_id=memory_cfg.reranker.cross_encoder.managed_model_id,
-            ),
-        ),
-        query_expansion=QueryExpansionConfigModel(
-            enabled=memory_cfg.query_expansion.enabled,
-            max_expansions=memory_cfg.query_expansion.max_expansions,
-        ),
-        graph_spreading=GraphSpreadingConfigModel(
-            enabled=memory_cfg.graph_spreading.enabled,
-        ),
+        embedding=_build_memory_embedding_config(memory_cfg),
+        reranker=_build_memory_reranker_config(memory_cfg),
+        query_expansion=_build_query_expansion_config(memory_cfg),
+        graph_spreading=GraphSpreadingConfigModel(enabled=memory_cfg.graph_spreading.enabled),
         entity_semantic_edges=EntitySemanticEdgeConfigModel(
-            enabled=memory_cfg.entity_semantic_edges.enabled,
+            enabled=memory_cfg.entity_semantic_edges.enabled
         ),
-        l0=MemoryL0ConfigModel(
-            enabled=memory_cfg.l0.enabled,
-            checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
+        l0=_build_memory_l0_config(memory_cfg),
+        l1=_build_memory_l1_config(memory_cfg),
+        l2=_build_memory_l2_config(memory_cfg),
+        l3=_build_memory_l3_config(memory_cfg),
+        l4=_build_memory_l4_config(memory_cfg),
+    )
+
+
+def _build_memory_embedding_config(memory_cfg: Any) -> EmbeddingConfigModel:
+    return EmbeddingConfigModel(
+        mode=getattr(memory_cfg.embedding.mode, "value", str(memory_cfg.embedding.mode)),
+        local=EmbeddingLocalConfigModel(
+            model_source=getattr(
+                memory_cfg.embedding.local.model_source,
+                "value",
+                str(memory_cfg.embedding.local.model_source),
+            ),
+            managed_model_id=memory_cfg.embedding.local.managed_model_id,
+            model_dir_path=memory_cfg.embedding.local.model_dir_path,
+            idle_timeout_seconds=memory_cfg.embedding.local.idle_timeout_seconds,
         ),
-        l1=MemoryL1ConfigModel(
-            enabled=memory_cfg.l1.enabled,
-            retention_days=memory_cfg.l1.retention_days,
-            vectors_enabled=memory_cfg.l1.vectors_enabled,
+    )
+
+
+def _build_memory_reranker_config(memory_cfg: Any) -> MemoryRerankerConfigModel:
+    return MemoryRerankerConfigModel(
+        top_k=memory_cfg.reranker.top_k,
+        cross_encoder=CrossEncoderConfigModel(
+            enabled=memory_cfg.reranker.cross_encoder.enabled,
+            managed_model_id=memory_cfg.reranker.cross_encoder.managed_model_id,
         ),
-        l2=MemoryL2ConfigModel(
-            enabled=memory_cfg.l2.enabled,
-            vectors_enabled=memory_cfg.l2.vectors_enabled,
-            batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
-            auto_extract_relations=memory_cfg.l2.auto_extract_relations,
-            conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
-            conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
-            shadow_conflict_notification_enabled=memory_cfg.l2.shadow_conflict_notification_enabled,
-        ),
-        l3=MemoryL3ConfigModel(
-            enabled=memory_cfg.l3.enabled,
-            retention_days=memory_cfg.l3.retention_days,
-            vectors_enabled=memory_cfg.l3.vectors_enabled,
-            llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
-            temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
-            temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
-            summary_interval_minutes=memory_cfg.l3.summary_interval_minutes,
-        ),
-        l4=MemoryL4ConfigModel(
-            enabled=memory_cfg.l4.enabled,
-            vectors_enabled=memory_cfg.l4.vectors_enabled,
-            inactive_skill_retention_days=memory_cfg.l4.inactive_skill_retention_days,
-            inactive_skill_min_attempts=memory_cfg.l4.inactive_skill_min_attempts,
-        ),
+    )
+
+
+def _build_query_expansion_config(memory_cfg: Any) -> QueryExpansionConfigModel:
+    return QueryExpansionConfigModel(
+        enabled=memory_cfg.query_expansion.enabled,
+        max_expansions=memory_cfg.query_expansion.max_expansions,
+    )
+
+
+def _build_memory_l0_config(memory_cfg: Any) -> MemoryL0ConfigModel:
+    return MemoryL0ConfigModel(
+        enabled=memory_cfg.l0.enabled,
+        checkpoint_interval_seconds=memory_cfg.l0.checkpoint_interval_seconds,
+    )
+
+
+def _build_memory_l1_config(memory_cfg: Any) -> MemoryL1ConfigModel:
+    return MemoryL1ConfigModel(
+        enabled=memory_cfg.l1.enabled,
+        retention_days=memory_cfg.l1.retention_days,
+        vectors_enabled=memory_cfg.l1.vectors_enabled,
+    )
+
+
+def _build_memory_l2_config(memory_cfg: Any) -> MemoryL2ConfigModel:
+    return MemoryL2ConfigModel(
+        enabled=memory_cfg.l2.enabled,
+        vectors_enabled=memory_cfg.l2.vectors_enabled,
+        batch_flush_interval_seconds=memory_cfg.l2.batch_flush_interval_seconds,
+        auto_extract_relations=memory_cfg.l2.auto_extract_relations,
+        conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
+        conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
+        shadow_conflict_notification_enabled=memory_cfg.l2.shadow_conflict_notification_enabled,
+    )
+
+
+def _build_memory_l3_config(memory_cfg: Any) -> MemoryL3ConfigModel:
+    return MemoryL3ConfigModel(
+        enabled=memory_cfg.l3.enabled,
+        retention_days=memory_cfg.l3.retention_days,
+        vectors_enabled=memory_cfg.l3.vectors_enabled,
+        llm_summary_enabled=memory_cfg.l3.llm_summary_enabled,
+        temporal_llm_timeout_seconds=memory_cfg.l3.temporal_llm_timeout_seconds,
+        temporal_llm_min_event_count=memory_cfg.l3.temporal_llm_min_event_count,
+        summary_interval_minutes=memory_cfg.l3.summary_interval_minutes,
+    )
+
+
+def _build_memory_l4_config(memory_cfg: Any) -> MemoryL4ConfigModel:
+    return MemoryL4ConfigModel(
+        enabled=memory_cfg.l4.enabled,
+        vectors_enabled=memory_cfg.l4.vectors_enabled,
+        inactive_skill_retention_days=memory_cfg.l4.inactive_skill_retention_days,
+        inactive_skill_min_attempts=memory_cfg.l4.inactive_skill_min_attempts,
     )
 
 
