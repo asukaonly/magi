@@ -66,6 +66,13 @@ class SourceFacet:
         )
 
 
+@dataclass(frozen=True)
+class _FacetContext:
+    event_id: str
+    source: str
+    created_at: float
+
+
 class _L1SourceFacetHostProtocol(Protocol):
     db_path: str
 
@@ -204,98 +211,150 @@ def _extract_photo_source_facets(
     metadata: dict[str, Any],
     created_at: float,
 ) -> list[SourceFacet]:
+    context = _FacetContext(event_id=event_id, source=source, created_at=created_at)
     facets: list[SourceFacet] = []
+    facets.extend(_extract_photo_count_facet(context=context, content=content, metadata=metadata))
+    facets.extend(_extract_photo_device_facet(context=context, content=content, metadata=metadata))
+    facets.extend(_extract_representative_photo_facets(context=context, metadata=metadata))
+    facets.extend(_extract_photo_retrieval_term_facets(context=context, metadata=metadata))
+    return facets
 
+
+def _extract_photo_count_facet(
+    *,
+    context: _FacetContext,
+    content: str,
+    metadata: dict[str, Any],
+) -> list[SourceFacet]:
     photo_count = _extract_photo_count(content=content, metadata=metadata)
-    if photo_count is not None:
-        facets.append(
-            SourceFacet(
-                event_id=event_id,
-                source=source,
-                facet_name="photo.count",
-                numeric_value=float(photo_count),
-                created_at=created_at,
-            )
+    if photo_count is None:
+        return []
+    return [
+        SourceFacet(
+            event_id=context.event_id,
+            source=context.source,
+            facet_name="photo.count",
+            numeric_value=float(photo_count),
+            created_at=context.created_at,
         )
+    ]
 
+
+def _extract_photo_device_facet(
+    *,
+    context: _FacetContext,
+    content: str,
+    metadata: dict[str, Any],
+) -> list[SourceFacet]:
     device = _extract_device(content=content, metadata=metadata)
-    if device:
-        facets.append(
-            _text_facet(
-                event_id=event_id,
-                source=source,
-                facet_name="photo.device",
-                value=device,
-                created_at=created_at,
-            )
+    if not device:
+        return []
+    return [
+        _context_text_facet(
+            context=context,
+            facet_name="photo.device",
+            value=device,
         )
+    ]
 
+
+def _extract_representative_photo_facets(
+    *,
+    context: _FacetContext,
+    metadata: dict[str, Any],
+) -> list[SourceFacet]:
+    facets: list[SourceFacet] = []
     for photo in _iter_representative_photos(metadata):
-        for key in ("location_name", "apple_photos_place_name"):
-            value = _clean_text(photo.get(key))
-            if value:
-                facets.append(
-                    _text_facet(
-                        event_id=event_id,
-                        source=source,
-                        facet_name="photo.location_name",
-                        value=value,
-                        created_at=created_at,
-                    )
-                )
-        for key in ("apple_photos_place_address", "place_address", "address"):
-            value = _clean_text(photo.get(key))
-            if value:
-                facets.append(
-                    _text_facet(
-                        event_id=event_id,
-                        source=source,
-                        facet_name="photo.location_alias",
-                        value=value,
-                        created_at=created_at,
-                    )
-                )
-        asset_id = _clean_text(photo.get("asset_local_id") or photo.get("local_identifier"))
-        if asset_id:
+        facets.extend(_extract_representative_photo_location_facets(context, photo))
+        facets.extend(_extract_representative_photo_asset_facets(context, photo))
+        facets.extend(_extract_representative_photo_coordinate_facets(context, photo))
+    return facets
+
+
+def _extract_representative_photo_location_facets(
+    context: _FacetContext,
+    photo: dict[str, Any],
+) -> list[SourceFacet]:
+    facets: list[SourceFacet] = []
+    for key in ("location_name", "apple_photos_place_name"):
+        value = _clean_text(photo.get(key))
+        if value:
             facets.append(
-                _text_facet(
-                    event_id=event_id,
-                    source=source,
-                    facet_name="photo.asset_id",
-                    value=asset_id,
-                    created_at=created_at,
+                _context_text_facet(
+                    context=context,
+                    facet_name="photo.location_name",
+                    value=value,
                 )
             )
-        for key, facet_name in (
-            ("latitude", "photo.latitude"),
-            ("longitude", "photo.longitude"),
-        ):
-            numeric = _coerce_float(photo.get(key))
-            if numeric is not None:
-                facets.append(
-                    SourceFacet(
-                        event_id=event_id,
-                        source=source,
-                        facet_name=facet_name,
-                        numeric_value=numeric,
-                        created_at=created_at,
-                    )
+    for key in ("apple_photos_place_address", "place_address", "address"):
+        value = _clean_text(photo.get(key))
+        if value:
+            facets.append(
+                _context_text_facet(
+                    context=context,
+                    facet_name="photo.location_alias",
+                    value=value,
                 )
+            )
+    return facets
 
+
+def _extract_representative_photo_asset_facets(
+    context: _FacetContext,
+    photo: dict[str, Any],
+) -> list[SourceFacet]:
+    asset_id = _clean_text(photo.get("asset_local_id") or photo.get("local_identifier"))
+    if not asset_id:
+        return []
+    return [
+        _context_text_facet(
+            context=context,
+            facet_name="photo.asset_id",
+            value=asset_id,
+        )
+    ]
+
+
+def _extract_representative_photo_coordinate_facets(
+    context: _FacetContext,
+    photo: dict[str, Any],
+) -> list[SourceFacet]:
+    facets: list[SourceFacet] = []
+    for key, facet_name in (
+        ("latitude", "photo.latitude"),
+        ("longitude", "photo.longitude"),
+    ):
+        numeric = _coerce_float(photo.get(key))
+        if numeric is not None:
+            facets.append(
+                SourceFacet(
+                    event_id=context.event_id,
+                    source=context.source,
+                    facet_name=facet_name,
+                    numeric_value=numeric,
+                    created_at=context.created_at,
+                )
+            )
+    return facets
+
+
+def _extract_photo_retrieval_term_facets(
+    *,
+    context: _FacetContext,
+    metadata: dict[str, Any],
+) -> list[SourceFacet]:
+    facets: list[SourceFacet] = []
     for term in _iter_retrieval_terms(metadata):
         normalized = normalize_facet_text(term)
         if not normalized or normalized in _GENERIC_PHOTO_TERMS:
             continue
         facets.append(
-            _text_facet(
-                event_id=event_id,
-                source=source,
+            _context_text_facet(
+                context=context,
                 facet_name="photo.retrieval_term",
                 value=term,
-                created_at=created_at,
             )
         )
-
     return facets
 
 
@@ -470,6 +529,21 @@ def _text_facet(
         text_value=value,
         normalized_text_value=normalized or None,
         created_at=created_at,
+    )
+
+
+def _context_text_facet(
+    *,
+    context: _FacetContext,
+    facet_name: str,
+    value: str,
+) -> SourceFacet:
+    return _text_facet(
+        event_id=context.event_id,
+        source=context.source,
+        facet_name=facet_name,
+        value=value,
+        created_at=context.created_at,
     )
 
 
