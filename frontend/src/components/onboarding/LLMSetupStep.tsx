@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Activity, AlertCircle, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -12,8 +12,10 @@ import {
   type LLMProviderMeta,
   type LLMProviderRegistry,
   type LLMScenario,
+  type TestLLMProviderConnectionResponse,
 } from '@/api/modules/config';
 import { SelectField } from '@/components/config-forms/fields';
+import { LLMProviderTestStatus } from '@/components/config-forms/LLMProviderTestStatus';
 import { ProviderIcon } from '@/components/config-forms/provider-icons';
 import {
   applySelectionDefaults,
@@ -336,6 +338,11 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   const [error, setError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [connectionTestState, setConnectionTestState] = useState<{
+    loading: boolean;
+    error: string | null;
+    result: TestLLMProviderConnectionResponse | null;
+  }>({ loading: false, error: null, result: null });
 
   const activeProviderId = getActiveProviderId(value);
   const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
@@ -348,10 +355,24 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   const selectedCardId = activeProvider?.provider_type === 'custom'
     ? 'custom'
     : activeProvider?.provider_type || '';
+  const currentCoreModel = value.selections?.core?.model || '';
+  const currentContextModel = value.selections?.context_decider?.model || '';
+  const connectionSignature = [
+    activeProviderId,
+    currentCoreModel,
+    activeProvider?.api_key || '',
+    activeProvider?.base_url || '',
+    activeProvider?.services?.chat?.api_key || '',
+    activeProvider?.services?.chat?.base_url || '',
+  ].join('\n');
 
   useEffect(() => {
     onValid?.(isValidConfig(value));
   }, [value, onValid]);
+
+  useEffect(() => {
+    setConnectionTestState({ loading: false, error: null, result: null });
+  }, [connectionSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -537,8 +558,54 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     });
   };
 
-  const currentCoreModel = value.selections?.core?.model || '';
-  const currentContextModel = value.selections?.context_decider?.model || '';
+  const handleTestActiveProviderConnection = async () => {
+    if (!activeProviderId || !activeProvider) {
+      return;
+    }
+
+    const model = currentCoreModel.trim();
+    if (!model) {
+      setConnectionTestState({
+        loading: false,
+        error: t('llm.providerConfiguration.testModelRequired'),
+        result: null,
+      });
+      return;
+    }
+
+    const provider = cloneProvider(activeProvider);
+    const apiKey = provider.services.chat.api_key || provider.api_key || '';
+    const baseUrl =
+      provider.services.chat.base_url ||
+      provider.base_url ||
+      activeProviderMeta?.default_base_url ||
+      '';
+    provider.api_key = provider.api_key || apiKey;
+    provider.base_url = provider.base_url || baseUrl;
+    provider.services.chat.api_key = apiKey;
+    provider.services.chat.base_url = baseUrl;
+
+    setConnectionTestState({ loading: true, error: null, result: null });
+    try {
+      const result = await configApi.testLLMProviderConnection({
+        provider_id: activeProviderId,
+        provider,
+        model,
+      });
+      setConnectionTestState({
+        loading: false,
+        error: null,
+        result: result || null,
+      });
+    } catch (testError: any) {
+      setConnectionTestState({
+        loading: false,
+        error: testError?.message || t('llm.providerConfiguration.testFailed'),
+        result: null,
+      });
+    }
+  };
+
   const memoryModelStatus = getMemoryModelStatus(value);
   const memoryModelMissingTitleKey = activeProvider?.provider_plan
     ? 'llmSetup.memoryModelPlanMissingTitle'
@@ -707,14 +774,33 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
               </label>
             ) : null}
 
-            <label className="space-y-2">
+            <div className="space-y-2">
               <span className="text-sm font-medium">
                 {activeProvider.provider_type === 'custom'
                   ? t('llmSetup.apiKeyOptionalLabel')
                   : t('llmSetup.apiKeyLabel')}
               </span>
-              {renderSecretInput()}
-            </label>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1">{renderSecretInput()}</div>
+                <button
+                  type="button"
+                  className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-border/70 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={connectionTestState.loading}
+                  onClick={() => void handleTestActiveProviderConnection()}
+                >
+                  {connectionTestState.loading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Activity className="h-4 w-4" />
+                  )}
+                  <span>
+                    {connectionTestState.loading
+                      ? t('llm.actions.testingConnection')
+                      : t('llm.actions.testConnection')}
+                  </span>
+                </button>
+              </div>
+            </div>
 
             {activeProvider.provider_type === 'custom' ? (
               <label className="space-y-2 md:col-span-2">
@@ -757,6 +843,13 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
               </label>
             ) : null}
           </div>
+
+          {connectionTestState.error || connectionTestState.result ? (
+            <LLMProviderTestStatus
+              error={connectionTestState.error}
+              result={connectionTestState.result}
+            />
+          ) : null}
 
           <button
             type="button"

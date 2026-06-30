@@ -260,6 +260,11 @@ describe('LLMSetupStep', () => {
   beforeEach(() => {
     vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(catalog() as any);
     vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(customTemplate() as any);
+    vi.spyOn(configApi, 'testLLMProviderConnection').mockResolvedValue({
+      model: 'gpt-4o',
+      latency_ms: 42,
+      preview: 'hello',
+    });
   });
 
   it('renders flat provider cards and keeps optional settings collapsed', async () => {
@@ -305,6 +310,35 @@ describe('LLMSetupStep', () => {
     expect(latest.providers.openai.api_key).toBe('sk-test');
     expect(latest.selections.core.model).toBe('gpt-4o');
     expect(latest.selections.context_decider.model).toBe('gpt-4o-mini');
+  });
+
+  it('tests the selected provider from onboarding before continuing', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+
+    await waitFor(() => {
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider_id: 'openai',
+          model: 'gpt-4o',
+          provider: expect.objectContaining({
+            api_key: 'sk-test',
+            base_url: 'https://api.openai.com/v1',
+            services: expect.objectContaining({
+              chat: expect.objectContaining({
+                api_key: 'sk-test',
+                base_url: 'https://api.openai.com/v1',
+              }),
+            }),
+          }),
+        })
+      );
+    });
+    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
   });
 
   it('supports keyless OpenAI-compatible relay setup with base URL and model ID', async () => {
