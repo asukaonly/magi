@@ -2,29 +2,43 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import Any
 
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
 from ..media.adapters.photo_library import extract_photo_library_asset_ref
 
-
 # Tag values that just restate the source name — surfacing them as the
 # cluster label would duplicate what the SourceGroup header in the day
 # bucket already shows. Filter these out when deriving a label from
 # event tags so we get the specific noun ("openai.com") instead of the
 # bucket ("chrome_history").
-_GENERIC_SOURCE_TAGS = frozenset({
-    "chrome_history", "screen_time", "application_usage",
-    "system_media", "manual_entry", "calendar",
-})
+_GENERIC_SOURCE_TAGS = frozenset(
+    {
+        "chrome_history",
+        "screen_time",
+        "application_usage",
+        "system_media",
+        "manual_entry",
+        "calendar",
+    }
+)
 
 # Episode.label values that mean "no label was actually set" and should
 # trigger event-based label derivation. The default "activity" comes
 # from the episodes table's DEFAULT clause when episode_formation
 # couldn't infer something more specific.
 _PLACEHOLDER_EPISODE_LABELS = frozenset({"", "activity"})
+
+
+@dataclass(frozen=True)
+class _EpisodeClusterLabel:
+    display: str
+    raw: str
+    is_themeable: bool
 
 
 class TimelineClusterBuilder:
@@ -62,7 +76,8 @@ class TimelineClusterBuilder:
             events_by_episode = self._partition_events_by_episode(events, episodes)
             clusters = [
                 self._episode_to_cluster(
-                    ep, index,
+                    ep,
+                    index,
                     episode_events=events_by_episode.get(str(ep.get("episode_id", "")), []),
                 )
                 for index, ep in enumerate(episodes)
@@ -136,7 +151,9 @@ class TimelineClusterBuilder:
         if current_group:
             groups.append(current_group)
 
-        return [self._build_cluster(group, start_index + index) for index, group in enumerate(groups)]
+        return [
+            self._build_cluster(group, start_index + index) for index, group in enumerate(groups)
+        ]
 
     # ── Episode-based clusters ───────────────────────────────────
 
@@ -157,49 +174,14 @@ class TimelineClusterBuilder:
         Pass None / [] to skip enrichment and fall through to the
         original episode_type fallback.
         """
-        import json as _json
-        time_start = float(episode.get("time_start") or 0.0)
-        time_end = float(episode.get("time_end") or time_start)
-        raw_user_label = str(episode.get("user_label") or "").strip()
-        raw_label = str(episode.get("label") or "").strip()
-        if raw_user_label:
-            label_display = raw_user_label
-            label_raw = raw_user_label
-            label_is_themeable = True
-        elif raw_label and raw_label.lower() not in _PLACEHOLDER_EPISODE_LABELS:
-            label_display = raw_label.replace("_", " ").title()
-            label_raw = raw_label
-            label_is_themeable = True
-        else:
-            # Episode itself has no useful label. Try to derive one from
-            # the events that fall in its window before settling for the
-            # episode_type / "activity" fallback. Derived labels are
-            # usually already in display form (e.g. "openai.com") so
-            # they bypass the snake_case title-casing that mangles
-            # domain-shaped strings into "Openai.Com".
-            derived = self._derive_label_from_events(episode_events or [])
-            if derived:
-                label_display = derived
-                label_raw = derived
-                label_is_themeable = True
-            else:
-                episode_type = str(episode.get("episode_type") or "activity")
-                label_display = episode_type.replace("_", " ").title()
-                label_raw = episode_type
-                # episode_type ("session") / "activity" are placeholders,
-                # not concerns — don't let them surface as theme chips.
-                label_is_themeable = False
+        episode_events = episode_events or []
+        time_start, time_end = self._episode_time_range(episode)
+        label = self._resolve_episode_label(episode, episode_events)
         summary = str(episode.get("summary") or "")
-        entity_ids_raw = episode.get("primary_entity_ids") or "[]"
-        if isinstance(entity_ids_raw, str):
-            try:
-                entity_ids_raw = _json.loads(entity_ids_raw)
-            except (ValueError, TypeError):
-                entity_ids_raw = []
-        representative_asset_ref = str(
-            episode.get("representative_asset_ref")
-            or self._extract_representative_asset_ref(episode_events or [])
-            or ""
+        entity_ids = self._episode_entity_ids(episode)
+        representative_asset_ref = self._episode_representative_asset_ref(
+            episode,
+            episode_events,
         )
 
         return {
@@ -207,14 +189,14 @@ class TimelineClusterBuilder:
             "time_start": time_start,
             "time_end": time_end,
             "duration_seconds": max(0.0, time_end - time_start),
-            "label": label_display,
-            "label_is_themeable": label_is_themeable,
+            "label": label.display,
+            "label_is_themeable": label.is_themeable,
             "summary": summary,
-            "dominant_mode": str(episode.get("dominant_mode") or label_raw),
+            "dominant_mode": str(episode.get("dominant_mode") or label.raw),
             "source_types": [],
             "event_count": int(episode.get("source_event_count") or 0),
             "representative_event_ids": [],
-            "keywords": list(entity_ids_raw)[:4] if isinstance(entity_ids_raw, list) else [],
+            "keywords": entity_ids[:4],
             "media_refs": [],
             "state_snapshot": {},
             "episode_id": str(episode.get("episode_id", "")),
@@ -226,6 +208,53 @@ class TimelineClusterBuilder:
             "slice_sensory_detail": str(episode.get("slice_sensory_detail") or ""),
             "representative_asset_ref": representative_asset_ref,
         }
+
+    @staticmethod
+    def _episode_time_range(episode: dict[str, Any]) -> tuple[float, float]:
+        time_start = float(episode.get("time_start") or 0.0)
+        time_end = float(episode.get("time_end") or time_start)
+        return time_start, time_end
+
+    def _resolve_episode_label(
+        self,
+        episode: dict[str, Any],
+        episode_events: list[dict[str, Any]],
+    ) -> _EpisodeClusterLabel:
+        raw_user_label = str(episode.get("user_label") or "").strip()
+        if raw_user_label:
+            return _EpisodeClusterLabel(raw_user_label, raw_user_label, True)
+
+        raw_label = str(episode.get("label") or "").strip()
+        if raw_label and raw_label.lower() not in _PLACEHOLDER_EPISODE_LABELS:
+            return _EpisodeClusterLabel(raw_label.replace("_", " ").title(), raw_label, True)
+
+        derived = self._derive_label_from_events(episode_events)
+        if derived:
+            return _EpisodeClusterLabel(derived, derived, True)
+
+        episode_type = str(episode.get("episode_type") or "activity")
+        return _EpisodeClusterLabel(episode_type.replace("_", " ").title(), episode_type, False)
+
+    @staticmethod
+    def _episode_entity_ids(episode: dict[str, Any]) -> list[Any]:
+        entity_ids = episode.get("primary_entity_ids") or "[]"
+        if isinstance(entity_ids, str):
+            try:
+                entity_ids = json.loads(entity_ids)
+            except (ValueError, TypeError):
+                entity_ids = []
+        return list(entity_ids) if isinstance(entity_ids, list) else []
+
+    def _episode_representative_asset_ref(
+        self,
+        episode: dict[str, Any],
+        episode_events: list[dict[str, Any]],
+    ) -> str:
+        return str(
+            episode.get("representative_asset_ref")
+            or self._extract_representative_asset_ref(episode_events)
+            or ""
+        )
 
     @staticmethod
     def _uncovered_events(
@@ -255,7 +284,9 @@ class TimelineClusterBuilder:
             "block_id": f"cluster:{index}",
             "time_start": float(first.get("timestamp") or 0.0),
             "time_end": float(last.get("timestamp") or 0.0),
-            "duration_seconds": max(0.0, float(last.get("timestamp") or 0.0) - float(first.get("timestamp") or 0.0)),
+            "duration_seconds": max(
+                0.0, float(last.get("timestamp") or 0.0) - float(first.get("timestamp") or 0.0)
+            ),
             "label": label.replace("_", " ").title(),
             # See `_episode_to_cluster` for the rationale. Only a label
             # backed by real signal (here, event tags) is themeable. A label
@@ -267,7 +298,9 @@ class TimelineClusterBuilder:
             "dominant_mode": label,
             "source_types": source_types,
             "event_count": len(events),
-            "representative_event_ids": [str(event.get("event_id")) for event in events[:3] if event.get("event_id")],
+            "representative_event_ids": [
+                str(event.get("event_id")) for event in events[:3] if event.get("event_id")
+            ],
             "keywords": keywords,
             "media_refs": [],
             "state_snapshot": {},
