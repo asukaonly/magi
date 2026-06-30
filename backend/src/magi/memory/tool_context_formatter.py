@@ -47,6 +47,27 @@ def compact_memory_tool_data(
     if not isinstance(results, dict):
         return data
 
+    compact_results = _compact_memory_results(
+        results,
+        max_items=max_items,
+        max_text_chars=max_text_chars,
+    )
+    compact_meta = _compact_trace_meta(_merged_trace(results, data))
+    compact_payload: Dict[str, Any] = {
+        "memory_context": _render_memory_context(compact_results),
+        "meta": compact_meta,
+    }
+    if "agent_id" in data:
+        compact_payload["agent_id"] = data.get("agent_id")
+    return compact_payload
+
+
+def _compact_memory_results(
+    results: Dict[str, Any],
+    *,
+    max_items: int,
+    max_text_chars: int,
+) -> Dict[str, Any]:
     compact_results: Dict[str, Any] = {}
 
     if "l0_workbench" in results:
@@ -89,21 +110,16 @@ def compact_memory_tool_data(
         compact_results["l4_procedures"] = _compact_procedures(
             results.get("l4_procedures"), max_items=max_items, max_text_chars=max_text_chars
         )
+    return compact_results
 
+
+def _merged_trace(results: Dict[str, Any], data: Dict[str, Any]) -> dict[str, Any]:
     merged_trace: dict[str, Any] = {}
     if isinstance(results.get("trace"), dict):
         merged_trace.update(results.get("trace") or {})
     if isinstance(data.get("meta"), dict):
         merged_trace.update(data.get("meta") or {})
-    compact_meta = _compact_trace_meta(merged_trace)
-
-    compact_payload: Dict[str, Any] = {
-        "memory_context": _render_memory_context(compact_results),
-        "meta": compact_meta,
-    }
-    if "agent_id" in data:
-        compact_payload["agent_id"] = data.get("agent_id")
-    return compact_payload
+    return merged_trace
 
 
 __all__ = ["compact_memory_tool_data"]
