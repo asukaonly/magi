@@ -24,7 +24,6 @@ from .personality_generation_prompts import (
     PERSONA_GENERATION_SHARED_DIRECTIVES,
     REGISTER_SYSTEM_PROMPT,
     RULES_SYSTEM_PROMPT,
-    _build_stage_system_prompt,
 )
 
 logger = get_logger(__name__)
@@ -44,6 +43,29 @@ CJK_INTERNAL_SPACE_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[\u3400-\u9fff])"
 CJK_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=[\u3400-\u9fff])\s+(?=[，。！？、；：])")
 ENGLISH_BOOTSTRAP_PREFIXES = ("hi, i'm ", "hello, i'm ", "hi, i am ", "hello, i am ")
 AMBIGUOUS_LANGUAGE_VALUES = {"", "auto", "automatic", "自动"}
+REGISTER_ALIASES = {
+  "ordinary": "chat",
+  "ordinary_conversation": "chat",
+  "casual": "chat",
+  "daily": "chat",
+  "daily_conversation": "chat",
+  "conversation": "chat",
+  "work": "task",
+  "execution": "task",
+  "task_execution": "task",
+  "tool_use": "task",
+  "planning": "analysis",
+  "deep_analysis": "analysis",
+  "support": "emotional",
+  "emotional_support": "emotional",
+  "care": "emotional",
+  "safety": "crisis",
+  "urgent": "crisis",
+  "emergency": "crisis",
+}
+JSON_REPAIR_SYSTEM_PROMPT = """You repair invalid JSON from a persona-generation stage.
+Output ONLY one valid JSON object. Do not add markdown fences, comments, or explanation.
+Preserve the original keys and values as much as possible. Only fix syntax and obvious JSON-shape mistakes needed for parsing."""
 DEFAULT_DEEP_LAYERS = (
   {
     "layer_id": "crack",
@@ -158,6 +180,19 @@ def _string_list(value: Any) -> list[str]:
   return [str(value).strip()] if str(value).strip() else []
 
 
+def _string_field(value: Any, fallback: str = "") -> str:
+  if value is None:
+    return fallback
+  if isinstance(value, str):
+    return value.strip() or fallback
+  if isinstance(value, list):
+    items = [str(item).strip() for item in value if str(item).strip()]
+    return "\n".join(items) or fallback
+  if isinstance(value, dict):
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+  return str(value).strip() or fallback
+
+
 def _string_dict(value: Any) -> dict[str, str]:
   if not isinstance(value, dict):
     return {}
@@ -201,6 +236,61 @@ def _extract_json_object(response_text: str) -> dict[str, Any]:
   if not isinstance(data, dict):
     raise ValueError("AI returned JSON that is not an object")
   return data
+
+
+def _json_repair_user_prompt(stage_id: str, response_text: str, error: Exception) -> str:
+  return f"""Repair this invalid JSON from the {stage_id} persona-generation stage.
+
+Parse error:
+{error}
+
+Return only the repaired JSON object. Do not summarize or change the content.
+
+# Invalid JSON
+{response_text}"""
+
+
+async def _call_generation_llm(
+  *,
+  stage_id: str,
+  prompt: str,
+  system_prompt: str,
+  max_tokens: int,
+  temperature: float,
+  llm_override: Optional[LLMSettings],
+  adapter_resolver: Callable[..., Any],
+  adapter_factory: Callable[..., Any],
+  stage_progress_callback: Optional[Callable[[str, str], None]],
+  notify_progress: bool = True,
+) -> str:
+  async with _PERSONALITY_GENERATION_LLM_SEMAPHORE:
+    if notify_progress and stage_progress_callback is not None:
+      stage_progress_callback(stage_id, "running")
+    llm_adapter = adapter_resolver(
+      LLMScenario.CORE,
+      llm_settings=llm_override,
+      adapter_factory=adapter_factory,
+    )
+    logger.info(
+      "[AI Generate Personality] Stage %s using provider=%s model=%s",
+      stage_id,
+      getattr(llm_adapter, "provider_name", "unknown"),
+      getattr(llm_adapter, "model_name", "unknown"),
+    )
+    bridge = LLMProviderBridge(llm_adapter)
+    response = await bridge.chat(
+      system_prompt=system_prompt,
+      messages=[{"role": "user", "content": prompt}],
+      max_tokens=max_tokens,
+      temperature=temperature,
+      json_mode=True,
+      disable_thinking=True,
+      event_context={
+        "request_kind": "personality:generation",
+        "agent_id": "personality_generation",
+      },
+    )
+  return response.strip()
 
 
 def _pick_keys(payload: dict[str, Any], keys: Sequence[str]) -> dict[str, Any]:
@@ -272,17 +362,95 @@ def _default_register(register: str) -> dict[str, Any]:
   return {"description": description, "behavior": behavior, "examples": []}
 
 
+def _normalize_register_id(value: Any, default_register: str = "chat") -> str:
+  normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+  if normalized in REQUIRED_REGISTERS:
+    return normalized
+  return REGISTER_ALIASES.get(normalized, default_register)
+
+
+def _stringify_runtime_example(value: Any) -> str:
+  if isinstance(value, str):
+    return value.strip()
+  if not isinstance(value, dict):
+    return _string_field(value)
+
+  user_text = _string_field(
+    value.get("user_input")
+    or value.get("user")
+    or value.get("input")
+    or value.get("prompt")
+  )
+  assistant_text = _string_field(
+    value.get("assistant_output")
+    or value.get("assistant")
+    or value.get("response")
+    or value.get("good_response")
+    or value.get("output")
+  )
+  if assistant_text:
+    return f"[User: {user_text}]\nGood: {assistant_text}" if user_text else f"Good: {assistant_text}"
+  return _string_field(value.get("text") or value.get("example"))
+
+
+def _collect_register_examples(value: Any, default_register: str) -> list[tuple[str, str]]:
+  collected: list[tuple[str, str]] = []
+  if isinstance(value, list):
+    for item in value:
+      collected.extend(_collect_register_examples(item, default_register))
+    return collected
+
+  if isinstance(value, dict):
+    register = _normalize_register_id(
+      value.get("register")
+      or value.get("register_id")
+      or value.get("mode")
+      or value.get("category"),
+      default_register,
+    )
+    if "examples" in value:
+      collected.extend(_collect_register_examples(value.get("examples"), register))
+      return collected
+    example = _stringify_runtime_example(value)
+    if example:
+      collected.append((register, example))
+    return collected
+
+  example = _stringify_runtime_example(value)
+  if example:
+    collected.append((default_register, example))
+  return collected
+
+
+def _append_register_examples(registers: dict[str, Any], value: Any, default_register: str) -> None:
+  for register, example in _collect_register_examples(value, default_register):
+    item = registers.get(register)
+    if not isinstance(item, dict):
+      item = {}
+      registers[register] = item
+    examples = _string_list(item.get("examples"))
+    if example not in examples:
+      examples.append(example)
+    item["examples"] = examples
+
+
 def _complete_registers(payload: Dict[str, Any]) -> None:
   registers = _ensure_dict(payload, "registers")
+  _append_register_examples(registers, registers.pop("examples", None), "chat")
+  for register, item in list(registers.items()):
+    if not isinstance(item, dict):
+      registers.pop(register, None)
   for register in REQUIRED_REGISTERS:
     item = registers.get(register)
     if not isinstance(item, dict):
       item = {}
       registers[register] = item
     defaults = _default_register(register)
-    item["description"] = str(item.get("description") or defaults["description"])
-    item["behavior"] = str(item.get("behavior") or defaults["behavior"])
-    item["examples"] = _string_list(item.get("examples"))
+    raw_examples = item.get("examples")
+    item["description"] = _string_field(item.get("description"), defaults["description"])
+    item["behavior"] = _string_field(item.get("behavior"), defaults["behavior"])
+    item["examples"] = []
+    _append_register_examples(registers, raw_examples, register)
 
 
 def _complete_quiet_hours(payload: Dict[str, Any]) -> None:
@@ -636,42 +804,49 @@ async def _run_generation_stage(
   adapter_resolver: Callable[..., Any],
   adapter_factory: Callable[..., Any],
   stage_progress_callback: Optional[Callable[[str, str], None]] = None,
+  retry_on_json_error: bool = False,
 ) -> dict[str, Any]:
   """Run one LLM JSON stage behind the shared generation concurrency gate."""
-  async with _PERSONALITY_GENERATION_LLM_SEMAPHORE:
-    if stage_progress_callback is not None:
-      stage_progress_callback(stage_id, "running")
-    llm_adapter = adapter_resolver(
-      LLMScenario.CORE,
-      llm_settings=llm_override,
-      adapter_factory=adapter_factory,
-    )
-    logger.info(
-      "[AI Generate Personality] Stage %s using provider=%s model=%s",
-      stage_id,
-      getattr(llm_adapter, "provider_name", "unknown"),
-      getattr(llm_adapter, "model_name", "unknown"),
-    )
-    bridge = LLMProviderBridge(llm_adapter)
-    response = await bridge.chat(
-      system_prompt=system_prompt,
-      messages=[{"role": "user", "content": prompt}],
-      max_tokens=max_tokens,
-      temperature=temperature,
-      json_mode=True,
-      disable_thinking=True,
-      event_context={
-        "request_kind": "personality:generation",
-        "agent_id": "personality_generation",
-      },
-    )
-  response_text = response.strip()
+  response_text = await _call_generation_llm(
+    stage_id=stage_id,
+    prompt=prompt,
+    system_prompt=system_prompt,
+    max_tokens=max_tokens,
+    temperature=temperature,
+    llm_override=llm_override,
+    adapter_resolver=adapter_resolver,
+    adapter_factory=adapter_factory,
+    stage_progress_callback=stage_progress_callback,
+  )
   logger.info(
     "[AI Generate Personality] Stage %s raw response preview: %s",
     stage_id,
     response_text[:300],
   )
-  return _extract_json_object(response_text)
+  try:
+    return _extract_json_object(response_text)
+  except (json.JSONDecodeError, ValueError) as exc:
+    if not retry_on_json_error:
+      raise
+    logger.warning("[AI Generate Personality] Stage %s returned invalid JSON; retrying JSON repair: %s", stage_id, exc)
+    repaired_text = await _call_generation_llm(
+      stage_id=f"{stage_id}.repair",
+      prompt=_json_repair_user_prompt(stage_id, response_text, exc),
+      system_prompt=JSON_REPAIR_SYSTEM_PROMPT,
+      max_tokens=max_tokens,
+      temperature=0.0,
+      llm_override=llm_override,
+      adapter_resolver=adapter_resolver,
+      adapter_factory=adapter_factory,
+      stage_progress_callback=stage_progress_callback,
+      notify_progress=False,
+    )
+    logger.info(
+      "[AI Generate Personality] Stage %s repaired response preview: %s",
+      stage_id,
+      repaired_text[:300],
+    )
+    return _extract_json_object(repaired_text)
 
 
 async def _run_optional_generation_stage(
@@ -999,6 +1174,7 @@ async def _run_integration_personality_stage(
       system_prompt=INTEGRATION_SYSTEM_PROMPT,
       max_tokens=3200,
       temperature=0.4,
+      retry_on_json_error=True,
       **_generation_stage_dependencies(context),
     )
     _deep_merge_payload(combined, integrated)

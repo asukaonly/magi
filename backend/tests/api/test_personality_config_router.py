@@ -113,6 +113,17 @@ class _ConcurrencyTrackingAdapter(_FakeLLMAdapter):
             self.active_calls -= 1
 
 
+class _SequentialLLMAdapter(_FakeLLMAdapter):
+    def __init__(self, responses: list[str]) -> None:
+        super().__init__()
+        self._responses = list(responses)
+
+    def _content(self) -> str:
+        if not self._responses:
+            raise AssertionError("No fake LLM response left")
+        return self._responses.pop(0)
+
+
 @pytest.mark.asyncio
 async def test_ai_generate_personality_uses_core_scenario(monkeypatch) -> None:
     from magi.api.routers import personality_config
@@ -455,6 +466,49 @@ def test_normalize_generated_personality_payload_cleans_generation_quality_issue
     assert payload["persona_layers"][2]["unlock_condition"]["trust_level_gte"] == 0.4
 
 
+def test_normalize_generated_personality_payload_absorbs_misnested_register_examples() -> None:
+    from magi.api.routers.personality_config import PersonalityConfigModel, normalize_generated_personality_payload
+
+    payload = normalize_generated_personality_payload(
+        {
+            "name": "明日香",
+            "registers": {
+                "chat": {
+                    "description": "日常交流",
+                    "behavior": ["短句", "直接"],
+                },
+                "examples": [
+                    {
+                        "register_id": "ordinary_conversation",
+                        "examples": [
+                            {
+                                "user_input": "今天天气不错。",
+                                "assistant_output": "哼，至少你还看得见太阳。",
+                            }
+                        ],
+                    },
+                    {
+                        "register_id": "task",
+                        "examples": [
+                            {
+                                "user_input": "帮我修这个 bug。",
+                                "assistant_output": "先把报错给我，别只说坏了。",
+                            }
+                        ],
+                    },
+                ],
+            },
+        },
+        target_language="Chinese",
+    )
+
+    assert "examples" not in payload["registers"]
+    assert "短句" in payload["registers"]["chat"]["behavior"]
+    assert any("今天天气不错" in example for example in payload["registers"]["chat"]["examples"])
+    assert any("帮我修这个 bug" in example for example in payload["registers"]["task"]["examples"])
+    PersonalityConfigModel(**payload)
+
+
 def test_personality_generation_stage_prompts_share_directives() -> None:
     from magi.api.services import personality_generation
 
@@ -480,9 +534,37 @@ def test_personality_generation_stage_prompts_share_directives() -> None:
     assert "Do not add behavior, secrets, modifiers" in personality_generation.LAYERS_SYSTEM_PROMPT
     assert "at least seven examples total" in personality_generation.REGISTER_SYSTEM_PROMPT
     assert "Include only good responses" in personality_generation.REGISTER_SYSTEM_PROMPT
+    assert "Never return registers.examples" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
+    assert "examples must be string arrays" in personality_generation.BOOTSTRAP_SYSTEM_PROMPT
     assert "few coherent rules" in personality_generation.RULES_SYSTEM_PROMPT
     assert "cross-field consistency review" in personality_generation.INTEGRATION_SYSTEM_PROMPT
     assert "Do not include _meta_design" in personality_generation.INTEGRATION_SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_generation_stage_repairs_invalid_json_once() -> None:
+    from magi.api.services import personality_generation
+
+    adapter = _SequentialLLMAdapter([
+        '{"name": "明日香" "description": "少了逗号"}',
+        '{"name": "明日香", "description": "修好了"}',
+    ])
+
+    result = await personality_generation._run_generation_stage(
+        stage_id="integrate",
+        prompt="Return final JSON.",
+        system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+        max_tokens=400,
+        temperature=0.4,
+        llm_override=None,
+        adapter_resolver=lambda *args, **kwargs: adapter,
+        adapter_factory=None,
+        retry_on_json_error=True,
+    )
+
+    assert result == {"name": "明日香", "description": "修好了"}
+    assert len(adapter.calls) == 2
+    assert "Repair this invalid JSON" in str(adapter.calls[1]["messages"])
 
 
 def test_personality_generation_module_prompt_injects_meta_design_anchors() -> None:

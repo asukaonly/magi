@@ -86,7 +86,9 @@ REGISTER_SYSTEM_PROMPT = _build_stage_system_prompt(
   """Design the conversation registers that let the same persona adapt to different user needs without losing coherence. Register contrast should reveal depth without making every reply performative.""",
   """Return exactly one JSON object: {"registers": {...}}.
 registers must include chat, analysis, task, emotional, and crisis.
-Each register must include description, behavior, and examples.""",
+Each register must include description, behavior, and examples.
+examples must be string arrays on each register, for example {"registers":{"chat":{"description":"...","behavior":"...","examples":["[User: ...]\\nGood: ..."]}}}.
+Never return registers.examples, register_id groups, or examples as objects with user_input/assistant_output.""",
   (
     "chat should show ordinary presence with light personality, not an always-on performance. Most chat examples should be mostly normal conversation with selective character flavor.",
     "analysis should reason clearly with a point of view while keeping persona texture secondary to judgment.",
@@ -136,6 +138,8 @@ BOOTSTRAP_SYSTEM_PROMPT = _build_stage_system_prompt(
   """Design examples and first-contact behavior that help the persona start naturally without becoming a permanent greeting script.""",
   """Return exactly one JSON object with registers, bootstrap, and interim_lines.
 registers may include examples for existing registers but should not replace register descriptions or behavior unless they are missing.
+Never return registers.examples. All examples must live under registers.chat.examples, registers.analysis.examples, registers.task.examples, registers.emotional.examples, or registers.crisis.examples.
+examples must be string arrays, not objects and not grouped by register_id.
 bootstrap must include style_instruction, opening_line, and max_rounds.
 interim_lines must be an object whose values are string arrays.""",
   (
@@ -171,7 +175,13 @@ INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
   "appearance_prompt": "English portrait prompt",
   "identity_core": {"identity_statement": "string", "values_loved": [], "values_rejected": [], "attention_biases": []},
   "idiolect": {"sentence_style": "string", "vocab_available": [], "vocab_avoided": [], "structural_quirks": []},
-  "registers": {"chat": {}, "analysis": {}, "task": {}, "emotional": {}, "crisis": {}},
+  "registers": {
+    "chat": {"description": "string", "behavior": "string", "examples": ["string"]},
+    "analysis": {"description": "string", "behavior": "string", "examples": ["string"]},
+    "task": {"description": "string", "behavior": "string", "examples": ["string"]},
+    "emotional": {"description": "string", "behavior": "string", "examples": ["string"]},
+    "crisis": {"description": "string", "behavior": "string", "examples": ["string"]}
+  },
   "quiet_hours": [],
   "signature_triggers": [],
   "persona_layers": [{"layer_id": "surface", "unlock_condition": null, "modifiers": {}}],
@@ -180,7 +190,8 @@ INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
   "interim_lines": {},
   "bootstrap": {"style_instruction": "string", "opening_line": "string", "max_rounds": 3}
 }
-Do not include _meta_design in the returned JSON. It is present in the combined draft only as a generation-time design anchor.""",
+Do not include _meta_design in the returned JSON. It is present in the combined draft only as a generation-time design anchor.
+Never return registers.examples or any register_id/example grouping layer.""",
   (
     "Read identity_core, idiolect, registers, triggers, layers, bootstrap, and _meta_design together. Revise any field that drifted away from the same character.",
     "Use _meta_design.failure_mode to remove examples, vocabulary, or opening copy that read like bad AI performance.",
