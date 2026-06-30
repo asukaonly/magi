@@ -18,6 +18,7 @@ mutates broker state (resolves the pending interaction), which is
 a control-plane concern. The channels layer just hands the message
 text in and observes the boolean outcome.
 """
+
 from __future__ import annotations
 
 import re
@@ -49,12 +50,29 @@ _NATURAL_PATTERN = re.compile(
 )
 
 _APPROVE_VERBS = {
-    "approve", "allow", "ok", "yes", "y",
-    "同意", "批准", "允许", "好", "好的", "行", "可以",
+    "approve",
+    "allow",
+    "ok",
+    "yes",
+    "y",
+    "同意",
+    "批准",
+    "允许",
+    "好",
+    "好的",
+    "行",
+    "可以",
 }
 _DENY_VERBS = {
-    "deny", "reject", "no", "n",
-    "拒绝", "不", "不要", "不行", "不可以",
+    "deny",
+    "reject",
+    "no",
+    "n",
+    "拒绝",
+    "不",
+    "不要",
+    "不行",
+    "不可以",
 }
 
 
@@ -77,6 +95,13 @@ class ControlCommandOutcome:
     ack_message: str | None = None
     resolved_request_id: str | None = None
     allowed: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ParsedControlCommand:
+    verb: str
+    short_id: str | None
+    is_allow: bool
 
 
 async def try_handle_control_command(
@@ -121,40 +146,68 @@ async def try_handle_control_command(
     if not text:
         return ControlCommandOutcome(handled=False)
 
-    # Phase 1: slash-prefixed (intent is unambiguous even without ID).
-    slash_match = _SLASH_PATTERN.match(text)
-    if slash_match:
-        verb = slash_match.group(1).lower()
-        short_id_raw = slash_match.group(2)
-        is_allow = verb in _APPROVE_VERBS
-        return await _resolve_with_optional_short_id(
-            verb=verb,
-            short_id=short_id_raw,
-            is_allow=is_allow,
+    command = _parse_slash_command(text)
+    if command is None:
+        command = _parse_natural_command(
+            text=text,
             session_id=session_id,
             registry=registry,
-            broker=broker,
         )
-
-    # Phase 2: natural language. SAFETY GATE — only treat as control
-    # command when there's a pending request in the session. Without
-    # this gate, a user saying "好的" in normal chat would be
-    # interpreted as approval of nothing.
-    pending = registry.snapshot(session_id=session_id)
-    if not pending:
+    if command is None:
         return ControlCommandOutcome(handled=False)
+
+    return await _resolve_parsed_command(
+        command=command,
+        session_id=session_id,
+        registry=registry,
+        broker=broker,
+    )
+
+
+def _parse_slash_command(text: str) -> _ParsedControlCommand | None:
+    slash_match = _SLASH_PATTERN.match(text)
+    if not slash_match:
+        return None
+    verb = slash_match.group(1).lower()
+    return _ParsedControlCommand(
+        verb=verb,
+        short_id=slash_match.group(2),
+        is_allow=verb in _APPROVE_VERBS,
+    )
+
+
+def _parse_natural_command(
+    *,
+    text: str,
+    session_id: str | None,
+    registry: PendingPermissionRegistry,
+) -> _ParsedControlCommand | None:
+    # SAFETY GATE: without a pending request, words like "好的" stay chat.
+    if not registry.snapshot(session_id=session_id):
+        return None
 
     natural_match = _NATURAL_PATTERN.match(text)
     if not natural_match:
-        return ControlCommandOutcome(handled=False)
-
+        return None
     verb = natural_match.group(1).lower()
-    short_id_raw = natural_match.group(2)
-    is_allow = verb in _APPROVE_VERBS
-    return await _resolve_with_optional_short_id(
+    return _ParsedControlCommand(
         verb=verb,
-        short_id=short_id_raw,
-        is_allow=is_allow,
+        short_id=natural_match.group(2),
+        is_allow=verb in _APPROVE_VERBS,
+    )
+
+
+async def _resolve_parsed_command(
+    *,
+    command: _ParsedControlCommand,
+    session_id: str | None,
+    registry: PendingPermissionRegistry,
+    broker: InteractionBroker,
+) -> ControlCommandOutcome:
+    return await _resolve_with_optional_short_id(
+        verb=command.verb,
+        short_id=command.short_id,
+        is_allow=command.is_allow,
         session_id=session_id,
         registry=registry,
         broker=broker,
@@ -180,7 +233,8 @@ async def _resolve_with_optional_short_id(
 
     if short_id_clean:
         found = registry.find_by_short_id(
-            short_id_clean, session_id=session_id,
+            short_id_clean,
+            session_id=session_id,
         )
     else:
         pending = registry.snapshot(session_id=session_id)
@@ -193,11 +247,7 @@ async def _resolve_with_optional_short_id(
             ids = ", ".join(p.short_id for p in pending)
             return ControlCommandOutcome(
                 handled=True,
-                ack_message=(
-                    f"有多个待审批请求,请指定 ID:\n"
-                    f"  /{verb} <ID>\n"
-                    f"待审批: {ids}"
-                ),
+                ack_message=(f"有多个待审批请求,请指定 ID:\n" f"  /{verb} <ID>\n" f"待审批: {ids}"),
             )
         found = pending[0]
 
@@ -205,8 +255,7 @@ async def _resolve_with_optional_short_id(
         return ControlCommandOutcome(
             handled=True,
             ack_message=(
-                f"找不到待审批的请求 {short_id_clean} —— "
-                f"可能已超时,或已在其他端处理。"
+                f"找不到待审批的请求 {short_id_clean} —— " f"可能已超时,或已在其他端处理。"
             ),
         )
 
