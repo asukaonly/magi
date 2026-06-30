@@ -42,6 +42,37 @@ _ALLOWED_UPDATE_FIELDS = {
     "user_pinned",
     "last_recomputed_at",
 }
+_EXPERIENCE_INSERT_COLUMNS = (
+    "experience_id",
+    "status",
+    "title",
+    "time_start",
+    "time_end",
+    "experience_type",
+    "intent",
+    "outcome",
+    "magi_interpretation",
+    "narrative_score",
+    "primary_entity_ids",
+    "primary_place_ids",
+    "primary_topic_keys",
+    "source_episode_count",
+    "source_event_count",
+    "source_seed_id",
+    "parent_experience_id",
+    "merged_into_experience_id",
+    "user_label",
+    "user_note",
+    "user_cover_asset_ref",
+    "user_pinned",
+    "created_at",
+    "updated_at",
+    "last_recomputed_at",
+)
+_EXPERIENCE_INSERT_SQL = f"""
+    INSERT INTO experiences({", ".join(_EXPERIENCE_INSERT_COLUMNS)})
+    VALUES ({", ".join("?" for _ in _EXPERIENCE_INSERT_COLUMNS)})
+"""
 _MEMBER_TYPES = {"episode", "event"}
 _MEMBER_ROLES = {"core", "supporting", "context", "excluded"}
 _SEED_LIST_FIELDS = {
@@ -73,6 +104,21 @@ _SEED_EVIDENCE_ROLES = {"trigger", "support", "candidate", "included", "excluded
 
 def _json_list(values: list[str] | None) -> str:
     return json.dumps(values or [], ensure_ascii=False)
+
+
+def _experience_insert_values(row: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(
+        _experience_insert_value(column, row.get(column))
+        for column in _EXPERIENCE_INSERT_COLUMNS
+    )
+
+
+def _experience_insert_value(column: str, value: Any) -> Any:
+    if column in _LIST_FIELDS:
+        return _json_list(value)
+    if column == "user_pinned":
+        return 1 if value else 0
+    return value
 
 
 def _member_value(member: ExperienceMemberWrite | dict[str, Any], key: str, default: Any = None) -> Any:
@@ -325,49 +371,26 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         """Create a new experience row."""
         await self.initialize()
         now = time.time()
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO experiences(
-                    experience_id, status, title, time_start, time_end,
-                    experience_type, intent, outcome, magi_interpretation,
-                    narrative_score, primary_entity_ids, primary_place_ids,
-                    primary_topic_keys, source_episode_count, source_event_count,
-                    source_seed_id, parent_experience_id, merged_into_experience_id,
-                    user_label, user_note, user_cover_asset_ref, user_pinned,
-                    created_at, updated_at, last_recomputed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    experience_id,
-                    status,
-                    title,
-                    time_start,
-                    time_end,
-                    experience_type,
-                    intent,
-                    outcome,
-                    magi_interpretation,
-                    narrative_score,
-                    _json_list(primary_entity_ids),
-                    _json_list(primary_place_ids),
-                    _json_list(primary_topic_keys),
-                    source_episode_count,
-                    source_event_count,
-                    source_seed_id,
-                    parent_experience_id,
-                    merged_into_experience_id,
-                    user_label,
-                    user_note,
-                    user_cover_asset_ref,
-                    1 if user_pinned else 0,
-                    now,
-                    now,
-                    None,
-                ),
-            )
-            await db.commit()
+        row = dict(
+            experience_id=experience_id, status=status, title=title,
+            time_start=time_start, time_end=time_end, experience_type=experience_type,
+            intent=intent, outcome=outcome, magi_interpretation=magi_interpretation,
+            narrative_score=narrative_score, primary_entity_ids=primary_entity_ids,
+            primary_place_ids=primary_place_ids, primary_topic_keys=primary_topic_keys,
+            source_episode_count=source_episode_count, source_event_count=source_event_count,
+            source_seed_id=source_seed_id, parent_experience_id=parent_experience_id,
+            merged_into_experience_id=merged_into_experience_id, user_label=user_label,
+            user_note=user_note, user_cover_asset_ref=user_cover_asset_ref,
+            user_pinned=user_pinned, created_at=now, updated_at=now,
+            last_recomputed_at=None,
+        )
+        await self._insert_experience_row(row)
         return experience_id
+
+    async def _insert_experience_row(self, row: dict[str, Any]) -> None:
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(_EXPERIENCE_INSERT_SQL, _experience_insert_values(row))
+            await db.commit()
 
     async def get_experience(self, *, experience_id: str) -> dict[str, Any] | None:
         """Return one experience by ID."""
