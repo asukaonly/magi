@@ -354,7 +354,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
     config.memory.query_expansion.enabled = False
     config.memory.query_expansion.max_expansions = 3
-    config.memory.graph_spreading.enabled = True
+    config.memory.graph_spreading.enabled = not current.memory.graph_spreading.enabled
     config.memory.l0.enabled = not current.memory.l0.enabled
     config.preferences.default_chat_workspace_path = "/tmp/magi"
     config.memory.l1.retention_days = 14
@@ -383,7 +383,10 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"
     assert updates["agent.memory.query_expansion.enabled"] is False
     assert updates["agent.memory.query_expansion.max_expansions"] == 3
-    assert updates["agent.memory.graph_spreading.enabled"] is True
+    assert (
+        updates["agent.memory.graph_spreading.enabled"]
+        is config.memory.graph_spreading.enabled
+    )
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l1.retention_days"] == 14
