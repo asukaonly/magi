@@ -36,6 +36,39 @@ _MONTH_LEVEL_RE = re.compile(
 _LEADING_PREP_RE = re.compile(r"^(?:in|at|on|for|from)\s+", re.IGNORECASE)
 
 
+def _temporal_search_settings(query_timestamp: float) -> dict:
+    reference_dt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
+    return {
+        "RELATIVE_BASE": reference_dt.replace(tzinfo=None),
+        "PREFER_DATES_FROM": "past",
+    }
+
+
+def _search_temporal_dates(query: str, settings: dict) -> list[tuple[str, Any]] | None:
+    try:
+        from dateparser.search import search_dates
+    except ImportError:
+        return None
+
+    try:
+        return search_dates(query, settings=settings, languages=["en"])
+    except Exception:
+        logger.debug("dateparser.search_dates failed for query=%r", query)
+        return None
+
+
+def _past_resolved_timestamps(
+    results: list[tuple[str, Any]],
+    query_timestamp: float,
+) -> list[float]:
+    resolved: list[float] = []
+    for _matched_text, resolved_dt in results:
+        ts = resolved_dt.replace(tzinfo=timezone.utc).timestamp()
+        if ts <= query_timestamp:
+            resolved.append(ts)
+    return resolved
+
+
 def _reparse_with_stripped_preposition(
     results: list[tuple[str, Any]],
     settings: dict,
@@ -63,9 +96,29 @@ def _reparse_with_stripped_preposition(
             resolved.append(ts)
             logger.debug(
                 "Temporal reparse succeeded: %r → %r → %s",
-                matched_text, stripped, retry_dt,
+                matched_text,
+                stripped,
+                retry_dt,
             )
     return resolved
+
+
+def _is_month_level_match(results: list[tuple[str, Any]]) -> bool:
+    return all(_MONTH_LEVEL_RE.search(matched_text) for matched_text, _ in results)
+
+
+def _temporal_range_start(earliest: float, *, is_month_level: bool) -> float:
+    if is_month_level:
+        earliest_dt = datetime.fromtimestamp(earliest, tz=timezone.utc)
+        month_start = earliest_dt.replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        return max(0, month_start.timestamp())
+    return max(0, earliest - _TEMPORAL_PADDING_SECS)
 
 
 _STOP_WORDS = {
@@ -126,7 +179,8 @@ class EvalMemoryReader:
         time_range: dict = {}
         if query.query_timestamp:
             time_range = self._resolve_temporal_range(
-                query.query, query.query_timestamp,
+                query.query,
+                query.query_timestamp,
             )
 
         request = build_query(
@@ -164,67 +218,36 @@ class EvalMemoryReader:
         are not inadvertently excluded.
         """
         wide: dict = {"start": 0}
-
-        try:
-            from dateparser.search import search_dates
-        except ImportError:
-            return wide
-
-        reference_dt = datetime.fromtimestamp(query_timestamp, tz=timezone.utc)
-        settings = {
-            "RELATIVE_BASE": reference_dt.replace(tzinfo=None),
-            "PREFER_DATES_FROM": "past",
-        }
-
-        try:
-            results = search_dates(query, settings=settings, languages=["en"])
-        except Exception:
-            logger.debug("dateparser.search_dates failed for query=%r", query)
-            return wide
+        settings = _temporal_search_settings(query_timestamp)
+        results = _search_temporal_dates(query, settings)
 
         if not results:
             return wide
 
-        # Keep only resolved dates in the past relative to the question.
-        resolved: list[float] = []
-        for _matched_text, resolved_dt in results:
-            ts = resolved_dt.replace(tzinfo=timezone.utc).timestamp()
-            if ts <= query_timestamp:
-                resolved.append(ts)
-
+        resolved = _past_resolved_timestamps(results, query_timestamp)
         if not resolved:
             # Fallback: search_dates may mismatch spans (e.g. "in a week
             # ago" parsed as "in a week" → future).  Re-parse each matched
             # text after stripping a leading preposition.
             resolved = _reparse_with_stripped_preposition(
-                results, settings, query_timestamp,
+                results,
+                settings,
+                query_timestamp,
             )
 
         if not resolved:
             return wide
 
         earliest = min(resolved)
-
-        # When all matched expressions are month-level references
-        # (e.g. "in January", "last month"), expand padding to cover
-        # the full calendar month instead of the default 7-day window.
-        matched_texts = [mt for mt, _ in results]
-        is_month_level = all(
-            _MONTH_LEVEL_RE.search(mt) for mt in matched_texts
-        )
-        if is_month_level:
-            earliest_dt = datetime.fromtimestamp(earliest, tz=timezone.utc)
-            month_start = earliest_dt.replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0,
-            )
-            start = max(0, month_start.timestamp())
-        else:
-            start = max(0, earliest - _TEMPORAL_PADDING_SECS)
+        is_month_level = _is_month_level_match(results)
+        start = _temporal_range_start(earliest, is_month_level=is_month_level)
 
         logger.debug(
-            "Temporal range narrowed query=%r earliest=%s start=%s"
-            " month_level=%s",
-            query, earliest, start, is_month_level,
+            "Temporal range narrowed query=%r earliest=%s start=%s" " month_level=%s",
+            query,
+            earliest,
+            start,
+            is_month_level,
         )
         return {"start": start}
 
@@ -259,7 +282,9 @@ class EvalMemoryReader:
             },
         )
 
-    def _rank_l1_events(self, *, query: str, events: list[dict[str, Any]]) -> list[tuple[float, dict[str, Any]]]:
+    def _rank_l1_events(
+        self, *, query: str, events: list[dict[str, Any]]
+    ) -> list[tuple[float, dict[str, Any]]]:
         query_tokens = self._tokenize(query)
         ranked: list[tuple[float, dict[str, Any]]] = []
         fallback: list[tuple[float, dict[str, Any]]] = []
