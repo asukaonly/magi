@@ -35,6 +35,13 @@ class _TaskAgentPlanningRequest:
     planning_prompt: dict[str, Any]
 
 
+@dataclass(slots=True)
+class _AggregationInputs:
+    payload: dict[str, Any]
+    filtered_history: list[dict[str, str]]
+    base_system_prompt: str
+
+
 class ChatPlanningService(ChatPlanningPromptMixin):
     """Owns parent-task planning and aggregation for generic chat orchestration."""
 
@@ -121,10 +128,50 @@ class ChatPlanningService(ChatPlanningPromptMixin):
 
     async def aggregate_orchestration(self, state: TaskOrchestrationState) -> str:
         state.metadata["aggregation_streamed"] = False
+        inputs = await self._build_aggregation_inputs(state)
+        if self._prompt_service.should_use_failure_status_path(inputs.payload):
+            return await self._render_failure_status(
+                state=state,
+                payload=inputs.payload,
+                base_system_prompt=inputs.base_system_prompt,
+                filtered_history=inputs.filtered_history,
+            )
+        system_prompt = self._prompt_service.build_aggregation_system_prompt(
+            base_system_prompt=inputs.base_system_prompt,
+            state=state,
+            payload=inputs.payload,
+        )
+        messages = self._prompt_service.build_aggregation_messages(
+            history_messages=inputs.filtered_history,
+            state=state,
+            payload=inputs.payload,
+        )
+        try:
+            response = await self._call_aggregation_llm(
+                state=state,
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=False,
+                request_kind="task_agent:aggregator",
+                stream_label="aggregator",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Parent aggregation LLM call failed | orchestration_id=%s error=%s",
+                state.orchestration_id,
+                exc,
+            )
+            response = ""
+        return self._aggregation_response_or_fallback(state, inputs.payload, response)
+
+    async def _build_aggregation_inputs(
+        self,
+        state: TaskOrchestrationState,
+    ) -> _AggregationInputs:
         payload = self._prompt_service.build_aggregation_payload(state)
         history = await self._context_assembler.get_or_load_history(state.user_id, state.session_id)
         filtered_history = self._prompt_service.filter_history_for_aggregation(history)
-        system_prompt = await self._context_service.build_system_prompt(
+        base_system_prompt = await self._context_service.build_system_prompt(
             user_id=state.user_id,
             session_id=state.session_id,
             user_message=state.root_user_message,
@@ -133,59 +180,18 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             include_tool_catalog=False,
             persona_id=str(state.metadata.get("persona_id") or "").strip() or None,
         )
-        if self._prompt_service.should_use_failure_status_path(payload):
-            return await self._render_failure_status(
-                state=state,
-                payload=payload,
-                base_system_prompt=system_prompt,
-                filtered_history=filtered_history,
-            )
-        system_prompt = self._prompt_service.build_aggregation_system_prompt(
-            base_system_prompt=system_prompt,
-            state=state,
+        return _AggregationInputs(
             payload=payload,
+            filtered_history=filtered_history,
+            base_system_prompt=base_system_prompt,
         )
-        messages = self._prompt_service.build_aggregation_messages(
-            history_messages=filtered_history,
-            state=state,
-            payload=payload,
-        )
-        try:
-            if get_stream_sink() is not None:
-                chunks: list[str] = []
-                async with stream_source("aggregator"):
-                    async for event in self._prompt_service.call_llm_stream(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        disable_thinking=False,
-                        event_context={
-                            "request_kind": "task_agent:aggregator",
-                            "agent_id": self._agent_id,
-                            "session_id": state.session_id,
-                        },
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                response = "".join(chunks)
-                state.metadata["aggregation_streamed"] = bool(response.strip())
-            else:
-                response = await self._prompt_service.call_llm(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    disable_thinking=False,
-                    event_context={
-                        "request_kind": "task_agent:aggregator",
-                        "agent_id": self._agent_id,
-                        "session_id": state.session_id,
-                    },
-                )
-        except Exception as exc:
-            logger.warning(
-                "Parent aggregation LLM call failed | orchestration_id=%s error=%s",
-                state.orchestration_id,
-                exc,
-            )
-            response = ""
+
+    def _aggregation_response_or_fallback(
+        self,
+        state: TaskOrchestrationState,
+        payload: dict[str, Any],
+        response: str,
+    ) -> str:
         if response.strip():
             return response.strip()
         state.metadata["aggregation_streamed"] = False
@@ -196,6 +202,59 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             len(payload.get("failed_subtasks", [])),
         )
         return self._prompt_service.build_aggregation_fallback(state)
+
+    async def _call_aggregation_llm(
+        self,
+        *,
+        state: TaskOrchestrationState,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        disable_thinking: bool,
+        request_kind: str,
+        stream_label: str,
+    ) -> str:
+        event_context = {
+            "request_kind": request_kind,
+            "agent_id": self._agent_id,
+            "session_id": state.session_id,
+        }
+        if get_stream_sink() is not None:
+            response = await self._call_aggregation_llm_stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=disable_thinking,
+                event_context=event_context,
+                stream_label=stream_label,
+            )
+            state.metadata["aggregation_streamed"] = bool(response.strip())
+            return response
+        return await self._prompt_service.call_llm(
+            system_prompt=system_prompt,
+            messages=messages,
+            disable_thinking=disable_thinking,
+            event_context=event_context,
+        )
+
+    async def _call_aggregation_llm_stream(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        disable_thinking: bool,
+        event_context: dict[str, Any],
+        stream_label: str,
+    ) -> str:
+        chunks: list[str] = []
+        async with stream_source(stream_label):
+            async for event in self._prompt_service.call_llm_stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=disable_thinking,
+                event_context=event_context,
+            ):
+                if event.kind == "text_delta" and event.text:
+                    chunks.append(event.text)
+        return "".join(chunks)
 
     async def _render_failure_status(
         self,
@@ -215,34 +274,14 @@ class ChatPlanningService(ChatPlanningPromptMixin):
             payload=payload,
         )
         try:
-            if get_stream_sink() is not None:
-                chunks: list[str] = []
-                async with stream_source("failure_status"):
-                    async for event in self._prompt_service.call_llm_stream(
-                        system_prompt=system_prompt,
-                        messages=messages,
-                        disable_thinking=True,
-                        event_context={
-                            "request_kind": "task_agent:failure_status",
-                            "agent_id": self._agent_id,
-                            "session_id": state.session_id,
-                        },
-                    ):
-                        if event.kind == "text_delta" and event.text:
-                            chunks.append(event.text)
-                response = "".join(chunks)
-                state.metadata["aggregation_streamed"] = bool(response.strip())
-            else:
-                response = await self._prompt_service.call_llm(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    disable_thinking=True,
-                    event_context={
-                        "request_kind": "task_agent:failure_status",
-                        "agent_id": self._agent_id,
-                        "session_id": state.session_id,
-                    },
-                )
+            response = await self._call_aggregation_llm(
+                state=state,
+                system_prompt=system_prompt,
+                messages=messages,
+                disable_thinking=True,
+                request_kind="task_agent:failure_status",
+                stream_label="failure_status",
+            )
         except Exception as exc:
             logger.warning(
                 "Parent failure-status LLM call failed | orchestration_id=%s error=%s",
@@ -250,6 +289,14 @@ class ChatPlanningService(ChatPlanningPromptMixin):
                 exc,
             )
             response = ""
+        return self._failure_status_response_or_fallback(state, payload, response)
+
+    def _failure_status_response_or_fallback(
+        self,
+        state: TaskOrchestrationState,
+        payload: dict[str, Any],
+        response: str,
+    ) -> str:
         if response.strip():
             return response.strip()
         state.metadata["aggregation_streamed"] = False
