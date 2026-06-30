@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Iterable
 
 from .hybrid_retrieval.models import HistoricalRecallPayload, RetrievalPayload, RetrievalQuery
@@ -12,7 +12,19 @@ from .retrieval_projection_refs import (
     build_entity_refs as _build_entity_refs,
     build_plugin_recall_artifacts as _build_plugin_recall_artifacts,
 )
-from .retrieval_projection_summary import build_summary as _build_summary, derive_status as _derive_status
+from .retrieval_projection_summary import (
+    build_summary as _build_summary,
+    derive_status as _derive_status,
+)
+
+
+@dataclass(frozen=True)
+class _ProjectionParts:
+    findings: list[dict[str, Any]]
+    entity_refs: list[dict[str, Any]]
+    asset_refs: list[dict[str, Any]]
+    structured_results: list[dict[str, Any]]
+    source_layers: list[str]
 
 
 def project_historical_recall(
@@ -35,6 +47,49 @@ def project_historical_recall(
     """
     normalized_payload = _coerce_payload(payload)
     normalized_request = _coerce_request(request)
+    parts = _build_projection_parts(
+        normalized_payload=normalized_payload,
+        normalized_request=normalized_request,
+        plugin_projection_service=plugin_projection_service,
+        canonical_names=canonical_names,
+    )
+
+    status = _projection_status(parts.structured_results, parts.findings)
+    summary = _projection_summary(
+        structured_results=parts.structured_results,
+        findings=parts.findings,
+        query=normalized_request.query,
+        query_mode=normalized_request.query_mode,
+        status=status,
+    )
+    coverage = _build_coverage(
+        structured_results=parts.structured_results,
+        finding_count=len(parts.findings),
+        status=status,
+    )
+
+    return HistoricalRecallPayload(
+        status=status,
+        query_mode=_projected_query_mode(normalized_payload, normalized_request),
+        summary=summary,
+        findings=parts.findings,
+        entity_refs=parts.entity_refs,
+        asset_refs=parts.asset_refs,
+        insufficient_evidence=status == "not_found",
+        answering_hints=_answering_hints(coverage),
+        provenance=_provenance(normalized_payload, parts.findings, parts.source_layers),
+        coverage=coverage,
+        structured_results=parts.structured_results,
+    )
+
+
+def _build_projection_parts(
+    *,
+    normalized_payload: RetrievalPayload,
+    normalized_request: RetrievalQuery,
+    plugin_projection_service: Any | None,
+    canonical_names: dict[str, str] | None,
+) -> _ProjectionParts:
     plugin_recall_artifacts = _build_plugin_recall_artifacts(
         payload=normalized_payload,
         query=normalized_request.query,
@@ -45,8 +100,7 @@ def project_historical_recall(
     findings, dropped_unresolved = _build_findings(
         normalized_payload, normalized_request, canonical_names
     )
-    if dropped_unresolved > 0:
-        normalized_payload.trace["dropped_unresolved_entity_count"] = dropped_unresolved
+    _record_dropped_unresolved(normalized_payload, dropped_unresolved)
     entity_refs = _build_entity_refs(
         normalized_payload,
         plugin_entity_refs=plugin_recall_artifacts.get("entity_refs", []),
@@ -61,44 +115,65 @@ def project_historical_recall(
     structured_results = list(normalized_payload.structured_results or [])
     source_layers = _unique_in_order(item["source_layer"] for item in findings)
 
-    status = "found" if structured_results else _derive_status(findings)
-    summary = (
-        _build_structured_summary(structured_results[0])
-        if structured_results
-        else _build_summary(
-            findings=findings,
-            query=normalized_request.query,
-            query_mode=normalized_request.query_mode,
-            status=status,
-        )
-    )
-    insufficient_evidence = status == "not_found"
-    coverage = _build_coverage(
-        structured_results=structured_results,
-        finding_count=len(findings),
-        status=status,
-    )
-
-    return HistoricalRecallPayload(
-        status=status,
-        query_mode=normalized_request.query_mode or str(normalized_payload.trace.get("query_mode") or "") or None,
-        summary=summary,
+    return _ProjectionParts(
         findings=findings,
         entity_refs=entity_refs,
         asset_refs=asset_refs,
-        insufficient_evidence=insufficient_evidence,
-        answering_hints={
-            "must_not_guess_when_empty": True,
-            "prefer_direct_findings": True,
-            "can_claim_total": bool(coverage.get("can_claim_total")),
-        },
-        provenance={
-            "primary_count": int(normalized_payload.trace.get("primary_count") or len(findings)),
-            "source_layers": source_layers,
-        },
-        coverage=coverage,
         structured_results=structured_results,
+        source_layers=source_layers,
     )
+
+
+def _record_dropped_unresolved(payload: RetrievalPayload, dropped_count: int) -> None:
+    if dropped_count > 0:
+        payload.trace["dropped_unresolved_entity_count"] = dropped_count
+
+
+def _projection_status(
+    structured_results: list[dict[str, Any]], findings: list[dict[str, Any]]
+) -> str:
+    return "found" if structured_results else _derive_status(findings)
+
+
+def _projection_summary(
+    *,
+    structured_results: list[dict[str, Any]],
+    findings: list[dict[str, Any]],
+    query: str,
+    query_mode: str | None,
+    status: str,
+) -> str:
+    if structured_results:
+        return _build_structured_summary(structured_results[0])
+    return _build_summary(
+        findings=findings,
+        query=query,
+        query_mode=query_mode,
+        status=status,
+    )
+
+
+def _projected_query_mode(payload: RetrievalPayload, request: RetrievalQuery) -> str | None:
+    return request.query_mode or str(payload.trace.get("query_mode") or "") or None
+
+
+def _answering_hints(coverage: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "must_not_guess_when_empty": True,
+        "prefer_direct_findings": True,
+        "can_claim_total": bool(coverage.get("can_claim_total")),
+    }
+
+
+def _provenance(
+    payload: RetrievalPayload,
+    findings: list[dict[str, Any]],
+    source_layers: list[str],
+) -> dict[str, Any]:
+    return {
+        "primary_count": int(payload.trace.get("primary_count") or len(findings)),
+        "source_layers": source_layers,
+    }
 
 
 def _coerce_payload(payload: RetrievalPayload | dict[str, Any]) -> RetrievalPayload:
@@ -191,7 +266,6 @@ def _build_structured_summary(result: dict[str, Any]) -> str:
         session_count = int(summary.get("session_count") or 0)
         photo_count = int(summary.get("photo_count") or 0)
         return (
-            "Structured photo recall found "
-            f"{session_count} sessions and {photo_count} photos."
+            "Structured photo recall found " f"{session_count} sessions and {photo_count} photos."
         )
     return "Structured memory result found."
