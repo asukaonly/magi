@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, cast
 
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ...embedding.chunking import ChunkedText
-from ...embedding.embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
+from ...embedding.embedding_pipeline import (
+    EmbeddingPipelineItem,
+    EmbeddingPipelineResult,
+    MemoryEmbeddingPipeline,
+)
 from ...embedding.embedding_service import EmbeddingProfile
 from ...event_contracts import MemoryDomain, MemoryEvent
 from .chunks import L1EventEmbeddingChunkMixin
@@ -30,6 +35,22 @@ from .common import (
 from .profiles import L1EventEmbeddingProfileMixin
 from .search import L1EventEmbeddingSearchMixin
 from .worker import L1EventEmbeddingWorkerMixin
+
+
+_EventEmbeddingStateUpdate = tuple[str, int, str | None, int, float | None]
+_SuccessfulEventEmbedding = tuple[
+    MemoryEvent,
+    list[ChunkedText],
+    list[Any],
+    EmbeddingProfile,
+]
+
+
+@dataclass
+class _EventEmbeddingUpsertOutcome:
+    state_updates: list[_EventEmbeddingStateUpdate] = field(default_factory=list)
+    profiles_by_id: dict[str, EmbeddingProfile] = field(default_factory=dict)
+    successful_events: list[_SuccessfulEventEmbedding] = field(default_factory=list)
 
 
 class L1EventEmbeddingMixin(
@@ -114,67 +135,84 @@ class L1EventEmbeddingMixin(
         if not eligible_events:
             return
         results = await pipeline.upsert_items(
-            [
-                EmbeddingPipelineItem(
-                    parent_id=event.event_id,
-                    chunks=self._build_event_embedding_chunks(event),
-                    metadata={
-                        "event_id": event.event_id,
-                        "event_type": event.event_type,
-                        "source": event.source,
-                        "partition_value": event.user_id,
-                    },
-                    payload=event,
-                )
-                for event in eligible_events
-            ]
+            self._event_embedding_pipeline_items(eligible_events)
         )
         if not results:
-            await self._update_event_embedding_states(
-                [
-                    (
-                        event.event_id,
-                        embedding_status_code(EMBEDDING_STATUS_FAILED),
-                        self._initial_embedding_profile_id(event),
-                        0,
-                        None,
-                    )
-                    for event in eligible_events
-                ]
-            )
+            await self._mark_event_embeddings_failed(eligible_events)
             return
-        state_updates: list[tuple[str, int, str | None, int, float | None]] = []
-        profiles_by_id: dict[str, EmbeddingProfile] = {}
-        successful_events: list[
-            tuple[MemoryEvent, list[ChunkedText], list[Any], EmbeddingProfile]
-        ] = []
-        failed_events: list[tuple[MemoryEvent, str | None]] = []
+        outcome = self._event_embedding_upsert_outcome(eligible_events, results)
+        if outcome.successful_events:
+            await self._replace_event_chunks(outcome.successful_events)
+        if outcome.state_updates:
+            await self._update_event_embedding_states(
+                outcome.state_updates,
+                profiles_by_id=outcome.profiles_by_id,
+            )
+
+    def _event_embedding_pipeline_items(
+        self,
+        events: list[MemoryEvent],
+    ) -> list[EmbeddingPipelineItem]:
+        return [
+            EmbeddingPipelineItem(
+                parent_id=event.event_id,
+                chunks=self._build_event_embedding_chunks(event),
+                metadata={
+                    "event_id": event.event_id,
+                    "event_type": event.event_type,
+                    "source": event.source,
+                    "partition_value": event.user_id,
+                },
+                payload=event,
+            )
+            for event in events
+        ]
+
+    async def _mark_event_embeddings_failed(self, events: list[MemoryEvent]) -> None:
+        await self._update_event_embedding_states(
+            [self._failed_event_embedding_update(event) for event in events]
+        )
+
+    def _event_embedding_upsert_outcome(
+        self,
+        eligible_events: list[MemoryEvent],
+        results: list[EmbeddingPipelineResult],
+    ) -> _EventEmbeddingUpsertOutcome:
+        outcome = _EventEmbeddingUpsertOutcome()
         results_by_event_id = {result.parent_id: result for result in results}
         for event in eligible_events:
             result = results_by_event_id.get(event.event_id)
             if result is None:
-                failed_events.append((event, self._initial_embedding_profile_id(event)))
+                outcome.state_updates.append(self._failed_event_embedding_update(event))
                 continue
             profile = self._profile_from_embedding_result(result.embeddings[0])
-            profiles_by_id[profile.profile_id] = profile
-            successful_events.append((event, result.chunks, result.embeddings, profile))
-        if successful_events:
-            await self._replace_event_chunks(successful_events)
-            for event, chunks, _, profile in successful_events:
-                embedded_at = results_by_event_id[event.event_id].embedded_at
-                state_updates.append(
-                    (
-                        event.event_id,
-                        embedding_status_code(EMBEDDING_STATUS_READY),
-                        profile.profile_id,
-                        len(chunks),
-                        embedded_at,
-                    )
-                )
-        for event, profile_id in failed_events:
-            state_updates.append((event.event_id, embedding_status_code(EMBEDDING_STATUS_FAILED), profile_id, 0, None))
-        if state_updates:
-            await self._update_event_embedding_states(state_updates, profiles_by_id=profiles_by_id)
+            outcome.profiles_by_id[profile.profile_id] = profile
+            outcome.successful_events.append((event, result.chunks, result.embeddings, profile))
+            outcome.state_updates.append(self._ready_event_embedding_update(event, result, profile))
+        return outcome
+
+    def _ready_event_embedding_update(
+        self,
+        event: MemoryEvent,
+        result: EmbeddingPipelineResult,
+        profile: EmbeddingProfile,
+    ) -> _EventEmbeddingStateUpdate:
+        return (
+            event.event_id,
+            embedding_status_code(EMBEDDING_STATUS_READY),
+            profile.profile_id,
+            len(result.chunks),
+            result.embedded_at,
+        )
+
+    def _failed_event_embedding_update(self, event: MemoryEvent) -> _EventEmbeddingStateUpdate:
+        return (
+            event.event_id,
+            embedding_status_code(EMBEDDING_STATUS_FAILED),
+            self._initial_embedding_profile_id(event),
+            0,
+            None,
+        )
 
     def _build_embedding_pipeline(self) -> MemoryEmbeddingPipeline | None:
         host = cast(L1EventEmbeddingHostProtocol, self)
