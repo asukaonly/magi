@@ -41,6 +41,9 @@ describe('usePluginInstallFlow', () => {
       source_name: 's',
       l1_event_count: 12,
       l2_ready: true,
+      l2_total_count: 12,
+      l2_processed_count: 12,
+      l2_remaining_count: 0,
     } as any);
 
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
@@ -55,6 +58,9 @@ describe('usePluginInstallFlow', () => {
     expect(result.current.syncedCount).toBe(12);
     expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
     expect(result.current.memoryReady).toBe(true);
+    expect(result.current.memoryTotalCount).toBe(12);
+    expect(result.current.memoryProcessedCount).toBe(12);
+    expect(result.current.memoryRemainingCount).toBe(0);
   });
 
   it('with fields: waits for submit before enabling', async () => {
@@ -76,6 +82,9 @@ describe('usePluginInstallFlow', () => {
       source_name: 's',
       l1_event_count: 1,
       l2_ready: true,
+      l2_total_count: 1,
+      l2_processed_count: 1,
+      l2_remaining_count: 0,
     } as any);
 
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
@@ -104,17 +113,66 @@ describe('usePluginInstallFlow', () => {
       } as any);
     vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
     vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
-    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
-      source_name: 's',
-      l1_event_count: 3,
-      l2_ready: false,
-    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness')
+      .mockResolvedValueOnce({
+        source_name: 's',
+        l1_event_count: 3,
+        l2_ready: false,
+        l2_total_count: 3,
+        l2_processed_count: 1,
+        l2_remaining_count: 2,
+      } as any)
+      .mockResolvedValue({
+        source_name: 's',
+        l1_event_count: 3,
+        l2_ready: true,
+        l2_total_count: 3,
+        l2_processed_count: 3,
+        l2_remaining_count: 0,
+      } as any);
 
     const { result } = renderHook(() => usePluginInstallFlow('p', false));
     await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
-    expect(result.current.memoryReady).toBe(false);
-    expect(result.current.backfillNote).toBe(true);
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledTimes(2);
+    expect(result.current.memoryReady).toBe(true);
+    expect(result.current.memoryTotalCount).toBe(3);
+    expect(result.current.memoryProcessedCount).toBe(3);
+    expect(result.current.memoryRemainingCount).toBe(0);
+    expect(result.current.backfillNote).toBe(false);
     expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done'); // soft-done, labelled "整理中"
+  });
+
+  it('memory not ready by the deadline → done with latest progress and backfill note', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sensorsApi, 'getStatus')
+        .mockResolvedValueOnce({ sources: [source()] } as any)
+        .mockResolvedValue({
+          sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 3 })],
+        } as any);
+      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
+      vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+        source_name: 's',
+        l1_event_count: 3,
+        l2_ready: false,
+        l2_total_count: 3,
+        l2_processed_count: 1,
+        l2_remaining_count: 2,
+      } as any);
+
+      const { result } = renderHook(() => usePluginInstallFlow('p', false));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(result.current.phase).toBe('done');
+      expect(result.current.memoryReady).toBe(false);
+      expect(result.current.memoryProcessedCount).toBe(1);
+      expect(result.current.memoryRemainingCount).toBe(2);
+      expect(result.current.backfillNote).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('install-mode runs install first, then fetches the flow', async () => {
@@ -142,6 +200,9 @@ describe('usePluginInstallFlow', () => {
       source_name: 's',
       l1_event_count: 4,
       l2_ready: true,
+      l2_total_count: 4,
+      l2_processed_count: 4,
+      l2_remaining_count: 0,
     } as any);
 
     const { result } = renderHook(() => usePluginInstallFlow('p', true));

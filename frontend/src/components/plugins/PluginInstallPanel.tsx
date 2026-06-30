@@ -164,20 +164,54 @@ export function PluginInstallPanel(): JSX.Element | null {
     ? t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) })
     : '';
 
+  const memoryProgressDetail = useMemo(() => {
+    const processed = flow.memoryProcessedCount ?? (flow.memoryReady ? flow.memoryCount : null);
+    const total = flow.memoryTotalCount ?? flow.syncedCount ?? flow.memoryCount;
+    const remaining =
+      flow.memoryRemainingCount ??
+      (processed != null && total != null ? Math.max(0, total - processed) : null);
+
+    if (processed != null && total != null) {
+      return t('pluginInstallPanel.memoryProgress', {
+        processed,
+        total,
+        remaining: remaining ?? Math.max(0, total - processed),
+      });
+    }
+    if (processed != null) {
+      return t('pluginInstallPanel.memoryProcessed', { count: processed });
+    }
+    if (total != null) {
+      return t('pluginInstallPanel.memoryTotal', { count: total });
+    }
+    return undefined;
+  }, [
+    flow.memoryProcessedCount,
+    flow.memoryReady,
+    flow.memoryCount,
+    flow.memoryTotalCount,
+    flow.syncedCount,
+    flow.memoryRemainingCount,
+    t,
+  ]);
+
   const labels: Record<InstallStepId, string> = {
     install: t('pluginInstallPanel.stepInstall'),
     enable: t('pluginInstallPanel.stepEnable'),
-    sync:
-      flow.syncedCount != null
-        ? t('pluginInstallPanel.syncedCount', { count: flow.syncedCount })
-        : t('pluginInstallPanel.stepSync'),
+    sync: t('pluginInstallPanel.stepSync'),
     memory: flow.memoryReady
-      ? flow.memoryCount != null
-        ? t('pluginInstallPanel.memoryCount', { count: flow.memoryCount })
-        : t('pluginInstallPanel.readyTitle')
+      ? t('pluginInstallPanel.readyTitle')
       : flow.backfillNote
         ? t('pluginInstallPanel.memoryReadying')
         : t('pluginInstallPanel.stepMemory'),
+  };
+
+  const details: Partial<Record<InstallStepId, string>> = {
+    sync:
+      flow.syncedCount != null
+        ? t('pluginInstallPanel.syncedCount', { count: flow.syncedCount })
+        : undefined,
+    memory: memoryProgressDetail,
   };
 
   if (!open) {
@@ -233,7 +267,7 @@ export function PluginInstallPanel(): JSX.Element | null {
               />
             </div>
           ) : (
-            <InstallStepper steps={flow.steps} labels={labels} />
+            <InstallStepper steps={flow.steps} labels={labels} details={details} />
           )}
 
           {flow.phase === 'done' && flow.memoryReady ? (

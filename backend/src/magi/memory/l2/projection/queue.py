@@ -220,14 +220,14 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             await db.commit()
         return int(cursor.rowcount or 0)
 
-    async def get_backlog_stats(self) -> Dict[str, int]:
+    async def get_backlog_stats(self, *, source_filter: str | None = None) -> Dict[str, int]:
         """Return counts for durable projection jobs by status."""
         async with sqlite_connection_async(self.db_path) as db:
-            pending = await self._count_by_status(db, "pending")
-            queued = await self._count_by_status(db, "queued")
-            running = await self._count_by_status(db, "running")
-            completed = await self._count_by_status(db, "completed")
-            failed = await self._count_by_status(db, "failed")
+            pending = await self._count_by_status(db, "pending", source_filter=source_filter)
+            queued = await self._count_by_status(db, "queued", source_filter=source_filter)
+            running = await self._count_by_status(db, "running", source_filter=source_filter)
+            completed = await self._count_by_status(db, "completed", source_filter=source_filter)
+            failed = await self._count_by_status(db, "failed", source_filter=source_filter)
         return {
             "pending": pending,
             "queued": queued,
@@ -291,11 +291,18 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         return int(cursor.rowcount or 0)
 
     @staticmethod
-    async def _count_by_status(db: aiosqlite.Connection, status: str) -> int:
-        async with db.execute(
-            "SELECT COUNT(*) FROM l2_projection_jobs WHERE status = ?",
-            (status,),
-        ) as cursor:
+    async def _count_by_status(
+        db: aiosqlite.Connection,
+        status: str,
+        *,
+        source_filter: str | None = None,
+    ) -> int:
+        query = "SELECT COUNT(*) FROM l2_projection_jobs WHERE status = ?"
+        params: tuple[str, ...] = (status,)
+        if source_filter:
+            query = f"{query} AND source = ?"
+            params = (status, source_filter)
+        async with db.execute(query, params) as cursor:
             row = await cursor.fetchone()
         return int(row[0]) if row else 0
 

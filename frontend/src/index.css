@@ -420,6 +420,12 @@
   30%           { opacity: 1;    transform: scale(1); }
 }
 
+@keyframes install-progress-sweep {
+  0%   { opacity: 0; transform: translateX(-120%); }
+  18%  { opacity: 0.45; }
+  100% { opacity: 0; transform: translateX(320%); }
+}
+
 .chat-avatar-shell {
   position: relative;
   display: inline-flex;

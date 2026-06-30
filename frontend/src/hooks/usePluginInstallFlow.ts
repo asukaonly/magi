@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { sensorsApi, type SensorSourceStatusItem } from '../api/modules/sensors';
+import {
+  sensorsApi,
+  type MemoryReadinessResponse,
+  type SensorSourceStatusItem,
+} from '../api/modules/sensors';
 import {
   pluginsApi,
   type ActivationFlowSpec,
@@ -16,7 +20,9 @@ export type FlowPhase = 'loading' | 'awaiting_fields' | 'running' | 'done' | 'un
 
 const SYNC_POLL_MS = 1500;
 const SYNC_TIMEOUT_MS = 90_000;
-const MEMORY_WAIT_MS = 20_000;
+const MEMORY_TIMEOUT_MS = 20_000;
+const MEMORY_POLL_WAIT_MS = 1_500;
+const MEMORY_POLL_PAUSE_MS = 250;
 
 export interface UsePluginInstallFlowResult {
   phase: FlowPhase;
@@ -28,6 +34,9 @@ export interface UsePluginInstallFlowResult {
   syncedCount: number | null;
   memoryReady: boolean;
   memoryCount: number | null;
+  memoryTotalCount: number | null;
+  memoryProcessedCount: number | null;
+  memoryRemainingCount: number | null;
   backfillNote: boolean;
   error: string | null;
   submitFields: (values: Record<string, unknown>) => void;
@@ -52,9 +61,9 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   - ③ sync: trigger requestSync, then poll /sensors/status until the source's
  *     last_success advances beyond the baseline; "soft-done" on timeout (work
  *     continues in the background, the bell surfaces it) + backfillNote.
- *   - ④ memory: a single bounded getMemoryReadiness call; l2_ready drives a real
+ *   - ④ memory: short bounded getMemoryReadiness polls; l2_ready drives a real
  *     ✓, otherwise the step is soft-done ("整理中") + backfillNote — never a fake ✓
- *     and never an error.
+ *     and never an error. Each poll refreshes the visible memory counts.
  *
  * A plugin with no activation_flow lands on `unsupported` instead of the
  * previous silent no-op.
@@ -71,6 +80,9 @@ export function usePluginInstallFlow(
   const [syncedCount, setSyncedCount] = useState<number | null>(null);
   const [memoryReady, setMemoryReady] = useState(false);
   const [memoryCount, setMemoryCount] = useState<number | null>(null);
+  const [memoryTotalCount, setMemoryTotalCount] = useState<number | null>(null);
+  const [memoryProcessedCount, setMemoryProcessedCount] = useState<number | null>(null);
+  const [memoryRemainingCount, setMemoryRemainingCount] = useState<number | null>(null);
   const [backfillNote, setBackfillNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<InstallStep[]>([]);
@@ -89,6 +101,37 @@ export function usePluginInstallFlow(
     [],
   );
 
+  const applyMemoryReadiness = useCallback((readiness: MemoryReadinessResponse) => {
+    const l1Count =
+      typeof readiness.l1_event_count === 'number' && Number.isFinite(readiness.l1_event_count)
+        ? readiness.l1_event_count
+        : null;
+    const total =
+      typeof readiness.l2_total_count === 'number' && Number.isFinite(readiness.l2_total_count)
+        ? readiness.l2_total_count
+        : l1Count;
+    const remaining =
+      typeof readiness.l2_remaining_count === 'number' &&
+      Number.isFinite(readiness.l2_remaining_count)
+        ? readiness.l2_remaining_count
+        : null;
+    const processed =
+      typeof readiness.l2_processed_count === 'number' &&
+      Number.isFinite(readiness.l2_processed_count)
+        ? readiness.l2_processed_count
+        : total != null && remaining != null
+          ? Math.max(0, total - remaining)
+          : readiness.l2_ready
+            ? total
+            : l1Count;
+
+    setMemoryReady(!!readiness.l2_ready);
+    setMemoryCount(l1Count);
+    setMemoryTotalCount(total);
+    setMemoryProcessedCount(processed);
+    setMemoryRemainingCount(remaining);
+  }, []);
+
   const run = useCallback(async () => {
     if (!pluginId) return;
     setError(null);
@@ -100,6 +143,14 @@ export function usePluginInstallFlow(
     ];
     setSteps(initialSteps);
     setPhase('loading');
+    setInstallProgress(null);
+    setSyncedCount(null);
+    setMemoryReady(false);
+    setMemoryCount(null);
+    setMemoryTotalCount(null);
+    setMemoryProcessedCount(null);
+    setMemoryRemainingCount(null);
+    setBackfillNote(false);
 
     try {
       // ① install (registry only)
@@ -166,14 +217,23 @@ export function usePluginInstallFlow(
       setStep('sync', 'done');
       if (!synced) setBackfillNote(true);
 
-      // ④ build memory (single bounded call — backend flushes + drains backlog internally)
+      // ④ build memory (short polling — backend flushes + reports the source backlog)
       setStep('memory', 'running');
-      const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
-        maxWaitMs: MEMORY_WAIT_MS,
-      });
-      setMemoryReady(!!readiness.l2_ready);
-      setMemoryCount(typeof readiness.l1_event_count === 'number' ? readiness.l1_event_count : null);
-      if (!readiness.l2_ready) setBackfillNote(true);
+      const memoryDeadline = Date.now() + MEMORY_TIMEOUT_MS;
+      let latestReadiness: MemoryReadinessResponse | null = null;
+      while (true) {
+        const remainingWait = Math.max(0, memoryDeadline - Date.now());
+        const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
+          maxWaitMs: Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
+        });
+        latestReadiness = readiness;
+        applyMemoryReadiness(readiness);
+        if (readiness.l2_ready || Date.now() >= memoryDeadline) {
+          break;
+        }
+        await sleep(MEMORY_POLL_PAUSE_MS);
+      }
+      if (!latestReadiness?.l2_ready) setBackfillNote(true);
       // labelled ✓ when memoryReady, "整理中" otherwise — soft-done, never an error.
       setStep('memory', 'done');
       setPhase('done');
@@ -182,7 +242,7 @@ export function usePluginInstallFlow(
       setSteps((prev) => prev.map((s) => (s.status === 'running' ? { ...s, status: 'error' } : s)));
       setPhase('error');
     }
-  }, [pluginId, installMode, setStep, findSource]);
+  }, [pluginId, installMode, setStep, findSource, applyMemoryReadiness]);
 
   useEffect(() => {
     if (!pluginId || startedRef.current) return;
@@ -199,6 +259,10 @@ export function usePluginInstallFlow(
     setInstallProgress(null);
     setSyncedCount(null);
     setMemoryReady(false);
+    setMemoryCount(null);
+    setMemoryTotalCount(null);
+    setMemoryProcessedCount(null);
+    setMemoryRemainingCount(null);
     setBackfillNote(false);
     startedRef.current = true;
     void run();
@@ -214,6 +278,9 @@ export function usePluginInstallFlow(
     syncedCount,
     memoryReady,
     memoryCount,
+    memoryTotalCount,
+    memoryProcessedCount,
+    memoryRemainingCount,
     backfillNote,
     error,
     submitFields,

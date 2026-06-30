@@ -118,7 +118,11 @@ class L2ProjectionJobStoreMixin:
             running_timeout_seconds=running_timeout_seconds,
         )
 
-    async def get_projection_backlog_stats(self) -> Dict[str, int]:
+    async def get_projection_backlog_stats(
+        self,
+        *,
+        source_filter: str | None = None,
+    ) -> Dict[str, int]:
         """Return counts for durable L2 projection jobs by status."""
         await self.initialize()
-        return await self._projection_queue.get_backlog_stats()
+        return await self._projection_queue.get_backlog_stats(source_filter=source_filter)

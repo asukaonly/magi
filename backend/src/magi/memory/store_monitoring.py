@@ -57,7 +57,11 @@ class MonitoringMixin:
             }
         return self.l2_pipeline.get_statistics()  # type: ignore[attr-defined]
 
-    async def get_l2_projection_backlog(self) -> Dict[str, int]:
+    async def get_l2_projection_backlog(
+        self,
+        *,
+        source_filter: str | None = None,
+    ) -> Dict[str, int]:
         """Return durable L2 projection backlog counts."""
         if self.l2 is None:  # type: ignore[attr-defined]
             return {
@@ -66,4 +70,4 @@ class MonitoringMixin:
                 "completed": 0,
                 "failed": 0,
             }
-        return await self.l2.get_projection_backlog_stats()  # type: ignore[attr-defined]
+        return await self.l2.get_projection_backlog_stats(source_filter=source_filter)  # type: ignore[attr-defined]

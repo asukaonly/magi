@@ -1631,10 +1631,6 @@ export interface paths {
         /**
          * List L2 Episodes
          * @description List episodes with optional filters.
-         *
-         *     When ``surface='standout'``, only ``magi_standout=1 OR user_pinned=1``
-         *     episodes are returned, and each item carries a ``summary`` field with the
-         *     linked L3 episodic summary (or null if not generated yet).
          */
         readonly get: operations["list_l2_episodes_api_memory_l2_episodes_get"];
         readonly put?: never;
@@ -1656,18 +1652,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Reconsolidate Episodes Endpoint
-         * @description One-shot: consolidate candidate→active + mark standouts + generate L3 summaries.
-         *
-         *     For the governance "立即整理" button. Synchronous: returns when all summary
-         *     generation has finished. Each LLM call has a 30s timeout; in the worst case
-         *     this can take a while if many active episodes still lack a summary.
-         *
-         *     Catch-up scope: every ``status='active'`` episode lacking an L3 episodic
-         *     summary gets one generated (widened from the old standout-only filter), so
-         *     pre-existing active episodes that never got a title are backfilled here.
-         *     Active experiences are also scanned so placeholder review titles from older
-         *     runs are repaired by the same button.
-         *     Eager generation on new promotes is handled by the L2 consolidation scheduler.
+         * @description Consolidate episode candidates, mark standouts, and fill review summaries.
          */
         readonly post: operations["reconsolidate_episodes_endpoint_api_memory_l2_episodes_reconsolidate_post"];
         readonly delete?: never;
@@ -1695,7 +1680,7 @@ export interface paths {
         readonly head?: never;
         /**
          * Annotate L2 Episode
-         * @description User annotation on an episode (label, note, pin).
+         * @description User annotation on an episode.
          */
         readonly patch: operations["annotate_l2_episode_api_memory_l2_episodes__episode_id__patch"];
         readonly trace?: never;
@@ -2766,13 +2751,7 @@ export interface paths {
         };
         readonly get?: never;
         readonly put?: never;
-        /**
-         * Resolve Conflict
-         * @description Resolve a profile-conflict notification by confirming or rejecting the shadow assertion.
-         *
-         *     action="confirm" promotes the inferred shadow to the authoritative value.
-         *     action="reject"  discards the shadow; the existing authoritative value is kept.
-         */
+        /** Resolve Conflict */
         readonly post: operations["resolve_conflict_api_notifications__notification_id__resolve_conflict_post"];
         readonly delete?: never;
         readonly options?: never;
@@ -6146,8 +6125,23 @@ export interface components {
         readonly MemoryReadinessResponse: {
             /** L1 Event Count */
             readonly l1_event_count: number;
+            /**
+             * L2 Processed Count
+             * @default 0
+             */
+            readonly l2_processed_count: number;
             /** L2 Ready */
             readonly l2_ready: boolean;
+            /**
+             * L2 Remaining Count
+             * @default 0
+             */
+            readonly l2_remaining_count: number;
+            /**
+             * L2 Total Count
+             * @default 0
+             */
+            readonly l2_total_count: number;
             /** Source Name */
             readonly source_name: string;
         };

@@ -10,6 +10,9 @@ describe('sensors api - getMemoryReadiness', () => {
       source_name: 'photo_library',
       l1_event_count: 5,
       l2_ready: true,
+      l2_total_count: 5,
+      l2_processed_count: 5,
+      l2_remaining_count: 0,
     } as any);
 
     const res = await sensorsApi.getMemoryReadiness('photo_library', { maxWaitMs: 3000 });
@@ -20,6 +23,7 @@ describe('sensors api - getMemoryReadiness', () => {
     expect(get).toHaveBeenCalledWith(expect.stringContaining('max_wait_ms=3000'));
     expect(res.l2_ready).toBe(true);
     expect(res.l1_event_count).toBe(5);
+    expect(res.l2_remaining_count).toBe(0);
   });
 
   it('omits the query string when maxWaitMs is not provided', async () => {

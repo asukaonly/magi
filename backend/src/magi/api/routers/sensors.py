@@ -342,6 +342,9 @@ class MemoryReadinessResponse(BaseModel):
     source_name: str
     l1_event_count: int
     l2_ready: bool
+    l2_total_count: int = 0
+    l2_processed_count: int = 0
+    l2_remaining_count: int = 0
 
 
 @sensors_router.get("/{source_name}/memory-readiness", response_model=MemoryReadinessResponse)
@@ -378,7 +381,7 @@ async def get_sensor_memory_readiness(
     deadline = time.monotonic() + (max_wait_ms / 1000.0)
     l2_ready = False
     while True:
-        backlog = await unified_memory.get_l2_projection_backlog()
+        backlog = await unified_memory.get_l2_projection_backlog(source_filter=source_name)
         pending = int((backlog or {}).get("pending", 0))
         claimed = int((backlog or {}).get("claimed", 0))
         if pending == 0 and claimed == 0:
@@ -388,6 +391,23 @@ async def get_sensor_memory_readiness(
             break
         await asyncio.sleep(0.5)
 
+    progress = _build_memory_readiness_progress(l1_count=l1_count, backlog=backlog)
     return MemoryReadinessResponse(
-        source_name=source_name, l1_event_count=l1_count, l2_ready=l2_ready
+        source_name=source_name,
+        l1_event_count=l1_count,
+        l2_ready=l2_ready,
+        l2_total_count=progress["total"],
+        l2_processed_count=progress["processed"],
+        l2_remaining_count=progress["remaining"],
     )
+
+
+def _build_memory_readiness_progress(*, l1_count: int, backlog: dict[str, Any] | None) -> dict[str, int]:
+    pending = int((backlog or {}).get("pending", 0) or 0)
+    claimed = int((backlog or {}).get("claimed", 0) or 0)
+    completed = int((backlog or {}).get("completed", 0) or 0)
+    failed = int((backlog or {}).get("failed", 0) or 0)
+    remaining = max(0, pending + claimed)
+    total = max(0, l1_count, remaining + completed + failed)
+    processed = max(0, min(total, total - remaining))
+    return {"total": total, "processed": processed, "remaining": remaining}

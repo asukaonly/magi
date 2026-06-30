@@ -471,12 +471,14 @@ class _FakeReadinessMemory:
         self._backlog_seq = list(backlog_sequence)
         self.flush_calls = 0
         self._flush_result = flush_result
+        self.backlog_source_filters = []
 
     async def flush_l2_microbatches(self):
         self.flush_calls += 1
         return self._flush_result
 
-    async def get_l2_projection_backlog(self):
+    async def get_l2_projection_backlog(self, *, source_filter=None):
+        self.backlog_source_filters.append(source_filter)
         if len(self._backlog_seq) > 1:
             return self._backlog_seq.pop(0)
         return self._backlog_seq[0]
@@ -506,15 +508,19 @@ def test_memory_readiness_ready_when_backlog_drained(monkeypatch):
     assert body["source_name"] == "photo_library"
     assert body["l1_event_count"] == 7
     assert body["l2_ready"] is True
+    assert body["l2_total_count"] == 7
+    assert body["l2_processed_count"] == 7
+    assert body["l2_remaining_count"] == 0
     # flush is forced before polling the backlog.
     assert fake.flush_calls == 1
+    assert fake.backlog_source_filters == ["photo_library"]
 
 
 def test_memory_readiness_not_ready_on_timeout(monkeypatch):
     client, _, _ = _build_client(monkeypatch)
     fake = _FakeReadinessMemory(
         rows=[{"source": "photo_library", "event_count": 3}],
-        backlog_sequence=[{"pending": 2, "claimed": 0}],
+        backlog_sequence=[{"pending": 2, "claimed": 0, "completed": 1, "failed": 0}],
     )
     _bind_readiness_memory(monkeypatch, fake)
 
@@ -526,6 +532,9 @@ def test_memory_readiness_not_ready_on_timeout(monkeypatch):
     body = response.json()
     assert body["l1_event_count"] == 3
     assert body["l2_ready"] is False
+    assert body["l2_total_count"] == 3
+    assert body["l2_processed_count"] == 1
+    assert body["l2_remaining_count"] == 2
 
 
 def test_memory_readiness_no_events_skips_flush(monkeypatch):

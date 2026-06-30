@@ -51,6 +51,9 @@ describe('PluginInstallPanel', () => {
       source_name: 's',
       l1_event_count: 9,
       l2_ready: true,
+      l2_total_count: 9,
+      l2_processed_count: 9,
+      l2_remaining_count: 0,
     } as any);
 
     let pluginsChangedFired = false;
@@ -63,11 +66,11 @@ describe('PluginInstallPanel', () => {
 
     // The flow polls /sensors/status once at SYNC_POLL_MS (1500ms) before the
     // sync step completes, so allow generous headroom over the default 5s. The
-    // memory step now shows the organized-count ("memoryCount"); assert it plus
-    // the terminal "Done" close button (only rendered once the flow settles).
+    // memory step now shows the organized-progress detail; assert it plus the
+    // terminal "Done" close button (only rendered once the flow settles).
     await waitFor(
       () => {
-        expect(screen.getAllByText(/pluginInstallPanel\.memoryCount/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText(/pluginInstallPanel\.memoryProgress/).length).toBeGreaterThan(0);
         expect(
           screen.getByRole('button', { name: 'pluginInstallPanel.close' }),
         ).toBeInTheDocument();
