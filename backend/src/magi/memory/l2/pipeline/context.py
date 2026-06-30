@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol
 
 from ...event_contracts import (
     IngestTarget,
@@ -208,72 +208,83 @@ class L2PipelineContextMixin:
         if not query_text:
             return []
 
-        entity_matches = await host._entity_catalog.resolve_query_entities(
-            query_text,
-            limit=DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
-        )
+        entity_matches = await self._resolve_history_entity_matches(host, query_text)
         if not entity_matches:
             return []
 
+        matches_by_event_id = await self._search_history_contexts_for_entities(
+            host=host,
+            anchor_event=anchor_event,
+            entity_matches=entity_matches,
+            exclude_event_ids=exclude_event_ids,
+        )
+        return _select_history_contexts(matches_by_event_id.values())
+
+    async def _resolve_history_entity_matches(
+        self, host: _L2PipelineContextHostProtocol, query_text: str
+    ) -> list[dict[str, Any]]:
+        if host._entity_catalog is None:
+            return []
+        return await host._entity_catalog.resolve_query_entities(
+            query_text,
+            limit=DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
+        )
+
+    async def _search_history_contexts_for_entities(
+        self,
+        *,
+        host: _L2PipelineContextHostProtocol,
+        anchor_event: MemoryEvent,
+        entity_matches: list[dict[str, Any]],
+        exclude_event_ids: list[str] | None,
+    ) -> dict[str, L2HistoryContext]:
         seen_event_ids = set(exclude_event_ids or [])
         seen_terms: set[str] = set()
         matches_by_event_id: dict[str, L2HistoryContext] = {}
         for match in entity_matches:
-            candidate_terms = [
-                host._non_empty_text(match.get("matched_text")),
-                host._non_empty_text(match.get("canonical_name")),
-            ]
-            for term in candidate_terms:
-                if term is None:
+            for term in _history_match_terms(match, host):
+                if _already_seen_history_term(term, seen_terms):
                     continue
-                normalized_term = term.casefold()
-                if normalized_term in seen_terms:
-                    continue
-                seen_terms.add(normalized_term)
-                rows = await host._l1_store.search_events(
-                    query=term,
-                    user_id=anchor_event.user_id,
-                    limit=DEFAULT_L2_HISTORY_SEARCH_LIMIT,
+                await self._merge_history_term_matches(
+                    host=host,
+                    anchor_event=anchor_event,
+                    match=match,
+                    term=term,
+                    seen_event_ids=seen_event_ids,
+                    matches_by_event_id=matches_by_event_id,
                 )
-                for row in rows:
-                    event_id = host._non_empty_text(row.get("event_id"))
-                    content = host._non_empty_text(row.get("content"))
-                    if not event_id or not content or event_id in seen_event_ids:
-                        continue
-                    if not bool(row.get("cognition_eligible", True)):
-                        continue
-                    if (
-                        anchor_event.session_id
-                        and str(row.get("session_id") or "") == anchor_event.session_id
-                    ):
-                        continue
-                    history_context = L2HistoryContext(
-                        event_id=event_id,
-                        session_id=host._non_empty_text(row.get("session_id")),
-                        timestamp=float(row.get("timestamp", 0.0) or 0.0),
-                        content=content,
-                        matched_entity_id=host._non_empty_text(match.get("entity_id")),
-                        matched_text=term,
-                        canonical_name=host._non_empty_text(match.get("canonical_name")),
-                        match_source=host._non_empty_text(match.get("match_source")),
-                    )
-                    existing_context = matches_by_event_id.get(event_id)
-                    if (
-                        existing_context is None
-                        or history_context.timestamp > existing_context.timestamp
-                    ):
-                        matches_by_event_id[event_id] = history_context
-                    seen_event_ids.add(event_id)
-        ranked_contexts = sorted(
-            matches_by_event_id.values(),
-            key=lambda item: (float(item.timestamp), str(item.event_id)),
-            reverse=True,
+        return matches_by_event_id
+
+    async def _merge_history_term_matches(
+        self,
+        *,
+        host: _L2PipelineContextHostProtocol,
+        anchor_event: MemoryEvent,
+        match: dict[str, Any],
+        term: str,
+        seen_event_ids: set[str],
+        matches_by_event_id: dict[str, L2HistoryContext],
+    ) -> None:
+        if host._l1_store is None:
+            return
+        rows = await host._l1_store.search_events(
+            query=term,
+            user_id=anchor_event.user_id,
+            limit=DEFAULT_L2_HISTORY_SEARCH_LIMIT,
         )
-        selected_contexts = ranked_contexts[:DEFAULT_L2_HISTORY_CONTEXT_LIMIT]
-        return sorted(
-            selected_contexts,
-            key=lambda item: (float(item.timestamp), str(item.event_id)),
-        )
+        for row in rows:
+            history_context = _history_context_from_row(
+                host=host,
+                row=row,
+                match=match,
+                term=term,
+                anchor_event=anchor_event,
+                seen_event_ids=seen_event_ids,
+            )
+            if history_context is None:
+                continue
+            _keep_newer_history_context(matches_by_event_id, history_context)
+            seen_event_ids.add(history_context.event_id)
 
     async def _collect_context_bundle(
         self,
@@ -334,3 +345,78 @@ class L2PipelineContextMixin:
 
     def _context_host(self) -> _L2PipelineContextHostProtocol:
         return self  # type: ignore[return-value]
+
+
+def _history_match_terms(match: dict[str, Any], host: _L2PipelineContextHostProtocol) -> list[str]:
+    candidate_terms = [
+        host._non_empty_text(match.get("matched_text")),
+        host._non_empty_text(match.get("canonical_name")),
+    ]
+    return [term for term in candidate_terms if term is not None]
+
+
+def _already_seen_history_term(term: str, seen_terms: set[str]) -> bool:
+    normalized_term = term.casefold()
+    if normalized_term in seen_terms:
+        return True
+    seen_terms.add(normalized_term)
+    return False
+
+
+def _history_context_from_row(
+    *,
+    host: _L2PipelineContextHostProtocol,
+    row: dict[str, Any],
+    match: dict[str, Any],
+    term: str,
+    anchor_event: MemoryEvent,
+    seen_event_ids: set[str],
+) -> L2HistoryContext | None:
+    event_id = host._non_empty_text(row.get("event_id"))
+    content = host._non_empty_text(row.get("content"))
+    if not event_id or not content or event_id in seen_event_ids:
+        return None
+    if not bool(row.get("cognition_eligible", True)):
+        return None
+    if _same_session_as_anchor(row, anchor_event):
+        return None
+    return L2HistoryContext(
+        event_id=event_id,
+        session_id=host._non_empty_text(row.get("session_id")),
+        timestamp=float(row.get("timestamp", 0.0) or 0.0),
+        content=content,
+        matched_entity_id=host._non_empty_text(match.get("entity_id")),
+        matched_text=term,
+        canonical_name=host._non_empty_text(match.get("canonical_name")),
+        match_source=host._non_empty_text(match.get("match_source")),
+    )
+
+
+def _same_session_as_anchor(row: dict[str, Any], anchor_event: MemoryEvent) -> bool:
+    return bool(
+        anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id
+    )
+
+
+def _keep_newer_history_context(
+    matches_by_event_id: dict[str, L2HistoryContext],
+    history_context: L2HistoryContext,
+) -> None:
+    existing_context = matches_by_event_id.get(history_context.event_id)
+    if existing_context is None or history_context.timestamp > existing_context.timestamp:
+        matches_by_event_id[history_context.event_id] = history_context
+
+
+def _select_history_contexts(
+    contexts: Iterable[L2HistoryContext],
+) -> list[L2HistoryContext]:
+    ranked_contexts = sorted(
+        contexts,
+        key=lambda item: (float(item.timestamp), str(item.event_id)),
+        reverse=True,
+    )
+    selected_contexts = ranked_contexts[:DEFAULT_L2_HISTORY_CONTEXT_LIMIT]
+    return sorted(
+        selected_contexts,
+        key=lambda item: (float(item.timestamp), str(item.event_id)),
+    )
