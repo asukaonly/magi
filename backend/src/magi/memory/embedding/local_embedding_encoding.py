@@ -32,6 +32,16 @@ class LocalEmbeddingEncodingMixin:
         if session is None or tokenizer is None:
             return []
 
+        self._prepare_tokenizer(tokenizer)
+        input_ids, attention_mask = self._encoded_inputs(np, tokenizer, texts)
+        feeds = self._onnx_feeds(np, session, input_ids, attention_mask)
+        outputs = session.run([session.get_outputs()[0].name], feeds)
+        embeddings = self._pool_hidden_states(np, outputs[0], attention_mask)
+        if self._normalize:
+            embeddings = self._normalize_embeddings(np, embeddings)
+        return embeddings.tolist()
+
+    def _prepare_tokenizer(self, tokenizer: Any) -> None:
         if self._pooling == "last_token":
             tokenizer.enable_padding(direction="left")
         else:
@@ -39,13 +49,26 @@ class LocalEmbeddingEncodingMixin:
         tokenizer.enable_truncation(
             max_length=self._model_config.get("max_position_embeddings", 512)
         )
-        encodings = tokenizer.encode_batch(texts)
 
-        input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
-        attention_mask = np.array(
-            [e.attention_mask for e in encodings], dtype=np.int64
+    def _encoded_inputs(
+        self,
+        np: Any,
+        tokenizer: Any,
+        texts: list[str],
+    ) -> tuple[Any, Any]:
+        encodings = tokenizer.encode_batch(texts)
+        return (
+            np.array([e.ids for e in encodings], dtype=np.int64),
+            np.array([e.attention_mask for e in encodings], dtype=np.int64),
         )
 
+    def _onnx_feeds(
+        self,
+        np: Any,
+        session: Any,
+        input_ids: Any,
+        attention_mask: Any,
+    ) -> dict[str, Any]:
         input_names = {inp.name for inp in session.get_inputs()}
         feeds: dict[str, Any] = {
             "input_ids": input_ids,
@@ -59,42 +82,37 @@ class LocalEmbeddingEncodingMixin:
                 np.arange(seq_len, dtype=np.int64)[np.newaxis, :],
                 (batch_size, seq_len),
             ).copy()
-
         kv_inputs = sorted(n for n in input_names if n.startswith("past_key_values."))
         if kv_inputs:
-            batch_size = input_ids.shape[0]
-            num_kv_heads = int(self._model_config.get("num_key_value_heads", 8))
-            head_dim = int(self._model_config.get("head_dim", 128))
-            empty_kv = np.zeros(
-                (batch_size, num_kv_heads, 0, head_dim), dtype=np.float32
-            )
+            empty_kv = self._empty_kv_cache(np, input_ids.shape[0])
             for kv_name in kv_inputs:
                 feeds[kv_name] = empty_kv
+        return feeds
 
-        output_names = [session.get_outputs()[0].name]
-        outputs = session.run(output_names, feeds)
-        hidden_states = outputs[0]
+    def _empty_kv_cache(self, np: Any, batch_size: int) -> Any:
+        num_kv_heads = int(self._model_config.get("num_key_value_heads", 8))
+        head_dim = int(self._model_config.get("head_dim", 128))
+        return np.zeros((batch_size, num_kv_heads, 0, head_dim), dtype=np.float32)
 
+    def _pool_hidden_states(self, np: Any, hidden_states: Any, attention_mask: Any) -> Any:
         if self._pooling == "cls":
-            embeddings = hidden_states[:, 0, :]
-        elif self._pooling == "last_token":
+            return hidden_states[:, 0, :]
+        if self._pooling == "last_token":
             seq_lengths = attention_mask.sum(axis=1).astype(int) - 1
-            embeddings = hidden_states[
+            return hidden_states[
                 np.arange(hidden_states.shape[0]), seq_lengths, :
             ]
-        else:
-            mask = attention_mask[:, :, np.newaxis].astype(np.float32)
-            sum_hidden = (hidden_states * mask).sum(axis=1)
-            sum_mask = mask.sum(axis=1)
-            sum_mask = np.maximum(sum_mask, 1e-9)
-            embeddings = sum_hidden / sum_mask
+        mask = attention_mask[:, :, np.newaxis].astype(np.float32)
+        sum_hidden = (hidden_states * mask).sum(axis=1)
+        sum_mask = mask.sum(axis=1)
+        sum_mask = np.maximum(sum_mask, 1e-9)
+        return sum_hidden / sum_mask
 
-        if self._normalize:
-            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-            norms = np.maximum(norms, 1e-12)
-            embeddings = embeddings / norms
-
-        return embeddings.tolist()
+    @staticmethod
+    def _normalize_embeddings(np: Any, embeddings: Any) -> Any:
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1e-12)
+        return embeddings / norms
 
 
 __all__ = ["LocalEmbeddingEncodingMixin"]
