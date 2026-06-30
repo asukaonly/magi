@@ -9,12 +9,14 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import signal
 import sys
 import time
 import uuid
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -34,6 +36,17 @@ DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS = 5.0
 RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 
 
+@dataclass(slots=True)
+class RuntimeHeartbeatHandle:
+    """Runtime heartbeat task state owned by the IPC worker."""
+
+    instance_id: str
+    started_at_ms: int
+    stop_event: asyncio.Event
+    task: asyncio.Task[None]
+    startup_state: str
+
+
 def configure_worker_logging() -> Path:
     """Configure file-backed logging for the IPC worker."""
     runtime_paths = get_runtime_paths()
@@ -46,14 +59,34 @@ def configure_worker_logging() -> Path:
     return log_file
 
 
+@asynccontextmanager
+async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    yield
+
+
 async def _run_worker() -> None:
     """Main async worker loop."""
     worker_t0 = time.monotonic()
     runtime_paths = get_runtime_paths()
     configure_worker_logging()
-
     logger.info("IPC worker starting")
 
+    app = await _initialize_worker_transport_app()
+    ipc_server = await _start_ipc_server(app)
+    heartbeat = await _start_runtime_heartbeat()
+    health_file = _write_worker_ready_file(runtime_paths)
+    _log_worker_ready(worker_t0, heartbeat.startup_state)
+
+    shutdown_event = _install_shutdown_signal_handlers()
+    await shutdown_event.wait()
+    await _shutdown_worker(
+        ipc_server=ipc_server,
+        heartbeat=heartbeat,
+        health_file=health_file,
+    )
+
+
+async def _initialize_worker_transport_app() -> FastAPI:
     t0 = time.monotonic()
     wire_container()
     logger.info("DI container wired", elapsed_ms=round((time.monotonic() - t0) * 1000, 1))
@@ -64,28 +97,29 @@ async def _run_worker() -> None:
 
     from ..transport.http_app import create_transport_app
 
-    @asynccontextmanager
-    async def _noop_lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        yield
+    return create_transport_app(lifespan=_noop_lifespan)
 
-    app = create_transport_app(lifespan=_noop_lifespan)
 
-    ipc_server = None
+async def _start_ipc_server(app: FastAPI) -> Any | None:
     ipc_socket = os.environ.get("MAGI_IPC_SOCKET")
-    if ipc_socket:
-        from ..ipc import IpcServer
-
-        t0 = time.monotonic()
-        ipc_server = IpcServer(asgi_app=app)
-        await ipc_server.start()
-        logger.info(
-            "IPC server started on %s",
-            ipc_socket,
-            elapsed_ms=round((time.monotonic() - t0) * 1000, 1),
-        )
-    else:
+    if not ipc_socket:
         logger.warning("MAGI_IPC_SOCKET not set — worker has no IPC transport")
+        return None
 
+    from ..ipc import IpcServer
+
+    t0 = time.monotonic()
+    ipc_server = IpcServer(asgi_app=app)
+    await ipc_server.start()
+    logger.info(
+        "IPC server started on %s",
+        ipc_socket,
+        elapsed_ms=round((time.monotonic() - t0) * 1000, 1),
+    )
+    return ipc_server
+
+
+async def _start_runtime_heartbeat() -> RuntimeHeartbeatHandle:
     instance_id = uuid.uuid4().hex
     started_at_ms = int(time.time() * 1000)
     heartbeat_stop = asyncio.Event()
@@ -104,21 +138,35 @@ async def _run_worker() -> None:
             started_at_ms=started_at_ms,
         )
     )
+    return RuntimeHeartbeatHandle(
+        instance_id=instance_id,
+        started_at_ms=started_at_ms,
+        stop_event=heartbeat_stop,
+        task=heartbeat_task,
+        startup_state=startup_snapshot.startup_state,
+    )
 
+
+def _write_worker_ready_file(runtime_paths: Any) -> Path:
     health_file = runtime_paths.base_dir / "runtime" / "worker.ready"
     health_file.parent.mkdir(parents=True, exist_ok=True)
     health_file.write_text(str(os.getpid()))
+    return health_file
+
+
+def _log_worker_ready(worker_t0: float, startup_state: str) -> None:
     total_ms = round((time.monotonic() - worker_t0) * 1000, 1)
     logger.info(
         "IPC worker ready (pid=%d, startup_ms=%.1f, startup_state=%s)",
         os.getpid(),
         total_ms,
-        startup_snapshot.startup_state,
+        startup_state,
     )
 
+
+def _install_shutdown_signal_handlers() -> asyncio.Event:
     shutdown_event = asyncio.Event()
     loop = asyncio.get_running_loop()
-
     if sys.platform == "win32":
 
         def _signal_handler(signum, frame):
@@ -133,24 +181,26 @@ async def _run_worker() -> None:
 
         for sig in (signal.SIGTERM, signal.SIGINT):
             loop.add_signal_handler(sig, _signal_handler)
+    return shutdown_event
 
-    await shutdown_event.wait()
+
+async def _shutdown_worker(
+    *,
+    ipc_server: Any | None,
+    heartbeat: RuntimeHeartbeatHandle,
+    health_file: Path,
+) -> None:
     logger.info("IPC worker shutting down")
 
     await _begin_runtime_drain(timeout_seconds=DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS)
     shutdown_snapshot = get_runtime_startup_snapshot()
     await _publish_runtime_heartbeat(
-        instance_id=instance_id,
-        started_at_ms=started_at_ms,
+        instance_id=heartbeat.instance_id,
+        started_at_ms=heartbeat.started_at_ms,
         status=shutdown_snapshot.startup_state,
         last_error=shutdown_snapshot.reason or shutdown_snapshot.detail,
     )
-    heartbeat_stop.set()
-    heartbeat_task.cancel()
-    try:
-        await heartbeat_task
-    except asyncio.CancelledError:
-        pass
+    await _stop_runtime_heartbeat(heartbeat)
 
     if ipc_server is not None:
         await ipc_server.stop()
@@ -163,6 +213,15 @@ async def _run_worker() -> None:
         pass
 
     logger.info("IPC worker stopped")
+
+
+async def _stop_runtime_heartbeat(heartbeat: RuntimeHeartbeatHandle) -> None:
+    heartbeat.stop_event.set()
+    heartbeat.task.cancel()
+    try:
+        await heartbeat.task
+    except asyncio.CancelledError:
+        pass
 
 
 def main() -> None:
