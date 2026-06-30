@@ -70,6 +70,134 @@ def _build_summary_categories_description(plugin_projection_service: Optional[An
     )
 
 
+def _query_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="query",
+        type=ParameterType.STRING,
+        description=(
+            "The user's memory question, passed through in full and verbatim. "
+            "Keep the ENTIRE question — do NOT distill it to a topic, drop clauses, "
+            "or split a multi-part / relational question into pieces. "
+            "Relational and multi-hop questions (e.g. 'albums of the singer I like', "
+            "'my coworker's boss') must be passed whole; the memory engine resolves the "
+            "hops itself. Match the user's language."
+        ),
+        required=True,
+    )
+
+
+def _time_range_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="time_range",
+        type=ParameterType.OBJECT,
+        description=(
+            'Optional time-range constraint. Either {"relative": "<n>d|<n>h|<n>w"} '
+            '(e.g. {"relative": "7d"} for last week) or '
+            '{"start": ISO8601|unix_seconds|common_date_text, "end": ISO8601|unix_seconds|common_date_text}. '
+            "Common date text examples: YYYY/MM/DD, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS. "
+            "Date-only end boundaries expand to the end of that day. "
+            "Omit when the user's intent is "
+            "lifetime/profile lookup."
+        ),
+        required=False,
+    )
+
+
+def _query_mode_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="query_mode",
+        type=ParameterType.STRING,
+        description=(
+            "Pick the retrieval mode by the SHAPE of the answer the user wants. "
+            "Use 'cross_session' when they want to ENUMERATE multiple facts/items "
+            "(e.g. 'which cafes have I been to', 'list the repos I cloned'). "
+            "'current_state' for a single current value/preference; "
+            "'episode_recall' for a narrative of what happened in a session; "
+            "'experience_recall' for a coherent remembered period/project/trip; "
+            "'temporal_compare' for before/after; 'summary'/'activity_summary' for "
+            "digests; 'strategy' for how-to/procedures; 'exact_fact' for a single "
+            "specific fact. If unsure, omit it and the system falls back to "
+            "heuristic detection."
+        ),
+        required=False,
+        enum=[
+            "exact_fact",
+            "current_state",
+            "episode_recall",
+            "experience_recall",
+            "cross_session",
+            "temporal_compare",
+            "summary",
+            "activity_summary",
+            "strategy",
+        ],
+    )
+
+
+def _summary_categories_parameter(plugin_projection_service: Optional[Any]) -> ToolParameter:
+    return ToolParameter(
+        name="summary_categories",
+        type=ParameterType.ARRAY,
+        array_item_type=ParameterType.STRING,
+        description=_build_summary_categories_description(plugin_projection_service),
+        required=False,
+    )
+
+
+def _limit_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="limit",
+        type=ParameterType.INTEGER,
+        description="Maximum number of results to return.",
+        required=False,
+        default=20,
+        min_value=1,
+        max_value=100,
+    )
+
+
+def _conversation_context_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="conversation_context",
+        type=ParameterType.ARRAY,
+        array_item_type=ParameterType.OBJECT,
+        description=(
+            "Optional. Recent conversation turns (each {role, content, timestamp}) "
+            "providing context for indexical references like '当时'/'我说'/'just now'. "
+            "Auto-injected by the runtime — callers should not need to populate this manually."
+        ),
+        required=False,
+    )
+
+
+def _memory_query_parameters(
+    plugin_projection_service: Optional[Any],
+) -> list[ToolParameter]:
+    # Source filters intentionally stay internal: user-facing memory_query searches
+    # all sources and lets the retrieval engine rank by relevance.
+    return [
+        _query_parameter(),
+        _time_range_parameter(),
+        _query_mode_parameter(),
+        _summary_categories_parameter(plugin_projection_service),
+        _limit_parameter(),
+        _conversation_context_parameter(),
+    ]
+
+
+def _memory_query_metadata() -> Dict[str, Any]:
+    return {
+        "task_intents": ["recall_context"],
+        "domains": ["memory"],
+        "operations": ["recall", "verify"],
+        "query_shapes": ["prior_session", "user_preference", "historical_fact"],
+        "followed_by": [],
+        "avoid_task_intents": ["explore_codebase", "research_external"],
+        "cost": "medium",
+        "tool_hint": "Use for prior conversations, preferences, historical actions, or learned procedures; prefer repo files for current code behavior.",
+    }
+
+
 class MemoryQueryTool(Tool):
     """Tool for querying memories across L0-L4."""
 
@@ -92,130 +220,10 @@ class MemoryQueryTool(Tool):
                 "user preferences, personal facts, customized settings, summaries, or learned execution experience."
             ),
             category="memory",
-            parameters=[
-                ToolParameter(
-                    name="query",
-                    type=ParameterType.STRING,
-                    description=(
-                        "The user's memory question, passed through in full and verbatim. "
-                        "Keep the ENTIRE question — do NOT distill it to a topic, drop clauses, "
-                        "or split a multi-part / relational question into pieces. "
-                        "Relational and multi-hop questions (e.g. 'albums of the singer I like', "
-                        "'my coworker's boss') must be passed whole; the memory engine resolves the "
-                        "hops itself. Match the user's language."
-                    ),
-                    required=True,
-                ),
-                ToolParameter(
-                    name="time_range",
-                    type=ParameterType.OBJECT,
-                    description=(
-                        'Optional time-range constraint. Either {"relative": "<n>d|<n>h|<n>w"} '
-                        '(e.g. {"relative": "7d"} for last week) or '
-                        '{"start": ISO8601|unix_seconds|common_date_text, "end": ISO8601|unix_seconds|common_date_text}. '
-                        "Common date text examples: YYYY/MM/DD, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS. "
-                        "Date-only end boundaries expand to the end of that day. "
-                        "Omit when the user's intent is "
-                        "lifetime/profile lookup."
-                    ),
-                    required=False,
-                ),
-                # NOTE: a `sources` parameter used to live here, exposed to
-                # the LLM. We removed it on purpose. Reasoning:
-                #
-                # 1. The LLM doesn't know what concrete source values exist
-                #    (no enum, the documented examples like "timeline" were
-                #    not even real values — the real values are plugin-
-                #    chosen strings like "screenshot_timeline" or
-                #    "chrome_history").
-                # 2. BM25 / vector / temporal-BM25 / keyword retrieval all
-                #    run against ALL sources regardless of this filter —
-                #    the filter only kicks in during the post-fusion
-                #    hydration step, which means a wrong source list
-                #    *throws away* already-found real matches without
-                #    saving any retrieval CPU.
-                # 3. Other axes already do the actual signal work:
-                #      - l1_retrieval_scope         (mode → scope filter)
-                #      - allowed_evidence_classes   (evidence routing)
-                #      - memory_domain              (provenance partition)
-                #    source is an operational/provenance tag, not a
-                #    retrieval-relevance axis. Letting the LLM filter on
-                #    it leaks an internal axis upstream.
-                #
-                # `RetrievalQuery.source_filters` is kept downstream so
-                # internal programmatic callers can still narrow by source
-                # when they have authoritative knowledge (e.g. an agent
-                # that explicitly only wants browser history). For the
-                # user-facing memory_query tool, we just pass [] and let
-                # the engine search everything.
-                ToolParameter(
-                    name="query_mode",
-                    type=ParameterType.STRING,
-                    description=(
-                        "Pick the retrieval mode by the SHAPE of the answer the user wants. "
-                        "Use 'cross_session' when they want to ENUMERATE multiple facts/items "
-                        "(e.g. 'which cafes have I been to', 'list the repos I cloned'). "
-                        "'current_state' for a single current value/preference; "
-                        "'episode_recall' for a narrative of what happened in a session; "
-                        "'experience_recall' for a coherent remembered period/project/trip; "
-                        "'temporal_compare' for before/after; 'summary'/'activity_summary' for "
-                        "digests; 'strategy' for how-to/procedures; 'exact_fact' for a single "
-                        "specific fact. If unsure, omit it and the system falls back to "
-                        "heuristic detection."
-                    ),
-                    required=False,
-                    enum=[
-                        "exact_fact",
-                        "current_state",
-                        "episode_recall",
-                        "experience_recall",
-                        "cross_session",
-                        "temporal_compare",
-                        "summary",
-                        "activity_summary",
-                        "strategy",
-                    ],
-                ),
-                ToolParameter(
-                    name="summary_categories",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description=_build_summary_categories_description(plugin_projection_service),
-                    required=False,
-                ),
-                ToolParameter(
-                    name="limit",
-                    type=ParameterType.INTEGER,
-                    description="Maximum number of results to return.",
-                    required=False,
-                    default=20,
-                    min_value=1,
-                    max_value=100,
-                ),
-                ToolParameter(
-                    name="conversation_context",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.OBJECT,
-                    description=(
-                        "Optional. Recent conversation turns (each {role, content, timestamp}) "
-                        "providing context for indexical references like '当时'/'我说'/'just now'. "
-                        "Auto-injected by the runtime — callers should not need to populate this manually."
-                    ),
-                    required=False,
-                ),
-            ],
+            parameters=_memory_query_parameters(plugin_projection_service),
             tags=["memory", "search", "history"],
             timeout=30,
-            metadata={
-                "task_intents": ["recall_context"],
-                "domains": ["memory"],
-                "operations": ["recall", "verify"],
-                "query_shapes": ["prior_session", "user_preference", "historical_fact"],
-                "followed_by": [],
-                "avoid_task_intents": ["explore_codebase", "research_external"],
-                "cost": "medium",
-                "tool_hint": "Use for prior conversations, preferences, historical actions, or learned procedures; prefer repo files for current code behavior.",
-            },
+            metadata=_memory_query_metadata(),
         )
 
     def _maybe_refresh_schema(self) -> None:
@@ -251,150 +259,21 @@ class MemoryQueryTool(Tool):
     ) -> ToolResult:
         """Execute a hybrid retrieval query."""
         try:
-            mq = context.capabilities.memory_query if context.capabilities else None
-            if mq is None:
-                return ToolResult(
-                    success=False,
-                    error="memory_query capability port is not available",
-                    error_code="CAPABILITY_UNAVAILABLE",
-                )
-            user_id = parameters.get("user_id") or context.env_vars.get("user_id")
-            # Persistent memory recall should not inherit the current chat session
-            # unless a caller explicitly opts into session-local lookup.
-            session_id = parameters.get("session_id")
-            current_user_text = context.env_vars.get("current_user_text") or None
-            # Parse incoming conversation_context (list of dicts → ConversationTurn instances).
-            # Auto-injected by the runtime for indexical reference resolution; tolerant
-            # of malformed entries (skip items missing required keys).
-            raw_context = parameters.get("conversation_context") or []
-            conversation_context = None
-            if raw_context:
-                turns = []
-                for item in raw_context:
-                    if not isinstance(item, dict):
-                        continue
-                    if not {"role", "content", "timestamp"} <= item.keys():
-                        continue
-                    try:
-                        turns.append(
-                            mq.make_conversation_turn(
-                                role=item["role"],
-                                content=item["content"],
-                                timestamp=float(item["timestamp"]),
-                            )
-                        )
-                    except (TypeError, ValueError):
-                        continue
-                if turns:
-                    conversation_context = turns
-            request = mq.build_query(
-                query=parameters["query"],
-                user_id=user_id,
-                session_id=session_id,
-                time_range=parameters.get("time_range", {}),
-                query_mode=parameters.get("query_mode"),
-                # source_filters is no longer LLM-controllable — see the
-                # block-comment above where the `sources` ToolParameter
-                # used to be declared. Internal callers can still set
-                # source_filters on RetrievalQuery directly via build_query.
-                source_filters=[],
-                domain_filters=parameters.get("domains", []) or [],
-                summary_categories=parameters.get("summary_categories", []) or [],
-                limit=parameters.get("limit", 20),
-                exclude_user_text=current_user_text,
-                conversation_context=conversation_context,
-            )
+            mq = self._resolve_memory_query_port(context)
+            if isinstance(mq, ToolResult):
+                return mq
+            request = self._build_memory_query_request(mq, parameters, context)
             payload = await mq.query(request)
-            payload_dict = (
-                asdict(payload)
-                if hasattr(payload, "__dataclass_fields__")
-                else {
-                    "l0_workbench": getattr(payload, "l0_workbench", []),
-                    "l1_events": getattr(payload, "l1_events", []),
-                    "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
-                    "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
-                    "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
-                    "l2_relationships": getattr(payload, "l2_relationships", []),
-                    "l2_assertions": getattr(payload, "l2_assertions", []),
-                    "l2_experiences": getattr(payload, "l2_experiences", []),
-                    "l2_episodes": getattr(payload, "l2_episodes", []),
-                    "l3_reflections": getattr(payload, "l3_reflections", []),
-                    "l4_procedures": getattr(payload, "l4_procedures", []),
-                    "trace": getattr(payload, "trace", {}),
-                }
+            payload_dict = self._payload_to_dict(payload)
+            historical_recall = await self._project_historical_recall(
+                mq=mq,
+                payload_dict=payload_dict,
+                request=request,
             )
-            try:
-                plugin_projection_service = resolve_plugin_projection_service()
-            except RuntimeError:
-                plugin_projection_service = None
-
-            # Phase 5: batch-resolve canonical names so the projection layer drops
-            # findings whose entity_ids would otherwise leak raw hashes.
-            entity_ids: set[str] = set()
-            for rel in payload_dict.get("l2_relationships") or []:
-                if isinstance(rel, dict):
-                    if rel.get("subject_id"):
-                        entity_ids.add(str(rel["subject_id"]))
-                    if rel.get("object_id"):
-                        entity_ids.add(str(rel["object_id"]))
-            for assertion in payload_dict.get("l2_assertions") or []:
-                if isinstance(assertion, dict):
-                    if assertion.get("entity_id"):
-                        entity_ids.add(str(assertion["entity_id"]))
-                    # Assertions can also carry a target_entity_id that the
-                    # projection layer resolves through canonical_names.
-                    if assertion.get("target_entity_id"):
-                        entity_ids.add(str(assertion["target_entity_id"]))
-            # Round 3 C1: entity_cards feed the entity_refs surface — their
-            # entity_ids must also be resolved so refs don't silently drop.
-            for card in payload_dict.get("l2_entity_cards") or []:
-                if isinstance(card, dict) and card.get("entity_id"):
-                    entity_ids.add(str(card["entity_id"]))
-            # Round 3 C1: resolved_entities from the L2 query trace are the
-            # other source for entity_refs (see retrieval_projection_refs).
-            trace_dict = payload_dict.get("trace") or {}
-            if isinstance(trace_dict, dict):
-                l2_trace = trace_dict.get("l2_query_trace")
-                if isinstance(l2_trace, dict):
-                    for ent in l2_trace.get("resolved_entities") or []:
-                        if isinstance(ent, dict) and ent.get("entity_id"):
-                            entity_ids.add(str(ent["entity_id"]))
-
-            # Resolve via entity_catalog. The projection layer treats
-            # ``canonical_names is None`` as legacy mode (no entity-leak
-            # filtering) and a populated/empty dict as Phase 5 mode (drop
-            # findings whose entity_ids resolve to no canonical name). To
-            # preserve legacy behaviour when the port does not expose a
-            # memory_db_path (e.g. test doubles or fresh deploys), we only
-            # opt into Phase 5 mode when a real string path is available.
-            # The isinstance guard rejects MagicMock-style auto-attributes.
-            db_path_attr = getattr(mq, "memory_db_path", None) or getattr(
-                mq, "_memory_db_path", None
-            )
-            db_path = db_path_attr if isinstance(db_path_attr, str) else None
-            canonical_names: dict[str, str] | None = None
-            if db_path:
-                canonical_names = (
-                    await mq.get_canonical_names(db_path, entity_ids) if entity_ids else {}
-                )
-
-            historical_recall = asdict(
-                mq.project_historical_recall(
-                    payload=payload_dict,
-                    request=request,
-                    plugin_projection_service=plugin_projection_service,
-                    canonical_names=canonical_names,
-                )
-            )
-            return ToolResult(
-                success=True,
-                data={
-                    "historical_recall": historical_recall,
-                    "debug": {
-                        "retrieval_trace": payload_dict.get("trace", {}),
-                        "agent_id": context.agent_id,
-                    },
-                },
+            return self._build_success_result(
+                historical_recall=historical_recall,
+                payload_dict=payload_dict,
+                context=context,
             )
         except Exception as exc:
             return ToolResult(
@@ -402,6 +281,170 @@ class MemoryQueryTool(Tool):
                 error=str(exc),
                 error_code="EXECUTION_ERROR",
             )
+
+    @staticmethod
+    def _resolve_memory_query_port(context: ToolExecutionContext) -> Any | ToolResult:
+        mq = context.capabilities.memory_query if context.capabilities else None
+        if mq is None:
+            return ToolResult(
+                success=False,
+                error="memory_query capability port is not available",
+                error_code="CAPABILITY_UNAVAILABLE",
+            )
+        return mq
+
+    def _build_memory_query_request(
+        self,
+        mq: Any,
+        parameters: Dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> Any:
+        user_id = parameters.get("user_id") or context.env_vars.get("user_id")
+        session_id = parameters.get("session_id")
+        current_user_text = context.env_vars.get("current_user_text") or None
+        return mq.build_query(
+            query=parameters["query"],
+            user_id=user_id,
+            session_id=session_id,
+            time_range=parameters.get("time_range", {}),
+            query_mode=parameters.get("query_mode"),
+            source_filters=[],
+            domain_filters=parameters.get("domains", []) or [],
+            summary_categories=parameters.get("summary_categories", []) or [],
+            limit=parameters.get("limit", 20),
+            exclude_user_text=current_user_text,
+            conversation_context=self._build_conversation_context(mq, parameters),
+        )
+
+    @staticmethod
+    def _build_conversation_context(mq: Any, parameters: Dict[str, Any]) -> Any | None:
+        raw_context = parameters.get("conversation_context") or []
+        if not raw_context:
+            return None
+
+        turns = []
+        for item in raw_context:
+            if not isinstance(item, dict):
+                continue
+            if not {"role", "content", "timestamp"} <= item.keys():
+                continue
+            try:
+                turns.append(
+                    mq.make_conversation_turn(
+                        role=item["role"],
+                        content=item["content"],
+                        timestamp=float(item["timestamp"]),
+                    )
+                )
+            except (TypeError, ValueError):
+                continue
+        return turns or None
+
+    @staticmethod
+    def _payload_to_dict(payload: Any) -> Dict[str, Any]:
+        if hasattr(payload, "__dataclass_fields__"):
+            return asdict(payload)
+        return {
+            "l0_workbench": getattr(payload, "l0_workbench", []),
+            "l1_events": getattr(payload, "l1_events", []),
+            "l1_evidence_bundles": getattr(payload, "l1_evidence_bundles", []),
+            "l1_timeline_summary": getattr(payload, "l1_timeline_summary", []),
+            "l2_entity_cards": getattr(payload, "l2_entity_cards", []),
+            "l2_relationships": getattr(payload, "l2_relationships", []),
+            "l2_assertions": getattr(payload, "l2_assertions", []),
+            "l2_experiences": getattr(payload, "l2_experiences", []),
+            "l2_episodes": getattr(payload, "l2_episodes", []),
+            "l3_reflections": getattr(payload, "l3_reflections", []),
+            "l4_procedures": getattr(payload, "l4_procedures", []),
+            "trace": getattr(payload, "trace", {}),
+        }
+
+    async def _project_historical_recall(
+        self,
+        *,
+        mq: Any,
+        payload_dict: Dict[str, Any],
+        request: Any,
+    ) -> Dict[str, Any]:
+        canonical_names = await self._resolve_canonical_names(mq, payload_dict)
+        return asdict(
+            mq.project_historical_recall(
+                payload=payload_dict,
+                request=request,
+                plugin_projection_service=self._resolve_projection_service(),
+                canonical_names=canonical_names,
+            )
+        )
+
+    @staticmethod
+    def _resolve_projection_service() -> Any | None:
+        try:
+            return resolve_plugin_projection_service()
+        except RuntimeError:
+            return None
+
+    async def _resolve_canonical_names(
+        self,
+        mq: Any,
+        payload_dict: Dict[str, Any],
+    ) -> dict[str, str] | None:
+        db_path_attr = getattr(mq, "memory_db_path", None) or getattr(mq, "_memory_db_path", None)
+        db_path = db_path_attr if isinstance(db_path_attr, str) else None
+        if not db_path:
+            return None
+
+        entity_ids = self._collect_entity_ids(payload_dict)
+        if not entity_ids:
+            return {}
+        return await mq.get_canonical_names(db_path, entity_ids)
+
+    @staticmethod
+    def _collect_entity_ids(payload_dict: Dict[str, Any]) -> set[str]:
+        entity_ids: set[str] = set()
+        for rel in payload_dict.get("l2_relationships") or []:
+            if isinstance(rel, dict):
+                if rel.get("subject_id"):
+                    entity_ids.add(str(rel["subject_id"]))
+                if rel.get("object_id"):
+                    entity_ids.add(str(rel["object_id"]))
+        for assertion in payload_dict.get("l2_assertions") or []:
+            if isinstance(assertion, dict):
+                if assertion.get("entity_id"):
+                    entity_ids.add(str(assertion["entity_id"]))
+                if assertion.get("target_entity_id"):
+                    entity_ids.add(str(assertion["target_entity_id"]))
+        for card in payload_dict.get("l2_entity_cards") or []:
+            if isinstance(card, dict) and card.get("entity_id"):
+                entity_ids.add(str(card["entity_id"]))
+
+        trace_dict = payload_dict.get("trace") or {}
+        if not isinstance(trace_dict, dict):
+            return entity_ids
+        l2_trace = trace_dict.get("l2_query_trace")
+        if not isinstance(l2_trace, dict):
+            return entity_ids
+        for ent in l2_trace.get("resolved_entities") or []:
+            if isinstance(ent, dict) and ent.get("entity_id"):
+                entity_ids.add(str(ent["entity_id"]))
+        return entity_ids
+
+    @staticmethod
+    def _build_success_result(
+        *,
+        historical_recall: Dict[str, Any],
+        payload_dict: Dict[str, Any],
+        context: ToolExecutionContext,
+    ) -> ToolResult:
+        return ToolResult(
+            success=True,
+            data={
+                "historical_recall": historical_recall,
+                "debug": {
+                    "retrieval_trace": payload_dict.get("trace", {}),
+                    "agent_id": context.agent_id,
+                },
+            },
+        )
 
     def is_ready(self) -> bool:
         """Check if tool is ready to use.
