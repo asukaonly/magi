@@ -56,23 +56,48 @@ class MemoryStoreModule(LifecycleModule):
 
         await self._context.core.db_initializer.insert_default_data()
 
-        scenario_llm_pool = require_initialized(self._context.llm.scenario_llm_pool, "scenario llm pool")
+        scenario_llm_pool = require_initialized(
+            self._context.llm.scenario_llm_pool, "scenario llm pool"
+        )
         message_bus = self._context.message_bus.message_bus
+        await self._start_llm_usage_store(message_bus)
+
+        memory_config = config.agent.memory
+        self._context.memory.unified_memory = self._build_unified_memory_store(
+            runtime_paths=runtime_paths,
+            scenario_llm_pool=scenario_llm_pool,
+            plugin_projection_service=plugin_projection_service,
+            memory_config=memory_config,
+        )
+        await self._context.memory.unified_memory.initialize()
+        logger.info("UnifiedMemoryStore initialized (L0-L4)")
+
+        self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(
+            scenario_llm_pool
+        )
+        logger.info("HybridRetrievalService initialized")
+
+        await self._start_memory_integration(message_bus, memory_config)
+
+    async def _start_llm_usage_store(self, message_bus: Any) -> None:
         if self.start_memory_integration:
             require_initialized(message_bus, "message bus")
             self._context.llm.llm_usage_store = get_llm_usage_store()
             await self._context.llm.llm_usage_store.start()
             logger.info("LLM usage store started")
-        else:
-            logger.info("LLM usage store subscription skipped for API role")
+            return
+        logger.info("LLM usage store subscription skipped for API role")
 
-        memory_config = config.agent.memory
-        embedding_service = MemoryEmbeddingService(scenario_llm_pool) if self._enable_embedding else None
-
-        # When embedding is disabled (e.g. API role), skip vector index initialization entirely
-        vectors_enabled = self._enable_embedding
-
-        self._context.memory.unified_memory = UnifiedMemoryStore(
+    def _build_unified_memory_store(
+        self,
+        *,
+        runtime_paths: Any,
+        scenario_llm_pool: Any,
+        plugin_projection_service: Any,
+        memory_config: Any,
+    ) -> UnifiedMemoryStore:
+        embedding_service = self._build_embedding_service(scenario_llm_pool)
+        return UnifiedMemoryStore(
             l1_db_path=str(runtime_paths.l1_memory_db_path),
             memory_db_path=str(runtime_paths.memory_db_path),
             persist_dir=str(runtime_paths.memory_dir),
@@ -88,51 +113,68 @@ class MemoryStoreModule(LifecycleModule):
             l2_batch_flush_interval_seconds=memory_config.l2.batch_flush_interval_seconds,
             temporal_summary_features_builder=plugin_projection_service.build_temporal_summary_features,
             extraction_profile_provider=plugin_projection_service.iter_extraction_profiles,
-            tuning=MemoryStoreTuning(
-                async_embeddings=memory_config.async_embeddings,
-                enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
-                enable_l2_vectors=memory_config.l2.vectors_enabled and vectors_enabled,
-                enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
-                enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
-                enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
-                enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
-                l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
-                l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
-                temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
-                temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
-            ),
+            tuning=self._build_store_tuning(memory_config),
         )
-        await self._context.memory.unified_memory.initialize()
-        logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
-        self._context.memory.hybrid_retrieval_service = HybridRetrievalService(
+    def _build_embedding_service(self, scenario_llm_pool: Any) -> MemoryEmbeddingService | None:
+        if not self._enable_embedding:
+            return None
+        return MemoryEmbeddingService(scenario_llm_pool)
+
+    def _build_store_tuning(self, memory_config: Any) -> MemoryStoreTuning:
+        # When embedding is disabled (e.g. API role), skip vector index initialization entirely.
+        vectors_enabled = self._enable_embedding
+        return MemoryStoreTuning(
+            async_embeddings=memory_config.async_embeddings,
+            enable_l1_vectors=memory_config.l1.vectors_enabled and vectors_enabled,
+            enable_l2_vectors=memory_config.l2.vectors_enabled and vectors_enabled,
+            enable_l3_vectors=memory_config.l3.vectors_enabled and vectors_enabled,
+            enable_l4_vectors=memory_config.l4.vectors_enabled and vectors_enabled,
+            enable_l3_llm_summary=memory_config.l3.llm_summary_enabled,
+            enable_l2_conflict_arbitration=memory_config.l2.conflict_arbitration_enabled,
+            l2_conflict_arbitration_min_confidence=memory_config.l2.conflict_arbitration_min_confidence,
+            l0_checkpoint_interval_seconds=memory_config.l0.checkpoint_interval_seconds,
+            temporal_l3_llm_timeout_seconds=memory_config.l3.temporal_llm_timeout_seconds,
+            temporal_l3_llm_min_event_count=memory_config.l3.temporal_llm_min_event_count,
+        )
+
+    def _build_hybrid_retrieval_service(self, scenario_llm_pool: Any) -> HybridRetrievalService:
+        unified_memory = require_initialized(
             self._context.memory.unified_memory,
+            "unified memory",
+        )
+        return HybridRetrievalService(
+            unified_memory,
             config_getter=lambda: build_retrieval_config_from_app_config(get_config()),
             llm_provider_bridge=LLMProviderBridge(
                 scenario_llm_pool.get(LLMScenario.CONTEXT_DECIDER)
             ),
         )
-        logger.info("HybridRetrievalService initialized")
 
-        if self.start_memory_integration:
-            runtime_message_bus = require_initialized(message_bus, "message bus")
-            memory_integration_config = MemoryIntegrationConfig(
-                enable_l0=memory_config.l0.enabled,
-                enable_l1=memory_config.l1.enabled,
-                enable_l2=memory_config.l2.enabled,
-                enable_l3=memory_config.l3.enabled,
-                enable_l4=memory_config.l4.enabled,
-                summary_interval_minutes=memory_config.l3.summary_interval_minutes,
-            )
-            self._context.memory.memory_integration = MemoryIntegrationModule(
-                unified_memory=self._context.memory.unified_memory,
-                message_bus=runtime_message_bus,
-                config=memory_integration_config,
-            )
-            await self._context.memory.memory_integration.start()
-            logger.info("MemoryIntegrationModule started")
-        else:
+    async def _start_memory_integration(self, message_bus: Any, memory_config: Any) -> None:
+        if not self.start_memory_integration:
             logger.info("MemoryIntegrationModule skipped for API role")
+            return
+        runtime_message_bus = require_initialized(message_bus, "message bus")
+        memory_integration_config = MemoryIntegrationConfig(
+            enable_l0=memory_config.l0.enabled,
+            enable_l1=memory_config.l1.enabled,
+            enable_l2=memory_config.l2.enabled,
+            enable_l3=memory_config.l3.enabled,
+            enable_l4=memory_config.l4.enabled,
+            summary_interval_minutes=memory_config.l3.summary_interval_minutes,
+        )
+        unified_memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        self._context.memory.memory_integration = MemoryIntegrationModule(
+            unified_memory=unified_memory,
+            message_bus=runtime_message_bus,
+            config=memory_integration_config,
+        )
+        await self._context.memory.memory_integration.start()
+        logger.info("MemoryIntegrationModule started")
 
     async def shutdown(self) -> None:
         if self._context.memory.memory_integration is not None:
@@ -200,7 +242,9 @@ class L1MaintenanceScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l1.maintenance_schedule import L1MaintenanceScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L1MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -231,7 +275,9 @@ class L2MaintenanceScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l2.maintenance_schedule import L2MaintenanceScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L2MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -262,7 +308,9 @@ class L2ConsolidationScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l2.consolidation_schedule import L2ConsolidationScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L2ConsolidationScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -293,7 +341,9 @@ class L2DeriveScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l2.derive_schedule import L2DeriveScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L2DeriveScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -324,7 +374,9 @@ class L3SummaryScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l3.summary_schedule import L3SummaryScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L3SummaryScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -355,7 +407,9 @@ class L3MaintenanceScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l3.maintenance_schedule import L3MaintenanceScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L3MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
@@ -386,7 +440,9 @@ class L4MaintenanceScheduleRegistrationModule(LifecycleModule):
     async def init(self) -> None:
         from .l4.maintenance_schedule import L4MaintenanceScheduleContrib
 
-        scheduler_service = require_initialized(self._context.scheduler.scheduler_service, "scheduler service")
+        scheduler_service = require_initialized(
+            self._context.scheduler.scheduler_service, "scheduler service"
+        )
         self._contrib = L4MaintenanceScheduleContrib()
         await self._contrib.register_schedules(scheduler_service)
 
