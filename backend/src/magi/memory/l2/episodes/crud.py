@@ -13,6 +13,44 @@ from ....core.sqlite import sqlite_connection_async
 from .codec import L2EpisodeStoreBaseMixin
 
 
+_EPISODE_LIST_INSERT_COLUMNS = {
+    "primary_entity_ids",
+    "primary_place_ids",
+    "primary_topic_keys",
+    "continuity_signals",
+}
+_EPISODE_INSERT_COLUMNS = (
+    "episode_id",
+    "episode_type",
+    "status",
+    "time_start",
+    "time_end",
+    "parent_episode_id",
+    "label",
+    "summary",
+    "dominant_mode",
+    "primary_entity_ids",
+    "primary_place_ids",
+    "primary_topic_keys",
+    "continuity_signals",
+    "formation_method",
+    "confidence",
+    "source_event_count",
+    "slice_narrative",
+    "slice_sensory_detail",
+    "magi_standout",
+    "standout_score",
+    "standout_reason",
+    "representative_asset_ref",
+    "created_at",
+    "updated_at",
+)
+_EPISODE_INSERT_SQL = f"""
+    INSERT INTO episodes({", ".join(_EPISODE_INSERT_COLUMNS)})
+    VALUES ({", ".join("?" for _ in _EPISODE_INSERT_COLUMNS)})
+"""
+
+
 def _merge_json_lists(*raw_values: Any) -> list[str]:
     """Merge stored JSON-list columns while preserving first-seen order."""
     merged: list[str] = []
@@ -30,6 +68,25 @@ def _merge_json_lists(*raw_values: Any) -> list[str]:
                 seen.add(text)
                 merged.append(text)
     return merged
+
+
+def _episode_json_list(values: list[str] | None) -> str:
+    return json.dumps(values or [], ensure_ascii=False)
+
+
+def _episode_insert_values(row: dict[str, Any]) -> tuple[Any, ...]:
+    return tuple(
+        _episode_insert_value(column, row.get(column))
+        for column in _EPISODE_INSERT_COLUMNS
+    )
+
+
+def _episode_insert_value(column: str, value: Any) -> Any:
+    if column in _EPISODE_LIST_INSERT_COLUMNS:
+        return _episode_json_list(value)
+    if column == "magi_standout":
+        return 1 if value else 0
+    return value
 
 
 @dataclass(frozen=True)
@@ -346,49 +403,25 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         """Create a new episode record."""
         await self.initialize()
         now = time.time()
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO episodes(
-                    episode_id, episode_type, status, time_start, time_end,
-                    parent_episode_id, label, summary, dominant_mode,
-                    primary_entity_ids, primary_place_ids, primary_topic_keys,
-                    continuity_signals, formation_method, confidence,
-                    source_event_count,
-                    slice_narrative, slice_sensory_detail, magi_standout,
-                    standout_score, standout_reason, representative_asset_ref,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    episode_id,
-                    episode_type,
-                    status,
-                    time_start,
-                    time_end,
-                    parent_episode_id,
-                    label,
-                    summary,
-                    dominant_mode,
-                    json.dumps(primary_entity_ids or [], ensure_ascii=False),
-                    json.dumps(primary_place_ids or [], ensure_ascii=False),
-                    json.dumps(primary_topic_keys or [], ensure_ascii=False),
-                    json.dumps(continuity_signals or [], ensure_ascii=False),
-                    formation_method,
-                    confidence,
-                    source_event_count,
-                    slice_narrative,
-                    slice_sensory_detail,
-                    1 if magi_standout else 0,
-                    standout_score,
-                    standout_reason,
-                    representative_asset_ref,
-                    now,
-                    now,
-                ),
-            )
-            await db.commit()
+        row = dict(
+            episode_id=episode_id, episode_type=episode_type, status=status,
+            time_start=time_start, time_end=time_end, parent_episode_id=parent_episode_id,
+            label=label, summary=summary, dominant_mode=dominant_mode,
+            primary_entity_ids=primary_entity_ids, primary_place_ids=primary_place_ids,
+            primary_topic_keys=primary_topic_keys, continuity_signals=continuity_signals,
+            formation_method=formation_method, confidence=confidence,
+            source_event_count=source_event_count, slice_narrative=slice_narrative,
+            slice_sensory_detail=slice_sensory_detail, magi_standout=magi_standout,
+            standout_score=standout_score, standout_reason=standout_reason,
+            representative_asset_ref=representative_asset_ref, created_at=now, updated_at=now,
+        )
+        await self._insert_episode_row(row)
         return episode_id
+
+    async def _insert_episode_row(self, row: dict[str, Any]) -> None:
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(_EPISODE_INSERT_SQL, _episode_insert_values(row))
+            await db.commit()
 
     async def get_episode(self, *, episode_id: str) -> Optional[Dict[str, Any]]:
         """Get a single episode by ID."""
