@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable
 
 from .cache import CacheKey, PortraitCache
 from .contracts import (
+    ChatPortraitObservation,
     ChatPortraitPayload,
     RawMemorySnippet,
     TopicResult,
@@ -79,22 +80,11 @@ class PortraitService:
         """
         persona_id = await self._active_persona_id()
         if not persona_id:
-            logger.info("portrait cold-start: no_persona session=%s", session_id)
-            return self._build_cold_start(
-                session_id,
-                persona_id="",
-                cold_line="",
-                reason="no_persona",
-            )
+            return self._cold_start_no_persona(session_id)
 
         messages = await self._recent_messages(user_id, session_id)
         if not messages:
-            logger.info("portrait cold-start: no_messages session=%s", session_id)
-            return await self._cold_start_for_persona(
-                session_id,
-                persona_id,
-                reason="no_messages",
-            )
+            return await self._cold_start_no_messages(session_id, persona_id)
 
         # Cache key uses a hash of recent user-message text, not the
         # LLM-extracted topic — otherwise we'd burn a topic-extraction LLM
@@ -117,6 +107,27 @@ class PortraitService:
 
     async def _active_persona_id(self) -> str:
         return (await self._active_persona_resolver()) or ""
+
+    def _cold_start_no_persona(self, session_id: str) -> ChatPortraitPayload:
+        logger.info("portrait cold-start: no_persona session=%s", session_id)
+        return self._build_cold_start(
+            session_id,
+            persona_id="",
+            cold_line="",
+            reason="no_persona",
+        )
+
+    async def _cold_start_no_messages(
+        self,
+        session_id: str,
+        persona_id: str,
+    ) -> ChatPortraitPayload:
+        logger.info("portrait cold-start: no_messages session=%s", session_id)
+        return await self._cold_start_for_persona(
+            session_id,
+            persona_id,
+            reason="no_messages",
+        )
 
     async def _recent_messages(self, user_id: str, session_id: str) -> list[dict[str, str]]:
         messages = await self._message_loader(user_id, session_id)
@@ -199,67 +210,133 @@ class PortraitService:
         do nothing — the next poll (after TTL or new conversation) retries.
         """
         try:
-            topic_result = await self._topic_extractor.extract(messages)
-            if topic_result.is_empty():
-                logger.info(
-                    "portrait compute: topic_empty session=%s messages=%d",
-                    session_id,
-                    len(messages),
-                )
+            topic_result = await self._extract_portrait_topic(session_id, messages)
+            if topic_result is None:
                 return
 
-            snippets = await self._snippet_fetcher(user_id, topic_result)
-            if not snippets:
-                logger.info(
-                    "portrait compute: no_snippets session=%s topic=%r",
-                    session_id,
-                    topic_result.topic,
-                )
-                return
-
-            persona_detail = await self._persona_loader(persona_id)
-            persona_config = (persona_detail or {}).get("config") or {}
-
-            recent_excerpt = self._last_user_message(messages)
-            observations = await self._renderer.render(
-                persona_config=persona_config,
-                snippets=snippets,
-                recent_message_excerpt=recent_excerpt,
-                topic=topic_result.topic,
-            )
-            if not observations:
-                logger.info(
-                    "portrait compute: no_observations session=%s topic=%r snippets=%d",
-                    session_id,
-                    topic_result.topic,
-                    len(snippets),
-                )
-                return
-
-            payload = ChatPortraitPayload(
+            snippets = await self._fetch_portrait_snippets(
+                user_id=user_id,
                 session_id=session_id,
-                persona_id=persona_id,
-                topic=topic_result.topic,
-                generated_at=int(time.time()),
-                observations=observations,
-                is_cold_start=False,
+                topic_result=topic_result,
             )
-            self._cache.set(key, payload)
-            logger.info(
-                "portrait compute: success session=%s topic=%r observations=%d",
+            if snippets is None:
+                return
+
+            observations = await self._render_portrait_observations(
+                session_id=session_id,
+                messages=messages,
+                topic_result=topic_result,
+                snippets=snippets,
+                persona_config=await self._persona_config(persona_id),
+            )
+            if observations is None:
+                return
+
+            self._cache_portrait_payload(
                 session_id,
-                topic_result.topic,
-                len(observations),
+                persona_id=persona_id,
+                key=key,
+                topic_result=topic_result,
+                observations=observations,
             )
         except Exception as exc:
             logger.exception("portrait compute failed: session=%s err=%s", session_id, exc)
         finally:
-            async with self._pending_lock:
-                # Only pop if the task is ours (paranoid; the same key map
-                # should hold the same task).
-                current = self._pending_jobs.get(key)
-                if current is not None and current.done():
-                    self._pending_jobs.pop(key, None)
+            await self._clear_pending_compute(key)
+
+    async def _extract_portrait_topic(
+        self,
+        session_id: str,
+        messages: list[dict[str, str]],
+    ) -> TopicResult | None:
+        topic_result = await self._topic_extractor.extract(messages)
+        if topic_result.is_empty():
+            logger.info(
+                "portrait compute: topic_empty session=%s messages=%d",
+                session_id,
+                len(messages),
+            )
+            return None
+        return topic_result
+
+    async def _fetch_portrait_snippets(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        topic_result: TopicResult,
+    ) -> list[RawMemorySnippet] | None:
+        snippets = await self._snippet_fetcher(user_id, topic_result)
+        if not snippets:
+            logger.info(
+                "portrait compute: no_snippets session=%s topic=%r",
+                session_id,
+                topic_result.topic,
+            )
+            return None
+        return snippets
+
+    async def _persona_config(self, persona_id: str) -> dict[str, Any]:
+        persona_detail = await self._persona_loader(persona_id)
+        return (persona_detail or {}).get("config") or {}
+
+    async def _render_portrait_observations(
+        self,
+        *,
+        session_id: str,
+        messages: list[dict[str, str]],
+        topic_result: TopicResult,
+        snippets: list[RawMemorySnippet],
+        persona_config: dict[str, Any],
+    ) -> list[ChatPortraitObservation] | None:
+        observations = await self._renderer.render(
+            persona_config=persona_config,
+            snippets=snippets,
+            recent_message_excerpt=self._last_user_message(messages),
+            topic=topic_result.topic,
+        )
+        if not observations:
+            logger.info(
+                "portrait compute: no_observations session=%s topic=%r snippets=%d",
+                session_id,
+                topic_result.topic,
+                len(snippets),
+            )
+            return None
+        return observations
+
+    def _cache_portrait_payload(
+        self,
+        session_id: str,
+        *,
+        persona_id: str,
+        key: CacheKey,
+        topic_result: TopicResult,
+        observations: list[ChatPortraitObservation],
+    ) -> None:
+        payload = ChatPortraitPayload(
+            session_id=session_id,
+            persona_id=persona_id,
+            topic=topic_result.topic,
+            generated_at=int(time.time()),
+            observations=observations,
+            is_cold_start=False,
+        )
+        self._cache.set(key, payload)
+        logger.info(
+            "portrait compute: success session=%s topic=%r observations=%d",
+            session_id,
+            topic_result.topic,
+            len(observations),
+        )
+
+    async def _clear_pending_compute(self, key: CacheKey) -> None:
+        async with self._pending_lock:
+            # Only pop if the task is ours (paranoid; the same key map
+            # should hold the same task).
+            current = self._pending_jobs.get(key)
+            if current is not None and current.done():
+                self._pending_jobs.pop(key, None)
 
     def invalidate_persona(self, persona_id: str) -> None:
         self._cache.invalidate_persona(persona_id)
