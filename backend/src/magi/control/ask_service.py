@@ -43,6 +43,46 @@ class ControlAskOutcome:
     timed_out: bool
 
 
+@dataclass(frozen=True)
+class _AskState:
+    sid: str
+    is_background: bool
+    bg_task_id: str | None
+    manager: Any
+    timeout_value: float | None
+    request_id: str
+
+
+@dataclass(frozen=True)
+class _AskWaitTasks:
+    answer_task: asyncio.Task[Any]
+    cancel_task: asyncio.Task[Any] | None
+
+
+@dataclass(frozen=True)
+class _AskWaitResult:
+    answer: Any = None
+    cancelled: bool = False
+
+
+def _cancelled_outcome() -> ControlAskOutcome:
+    return ControlAskOutcome(
+        answered=False,
+        answer=None,
+        resolution="cancelled",
+        timed_out=False,
+    )
+
+
+def _timeout_outcome() -> ControlAskOutcome:
+    return ControlAskOutcome(
+        answered=False,
+        answer=None,
+        resolution="timeout",
+        timed_out=True,
+    )
+
+
 class ControlAskService:
     """Owns opening, waiting, closing, and publishing ask state changes."""
 
@@ -59,156 +99,240 @@ class ControlAskService:
         )
 
     async def ask(self, request: ControlAskRequest) -> ControlAskOutcome:
-        sid = request.session_id
-        is_background = bool(request.background)
-        bg_task_id = request.background_task_id or None
-        manager = request.background_port if bg_task_id is not None else None
-        timeout_value = (
-            float(request.timeout_seconds)
-            if request.timeout_seconds is not None
-            else None
-        )
+        state = self._ask_state(request)
+        wait_tasks = self._start_wait_tasks(request, state)
 
-        request_id = uuid.uuid4().hex
-        answer_task = asyncio.create_task(
-            self._broker.wait(
-                interaction_id=request_id,
-                kind="ask",
-                timeout_seconds=timeout_value,
-            ),
-            name=f"ask-user-question-{request_id}",
-        )
-        cancel_task: asyncio.Task[None] | None = None
-        if request.cancellation is not None:
-            cancel_task = asyncio.create_task(
-                request.cancellation.wait(),
-                name=f"ask-user-question-cancel-{request_id}",
-            )
-
-        await asyncio.sleep(0)
-        if request.cancellation is not None and await request.cancellation.is_cancelled():
-            await self._cancel_wait_tasks(answer_task, cancel_task)
-            return ControlAskOutcome(
-                answered=False,
-                answer=None,
-                resolution="cancelled",
-                timed_out=False,
-            )
+        if await self._cancelled_before_open(request, wait_tasks):
+            return _cancelled_outcome()
 
         try:
             ask = await self._store.open_ask(
-                sid,
+                state.sid,
                 question=request.question,
                 options=request.options,
                 allow_free_text=request.allow_free_text,
-                timeout_seconds=timeout_value,
-                request_id=request_id,
+                timeout_seconds=state.timeout_value,
+                request_id=state.request_id,
             )
         except Exception:
-            await self._cancel_wait_tasks(answer_task, cancel_task)
+            await self._cancel_wait_tasks(
+                wait_tasks.answer_task,
+                wait_tasks.cancel_task,
+            )
             raise
 
         await self._publish_opened(
             request=request,
             ask=ask,
-            is_background=is_background,
-            bg_task_id=bg_task_id,
-            manager=manager,
-            timeout_value=timeout_value,
+            is_background=state.is_background,
+            bg_task_id=state.bg_task_id,
+            manager=state.manager,
+            timeout_value=state.timeout_value,
         )
 
-        pending_tasks: set[asyncio.Task[Any]] = {answer_task}
-        if cancel_task is not None:
-            pending_tasks.add(cancel_task)
-
         try:
-            done, pending = await asyncio.wait(
-                pending_tasks,
-                return_when=asyncio.FIRST_COMPLETED,
+            wait_result = await self._wait_for_answer_or_cancel(
+                request=request,
+                ask=ask,
+                state=state,
+                wait_tasks=wait_tasks,
             )
-            if (
-                cancel_task is not None
-                and cancel_task in done
-                and await request.cancellation.is_cancelled()
-            ):
-                answer_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await answer_task
-                await self._close_cancelled(
-                    request=request,
-                    ask=ask,
-                    is_background=is_background,
-                    bg_task_id=bg_task_id,
-                    manager=manager,
-                )
-                return ControlAskOutcome(
-                    answered=False,
-                    answer=None,
-                    resolution="cancelled",
-                    timed_out=False,
-                )
-            for task in pending:
-                task.cancel()
-            for task in pending:
-                with suppress(asyncio.CancelledError):
-                    await task
-            answer = await answer_task
         except InteractionTimeoutError:
             await self._close_timeout(
                 request=request,
-                is_background=is_background,
-                bg_task_id=bg_task_id,
-                manager=manager,
+                is_background=state.is_background,
+                bg_task_id=state.bg_task_id,
+                manager=state.manager,
             )
-            return ControlAskOutcome(
-                answered=False,
-                answer=None,
-                resolution="timeout",
-                timed_out=True,
-            )
+            return _timeout_outcome()
 
+        if wait_result.cancelled:
+            return _cancelled_outcome()
+        return await self._answered_outcome(
+            request=request,
+            ask=ask,
+            state=state,
+            answer=wait_result.answer,
+        )
+
+    def _ask_state(self, request: ControlAskRequest) -> _AskState:
+        bg_task_id = request.background_task_id or None
+        return _AskState(
+            sid=request.session_id,
+            is_background=bool(request.background),
+            bg_task_id=bg_task_id,
+            manager=request.background_port if bg_task_id is not None else None,
+            timeout_value=(
+                float(request.timeout_seconds) if request.timeout_seconds is not None else None
+            ),
+            request_id=uuid.uuid4().hex,
+        )
+
+    def _start_wait_tasks(
+        self,
+        request: ControlAskRequest,
+        state: _AskState,
+    ) -> _AskWaitTasks:
+        answer_task = asyncio.create_task(
+            self._broker.wait(
+                interaction_id=state.request_id,
+                kind="ask",
+                timeout_seconds=state.timeout_value,
+            ),
+            name=f"ask-user-question-{state.request_id}",
+        )
+        cancel_task: asyncio.Task[Any] | None = None
+        if request.cancellation is not None:
+            cancel_task = asyncio.create_task(
+                request.cancellation.wait(),
+                name=f"ask-user-question-cancel-{state.request_id}",
+            )
+        return _AskWaitTasks(answer_task=answer_task, cancel_task=cancel_task)
+
+    async def _cancelled_before_open(
+        self,
+        request: ControlAskRequest,
+        wait_tasks: _AskWaitTasks,
+    ) -> bool:
+        await asyncio.sleep(0)
+        if request.cancellation is None:
+            return False
+        if not await request.cancellation.is_cancelled():
+            return False
+        await self._cancel_wait_tasks(wait_tasks.answer_task, wait_tasks.cancel_task)
+        return True
+
+    async def _wait_for_answer_or_cancel(
+        self,
+        *,
+        request: ControlAskRequest,
+        ask: Any,
+        state: _AskState,
+        wait_tasks: _AskWaitTasks,
+    ) -> _AskWaitResult:
+        pending_tasks: set[asyncio.Task[Any]] = {wait_tasks.answer_task}
+        if wait_tasks.cancel_task is not None:
+            pending_tasks.add(wait_tasks.cancel_task)
+
+        done, pending = await asyncio.wait(
+            pending_tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if await self._did_cancel(request, wait_tasks, done):
+            wait_tasks.answer_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await wait_tasks.answer_task
+            await self._close_cancelled(
+                request=request,
+                ask=ask,
+                is_background=state.is_background,
+                bg_task_id=state.bg_task_id,
+                manager=state.manager,
+            )
+            return _AskWaitResult(cancelled=True)
+
+        await self._cancel_pending_tasks(pending)
+        return _AskWaitResult(answer=await wait_tasks.answer_task)
+
+    @staticmethod
+    async def _did_cancel(
+        request: ControlAskRequest,
+        wait_tasks: _AskWaitTasks,
+        done: set[asyncio.Task[Any]],
+    ) -> bool:
+        return (
+            request.cancellation is not None
+            and wait_tasks.cancel_task is not None
+            and wait_tasks.cancel_task in done
+            and await request.cancellation.is_cancelled()
+        )
+
+    @staticmethod
+    async def _cancel_pending_tasks(pending: set[asyncio.Task[Any]]) -> None:
+        for task in pending:
+            task.cancel()
+        for task in pending:
+            with suppress(asyncio.CancelledError):
+                await task
+
+    async def _answered_outcome(
+        self,
+        *,
+        request: ControlAskRequest,
+        ask: Any,
+        state: _AskState,
+        answer: Any,
+    ) -> ControlAskOutcome:
         answer_text = str(answer) if answer is not None else ""
         closed_ask = await self._store.close_ask(
-            sid, answer=answer_text, resolution="user"
+            state.sid,
+            answer=answer_text,
+            resolution="user",
         )
         if closed_ask is not None:
-            try:
-                await control_events.publish_control_ask_answered(
-                    session_id=sid,
-                    user_id=request.user_id,
-                    turn_id=request.turn_id,
-                    ask=closed_ask,
-                    answer=answer_text,
-                    background=is_background,
-                )
-            except Exception:
-                logger.debug("ask_user_question.persist_response_failed", exc_info=True)
-        await self._resume_background(bg_task_id=bg_task_id, manager=manager)
+            await self._publish_answered(
+                request=request,
+                ask=closed_ask,
+                answer_text=answer_text,
+                is_background=state.is_background,
+            )
+        await self._resume_background(bg_task_id=state.bg_task_id, manager=state.manager)
         logger.info(
             "ask_user_question.answered",
-            session_id=sid,
+            session_id=state.sid,
             request_id=ask.request_id,
             length=len(answer_text),
         )
-        if is_background:
-            try:
-                await control_events.publish_control_event(
-                    "control.background.resumed",
-                    {
-                        "session_id": sid,
-                        "request_id": ask.request_id,
-                    },
-                    session_id=sid,
-                    turn_id=request.turn_id,
-                )
-            except Exception:  # pragma: no cover - defensive
-                logger.debug("ask_user_question.resume_event_failed", exc_info=True)
+        if state.is_background:
+            await self._publish_background_resumed(
+                request=request,
+                request_id=ask.request_id,
+            )
         return ControlAskOutcome(
             answered=True,
             answer=answer_text,
             resolution="user",
             timed_out=False,
         )
+
+    async def _publish_answered(
+        self,
+        *,
+        request: ControlAskRequest,
+        ask: Any,
+        answer_text: str,
+        is_background: bool,
+    ) -> None:
+        try:
+            await control_events.publish_control_ask_answered(
+                session_id=request.session_id,
+                user_id=request.user_id,
+                turn_id=request.turn_id,
+                ask=ask,
+                answer=answer_text,
+                background=is_background,
+            )
+        except Exception:
+            logger.debug("ask_user_question.persist_response_failed", exc_info=True)
+
+    @staticmethod
+    async def _publish_background_resumed(
+        *,
+        request: ControlAskRequest,
+        request_id: str,
+    ) -> None:
+        try:
+            await control_events.publish_control_event(
+                "control.background.resumed",
+                {
+                    "session_id": request.session_id,
+                    "request_id": request_id,
+                },
+                session_id=request.session_id,
+                turn_id=request.turn_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.debug("ask_user_question.resume_event_failed", exc_info=True)
 
     async def _publish_opened(
         self,
@@ -240,9 +364,7 @@ class ControlAskService:
         )
         if bg_task_id is not None and manager is not None:
             try:
-                await manager.suspend_waiting_user(
-                    bg_task_id, reason="awaiting_user_answer"
-                )
+                await manager.suspend_waiting_user(bg_task_id, reason="awaiting_user_answer")
             except Exception:  # pragma: no cover - defensive
                 logger.debug(
                     "ask_user_question.manager_suspend_failed",
@@ -259,9 +381,7 @@ class ControlAskService:
                     "allow_free_text": request.allow_free_text,
                     "timeout_seconds": timeout_value,
                     "created_at_ms": int(ask.asked_at * 1000),
-                    "expires_at_ms": (
-                        int(ask.expires_at * 1000) if ask.expires_at else None
-                    ),
+                    "expires_at_ms": (int(ask.expires_at * 1000) if ask.expires_at else None),
                     "background": is_background,
                 },
                 session_id=request.session_id,
