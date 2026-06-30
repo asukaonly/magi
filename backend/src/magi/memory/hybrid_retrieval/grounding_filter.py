@@ -46,11 +46,13 @@ Design contract:
     LLM never saw them. Token cost is a worthwhile trade for
     eliminating that whole class of bug.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from .debug_detail import event_records, log_detail, relationship_records
@@ -86,6 +88,17 @@ MIN_CANDIDATES_TO_FILTER = 2
 # never had a real chance of being scored by the answer LLM anyway.
 # Applied PER TYPE before building the unified candidate list.
 SKIP_THRESHOLD_MAX = 60
+
+
+@dataclass(slots=True)
+class _GroundingCandidateWindow:
+    query: str
+    events: list[dict[str, Any]]
+    rels: list[dict[str, Any]]
+    sliced_events: list[dict[str, Any]]
+    sliced_rels: list[dict[str, Any]]
+    total: int
+
 
 class GroundingFilter:
     """Apply an LLM-as-listwise-filter to RetrievalPayload.l1_events
@@ -145,68 +158,121 @@ class GroundingFilter:
         if not self._enabled:
             return payload
 
-        query = str(request.query or "").strip()
-        events = payload.l1_events or []
-        rels = payload.l2_relationships or []
-        sliced_events = events[:SKIP_THRESHOLD_MAX]
-        sliced_rels = rels[:SKIP_THRESHOLD_MAX]
-        total = len(sliced_events) + len(sliced_rels)
-
-        if total < MIN_CANDIDATES_TO_FILTER:
+        window = self._candidate_window(payload, request)
+        skip_reason = self._skip_reason(window)
+        if skip_reason is not None:
             self._write_skip_trace(
-                payload, query=query, reason="trivial_count", input_count=total
+                payload,
+                query=window.query,
+                reason=skip_reason,
+                input_count=window.total,
             )
             return payload
 
-        if not query:
-            self._write_skip_trace(
-                payload, query=query, reason="empty_query", input_count=total
-            )
-            return payload
-
-        owner_screen = _apply_named_person_owner_prefilter(query, sliced_events, sliced_rels)
-        sliced_events, sliced_rels, total, owner_completed = self._apply_owner_screen(
+        window, owner_screen, owner_completed = self._owner_screened_window(
             payload=payload,
-            query=query,
-            events=events,
-            rels=rels,
-            sliced_events=sliced_events,
-            sliced_rels=sliced_rels,
-            owner_screen=owner_screen,
-            original_total=total,
+            window=window,
         )
         if owner_completed:
             return payload
 
-        prompt_payload = _build_unified_prompt_payload(query, sliced_events, sliced_rels)
-        self._log_input_detail(
-            query=query,
-            events=events,
-            rels=rels,
-            sliced_events=sliced_events,
-            sliced_rels=sliced_rels,
-            prompt_payload=prompt_payload,
-        )
+        prompt_payload = self._build_logged_prompt(window)
         raw, elapsed_ms = await self._call_grounding_llm(
             payload=payload,
             prompt_payload=prompt_payload,
-            total=total,
+            total=window.total,
         )
         if raw is None:
             return payload
 
         return self._apply_llm_response(
             payload=payload,
+            query=window.query,
+            events=window.events,
+            rels=window.rels,
+            sliced_events=window.sliced_events,
+            sliced_rels=window.sliced_rels,
+            total=window.total,
+            raw=raw,
+            elapsed_ms=elapsed_ms,
+            owner_screen=owner_screen,
+        )
+
+    def _candidate_window(
+        self,
+        payload: RetrievalPayload,
+        request: RetrievalQuery,
+    ) -> _GroundingCandidateWindow:
+        query = str(request.query or "").strip()
+        events = payload.l1_events or []
+        rels = payload.l2_relationships or []
+        sliced_events = events[:SKIP_THRESHOLD_MAX]
+        sliced_rels = rels[:SKIP_THRESHOLD_MAX]
+        return _GroundingCandidateWindow(
             query=query,
             events=events,
             rels=rels,
             sliced_events=sliced_events,
             sliced_rels=sliced_rels,
-            total=total,
-            raw=raw,
-            elapsed_ms=elapsed_ms,
-            owner_screen=owner_screen,
+            total=len(sliced_events) + len(sliced_rels),
         )
+
+    def _skip_reason(self, window: _GroundingCandidateWindow) -> str | None:
+        if window.total < MIN_CANDIDATES_TO_FILTER:
+            return "trivial_count"
+        if not window.query:
+            return "empty_query"
+        return None
+
+    def _owner_screened_window(
+        self,
+        *,
+        payload: RetrievalPayload,
+        window: _GroundingCandidateWindow,
+    ) -> tuple[_GroundingCandidateWindow, dict[str, Any], bool]:
+        owner_screen = _apply_named_person_owner_prefilter(
+            window.query,
+            window.sliced_events,
+            window.sliced_rels,
+        )
+        sliced_events, sliced_rels, total, owner_completed = self._apply_owner_screen(
+            payload=payload,
+            query=window.query,
+            events=window.events,
+            rels=window.rels,
+            sliced_events=window.sliced_events,
+            sliced_rels=window.sliced_rels,
+            owner_screen=owner_screen,
+            original_total=window.total,
+        )
+        return (
+            _GroundingCandidateWindow(
+                query=window.query,
+                events=window.events,
+                rels=window.rels,
+                sliced_events=sliced_events,
+                sliced_rels=sliced_rels,
+                total=total,
+            ),
+            owner_screen,
+            owner_completed,
+        )
+
+    def _build_logged_prompt(self, window: _GroundingCandidateWindow) -> str:
+        prompt_payload = _build_unified_prompt_payload(
+            window.query,
+            window.sliced_events,
+            window.sliced_rels,
+        )
+        self._log_input_detail(
+            query=window.query,
+            events=window.events,
+            rels=window.rels,
+            sliced_events=window.sliced_events,
+            sliced_rels=window.sliced_rels,
+            prompt_payload=prompt_payload,
+        )
+        return prompt_payload
 
     def _write_skip_trace(
         self,
@@ -297,9 +363,7 @@ class GroundingFilter:
             "why": "Named-person dialogue ownership prefilter removed mismatched evidence.",
             "all_dropped": True,
             "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-            "owner_prefilter_dropped_relationships": owner_screen[
-                "dropped_relationships"
-            ],
+            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
         }
         payload.trace["grounding_filter"] = success_trace
         payload.trace["grounding_filter_l2"] = {
@@ -335,9 +399,7 @@ class GroundingFilter:
             "input_count": original_total,
             "kept_count": kept_count,
             "owner_prefilter_dropped_events": owner_screen["dropped_events"],
-            "owner_prefilter_dropped_relationships": owner_screen[
-                "dropped_relationships"
-            ],
+            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
         }
         payload.trace["grounding_filter"] = skip_trace
         payload.trace["grounding_filter_l2"] = {
@@ -345,9 +407,7 @@ class GroundingFilter:
             "skipped_reason": "trivial_count_after_owner_prefilter",
             "input_count": len(rels),
             "kept_count": len(sliced_rels),
-            "owner_prefilter_dropped_relationships": owner_screen[
-                "dropped_relationships"
-            ],
+            "owner_prefilter_dropped_relationships": owner_screen["dropped_relationships"],
         }
         logger.debug(
             "Grounding filter skipped | query=%r reason=%s input_count=%d kept_count=%d",
@@ -452,17 +512,10 @@ class GroundingFilter:
         elapsed_ms: float,
         owner_screen: dict[str, Any],
     ) -> RetrievalPayload:
-        kept_indices, why = _parse_keep_response(raw)
-        log_detail(
-            logger,
-            "GROUNDING FILTER RAW OUTPUT DETAIL",
-            {
-                "query": query,
-                "raw": raw,
-                "parsed_keep": kept_indices,
-                "parsed_why": why,
-                "elapsed_ms": round(elapsed_ms, 1),
-            },
+        kept_indices, why = self._parse_and_log_keep_response(
+            query=query,
+            raw=raw,
+            elapsed_ms=elapsed_ms,
         )
         if kept_indices is None:
             self._write_degraded_trace(
@@ -471,39 +524,24 @@ class GroundingFilter:
             logger.info("Grounding filter response unparseable; passing raw payload through.")
             return payload
 
-        # Global indices are 1-based, laid out as:
-        #   1 .. len(sliced_events)        → events
-        #   len(sliced_events)+1 .. total  → relationships
         n_ev = len(sliced_events)
-        valid_ev_indices = [i for i in kept_indices if isinstance(i, int) and 1 <= i <= n_ev]
-        valid_rel_indices = [
-            i for i in kept_indices if isinstance(i, int) and n_ev < i <= total
-        ]
-
-        all_valid_count = len(valid_ev_indices) + len(valid_rel_indices)
-
-        if all_valid_count == 0:
-            if not kept_indices:
-                # LLM explicitly returned an empty keep set — a VALID
-                # "none of these are relevant" verdict. Trust it and
-                # clear BOTH lists.
-                self._apply_empty_keep_result(
-                    payload=payload,
-                    query=query,
-                    events=events,
-                    rels=rels,
-                    sliced_events=sliced_events,
-                    sliced_rels=sliced_rels,
-                    total=total,
-                    why=why,
-                    elapsed_ms=elapsed_ms,
-                )
-                return payload
-
-            # kept_indices was non-empty but every index was out of range
-            # (LLM hallucinated indices). Treat as degraded.
-            self._write_degraded_trace(
-                payload, total=total, reason="no_valid_indices", elapsed_ms=elapsed_ms
+        valid_ev_indices, valid_rel_indices = _valid_keep_indices(
+            kept_indices,
+            event_count=n_ev,
+            total=total,
+        )
+        if not valid_ev_indices and not valid_rel_indices:
+            self._apply_no_valid_keep_result(
+                payload=payload,
+                query=query,
+                events=events,
+                rels=rels,
+                sliced_events=sliced_events,
+                sliced_rels=sliced_rels,
+                total=total,
+                kept_indices=kept_indices,
+                why=why,
+                elapsed_ms=elapsed_ms,
             )
             return payload
 
@@ -524,6 +562,58 @@ class GroundingFilter:
             owner_screen=owner_screen,
         )
         return payload
+
+    def _parse_and_log_keep_response(
+        self,
+        *,
+        query: str,
+        raw: Any,
+        elapsed_ms: float,
+    ) -> tuple[list[int] | None, str | None]:
+        kept_indices, why = _parse_keep_response(raw)
+        log_detail(
+            logger,
+            "GROUNDING FILTER RAW OUTPUT DETAIL",
+            {
+                "query": query,
+                "raw": raw,
+                "parsed_keep": kept_indices,
+                "parsed_why": why,
+                "elapsed_ms": round(elapsed_ms, 1),
+            },
+        )
+        return kept_indices, why
+
+    def _apply_no_valid_keep_result(
+        self,
+        *,
+        payload: RetrievalPayload,
+        query: str,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        total: int,
+        kept_indices: list[int],
+        why: str | None,
+        elapsed_ms: float,
+    ) -> None:
+        if not kept_indices:
+            self._apply_empty_keep_result(
+                payload=payload,
+                query=query,
+                events=events,
+                rels=rels,
+                sliced_events=sliced_events,
+                sliced_rels=sliced_rels,
+                total=total,
+                why=why,
+                elapsed_ms=elapsed_ms,
+            )
+            return
+        self._write_degraded_trace(
+            payload, total=total, reason="no_valid_indices", elapsed_ms=elapsed_ms
+        )
 
     def _apply_empty_keep_result(
         self,
@@ -565,12 +655,9 @@ class GroundingFilter:
             {
                 "query": query,
                 "kept_indices": [],
-                "dropped_event_ids": [
-                    str(item.get("event_id") or "") for item in sliced_events
-                ],
+                "dropped_event_ids": [str(item.get("event_id") or "") for item in sliced_events],
                 "dropped_relationship_ids": [
-                    str(item.get("triple_id") or item.get("id") or "")
-                    for item in sliced_rels
+                    str(item.get("triple_id") or item.get("id") or "") for item in sliced_rels
                 ],
                 "why": why or None,
                 "trace": success_trace,
@@ -606,11 +693,58 @@ class GroundingFilter:
     ) -> None:
         kept_events = [sliced_events[i - 1] for i in valid_ev_indices]
         kept_rels = [sliced_rels[i - n_ev - 1] for i in valid_rel_indices]
-
         payload.l1_events = kept_events
         payload.l2_relationships = kept_rels
 
-        payload.trace["grounding_filter"] = {
+        success_trace = self._valid_keep_trace(
+            events=events,
+            rels=rels,
+            kept_events=kept_events,
+            kept_rels=kept_rels,
+            total=total,
+            why=why,
+            elapsed_ms=elapsed_ms,
+            owner_screen=owner_screen,
+        )
+        payload.trace["grounding_filter"] = success_trace
+        payload.trace["grounding_filter_l2"] = _valid_keep_l2_trace(rels, kept_rels)
+        self._log_valid_keep_output(
+            query=query,
+            kept_indices=kept_indices,
+            valid_ev_indices=valid_ev_indices,
+            valid_rel_indices=valid_rel_indices,
+            kept_events=kept_events,
+            kept_rels=kept_rels,
+            sliced_events=sliced_events,
+            sliced_rels=sliced_rels,
+            n_ev=n_ev,
+            why=why,
+            trace=success_trace,
+        )
+        logger.info(
+            "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
+            "kept_events=%d kept_relationships=%d why=%r",
+            query,
+            len(events),
+            len(rels),
+            len(kept_events),
+            len(kept_rels),
+            why or None,
+        )
+
+    def _valid_keep_trace(
+        self,
+        *,
+        events: list[dict[str, Any]],
+        rels: list[dict[str, Any]],
+        kept_events: list[dict[str, Any]],
+        kept_rels: list[dict[str, Any]],
+        total: int,
+        why: str | None,
+        elapsed_ms: float,
+        owner_screen: dict[str, Any],
+    ) -> dict[str, Any]:
+        trace: dict[str, Any] = {
             "applied": True,
             "input_count": total,
             "input_events": len(events),
@@ -622,17 +756,25 @@ class GroundingFilter:
             "why": why or None,
         }
         if owner_screen["dropped_events"] or owner_screen["dropped_relationships"]:
-            payload.trace["grounding_filter"]["owner_prefilter_dropped_events"] = (
-                owner_screen["dropped_events"]
-            )
-            payload.trace["grounding_filter"]["owner_prefilter_dropped_relationships"] = (
-                owner_screen["dropped_relationships"]
-            )
-        payload.trace["grounding_filter_l2"] = {
-            "applied": True,
-            "input_count": len(rels),
-            "kept_count": len(kept_rels),
-        }
+            trace["owner_prefilter_dropped_events"] = owner_screen["dropped_events"]
+            trace["owner_prefilter_dropped_relationships"] = owner_screen["dropped_relationships"]
+        return trace
+
+    def _log_valid_keep_output(
+        self,
+        *,
+        query: str,
+        kept_indices: list[int],
+        valid_ev_indices: list[int],
+        valid_rel_indices: list[int],
+        kept_events: list[dict[str, Any]],
+        kept_rels: list[dict[str, Any]],
+        sliced_events: list[dict[str, Any]],
+        sliced_rels: list[dict[str, Any]],
+        n_ev: int,
+        why: str | None,
+        trace: dict[str, Any],
+    ) -> None:
         log_detail(
             logger,
             "GROUNDING FILTER OUTPUT DETAIL",
@@ -654,19 +796,35 @@ class GroundingFilter:
                     if index not in valid_rel_indices
                 ],
                 "why": why or None,
-                "trace": payload.trace["grounding_filter"],
+                "trace": trace,
             },
         )
-        logger.info(
-            "Grounding filter applied | query=%r input_events=%d input_relationships=%d "
-            "kept_events=%d kept_relationships=%d why=%r",
-            query,
-            len(events),
-            len(rels),
-            len(kept_events),
-            len(kept_rels),
-            why or None,
-        )
+
+
+def _valid_keep_indices(
+    kept_indices: list[int],
+    *,
+    event_count: int,
+    total: int,
+) -> tuple[list[int], list[int]]:
+    valid_ev_indices = [
+        index for index in kept_indices if isinstance(index, int) and 1 <= index <= event_count
+    ]
+    valid_rel_indices = [
+        index for index in kept_indices if isinstance(index, int) and event_count < index <= total
+    ]
+    return valid_ev_indices, valid_rel_indices
+
+
+def _valid_keep_l2_trace(
+    rels: list[dict[str, Any]],
+    kept_rels: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "applied": True,
+        "input_count": len(rels),
+        "kept_count": len(kept_rels),
+    }
 
 
 __all__ = ["GroundingFilter", "MIN_CANDIDATES_TO_FILTER", "SKIP_THRESHOLD_MAX"]
