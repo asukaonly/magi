@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 
 from ..config.loader import get_llm_provider_registry_file
 from ..config.llm_registry import (
+    LLMModelCostModel,
     LLMProviderRegistryModel,
     find_chat_model_meta,
     find_embedding_model_meta,
@@ -16,12 +18,106 @@ from ..config.llm_registry import (
 TOKENS_PER_MILLION = 1_000_000
 
 
+@dataclass(frozen=True)
+class _ChatPricingRates:
+    input: float | None
+    cached_input: float | None
+    cache_write: float | None
+    output: float | None
+
+    @property
+    def has_billable_rate(self) -> bool:
+        return any(
+            rate is not None
+            for rate in (
+                self.input,
+                self.cached_input,
+                self.cache_write,
+                self.output,
+            )
+        )
+
+
+@dataclass(frozen=True)
+class _ChatTokenBreakdown:
+    uncached_input: int
+    cached_input: int
+    cache_write_5m: int
+    cache_write_1h: int
+    output: int
+
+
 @lru_cache(maxsize=1)
 def _load_provider_registry() -> LLMProviderRegistryModel:
     return load_llm_provider_registry(
         get_llm_provider_registry_file(),
         fallback=LLMProviderRegistryModel(),
     )
+
+
+def _chat_pricing_rates(cost: LLMModelCostModel) -> _ChatPricingRates | None:
+    rates = _ChatPricingRates(
+        input=cost.input_per_million_tokens,
+        cached_input=cost.cached_input_per_million_tokens,
+        cache_write=cost.cache_write_per_million_tokens,
+        output=cost.output_per_million_tokens,
+    )
+    return rates if rates.has_billable_rate else None
+
+
+def _non_negative_count(value: int) -> int:
+    return max(0, int(value or 0))
+
+
+def _chat_token_breakdown(
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cache_read_tokens: int,
+    cache_write_tokens: int,
+    cache_write_1h_tokens: int,
+) -> _ChatTokenBreakdown:
+    prompt_count = _non_negative_count(prompt_tokens)
+    completion_count = _non_negative_count(completion_tokens)
+    cache_read_count = min(prompt_count, _non_negative_count(cache_read_tokens))
+    remaining_prompt_count = max(0, prompt_count - cache_read_count)
+    cache_write_count = min(remaining_prompt_count, _non_negative_count(cache_write_tokens))
+    cache_write_1h_count = min(cache_write_count, _non_negative_count(cache_write_1h_tokens))
+
+    return _ChatTokenBreakdown(
+        uncached_input=max(0, remaining_prompt_count - cache_write_count),
+        cached_input=cache_read_count,
+        cache_write_5m=cache_write_count - cache_write_1h_count,
+        cache_write_1h=cache_write_1h_count,
+        output=completion_count,
+    )
+
+
+def _calculate_chat_total(
+    *,
+    rates: _ChatPricingRates,
+    tokens: _ChatTokenBreakdown,
+) -> float:
+    five_minute_write_rate = (
+        rates.cache_write if rates.cache_write is not None else rates.input or 0.0
+    )
+    # Anthropic bills a 1h cache write at 2x base input. Other vendors currently
+    # do not report a 1h breakdown, so this derivation is only used when present.
+    one_hour_write_rate = rates.input * 2 if rates.input is not None else five_minute_write_rate
+    cached_input_rate = rates.cached_input if rates.cached_input is not None else rates.input or 0.0
+
+    total = 0.0
+    if rates.input is not None:
+        total += tokens.uncached_input * rates.input
+    if tokens.cached_input:
+        total += tokens.cached_input * cached_input_rate
+    if tokens.cache_write_5m:
+        total += tokens.cache_write_5m * five_minute_write_rate
+    if tokens.cache_write_1h:
+        total += tokens.cache_write_1h * one_hour_write_rate
+    if rates.output is not None:
+        total += tokens.output * rates.output
+    return total
 
 
 def calculate_chat_cost(
@@ -53,46 +149,18 @@ def calculate_chat_cost(
         return None, None
 
     cost = model_meta.cost
-    input_rate = cost.input_per_million_tokens
-    cached_input_rate = cost.cached_input_per_million_tokens
-    cache_write_rate = cost.cache_write_per_million_tokens
-    output_rate = cost.output_per_million_tokens
-    if (
-        input_rate is None
-        and cached_input_rate is None
-        and cache_write_rate is None
-        and output_rate is None
-    ):
+    rates = _chat_pricing_rates(cost)
+    if rates is None:
         return None, None
 
-    prompt_count = max(0, int(prompt_tokens or 0))
-    completion_count = max(0, int(completion_tokens or 0))
-    cache_read_count = min(prompt_count, max(0, int(cache_read_tokens or 0)))
-    remaining_prompt_count = max(0, prompt_count - cache_read_count)
-    cache_write_count = min(remaining_prompt_count, max(0, int(cache_write_tokens or 0)))
-    uncached_input_count = max(0, remaining_prompt_count - cache_write_count)
-    # Split cache writes by TTL: Anthropic bills a 1h write at 2x base input vs
-    # the 1.25x 5m default (cache_write_rate). Only Anthropic reports a 1h
-    # breakdown, so the 2x derivation is never applied to other vendors.
-    cache_write_1h_count = min(cache_write_count, max(0, int(cache_write_1h_tokens or 0)))
-    cache_write_5m_count = cache_write_count - cache_write_1h_count
-
-    five_minute_write_rate = cache_write_rate if cache_write_rate is not None else input_rate or 0.0
-    one_hour_write_rate = (input_rate * 2) if input_rate is not None else five_minute_write_rate
-
-    total = 0.0
-    if input_rate is not None:
-        total += uncached_input_count * input_rate
-    if cache_read_count:
-        total += cache_read_count * (
-            cached_input_rate if cached_input_rate is not None else input_rate or 0.0
-        )
-    if cache_write_5m_count:
-        total += cache_write_5m_count * five_minute_write_rate
-    if cache_write_1h_count:
-        total += cache_write_1h_count * one_hour_write_rate
-    if output_rate is not None:
-        total += completion_count * output_rate
+    tokens = _chat_token_breakdown(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cache_read_tokens=cache_read_tokens,
+        cache_write_tokens=cache_write_tokens,
+        cache_write_1h_tokens=cache_write_1h_tokens,
+    )
+    total = _calculate_chat_total(rates=rates, tokens=tokens)
 
     currency = (cost.currency or "USD").upper()
     return total / TOKENS_PER_MILLION, currency
