@@ -1,4 +1,5 @@
 """Lightweight LLM-based interaction quality analyzer."""
+
 from __future__ import annotations
 
 import json
@@ -142,8 +143,8 @@ def _build_system_prompt(
                 + "\n\nAdd this field to your JSON output:\n"
                 '- "trigger_type": one of '
                 + ", ".join(trigger_types)
-                + ' if a trigger condition is clearly matched, or null if none applies. '
-                'Only activate a trigger when the conversation clearly matches the described condition.'
+                + " if a trigger condition is clearly matched, or null if none applies. "
+                "Only activate a trigger when the conversation clearly matches the described condition."
             )
 
     # Milestone detection block
@@ -161,9 +162,9 @@ def _build_system_prompt(
                 + "\n\nAdd this field to your JSON output:\n"
                 '- "milestone_keys": an array of milestone keys ('
                 + ", ".join(ms_keys)
-                + ') that are clearly achieved in this exchange, or an empty array if none. '
-                'Only mark a milestone when the exchange unmistakably demonstrates '
-                'the described condition — do not mark it for vague similarity.'
+                + ") that are clearly achieved in this exchange, or an empty array if none. "
+                "Only mark a milestone when the exchange unmistakably demonstrates "
+                "the described condition — do not mark it for vague similarity."
             )
 
     if not extra:
@@ -184,124 +185,136 @@ def _build_tool_system_prompt(
 
 def _observer_tools() -> list[dict[str, Any]]:
     return [
-        {
-            "type": "function",
-            "function": {
-                "name": _ANALYSIS_TOOL_NAME,
-                "description": "Submit the required post-turn interaction score.",
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "sentiment": {"type": "number", "minimum": -1.0, "maximum": 1.0},
-                        "engagement": {
-                            "type": "string",
-                            "enum": ["none", "low", "medium", "high", "very_high"],
-                        },
-                        "complexity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                        "outcome": {
-                            "type": "string",
-                            "enum": ["success", "partial", "failure"],
-                        },
-                        "satisfaction": {
-                            "type": "string",
-                            "enum": ["very_low", "low", "neutral", "high", "very_high"],
-                        },
-                        "trigger_type": {"type": "string"},
-                        "milestone_keys": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": [
-                        "sentiment",
-                        "engagement",
-                        "complexity",
-                        "outcome",
-                        "satisfaction",
-                    ],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": _PROFILE_SIGNAL_TOOL_NAME,
-                "description": "Submit an explicit user profile or communication preference candidate.",
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "trait_family": {
-                            "type": "string",
-                            "enum": [
-                                "identity_profile",
-                                "communication_profile",
-                                "preference_profile",
-                                "routine_profile",
-                                "state_profile",
-                            ],
-                        },
-                        "trait_name": {"type": "string"},
-                        "trait_value": {"type": "string"},
-                        "evidence_text": {"type": "string"},
-                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    },
-                    "required": [
-                        "trait_family",
-                        "trait_name",
-                        "trait_value",
-                        "evidence_text",
-                        "confidence",
-                    ],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": _TASK_PREFERENCE_TOOL_NAME,
-                "description": "Submit an explicit future task-handling preference candidate.",
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "task_category": {"type": "string"},
-                        "preference": {"type": "string"},
-                        "polarity": {"type": "string", "enum": ["prefer", "avoid"]},
-                        "evidence_text": {"type": "string"},
-                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    },
-                    "required": [
-                        "task_category",
-                        "preference",
-                        "polarity",
-                        "evidence_text",
-                        "confidence",
-                    ],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": _RELATIONSHIP_SIGNAL_TOOL_NAME,
-                "description": "Submit a persona-specific relationship or milestone signal candidate.",
-                "parameters": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "properties": {
-                        "signal_type": {
-                            "type": "string",
-                            "enum": ["trust_delta", "boundary", "milestone"],
-                        },
-                        "milestone_key": {"type": "string"},
-                        "trust_delta": {"type": "number", "minimum": -0.2, "maximum": 0.2},
-                        "evidence_text": {"type": "string"},
-                        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    },
-                    "required": ["signal_type", "evidence_text", "confidence"],
-                },
-            },
-        },
+        _analysis_tool(),
+        _profile_signal_tool(),
+        _task_preference_tool(),
+        _relationship_signal_tool(),
     ]
+
+
+def _function_tool(name: str, description: str, parameters: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        },
+    }
+
+
+def _analysis_tool() -> dict[str, Any]:
+    return _function_tool(
+        _ANALYSIS_TOOL_NAME,
+        "Submit the required post-turn interaction score.",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "sentiment": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+                "engagement": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high", "very_high"],
+                },
+                "complexity": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "outcome": {"type": "string", "enum": ["success", "partial", "failure"]},
+                "satisfaction": {
+                    "type": "string",
+                    "enum": ["very_low", "low", "neutral", "high", "very_high"],
+                },
+                "trigger_type": {"type": "string"},
+                "milestone_keys": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": [
+                "sentiment",
+                "engagement",
+                "complexity",
+                "outcome",
+                "satisfaction",
+            ],
+        },
+    )
+
+
+def _profile_signal_tool() -> dict[str, Any]:
+    return _function_tool(
+        _PROFILE_SIGNAL_TOOL_NAME,
+        "Submit an explicit user profile or communication preference candidate.",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "trait_family": {
+                    "type": "string",
+                    "enum": [
+                        "identity_profile",
+                        "communication_profile",
+                        "preference_profile",
+                        "routine_profile",
+                        "state_profile",
+                    ],
+                },
+                "trait_name": {"type": "string"},
+                "trait_value": {"type": "string"},
+                "evidence_text": {"type": "string"},
+                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            },
+            "required": [
+                "trait_family",
+                "trait_name",
+                "trait_value",
+                "evidence_text",
+                "confidence",
+            ],
+        },
+    )
+
+
+def _task_preference_tool() -> dict[str, Any]:
+    return _function_tool(
+        _TASK_PREFERENCE_TOOL_NAME,
+        "Submit an explicit future task-handling preference candidate.",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "task_category": {"type": "string"},
+                "preference": {"type": "string"},
+                "polarity": {"type": "string", "enum": ["prefer", "avoid"]},
+                "evidence_text": {"type": "string"},
+                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            },
+            "required": [
+                "task_category",
+                "preference",
+                "polarity",
+                "evidence_text",
+                "confidence",
+            ],
+        },
+    )
+
+
+def _relationship_signal_tool() -> dict[str, Any]:
+    return _function_tool(
+        _RELATIONSHIP_SIGNAL_TOOL_NAME,
+        "Submit a persona-specific relationship or milestone signal candidate.",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "signal_type": {
+                    "type": "string",
+                    "enum": ["trust_delta", "boundary", "milestone"],
+                },
+                "milestone_key": {"type": "string"},
+                "trust_delta": {"type": "number", "minimum": -0.2, "maximum": 0.2},
+                "evidence_text": {"type": "string"},
+                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            },
+            "required": ["signal_type", "evidence_text", "confidence"],
+        },
+    )
 
 
 def _preview(text: str, limit: int = 240) -> str:
@@ -417,10 +430,45 @@ async def analyze_interaction(
 
     Returns DEFAULT_ANALYSIS if the LLM call fails or is unavailable.
     """
+    bridge = _resolve_analysis_bridge()
+    if bridge is None:
+        return DEFAULT_ANALYSIS
+
+    user_prompt = _interaction_user_prompt(user_message, assistant_response)
+    system_prompt = _build_system_prompt(stp_rules, milestone_conditions)
+    started_at = time.monotonic()
+    _log_analysis_start(user_message, assistant_response, stp_rules)
+    try:
+        tool_analysis = await _try_tool_observer(
+            bridge,
+            user_prompt=user_prompt,
+            user_message=user_message,
+            assistant_response=assistant_response,
+            stp_rules=stp_rules,
+            milestone_conditions=milestone_conditions,
+            started_at=started_at,
+        )
+        if tool_analysis is not None:
+            return tool_analysis
+        return await _analyze_with_json_prompt(
+            bridge,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            user_message=user_message,
+            assistant_response=assistant_response,
+            stp_rules=stp_rules,
+            started_at=started_at,
+        )
+    except Exception:
+        _log_analysis_failure(started_at)
+        return DEFAULT_ANALYSIS
+
+
+def _resolve_analysis_bridge() -> LLMProviderBridge | None:
     try:
         pool = get_scenario_llm_pool()
     except Exception:
-        return DEFAULT_ANALYSIS
+        return None
 
     try:
         adapter = pool.get(LLMScenario.CONTEXT_DECIDER)
@@ -428,91 +476,161 @@ async def analyze_interaction(
         try:
             adapter = pool.get(LLMScenario.CORE)
         except (ValueError, KeyError):
-            return DEFAULT_ANALYSIS
+            return None
+    return LLMProviderBridge(adapter)
 
-    bridge = LLMProviderBridge(adapter)
-    user_prompt = (
+
+def _interaction_user_prompt(user_message: str, assistant_response: str) -> str:
+    return (
         f"User message:\n{user_message[:500]}\n\n"
         f"Assistant response:\n{assistant_response[:500]}"
     )
 
-    system_prompt = _build_system_prompt(stp_rules, milestone_conditions)
 
-    t0 = time.monotonic()
+def _log_analysis_start(
+    user_message: str,
+    assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None,
+) -> None:
     logger.debug(
         "[analyze_interaction] LLM call start user_chars=%d response_chars=%d stp_rule_types=%s",
         len(user_message),
         len(assistant_response),
         _stp_rule_types(stp_rules),
     )
-    try:
-        if _can_use_tool_observer(bridge):
-            analysis, response = await _analyze_with_tools(
-                bridge,
-                user_prompt=user_prompt,
-                stp_rules=stp_rules,
-                milestone_conditions=milestone_conditions,
-            )
-            if analysis is not None:
-                elapsed_ms = (time.monotonic() - t0) * 1000
-                logger.info(
-                    "[analyze_interaction] tool result elapsed_ms=%.1f trigger_type=%s "
-                    "outcome=%s satisfaction=%s milestone_keys=%s observation_count=%d "
-                    "stp_rule_types=%s user_preview=%s response_preview=%s",
-                    elapsed_ms,
-                    analysis.trigger_type,
-                    analysis.outcome_str,
-                    analysis.satisfaction.value,
-                    analysis.milestone_keys,
-                    len(analysis.memory_observations),
-                    _stp_rule_types(stp_rules),
-                    _preview(user_message),
-                    _preview(assistant_response),
-                )
-                return analysis
-            logger.debug(
-                "[analyze_interaction] tool observer returned no analysis; falling back content=%s tool_calls=%s",
-                _preview(response.content),
-                [getattr(call, "name", "") for call in list(response.tool_calls or [])],
-            )
 
-        raw = await bridge.chat(
-            system_prompt=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            max_tokens=256,
-            temperature=0.1,
-            json_mode=True,
-            disable_thinking=True,
-            event_context={
-                "request_kind": "personality:interaction_analysis",
-                "agent_id": "personality:interaction_analyzer",
-            },
-        )
-        elapsed_ms = (time.monotonic() - t0) * 1000
-        analysis = parse_analysis(raw, stp_rules=stp_rules)
-        logger.info(
-            "[analyze_interaction] result elapsed_ms=%.1f trigger_type=%s outcome=%s "
-            "satisfaction=%s milestone_keys=%s stp_rule_types=%s raw_preview=%s "
-            "user_preview=%s response_preview=%s",
-            elapsed_ms,
-            analysis.trigger_type,
-            analysis.outcome_str,
-            analysis.satisfaction.value,
-            analysis.milestone_keys,
-            _stp_rule_types(stp_rules),
-            _preview(raw),
-            _preview(user_message),
-            _preview(assistant_response),
-        )
-        return analysis
-    except Exception:
-        elapsed_ms = (time.monotonic() - t0) * 1000
-        logger.warning(
-            "[analyze_interaction] LLM call failed elapsed_ms=%.1f",
-            elapsed_ms,
-            exc_info=True,
-        )
-        return DEFAULT_ANALYSIS
+
+async def _try_tool_observer(
+    bridge: LLMProviderBridge,
+    *,
+    user_prompt: str,
+    user_message: str,
+    assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None,
+    milestone_conditions: Dict[str, str] | None,
+    started_at: float,
+) -> InteractionAnalysis | None:
+    if not _can_use_tool_observer(bridge):
+        return None
+    analysis, response = await _analyze_with_tools(
+        bridge,
+        user_prompt=user_prompt,
+        stp_rules=stp_rules,
+        milestone_conditions=milestone_conditions,
+    )
+    if analysis is None:
+        _log_tool_observer_fallback(response)
+        return None
+    _log_tool_analysis_success(
+        analysis,
+        user_message=user_message,
+        assistant_response=assistant_response,
+        stp_rules=stp_rules,
+        started_at=started_at,
+    )
+    return analysis
+
+
+def _log_tool_observer_fallback(response: ProviderResponse) -> None:
+    logger.debug(
+        "[analyze_interaction] tool observer returned no analysis; falling back content=%s tool_calls=%s",
+        _preview(response.content),
+        [getattr(call, "name", "") for call in list(response.tool_calls or [])],
+    )
+
+
+def _log_tool_analysis_success(
+    analysis: InteractionAnalysis,
+    *,
+    user_message: str,
+    assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None,
+    started_at: float,
+) -> None:
+    elapsed_ms = (time.monotonic() - started_at) * 1000
+    logger.info(
+        "[analyze_interaction] tool result elapsed_ms=%.1f trigger_type=%s "
+        "outcome=%s satisfaction=%s milestone_keys=%s observation_count=%d "
+        "stp_rule_types=%s user_preview=%s response_preview=%s",
+        elapsed_ms,
+        analysis.trigger_type,
+        analysis.outcome_str,
+        analysis.satisfaction.value,
+        analysis.milestone_keys,
+        len(analysis.memory_observations),
+        _stp_rule_types(stp_rules),
+        _preview(user_message),
+        _preview(assistant_response),
+    )
+
+
+async def _analyze_with_json_prompt(
+    bridge: LLMProviderBridge,
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    user_message: str,
+    assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None,
+    started_at: float,
+) -> InteractionAnalysis:
+    raw = await bridge.chat(
+        system_prompt=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+        max_tokens=256,
+        temperature=0.1,
+        json_mode=True,
+        disable_thinking=True,
+        event_context={
+            "request_kind": "personality:interaction_analysis",
+            "agent_id": "personality:interaction_analyzer",
+        },
+    )
+    analysis = parse_analysis(raw, stp_rules=stp_rules)
+    _log_json_analysis_success(
+        analysis,
+        raw=raw,
+        user_message=user_message,
+        assistant_response=assistant_response,
+        stp_rules=stp_rules,
+        started_at=started_at,
+    )
+    return analysis
+
+
+def _log_json_analysis_success(
+    analysis: InteractionAnalysis,
+    *,
+    raw: str,
+    user_message: str,
+    assistant_response: str,
+    stp_rules: List[Dict[str, str]] | None,
+    started_at: float,
+) -> None:
+    elapsed_ms = (time.monotonic() - started_at) * 1000
+    logger.info(
+        "[analyze_interaction] result elapsed_ms=%.1f trigger_type=%s outcome=%s "
+        "satisfaction=%s milestone_keys=%s stp_rule_types=%s raw_preview=%s "
+        "user_preview=%s response_preview=%s",
+        elapsed_ms,
+        analysis.trigger_type,
+        analysis.outcome_str,
+        analysis.satisfaction.value,
+        analysis.milestone_keys,
+        _stp_rule_types(stp_rules),
+        _preview(raw),
+        _preview(user_message),
+        _preview(assistant_response),
+    )
+
+
+def _log_analysis_failure(started_at: float) -> None:
+    elapsed_ms = (time.monotonic() - started_at) * 1000
+    logger.warning(
+        "[analyze_interaction] LLM call failed elapsed_ms=%.1f",
+        elapsed_ms,
+        exc_info=True,
+    )
 
 
 def parse_analysis(
@@ -539,15 +657,9 @@ def parse_analysis(
     except (ValueError, TypeError):
         complexity = 0.5
 
-    engagement = _ENGAGEMENT_MAP.get(
-        data.get("engagement", ""), EngagementLevel.MEDIUM
-    )
-    outcome = _OUTCOME_MAP.get(
-        data.get("outcome", ""), InteractionOutcome.SUCCESS
-    )
-    satisfaction = _SATISFACTION_MAP.get(
-        data.get("satisfaction", ""), SatisfactionLevel.NEUTRAL
-    )
+    engagement = _ENGAGEMENT_MAP.get(data.get("engagement", ""), EngagementLevel.MEDIUM)
+    outcome = _OUTCOME_MAP.get(data.get("outcome", ""), InteractionOutcome.SUCCESS)
+    satisfaction = _SATISFACTION_MAP.get(data.get("satisfaction", ""), SatisfactionLevel.NEUTRAL)
 
     raw_trigger = data.get("trigger_type")
     trigger_type: Optional[str] = None
@@ -555,8 +667,7 @@ def parse_analysis(
         valid_triggers: frozenset[str] = frozenset()
         if stp_rules:
             valid_triggers = frozenset(
-                rule["trigger_type"] for rule in stp_rules
-                if rule.get("trigger_type")
+                rule["trigger_type"] for rule in stp_rules if rule.get("trigger_type")
             )
         if valid_triggers and raw_trigger in valid_triggers:
             trigger_type = raw_trigger
