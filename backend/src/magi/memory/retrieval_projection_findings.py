@@ -8,6 +8,7 @@ selection that discarded useful cross-layer evidence.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .entity_display import display_name_for
@@ -139,6 +140,18 @@ _PREDICATE_BONUS: dict[str, dict[str, dict[str, float]]] = {
 }
 
 
+@dataclass(slots=True)
+class _ProjectedFindings:
+    candidates: list[dict[str, Any]]
+    projection_dropped: list[dict[str, Any]]
+    relationship_dropped: int
+    assertion_dropped: int
+
+    @property
+    def dropped_count(self) -> int:
+        return self.relationship_dropped + self.assertion_dropped
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -161,79 +174,120 @@ def build_findings(
     otherwise leak raw hashes into the user-facing envelope).
     """
     mode = str(request.query_mode or "").strip() or "exact_fact"
-    explicit_chat_source = _has_explicit_chat_source(request.source_filters)
-
-    candidates: list[dict[str, Any]] = []
-    projection_dropped: list[dict[str, Any]] = []
-    candidates.extend(
-        _project_events(
-            payload.l1_events,
-            mode=mode,
-            explicit_chat_source=explicit_chat_source,
-            dropped_sink=projection_dropped,
-        )
+    projected = _project_payload_findings(
+        payload=payload,
+        request=request,
+        mode=mode,
+        canonical_names=canonical_names,
     )
+    _score_projected_findings(projected.candidates, payload=payload, request=request, mode=mode)
+    candidates = _drop_echo_findings(projected.candidates, request=request)
+    selected, quota_trace = _select_findings_by_layer_quota(candidates, mode=mode)
+    _attach_finding_topics(selected)
+    _record_projection_trace(
+        payload=payload,
+        projection_dropped=projected.projection_dropped,
+        mode=mode,
+        quota_trace=quota_trace,
+    )
+    return selected, projected.dropped_count
 
+
+def _project_payload_findings(
+    *,
+    payload: RetrievalPayload,
+    request: RetrievalQuery,
+    mode: str,
+    canonical_names: dict[str, str] | None,
+) -> _ProjectedFindings:
+    projection_dropped: list[dict[str, Any]] = []
+    candidates = _project_events(
+        payload.l1_events,
+        mode=mode,
+        explicit_chat_source=_has_explicit_chat_source(request.source_filters),
+        dropped_sink=projection_dropped,
+    )
     rel_findings, rel_dropped = _project_relationships(payload.l2_relationships, canonical_names)
-    candidates.extend(rel_findings)
-
     asrt_findings, asrt_dropped = _project_assertions(payload.l2_assertions, canonical_names)
+    candidates.extend(rel_findings)
     candidates.extend(asrt_findings)
     candidates.extend(_project_experiences(payload.l2_experiences))
-
     candidates.extend(_project_reflections(payload.l3_reflections))
     candidates.extend(_project_procedures(payload.l4_procedures))
+    return _ProjectedFindings(
+        candidates=candidates,
+        projection_dropped=projection_dropped,
+        relationship_dropped=rel_dropped,
+        assertion_dropped=asrt_dropped,
+    )
 
+
+def _score_projected_findings(
+    candidates: list[dict[str, Any]],
+    *,
+    payload: RetrievalPayload,
+    request: RetrievalQuery,
+    mode: str,
+) -> None:
     answer_kind = _infer_answer_kind(payload=payload, request=request)
     polarity = _infer_query_polarity(request.query)
+    for candidate in candidates:
+        _attach_score(candidate, mode=mode, answer_kind=answer_kind, polarity=polarity)
 
-    for c in candidates:
-        _attach_score(c, mode=mode, answer_kind=answer_kind, polarity=polarity)
 
+def _drop_echo_findings(
+    candidates: list[dict[str, Any]],
+    *,
+    request: RetrievalQuery,
+) -> list[dict[str, Any]]:
     echo_texts = [request.query]
     if request.exclude_user_text:
         echo_texts.append(request.exclude_user_text)
-    candidates = [
-        c for c in candidates if not any(is_echo_finding(c, text) for text in echo_texts if text)
+    return [
+        candidate
+        for candidate in candidates
+        if not any(is_echo_finding(candidate, text) for text in echo_texts if text)
     ]
 
-    # NOTE: request.limit is intentionally NOT a hard cap here — per-mode
-    # layer_quota governs result count. Enumerate modes (e.g. cross_session)
-    # may return more than the caller's default limit by design; downstream
-    # grounding (phase B) narrows further. The caller's `limit` now acts only
-    # as a fallback signal, not a ceiling.
-    #
-    # Per-layer quota selection (replaces cross-layer nlargest). Layers do NOT
-    # compete on a shared score — each ranks internally by its own _score
-    # (which includes mode-preference bonus and predicate bonus, computed above
-    # by _attach_score), then takes its mode-driven quota (floor so a present
-    # layer isn't starved; the quota itself is the cap so no layer hogs).
+
+def _select_findings_by_layer_quota(
+    candidates: list[dict[str, Any]],
+    *,
+    mode: str,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     quota = _resolve_layer_quota(mode)
     by_layer: dict[str, list[dict[str, Any]]] = {}
-    for c in candidates:
-        by_layer.setdefault(str(c.get("source_layer") or "L1"), []).append(c)
+    for candidate in candidates:
+        by_layer.setdefault(str(candidate.get("source_layer") or "L1"), []).append(candidate)
 
     selected: list[dict[str, Any]] = []
     quota_trace: dict[str, int] = {}
     for layer, items in by_layer.items():
         items.sort(key=lambda x: float(x.get("_score", 0.0)), reverse=True)
-        take = max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))
-        kept = items[:take]
+        kept = items[: max(_LAYER_QUOTA_FLOOR, int(quota.get(layer, 0)))]
         selected.extend(kept)
         quota_trace[layer] = len(kept)
+    return selected, quota_trace
 
-    for finding in selected:
+
+def _attach_finding_topics(findings: list[dict[str, Any]]) -> None:
+    for finding in findings:
         finding["topic"] = _derive_finding_topic(finding)
 
+
+def _record_projection_trace(
+    *,
+    payload: RetrievalPayload,
+    projection_dropped: list[dict[str, Any]],
+    mode: str,
+    quota_trace: dict[str, int],
+) -> None:
     if projection_dropped:
         payload.trace["projection_filter"] = {
             "dropped": projection_dropped,
             "count": len(projection_dropped),
         }
-
     payload.trace["layer_quota"] = {"mode": mode, "kept_per_layer": quota_trace}
-
-    return selected, rel_dropped + asrt_dropped
 
 
 # ---------------------------------------------------------------------------
@@ -450,71 +504,83 @@ def _project_assertions(
     for item in items:
         if not isinstance(item, dict):
             continue
-        entity_id = str(item.get("entity_id") or "").strip()
-        pre_subject = str(item.get("subject") or "").strip()
+        subject = _assertion_subject(item, canonical_names)
+        if canonical_names is not None and not subject:
+            dropped += 1
+            continue
 
-        if canonical_names is not None:
-            resolved_subject = display_name_for(entity_id, canonical_names) if entity_id else None
-            subject = (resolved_subject or pre_subject).strip()
-            if not subject:
-                dropped += 1
-                continue
-        else:
-            subject = (pre_subject or entity_id).strip()
-
-        predicate = str(
-            item.get("predicate") or item.get("trait_name") or item.get("trait_family") or ""
-        ).strip()
-
-        # Round 3 C3 + Round 4 C2: when claim/content/trait_value are empty,
-        # resolve target_entity_id through display_name_for (catalog name →
-        # slug → '(未命名 {type})'); drop the assertion only if the id has
-        # no parseable type:slug shape at all.
-        direct_value = (
-            str(item.get("claim") or "").strip()
-            or str(item.get("content") or "").strip()
-            or str(item.get("trait_value") or "").strip()
-        )
-        target_id = str(item.get("target_entity_id") or "").strip()
-
-        if direct_value:
-            value = direct_value
-        elif target_id:
-            if canonical_names is not None:
-                resolved_target = display_name_for(target_id, canonical_names)
-                if not resolved_target:
-                    # Same safety invariant as Phase 5: never leak raw ids.
-                    # Only reached when target_id is not 'type:slug' shaped.
-                    dropped += 1
-                    continue
-                value = resolved_target
-            else:
-                # Legacy mode (canonical_names=None): preserve old fall-through
-                # so callers that have not opted into resolution still get the
-                # raw id as before. Phase 5 callers always pass a dict.
-                value = target_id
-        else:
-            value = ""
-
+        predicate = _assertion_predicate(item)
+        value, should_drop = _assertion_value(item, canonical_names)
+        if should_drop:
+            dropped += 1
+            continue
         if not subject or not predicate or not value:
             if canonical_names is not None:
                 dropped += 1
             continue
-        findings.append(
-            {
-                "kind": "assertion",
-                "statement": f"{subject} {predicate}: {value}",
-                "source_layer": "L2",
-                "confidence": item.get("confidence") or item.get("confidence_score"),
-                "status": item.get("validation_state") or item.get("status"),
-                "occurred_at": item.get("created_at"),
-                "updated_at": item.get("updated_at") or item.get("last_validated_at"),
-                "_retrieval_score": float(
-                    item.get("confidence") or item.get("confidence_score") or 0.0
-                ),
-            }
-        )
+        findings.append(_assertion_finding(item, subject=subject, predicate=predicate, value=value))
     return findings, dropped
+
+
+def _assertion_subject(
+    item: dict[str, Any],
+    canonical_names: dict[str, str] | None,
+) -> str:
+    entity_id = str(item.get("entity_id") or "").strip()
+    pre_subject = str(item.get("subject") or "").strip()
+    if canonical_names is None:
+        return (pre_subject or entity_id).strip()
+    resolved_subject = display_name_for(entity_id, canonical_names) if entity_id else None
+    return (resolved_subject or pre_subject).strip()
+
+
+def _assertion_predicate(item: dict[str, Any]) -> str:
+    return str(
+        item.get("predicate") or item.get("trait_name") or item.get("trait_family") or ""
+    ).strip()
+
+
+def _assertion_value(
+    item: dict[str, Any],
+    canonical_names: dict[str, str] | None,
+) -> tuple[str, bool]:
+    direct_value = (
+        str(item.get("claim") or "").strip()
+        or str(item.get("content") or "").strip()
+        or str(item.get("trait_value") or "").strip()
+    )
+    if direct_value:
+        return direct_value, False
+
+    target_id = str(item.get("target_entity_id") or "").strip()
+    if not target_id:
+        return "", False
+    if canonical_names is None:
+        return target_id, False
+
+    resolved_target = display_name_for(target_id, canonical_names)
+    if not resolved_target:
+        return "", True
+    return resolved_target, False
+
+
+def _assertion_finding(
+    item: dict[str, Any],
+    *,
+    subject: str,
+    predicate: str,
+    value: str,
+) -> dict[str, Any]:
+    return {
+        "kind": "assertion",
+        "statement": f"{subject} {predicate}: {value}",
+        "source_layer": "L2",
+        "confidence": item.get("confidence") or item.get("confidence_score"),
+        "status": item.get("validation_state") or item.get("status"),
+        "occurred_at": item.get("created_at"),
+        "updated_at": item.get("updated_at") or item.get("last_validated_at"),
+        "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
+    }
 
 
 def _project_experiences(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
