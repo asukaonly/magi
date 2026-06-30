@@ -130,7 +130,47 @@ class L0ExecutionStateMixin:
         host._ensure_session_sync(session_id)
         existing = host._execution_runs.get(session_id)
         now = time.time()
-        execution_run = {
+        execution_run = self._build_execution_run_state(
+            session_id=session_id,
+            run_id=run_id,
+            status=status,
+            revision=revision,
+            root_turn_id=root_turn_id,
+            root_user_message=root_user_message,
+            response_anchor_turn_id=response_anchor_turn_id,
+            cancel_requested_at=cancel_requested_at,
+            cancel_reason=cancel_reason,
+            cancel_requested_by=cancel_requested_by,
+            cancel_anchor_turn_id=cancel_anchor_turn_id,
+            trigger_dict=trigger_dict,
+            existing=existing,
+            now=now,
+        )
+        host._execution_runs[session_id] = execution_run
+        host._execution_pending_turns.setdefault(session_id, [])
+        host._execution_results.setdefault(session_id, [])
+        return dict(execution_run)
+
+    @classmethod
+    def _build_execution_run_state(
+        cls,
+        *,
+        session_id: str,
+        run_id: str,
+        status: str,
+        revision: int,
+        root_turn_id: Optional[str],
+        root_user_message: str,
+        response_anchor_turn_id: Optional[str],
+        cancel_requested_at: Optional[float],
+        cancel_reason: Optional[str],
+        cancel_requested_by: Optional[str],
+        cancel_anchor_turn_id: Optional[str],
+        trigger_dict: Optional[dict[str, Any]],
+        existing: dict[str, Any] | None,
+        now: float,
+    ) -> dict[str, Any]:
+        return {
             "session_id": session_id,
             "run_id": run_id,
             "status": status,
@@ -138,57 +178,54 @@ class L0ExecutionStateMixin:
             "root_turn_id": root_turn_id,
             "root_user_message": root_user_message,
             "response_anchor_turn_id": response_anchor_turn_id,
-            "cancel_requested_at": (
-                float(cancel_requested_at)
-                if cancel_requested_at is not None
-                else (
-                    float(existing["cancel_requested_at"])
-                    if existing and existing.get("cancel_requested_at") is not None
-                    else None
-                )
+            "cancel_requested_at": cls._float_or_existing(
+                cancel_requested_at, existing, "cancel_requested_at"
             ),
-            "cancel_reason": (
-                str(cancel_reason)
-                if cancel_reason is not None
-                else (
-                    str(existing.get("cancel_reason"))
-                    if existing and existing.get("cancel_reason") is not None
-                    else None
-                )
+            "cancel_reason": cls._str_or_existing(cancel_reason, existing, "cancel_reason"),
+            "cancel_requested_by": cls._str_or_existing(
+                cancel_requested_by, existing, "cancel_requested_by"
             ),
-            "cancel_requested_by": (
-                str(cancel_requested_by)
-                if cancel_requested_by is not None
-                else (
-                    str(existing.get("cancel_requested_by"))
-                    if existing and existing.get("cancel_requested_by") is not None
-                    else None
-                )
+            "cancel_anchor_turn_id": cls._str_or_existing(
+                cancel_anchor_turn_id, existing, "cancel_anchor_turn_id"
             ),
-            "cancel_anchor_turn_id": (
-                str(cancel_anchor_turn_id)
-                if cancel_anchor_turn_id is not None
-                else (
-                    str(existing.get("cancel_anchor_turn_id"))
-                    if existing and existing.get("cancel_anchor_turn_id") is not None
-                    else None
-                )
-            ),
-            # ADR-0004 P3: persist the typed RunTrigger with the run. Falls
-            # back to the existing value so a later upsert that does not pass
-            # trigger_dict (cancel / steer / bump_revision) does not wipe it.
-            "trigger": (
-                dict(trigger_dict)
-                if trigger_dict is not None
-                else (existing.get("trigger") if existing else None)
-            ),
+            "trigger": cls._trigger_or_existing(trigger_dict, existing),
             "created_at": float(existing["created_at"]) if existing else now,
             "updated_at": now,
         }
-        host._execution_runs[session_id] = execution_run
-        host._execution_pending_turns.setdefault(session_id, [])
-        host._execution_results.setdefault(session_id, [])
-        return dict(execution_run)
+
+    @staticmethod
+    def _float_or_existing(
+        value: Optional[float],
+        existing: dict[str, Any] | None,
+        key: str,
+    ) -> float | None:
+        if value is not None:
+            return float(value)
+        if existing and existing.get(key) is not None:
+            return float(existing[key])
+        return None
+
+    @staticmethod
+    def _str_or_existing(
+        value: Optional[str],
+        existing: dict[str, Any] | None,
+        key: str,
+    ) -> str | None:
+        if value is not None:
+            return str(value)
+        if existing and existing.get(key) is not None:
+            return str(existing[key])
+        return None
+
+    @staticmethod
+    def _trigger_or_existing(
+        trigger_dict: Optional[dict[str, Any]],
+        existing: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if trigger_dict is not None:
+            return dict(trigger_dict)
+        # Later cancel / steer updates should not wipe the original run trigger.
+        return existing.get("trigger") if existing else None
 
     def append_execution_pending_turn_sync(
         self,
@@ -234,9 +271,7 @@ class L0ExecutionStateMixin:
         existing = host._execution_pending_turns.get(session_id, [])
 
         target_revision = int(revision) if revision is not None else None
-        target_disposition = (
-            str(disposition).strip().lower() if disposition is not None else None
-        )
+        target_disposition = str(disposition).strip().lower() if disposition is not None else None
 
         def _matches(item: dict[str, Any]) -> bool:
             if target_revision is not None:
@@ -298,7 +333,9 @@ class L0ExecutionStateMixin:
         return {
             "run": dict(run) if run is not None else None,
             "pending_turns": pending_turns,
-            "accepted_results": [item for item in results if str(item.get("disposition")) == "accepted"],
+            "accepted_results": [
+                item for item in results if str(item.get("disposition")) == "accepted"
+            ],
             "stale_results": [item for item in results if str(item.get("disposition")) == "stale"],
         }
 
