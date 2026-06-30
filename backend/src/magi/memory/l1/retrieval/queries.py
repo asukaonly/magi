@@ -166,65 +166,60 @@ class L1EventQueryMixin(
             return []
         await host.initialize()
 
-        sql = f"SELECT {self._select_event_columns()} FROM fact_events LEFT JOIN l1_event_embedding_state USING(event_id) WHERE deleted_at IS NULL"
-        args: list[Any] = []
-        ph = ", ".join("?" for _ in event_ids)
-        sql += f" AND event_id IN ({ph})"
-        args.extend(event_ids)
-
-        if session_id:
-            sql += " AND session_id = ?"
-            args.append(session_id)
-        if user_id:
-            sql += " AND user_id = ?"
-            args.append(user_id)
-        if event_types:
-            et_ph = ", ".join("?" for _ in event_types)
-            sql += f" AND event_type IN ({et_ph})"
-            args.extend(event_types)
-        if source_filters:
-            sf_ph = ", ".join("?" for _ in source_filters)
-            sql += f" AND source IN ({sf_ph})"
-            args.extend(source_filters)
-        if l1_retrieval_scopes is not None:
-            if not l1_retrieval_scopes:
-                return []
-            scope_ph = ", ".join("?" for _ in l1_retrieval_scopes)
-            sql += f" AND l1_retrieval_scope IN ({scope_ph})"
-            args.extend(int(L1RetrievalScope.from_value(scope)) for scope in l1_retrieval_scopes)
-
-        if domain_filters:
-            domain_ints: list[int] = []
-            for df in domain_filters:
-                try:
-                    domain_ints.append(int(MemoryDomain.from_value(df)))
-                except (ValueError, KeyError):
-                    pass
-            if domain_ints:
-                df_ph = ", ".join("?" for _ in domain_ints)
-                sql += f" AND memory_domain IN ({df_ph})"
-                args.extend(domain_ints)
-        elif exclude_domain:
-            try:
-                sql += " AND memory_domain != ?"
-                args.append(int(MemoryDomain.from_value(exclude_domain)))
-            except (ValueError, KeyError):
-                pass
-
-        if time_start is not None:
-            sql += " AND timestamp >= ?"
-            args.append(time_start)
-        if time_end is not None:
-            sql += " AND timestamp <= ?"
-            args.append(time_end)
+        query = self._build_fetch_events_query(
+            event_ids=event_ids,
+            session_id=session_id,
+            user_id=user_id,
+            event_types=event_types,
+            source_filters=source_filters,
+            domain_filters=domain_filters,
+            exclude_domain=exclude_domain,
+            time_start=time_start,
+            time_end=time_end,
+            l1_retrieval_scopes=l1_retrieval_scopes,
+        )
+        if query is None:
+            return []
+        sql, args = query
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
 
-        events_by_id = {str(row["event_id"]): host._row_to_dict(row) for row in rows}
-        return [events_by_id[eid] for eid in event_ids if eid in events_by_id]
+        return _ordered_events(event_ids, rows, host)
+
+    def _build_fetch_events_query(
+        self,
+        *,
+        event_ids: List[str],
+        session_id: Optional[str],
+        user_id: Optional[str],
+        event_types: Optional[List[str]],
+        source_filters: Optional[List[str]],
+        domain_filters: Optional[List[str]],
+        exclude_domain: Optional[str],
+        time_start: Optional[float],
+        time_end: Optional[float],
+        l1_retrieval_scopes: Optional[List[str]],
+    ) -> tuple[str, list[Any]] | None:
+        sql = (
+            f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
+            "LEFT JOIN l1_event_embedding_state USING(event_id) "
+            "WHERE deleted_at IS NULL"
+        )
+        args: list[Any] = []
+        sql = _append_in_filter(sql, args, "event_id", event_ids)
+        sql = _append_equal_filter(sql, args, "session_id", session_id)
+        sql = _append_equal_filter(sql, args, "user_id", user_id)
+        sql = _append_in_filter(sql, args, "event_type", event_types)
+        sql = _append_in_filter(sql, args, "source", source_filters)
+        sql = _append_scope_filter(sql, args, l1_retrieval_scopes)
+        if sql is None:
+            return None
+        sql = _append_domain_filters(sql, args, domain_filters, exclude_domain)
+        sql = _append_time_filters(sql, args, time_start, time_end)
+        return sql, args
 
     async def list_events(
         self, *, limit: int = 100, event_type: Optional[str] = None
@@ -372,3 +367,82 @@ class L1EventQueryMixin(
             )
             for row in rows
         ]
+
+
+def _append_equal_filter(sql: str, args: list[Any], column: str, value: str | None) -> str:
+    if not value:
+        return sql
+    args.append(value)
+    return f"{sql} AND {column} = ?"
+
+
+def _append_in_filter(sql: str, args: list[Any], column: str, values: List[Any] | None) -> str:
+    if not values:
+        return sql
+    placeholders = ", ".join("?" for _ in values)
+    args.extend(values)
+    return f"{sql} AND {column} IN ({placeholders})"
+
+
+def _append_scope_filter(sql: str, args: list[Any], scopes: List[str] | None) -> str | None:
+    if scopes is None:
+        return sql
+    if not scopes:
+        return None
+    scope_values = [int(L1RetrievalScope.from_value(scope)) for scope in scopes]
+    return _append_in_filter(sql, args, "l1_retrieval_scope", scope_values)
+
+
+def _append_domain_filters(
+    sql: str,
+    args: list[Any],
+    domain_filters: List[str] | None,
+    exclude_domain: str | None,
+) -> str:
+    if domain_filters:
+        domain_ints = _memory_domain_ints(domain_filters)
+        return _append_in_filter(sql, args, "memory_domain", domain_ints)
+    if not exclude_domain:
+        return sql
+    excluded = _memory_domain_int(exclude_domain)
+    if excluded is None:
+        return sql
+    args.append(excluded)
+    return f"{sql} AND memory_domain != ?"
+
+
+def _append_time_filters(
+    sql: str, args: list[Any], time_start: float | None, time_end: float | None
+) -> str:
+    if time_start is not None:
+        sql += " AND timestamp >= ?"
+        args.append(time_start)
+    if time_end is not None:
+        sql += " AND timestamp <= ?"
+        args.append(time_end)
+    return sql
+
+
+def _memory_domain_ints(domain_filters: List[str]) -> list[int]:
+    values: list[int] = []
+    for domain in domain_filters:
+        domain_int = _memory_domain_int(domain)
+        if domain_int is not None:
+            values.append(domain_int)
+    return values
+
+
+def _memory_domain_int(domain: str) -> int | None:
+    try:
+        return int(MemoryDomain.from_value(domain))
+    except (ValueError, KeyError):
+        return None
+
+
+def _ordered_events(
+    event_ids: List[str],
+    rows: list[Any],
+    host: L1EventQueryHostProtocol,
+) -> List[Dict[str, Any]]:
+    events_by_id = {str(row["event_id"]): host._row_to_dict(row) for row in rows}
+    return [events_by_id[eid] for eid in event_ids if eid in events_by_id]
