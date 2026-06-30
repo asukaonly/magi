@@ -1,7 +1,9 @@
 """delegate_to_external_coder - hand a coding task to an external CLI."""
+
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, cast
 
@@ -23,9 +25,16 @@ from ..schema import (
     ToolSchema,
 )
 
-
 _ADAPTER_ORDER: tuple[AdapterName, ...] = ("claude_code", "codex")
 _VALID_ADAPTERS: tuple[str, ...] = ("auto", *_ADAPTER_ORDER)
+
+
+@dataclass(frozen=True)
+class _DelegateInput:
+    prompt: str
+    adapter_param: str
+    session_id: str
+    workspace: str
 
 
 def _binary_paths_from_settings(
@@ -35,8 +44,7 @@ def _binary_paths_from_settings(
     return {
         "claude_code": settings.claude_code.binary_path.strip()
         or probes["claude_code"].binary_path,
-        "codex": settings.codex.binary_path.strip()
-        or probes["codex"].binary_path,
+        "codex": settings.codex.binary_path.strip() or probes["codex"].binary_path,
     }
 
 
@@ -53,6 +61,127 @@ def _resolve_adapter(
         if binary_paths.get(candidate):
             return candidate
     return "claude_code"
+
+
+def _delegate_parameters() -> list[ToolParameter]:
+    return [
+        ToolParameter(
+            name="prompt",
+            type=ParameterType.STRING,
+            description=(
+                "Natural-language task description. Include the " "acceptance criterion explicitly."
+            ),
+            required=True,
+        ),
+        ToolParameter(
+            name="files_hint",
+            type=ParameterType.ARRAY,
+            array_item_type=ParameterType.STRING,
+            description=("Optional: relative paths the external agent should " "look at first."),
+            required=False,
+        ),
+        ToolParameter(
+            name="adapter",
+            type=ParameterType.STRING,
+            description="Which CLI to use. 'auto' picks the configured default.",
+            required=False,
+            default="auto",
+            enum=list(_VALID_ADAPTERS),
+        ),
+        ToolParameter(
+            name="model",
+            type=ParameterType.STRING,
+            description="Optional model override passed to the adapter.",
+            required=False,
+        ),
+        ToolParameter(
+            name="timeout_s",
+            type=ParameterType.INTEGER,
+            description="Hard timeout for the delegation (60-3600 seconds).",
+            required=False,
+            default=600,
+            min_value=60,
+            max_value=3600,
+        ),
+        ToolParameter(
+            name="dry_run",
+            type=ParameterType.BOOLEAN,
+            description=(
+                "If true: run the probe/worktree/bundle pipeline without "
+                "actually spawning the external CLI."
+            ),
+            required=False,
+            default=False,
+        ),
+    ]
+
+
+def _delegate_metadata() -> dict[str, Any]:
+    return {
+        "task_intents": ["implement_feature", "apply_change"],
+        "domains": ["codebase"],
+        "operations": ["edit"],
+        "requires_known_target": False,
+        "cost": "high",
+        "tool_hint": (
+            "Use when a change touches multiple files, needs iterative "
+            "verify cycles, or when two failed in-line attempts already "
+            "happened."
+        ),
+    }
+
+
+def _missing_value_result(error: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error=error,
+        error_code=ToolErrorCode.MISSING_VALUE.value,
+    )
+
+
+def _invalid_parameters_result(error: str) -> ToolResult:
+    return ToolResult(
+        success=False,
+        error=error,
+        error_code=ToolErrorCode.INVALID_PARAMETERS.value,
+    )
+
+
+def _delegate_input(
+    parameters: Dict[str, Any],
+    context: ToolExecutionContext,
+) -> _DelegateInput | ToolResult:
+    prompt = str(parameters.get("prompt") or "").strip()
+    if not prompt:
+        return _missing_value_result("prompt is required")
+
+    adapter_param = str(parameters.get("adapter") or "auto").strip()
+    if adapter_param not in _VALID_ADAPTERS:
+        return _invalid_parameters_result(f"adapter must be one of {_VALID_ADAPTERS}")
+
+    sid = str((context.env_vars or {}).get("session_id") or "").strip()
+    if not sid:
+        return _invalid_parameters_result("delegate_to_external_coder requires an active session")
+
+    workspace = getattr(context, "workspace", None)
+    if not workspace:
+        return _invalid_parameters_result("workspace is missing in context")
+
+    return _DelegateInput(
+        prompt=prompt,
+        adapter_param=adapter_param,
+        session_id=sid,
+        workspace=workspace,
+    )
+
+
+def _files_hint(parameters: Dict[str, Any]) -> list[str] | ToolResult:
+    raw_files_hint = parameters.get("files_hint")
+    if raw_files_hint is None:
+        return []
+    if not isinstance(raw_files_hint, list):
+        return _invalid_parameters_result("files_hint must be a list of strings")
+    return [str(path) for path in raw_files_hint]
 
 
 class DelegateToExternalCoderTool(Tool):
@@ -73,78 +202,12 @@ class DelegateToExternalCoderTool(Tool):
             category="agent",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="prompt",
-                    type=ParameterType.STRING,
-                    description=(
-                        "Natural-language task description. Include the "
-                        "acceptance criterion explicitly."
-                    ),
-                    required=True,
-                ),
-                ToolParameter(
-                    name="files_hint",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description=(
-                        "Optional: relative paths the external agent should "
-                        "look at first."
-                    ),
-                    required=False,
-                ),
-                ToolParameter(
-                    name="adapter",
-                    type=ParameterType.STRING,
-                    description=(
-                        "Which CLI to use. 'auto' picks the configured default."
-                    ),
-                    required=False,
-                    default="auto",
-                    enum=list(_VALID_ADAPTERS),
-                ),
-                ToolParameter(
-                    name="model",
-                    type=ParameterType.STRING,
-                    description="Optional model override passed to the adapter.",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="timeout_s",
-                    type=ParameterType.INTEGER,
-                    description="Hard timeout for the delegation (60-3600 seconds).",
-                    required=False,
-                    default=600,
-                    min_value=60,
-                    max_value=3600,
-                ),
-                ToolParameter(
-                    name="dry_run",
-                    type=ParameterType.BOOLEAN,
-                    description=(
-                        "If true: run the probe/worktree/bundle pipeline without "
-                        "actually spawning the external CLI."
-                    ),
-                    required=False,
-                    default=False,
-                ),
-            ],
+            parameters=_delegate_parameters(),
             timeout=3600,
             retry_on_failure=False,
             dangerous=False,  # Runs in isolated worktree, safer than direct file edits
             tags=["agent", "delegate", "code"],
-            metadata={
-                "task_intents": ["implement_feature", "apply_change"],
-                "domains": ["codebase"],
-                "operations": ["edit"],
-                "requires_known_target": False,
-                "cost": "high",
-                "tool_hint": (
-                    "Use when a change touches multiple files, needs iterative "
-                    "verify cycles, or when two failed in-line attempts already "
-                    "happened."
-                ),
-            },
+            metadata=_delegate_metadata(),
         )
 
     async def execute(
@@ -152,61 +215,27 @@ class DelegateToExternalCoderTool(Tool):
         parameters: Dict[str, Any],
         context: ToolExecutionContext,
     ) -> ToolResult:
-        prompt = str(parameters.get("prompt") or "").strip()
-        if not prompt:
-            return ToolResult(
-                success=False,
-                error="prompt is required",
-                error_code=ToolErrorCode.MISSING_VALUE.value,
-            )
+        delegate_input = _delegate_input(parameters, context)
+        if isinstance(delegate_input, ToolResult):
+            return delegate_input
 
-        adapter_param = str(parameters.get("adapter") or "auto").strip()
-        if adapter_param not in _VALID_ADAPTERS:
-            return ToolResult(
-                success=False,
-                error=f"adapter must be one of {_VALID_ADAPTERS}",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
-
-        sid = str((context.env_vars or {}).get("session_id") or "").strip()
-        if not sid:
-            return ToolResult(
-                success=False,
-                error="delegate_to_external_coder requires an active session",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
-
-        workspace = getattr(context, "workspace", None)
-        if not workspace:
-            return ToolResult(
-                success=False,
-                error="workspace is missing in context",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
-
-        settings = load_settings(workspace_root=workspace)
+        settings = load_settings(workspace_root=delegate_input.workspace)
         if not settings.enabled:
-            return ToolResult(
-                success=False,
-                error="External code tools are disabled in settings",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
+            return _invalid_parameters_result("External code tools are disabled in settings")
 
         binary_paths = _binary_paths_from_settings(settings)
-        resolved_adapter = _resolve_adapter(adapter_param, settings, binary_paths)
+        resolved_adapter = _resolve_adapter(
+            delegate_input.adapter_param,
+            settings,
+            binary_paths,
+        )
 
         timeout_s = int(parameters.get("timeout_s") or settings.constraints.default_timeout_s)
         timeout_s = max(60, min(3600, timeout_s))
 
-        files_hint = parameters.get("files_hint")
-        if files_hint is None:
-            files_hint = []
-        if not isinstance(files_hint, list):
-            return ToolResult(
-                success=False,
-                error="files_hint must be a list of strings",
-                error_code=ToolErrorCode.INVALID_PARAMETERS.value,
-            )
+        files_hint = _files_hint(parameters)
+        if isinstance(files_hint, ToolResult):
+            return files_hint
 
         constraints = DelegateConstraints(
             forbid_paths=list(settings.constraints.forbid_paths),
@@ -219,11 +248,11 @@ class DelegateToExternalCoderTool(Tool):
 
         req = DelegateRequest(
             delegation_id=uuid.uuid4().hex,
-            session_id=sid,
+            session_id=delegate_input.session_id,
             adapter=resolved_adapter,
-            prompt=prompt,
-            files_hint=[str(p) for p in files_hint],
-            workspace_root=str(Path(workspace).resolve()),
+            prompt=delegate_input.prompt,
+            files_hint=files_hint,
+            workspace_root=str(Path(delegate_input.workspace).resolve()),
             constraints=constraints,
             timeout_s=timeout_s,
             model=(str(parameters.get("model")) if parameters.get("model") else None),
@@ -235,15 +264,15 @@ class DelegateToExternalCoderTool(Tool):
             req,
             dry_run=bool(parameters.get("dry_run")),
             user_id=user_id,
-            delegation_events=context.capabilities.delegation_events if context.capabilities else None,
+            delegation_events=(
+                context.capabilities.delegation_events if context.capabilities else None
+            ),
         )
         return ToolResult(
             success=result.success,
             data=result.model_dump(),
             error=result.error,
-            error_code=(
-                None if result.success else ToolErrorCode.EXECUTION_ERROR.value
-            ),
+            error_code=None if result.success else ToolErrorCode.EXECUTION_ERROR.value,
         )
 
 
