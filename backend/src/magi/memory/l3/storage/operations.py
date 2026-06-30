@@ -34,6 +34,40 @@ class _L3SummaryPersistenceHostProtocol(Protocol):
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None: ...
 
 
+def _summary_from_new_candidate(
+    candidate: L3Candidate,
+    *,
+    insight_key: str | None,
+    now: float,
+) -> Dict[str, Any]:
+    return {
+        "summary_id": f"summary_{uuid.uuid4().hex}",
+        "summary_type": str(candidate.summary_type),
+        "summary_category": str(candidate.summary_category),
+        "period_start": now,
+        "period_end": now,
+        "content": candidate.content,
+        "key_topics": [],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+        "source_event_ids": list(candidate.source_event_ids),
+        "source_event_count": len(candidate.source_event_ids),
+        "importance_aggregate": 0.0,
+        "event_type_distribution": {},
+        "generated_by_model": "rule-summary",
+        "generation_prompt": None,
+        "generation_reason": f"{candidate.summary_type}:{candidate.summary_category}",
+        "insight_key": insight_key,
+        "review_state": candidate.review_state,
+        "insight_metadata": dict(candidate.insight_metadata or {}),
+        "narrative_style": "default",
+        "essence_prose": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
 class L3SummaryPersistenceMixin:
     """Summary row persistence, listing, deletion, and evidence link helpers."""
 
@@ -65,7 +99,10 @@ class L3SummaryPersistenceMixin:
         await host.initialize()
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ? OFFSET ?", (int(limit), int(offset))) as cursor:
+            async with db.execute(
+                "SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ? OFFSET ?",
+                (int(limit), int(offset)),
+            ) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 
@@ -142,7 +179,9 @@ class L3SummaryPersistenceMixin:
 
             await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
             await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
-            await db.execute(f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?", (summary_id,))
+            await db.execute(
+                f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?", (summary_id,)
+            )
             await db.execute("DELETE FROM l3_summaries_fts WHERE summary_id = ?", (summary_id,))
             cursor = await db.execute("DELETE FROM summaries WHERE summary_id = ?", (summary_id,))
             deleted_count = int(cursor.rowcount or 0)
@@ -190,93 +229,114 @@ class L3SummaryPersistenceMixin:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
         now = time.time()
+        insight_key, existing_summary = await self._candidate_insight_match(candidate)
+        summary = self._build_candidate_summary(
+            candidate=candidate,
+            existing_summary=existing_summary,
+            insight_key=insight_key,
+            now=now,
+            summary_overrides=summary_overrides,
+        )
+        await self._store_summary(summary)
+        await self._replace_candidate_links(
+            summary=summary,
+            candidate=candidate,
+            source_task_ids=source_task_ids or [],
+        )
+        return summary
 
-        existing_summary: Optional[Dict[str, Any]] = None
+    async def _candidate_insight_match(
+        self,
+        candidate: L3Candidate,
+    ) -> tuple[str | None, Optional[Dict[str, Any]]]:
         insight_key = (candidate.insight_key or "").strip() or None
-        if insight_key is not None:
-            existing_summary = await self._find_summary_by_insight_key(insight_key)
+        if insight_key is None:
+            return None, None
+        return insight_key, await self._find_summary_by_insight_key(insight_key)
 
+    def _build_candidate_summary(
+        self,
+        *,
+        candidate: L3Candidate,
+        existing_summary: Optional[Dict[str, Any]],
+        insight_key: str | None,
+        now: float,
+        summary_overrides: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
         if existing_summary is not None:
-            merged_event_ids = self._merge_source_event_ids(
-                existing_summary.get("source_event_ids") or [],
-                candidate.source_event_ids,
+            summary = self._summary_from_existing_candidate(
+                candidate=candidate,
+                existing_summary=existing_summary,
+                insight_key=insight_key,
+                now=now,
             )
-            merged_metadata = self._merge_insight_metadata(
-                existing_summary.get("insight_metadata"),
-                candidate.insight_metadata,
-            )
-            summary = {
-                "summary_id": existing_summary["summary_id"],
-                "summary_type": str(candidate.summary_type),
-                "summary_category": str(candidate.summary_category),
-                "period_start": float(existing_summary.get("period_start") or now),
-                "period_end": now,
-                "content": candidate.content,
-                "key_topics": list(existing_summary.get("key_topics") or []),
-                "key_entities": list(existing_summary.get("key_entities") or []),
-                "sentiment_summary": existing_summary.get("sentiment_summary"),
-                "change_and_pattern": existing_summary.get("change_and_pattern"),
-                "source_event_ids": merged_event_ids,
-                "source_event_count": len(merged_event_ids),
-                "importance_aggregate": float(existing_summary.get("importance_aggregate") or 0.0),
-                "event_type_distribution": dict(
-                    existing_summary.get("event_type_distribution") or {}
-                ),
-                "generated_by_model": existing_summary.get("generated_by_model") or "rule-summary",
-                "generation_prompt": existing_summary.get("generation_prompt"),
-                "generation_reason": existing_summary.get("generation_reason")
-                or f"{candidate.summary_type}:{candidate.summary_category}",
-                "insight_key": insight_key,
-                "review_state": candidate.review_state or existing_summary.get("review_state"),
-                "insight_metadata": merged_metadata,
-                "narrative_style": str(existing_summary.get("narrative_style") or "default"),
-                "essence_prose": existing_summary.get("essence_prose"),
-                "created_at": float(existing_summary.get("created_at") or now),
-                "updated_at": now,
-            }
         else:
-            summary = {
-                "summary_id": f"summary_{uuid.uuid4().hex}",
-                "summary_type": str(candidate.summary_type),
-                "summary_category": str(candidate.summary_category),
-                "period_start": now,
-                "period_end": now,
-                "content": candidate.content,
-                "key_topics": [],
-                "key_entities": [],
-                "sentiment_summary": None,
-                "change_and_pattern": None,
-                "source_event_ids": list(candidate.source_event_ids),
-                "source_event_count": len(candidate.source_event_ids),
-                "importance_aggregate": 0.0,
-                "event_type_distribution": {},
-                "generated_by_model": "rule-summary",
-                "generation_prompt": None,
-                "generation_reason": f"{candidate.summary_type}:{candidate.summary_category}",
-                "insight_key": insight_key,
-                "review_state": candidate.review_state,
-                "insight_metadata": dict(candidate.insight_metadata or {}),
-                "narrative_style": "default",
-                "essence_prose": None,
-                "created_at": now,
-                "updated_at": now,
-            }
+            summary = _summary_from_new_candidate(candidate, insight_key=insight_key, now=now)
         if summary_overrides:
             summary.update(summary_overrides)
         summary.setdefault("summary_id", f"summary_{uuid.uuid4().hex}")
         summary.setdefault("created_at", now)
         summary["updated_at"] = float(summary.get("updated_at") or now)
-        await self._store_summary(summary)
+        return summary
+
+    def _summary_from_existing_candidate(
+        self,
+        *,
+        candidate: L3Candidate,
+        existing_summary: Dict[str, Any],
+        insight_key: str | None,
+        now: float,
+    ) -> Dict[str, Any]:
+        merged_event_ids = self._merge_source_event_ids(
+            existing_summary.get("source_event_ids") or [],
+            candidate.source_event_ids,
+        )
+        merged_metadata = self._merge_insight_metadata(
+            existing_summary.get("insight_metadata"),
+            candidate.insight_metadata,
+        )
+        return {
+            "summary_id": existing_summary["summary_id"],
+            "summary_type": str(candidate.summary_type),
+            "summary_category": str(candidate.summary_category),
+            "period_start": float(existing_summary.get("period_start") or now),
+            "period_end": now,
+            "content": candidate.content,
+            "key_topics": list(existing_summary.get("key_topics") or []),
+            "key_entities": list(existing_summary.get("key_entities") or []),
+            "sentiment_summary": existing_summary.get("sentiment_summary"),
+            "change_and_pattern": existing_summary.get("change_and_pattern"),
+            "source_event_ids": merged_event_ids,
+            "source_event_count": len(merged_event_ids),
+            "importance_aggregate": float(existing_summary.get("importance_aggregate") or 0.0),
+            "event_type_distribution": dict(existing_summary.get("event_type_distribution") or {}),
+            "generated_by_model": existing_summary.get("generated_by_model") or "rule-summary",
+            "generation_prompt": existing_summary.get("generation_prompt"),
+            "generation_reason": existing_summary.get("generation_reason")
+            or f"{candidate.summary_type}:{candidate.summary_category}",
+            "insight_key": insight_key,
+            "review_state": candidate.review_state or existing_summary.get("review_state"),
+            "insight_metadata": merged_metadata,
+            "narrative_style": str(existing_summary.get("narrative_style") or "default"),
+            "essence_prose": existing_summary.get("essence_prose"),
+            "created_at": float(existing_summary.get("created_at") or now),
+            "updated_at": now,
+        }
+
+    async def _replace_candidate_links(
+        self,
+        *,
+        summary: Dict[str, Any],
+        candidate: L3Candidate,
+        source_task_ids: list[str],
+    ) -> None:
         link_event_ids = list(summary.get("source_event_ids") or [])
         if not link_event_ids:
             link_event_ids = list(candidate.source_event_ids)
         await self._replace_summary_event_links(summary["summary_id"], link_event_ids)
-        await self._replace_summary_task_links(summary["summary_id"], source_task_ids or [])
-        return summary
+        await self._replace_summary_task_links(summary["summary_id"], source_task_ids)
 
-    async def _find_summary_by_insight_key(
-        self, insight_key: str
-    ) -> Optional[Dict[str, Any]]:
+    async def _find_summary_by_insight_key(self, insight_key: str) -> Optional[Dict[str, Any]]:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -290,9 +350,7 @@ class L3SummaryPersistenceMixin:
         return self._row_to_dict(row)
 
     @staticmethod
-    def _merge_source_event_ids(
-        existing: List[Any], incoming: List[Any]
-    ) -> List[str]:
+    def _merge_source_event_ids(existing: List[Any], incoming: List[Any]) -> List[str]:
         merged: List[str] = []
         seen: set[str] = set()
         for source in (existing, incoming):
@@ -305,9 +363,7 @@ class L3SummaryPersistenceMixin:
         return merged
 
     @staticmethod
-    def _merge_insight_metadata(
-        existing: Any, incoming: Any
-    ) -> Dict[str, Any]:
+    def _merge_insight_metadata(existing: Any, incoming: Any) -> Dict[str, Any]:
         merged: Dict[str, Any] = {}
         if isinstance(existing, dict):
             merged.update(existing)
@@ -370,7 +426,9 @@ class L3SummaryPersistenceMixin:
                 row = await cursor.fetchone()
         return self._row_to_dict(row) if row is not None else None
 
-    async def get_episodic_summary_by_experience_id(self, experience_id: str) -> Optional[Dict[str, Any]]:
+    async def get_episodic_summary_by_experience_id(
+        self, experience_id: str
+    ) -> Optional[Dict[str, Any]]:
         """Return the most recent L3 episodic summary linked to an L2 experience."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
@@ -462,7 +520,11 @@ class L3SummaryPersistenceMixin:
                     narrative_style,
                     essence_prose,
                     int(summary.get("embedding_chunk_count") or 0),
-                    float(summary["last_embedded_at"]) if summary.get("last_embedded_at") is not None else None,
+                    (
+                        float(summary["last_embedded_at"])
+                        if summary.get("last_embedded_at") is not None
+                        else None
+                    ),
                     float(summary["created_at"]),
                     float(summary["updated_at"]),
                 ),
