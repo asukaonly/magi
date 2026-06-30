@@ -4,15 +4,30 @@ QWeather Provider
 Query weather using QWeather (和风天气) API.
 """
 
-import aiohttp
-from typing import Dict, Any, Optional
-from urllib.parse import urlparse
-import logging
 import json
+import logging
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+from urllib.parse import urlparse
+
+import aiohttp
 
 from ..base import Provider, ProviderConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _QWeatherExecution:
+    location: str
+    lang: str
+    mode: str
+    days: int
+    proxy_url: Optional[str]
+    credential: str
+    auth_headers: Dict[str, str]
+    auth_mode: str
+    api_host: str
 
 
 def _forecast_item(item: Dict[str, Any]) -> Dict[str, Any]:
@@ -150,68 +165,106 @@ class QWeatherProvider(Provider):
         Returns:
             Dict with weather data
         """
-        location = params["location"]
-        lang = params.get("lang", "zh")
+        execution = self._prepare_execution(params, config)
+        self._log_execution(execution)
+
+        # First, resolve location to LocationID if it's a city name
+        location_id = await self._resolve_location(
+            execution.location,
+            execution.credential,
+            execution.api_host,
+            execution.proxy_url,
+        )
+
+        if execution.mode == "forecast":
+            forecast_data = await self._query_forecast(
+                location_id=location_id,
+                api_key=execution.credential,
+                api_host=execution.api_host,
+                lang=execution.lang,
+                days=execution.days,
+                auth_headers=execution.auth_headers,
+                proxy_url=execution.proxy_url,
+            )
+            return self._forecast_result(execution, location_id, forecast_data)
+
+        # Default mode: current weather
+        weather_data = await self._query_weather(
+            location_id=location_id,
+            api_key=execution.credential,
+            api_host=execution.api_host,
+            lang=execution.lang,
+            auth_headers=execution.auth_headers,
+            proxy_url=execution.proxy_url,
+        )
+        return self._current_result(execution, location_id, weather_data)
+
+    def _prepare_execution(
+        self,
+        params: Dict[str, Any],
+        config: ProviderConfig,
+    ) -> _QWeatherExecution:
         mode = str(params.get("mode", "current")).strip().lower()
         if mode not in {"current", "forecast"}:
             raise ValueError("Invalid mode. Use 'current' or 'forecast'.")
-        days = 3
-        if mode == "forecast":
-            days = int(params.get("days", 3) or 3)
-        proxy_url = str(params.get("proxy_url") or "").strip() or None
+        credential = self._credential(config)
+        auth_headers, auth_mode = self._build_auth_headers(credential)
+        return _QWeatherExecution(
+            location=params["location"],
+            lang=params.get("lang", "zh"),
+            mode=mode,
+            days=int(params.get("days", 3) or 3) if mode == "forecast" else 3,
+            proxy_url=str(params.get("proxy_url") or "").strip() or None,
+            credential=credential,
+            auth_headers=auth_headers,
+            auth_mode=auth_mode,
+            api_host=self._normalize_api_host(config.base_url) or self.DEFAULT_API_HOST,
+        )
 
+    @staticmethod
+    def _credential(config: ProviderConfig) -> str:
         if not config.api_key:
             raise ValueError("QWeather API key not configured")
         credential = str(config.api_key).strip()
         if not credential:
             raise ValueError("QWeather API key not configured")
-        auth_headers, auth_mode = self._build_auth_headers(credential)
+        return credential
 
-        api_host = self._normalize_api_host(config.base_url) or self.DEFAULT_API_HOST
+    def _log_execution(self, execution: _QWeatherExecution) -> None:
         logger.info(
             "[QWeather] execute | location=%s | lang=%s | api_host=%s | auth_mode=%s",
-            location,
-            lang,
-            api_host,
-            auth_mode,
+            execution.location,
+            execution.lang,
+            execution.api_host,
+            execution.auth_mode,
         )
 
-        # First, resolve location to LocationID if it's a city name
-        location_id = await self._resolve_location(location, credential, api_host, proxy_url)
-
-        if mode == "forecast":
-            forecast_data = await self._query_forecast(
-                location_id=location_id,
-                api_key=credential,
-                api_host=api_host,
-                lang=lang,
-                days=days,
-                auth_headers=auth_headers,
-                proxy_url=proxy_url,
-            )
-            return {
-                "location": location,
-                "location_id": location_id,
-                "mode": "forecast",
-                "days": days,
-                "forecast": forecast_data,
-                "provider": self.name,
-            }
-
-        # Default mode: current weather
-        weather_data = await self._query_weather(
-            location_id=location_id,
-            api_key=credential,
-            api_host=api_host,
-            lang=lang,
-            auth_headers=auth_headers,
-            proxy_url=proxy_url,
-        )
+    def _current_result(
+        self,
+        execution: _QWeatherExecution,
+        location_id: str,
+        weather_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
         return {
-            "location": location,
+            "location": execution.location,
             "location_id": location_id,
             "mode": "current",
             "weather": weather_data,
+            "provider": self.name,
+        }
+
+    def _forecast_result(
+        self,
+        execution: _QWeatherExecution,
+        location_id: str,
+        forecast_data: list[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        return {
+            "location": execution.location,
+            "location_id": location_id,
+            "mode": "forecast",
+            "days": execution.days,
+            "forecast": forecast_data,
             "provider": self.name,
         }
 
