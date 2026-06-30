@@ -190,57 +190,30 @@ class LLMProviderBridge:
         cache boundary.
         """
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
-        event_context = self._operations._with_cache_observation(
+        event_context = self._plain_chat_event_context(
             event_context,
             system_prompt=system_prompt,
-            tools=[],
-            cache_whole_system=cache_system,
+            cache_system=cache_system,
         )
         started_at = time.time()
         try:
-            provider_response = await self._operations._run_with_concurrency_limit(
-                request_family="chat",
-                limit=self._operations._resolve_chat_concurrency_limit(),
-                operation=lambda: self._operations._chat_response_impl(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    json_mode=json_mode,
-                    timeout_seconds=timeout_seconds,
-                    event_context=event_context,
-                    cache_system=cache_system,
-                ),
-            )
-
-            latency_ms = int((time.time() - started_at) * 1000)
-            self._operations._attach_trace_metrics(
-                provider_response=provider_response,
-                usage=provider_response.usage,
-                latency_ms=latency_ms,
+            provider_response = await self._run_plain_chat_response(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 thinking_depth=depth,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                cache_system=cache_system,
             )
-            await self._operations._emit_usage_event(
-                success=True,
-                latency_ms=latency_ms,
-                usage=provider_response.usage,
-                event_context=_with_trace_previews(
-                    event_context,
-                    messages=messages,
-                    response_text=provider_response.content,
-                    tool_calls=provider_response.tool_calls,
-                ),
+            await self._record_plain_chat_success(
+                provider_response, started_at, depth, event_context, messages
             )
             return provider_response
         except Exception as exc:
-            await self._operations._emit_usage_event(
-                success=False,
-                latency_ms=int((time.time() - started_at) * 1000),
-                usage=None,
-                event_context=_with_trace_previews(event_context, messages=messages),
-                error=str(exc),
-            )
+            await self._record_plain_chat_failure(exc, started_at, event_context, messages)
             raise
 
     async def chat_with_tools(
@@ -302,6 +275,91 @@ class LLMProviderBridge:
             event_context,
             system_prompt=system_prompt,
             tools=tools,
+        )
+
+    def _plain_chat_event_context(
+        self,
+        event_context: Optional[Dict[str, Any]],
+        *,
+        system_prompt: str,
+        cache_system: bool,
+    ) -> Optional[Dict[str, Any]]:
+        return self._operations._with_cache_observation(
+            event_context,
+            system_prompt=system_prompt,
+            tools=[],
+            cache_whole_system=cache_system,
+        )
+
+    async def _run_plain_chat_response(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        json_mode: bool,
+        timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]],
+        cache_system: bool,
+    ) -> ProviderResponse:
+        return await self._operations._run_with_concurrency_limit(
+            request_family="chat",
+            limit=self._operations._resolve_chat_concurrency_limit(),
+            operation=lambda: self._operations._chat_response_impl(
+                system_prompt=system_prompt,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                thinking_depth=thinking_depth,
+                json_mode=json_mode,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+                cache_system=cache_system,
+            ),
+        )
+
+    async def _record_plain_chat_success(
+        self,
+        provider_response: ProviderResponse,
+        started_at: float,
+        thinking_depth: ThinkingDepth,
+        event_context: Optional[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
+    ) -> None:
+        latency_ms = int((time.time() - started_at) * 1000)
+        self._operations._attach_trace_metrics(
+            provider_response=provider_response,
+            usage=provider_response.usage,
+            latency_ms=latency_ms,
+            thinking_depth=thinking_depth,
+        )
+        await self._operations._emit_usage_event(
+            success=True,
+            latency_ms=latency_ms,
+            usage=provider_response.usage,
+            event_context=_with_trace_previews(
+                event_context,
+                messages=messages,
+                response_text=provider_response.content,
+                tool_calls=provider_response.tool_calls,
+            ),
+        )
+
+    async def _record_plain_chat_failure(
+        self,
+        exc: Exception,
+        started_at: float,
+        event_context: Optional[Dict[str, Any]],
+        messages: List[Dict[str, Any]],
+    ) -> None:
+        await self._operations._emit_usage_event(
+            success=False,
+            latency_ms=int((time.time() - started_at) * 1000),
+            usage=None,
+            event_context=_with_trace_previews(event_context, messages=messages),
+            error=str(exc),
         )
 
     async def _chat_response_for_tool_fallback(
@@ -415,56 +473,53 @@ class LLMProviderBridge:
         response.
         """
         depth = _coerce_thinking_depth(thinking_depth, None)
-        event_context = self._operations._with_cache_observation(
-            event_context,
-            system_prompt=system_prompt,
-            tools=tools,
-        )
+        event_context = self._tool_event_context(event_context, system_prompt, tools)
         started_at = time.time()
         try:
-            result = await self._operations._run_with_concurrency_limit(
-                request_family="chat",
-                limit=self._operations._resolve_chat_concurrency_limit(),
-                operation=lambda: self._operations._chat_with_tools_stream_impl(
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tools=tools,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    thinking_depth=depth,
-                    timeout_seconds=timeout_seconds,
-                    event_context=event_context,
-                ),
-            )
-
-            latency_ms = int((time.time() - started_at) * 1000)
-            self._operations._attach_trace_metrics(
-                provider_response=result.provider_response,
-                usage=result.provider_response.usage,
-                latency_ms=latency_ms,
+            result = await self._run_chat_with_tools_stream(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
                 thinking_depth=depth,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
             )
-            await self._operations._emit_usage_event(
-                success=True,
-                latency_ms=latency_ms,
-                usage=result.provider_response.usage,
-                event_context=_with_trace_previews(
-                    event_context,
-                    messages=messages,
-                    response_text=result.provider_response.content,
-                    tool_calls=result.provider_response.tool_calls,
-                ),
+            await self._record_chat_with_tools_success(
+                result.provider_response, started_at, depth, event_context, messages
             )
             return result
         except Exception as exc:
-            await self._operations._emit_usage_event(
-                success=False,
-                latency_ms=int((time.time() - started_at) * 1000),
-                usage=None,
-                event_context=_with_trace_previews(event_context, messages=messages),
-                error=str(exc),
-            )
+            await self._record_chat_with_tools_failure(exc, started_at, event_context, messages)
             raise
+
+    async def _run_chat_with_tools_stream(
+        self,
+        *,
+        system_prompt: str,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        thinking_depth: ThinkingDepth,
+        timeout_seconds: Optional[float],
+        event_context: Optional[Dict[str, Any]],
+    ) -> ToolStreamResult:
+        return await self._operations._run_with_concurrency_limit(
+            request_family="chat",
+            limit=self._operations._resolve_chat_concurrency_limit(),
+            operation=lambda: self._operations._chat_with_tools_stream_impl(
+                system_prompt=system_prompt,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                thinking_depth=thinking_depth,
+                timeout_seconds=timeout_seconds,
+                event_context=event_context,
+            ),
+        )
 
 
 class _ProviderBridgeOperations(
