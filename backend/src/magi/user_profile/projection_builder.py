@@ -46,104 +46,33 @@ class UserProfileProjectionBuilder:
         entity_id = f"user:{user_id}"
         assertions = await self._list_profile_assertions(entity_id)
         selected, conflicts = self._select_current_assertions(assertions)
-
-        projection = UserProfileProjection(
-            user_id=user_id,
-            entity_id=entity_id,
-            refreshed_at=time.time(),
-        )
-
+        projection = _new_projection(user_id=user_id, entity_id=entity_id)
         field_sources: dict[str, Any] = {}
         communication: dict[str, Any] = {}
-        identity: dict[str, Any] = {}
-        preferences: dict[str, Any] = {}
-        state: dict[str, Any] = {}
 
-        for trait_name, field_name in _FIELD_TRAITS.items():
-            assertion = selected.get(trait_name)
-            if not assertion:
-                continue
-            value = _parse_assertion_value(assertion.get("trait_value"))
-            if field_name == "birth_year":
-                int_value = _coerce_int(value)
-                if int_value is not None:
-                    projection.birth_year = int_value
-            else:
-                text = _first_text(value)
-                setattr(projection, field_name, text)
-            field_sources[field_name] = _source_record(assertion)
-
-        disallowed = selected.get("communication.address.disallowed")
-        if disallowed:
-            communication["disallowed_forms_of_address"] = _as_text_list(
-                _parse_assertion_value(disallowed.get("trait_value"))
-            )
-            field_sources["disallowed_forms_of_address"] = _source_record(disallowed)
-
-        stated_age = selected.get("identity.age.stated")
-        if stated_age and not projection.age_years:
-            age_value = _coerce_int(_parse_assertion_value(stated_age.get("trait_value")))
-            if age_value is not None:
-                projection.age_years = age_value
-                projection.age_as_of = _date_from_timestamp(stated_age.get("last_validated_at"))
-                field_sources["age_years"] = _source_record(stated_age)
-
-        birth_date = parse_iso_date(projection.birth_date)
-        if birth_date is not None:
-            projection.birth_year = projection.birth_year or derive_birth_year(birth_date)
-            projection.age_years = derive_age_years(birth_date)
-            projection.age_as_of = date.today().isoformat()
-            field_sources["age_years"] = {
-                "source": "derived",
-                "derived_from": "identity.birth_date",
-                "derivation": "date_diff_years",
-                "as_of": projection.age_as_of,
-            }
-            field_sources.setdefault(
-                "birth_year",
-                {
-                    "source": "derived",
-                    "derived_from": "identity.birth_date",
-                    "derivation": "birth_date_year",
-                },
-            )
-
-        projection.display_name = (
-            projection.preferred_form_of_address
-            or projection.real_name
-            or projection.display_name
+        _apply_profile_traits(
+            projection,
+            selected=selected,
+            field_sources=field_sources,
         )
-
-        identity.update(
-            {
-                key: value
-                for key, value in {
-                    "real_name": projection.real_name,
-                    "birth_date": projection.birth_date,
-                    "birth_year": projection.birth_year,
-                    "age_years": projection.age_years,
-                    "home_location": projection.home_location,
-                }.items()
-                if value not in (None, "")
-            }
+        _apply_disallowed_forms(
+            selected,
+            communication=communication,
+            field_sources=field_sources,
         )
-        communication.update(
-            {
-                key: value
-                for key, value in {
-                    "preferred_form_of_address": projection.preferred_form_of_address,
-                }.items()
-                if value not in (None, "")
-            }
+        _apply_stated_age(
+            projection,
+            selected=selected,
+            field_sources=field_sources,
         )
-
-        projection.identity = identity
-        projection.communication = communication
-        projection.preferences = preferences
-        projection.state = state
-        projection.field_sources = field_sources
-        projection.field_conflicts = conflicts
-        projection.completeness_score = _completeness_score(projection)
+        _apply_birth_date_derivations(projection, field_sources=field_sources)
+        _apply_display_name(projection)
+        _finalize_projection(
+            projection,
+            communication=communication,
+            field_sources=field_sources,
+            conflicts=conflicts,
+        )
         return projection
 
     async def _list_profile_assertions(self, entity_id: str) -> list[dict[str, Any]]:
@@ -195,6 +124,149 @@ class UserProfileProjectionBuilder:
         return selected, conflicts
 
 
+def _new_projection(*, user_id: str, entity_id: str) -> UserProfileProjection:
+    return UserProfileProjection(
+        user_id=user_id,
+        entity_id=entity_id,
+        refreshed_at=time.time(),
+    )
+
+
+def _apply_profile_traits(
+    projection: UserProfileProjection,
+    *,
+    selected: dict[str, dict[str, Any]],
+    field_sources: dict[str, Any],
+) -> None:
+    for trait_name, field_name in _FIELD_TRAITS.items():
+        assertion = selected.get(trait_name)
+        if not assertion:
+            continue
+        _apply_profile_trait(projection, field_name=field_name, assertion=assertion)
+        field_sources[field_name] = _source_record(assertion)
+
+
+def _apply_profile_trait(
+    projection: UserProfileProjection,
+    *,
+    field_name: str,
+    assertion: dict[str, Any],
+) -> None:
+    value = _parse_assertion_value(assertion.get("trait_value"))
+    if field_name == "birth_year":
+        int_value = _coerce_int(value)
+        if int_value is not None:
+            projection.birth_year = int_value
+        return
+    setattr(projection, field_name, _first_text(value))
+
+
+def _apply_disallowed_forms(
+    selected: dict[str, dict[str, Any]],
+    *,
+    communication: dict[str, Any],
+    field_sources: dict[str, Any],
+) -> None:
+    disallowed = selected.get("communication.address.disallowed")
+    if not disallowed:
+        return
+    communication["disallowed_forms_of_address"] = _as_text_list(
+        _parse_assertion_value(disallowed.get("trait_value"))
+    )
+    field_sources["disallowed_forms_of_address"] = _source_record(disallowed)
+
+
+def _apply_stated_age(
+    projection: UserProfileProjection,
+    *,
+    selected: dict[str, dict[str, Any]],
+    field_sources: dict[str, Any],
+) -> None:
+    stated_age = selected.get("identity.age.stated")
+    if not stated_age or projection.age_years:
+        return
+    age_value = _coerce_int(_parse_assertion_value(stated_age.get("trait_value")))
+    if age_value is None:
+        return
+    projection.age_years = age_value
+    projection.age_as_of = _date_from_timestamp(stated_age.get("last_validated_at"))
+    field_sources["age_years"] = _source_record(stated_age)
+
+
+def _apply_birth_date_derivations(
+    projection: UserProfileProjection,
+    *,
+    field_sources: dict[str, Any],
+) -> None:
+    birth_date = parse_iso_date(projection.birth_date)
+    if birth_date is None:
+        return
+    projection.birth_year = projection.birth_year or derive_birth_year(birth_date)
+    projection.age_years = derive_age_years(birth_date)
+    projection.age_as_of = date.today().isoformat()
+    field_sources["age_years"] = {
+        "source": "derived",
+        "derived_from": "identity.birth_date",
+        "derivation": "date_diff_years",
+        "as_of": projection.age_as_of,
+    }
+    field_sources.setdefault(
+        "birth_year",
+        {
+            "source": "derived",
+            "derived_from": "identity.birth_date",
+            "derivation": "birth_date_year",
+        },
+    )
+
+
+def _apply_display_name(projection: UserProfileProjection) -> None:
+    projection.display_name = (
+        projection.preferred_form_of_address or projection.real_name or projection.display_name
+    )
+
+
+def _finalize_projection(
+    projection: UserProfileProjection,
+    *,
+    communication: dict[str, Any],
+    field_sources: dict[str, Any],
+    conflicts: dict[str, Any],
+) -> None:
+    communication.update(_communication_section(projection))
+    projection.identity = _identity_section(projection)
+    projection.communication = communication
+    projection.preferences = {}
+    projection.state = {}
+    projection.field_sources = field_sources
+    projection.field_conflicts = conflicts
+    projection.completeness_score = _completeness_score(projection)
+
+
+def _identity_section(projection: UserProfileProjection) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "real_name": projection.real_name,
+            "birth_date": projection.birth_date,
+            "birth_year": projection.birth_year,
+            "age_years": projection.age_years,
+            "home_location": projection.home_location,
+        }.items()
+        if value not in (None, "")
+    }
+
+
+def _communication_section(projection: UserProfileProjection) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in {
+            "preferred_form_of_address": projection.preferred_form_of_address,
+        }.items()
+        if value not in (None, "")
+    }
+
+
 def _assertion_score(assertion: dict[str, Any]) -> tuple[int, float, float]:
     source = str(assertion.get("source_domain") or "").strip()
     state = str(assertion.get("validation_state") or "").strip()
@@ -211,7 +283,7 @@ def _parse_assertion_value(value: Any) -> Any:
     if not isinstance(value, str):
         return value
     text = value.strip()
-    if not text or text[0] not in "[{\"":
+    if not text or text[0] not in '[{"':
         return value
     try:
         return json.loads(text)
@@ -221,7 +293,11 @@ def _parse_assertion_value(value: Any) -> Any:
 
 def _stable_value(value: Any) -> str:
     parsed = _parse_assertion_value(value)
-    return json.dumps(parsed, ensure_ascii=False, sort_keys=True) if isinstance(parsed, (dict, list)) else str(parsed)
+    return (
+        json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+        if isinstance(parsed, (dict, list))
+        else str(parsed)
+    )
 
 
 def _first_text(value: Any) -> str:
