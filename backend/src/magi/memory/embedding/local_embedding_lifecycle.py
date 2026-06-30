@@ -7,8 +7,18 @@ import gc
 import json
 import logging
 import time
+from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _LocalEmbeddingAssets:
+    model_dir: Any
+    model_path: Any
+    tokenizer_path: Any
+    meta: Any | None
 
 
 class LocalEmbeddingLifecycleMixin:
@@ -19,15 +29,29 @@ class LocalEmbeddingLifecycleMixin:
         if self._session is not None:
             return
 
-        try:
-            import onnxruntime as ort
-            from tokenizers import Tokenizer
-        except ImportError as exc:
-            raise RuntimeError(
-                "Local embedding requires optional dependencies: "
-                "pip install onnxruntime tokenizers"
-            ) from exc
+        ort, tokenizer_cls = _load_optional_embedding_modules()
+        assets = self._resolve_embedding_assets()
+        self._load_model_config(assets.model_dir)
+        self._apply_model_metadata(assets.model_dir, assets.meta)
+        self._model_identity = self._compute_model_identity()
 
+        opts = _build_session_options(ort)
+        await self._open_embedding_runtime(
+            ort=ort,
+            tokenizer_cls=tokenizer_cls,
+            assets=assets,
+            session_options=opts,
+        )
+        self._last_used = time.monotonic()
+        self._schedule_idle_check()
+        logger.info(
+            "Local embedding model loaded: %s (dim=%s, pooling=%s)",
+            self._model_name,
+            self._dimension,
+            self._pooling,
+        )
+
+    def _resolve_embedding_assets(self) -> _LocalEmbeddingAssets:
         model_dir = self._resolve_model_dir()
         if model_dir is None or not model_dir.exists():
             raise FileNotFoundError(
@@ -49,10 +73,19 @@ class LocalEmbeddingLifecycleMixin:
         if not tokenizer_path.exists():
             raise FileNotFoundError(f"tokenizer.json not found in {model_dir}")
 
+        return _LocalEmbeddingAssets(
+            model_dir=model_dir,
+            model_path=model_path,
+            tokenizer_path=tokenizer_path,
+            meta=meta,
+        )
+
+    def _load_model_config(self, model_dir: Any) -> None:
         config_path = model_dir / "config.json"
         if config_path.exists():
             self._model_config = json.loads(config_path.read_text(encoding="utf-8"))
 
+    def _apply_model_metadata(self, model_dir: Any, meta: Any | None) -> None:
         if meta:
             self._pooling = meta.pooling
             self._normalize = meta.normalize
@@ -64,38 +97,36 @@ class LocalEmbeddingLifecycleMixin:
             self._dimension = self._model_config.get("hidden_size")
             self._model_name = model_dir.name
 
+    def _compute_model_identity(self) -> str | None:
         from .local_embedding_identity import compute_local_embedding_model_fingerprint
 
         fingerprint = compute_local_embedding_model_fingerprint(
             self._config,
             runtime_paths=self._runtime_paths,
         )
-        self._model_identity = fingerprint.identity_key if fingerprint is not None else None
+        return fingerprint.identity_key if fingerprint is not None else None
 
-        opts = ort.SessionOptions()
-        opts.inter_op_num_threads = 1
-        opts.intra_op_num_threads = 4
-        opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
+    async def _open_embedding_runtime(
+        self,
+        *,
+        ort: Any,
+        tokenizer_cls: Any,
+        assets: _LocalEmbeddingAssets,
+        session_options: Any,
+    ) -> None:
         logger.info(
             "Loading local embedding model: %s (%s)",
             self._model_name,
-            model_path.name,
+            assets.model_path.name,
         )
         self._session = await asyncio.to_thread(
             ort.InferenceSession,
-            str(model_path),
-            opts,
+            str(assets.model_path),
+            session_options,
             providers=["CPUExecutionProvider"],
         )
-        self._tokenizer = await asyncio.to_thread(Tokenizer.from_file, str(tokenizer_path))
-        self._last_used = time.monotonic()
-        self._schedule_idle_check()
-        logger.info(
-            "Local embedding model loaded: %s (dim=%s, pooling=%s)",
-            self._model_name,
-            self._dimension,
-            self._pooling,
+        self._tokenizer = await asyncio.to_thread(
+            tokenizer_cls.from_file, str(assets.tokenizer_path)
         )
 
     async def _unload(self) -> None:
@@ -133,6 +164,25 @@ class LocalEmbeddingLifecycleMixin:
                     break
         except asyncio.CancelledError:
             pass
+
+
+def _load_optional_embedding_modules() -> tuple[Any, Any]:
+    try:
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+    except ImportError as exc:
+        raise RuntimeError(
+            "Local embedding requires optional dependencies: " "pip install onnxruntime tokenizers"
+        ) from exc
+    return ort, Tokenizer
+
+
+def _build_session_options(ort: Any) -> Any:
+    opts = ort.SessionOptions()
+    opts.inter_op_num_threads = 1
+    opts.intra_op_num_threads = 4
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+    return opts
 
 
 __all__ = ["LocalEmbeddingLifecycleMixin"]
