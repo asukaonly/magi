@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Protocol, cast
 
@@ -11,6 +12,15 @@ from .service_policy import count_payload_results
 from .timeline_condense import build_timeline_summary
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class FusionAudit:
+    pre_counts: Dict[str, int]
+    post_counts: Dict[str, int]
+    pre_l1_events: List[Dict[str, Any]]
+    pre_l1_unique: List[Dict[str, Any]]
+    dropped_l1_events: List[Dict[str, Any]]
 
 
 class _HybridRetrievalPostProcessingHostProtocol(Protocol):
@@ -27,6 +37,56 @@ class _HybridRetrievalPostProcessingHostProtocol(Protocol):
         query: str,
         user_id: str | None = None,
     ) -> List[Dict[str, Any]]: ...
+
+
+def _dedupe_l1_events(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    unique_events: List[Dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in events:
+        event_id = str(item.get("event_id") or "")
+        if event_id in seen_ids:
+            continue
+        seen_ids.add(event_id)
+        unique_events.append(item)
+    return unique_events
+
+
+def _dropped_l1_events(
+    pre_fusion_events: List[Dict[str, Any]],
+    post_fusion_events: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    post_fusion_ids = {str(item.get("event_id") or "") for item in post_fusion_events}
+    return [
+        item
+        for item in _dedupe_l1_events(pre_fusion_events)
+        if str(item.get("event_id") or "") not in post_fusion_ids
+    ]
+
+
+def _fusion_detail(
+    request: RetrievalQuery,
+    payload: RetrievalPayload,
+    *,
+    host: _HybridRetrievalPostProcessingHostProtocol,
+    audit: FusionAudit,
+) -> Dict[str, Any]:
+    return {
+        "query": request.query,
+        "max_tokens": host._config.default_max_tokens,
+        "pre_counts": audit.pre_counts,
+        "post_counts": audit.post_counts,
+        "pre_l1_count": len(audit.pre_l1_events),
+        "pre_l1_unique_count": len(audit.pre_l1_unique),
+        "post_l1_count": len(payload.l1_events),
+        "dropped_l1_count": len(audit.dropped_l1_events),
+        "pre_l1_events": event_records(audit.pre_l1_unique, limit=DETAIL_LIMIT),
+        "post_l1_events": event_records(payload.l1_events, limit=DETAIL_LIMIT),
+        "dropped_l1_events": event_records(audit.dropped_l1_events, limit=DETAIL_LIMIT),
+    }
+
+
+def _session_ids(events: List[Dict[str, Any]]) -> set[str]:
+    return {str(hit.get("session_id") or "").strip() for hit in events if hit.get("session_id")}
 
 
 class HybridRetrievalPostProcessingMixin:
@@ -75,69 +135,105 @@ class HybridRetrievalPostProcessingMixin:
     ) -> RetrievalPayload:
         """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         host = cast(_HybridRetrievalPostProcessingHostProtocol, self)
-        pre_fusion_counts = self._layer_result_counts(payload)
-        pre_fusion_l1_events = list(payload.l1_events)
+        payload, fusion_audit = self._apply_result_fusion(
+            payload,
+            request=request,
+            host=host,
+        )
+        payload = await self._select_manifest_if_enabled(
+            payload,
+            request=request,
+            host=host,
+        )
+        await self._attach_l1_evidence(
+            payload,
+            request=request,
+            host=host,
+            pre_fusion_l1_events=fusion_audit.pre_l1_events,
+        )
+        self._update_post_processing_trace(payload)
+        self._apply_mode_reducer(payload, request=request, mode_plan=mode_plan)
+        self._log_post_processing_completed(payload, request=request)
+        return payload
 
+    def _apply_result_fusion(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+    ) -> tuple[RetrievalPayload, FusionAudit]:
+        pre_counts = self._layer_result_counts(payload)
+        pre_l1_events = list(payload.l1_events)
         payload = host._result_fusion.apply(payload, max_tokens=host._config.default_max_tokens)
-        post_fusion_l1_ids = [str(item.get("event_id") or "") for item in payload.l1_events]
-        post_fusion_l1_set = set(post_fusion_l1_ids)
-        pre_fusion_l1_unique: list[dict[str, Any]] = []
-        seen_l1_ids: set[str] = set()
-        for item in pre_fusion_l1_events:
-            event_id = str(item.get("event_id") or "")
-            if event_id in seen_l1_ids:
-                continue
-            seen_l1_ids.add(event_id)
-            pre_fusion_l1_unique.append(item)
-        dropped_l1_events = [
-            item
-            for item in pre_fusion_l1_unique
-            if str(item.get("event_id") or "") not in post_fusion_l1_set
-        ]
+        fusion_audit = FusionAudit(
+            pre_counts=pre_counts,
+            post_counts=self._layer_result_counts(payload),
+            pre_l1_events=pre_l1_events,
+            pre_l1_unique=_dedupe_l1_events(pre_l1_events),
+            dropped_l1_events=_dropped_l1_events(pre_l1_events, payload.l1_events),
+        )
+        self._log_result_fusion(payload, request=request, host=host, audit=fusion_audit)
+        return payload, fusion_audit
+
+    def _log_result_fusion(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+        audit: FusionAudit,
+    ) -> None:
         logger.debug(
             "Retrieval result fusion applied | query=%r pre_counts=%s post_counts=%s "
             "l1_event_ids_sample=%s",
             request.query,
-            pre_fusion_counts,
+            audit.pre_counts,
             self._layer_result_counts(payload),
             [str(item.get("event_id") or "") for item in payload.l1_events[:10]],
         )
         log_detail(
             logger,
             "RETRIEVAL FUSION DETAIL",
-            {
-                "query": request.query,
-                "max_tokens": host._config.default_max_tokens,
-                "pre_counts": pre_fusion_counts,
-                "post_counts": self._layer_result_counts(payload),
-                "pre_l1_count": len(pre_fusion_l1_events),
-                "pre_l1_unique_count": len(pre_fusion_l1_unique),
-                "post_l1_count": len(payload.l1_events),
-                "dropped_l1_count": len(dropped_l1_events),
-                "pre_l1_events": event_records(pre_fusion_l1_unique, limit=DETAIL_LIMIT),
-                "post_l1_events": event_records(payload.l1_events, limit=DETAIL_LIMIT),
-                "dropped_l1_events": event_records(dropped_l1_events, limit=DETAIL_LIMIT),
-            },
+            _fusion_detail(request, payload, host=host, audit=audit),
         )
 
-        if host._config.manifest_selector_enabled:
-            payload = await host._manifest_selector.select(
-                payload, query=request.query, llm_bridge=host._llm_provider_bridge,
-            )
+    async def _select_manifest_if_enabled(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+    ) -> RetrievalPayload:
+        if not host._config.manifest_selector_enabled:
+            return payload
+        return await host._manifest_selector.select(
+            payload,
+            query=request.query,
+            llm_bridge=host._llm_provider_bridge,
+        )
 
+    async def _attach_l1_evidence(
+        self,
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+        pre_fusion_l1_events: List[Dict[str, Any]],
+    ) -> None:
         payload.l1_evidence_bundles = await host._build_l1_evidence_bundles(
             pre_fusion_l1_events,
             query=request.query,
             user_id=request.user_id,
         )
         payload.trace["l1_evidence_bundle_count"] = len(payload.l1_evidence_bundles)
-        payload.trace["l1_evidence_bundle_sessions_total"] = len(
-            {str(hit.get("session_id") or "").strip() for hit in pre_fusion_l1_events if hit.get("session_id")}
-        )
+        payload.trace["l1_evidence_bundle_sessions_total"] = len(_session_ids(pre_fusion_l1_events))
         payload.l1_timeline_summary = build_timeline_summary(
             question=request.query,
             evidence_bundles=payload.l1_evidence_bundles,
         )
+
+    def _update_post_processing_trace(self, payload: RetrievalPayload) -> None:
         payload.trace["l1_timeline_summary_count"] = len(payload.l1_timeline_summary)
         payload.trace["l2_entity_card_count"] = len(payload.l2_entity_cards)
         payload.trace["l2_relationship_count"] = len(payload.l2_relationships)
@@ -146,19 +242,34 @@ class HybridRetrievalPostProcessingMixin:
         payload.trace["layer_result_counts"] = self._layer_result_counts(payload)
         payload.trace["final_result_count"] = self._count_results(payload)
 
-        if mode_plan is not None:
-            from .evidence import ASSEMBLER_REGISTRY
-            from .reducers import REDUCER_REGISTRY
+    @staticmethod
+    def _apply_mode_reducer(
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+        mode_plan: Any = None,
+    ) -> None:
+        if mode_plan is None:
+            return
+        from .evidence import ASSEMBLER_REGISTRY
+        from .reducers import REDUCER_REGISTRY
 
-            assembler = ASSEMBLER_REGISTRY.get(mode_plan.evidence_shape)
-            reducer = REDUCER_REGISTRY.get(mode_plan.reducer_type)
-            if assembler is not None and reducer is not None:
-                evidence = assembler.assemble(payload, request)
-                reduced = reducer.reduce(evidence)
-                payload.trace["evidence_shape"] = mode_plan.evidence_shape
-                payload.trace["reducer_type"] = mode_plan.reducer_type
-                payload.trace["evidence_reduced"] = reduced
+        assembler = ASSEMBLER_REGISTRY.get(mode_plan.evidence_shape)
+        reducer = REDUCER_REGISTRY.get(mode_plan.reducer_type)
+        if assembler is None or reducer is None:
+            return
+        evidence = assembler.assemble(payload, request)
+        reduced = reducer.reduce(evidence)
+        payload.trace["evidence_shape"] = mode_plan.evidence_shape
+        payload.trace["reducer_type"] = mode_plan.reducer_type
+        payload.trace["evidence_reduced"] = reduced
 
+    @staticmethod
+    def _log_post_processing_completed(
+        payload: RetrievalPayload,
+        *,
+        request: RetrievalQuery,
+    ) -> None:
         logger.debug(
             "Retrieval post-processing completed | query=%r layer_counts=%s "
             "final_result_count=%d l1_evidence_bundle_count=%d "
@@ -171,8 +282,6 @@ class HybridRetrievalPostProcessingMixin:
             payload.trace.get("evidence_shape"),
             payload.trace.get("reducer_type"),
         )
-
-        return payload
 
     async def _load_l0(self, session_id: str) -> List[Dict[str, Any]]:
         """Load L0 workbench data."""
@@ -225,7 +334,9 @@ class HybridRetrievalPostProcessingMixin:
             executed_layers.append(layer)
         layer_plan_counts = payload.trace.setdefault("layer_plan_result_counts", {})
         if isinstance(layer_plan_counts, dict):
-            layer_plan_counts[layer] = int(layer_plan_counts.get(layer, 0) or 0) + int(record.get("count") or 0)
+            layer_plan_counts[layer] = int(layer_plan_counts.get(layer, 0) or 0) + int(
+                record.get("count") or 0
+            )
 
     @staticmethod
     def _count_plan_result(layer: str, result: Any) -> int:
