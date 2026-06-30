@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 from typing import Any
 
@@ -25,6 +26,13 @@ _FIRST_PERSON_ACTION_RE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class _TimelineQueryFeatures:
+    query_tokens: list[str]
+    query_phrases: list[str]
+    quoted_spans: list[str]
+
+
 def build_timeline_summary(
     *,
     question: str,
@@ -35,53 +43,148 @@ def build_timeline_summary(
     if not evidence_bundles or max_items <= 0:
         return []
 
-    query_tokens = extract_query_tokens(question)
-    query_phrases = extract_query_phrases(query_tokens)
-    quoted_spans = extract_quoted_spans(question)
+    features = _timeline_query_features(question)
+    selected, seen_event_ids, represented_sessions = _select_quoted_span_events(
+        evidence_bundles=evidence_bundles,
+        features=features,
+    )
+    candidates = _best_remaining_bundle_events(
+        evidence_bundles=evidence_bundles,
+        features=features,
+        seen_event_ids=seen_event_ids,
+    )
+    _append_diverse_candidate_events(
+        selected=selected,
+        candidates=candidates,
+        seen_event_ids=seen_event_ids,
+        represented_sessions=represented_sessions,
+        max_items=max_items,
+    )
 
+    selected.sort(key=lambda event: float(event.get("timestamp") or 0.0))
+    return [
+        _summarize_event(
+            event,
+            query_tokens=features.query_tokens,
+            query_phrases=features.query_phrases,
+            quoted_spans=features.quoted_spans,
+        )
+        for event in selected[:max_items]
+    ]
+
+
+def _timeline_query_features(question: str) -> _TimelineQueryFeatures:
+    query_tokens = extract_query_tokens(question)
+    return _TimelineQueryFeatures(
+        query_tokens=query_tokens,
+        query_phrases=extract_query_phrases(query_tokens),
+        quoted_spans=extract_quoted_spans(question),
+    )
+
+
+def _select_quoted_span_events(
+    *,
+    evidence_bundles: list[dict[str, Any]],
+    features: _TimelineQueryFeatures,
+) -> tuple[list[dict[str, Any]], set[str], set[str]]:
     selected: list[dict[str, Any]] = []
     seen_event_ids: set[str] = set()
     represented_sessions: set[str] = set()
-
-    # Preserve one best event per quoted span first so comparison questions keep both sides.
-    for quoted_span in quoted_spans:
-        best_match = None
-        best_score = float("-inf")
-        for bundle in evidence_bundles:
-            for event in bundle.get("events") or []:
-                event_id = str(event.get("event_id") or "")
-                if not event_id or event_id in seen_event_ids:
-                    continue
-                content = str(event.get("content") or "")
-                normalized_content = " ".join(extract_query_tokens(content))
-                if quoted_span not in normalized_content:
-                    continue
-                score = _score_event(event, query_tokens=query_tokens, query_phrases=query_phrases, quoted_spans=[quoted_span])
-                if score > best_score:
-                    best_score = score
-                    best_match = event
+    for quoted_span in features.quoted_spans:
+        best_match = _best_event_for_quoted_span(
+            evidence_bundles=evidence_bundles,
+            quoted_span=quoted_span,
+            features=features,
+            seen_event_ids=seen_event_ids,
+        )
         if best_match is not None:
             selected.append(best_match)
             seen_event_ids.add(str(best_match.get("event_id") or ""))
             represented_sessions.add(str(best_match.get("session_id") or "").strip())
+    return selected, seen_event_ids, represented_sessions
 
-    # Fill the rest with the best remaining event per bundle.
-    candidates: list[tuple[float, dict[str, Any]]] = []
+
+def _best_event_for_quoted_span(
+    *,
+    evidence_bundles: list[dict[str, Any]],
+    quoted_span: str,
+    features: _TimelineQueryFeatures,
+    seen_event_ids: set[str],
+) -> dict[str, Any] | None:
+    best_match = None
+    best_score = float("-inf")
     for bundle in evidence_bundles:
-        best_event = None
-        best_score = float("-inf")
         for event in bundle.get("events") or []:
             event_id = str(event.get("event_id") or "")
             if not event_id or event_id in seen_event_ids:
                 continue
-            score = _score_event(event, query_tokens=query_tokens, query_phrases=query_phrases, quoted_spans=quoted_spans)
+            content = str(event.get("content") or "")
+            normalized_content = " ".join(extract_query_tokens(content))
+            if quoted_span not in normalized_content:
+                continue
+            score = _score_event(
+                event,
+                query_tokens=features.query_tokens,
+                query_phrases=features.query_phrases,
+                quoted_spans=[quoted_span],
+            )
             if score > best_score:
                 best_score = score
-                best_event = event
-        if best_event is not None:
-            candidates.append((best_score, best_event))
+                best_match = event
+    return best_match
 
+
+def _best_remaining_bundle_events(
+    *,
+    evidence_bundles: list[dict[str, Any]],
+    features: _TimelineQueryFeatures,
+    seen_event_ids: set[str],
+) -> list[tuple[float, dict[str, Any]]]:
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for bundle in evidence_bundles:
+        candidate = _best_bundle_event(
+            bundle=bundle,
+            features=features,
+            seen_event_ids=seen_event_ids,
+        )
+        if candidate is not None:
+            candidates.append(candidate)
     candidates.sort(key=lambda item: (item[0], float(item[1].get("timestamp") or 0.0)), reverse=True)
+    return candidates
+
+
+def _best_bundle_event(
+    *,
+    bundle: dict[str, Any],
+    features: _TimelineQueryFeatures,
+    seen_event_ids: set[str],
+) -> tuple[float, dict[str, Any]] | None:
+    best_event = None
+    best_score = float("-inf")
+    for event in bundle.get("events") or []:
+        event_id = str(event.get("event_id") or "")
+        if not event_id or event_id in seen_event_ids:
+            continue
+        score = _score_event(
+            event,
+            query_tokens=features.query_tokens,
+            query_phrases=features.query_phrases,
+            quoted_spans=features.quoted_spans,
+        )
+        if score > best_score:
+            best_score = score
+            best_event = event
+    return (best_score, best_event) if best_event is not None else None
+
+
+def _append_diverse_candidate_events(
+    *,
+    selected: list[dict[str, Any]],
+    candidates: list[tuple[float, dict[str, Any]]],
+    seen_event_ids: set[str],
+    represented_sessions: set[str],
+    max_items: int,
+) -> None:
     for _, event in candidates:
         event_id = str(event.get("event_id") or "")
         session_id = str(event.get("session_id") or "").strip()
@@ -95,9 +198,6 @@ def build_timeline_summary(
             represented_sessions.add(session_id)
         if len(selected) >= max_items:
             break
-
-    selected.sort(key=lambda event: float(event.get("timestamp") or 0.0))
-    return [_summarize_event(event, query_tokens=query_tokens, query_phrases=query_phrases, quoted_spans=quoted_spans) for event in selected[:max_items]]
 
 
 def _score_event(
