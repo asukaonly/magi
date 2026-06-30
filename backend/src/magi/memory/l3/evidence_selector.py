@@ -29,6 +29,39 @@ class TemporalEvidenceSelection:
     selection_policy: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(slots=True)
+class _SourceEvidenceCollection:
+    selected_events: list[dict[str, Any]] = field(default_factory=list)
+    feature_events: list[dict[str, Any]] = field(default_factory=list)
+    feature_budgets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    source_distribution: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def add_source(
+        self,
+        *,
+        source_type: str,
+        stats: dict[str, Any],
+        total_count: int,
+        pool: list[dict[str, Any]],
+        selected: list[dict[str, Any]],
+        max_feature_events_per_source: int,
+    ) -> None:
+        self.selected_events.extend(selected)
+        self.feature_events.extend(pool)
+        self.source_distribution[source_type] = _source_distribution_entry(
+            stats,
+            selected_event_count=len(selected),
+            feature_event_count=len(pool),
+        )
+        self.feature_budgets[source_type] = _feature_budget(
+            source_type=source_type,
+            total_event_count=total_count,
+            available_event_count=len(pool),
+            selected_event_count=len(selected),
+            max_feature_events=max_feature_events_per_source,
+        )
+
+
 async def select_temporal_evidence(
     *,
     l1_store: L1EventStore,
@@ -41,7 +74,50 @@ async def select_temporal_evidence(
 ) -> TemporalEvidenceSelection:
     """Build a source-balanced temporal evidence sample from an L1 window."""
 
-    source_stats = await l1_store.summarize_event_sources(
+    policy = _selection_policy(
+        max_selected_events,
+        max_feature_events_per_source,
+        min_events_per_source,
+    )
+    source_stats = await _summarize_temporal_sources(
+        l1_store=l1_store,
+        source_filter=source_filter,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    source_event_total = _source_event_total(source_stats)
+    if source_event_total <= 0:
+        return TemporalEvidenceSelection(selection_policy=policy)
+
+    quotas = _allocate_source_quotas(
+        source_stats,
+        max_selected_events=max(1, int(max_selected_events)),
+        min_events_per_source=max(1, int(min_events_per_source)),
+    )
+    collection = await _collect_source_evidence(
+        l1_store=l1_store,
+        source_stats=source_stats,
+        quotas=quotas,
+        period_start=period_start,
+        period_end=period_end,
+        max_feature_events_per_source=max_feature_events_per_source,
+    )
+    return _temporal_evidence_selection(
+        collection=collection,
+        source_event_total=source_event_total,
+        max_selected_events=max_selected_events,
+        selection_policy=policy,
+    )
+
+
+async def _summarize_temporal_sources(
+    *,
+    l1_store: L1EventStore,
+    source_filter: list[str] | None,
+    period_start: float,
+    period_end: float,
+) -> list[dict[str, Any]]:
+    return await l1_store.summarize_event_sources(
         source_filters=list(source_filter) if source_filter else None,
         cognition_eligible=True,
         start_time=period_start,
@@ -49,44 +125,52 @@ async def select_temporal_evidence(
         exclude_memory_domain="runtime_telemetry",
         exclude_retention_class="disposable",
     )
-    source_event_total = sum(int(item.get("event_count") or 0) for item in source_stats)
-    if source_event_total <= 0:
-        return TemporalEvidenceSelection(
-            selection_policy=_selection_policy(max_selected_events, max_feature_events_per_source, min_events_per_source),
-        )
 
-    quotas = _allocate_source_quotas(
-        source_stats,
-        max_selected_events=max(1, int(max_selected_events)),
-        min_events_per_source=max(1, int(min_events_per_source)),
-    )
 
-    selected_events: list[dict[str, Any]] = []
-    feature_events: list[dict[str, Any]] = []
-    feature_budgets: dict[str, dict[str, Any]] = {}
-    source_distribution: dict[str, dict[str, Any]] = {}
+def _source_event_total(source_stats: list[dict[str, Any]]) -> int:
+    return sum(int(item.get("event_count") or 0) for item in source_stats)
 
+
+async def _collect_source_evidence(
+    *,
+    l1_store: L1EventStore,
+    source_stats: list[dict[str, Any]],
+    quotas: dict[str, int],
+    period_start: float,
+    period_end: float,
+    max_feature_events_per_source: int,
+) -> _SourceEvidenceCollection:
+    collection = _SourceEvidenceCollection()
     for stats in source_stats:
-        source_type = str(stats.get("source") or "").strip()
-        if not source_type:
-            continue
-        total_count = int(stats.get("event_count") or 0)
-        quota = int(quotas.get(source_type) or 0)
-        if quota <= 0:
-            source_distribution[source_type] = _source_distribution_entry(
-                stats,
-                selected_event_count=0,
-                feature_event_count=0,
-            )
-            feature_budgets[source_type] = _feature_budget(
-                source_type=source_type,
-                total_event_count=total_count,
-                available_event_count=0,
-                selected_event_count=0,
-                max_feature_events=max_feature_events_per_source,
-            )
-            continue
+        await _collect_source_stats_evidence(
+            collection=collection,
+            l1_store=l1_store,
+            stats=stats,
+            quota=int(quotas.get(str(stats.get("source") or "").strip()) or 0),
+            period_start=period_start,
+            period_end=period_end,
+            max_feature_events_per_source=max_feature_events_per_source,
+        )
+    return collection
 
+
+async def _collect_source_stats_evidence(
+    *,
+    collection: _SourceEvidenceCollection,
+    l1_store: L1EventStore,
+    stats: dict[str, Any],
+    quota: int,
+    period_start: float,
+    period_end: float,
+    max_feature_events_per_source: int,
+) -> None:
+    source_type = str(stats.get("source") or "").strip()
+    if not source_type:
+        return
+    total_count = int(stats.get("event_count") or 0)
+    pool: list[dict[str, Any]] = []
+    selected: list[dict[str, Any]] = []
+    if quota > 0:
         pool = await _fetch_source_event_pool(
             l1_store=l1_store,
             source_type=source_type,
@@ -96,33 +180,37 @@ async def select_temporal_evidence(
             max_feature_events_per_source=max_feature_events_per_source,
         )
         selected = _select_source_representatives(pool, quota)
-        selected_events.extend(selected)
-        feature_events.extend(pool)
-        source_distribution[source_type] = _source_distribution_entry(
-            stats,
-            selected_event_count=len(selected),
-            feature_event_count=len(pool),
-        )
-        feature_budgets[source_type] = _feature_budget(
-            source_type=source_type,
-            total_event_count=total_count,
-            available_event_count=len(pool),
-            selected_event_count=len(selected),
-            max_feature_events=max_feature_events_per_source,
-        )
+    collection.add_source(
+        source_type=source_type,
+        stats=stats,
+        total_count=total_count,
+        pool=pool,
+        selected=selected,
+        max_feature_events_per_source=max_feature_events_per_source,
+    )
 
-    selected_events = _sort_events_desc(_dedupe_events(selected_events))[:max_selected_events]
-    feature_events = _sort_events_desc(_dedupe_events(feature_events))
+
+def _temporal_evidence_selection(
+    *,
+    collection: _SourceEvidenceCollection,
+    source_event_total: int,
+    max_selected_events: int,
+    selection_policy: dict[str, Any],
+) -> TemporalEvidenceSelection:
+    selected_events = _sort_events_desc(_dedupe_events(collection.selected_events))[
+        :max_selected_events
+    ]
+    feature_events = _sort_events_desc(_dedupe_events(collection.feature_events))
     omitted_event_count = max(0, source_event_total - len(selected_events))
 
     return TemporalEvidenceSelection(
         selected_events=selected_events,
         feature_events=feature_events,
-        feature_budgets=feature_budgets,
-        source_distribution=source_distribution,
+        feature_budgets=collection.feature_budgets,
+        source_distribution=collection.source_distribution,
         source_event_total=source_event_total,
         omitted_event_count=omitted_event_count,
-        selection_policy=_selection_policy(max_selected_events, max_feature_events_per_source, min_events_per_source),
+        selection_policy=selection_policy,
     )
 
 
@@ -150,15 +238,16 @@ def _allocate_source_quotas(
             for index, source in enumerate(ordered_sources)
         }
 
-    effective_floor = min(min_events_per_source, max(1, max_selected_events // len(ordered_sources)))
+    effective_floor = min(
+        min_events_per_source, max(1, max_selected_events // len(ordered_sources))
+    )
     quotas = {source: min(counts[source], effective_floor) for source in ordered_sources}
     remaining = max_selected_events - sum(quotas.values())
     if remaining <= 0:
         return quotas
 
     weights = {
-        source: math.sqrt(max(0, counts[source] - quotas[source]))
-        for source in ordered_sources
+        source: math.sqrt(max(0, counts[source] - quotas[source])) for source in ordered_sources
     }
     weight_total = sum(weights.values())
     if weight_total <= 0:
@@ -217,12 +306,14 @@ async def _fetch_source_event_pool(
         limit=max(quota, min(per_query_limit, quota * 2)),
         order_by="timestamp_asc",
     )
-    return _sort_events_desc(
-        _dedupe_events([*latest_events, *important_events, *earliest_events])
-    )[:max_feature_events_per_source]
+    return _sort_events_desc(_dedupe_events([*latest_events, *important_events, *earliest_events]))[
+        :max_feature_events_per_source
+    ]
 
 
-def _select_source_representatives(events: list[dict[str, Any]], quota: int) -> list[dict[str, Any]]:
+def _select_source_representatives(
+    events: list[dict[str, Any]], quota: int
+) -> list[dict[str, Any]]:
     if quota <= 0 or not events:
         return []
     if len(events) <= quota:
@@ -242,7 +333,8 @@ def _select_source_representatives(events: list[dict[str, Any]], quota: int) -> 
         deduped.extend(
             event
             for event in _sort_events_by_importance(events)
-            if str(event.get("event_id") or "") not in {str(item.get("event_id") or "") for item in deduped}
+            if str(event.get("event_id") or "")
+            not in {str(item.get("event_id") or "") for item in deduped}
         )
     return _sort_events_desc(_dedupe_events(deduped))[:quota]
 
@@ -255,10 +347,7 @@ def _spread_events(events: list[dict[str, Any]], count: int) -> list[dict[str, A
         return ordered
     if count == 1:
         return [ordered[len(ordered) // 2]]
-    return [
-        ordered[round(index * (len(ordered) - 1) / (count - 1))]
-        for index in range(count)
-    ]
+    return [ordered[round(index * (len(ordered) - 1) / (count - 1))] for index in range(count)]
 
 
 def _dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
