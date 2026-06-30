@@ -41,49 +41,56 @@ class VerifyTool(Tool):
             category="file",
             version="1.0.0",
             author="Magi Team",
-            parameters=[
-                ToolParameter(
-                    name="mode",
-                    type=ParameterType.STRING,
-                    description="One of: changed, paths",
-                    required=False,
-                    default="changed",
-                    enum=list(VerifyTool._MODES),
-                ),
-                ToolParameter(
-                    name="paths",
-                    type=ParameterType.ARRAY,
-                    array_item_type=ParameterType.STRING,
-                    description="Files to verify. Required when mode=paths.",
-                    required=False,
-                ),
-                ToolParameter(
-                    name="timeout_s",
-                    type=ParameterType.INTEGER,
-                    description="Per-file subprocess timeout in seconds. Default 30.",
-                    required=False,
-                    default=30,
-                    min_value=1,
-                    max_value=120,
-                ),
-            ],
+            parameters=self._schema_parameters(),
             timeout=180,
             retry_on_failure=False,
             dangerous=False,
             tags=["file", "verify"],
-            metadata={
-                "task_intents": ["verify_change"],
-                "domains": ["codebase", "config"],
-                "operations": ["verify"],
-                "requires_known_target": False,
-                "cost": "medium",
-                "tool_hint": (
-                    "Call after editing source files to confirm the change still "
-                    "compiles. Default mode=changed picks up everything you edited "
-                    "this session via file_edit / file_write."
-                ),
-            },
+            metadata=self._schema_metadata(),
         )
+
+    def _schema_parameters(self) -> list[ToolParameter]:
+        return [
+            ToolParameter(
+                name="mode",
+                type=ParameterType.STRING,
+                description="One of: changed, paths",
+                required=False,
+                default="changed",
+                enum=list(VerifyTool._MODES),
+            ),
+            ToolParameter(
+                name="paths",
+                type=ParameterType.ARRAY,
+                array_item_type=ParameterType.STRING,
+                description="Files to verify. Required when mode=paths.",
+                required=False,
+            ),
+            ToolParameter(
+                name="timeout_s",
+                type=ParameterType.INTEGER,
+                description="Per-file subprocess timeout in seconds. Default 30.",
+                required=False,
+                default=30,
+                min_value=1,
+                max_value=120,
+            ),
+        ]
+
+    @staticmethod
+    def _schema_metadata() -> dict[str, Any]:
+        return {
+            "task_intents": ["verify_change"],
+            "domains": ["codebase", "config"],
+            "operations": ["verify"],
+            "requires_known_target": False,
+            "cost": "medium",
+            "tool_hint": (
+                "Call after editing source files to confirm the change still "
+                "compiles. Default mode=changed picks up everything you edited "
+                "this session via file_edit / file_write."
+            ),
+        }
 
     async def execute(
         self,
@@ -102,7 +109,32 @@ class VerifyTool(Tool):
 
         sid = str((context.env_vars or {}).get("session_id") or "").strip()
         sc = self._resolve_cache(context, sid)
+        paths_result = self._resolve_verify_paths(mode=mode, parameters=parameters, sc=sc)
+        if isinstance(paths_result, ToolResult):
+            return paths_result
+        workspace_root = Path(context.workspace).resolve()
+        outcomes = await self._verify_paths(
+            paths=paths_result,
+            workspace_root=workspace_root,
+            timeout_s=timeout_s,
+        )
+        self._append_verify_log(sc=sc, outcomes=outcomes)
+        return ToolResult(
+            success=True,
+            data={
+                "mode": mode,
+                "results": [o.to_dict() for o in outcomes],
+                "summary": self._summary(outcomes),
+            },
+        )
 
+    def _resolve_verify_paths(
+        self,
+        *,
+        mode: str,
+        parameters: Dict[str, Any],
+        sc: Any,
+    ) -> list[str] | ToolResult:
         if mode == self.MODE_PATHS:
             paths_param = parameters.get("paths")
             if not isinstance(paths_param, list) or not paths_param:
@@ -111,52 +143,57 @@ class VerifyTool(Tool):
                     error="mode=paths requires a non-empty paths list",
                     error_code=ToolErrorCode.MISSING_PATH.value,
                 )
-            paths = [str(p) for p in paths_param]
-        else:
-            paths = self._collect_changed_paths(sc) if sc is not None else []
+            return [str(p) for p in paths_param]
+        return self._collect_changed_paths(sc) if sc is not None else []
 
-        workspace_root = Path(context.workspace).resolve()
+    async def _verify_paths(
+        self,
+        *,
+        paths: list[str],
+        workspace_root: Path,
+        timeout_s: int,
+    ) -> list[VerifyOutcome]:
         outcomes: list[VerifyOutcome] = []
         for raw in paths:
             absolute = self._resolve_absolute(raw, workspace_root)
             if absolute is None:
-                outcomes.append(
-                    VerifyOutcome(
-                        path=raw,
-                        verifier="(none)",
-                        status="skipped",
-                        exit_code=-1,
-                        stdout="",
-                        stderr="",
-                        reason="path is outside workspace",
-                        duration_ms=0,
-                    )
-                )
+                outcomes.append(self._outside_workspace_outcome(raw))
                 continue
             outcomes.append(await verify_file(absolute, timeout_s=timeout_s))
+        return outcomes
 
-        if sc is not None:
-            log_path = sc.session_dir / "verify.jsonl"
-            for outcome in outcomes:
-                try:
-                    append_jsonl(log_path, outcome.to_dict())
-                except Exception:
-                    logger.debug("verify.log_append_failed", exc_info=True)
+    @staticmethod
+    def _outside_workspace_outcome(raw: str) -> VerifyOutcome:
+        return VerifyOutcome(
+            path=raw,
+            verifier="(none)",
+            status="skipped",
+            exit_code=-1,
+            stdout="",
+            stderr="",
+            reason="path is outside workspace",
+            duration_ms=0,
+        )
 
-        summary = {
+    @staticmethod
+    def _append_verify_log(*, sc: Any, outcomes: list[VerifyOutcome]) -> None:
+        if sc is None:
+            return
+        log_path = sc.session_dir / "verify.jsonl"
+        for outcome in outcomes:
+            try:
+                append_jsonl(log_path, outcome.to_dict())
+            except Exception:
+                logger.debug("verify.log_append_failed", exc_info=True)
+
+    @staticmethod
+    def _summary(outcomes: list[VerifyOutcome]) -> dict[str, int]:
+        return {
             "pass": sum(1 for o in outcomes if o.status == "pass"),
             "fail": sum(1 for o in outcomes if o.status == "fail"),
             "skipped": sum(1 for o in outcomes if o.status == "skipped"),
             "timeout": sum(1 for o in outcomes if o.status == "timeout"),
         }
-        return ToolResult(
-            success=True,
-            data={
-                "mode": mode,
-                "results": [o.to_dict() for o in outcomes],
-                "summary": summary,
-            },
-        )
 
     @staticmethod
     def _resolve_cache(context: ToolExecutionContext, sid: str):
