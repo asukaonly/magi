@@ -214,6 +214,12 @@ Loads events from L1, summaries from L3, assertions/episodes from L2. Applies sc
 
 For day and week scales, durable L2 episodes are preferred over transient clusters when available. Uncovered events fall back to gap-based transient clustering.
 
+`TimelineViewportBuilder` owns viewport orchestration only. Presentation-specific
+derivations live in smaller timeline-owned helpers: `viewport_clusters.py`
+enriches cluster display fields, `viewport_overview.py` builds the overview
+card, `viewport_state_summary.py` builds the compact state summary, and
+`viewport_i18n.py` centralizes viewport localization helpers.
+
 ### `cluster_builder.py` — TimelineClusterBuilder
 
 Groups events into activity blocks using gap-based splitting and thematic matching (shared entities/tags). Supports two modes:

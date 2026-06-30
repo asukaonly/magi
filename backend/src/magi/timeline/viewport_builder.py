@@ -9,12 +9,15 @@ from typing import Any
 
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
-from .. import i18n as core_i18n
 from ..core.logger import get_logger
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
-from .state_band_builder import TimelineStateBandBuilder, derive_state_from_tone
+from .state_band_builder import TimelineStateBandBuilder
+from .viewport_clusters import TimelineClusterPresentationBuilder
+from .viewport_i18n import is_zh_locale, normalize_locale, source_label, timeline_t
+from .viewport_overview import TimelineOverviewBuilder
+from .viewport_state_summary import TimelineStateSummaryBuilder
 from .viewport_themes import ThemeCardBuilder
 
 logger = get_logger("magi.timeline.viewport_builder")
@@ -52,6 +55,24 @@ class ViewportDerivedData:
     place_hints: list[str]
 
 
+@dataclass(frozen=True)
+class ViewportStateData:
+    state_bands: list[dict[str, Any]]
+    state_markers: list[dict[str, Any]]
+    state_transitions: list[dict[str, Any]]
+    state_summary: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ViewportActivityData:
+    reflections: list[dict[str, Any]]
+    clusters: list[dict[str, Any]]
+    raw_events: list[dict[str, Any]]
+    source_mix: list[dict[str, Any]]
+    theme_cards: list[dict[str, Any]]
+    overview: dict[str, Any]
+
+
 class TimelineViewportBuilder:
     """Assemble scale-aware viewport payloads from memory layers."""
 
@@ -81,7 +102,9 @@ class TimelineViewportBuilder:
         # as the "◦ 在 X" line. Without it we just omit the field.
         self._location_resolver = location_resolver
         self._state_band_builder = TimelineStateBandBuilder()
+        self._state_summary_builder = TimelineStateSummaryBuilder()
         self._cluster_builder = TimelineClusterBuilder()
+        self._cluster_presentation_builder = TimelineClusterPresentationBuilder()
         self._query_interpreter = TimelineQueryInterpreter()
         self._context_bundle_builder = TimelineContextBundleBuilder(
             l1_store=l1_store,
@@ -94,6 +117,7 @@ class TimelineViewportBuilder:
         # cluster labels). Stateless across calls; constructed once with
         # the catalog reference.
         self._theme_card_builder = ThemeCardBuilder(entity_catalog=entity_catalog)
+        self._overview_builder = TimelineOverviewBuilder(l3_store=l3_store)
 
     async def build_viewport(
         self,
@@ -167,6 +191,35 @@ class TimelineViewportBuilder:
         sources: ViewportSourceData,
         locale: str,
     ) -> ViewportDerivedData:
+        state_data = self._derive_state_data(query=query, sources=sources, locale=locale)
+        activity_data = await self._derive_activity_data(
+            scale=scale,
+            query=query,
+            sources=sources,
+            state_markers=state_data.state_markers,
+            locale=locale,
+        )
+        return ViewportDerivedData(
+            state_bands=state_data.state_bands,
+            state_markers=state_data.state_markers,
+            state_transitions=state_data.state_transitions,
+            reflections=activity_data.reflections,
+            clusters=activity_data.clusters,
+            raw_events=activity_data.raw_events,
+            source_mix=activity_data.source_mix,
+            theme_cards=activity_data.theme_cards,
+            overview=activity_data.overview,
+            state_summary=state_data.state_summary,
+            place_hints=await self._resolve_place_hints(start=query.start, end=query.end),
+        )
+
+    def _derive_state_data(
+        self,
+        *,
+        query: TimelineQueryInterpretation,
+        sources: ViewportSourceData,
+        locale: str,
+    ) -> ViewportStateData:
         state_bands, state_markers = self._state_band_builder.build(
             start=query.start,
             end=query.end,
@@ -176,6 +229,28 @@ class TimelineViewportBuilder:
             locale=locale,
         )
         state_transitions = self._build_state_transitions(sources.assertions)
+        state_summary = self._state_summary_builder.build(
+            state_bands=state_bands,
+            state_markers=state_markers,
+            state_transitions=state_transitions,
+            locale=locale,
+        )
+        return ViewportStateData(
+            state_bands=state_bands,
+            state_markers=state_markers,
+            state_transitions=state_transitions,
+            state_summary=state_summary,
+        )
+
+    async def _derive_activity_data(
+        self,
+        *,
+        scale: str,
+        query: TimelineQueryInterpretation,
+        sources: ViewportSourceData,
+        state_markers: list[dict[str, Any]],
+        locale: str,
+    ) -> ViewportActivityData:
         reflections = self._build_reflections(
             summaries=sources.summaries,
             start=query.start,
@@ -194,12 +269,41 @@ class TimelineViewportBuilder:
             clusters=clusters,
             locale=locale,
         )
-        theme_cards = await self._theme_card_builder.build(
+        theme_cards = await self._build_theme_cards(reflections, clusters, locale)
+        overview = await self._build_activity_overview(
+            scale=scale,
+            query=query,
+            sources=sources,
             reflections=reflections,
             clusters=clusters,
+            raw_events=raw_events,
+            state_markers=state_markers,
+            source_mix=source_mix,
             locale=locale,
         )
-        overview = await self._build_overview(
+        return ViewportActivityData(
+            reflections=reflections,
+            clusters=clusters,
+            raw_events=raw_events,
+            source_mix=source_mix,
+            theme_cards=theme_cards,
+            overview=overview,
+        )
+
+    async def _build_activity_overview(
+        self,
+        *,
+        scale: str,
+        query: TimelineQueryInterpretation,
+        sources: ViewportSourceData,
+        reflections: list[dict[str, Any]],
+        clusters: list[dict[str, Any]],
+        raw_events: list[dict[str, Any]],
+        state_markers: list[dict[str, Any]],
+        source_mix: list[dict[str, Any]],
+        locale: str,
+    ) -> dict[str, Any]:
+        return await self._overview_builder.build(
             scale=scale,
             period_start=query.start,
             period_end=query.end,
@@ -211,25 +315,17 @@ class TimelineViewportBuilder:
             source_mix=source_mix,
             locale=locale,
         )
-        state_summary = self._build_state_summary(
-            state_bands=state_bands,
-            state_markers=state_markers,
-            state_transitions=state_transitions,
-            locale=locale,
-        )
-        place_hints = await self._resolve_place_hints(start=query.start, end=query.end)
-        return ViewportDerivedData(
-            state_bands=state_bands,
-            state_markers=state_markers,
-            state_transitions=state_transitions,
+
+    async def _build_theme_cards(
+        self,
+        reflections: list[dict[str, Any]],
+        clusters: list[dict[str, Any]],
+        locale: str,
+    ) -> list[dict[str, Any]]:
+        return await self._theme_card_builder.build(
             reflections=reflections,
             clusters=clusters,
-            raw_events=raw_events,
-            source_mix=source_mix,
-            theme_cards=theme_cards,
-            overview=overview,
-            state_summary=state_summary,
-            place_hints=place_hints,
+            locale=locale,
         )
 
     def _build_clusters_for_viewport(
@@ -247,17 +343,14 @@ class TimelineViewportBuilder:
             scale=scale,
             episodes=sources.episodes,
         )
-        if not clusters:
-            return clusters
-        self._localize_cluster_labels(clusters, locale=locale)
-        self._enrich_cluster_states(
+        return self._cluster_presentation_builder.prepare(
             clusters,
-            sources.summaries,
+            events=sources.events,
+            summaries=sources.summaries,
             start=query.start,
             end=query.end,
+            locale=locale,
         )
-        self._enrich_cluster_source_types(clusters, sources.events)
-        return clusters
 
     def _build_raw_events_for_scale(
         self,
@@ -313,108 +406,6 @@ class TimelineViewportBuilder:
 
     async def build_context_bundle(self, *, anchor: dict[str, Any]) -> dict[str, Any]:
         return await self._context_bundle_builder.build(anchor=anchor)
-
-    def _enrich_cluster_states(
-        self,
-        clusters: list[dict[str, Any]],
-        summaries: list[dict[str, Any]],
-        *,
-        start: float,
-        end: float,
-    ) -> None:
-        """Populate each cluster's state_snapshot from overlapping L3 summaries."""
-        relevant = [
-            s
-            for s in summaries
-            if float(s.get("period_end") or 0) >= start and float(s.get("period_start") or 0) <= end
-        ]
-        for cluster in clusters:
-            cs = cluster["time_start"]
-            ce = cluster["time_end"]
-            for s in relevant:
-                ps = float(s.get("period_start") or 0)
-                pe = float(s.get("period_end") or ps)
-                if pe >= cs and ps <= ce:
-                    sentiment = s.get("sentiment_summary")
-                    if isinstance(sentiment, dict):
-                        tone = str(sentiment.get("tone") or "").strip()
-                        if tone:
-                            cluster["state_snapshot"] = derive_state_from_tone(tone)
-                    break
-
-    def _enrich_cluster_source_types(
-        self,
-        clusters: list[dict[str, Any]],
-        events: list[dict[str, Any]],
-    ) -> None:
-        """For episode-based clusters with empty source_types, derive them
-        from the L1 events that fall in the episode's time window.
-
-        Episode rows in L2 don't track source breakdown, so cluster_builder
-        ships them with ``source_types: []``. The day-bucket UI groups by
-        source_types[0] and falls back to "memory" — which collapses every
-        episode (Chrome, screen, etc.) into a single "记忆" group. This
-        helper restores the breakdown by counting L1 event sources per
-        episode window and ordering by frequency (most-common first).
-
-        Transient clusters already carry source_types from cluster_builder
-        and are skipped.
-        """
-        for cluster in clusters:
-            block_id = str(cluster.get("block_id") or "")
-            if not block_id.startswith("episode:"):
-                continue
-            ts = float(cluster.get("time_start") or 0.0)
-            te = float(cluster.get("time_end") or 0.0)
-            if te <= ts:
-                continue
-            counts: Counter[str] = Counter()
-            attachments: list[str] = []
-            mood: str | None = None
-            for ev in events:
-                ev_ts = float(ev.get("timestamp") or 0.0)
-                if not (ts <= ev_ts <= te):
-                    continue
-                source = str(ev.get("source") or "").strip()
-                if source:
-                    counts[source] += 1
-                # Manual-entry events carry attachment refs + mood that
-                # the frontend wants to display inline with the slice.
-                if source == "manual_entry":
-                    metadata = ev.get("metadata") or ev.get("metadata_json") or {}
-                    if isinstance(metadata, dict):
-                        manual_meta = metadata.get("manual_entry") or {}
-                        if isinstance(manual_meta, dict):
-                            for ref in manual_meta.get("attachments") or []:
-                                if isinstance(ref, str) and ref:
-                                    attachments.append(ref)
-                            if not mood and isinstance(manual_meta.get("mood"), str):
-                                mood = manual_meta["mood"]
-
-            if not counts:
-                continue
-
-            # Surface manual_entry as the primary source when present —
-            # the frontend's day-bucket UI uses source_types[0] to pick
-            # which group banner to render, and "你的记录" always wins
-            # priority over Chrome / screen for the same cluster.
-            ordered = [s for s, _ in counts.most_common()]
-            if "manual_entry" in ordered and ordered[0] != "manual_entry":
-                ordered.remove("manual_entry")
-                ordered.insert(0, "manual_entry")
-            cluster["source_types"] = ordered
-
-            if attachments:
-                # Dedupe by ref while preserving order
-                seen: set[str] = set()
-                deduped: list[str] = []
-                for ref in attachments:
-                    if ref not in seen:
-                        seen.add(ref)
-                        deduped.append(ref)
-                cluster["media_refs"] = deduped
-            if mood:
-                cluster["mood"] = mood
 
     async def _load_events(self, *, start: float, end: float) -> list[dict[str, Any]]:
         if self._l1 is None:
@@ -528,471 +519,21 @@ class TimelineViewportBuilder:
         transitions.sort(key=lambda t: t["changed_at"])
         return transitions
 
-    async def _build_overview(
-        self,
-        *,
-        scale: str,
-        period_start: float,
-        period_end: float,
-        events: list[dict[str, Any]],
-        clusters: list[dict[str, Any]],
-        reflections: list[dict[str, Any]],
-        raw_events: list[dict[str, Any]],
-        state_markers: list[dict[str, Any]],
-        source_mix: list[dict[str, Any]],
-        locale: str,
-    ) -> dict[str, Any]:
-        title_by_scale = self._overview_titles(locale)
-        top_reflection = reflections[0] if reflections else None
-        top_cluster = max(
-            clusters, key=lambda item: int(item.get("event_count") or 0), default=None
-        )
-        top_event = raw_events[0] if raw_events else None
-        summary = self._overview_summary(
-            top_reflection=top_reflection,
-            top_cluster=top_cluster,
-            top_event=top_event,
-            locale=locale,
-        )
-        takeaways = self._overview_takeaways(
-            source_mix=source_mix,
-            state_markers=state_markers,
-            event_count=len(events),
-            locale=locale,
-        )
-        confidence = self._overview_confidence(
-            top_reflection=top_reflection,
-            top_cluster=top_cluster,
-            top_event=top_event,
-            state_markers=state_markers,
-        )
-        essence_prose = await self._lookup_essence_prose(scale=scale, period_start=period_start)
-        return {
-            "title": title_by_scale.get(scale, title_by_scale["month"]),
-            "summary": summary,
-            "key_takeaways": takeaways[:3],
-            "confidence": confidence,
-            "essence_prose": essence_prose,
-        }
-
-    def _overview_titles(self, locale: str) -> dict[str, str]:
-        zh = self._is_zh_locale(locale)
-        return {
-            "month": self._timeline_t(
-                "overview.month", locale, fallback="窗口概览" if zh else "Window overview"
-            ),
-            "week": self._timeline_t(
-                "overview.week", locale, fallback="本周概览" if zh else "Week overview"
-            ),
-            "day": self._timeline_t(
-                "overview.day", locale, fallback="当日概览" if zh else "Day overview"
-            ),
-            "hour": self._timeline_t(
-                "overview.hour", locale, fallback="证据概览" if zh else "Evidence overview"
-            ),
-        }
-
-    def _overview_summary(
-        self,
-        *,
-        top_reflection: dict[str, Any] | None,
-        top_cluster: dict[str, Any] | None,
-        top_event: dict[str, Any] | None,
-        locale: str,
-    ) -> str:
-        zh = self._is_zh_locale(locale)
-        return str(
-            (top_reflection or {}).get("summary")
-            or (top_cluster or {}).get("summary")
-            or (top_event or {}).get("summary")
-            or self._timeline_t(
-                "overview.fallback_summary",
-                locale,
-                fallback=(
-                    "这个时间窗口里已有活动记录，但还没有足够的摘要上下文。"
-                    if zh
-                    else "Magi has activity in this window, but there is not enough summarized context yet."
-                ),
-            )
-        )
-
-    def _overview_takeaways(
-        self,
-        *,
-        source_mix: list[dict[str, Any]],
-        state_markers: list[dict[str, Any]],
-        event_count: int,
-        locale: str,
-    ) -> list[str]:
-        takeaways: list[str] = []
-        takeaways.extend(self._overview_source_takeaway(source_mix, locale=locale))
-        takeaways.extend(self._overview_state_takeaway(state_markers, locale=locale))
-        if event_count:
-            takeaways.append(self._overview_event_count_takeaway(event_count, locale=locale))
-        return takeaways[:3]
-
-    def _overview_source_takeaway(
-        self,
-        source_mix: list[dict[str, Any]],
-        *,
-        locale: str,
-    ) -> list[str]:
-        if not source_mix:
-            return []
-        zh = self._is_zh_locale(locale)
-        primary_source = source_mix[0]
-        source_label = primary_source.get("label") or self._source_label(
-            primary_source.get("source_type"), locale
-        )
-        return [
-            self._timeline_t(
-                "takeaways.main_source",
-                locale,
-                fallback="主要来源：{source}" if zh else "Main source: {source}",
-                source=source_label,
-            )
-        ]
-
-    def _overview_state_takeaway(
-        self,
-        state_markers: list[dict[str, Any]],
-        *,
-        locale: str,
-    ) -> list[str]:
-        if not state_markers:
-            return []
-        zh = self._is_zh_locale(locale)
-        return [
-            str(
-                state_markers[0].get("summary")
-                or state_markers[0].get("label")
-                or self._timeline_t(
-                    "takeaways.state_changed",
-                    locale,
-                    fallback="状态发生变化" if zh else "State changed",
-                )
-            )
-        ]
-
-    def _overview_event_count_takeaway(self, event_count: int, *, locale: str) -> str:
-        zh = self._is_zh_locale(locale)
-        return self._timeline_t(
-            "takeaways.event_count",
-            locale,
-            fallback="捕获 {count} 条事件" if zh else "{count} events captured",
-            count=event_count,
-        )
-
-    @staticmethod
-    def _overview_confidence(
-        *,
-        top_reflection: dict[str, Any] | None,
-        top_cluster: dict[str, Any] | None,
-        top_event: dict[str, Any] | None,
-        state_markers: list[dict[str, Any]],
-    ) -> float:
-        confidence = 0.35
-        if top_reflection is not None:
-            confidence += 0.25
-        if top_cluster is not None or top_event is not None:
-            confidence += 0.2
-        if state_markers:
-            confidence += 0.1
-        return min(0.95, confidence)
-
-    async def _lookup_essence_prose(self, *, scale: str, period_start: float) -> str:
-        """Look up the L3 diary essence for this period, if Plan 2 has produced one.
-
-        Returns the prose string or empty string when no matching summary exists.
-        """
-        from datetime import datetime
-
-        if self._l3 is None:
-            return ""
-
-        # period_start is a local-day boundary timestamp set by the frontend using
-        # local-time arithmetic. To recover the matching calendar date, use local
-        # time (no tz arg) so it agrees with what the user sees in the UI.
-        period_date = datetime.fromtimestamp(period_start).date().isoformat()
-        insight_key = f"diary-{scale}-{period_date}"
-
-        try:
-            summary = await self._l3._find_summary_by_insight_key(insight_key)
-        except Exception:
-            return ""
-
-        if not summary:
-            return ""
-        if summary.get("narrative_style") != "diary_2p":
-            return ""
-        return str(summary.get("essence_prose") or "")
-
-    def _build_state_summary(
-        self,
-        *,
-        state_bands: list[dict[str, Any]],
-        state_markers: list[dict[str, Any]],
-        state_transitions: list[dict[str, Any]],
-        locale: str,
-    ) -> dict[str, Any]:
-        mood_value = self._average_state_value(state_bands, "valence")
-        stress_value = self._average_state_value(state_bands, "stress_level")
-        engagement_value = self._average_state_value(state_bands, "engagement")
-        mood_label = self._dominant_state_label(state_bands, locale=locale)
-        notable_changes = self._state_notable_changes(
-            state_markers=state_markers,
-            state_transitions=state_transitions,
-            locale=locale,
-        )
-        return {
-            "mood_label": mood_label,
-            "stress_label": self._stress_label(stress_value, locale=locale),
-            "engagement_label": self._engagement_label(engagement_value, locale=locale),
-            "mood_value": mood_value,
-            "stress_value": stress_value,
-            "engagement_value": engagement_value,
-            "notable_changes": notable_changes,
-        }
-
-    def _state_notable_changes(
-        self,
-        *,
-        state_markers: list[dict[str, Any]],
-        state_transitions: list[dict[str, Any]],
-        locale: str,
-    ) -> list[dict[str, Any]]:
-        changes = [self._state_marker_change(marker, locale=locale) for marker in state_markers[:3]]
-        for transition in state_transitions:
-            if len(changes) >= 3:
-                break
-            changes.append(self._state_transition_change(transition, locale=locale))
-        return changes
-
-    def _state_marker_change(
-        self,
-        marker: dict[str, Any],
-        *,
-        locale: str,
-    ) -> dict[str, Any]:
-        timestamp = float(marker.get("timestamp") or 0.0)
-        return {
-            "label": self._localized_marker_label(marker.get("label"), locale),
-            "summary": str(
-                marker.get("summary")
-                or self._timeline_t(
-                    "state.marker.default_summary",
-                    locale,
-                    fallback="状态发生变化。" if self._is_zh_locale(locale) else "State changed.",
-                )
-            ),
-            "timestamp": timestamp,
-            "anchor": {
-                "anchor_type": "state_marker",
-                "anchor_id": str(marker.get("marker_id") or ""),
-                "time_start": timestamp,
-                "time_end": timestamp,
-            },
-        }
-
-    def _state_transition_change(
-        self,
-        transition: dict[str, Any],
-        *,
-        locale: str,
-    ) -> dict[str, Any]:
-        trait = self._humanize_label(transition.get("trait_name"), locale=locale)
-        old_value = str(transition.get("old_value") or "unknown")
-        new_value = str(transition.get("new_value") or "unknown")
-        timestamp = float(transition.get("changed_at") or 0.0)
-        return {
-            "label": self._state_transition_label(trait, locale=locale),
-            "summary": self._state_transition_summary(
-                trait=trait,
-                old_value=old_value,
-                new_value=new_value,
-                locale=locale,
-            ),
-            "timestamp": timestamp,
-            "anchor": {
-                "anchor_type": "state_transition",
-                "anchor_id": str(
-                    transition.get("new_assertion_id") or transition.get("old_assertion_id") or ""
-                ),
-                "time_start": timestamp,
-                "time_end": timestamp,
-            },
-        }
-
-    def _state_transition_label(self, trait: str, *, locale: str) -> str:
-        return self._timeline_t(
-            "state.transition.label",
-            locale,
-            fallback="{trait}变化" if self._is_zh_locale(locale) else "{trait} changed",
-            trait=trait,
-        )
-
-    def _state_transition_summary(
-        self,
-        *,
-        trait: str,
-        old_value: str,
-        new_value: str,
-        locale: str,
-    ) -> str:
-        return self._timeline_t(
-            "state.transition.summary",
-            locale,
-            fallback=(
-                "{trait}从 {old_value} 变化为 {new_value}。"
-                if self._is_zh_locale(locale)
-                else "{trait} changed from {old_value} to {new_value}."
-            ),
-            trait=trait,
-            old_value=old_value,
-            new_value=new_value,
-        )
-
-    @staticmethod
-    def _average_state_value(state_bands: list[dict[str, Any]], key: str) -> float | None:
-        values = [
-            float(band[key]) for band in state_bands if isinstance(band.get(key), (int, float))
-        ]
-        if not values:
-            return None
-        return sum(values) / len(values)
-
-    def _dominant_state_label(
-        self, state_bands: list[dict[str, Any]], *, locale: str = "en"
-    ) -> str:
-        labels = [
-            str(band.get("label") or "").strip()
-            for band in state_bands
-            if str(band.get("label") or "").strip()
-        ]
-        if not labels:
-            return self._timeline_t(
-                "state.unknown",
-                locale,
-                fallback="未知" if self._is_zh_locale(locale) else "Unknown",
-            )
-        return self._humanize_label(Counter(labels).most_common(1)[0][0], locale=locale)
-
-    def _localize_cluster_labels(self, clusters: list[dict[str, Any]], *, locale: str) -> None:
-        if not self._is_zh_locale(locale):
-            return
-        for cluster in clusters:
-            label = str(cluster.get("label") or "").strip()
-            if not label:
-                continue
-            source_candidates = [str(cluster.get("dominant_mode") or "")]
-            source_candidates.extend(str(source) for source in cluster.get("source_types") or [])
-            for source in source_candidates:
-                if self._is_generated_source_label(label, source):
-                    cluster["label"] = self._source_label(source, locale)
-                    break
-
-    @staticmethod
-    def _is_generated_source_label(label: str, source_type: str) -> bool:
-        normalized_label = TimelineViewportBuilder._normalize_display_text(label)
-        normalized_source = TimelineViewportBuilder._normalize_display_text(source_type)
-        return bool(normalized_label and normalized_label == normalized_source)
-
-    @staticmethod
-    def _normalize_display_text(value: Any) -> str:
-        return " ".join(str(value or "").replace("_", " ").replace("-", " ").split()).lower()
-
-    @staticmethod
-    def _stress_label(value: float | None, *, locale: str = "en") -> str:
-        zh = TimelineViewportBuilder._is_zh_locale(locale)
-        if value is None:
-            return TimelineViewportBuilder._timeline_t(
-                "state.stress.unknown", locale, fallback="未知" if zh else "Unknown"
-            )
-        if value >= 0.67:
-            return TimelineViewportBuilder._timeline_t(
-                "state.stress.high", locale, fallback="高压力" if zh else "High stress"
-            )
-        if value >= 0.4:
-            return TimelineViewportBuilder._timeline_t(
-                "state.stress.moderate", locale, fallback="中等压力" if zh else "Moderate stress"
-            )
-        return TimelineViewportBuilder._timeline_t(
-            "state.stress.low", locale, fallback="低压力" if zh else "Low stress"
-        )
-
-    @staticmethod
-    def _engagement_label(value: float | None, *, locale: str = "en") -> str:
-        zh = TimelineViewportBuilder._is_zh_locale(locale)
-        if value is None:
-            return TimelineViewportBuilder._timeline_t(
-                "state.engagement.unknown", locale, fallback="未知" if zh else "Unknown"
-            )
-        if value >= 0.67:
-            return TimelineViewportBuilder._timeline_t(
-                "state.engagement.high", locale, fallback="高参与度" if zh else "High engagement"
-            )
-        if value >= 0.4:
-            return TimelineViewportBuilder._timeline_t(
-                "state.engagement.steady",
-                locale,
-                fallback="稳定参与" if zh else "Steady engagement",
-            )
-        return TimelineViewportBuilder._timeline_t(
-            "state.engagement.low", locale, fallback="低参与度" if zh else "Low engagement"
-        )
-
-    @staticmethod
-    def _humanize_label(value: Any, *, locale: str = "en") -> str:
-        text = str(value or "").replace("_", " ").replace("-", " ").strip()
-        if not text:
-            return TimelineViewportBuilder._timeline_t(
-                "state.unknown",
-                locale,
-                fallback="未知" if TimelineViewportBuilder._is_zh_locale(locale) else "Unknown",
-            )
-        if TimelineViewportBuilder._is_zh_locale(locale):
-            return TimelineViewportBuilder._timeline_t(
-                f"mood.{text.lower()}", locale, fallback=text
-            )
-        return TimelineViewportBuilder._timeline_t(
-            f"mood.{text.lower()}", locale, fallback=text.title()
-        )
-
-    @staticmethod
-    def _localized_marker_label(value: Any, locale: str) -> str:
-        text = str(value or "").strip()
-        if TimelineViewportBuilder._is_zh_locale(locale) and text.lower() in {
-            "state shift",
-            "state changed",
-        }:
-            return TimelineViewportBuilder._timeline_t("state.shift", locale, fallback="状态变化")
-        return text or TimelineViewportBuilder._timeline_t(
-            "state.shift",
-            locale,
-            fallback="状态变化" if TimelineViewportBuilder._is_zh_locale(locale) else "State shift",
-        )
-
     @staticmethod
     def _normalize_locale(locale: str | None) -> str:
-        return "zh-CN" if core_i18n.is_zh_language(locale, default="en") else "en"
+        return normalize_locale(locale)
 
     @staticmethod
     def _is_zh_locale(locale: str | None) -> bool:
-        return core_i18n.is_zh_language(locale, default="en")
+        return is_zh_locale(locale)
 
     @staticmethod
     def _timeline_t(key: str, locale: str | None, *, fallback: str, **kwargs: Any) -> str:
-        return core_i18n.t(f"timeline.{key}", language=locale, fallback=fallback, **kwargs)
+        return timeline_t(key, locale, fallback=fallback, **kwargs)
 
     @staticmethod
     def _source_label(source_type: Any, locale: str) -> str:
-        source = str(source_type or "memory")
-        fallback = (
-            source.replace("_", " ")
-            if TimelineViewportBuilder._is_zh_locale(locale)
-            else source.replace("_", " ").title()
-        )
-        return TimelineViewportBuilder._timeline_t(f"sources.{source}", locale, fallback=fallback)
+        return source_label(source_type, locale)
 
     def _build_source_mix(
         self,
