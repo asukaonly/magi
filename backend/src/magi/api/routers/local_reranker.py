@@ -96,9 +96,7 @@ async def list_models() -> list[LocalRerankerModelInfo]:
                 )
             )
 
-        default_variant_name = (
-            resolve_variant_name(model) if model.variants else None
-        )
+        default_variant_name = resolve_variant_name(model) if model.variants else None
 
         result.append(
             LocalRerankerModelInfo(
@@ -170,9 +168,7 @@ async def download_model(
 
     # Start download task
     _download_progress[model_id] = {"pct": 0.0, "error": None}
-    task = asyncio.create_task(
-        _download_model_task(meta, model_dir, variant_override=variant)
-    )
+    task = asyncio.create_task(_download_model_task(meta, model_dir, variant_override=variant))
     _download_tasks[model_id] = task
 
     return DownloadStatusResponse(
@@ -270,6 +266,160 @@ def _is_model_downloaded(model_dir: Path) -> bool:
 
 _DOWNLOAD_MAX_RETRIES = 3
 _DOWNLOAD_ETAG_TIMEOUT = 30
+_DOWNLOAD_SIDECARS = [
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "config.json",
+    "special_tokens_map.json",
+    "vocab.txt",
+    "sentencepiece.bpe.model",
+]
+
+
+def _snapshot_download_or_error(model_id: str):
+    try:
+        from huggingface_hub import snapshot_download
+    except ImportError:
+        _download_progress[model_id] = {
+            "pct": None,
+            "error": "huggingface-hub is not installed. Run: pip install huggingface-hub",
+        }
+        return None
+    return snapshot_download
+
+
+def _legacy_allow_patterns() -> list[str]:
+    return [
+        "*.onnx",
+        "onnx/*.onnx",
+        "*.onnx_data",
+        "onnx/*.onnx_data",
+        *_DOWNLOAD_SIDECARS,
+    ]
+
+
+def _variant_allow_patterns(
+    meta: CrossEncoderModelMeta,
+    *,
+    model_id: str,
+    variant_override: str | None,
+) -> list[str] | None:
+    if not meta.variants:
+        return _legacy_allow_patterns()
+
+    variant_name = resolve_variant_name(meta, override=variant_override)
+    if variant_name is None:
+        _download_progress[model_id] = {
+            "pct": None,
+            "error": f"Could not resolve a variant for {model_id}",
+        }
+        return None
+
+    variant = meta.variants[variant_name]
+    logger.info(
+        "Resolved reranker variant %r for model %s (platform=%s, override=%r)",
+        variant_name,
+        model_id,
+        detect_platform_key(),
+        variant_override,
+    )
+    return [
+        variant.file,
+        f"{variant.file}_data",
+        *_DOWNLOAD_SIDECARS,
+    ]
+
+
+async def _snapshot_to_model_dir(
+    *,
+    snapshot_download: Any,
+    repo_id: str,
+    model_dir: Path,
+    allow_patterns: list[str],
+) -> str:
+    return await asyncio.to_thread(
+        snapshot_download,
+        repo_id,
+        local_dir=str(model_dir),
+        allow_patterns=allow_patterns,
+        etag_timeout=_DOWNLOAD_ETAG_TIMEOUT,
+    )
+
+
+async def _handle_download_cancelled(model_id: str, model_dir: Path) -> None:
+    _download_progress[model_id] = {"pct": None, "error": "cancelled"}
+    if model_dir.exists():
+        shutil.rmtree(str(model_dir), ignore_errors=True)
+
+
+async def _sleep_before_retry(model_id: str, attempt: int, exc: Exception) -> None:
+    wait = 2**attempt
+    logger.warning(
+        "Download attempt %d/%d for %s failed: %s — retrying in %ds",
+        attempt,
+        _DOWNLOAD_MAX_RETRIES,
+        model_id,
+        exc,
+        wait,
+    )
+    _download_progress[model_id] = {
+        "pct": None,
+        "error": f"Retry {attempt}/{_DOWNLOAD_MAX_RETRIES}: {exc}",
+    }
+    await asyncio.sleep(wait)
+
+
+async def _download_with_retries(
+    *,
+    model_id: str,
+    repo_id: str,
+    model_dir: Path,
+    allow_patterns: list[str],
+    snapshot_download: Any,
+) -> None:
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):
+        try:
+            _download_progress[model_id] = {"pct": 5.0, "error": None}
+            logger.info(
+                "Downloading reranker model %s from %s (attempt %d/%d)",
+                model_id,
+                repo_id,
+                attempt,
+                _DOWNLOAD_MAX_RETRIES,
+            )
+            _download_progress[model_id] = {"pct": 10.0, "error": None}
+            local_path = await _snapshot_to_model_dir(
+                snapshot_download=snapshot_download,
+                repo_id=repo_id,
+                model_dir=model_dir,
+                allow_patterns=allow_patterns,
+            )
+            _download_progress[model_id] = {"pct": 90.0, "error": None}
+            if not _is_model_downloaded(model_dir):
+                _download_progress[model_id] = {
+                    "pct": None,
+                    "error": f"Download completed but required files missing in {local_path}",
+                }
+                return
+            _download_progress[model_id] = {"pct": 100.0, "error": None}
+            logger.info("Reranker model %s downloaded to %s", model_id, model_dir)
+            return
+        except asyncio.CancelledError:
+            await _handle_download_cancelled(model_id, model_dir)
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _DOWNLOAD_MAX_RETRIES:
+                await _sleep_before_retry(model_id, attempt, exc)
+
+    logger.error(
+        "Failed to download reranker model %s after %d attempts: %s",
+        model_id,
+        _DOWNLOAD_MAX_RETRIES,
+        last_exc,
+    )
+    _download_progress[model_id] = {"pct": None, "error": str(last_exc)}
 
 
 async def _download_model_task(
@@ -286,117 +436,22 @@ async def _download_model_task(
     back to the legacy broad allow patterns.
     """
     model_id = meta.id
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        _download_progress[model_id] = {
-            "pct": None,
-            "error": "huggingface-hub is not installed. Run: pip install huggingface-hub",
-        }
+    snapshot_download = _snapshot_download_or_error(model_id)
+    if snapshot_download is None:
         return
 
     repo_id = meta.onnx_repo or meta.repo
-    sidecars = [
-        "tokenizer.json",
-        "tokenizer_config.json",
-        "config.json",
-        "special_tokens_map.json",
-        "vocab.txt",
-        "sentencepiece.bpe.model",
-    ]
-
-    if meta.variants:
-        variant_name = resolve_variant_name(meta, override=variant_override)
-        if variant_name is None:
-            _download_progress[model_id] = {
-                "pct": None,
-                "error": f"Could not resolve a variant for {model_id}",
-            }
-            return
-        variant = meta.variants[variant_name]
-        # Unconditionally include the .onnx_data sidecar pattern.
-        # snapshot_download silently skips patterns that don't match, so
-        # this is free for variants without external data.
-        allow_patterns = [
-            variant.file,
-            f"{variant.file}_data",
-            *sidecars,
-        ]
-        logger.info(
-            "Resolved reranker variant %r for model %s (platform=%s, override=%r)",
-            variant_name, model_id, detect_platform_key(), variant_override,
-        )
-    else:
-        allow_patterns = [
-            "*.onnx",
-            "onnx/*.onnx",
-            "*.onnx_data",
-            "onnx/*.onnx_data",
-            *sidecars,
-        ]
-
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_RETRIES + 1):
-        try:
-            _download_progress[model_id] = {"pct": 5.0, "error": None}
-
-            logger.info(
-                "Downloading reranker model %s from %s (attempt %d/%d)",
-                model_id,
-                repo_id,
-                attempt,
-                _DOWNLOAD_MAX_RETRIES,
-            )
-            _download_progress[model_id] = {"pct": 10.0, "error": None}
-
-            local_path = await asyncio.to_thread(
-                snapshot_download,
-                repo_id,
-                local_dir=str(model_dir),
-                allow_patterns=allow_patterns,
-                etag_timeout=_DOWNLOAD_ETAG_TIMEOUT,
-            )
-
-            _download_progress[model_id] = {"pct": 90.0, "error": None}
-
-            if not _is_model_downloaded(model_dir):
-                _download_progress[model_id] = {
-                    "pct": None,
-                    "error": f"Download completed but required files missing in {local_path}",
-                }
-                return
-
-            _download_progress[model_id] = {"pct": 100.0, "error": None}
-            logger.info("Reranker model %s downloaded to %s", model_id, model_dir)
-            return
-
-        except asyncio.CancelledError:
-            _download_progress[model_id] = {"pct": None, "error": "cancelled"}
-            if model_dir.exists():
-                shutil.rmtree(str(model_dir), ignore_errors=True)
-            raise
-        except Exception as exc:
-            last_exc = exc
-            if attempt < _DOWNLOAD_MAX_RETRIES:
-                wait = 2**attempt
-                logger.warning(
-                    "Download attempt %d/%d for %s failed: %s — retrying in %ds",
-                    attempt,
-                    _DOWNLOAD_MAX_RETRIES,
-                    model_id,
-                    exc,
-                    wait,
-                )
-                _download_progress[model_id] = {
-                    "pct": None,
-                    "error": f"Retry {attempt}/{_DOWNLOAD_MAX_RETRIES}: {exc}",
-                }
-                await asyncio.sleep(wait)
-
-    logger.error(
-        "Failed to download reranker model %s after %d attempts: %s",
-        model_id,
-        _DOWNLOAD_MAX_RETRIES,
-        last_exc,
+    allow_patterns = _variant_allow_patterns(
+        meta,
+        model_id=model_id,
+        variant_override=variant_override,
     )
-    _download_progress[model_id] = {"pct": None, "error": str(last_exc)}
+    if allow_patterns is None:
+        return
+    await _download_with_retries(
+        model_id=model_id,
+        repo_id=repo_id,
+        model_dir=model_dir,
+        allow_patterns=allow_patterns,
+        snapshot_download=snapshot_download,
+    )
