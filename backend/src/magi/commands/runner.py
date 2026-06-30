@@ -48,6 +48,19 @@ class CommandRunResult:
     execution_time_ms: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class _CommandCall:
+    user_id: str
+    session_id: str
+    tool_name: str
+    arguments: dict[str, Any]
+    invocation_text: str
+    agent_id: str
+    workspace: str | None
+    turn_id: str
+    invocation_message_id: str
+
+
 class CommandTranscriptWriter(Protocol):
     async def append_command_invocation(
         self,
@@ -58,8 +71,7 @@ class CommandTranscriptWriter(Protocol):
         tool_name: str,
         arguments: dict[str, Any],
         invocation_text: str,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     async def append_command_result(
         self,
@@ -76,8 +88,7 @@ class CommandTranscriptWriter(Protocol):
         error_code: str | None,
         execution_time_ms: int,
         invocation_text: str | None = None,
-    ) -> str:
-        ...
+    ) -> str: ...
 
 
 class CommandRunner:
@@ -105,28 +116,15 @@ class CommandRunner:
         agent_id: str | None = None,
         workspace: str | None = None,
     ) -> CommandRunResult:
-        if not self._resolver.is_user_invocable(self._registry, tool_name):
-            return await self._record_failure(
-                user_id=user_id,
-                session_id=session_id,
-                tool_name=tool_name,
-                arguments=arguments,
-                invocation_text=invocation_text,
-                error=f"Tool {tool_name!r} is not user-invocable.",
-                error_code=ToolErrorCode.PERMISSION_DENIED.value,
-            )
-
-        tool = self._registry.get_tool(tool_name)
-        if tool is None:
-            return await self._record_failure(
-                user_id=user_id,
-                session_id=session_id,
-                tool_name=tool_name,
-                arguments=arguments,
-                invocation_text=invocation_text,
-                error=f"Tool {tool_name!r} not found.",
-                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
-            )
+        preflight_failure = await self._preflight_tool_command(
+            user_id=user_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            invocation_text=invocation_text,
+        )
+        if preflight_failure is not None:
+            return preflight_failure
 
         turn_id = f"cmd_{uuid.uuid4().hex[:16]}"
         invocation_message_id = await self._append_invocation_message(
@@ -137,82 +135,141 @@ class CommandRunner:
             arguments=arguments,
             invocation_text=invocation_text,
         )
+        call = _CommandCall(
+            user_id=user_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            invocation_text=invocation_text,
+            agent_id=agent_id or user_id,
+            workspace=workspace,
+            turn_id=turn_id,
+            invocation_message_id=invocation_message_id,
+        )
 
         gateway_decision = await self._gate(
             tool_name=tool_name,
             arguments=arguments,
-            agent_id=agent_id or user_id,
+            agent_id=call.agent_id,
             session_id=session_id,
             turn_id=turn_id,
             workspace=workspace,
         )
-        if gateway_decision is not None and not gateway_decision.allowed:
-            return await self._append_result_message(
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                invocation_message_id=invocation_message_id,
-                tool_name=tool_name,
-                arguments=arguments,
-                output_text=gateway_decision.reason or "Permission denied.",
-                success=False,
-                error=gateway_decision.reason,
-                error_code=ToolErrorCode.PERMISSION_DENIED.value,
-                execution_time_ms=0,
-            )
+        blocked_result = await self._blocked_permission_result(call, gateway_decision)
+        if blocked_result is not None:
+            return blocked_result
 
-        # Fail-closed when the gateway is unavailable: dangerous tools must
-        # NOT execute without explicit adjudication, and non-dangerous tools
-        # must not silently inherit the `dangerous_tools` permission.
-        tool_info = self._registry.get_tool_info(tool_name) or {}
-        tool_is_dangerous = bool(tool_info.get("dangerous", False))
         gateway_adjudicated = gateway_decision is not None
-        if not gateway_adjudicated and tool_is_dangerous:
-            refusal = (
-                "permission gateway not available; dangerous tool execution refused"
-            )
-            return await self._append_result_message(
+        refused_result = await self._dangerous_gateway_refusal(
+            call,
+            gateway_adjudicated=gateway_adjudicated,
+        )
+        if refused_result is not None:
+            return refused_result
+
+        ctx = self._execution_context(call, gateway_adjudicated=gateway_adjudicated)
+        return await self._execute_and_record(call, ctx)
+
+    async def _preflight_tool_command(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        invocation_text: str,
+    ) -> CommandRunResult | None:
+        if not self._resolver.is_user_invocable(self._registry, tool_name):
+            return await self._record_failure(
                 user_id=user_id,
                 session_id=session_id,
-                turn_id=turn_id,
-                invocation_message_id=invocation_message_id,
                 tool_name=tool_name,
                 arguments=arguments,
-                output_text=refusal,
-                success=False,
-                error=refusal,
+                invocation_text=invocation_text,
+                error=f"Tool {tool_name!r} is not user-invocable.",
                 error_code=ToolErrorCode.PERMISSION_DENIED.value,
-                execution_time_ms=0,
             )
+        if self._registry.get_tool(tool_name) is None:
+            return await self._record_failure(
+                user_id=user_id,
+                session_id=session_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                invocation_text=invocation_text,
+                error=f"Tool {tool_name!r} not found.",
+                error_code=ToolErrorCode.TOOL_NOT_FOUND.value,
+            )
+        return None
 
-        # Build a synthetic execution context. ``dangerous_tools`` is only
-        # granted when the gateway has actually adjudicated this call —
-        # otherwise we fall back to ``authenticated`` only.
+    async def _blocked_permission_result(
+        self,
+        call: _CommandCall,
+        gateway_decision: Any,
+    ) -> CommandRunResult | None:
+        if gateway_decision is None or gateway_decision.allowed:
+            return None
+        return await self._append_call_result(
+            call,
+            output_text=gateway_decision.reason or "Permission denied.",
+            success=False,
+            error=gateway_decision.reason,
+            error_code=ToolErrorCode.PERMISSION_DENIED.value,
+            execution_time_ms=0,
+        )
+
+    async def _dangerous_gateway_refusal(
+        self,
+        call: _CommandCall,
+        *,
+        gateway_adjudicated: bool,
+    ) -> CommandRunResult | None:
+        if gateway_adjudicated or not self._tool_is_dangerous(call.tool_name):
+            return None
+        refusal = "permission gateway not available; dangerous tool execution refused"
+        return await self._append_call_result(
+            call,
+            output_text=refusal,
+            success=False,
+            error=refusal,
+            error_code=ToolErrorCode.PERMISSION_DENIED.value,
+            execution_time_ms=0,
+        )
+
+    def _execution_context(
+        self,
+        call: _CommandCall,
+        *,
+        gateway_adjudicated: bool,
+    ) -> ToolExecutionContext:
         permissions = ["authenticated"]
         if gateway_adjudicated:
             permissions.append("dangerous_tools")
-        ctx = ToolExecutionContext(
-            agent_id=agent_id or user_id,
-            task_id=turn_id,
-            workspace=workspace or "",
+        return ToolExecutionContext(
+            agent_id=call.agent_id,
+            task_id=call.turn_id,
+            workspace=call.workspace or "",
             env_vars={"role": "user"},
             permissions=permissions,
             enabled_features=[],
             capabilities=build_tool_capabilities(),
         )
 
+    async def _execute_and_record(
+        self,
+        call: _CommandCall,
+        ctx: ToolExecutionContext,
+    ) -> CommandRunResult:
         started = time.monotonic()
         try:
-            result: ToolResult = await self._registry.execute(tool_name, arguments, ctx)
+            result: ToolResult = await self._registry.execute(
+                call.tool_name,
+                call.arguments,
+                ctx,
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Command execution raised: %s", tool_name)
-            return await self._append_result_message(
-                user_id=user_id,
-                session_id=session_id,
-                turn_id=turn_id,
-                invocation_message_id=invocation_message_id,
-                tool_name=tool_name,
-                arguments=arguments,
+            logger.exception("Command execution raised: %s", call.tool_name)
+            return await self._append_call_result(
+                call,
                 output_text=str(exc),
                 success=False,
                 error=str(exc),
@@ -220,19 +277,40 @@ class CommandRunner:
                 execution_time_ms=int((time.monotonic() - started) * 1000),
             )
         execution_time_ms = int((time.monotonic() - started) * 1000)
-
-        output_text = _extract_text(result)
-        return await self._append_result_message(
-            user_id=user_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            invocation_message_id=invocation_message_id,
-            tool_name=tool_name,
-            arguments=arguments,
-            output_text=output_text,
+        return await self._append_call_result(
+            call,
+            output_text=_extract_text(result),
             success=result.success,
             error=result.error,
             error_code=result.error_code,
+            execution_time_ms=execution_time_ms,
+        )
+
+    def _tool_is_dangerous(self, tool_name: str) -> bool:
+        tool_info = self._registry.get_tool_info(tool_name) or {}
+        return bool(tool_info.get("dangerous", False))
+
+    async def _append_call_result(
+        self,
+        call: _CommandCall,
+        *,
+        output_text: str,
+        success: bool,
+        error: str | None,
+        error_code: str | None,
+        execution_time_ms: int,
+    ) -> CommandRunResult:
+        return await self._append_result_message(
+            user_id=call.user_id,
+            session_id=call.session_id,
+            turn_id=call.turn_id,
+            invocation_message_id=call.invocation_message_id,
+            tool_name=call.tool_name,
+            arguments=call.arguments,
+            output_text=output_text,
+            success=success,
+            error=error,
+            error_code=error_code,
             execution_time_ms=execution_time_ms,
         )
 
