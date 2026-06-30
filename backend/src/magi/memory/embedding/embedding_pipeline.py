@@ -36,6 +36,12 @@ class EmbeddingPipelineResult:
     embedded_at: float
 
 
+@dataclass(slots=True)
+class _EmbeddingWriteBatch:
+    results: list[EmbeddingPipelineResult]
+    vector_items: list[dict[str, Any]]
+
+
 class MemoryEmbeddingPipeline:
     """Embed prepared chunk texts and persist them through one vector index."""
 
@@ -63,23 +69,49 @@ class MemoryEmbeddingPipeline:
         if not embeddings:
             return []
 
-        successful_results: list[EmbeddingPipelineResult] = []
-        vector_items: list[dict[str, Any]] = []
-        embedded_at = time.time()
+        write_batch = self._build_write_batch(
+            items=prepared_items,
+            embeddings=embeddings,
+            embedded_at=time.time(),
+        )
+        if not write_batch.vector_items:
+            return []
+
+        return await self._persist_write_batch(write_batch)
+
+    def _build_write_batch(
+        self,
+        *,
+        items: list[EmbeddingPipelineItem],
+        embeddings: list[EmbeddingResult | None],
+        embedded_at: float,
+    ) -> _EmbeddingWriteBatch:
+        successful_results = self._build_successful_results(
+            items=items,
+            embeddings=embeddings,
+            embedded_at=embedded_at,
+        )
+        return _EmbeddingWriteBatch(
+            results=successful_results,
+            vector_items=self._batch_vector_items(successful_results),
+        )
+
+    def _build_successful_results(
+        self,
+        *,
+        items: list[EmbeddingPipelineItem],
+        embeddings: list[EmbeddingResult | None],
+        embedded_at: float,
+    ) -> list[EmbeddingPipelineResult]:
+        results: list[EmbeddingPipelineResult] = []
         embedding_index = 0
-        for item in prepared_items:
+        for item in items:
             chunk_embeddings = embeddings[embedding_index : embedding_index + len(item.chunks)]
             embedding_index += len(item.chunks)
-            if len(chunk_embeddings) != len(item.chunks) or any(
-                embedding is None for embedding in chunk_embeddings
-            ):
+            typed_embeddings = self._typed_chunk_embeddings(item, chunk_embeddings)
+            if typed_embeddings is None:
                 continue
-            typed_embeddings = [
-                self._result_for_index(embedding)
-                for embedding in chunk_embeddings
-                if embedding is not None
-            ]
-            successful_results.append(
+            results.append(
                 EmbeddingPipelineResult(
                     parent_id=item.parent_id,
                     chunks=item.chunks,
@@ -89,43 +121,62 @@ class MemoryEmbeddingPipeline:
                     embedded_at=embedded_at,
                 )
             )
-            for chunk, embedding in zip(item.chunks, typed_embeddings):
-                metadata = dict(item.metadata)
+        return results
+
+    def _typed_chunk_embeddings(
+        self,
+        item: EmbeddingPipelineItem,
+        chunk_embeddings: list[EmbeddingResult | None],
+    ) -> list[EmbeddingResult] | None:
+        if len(chunk_embeddings) != len(item.chunks):
+            return None
+        typed_embeddings: list[EmbeddingResult] = []
+        for embedding in chunk_embeddings:
+            if embedding is None:
+                return None
+            typed_embeddings.append(self._result_for_index(embedding))
+        return typed_embeddings
+
+    def _batch_vector_items(
+        self,
+        results: list[EmbeddingPipelineResult],
+    ) -> list[dict[str, Any]]:
+        vector_items: list[dict[str, Any]] = []
+        for result in results:
+            for chunk, embedding in zip(result.chunks, result.embeddings):
+                metadata = dict(result.metadata)
                 metadata.setdefault("chunk_index", chunk.chunk_index)
                 vector_items.append(
                     {
-                        "entity_id": self._vector_entity_id(item.parent_id, chunk),
+                        "entity_id": self._vector_entity_id(result.parent_id, chunk),
                         "embedding": embedding,
                         "metadata": metadata,
                     }
                 )
-        if not vector_items:
-            return []
+        return vector_items
 
+    async def _persist_write_batch(
+        self,
+        write_batch: _EmbeddingWriteBatch,
+    ) -> list[EmbeddingPipelineResult]:
         try:
-            await self._vector_index.upsert_many(vector_items)
-            return successful_results
+            await self._vector_index.upsert_many(write_batch.vector_items)
+            return write_batch.results
         except Exception as exc:
             logger.warning(
                 "Failed batch upsert for memory embeddings, falling back to single-row writes: %s",
                 exc,
             )
+        return await self._fallback_upsert_results(write_batch.results)
 
+    async def _fallback_upsert_results(
+        self,
+        results: list[EmbeddingPipelineResult],
+    ) -> list[EmbeddingPipelineResult]:
         persisted_results: list[EmbeddingPipelineResult] = []
-        vector_items_by_parent = {
-            result.parent_id: [
-                {
-                    "entity_id": self._vector_entity_id(result.parent_id, chunk),
-                    "embedding": embedding,
-                    "metadata": {**result.metadata, "chunk_index": chunk.chunk_index},
-                }
-                for chunk, embedding in zip(result.chunks, result.embeddings)
-            ]
-            for result in successful_results
-        }
-        for result in successful_results:
+        for result in results:
             try:
-                for vector_item in vector_items_by_parent[result.parent_id]:
+                for vector_item in self._single_row_vector_items(result):
                     await self._vector_index.upsert(
                         entity_id=str(vector_item["entity_id"]),
                         embedding=vector_item["embedding"],
@@ -139,6 +190,19 @@ class MemoryEmbeddingPipeline:
                     item_exc,
                 )
         return persisted_results
+
+    def _single_row_vector_items(
+        self,
+        result: EmbeddingPipelineResult,
+    ) -> list[dict[str, Any]]:
+        return [
+            {
+                "entity_id": self._vector_entity_id(result.parent_id, chunk),
+                "embedding": embedding,
+                "metadata": {**result.metadata, "chunk_index": chunk.chunk_index},
+            }
+            for chunk, embedding in zip(result.chunks, result.embeddings)
+        ]
 
     async def _embed_texts(self, texts: list[str]) -> list[EmbeddingResult | None]:
         if hasattr(self._embedding_service, "embed_texts"):
