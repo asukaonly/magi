@@ -66,6 +66,14 @@ class _ImageGenerationExecution:
     event_context: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class _PersistedImageArtifact:
+    saved_path: str | None
+    artifact: dict[str, Any]
+    chat_attachment: Any = None
+    has_chat_attachment: bool = False
+
+
 class ImageGenerationTool(Tool):
     """Generate images from text prompts using configured image generation models."""
 
@@ -625,67 +633,138 @@ class ImageGenerationTool(Tool):
     ) -> tuple[list[str], list[dict[str, Any]], list[dict[str, object]]]:
         output_dir = workspace / "generated_images"
         output_dir.mkdir(parents=True, exist_ok=True)
-
         saved_paths: list[str] = []
         artifacts: list[dict[str, Any]] = []
         chat_attachments: list[dict[str, object]] = []
 
         for idx, image in enumerate(images):
-            saved_path: str | None = None
-            attachment: dict[str, object] | None = None
-            image_bytes: bytes | None = None
-            image_mime = image.mime
-
-            if image.b64:
-                image_bytes = self._decode_image_b64(image.b64)
-            elif image.url:
-                downloaded = await self._download_image_url(
-                    image.url,
-                    fallback_mime=image.mime,
-                    proxy_url=proxy_url,
-                )
-                if downloaded is not None:
-                    image_bytes, image_mime = downloaded
-                else:
-                    saved_path = image.url
-                    saved_paths.append(image.url)
-
-            if image_bytes is not None:
-                extension = self._extension_for_mime(image_mime)
-                filename = f"{uuid.uuid4().hex[:12]}{extension}"
-                filepath = output_dir / filename
-                filepath.write_bytes(image_bytes)
-                saved_path = str(filepath)
-                saved_paths.append(saved_path)
-                logger.info("Image saved", path=saved_path, model=model)
-                if session_id and turn_id and chat_port is not None:
-                    attachment = chat_port.ingest_local_file(
-                        session_id=session_id,
-                        turn_id=turn_id,
-                        file_path=saved_path,
-                        original_name=filename,
-                        mime_type=image_mime,
-                    )
-                    chat_attachments.append(attachment)
-            elif image.url and saved_path is None:
-                saved_path = image.url
-                saved_paths.append(image.url)
-
-            artifact_payload: dict[str, Any] = {
-                "index": idx,
-                "mime": image_mime,
-                "path": saved_path,
-                "url": image.url,
-                "seed": image.seed,
-                "revised_prompt": image.revised_prompt,
-            }
-            if attachment is not None:
-                artifact_payload["attachment_id"] = attachment.get("attachment_id")
-            artifacts.append(
-                {key: value for key, value in artifact_payload.items() if value is not None}
+            persisted = await self._persist_image_artifact(
+                idx=idx,
+                image=image,
+                output_dir=output_dir,
+                model=model,
+                session_id=session_id,
+                turn_id=turn_id,
+                proxy_url=proxy_url,
+                chat_port=chat_port,
             )
+            if persisted.saved_path is not None:
+                saved_paths.append(persisted.saved_path)
+            if persisted.has_chat_attachment:
+                chat_attachments.append(persisted.chat_attachment)
+            artifacts.append(persisted.artifact)
 
         return saved_paths, artifacts, chat_attachments
+
+    async def _persist_image_artifact(
+        self,
+        *,
+        idx: int,
+        image: ImageArtifact,
+        output_dir: Path,
+        model: str,
+        session_id: str,
+        turn_id: str,
+        proxy_url: str | None,
+        chat_port: Any,
+    ) -> _PersistedImageArtifact:
+        image_bytes, image_mime = await self._image_bytes_and_mime(image, proxy_url=proxy_url)
+        saved_path: str | None = None
+        chat_attachment = None
+        has_chat_attachment = False
+        if image_bytes is not None:
+            saved_path, chat_attachment, has_chat_attachment = self._write_generated_image(
+                image_bytes=image_bytes,
+                image_mime=image_mime,
+                output_dir=output_dir,
+                model=model,
+                session_id=session_id,
+                turn_id=turn_id,
+                chat_port=chat_port,
+            )
+        elif image.url:
+            saved_path = image.url
+
+        return _PersistedImageArtifact(
+            saved_path=saved_path,
+            artifact=self._image_artifact_payload(
+                idx=idx,
+                image=image,
+                image_mime=image_mime,
+                saved_path=saved_path,
+                attachment=chat_attachment,
+            ),
+            chat_attachment=chat_attachment,
+            has_chat_attachment=has_chat_attachment,
+        )
+
+    async def _image_bytes_and_mime(
+        self,
+        image: ImageArtifact,
+        *,
+        proxy_url: str | None,
+    ) -> tuple[bytes | None, str]:
+        if image.b64:
+            return self._decode_image_b64(image.b64), image.mime
+        if not image.url:
+            return None, image.mime
+        downloaded = await self._download_image_url(
+            image.url,
+            fallback_mime=image.mime,
+            proxy_url=proxy_url,
+        )
+        if downloaded is None:
+            return None, image.mime
+        return downloaded
+
+    def _write_generated_image(
+        self,
+        *,
+        image_bytes: bytes,
+        image_mime: str,
+        output_dir: Path,
+        model: str,
+        session_id: str,
+        turn_id: str,
+        chat_port: Any,
+    ) -> tuple[str, Any, bool]:
+        extension = self._extension_for_mime(image_mime)
+        filename = f"{uuid.uuid4().hex[:12]}{extension}"
+        filepath = output_dir / filename
+        filepath.write_bytes(image_bytes)
+        saved_path = str(filepath)
+        logger.info("Image saved", path=saved_path, model=model)
+        if not (session_id and turn_id and chat_port is not None):
+            return saved_path, None, False
+        attachment = chat_port.ingest_local_file(
+            session_id=session_id,
+            turn_id=turn_id,
+            file_path=saved_path,
+            original_name=filename,
+            mime_type=image_mime,
+        )
+        return saved_path, attachment, True
+
+    @staticmethod
+    def _image_artifact_payload(
+        *,
+        idx: int,
+        image: ImageArtifact,
+        image_mime: str,
+        saved_path: str | None,
+        attachment: Any,
+    ) -> dict[str, Any]:
+        artifact_payload: dict[str, Any] = {
+            "index": idx,
+            "mime": image_mime,
+            "path": saved_path,
+            "url": image.url,
+            "seed": image.seed,
+            "revised_prompt": image.revised_prompt,
+        }
+        if attachment is not None:
+            artifact_payload["attachment_id"] = attachment.get("attachment_id")
+        return {key: value for key, value in artifact_payload.items() if value is not None}
 
     @staticmethod
     def _decode_image_b64(value: str) -> bytes:
