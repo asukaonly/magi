@@ -34,6 +34,24 @@ class HybridRetrievalPlanExecutionMixin:
         if not plans:
             return
         host = cast(Any, self)
+        self._log_plan_batch(plans=plans, request=request, label=label)
+        results = await self._execute_plan_batch(plans=plans, l1=l1, request=request)
+        for plan, result in zip(plans, results):
+            self._record_plan_result(
+                host=host,
+                payload=payload,
+                plan=plan,
+                result=result,
+                label=label,
+            )
+
+    def _log_plan_batch(
+        self,
+        *,
+        plans: list[LayerQueryPlan],
+        request: RetrievalQuery,
+        label: str,
+    ) -> None:
         for plan in plans:
             logger.info(
                 "%s executing | layer=%s fallback=%s conditions=%s time_range=%s "
@@ -46,58 +64,103 @@ class HybridRetrievalPlanExecutionMixin:
                 request.session_id,
                 request.user_id,
             )
-        results = await asyncio.gather(
-            *[
-                execute_layer_plan(
-                    plan,
+
+    async def _execute_plan_batch(
+        self,
+        *,
+        plans: list[LayerQueryPlan],
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+    ) -> list[Any]:
+        host = cast(Any, self)
+        return await asyncio.gather(
+            *(
+                self._execute_single_layer_plan(
+                    plan=plan,
                     l1=l1,
-                    l2=host._l2,
-                    l3=host._l3,
-                    l4=host._l4,
-                    session_id=request.session_id,
-                    user_id=request.user_id,
+                    request=request,
+                    host=host,
                 )
                 for plan in plans
-            ],
+            ),
             return_exceptions=True,
         )
-        for plan, result in zip(plans, results):
-            trace_record = {
+
+    async def _execute_single_layer_plan(
+        self,
+        *,
+        plan: LayerQueryPlan,
+        l1: Optional[L1Handler],
+        request: RetrievalQuery,
+        host: Any,
+    ) -> Any:
+        return await execute_layer_plan(
+            plan,
+            l1=l1,
+            l2=host._l2,
+            l3=host._l3,
+            l4=host._l4,
+            session_id=request.session_id,
+            user_id=request.user_id,
+        )
+
+    def _record_plan_result(
+        self,
+        *,
+        host: Any,
+        payload: RetrievalPayload,
+        plan: LayerQueryPlan,
+        result: Any,
+        label: str,
+    ) -> None:
+        trace_record = {
+            "label": label,
+            "layer": plan.layer,
+            "fallback": plan.is_fallback,
+        }
+        if isinstance(result, Exception):
+            logger.warning("%s %s failed: %s", label, plan.layer, result)
+            trace_record["status"] = "error"
+            trace_record["error"] = str(result)
+            host._append_plan_trace(payload, trace_record)
+            return
+
+        trace_record["status"] = "ok"
+        trace_record["count"] = host._count_plan_result(plan.layer, result)
+        host._append_plan_trace(payload, trace_record)
+        self._log_plan_result(plan=plan, result=result, trace_record=trace_record, label=label)
+        host._merge_result(payload, plan.layer, result)
+
+    def _log_plan_result(
+        self,
+        *,
+        plan: LayerQueryPlan,
+        result: Any,
+        trace_record: dict[str, Any],
+        label: str,
+    ) -> None:
+        result_summary = _result_summary(plan.layer, result)
+        logger.debug(
+            "%s result | layer=%s fallback=%s count=%d summary=%s",
+            label,
+            plan.layer,
+            plan.is_fallback,
+            trace_record["count"],
+            result_summary,
+        )
+        log_detail(
+            logger,
+            "RETRIEVAL PLAN RESULT DETAIL",
+            {
                 "label": label,
                 "layer": plan.layer,
                 "fallback": plan.is_fallback,
-            }
-            if isinstance(result, Exception):
-                logger.warning("%s %s failed: %s", label, plan.layer, result)
-                trace_record["status"] = "error"
-                trace_record["error"] = str(result)
-                host._append_plan_trace(payload, trace_record)
-                continue
-            trace_record["status"] = "ok"
-            trace_record["count"] = host._count_plan_result(plan.layer, result)
-            host._append_plan_trace(payload, trace_record)
-            logger.debug(
-                "%s result | layer=%s fallback=%s count=%d summary=%s",
-                label,
-                plan.layer,
-                plan.is_fallback,
-                trace_record["count"],
-                _result_summary(plan.layer, result),
-            )
-            log_detail(
-                logger,
-                "RETRIEVAL PLAN RESULT DETAIL",
-                {
-                    "label": label,
-                    "layer": plan.layer,
-                    "fallback": plan.is_fallback,
-                    "count": trace_record["count"],
-                    "conditions": _compact_value(_conditions_dict(getattr(plan, "conditions", None))),
-                    "time_range": _time_range_dict(getattr(plan, "time_range", None)),
-                    "summary": _result_summary(plan.layer, result),
-                },
-            )
-            host._merge_result(payload, plan.layer, result)
+                "count": trace_record["count"],
+                "conditions": _compact_value(_conditions_dict(getattr(plan, "conditions", None))),
+                "time_range": _time_range_dict(getattr(plan, "time_range", None)),
+                "summary": result_summary,
+            },
+        )
 
 
 def _conditions_dict(conditions: Any) -> dict[str, Any]:
@@ -107,11 +170,11 @@ def _conditions_dict(conditions: Any) -> dict[str, Any]:
         return asdict(conditions)
     if isinstance(conditions, dict):
         return dict(conditions)
-    return {
-        key: value
-        for key, value in vars(conditions).items()
-        if not key.startswith("_")
-    } if hasattr(conditions, "__dict__") else {"repr": repr(conditions)}
+    return (
+        {key: value for key, value in vars(conditions).items() if not key.startswith("_")}
+        if hasattr(conditions, "__dict__")
+        else {"repr": repr(conditions)}
+    )
 
 
 def _time_range_dict(time_range: Any) -> dict[str, Any] | None:
