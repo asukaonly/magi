@@ -1,4 +1,4 @@
-"""Phase 4 of C: L1 idempotency must honor envelope event_id when dedupe hits."""
+"""L1 idempotency must keep downstream layers on canonical L1 event ids."""
 from __future__ import annotations
 import logging
 import pytest
@@ -50,8 +50,8 @@ async def test_idempotency_miss_writes_and_uses_envelope_id():
 
 
 @pytest.mark.asyncio
-async def test_idempotency_mismatch_warns_and_uses_envelope_id(caplog):
-    """When find returns a DIFFERENT id, log warning, dedupe (no store), use envelope id."""
+async def test_idempotency_mismatch_warns_and_uses_existing_id(caplog):
+    """When find returns a DIFFERENT id, log warning, dedupe, use existing L1 id."""
     store = MagicMock()
     store.find_event_id_by_idempotency = AsyncMock(return_value="evt-OLD")
     store.store = AsyncMock()
@@ -61,9 +61,9 @@ async def test_idempotency_mismatch_warns_and_uses_envelope_id(caplog):
         result = await layer.ingest(event, FanOutContext())
     # Did not double-INSERT
     store.store.assert_not_awaited()
-    # markers: NOT written (dedupe hit) but stored_event_id is envelope id
+    # markers: NOT written (dedupe hit), and downstream layers get the canonical L1 id.
     assert result.markers["l1_written"] is False
-    assert result.markers["stored_event_id"] == "evt-NEW"
+    assert result.markers["stored_event_id"] == "evt-OLD"
     # Warning logged
     assert any(
         "idempotency" in record.message.lower() and "evt-OLD" in record.message

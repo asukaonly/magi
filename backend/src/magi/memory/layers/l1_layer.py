@@ -33,20 +33,19 @@ class L1Layer:
             )
         l1_written = False
         if existing_event_id is not None:
-            # Dedupe hit. Honor the producer-assigned envelope event_id as the
-            # authoritative business id; warn if the legacy row carried a
-            # different id (cross-subscriber consistency requires single id).
+            # Dedupe hit. Downstream memory layers must receive the canonical
+            # L1 row id so projection jobs never point at a missing event.
             if existing_event_id != event.event_id:
                 logger.warning(
                     "L1 idempotency hit returned a different event_id; "
-                    "honoring envelope id to preserve cross-subscriber consistency "
+                    "using existing L1 event_id for downstream consistency "
                     "(envelope_id=%s existing_id=%s idempotency_key=%s source=%s)",
                     event.event_id,
                     existing_event_id,
                     event.idempotency_key,
                     event.source,
                 )
-            stored_event_id = event.event_id
+            stored_event_id = existing_event_id
         else:
             stored_event_id = await self._store.store(event)
             l1_written = True
