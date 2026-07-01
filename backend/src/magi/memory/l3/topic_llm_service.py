@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from ...i18n import llm_language_label
-from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
+from ...llm import LLMProviderBridge, LLMRequestPriority, LLMScenario, ScenarioLLMPool
 from .models import L3Candidate, ThematicEvidencePack, ThematicGenerationResult
 from .topic_evidence import TopicEvidencePackMixin
 from .topic_output import TopicOutputParsingMixin
@@ -128,6 +128,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning("L3 thematic topic prose LLM call failed", extra={**log_context, "error": str(exc)})
@@ -180,6 +181,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning("L3 thematic topic structure LLM call failed", extra={**log_context, "error": str(exc)})
@@ -232,6 +234,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning("L3 thematic topic LLM call failed", extra={**log_context, "error": str(exc)})

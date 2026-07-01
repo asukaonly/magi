@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from typing import Any, Optional, Protocol, cast
 
 from ...core.logger import get_logger
-from ...llm import LLMProviderBridge, LLMScenario, ProviderResponse, ScenarioLLMPool
+from ...llm import (
+    LLMProviderBridge,
+    LLMRequestPriority,
+    LLMScenario,
+    ProviderResponse,
+    ScenarioLLMPool,
+)
 from ...llm.error_classifier import is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
@@ -163,6 +169,7 @@ class L2LLMJsonClientMixin:
                 "session_id": call.session_id,
                 "agent_id": "memory:l2",
             },
+            priority=LLMRequestPriority.LOW,
         )
 
     async def _handle_json_call_failure(

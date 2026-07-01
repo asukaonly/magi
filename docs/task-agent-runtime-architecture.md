@@ -488,6 +488,26 @@ Prompt caching follows the same ownership split. The cacheable system head conta
 
 The prompt text must not duplicate the provider-facing tool catalog. Concrete tool names, descriptions, parameter schemas, and tool-specific rules belong in the function-calling `tools` parameter owned by the execution/tool layer. The context layer may render only short cross-tool guidance such as when to verify with available tools or how to recover from failures.
 
+### LLM capacity scheduling
+
+LLM scenarios still own model selection: `core`, `context_decider`,
+`memory_summarizer`, `embedding`, and other scenarios decide which provider,
+model, capability set, and context window a call uses. Runtime capacity is a
+separate concern owned by `LLMConcurrencyLimiter`.
+
+The limiter keeps one shared total cap per provider/base-url/model/request
+family key, then schedules waiters by request priority:
+
+- high priority: foreground chat, direct replies, function-calling decisions, and streamed user-facing responses
+- medium priority: reserved for explicit user-triggered maintenance or future manual operations
+- low priority: automatic memory work such as L2 extraction/reconciliation and L3 summary generation
+
+Low and medium priority calls may use idle capacity, but they cannot consume the
+last reserved slot when the model cap is greater than one. This keeps at least
+one slot available for a high-priority foreground chat call without increasing
+the provider/model concurrency ceiling. The limiter can only prioritize queued
+work; it does not preempt provider requests that have already started.
+
 Current implicit-memory policy is intentionally conservative:
 
 - default implicit injection is `L0` only

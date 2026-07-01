@@ -2,6 +2,7 @@
 Tests for provider bridge normalization and provider-specific parameters.
 """
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional
 
@@ -16,6 +17,7 @@ from magi.config.models import (
 )
 from magi.llm.base import LLMAdapter
 from magi.llm.anthropic import AnthropicAdapter
+from magi.llm.concurrency_limiter import LLMRequestPriority
 from magi.llm.openai import OpenAIAdapter
 from magi.llm.provider_bridge import LLMProviderBridge, ProviderToolCall
 from magi.llm.provider_bridge import _with_trace_previews
@@ -121,9 +123,27 @@ class RecordingConcurrencyLimiter:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
 
-    async def run_with_limit(self, key: str, operation, *, limit: int | None = None):  # type: ignore[no-untyped-def]
-        self.calls.append({"key": key, "limit": limit})
+    async def run_with_limit(  # type: ignore[no-untyped-def]
+        self,
+        key: str,
+        operation,
+        *,
+        limit: int | None = None,
+        priority: LLMRequestPriority | str | int | None = None,
+    ):
+        self.calls.append({"key": key, "limit": limit, "priority": priority})
         return await operation()
+
+    @asynccontextmanager
+    async def limit(  # type: ignore[no-untyped-def]
+        self,
+        key: str,
+        *,
+        limit: int | None = None,
+        priority: LLMRequestPriority | str | int | None = None,
+    ):
+        self.calls.append({"key": key, "limit": limit, "priority": priority})
+        yield
 
 
 def _build_test_llm_config(*, override_limit: int | None = None):
@@ -388,8 +408,67 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
         {
             "key": "openai::api.openai.com::gpt-5.2::chat",
             "limit": 2,
+            "priority": LLMRequestPriority.HIGH,
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_response_passes_explicit_priority_to_shared_limiter() -> None:
+    message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
+    response = SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="stop")])
+    client = DummyOpenAIClient(response=response)
+    llm = DummyLLMAdapter(
+        model="gpt-5.2",
+        provider="openai",
+        client=client,
+        base_url="https://api.openai.com/v1",
+    )
+    limiter = RecordingConcurrencyLimiter()
+    bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
+
+    result = await bridge.chat_response(
+        system_prompt="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        timeout_seconds=180.0,
+        priority=LLMRequestPriority.LOW,
+    )
+
+    assert result.content == "ok"
+    assert limiter.calls[-1] == {
+        "key": "openai::api.openai.com::gpt-5.2::chat",
+        "limit": 2,
+        "priority": LLMRequestPriority.LOW,
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_response_stream_uses_shared_concurrency_limiter() -> None:
+    llm = DummyLLMAdapter(
+        model="gpt-5.2",
+        provider="openai",
+        client=None,
+        base_url="https://api.openai.com/v1",
+    )
+    limiter = RecordingConcurrencyLimiter()
+    bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
+
+    events = [
+        event
+        async for event in bridge.chat_response_stream(
+            system_prompt="sys",
+            messages=[{"role": "user", "content": "hi"}],
+            priority=LLMRequestPriority.LOW,
+        )
+    ]
+
+    assert [event.kind for event in events] == ["text_delta", "done"]
+    assert events[0].text == "chat-ok"
+    assert limiter.calls[-1] == {
+        "key": "openai::api.openai.com::gpt-5.2::chat",
+        "limit": 2,
+        "priority": LLMRequestPriority.LOW,
+    }
 
 
 @pytest.mark.asyncio

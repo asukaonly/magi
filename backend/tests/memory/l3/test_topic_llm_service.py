@@ -10,6 +10,7 @@ import pytest
 from magi.memory.l3.models import ThematicEvidenceItem, ThematicEvidencePack
 from magi.memory.l3.topic_llm_service import TopicSummaryLLMService
 from magi.i18n import set_current_language
+from magi.llm.concurrency_limiter import LLMRequestPriority
 
 
 def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:
@@ -167,6 +168,32 @@ async def test_call_topic_model_parses_json_from_llm_target(monkeypatch: pytest.
     payload = await service._call_topic_model(pack)
 
     assert payload == {"content": "LLM topic summary", "key_topics": ["job_search"]}
+
+
+@pytest.mark.asyncio
+async def test_call_topic_model_uses_low_priority_llm_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    service = TopicSummaryLLMService()
+    pack = ThematicEvidencePack(
+        topic="job",
+        source_event_count=1,
+        source_event_ids=["evt-1"],
+        events=[
+            ThematicEvidenceItem(event_id="evt-1", event_type="UserMessage", content="switch jobs"),
+        ],
+    )
+    captured_kwargs: dict[str, object] = {}
+
+    class _FakeBridge:
+        async def chat_response(self, **kwargs: object) -> SimpleNamespace:
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(content='{"content":"LLM topic summary","key_topics":["job_search"]}')
+
+    fake_adapter = SimpleNamespace(provider_name="fake", model_name="fake-model")
+    monkeypatch.setattr(service, "_get_llm_target", lambda: (fake_adapter, _FakeBridge()))
+
+    await service._call_topic_model(pack)
+
+    assert captured_kwargs["priority"] is LLMRequestPriority.LOW
 
 
 def test_render_topic_prompt_includes_rule_hints() -> None:

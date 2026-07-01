@@ -9,12 +9,16 @@ import time
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from ..base import LLMAdapter
-from ..concurrency_limiter import LLMConcurrencyLimiter, get_llm_concurrency_limiter
+from ..concurrency_limiter import (
+    LLMConcurrencyLimiter,
+    LLMRequestPriority,
+    get_llm_concurrency_limiter,
+)
 from ..streaming_events import LLMStreamEvent
 from .models import (
     ProviderResponse,
-    ProviderToolCall,
-    ProviderUsage,
+    ProviderToolCall as ProviderToolCall,
+    ProviderUsage as ProviderUsage,
     ToolStreamResult,
 )
 from .options import ProviderBridgeOptionsMixin
@@ -128,6 +132,7 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> AsyncIterator[LLMStreamEvent]:
         return self._operations.chat_response_stream(
             system_prompt=system_prompt,
@@ -138,6 +143,7 @@ class LLMProviderBridge:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
             thinking_depth=thinking_depth,
+            priority=priority,
         )
 
     async def chat(
@@ -151,6 +157,7 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> str:
         """
         Unified non-tool chat call with system prompt.
@@ -165,6 +172,7 @@ class LLMProviderBridge:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
             thinking_depth=depth,
+            priority=priority,
         )
         return response.content
 
@@ -180,6 +188,7 @@ class LLMProviderBridge:
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
         cache_system: bool = False,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> ProviderResponse:
         """
         Unified plain-chat call that still returns normalized ProviderResponse.
@@ -207,6 +216,7 @@ class LLMProviderBridge:
                 timeout_seconds=timeout_seconds,
                 event_context=event_context,
                 cache_system=cache_system,
+                priority=priority,
             )
             await self._record_plain_chat_success(
                 provider_response, started_at, depth, event_context, messages
@@ -227,6 +237,7 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> ProviderResponse:
         """Unified tool-calling chat call."""
         depth = _coerce_thinking_depth(thinking_depth, disable_thinking)
@@ -242,6 +253,7 @@ class LLMProviderBridge:
                     timeout_seconds=timeout_seconds,
                     event_context=event_context,
                     thinking_depth=depth,
+                    priority=priority,
                 )
 
             provider_response = await self._run_chat_with_tools(
@@ -253,6 +265,7 @@ class LLMProviderBridge:
                 thinking_depth=depth,
                 timeout_seconds=timeout_seconds,
                 event_context=event_context,
+                priority=priority,
             )
             await self._record_chat_with_tools_success(
                 provider_response, started_at, depth, event_context, messages
@@ -303,10 +316,12 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
         cache_system: bool,
+        priority: LLMRequestPriority | str | int | None,
     ) -> ProviderResponse:
         return await self._operations._run_with_concurrency_limit(
             request_family="chat",
             limit=self._operations._resolve_chat_concurrency_limit(),
+            priority=priority,
             operation=lambda: self._operations._chat_response_impl(
                 system_prompt=system_prompt,
                 messages=messages,
@@ -372,6 +387,7 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
         thinking_depth: ThinkingDepth,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> ProviderResponse:
         return await self.chat_response(
             system_prompt=system_prompt,
@@ -381,6 +397,7 @@ class LLMProviderBridge:
             timeout_seconds=timeout_seconds,
             event_context=event_context,
             thinking_depth=thinking_depth,
+            priority=priority,
         )
 
     async def _run_chat_with_tools(
@@ -394,10 +411,12 @@ class LLMProviderBridge:
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
+        priority: LLMRequestPriority | str | int | None,
     ) -> ProviderResponse:
         return await self._operations._run_with_concurrency_limit(
             request_family="chat",
             limit=self._operations._resolve_chat_concurrency_limit(),
+            priority=priority,
             operation=lambda: self._operations._chat_with_tools_impl(
                 system_prompt=system_prompt,
                 messages=messages,
@@ -462,6 +481,7 @@ class LLMProviderBridge:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> ToolStreamResult:
         """Streaming variant of chat_with_tools().
 
@@ -485,6 +505,7 @@ class LLMProviderBridge:
                 thinking_depth=depth,
                 timeout_seconds=timeout_seconds,
                 event_context=event_context,
+                priority=priority,
             )
             await self._record_chat_with_tools_success(
                 result.provider_response, started_at, depth, event_context, messages
@@ -505,10 +526,12 @@ class LLMProviderBridge:
         thinking_depth: ThinkingDepth,
         timeout_seconds: Optional[float],
         event_context: Optional[Dict[str, Any]],
+        priority: LLMRequestPriority | str | int | None,
     ) -> ToolStreamResult:
         return await self._operations._run_with_concurrency_limit(
             request_family="chat",
             limit=self._operations._resolve_chat_concurrency_limit(),
+            priority=priority,
             operation=lambda: self._operations._chat_with_tools_stream_impl(
                 system_prompt=system_prompt,
                 messages=messages,

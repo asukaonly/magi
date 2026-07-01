@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from ...i18n import llm_language_label
-from ...llm import LLMProviderBridge, LLMScenario, ScenarioLLMPool
+from ...llm import LLMProviderBridge, LLMRequestPriority, LLMScenario, ScenarioLLMPool
 from .episodic_evidence import EpisodicEvidencePackMixin
 from .episodic_prompts import EPISODIC_SUMMARY_OUTPUT_SCHEMA, EPISODIC_SUMMARY_SYSTEM_PROMPT
 from .models import (
@@ -130,6 +130,7 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning("L3 episodic prose LLM call failed", extra={**log_context, "error": str(exc)})
@@ -175,6 +176,7 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning("L3 episodic structure LLM call failed", extra={**log_context, "error": str(exc)})

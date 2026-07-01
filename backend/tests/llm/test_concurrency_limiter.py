@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from magi.llm.concurrency_limiter import LLMConcurrencyLimiter
+from magi.llm.concurrency_limiter import LLMConcurrencyLimiter, LLMRequestPriority
 
 
 def test_build_limit_key_normalizes_base_url_host_and_request_family() -> None:
@@ -176,3 +176,155 @@ async def test_run_with_limit_updates_existing_key_limit_for_later_refresh() -> 
     assert await second_task == "second"
     assert limiter.get_stats(key).active == 0
     assert limiter.get_stats(key).waiting == 0
+
+
+@pytest.mark.asyncio
+async def test_low_priority_requests_leave_capacity_for_high_priority_work() -> None:
+    limiter = LLMConcurrencyLimiter(default_limit=3)
+    key = limiter.build_key(
+        provider_name="openai",
+        model_name="gpt-5.2",
+        request_family="chat",
+    )
+
+    entered: list[str] = []
+    release_low = asyncio.Event()
+    low_started = [asyncio.Event(), asyncio.Event()]
+
+    async def low_operation(index: int) -> str:
+        entered.append(f"low-{index}")
+        low_started[index].set()
+        await release_low.wait()
+        return f"low-{index}"
+
+    first_low = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            lambda: low_operation(0),
+            limit=3,
+            priority=LLMRequestPriority.LOW,
+        )
+    )
+    second_low = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            lambda: low_operation(1),
+            limit=3,
+            priority=LLMRequestPriority.LOW,
+        )
+    )
+
+    await asyncio.wait_for(low_started[0].wait(), timeout=1.0)
+    await asyncio.wait_for(low_started[1].wait(), timeout=1.0)
+
+    third_low_started = asyncio.Event()
+
+    async def third_low_operation() -> str:
+        entered.append("low-2")
+        third_low_started.set()
+        return "low-2"
+
+    third_low = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            third_low_operation,
+            limit=3,
+            priority=LLMRequestPriority.LOW,
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert not third_low_started.is_set()
+    assert limiter.get_stats(key).active == 2
+    assert limiter.get_stats(key).waiting == 1
+
+    high_started = asyncio.Event()
+
+    async def high_operation() -> str:
+        entered.append("high")
+        high_started.set()
+        return "high"
+
+    high_task = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            high_operation,
+            limit=3,
+            priority=LLMRequestPriority.HIGH,
+        )
+    )
+
+    assert await high_task == "high"
+    assert high_started.is_set()
+    assert not third_low_started.is_set()
+    assert entered == ["low-0", "low-1", "high"]
+
+    release_low.set()
+
+    assert await first_low == "low-0"
+    assert await second_low == "low-1"
+    assert await third_low == "low-2"
+
+
+@pytest.mark.asyncio
+async def test_high_priority_waiter_runs_before_queued_low_priority_work() -> None:
+    limiter = LLMConcurrencyLimiter(default_limit=1)
+    key = limiter.build_key(
+        provider_name="openai",
+        model_name="gpt-5.2",
+        request_family="chat",
+    )
+
+    entered: list[str] = []
+    release_running = asyncio.Event()
+    running_started = asyncio.Event()
+
+    async def running_operation() -> str:
+        entered.append("running")
+        running_started.set()
+        await release_running.wait()
+        return "running"
+
+    running_task = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            running_operation,
+            limit=1,
+            priority=LLMRequestPriority.LOW,
+        )
+    )
+    await running_started.wait()
+
+    async def low_operation() -> str:
+        entered.append("low")
+        return "low"
+
+    async def high_operation() -> str:
+        entered.append("high")
+        return "high"
+
+    low_task = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            low_operation,
+            limit=1,
+            priority=LLMRequestPriority.LOW,
+        )
+    )
+    await asyncio.sleep(0)
+
+    high_task = asyncio.create_task(
+        limiter.run_with_limit(
+            key,
+            high_operation,
+            limit=1,
+            priority=LLMRequestPriority.HIGH,
+        )
+    )
+    await asyncio.sleep(0)
+    release_running.set()
+
+    assert await running_task == "running"
+    assert await high_task == "high"
+    assert await low_task == "low"
+    assert entered == ["running", "high", "low"]

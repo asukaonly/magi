@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, cast
 
 from ..streaming_events import LLMStreamEvent, emit_stream_event
+from ..concurrency_limiter import LLMRequestPriority
 from .streaming_core import ProviderBridgeStreamingHostProtocol, ThinkTagScrubber
 from .tool_streaming import ProviderBridgeToolStreamingMixin
 from ...config.constants import DEFAULT_THINKING_TOKENS
@@ -52,6 +53,7 @@ class ProviderBridgeChatStreamingMixin:
         timeout_seconds: Optional[float] = None,
         event_context: Optional[Dict[str, Any]] = None,
         thinking_depth: ThinkingDepth | None = None,
+        priority: LLMRequestPriority | str | int | None = LLMRequestPriority.HIGH,
     ) -> AsyncIterator[LLMStreamEvent]:
         """Streaming variant of chat_response()."""
         host = cast(ProviderBridgeStreamingHostProtocol, self)
@@ -65,42 +67,47 @@ class ProviderBridgeChatStreamingMixin:
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
         state = _ChatStreamState(started_at=time.time())
 
-        if host.is_anthropic():
-            async for event_payload in self._stream_anthropic_chat_response(
+        async with self._limit_concurrency(
+            request_family="chat",
+            limit=self._resolve_chat_concurrency_limit(),
+            priority=priority,
+        ):
+            if host.is_anthropic():
+                async for event_payload in self._stream_anthropic_chat_response(
+                    host,
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_seconds=timeout_seconds,
+                    thinking_depth=depth,
+                    state=state,
+                ):
+                    yield event_payload
+            else:
+                async for event_payload in self._stream_openai_chat_response(
+                    host,
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    json_mode=json_mode,
+                    timeout_seconds=timeout_seconds,
+                    thinking_depth=depth,
+                    event_context=event_context,
+                    state=state,
+                ):
+                    yield event_payload
+
+            await self._finish_chat_response_stream(
                 host,
-                system_prompt=system_prompt,
                 messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                timeout_seconds=timeout_seconds,
-                thinking_depth=depth,
-                state=state,
-            ):
-                yield event_payload
-        else:
-            async for event_payload in self._stream_openai_chat_response(
-                host,
-                system_prompt=system_prompt,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                json_mode=json_mode,
-                timeout_seconds=timeout_seconds,
-                thinking_depth=depth,
                 event_context=event_context,
                 state=state,
-            ):
-                yield event_payload
-
-        await self._finish_chat_response_stream(
-            host,
-            messages=messages,
-            event_context=event_context,
-            state=state,
-        )
-        done_event = LLMStreamEvent(kind="done")
-        await emit_stream_event(done_event)
-        yield done_event
+            )
+            done_event = LLMStreamEvent(kind="done")
+            await emit_stream_event(done_event)
+            yield done_event
 
     async def _stream_anthropic_chat_response(
         self,

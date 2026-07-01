@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ...llm import LLMProviderBridge
+from ...llm import LLMProviderBridge, LLMRequestPriority
 from .models import TemporalEvidencePack
 from .temporal_language import render_temporal_summary_system_prompt
 from .temporal_policy import TemporalSummaryPolicy
@@ -157,6 +157,7 @@ class TemporalSummaryModelClient:
                     "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
                     "agent_id": "memory:l3",
                 },
+                priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
             logger.warning(

@@ -4,6 +4,10 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
+from magi.llm.concurrency_limiter import LLMRequestPriority
+
 
 class _FakeUsagePublisher:
     def __init__(self) -> None:
@@ -395,6 +399,51 @@ def test_integrate_phase2_passes_source_integration_instructions():
     user_prompt = adapter._client.completions.kwargs["messages"][-1]["content"]
     assert "## Source-Specific Integration Instructions" in user_prompt
     assert "preference_profile only after repeated plays" in user_prompt
+
+
+def test_l2_json_calls_use_low_priority_limiter(monkeypatch: pytest.MonkeyPatch):
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+
+    class _RecordingLimiter:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def run_with_limit(self, key, operation, *, limit=None, priority=None):  # type: ignore[no-untyped-def]
+            self.calls.append({"key": key, "limit": limit, "priority": priority})
+            return await operation()
+
+    limiter = _RecordingLimiter()
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.get_llm_concurrency_limiter",
+        lambda: limiter,
+    )
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        )
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    asyncio.run(
+        service.integrate_phase2(
+            phase1_result=L2Phase1Result(),
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[{"event_id": "evt-song", "content": "played Track A", "timestamp": 1.0}],
+                summary=L2EventWindowSummary(session_id="s1"),
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+    )
+
+    assert limiter.calls[-1]["priority"] is LLMRequestPriority.LOW
 
 
 def test_conflict_arbitration_uses_core_scenario_adapter():

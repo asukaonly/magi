@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Dict, TypeVar, cast
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, TypeVar, cast
 
 from ..anthropic import AnthropicAdapter
 from ..base import LLMAdapter
@@ -20,7 +21,7 @@ from .cache_policy import (
     mark_tool_loop_tail_breakpoint,
     vendor_supports_cache_marker,
 )
-from ..concurrency_limiter import LLMConcurrencyLimiter
+from ..concurrency_limiter import LLMConcurrencyLimiter, LLMRequestPriority
 from ..reasoning_dialect import (
     ANTHROPIC_THINKING_BUDGETS,
     ReasoningDialect,
@@ -387,6 +388,27 @@ class ProviderBridgeOptionsMixin:
         request_family: str,
         operation: Callable[[], Awaitable[T]],
         limit: int | None = None,
+        priority: LLMRequestPriority | str | int | None = None,
     ) -> T:
         key = self._build_concurrency_key(request_family)
-        return cast(T, await self._concurrency_limiter.run_with_limit(key, operation, limit=limit))
+        return cast(
+            T,
+            await self._concurrency_limiter.run_with_limit(
+                key,
+                operation,
+                limit=limit,
+                priority=priority,
+            ),
+        )
+
+    @asynccontextmanager
+    async def _limit_concurrency(
+        self,
+        *,
+        request_family: str,
+        limit: int | None = None,
+        priority: LLMRequestPriority | str | int | None = None,
+    ) -> AsyncIterator[None]:
+        key = self._build_concurrency_key(request_family)
+        async with self._concurrency_limiter.limit(key, limit=limit, priority=priority):
+            yield
