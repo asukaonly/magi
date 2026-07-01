@@ -10,8 +10,10 @@ subsequent turns quickly.
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
@@ -27,8 +29,91 @@ logger = get_logger(__name__)
 BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS = 10.0
 BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS = 1.0
 BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS = 15 * 60
+BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS = 2 * 60 * 60
+BOOTSTRAP_IMPORT_SAMPLE_MAX_SOURCES = 4
+BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE = 3
+BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT = 12
+BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS = 180
+_URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
 
 _growth_engine_instance: GrowthMemoryEngine | None = None
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _strip_url_tracking(match: re.Match[str]) -> str:
+    raw = match.group(0)
+    try:
+        parts = urlsplit(raw)
+        return urlunsplit((parts.scheme, parts.netloc, parts.path or "", "", ""))
+    except Exception:
+        return raw.split("?", 1)[0].split("#", 1)[0]
+
+
+def _compact_import_sample_content(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if not text:
+        return ""
+    text = _URL_PATTERN.sub(_strip_url_tracking, text)
+    if len(text) > BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS:
+        text = f"{text[: BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS - 3].rstrip()}..."
+    return text
+
+
+async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
+    l1 = getattr(memory, "l1", None)
+    if l1 is None or not hasattr(l1, "summarize_event_sources") or not hasattr(l1, "query_events"):
+        return None
+
+    source_rows = await l1.summarize_event_sources(cognition_eligible=True)
+    if not source_rows:
+        return None
+
+    cutoff = time.time() - BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS
+    source_blocks: list[tuple[str, list[str]]] = []
+    for source_row in source_rows:
+        source = str((source_row or {}).get("source") or "").strip()
+        if not source:
+            continue
+        rows = await l1.query_events(
+            source_filters=[source],
+            memory_domain="external_activity",
+            cognition_eligible=True,
+            limit=BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT,
+            order_by="created_at_desc",
+            include_embedding_fields=False,
+        )
+        samples: list[str] = []
+        for row in rows or []:
+            if _safe_float(row.get("created_at")) < cutoff:
+                break
+            content = _compact_import_sample_content(row.get("content"))
+            if content:
+                samples.append(content)
+            if len(samples) >= BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE:
+                break
+        if samples:
+            source_blocks.append((source, samples))
+        if len(source_blocks) >= BOOTSTRAP_IMPORT_SAMPLE_MAX_SOURCES:
+            break
+
+    if not source_blocks:
+        return None
+
+    lines = [
+        "Recently imported user data (temporary first-chat context, not full long-term memory yet).",
+        "Use this only as a light first impression; do not claim complete understanding or quote sensitive details.",
+    ]
+    for source, samples in source_blocks:
+        lines.append(f"- Source {source}:")
+        for sample in samples:
+            lines.append(f"  - {sample}")
+    return "\n".join(lines)
 
 
 async def _fetch_recent_activity_snippet() -> Optional[str]:
@@ -42,6 +127,18 @@ async def _fetch_recent_activity_snippet() -> Optional[str]:
         from ..memory.provider import get_unified_memory
 
         memory = get_unified_memory()
+    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+        logger.info("bootstrap memory unavailable: %s", exc)
+        return None
+
+    try:
+        import_snippet = await _fetch_recent_import_activity_snippet(memory)
+        if import_snippet:
+            return import_snippet
+    except Exception as exc:  # noqa: BLE001 - import samples are best-effort
+        logger.info("bootstrap recent-import snippet unavailable: %s", exc)
+
+    try:
         summary = await memory.generate_source_activity_summary(
             summary_category="bootstrap_opening",
             source_filter=[],
@@ -433,4 +530,3 @@ class BootstrapDialogueService:
         )
 
         return "\n".join(parts)
-

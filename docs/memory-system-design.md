@@ -366,7 +366,12 @@ should refresh the portrait projection after the assertion update succeeds.
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the
 normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
-extraction path.
+extraction path. To make a just-connected data source visible in that first
+opening without waiting for full L2/L3 cognition, bootstrap may sample a small,
+source-balanced set of recently written external-activity L1 events as temporary
+first-chat context. Those samples are representative, bounded, and prompt-only;
+they must not be treated as a durable profile or a replacement for normal
+memory processing.
 
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 

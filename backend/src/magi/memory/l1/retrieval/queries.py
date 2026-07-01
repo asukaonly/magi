@@ -39,7 +39,7 @@ class _QueryEventsSpec:
     offset: int
     include_metadata_json: bool
     include_embedding_fields: bool
-    order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc"]
+    order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"]
 
     def filter_kwargs(self) -> dict[str, Any]:
         return {
@@ -66,6 +66,7 @@ class _QueryEventsSpec:
             "timestamp_desc": "timestamp DESC",
             "timestamp_asc": "timestamp ASC",
             "importance_desc": "importance_score DESC, timestamp DESC",
+            "created_at_desc": "created_at DESC, timestamp DESC",
         }.get(self.order_by, "timestamp DESC")
 
 
@@ -309,7 +310,7 @@ class L1EventQueryMixin(
         offset: int = 0,
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,
-        order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc"] = "timestamp_desc",
+        order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"] = "timestamp_desc",
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         host = cast(L1EventQueryHostProtocol, self)

@@ -14,6 +14,7 @@ from magi.memory.evidence import (
     L1RetrievalScope,
 )
 from magi.memory.event_contracts import author_type_code, content_type_code
+from magi.memory.event_contracts import MemoryEvent
 from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
 from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
 from magi.memory.l1.embeddings.common import embedding_status_code
@@ -117,6 +118,80 @@ async def _store_polluted_oolong_events(store) -> None:
         )
     )
     await store.store(user_event)
+
+
+def _external_activity_event(
+    *,
+    event_id: str,
+    source: str,
+    content: str,
+    timestamp: float,
+    created_at: float,
+) -> MemoryEvent:
+    return MemoryEvent(
+        event_id=event_id,
+        correlation_id=event_id,
+        timestamp=timestamp,
+        created_at=created_at,
+        event_type="SensorActivity",
+        source=source,
+        source_item_id=event_id,
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        ingest_target=IngestTarget.L1_ONLY,
+        cognition_eligible=True,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+        retention_class=RetentionClass.COMPRESSIBLE,
+        session_id=None,
+        turn_id=None,
+        user_id="local_user",
+        task_id=None,
+        content=content,
+        author_type="external",
+        content_type="text",
+        importance_score=0.5,
+        level=int(EventLevel.INFO),
+    )
+
+
+@pytest.mark.asyncio
+async def test_l1_query_events_can_order_by_created_at_for_recent_imports(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        await store.store(
+            _external_activity_event(
+                event_id="old-written-recent-happened",
+                source="chrome_history",
+                content="Recently visited news page",
+                timestamp=3000.0,
+                created_at=1000.0,
+            )
+        )
+        await store.store(
+            _external_activity_event(
+                event_id="new-written-old-happened",
+                source="chrome_history",
+                content="Imported older page from history",
+                timestamp=100.0,
+                created_at=2000.0,
+            )
+        )
+
+        events = await store.query_events(
+            source_filters=["chrome_history"],
+            limit=2,
+            order_by="created_at_desc",
+        )
+
+        assert [event["event_id"] for event in events] == [
+            "new-written-old-happened",
+            "old-written-recent-happened",
+        ]
+    finally:
+        await store.shutdown()
 
 
 @pytest.mark.asyncio

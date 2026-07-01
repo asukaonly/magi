@@ -90,6 +90,7 @@ class L1EventQueryHostProtocol(Protocol):
         limit: int = 100,
         offset: int = 0,
         order: str = "desc",
+        order_by: str = "timestamp_desc",
         include_embedding: bool = False,
         include_metadata_json: bool = True,
         start_time: Optional[float] = None,

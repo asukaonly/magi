@@ -450,6 +450,81 @@ def test_build_opening_system_prompt_includes_activity_snippet():
 
 
 @pytest.mark.asyncio
+async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+
+    class FakeL1:
+        async def query_events(self, *, source_filters, limit, order_by, **_kwargs):
+            assert order_by == "created_at_desc"
+            source = source_filters[0]
+            rows = {
+                "chrome_history": [
+                    {
+                        "source": "chrome_history",
+                        "content": "Chrome title: React animation notes https://example.test/path?token=secret",
+                        "timestamp": 100.0,
+                        "created_at": 2000.0,
+                        "memory_domain": "external_activity",
+                    },
+                    {
+                        "source": "chrome_history",
+                        "content": "Chrome title: LLM prompt caching article",
+                        "timestamp": 90.0,
+                        "created_at": 1999.0,
+                        "memory_domain": "external_activity",
+                    },
+                ],
+                "git_activity": [
+                    {
+                        "source": "git_activity",
+                        "content": "Commit in magi: improve onboarding plugin flow",
+                        "timestamp": 80.0,
+                        "created_at": 1998.0,
+                        "memory_domain": "external_activity",
+                    }
+                ],
+            }
+            return rows.get(source, [])[:limit]
+
+        async def summarize_event_sources(self, **_kwargs):
+            return [
+                {"source": "chrome_history", "event_count": 1200},
+                {"source": "git_activity", "event_count": 80},
+            ]
+
+    class FakeMemory:
+        l1 = FakeL1()
+
+        async def generate_source_activity_summary(self, **_kwargs):
+            raise AssertionError("recent 24h summary should be fallback after L1 import samples")
+
+    mock_bridge = AsyncMock()
+    mock_bridge.chat.return_value = "opening"
+    mock_pool = MagicMock()
+    mock_pool.get.return_value = object()
+    import magi.memory.provider as memory_provider
+
+    monkeypatch.setattr(memory_provider, "get_unified_memory", lambda: FakeMemory())
+    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
+
+    svc = mod.BootstrapDialogueService(growth_engine=None)
+    with (
+        patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+        patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
+        patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
+    ):
+        assert await svc.get_opening("test") == "opening"
+
+    system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
+    assert "Recently imported user data" in system_prompt
+    assert "chrome_history" in system_prompt
+    assert "git_activity" in system_prompt
+    assert "React animation notes" in system_prompt
+    assert "improve onboarding plugin flow" in system_prompt
+    assert "token=secret" not in system_prompt
+
+
+@pytest.mark.asyncio
 async def test_get_opening_survives_snippet_fetch_failure(monkeypatch):
     import magi.personality.bootstrap_service as mod
     svc = mod.BootstrapDialogueService(growth_engine=None)
