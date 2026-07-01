@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { openExternalUrl } from '@/runtime/desktop';
 
 interface PluginSettingsActionsProps {
   pluginId: string;
@@ -82,6 +83,19 @@ const getStatusVariant = (status: PluginSettingsActionRunResponse['status'] | un
   return 'secondary';
 };
 
+const getActionOpenUrl = (result: PluginSettingsActionRunResponse | undefined): string => {
+  const raw =
+    result?.data?.open_url ??
+    result?.data?.authorization_url ??
+    result?.data?.verification_uri ??
+    '';
+  const value = String(raw || '').trim();
+  if (!value.startsWith('https://') && !value.startsWith('http://')) {
+    return '';
+  }
+  return value;
+};
+
 export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
   pluginId,
   actions,
@@ -92,6 +106,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
 }) => {
   const { t } = useTranslation('app');
   const mountedRef = useRef(true);
+  const openedActionUrlsRef = useRef<Set<string>>(new Set());
   const [actionStates, setActionStates] = useState<Record<string, ActionState>>({});
 
   useEffect(() => {
@@ -128,6 +143,24 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
     }
   };
 
+  const openResultUrlIfPresent = async (result: PluginSettingsActionRunResponse) => {
+    const url = getActionOpenUrl(result);
+    if (!url) {
+      return;
+    }
+    const dedupeKey = `${result.session_id || result.action_id}:${url}`;
+    if (openedActionUrlsRef.current.has(dedupeKey)) {
+      return;
+    }
+    openedActionUrlsRef.current.add(dedupeKey);
+    try {
+      await openExternalUrl(url);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || 'unknown');
+      toast.error(t('settings.pluginActions.feedback.failedWithMessage', { message }));
+    }
+  };
+
   const pollAction = async (
     action: PluginSettingsActionSpec,
     initialResult: PluginSettingsActionRunResponse
@@ -152,6 +185,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
         current.session_id,
         values
       );
+      void openResultUrlIfPresent(current);
       setActionStates((prev) => ({
         ...prev,
         [action.action_id]: { loading: current.status === 'pending', result: current },
@@ -193,6 +227,7 @@ export const PluginSettingsActions: React.FC<PluginSettingsActionsProps> = ({
         ...prev,
         [action.action_id]: { loading: result.status === 'pending', result },
       }));
+      void openResultUrlIfPresent(result);
       if (result.status === 'pending') {
         void pollAction(action, result);
         return;

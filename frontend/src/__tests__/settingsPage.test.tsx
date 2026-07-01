@@ -18,6 +18,7 @@ const {
   requestDesktopNotificationPermissionMock,
   syncDesktopNotificationPreferencesMock,
   pickDirectoryMock,
+  openExternalUrlMock,
   changeLanguageMock,
   llmFormAutoChangeRef,
   translateMock,
@@ -28,6 +29,7 @@ const {
   requestDesktopNotificationPermissionMock: vi.fn(),
   syncDesktopNotificationPreferencesMock: vi.fn(),
   pickDirectoryMock: vi.fn(),
+  openExternalUrlMock: vi.fn(),
   changeLanguageMock: vi.fn(),
   llmFormAutoChangeRef: {
     current: null as null | ((args: { value: any; view?: 'all' | 'providers' | 'models' }) => any | null),
@@ -138,6 +140,7 @@ vi.mock('@/runtime/desktop', () => ({
   syncStartMinimizedPreference: syncStartMinimizedPreferenceMock,
   syncSkipQuitConfirmationPreference: vi.fn(),
   pickDirectory: pickDirectoryMock,
+  openExternalUrl: openExternalUrlMock,
 }));
 
 vi.mock('@/runtime/desktop-notifications', () => ({
@@ -555,6 +558,8 @@ describe('settings page draft saving', () => {
     requestDesktopNotificationPermissionMock.mockResolvedValue(true);
     pickDirectoryMock.mockReset();
     pickDirectoryMock.mockResolvedValue(undefined);
+    openExternalUrlMock.mockReset();
+    openExternalUrlMock.mockResolvedValue(undefined);
 
     vi.mocked(configApi.get).mockResolvedValue({
       data: structuredClone(DEFAULT_SYSTEM_CONFIG),
@@ -2027,6 +2032,19 @@ describe('settings page draft saving', () => {
 
   it('renders settings actions declared by timeline source plugins', async () => {
     const user = userEvent.setup();
+    vi.mocked(pluginsApi.startSettingsAction).mockResolvedValueOnce({
+      plugin_id: 'github-activity',
+      action_id: 'connect_github',
+      session_id: 'session-1',
+      status: 'pending',
+      message: 'Open GitHub and enter ABCD-EFGH.',
+      data: {
+        open_url: 'https://github.com/login/device',
+        verification_uri: 'https://github.com/login/device',
+        user_code: 'ABCD-EFGH',
+      },
+      settings_updates: {},
+    } as any);
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [
         {
@@ -2038,17 +2056,16 @@ describe('settings page draft saving', () => {
           description: 'Local GitHub repository activity.',
           current_settings: {
             'sensors.github_activity.enabled': false,
-            'sensors.github_activity.client_id': 'client-id',
             'sensors.github_activity.repositories': ['acme/app'],
           },
           fields: [
             {
-              key: 'sensors.github_activity.client_id',
-              type: 'input',
-              label: 'GitHub Client ID',
-              description: 'Client ID used for local device authorization.',
-              default: '',
-              required: true,
+              key: 'sensors.github_activity.repositories',
+              type: 'tags',
+              label: 'Repositories',
+              description: 'Repositories to sync.',
+              default: [],
+              required: false,
               options: [],
               section: 'connection',
               surface: 'timeline',
@@ -2088,9 +2105,12 @@ describe('settings page draft saving', () => {
       'github-activity',
       'connect_github',
       expect.objectContaining({
-        'sensors.github_activity.client_id': 'client-id',
+        'sensors.github_activity.repositories': ['acme/app'],
       })
     );
+    await waitFor(() => {
+      expect(openExternalUrlMock).toHaveBeenCalledWith('https://github.com/login/device');
+    });
   });
 
   it('keeps timeline nav items alphabetized after overview', async () => {
