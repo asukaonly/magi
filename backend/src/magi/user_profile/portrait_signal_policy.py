@@ -38,6 +38,39 @@ PORTRAIT_VALIDATION_STRENGTH = {
 # worldview. Keyed by predicate; an edge qualifies only when its object type is
 # allowed and it has been observed at least ``min_observations`` times.
 PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
+    "INTERESTED_IN": {
+        "group": "preferences",
+        "object_types": frozenset({
+            "activity",
+            "group",
+            "media",
+            "organization",
+            "person",
+            "product",
+            "technology",
+            "topic",
+        }),
+        "min_observations": 3,
+    },
+    "LIKES": {
+        "group": "preferences",
+        "object_types": frozenset({
+            "activity",
+            "group",
+            "media",
+            "organization",
+            "person",
+            "product",
+            "technology",
+            "topic",
+        }),
+        "min_observations": 2,
+    },
+    "LISTENED": {
+        "group": "preferences",
+        "object_types": frozenset({"group", "media", "person"}),
+        "min_observations": 3,
+    },
     "VISITED": {
         "group": "invariants",
         "object_types": frozenset({"place"}),
@@ -52,6 +85,16 @@ PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
         "group": "work_style",
         "object_types": frozenset({"software", "hardware", "technology", "product"}),
         "min_observations": 3,
+    },
+    "WORKS_WITH": {
+        "group": "projects",
+        "object_types": frozenset({"organization", "product", "software", "technology", "topic"}),
+        "min_observations": 2,
+    },
+    "COMMITTED": {
+        "group": "projects",
+        "object_types": frozenset({"organization", "product", "software", "technology", "topic"}),
+        "min_observations": 2,
     },
 }
 

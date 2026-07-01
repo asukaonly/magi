@@ -383,6 +383,58 @@ class _GraphSignalL2:
         ]
 
 
+class _RicherGraphSignalL2:
+    async def list_tom_assertions(self, **kwargs):
+        return []
+
+    async def list_tom_snapshots(self, **kwargs):
+        return []
+
+    async def get_relationships(self, **kwargs):
+        return [
+            {
+                "triple_id": "t-music-artist",
+                "predicate": "LISTENED",
+                "object_id": "group:DIIV",
+                "object_type": "group",
+                "source_type": "netease_music",
+                "observation_count": 3,
+            },
+            {
+                "triple_id": "t-topic",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:coding-agent",
+                "object_type": "topic",
+                "source_type": "chrome_history",
+                "observation_count": 4,
+            },
+            {
+                "triple_id": "t-project",
+                "predicate": "WORKS_WITH",
+                "object_id": "software:magi",
+                "object_type": "software",
+                "source_type": "github_activity",
+                "observation_count": 2,
+            },
+            {
+                "triple_id": "t-one-off-song",
+                "predicate": "LISTENED",
+                "object_id": "media:one-off-track",
+                "object_type": "media",
+                "source_type": "netease_music",
+                "observation_count": 1,
+            },
+            {
+                "triple_id": "t-noisy-url",
+                "predicate": "INTERESTED_IN",
+                "object_id": "topic:https://example.com/tmp.log",
+                "object_type": "topic",
+                "source_type": "chrome_history",
+                "observation_count": 4,
+            },
+        ]
+
+
 async def test_portrait_projection_includes_safe_graph_world_clues():
     projection = await UserPortraitProjectionBuilder(_GraphSignalL2()).build("local_user")
 
@@ -395,6 +447,25 @@ async def test_portrait_projection_includes_safe_graph_world_clues():
     # Passive graph clues stay on the page but must not leak into the prompt.
     assert "Chrome" not in prompt_text
     assert "东京" not in prompt_text
+
+
+async def test_portrait_projection_maps_stable_graph_signals_to_world_groups():
+    projection = await UserPortraitProjectionBuilder(_RicherGraphSignalL2()).build("local_user")
+
+    world_groups = {
+        group["id"]: [item["text"] for item in group["items"]]
+        for group in projection.world["groups"]
+    }
+
+    assert set(world_groups["preferences"]) == {"DIIV", "coding-agent"}
+    assert world_groups["projects"] == ["magi"]
+    assert "one-off-track" not in str(projection.world)
+    assert "example.com" not in str(projection.world)
+
+    prompt_text = "\n".join(projection.prompt_summary)
+    assert "DIIV" not in prompt_text
+    assert "coding-agent" not in prompt_text
+    assert "magi" not in prompt_text
 
 
 async def test_l2_clear_removes_profile_and_portrait_projection_caches(tmp_path):

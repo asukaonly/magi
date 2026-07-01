@@ -28,6 +28,21 @@ _LOW_VALUE_GRAPH_NAME_RE = re.compile(r"[0-9a-f]{10,}", re.IGNORECASE)
 _COORDINATE_GRAPH_NAME_RE = re.compile(
     r"[-+]?\d{1,3}(?:\.\d+)?\s*,\s*[-+]?\d{1,3}(?:\.\d+)?"
 )
+_URL_GRAPH_NAME_RE = re.compile(r"^(?:[a-z][a-z0-9+.-]*://|www\.)", re.IGNORECASE)
+_DOMAIN_GRAPH_NAME_RE = re.compile(
+    r"^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?::\d+)?/?$",
+    re.IGNORECASE,
+)
+_PATH_GRAPH_NAME_RE = re.compile(
+    r"(?:^~?/|^\./|^\.\./|[\\/].+\.[a-z0-9]{1,8}(?:$|[?#]))",
+    re.IGNORECASE,
+)
+_FILEISH_GRAPH_NAME_RE = re.compile(
+    r"^(?:img_\d+|dsc_\d+|screenshot[-_]\d+|[\w.-]+[-_][\w.-]+)"
+    r"\.(?:log|tmp|cache|json|ya?ml|toml|py|pyi|ts|tsx|js|jsx|css|html?|md|txt|csv|db|sqlite|"
+    r"jpg|jpeg|png|gif|webp|heic|mov|mp4|zip|gz|dmg)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -153,6 +168,14 @@ def _graph_object_name(
     if _LOW_VALUE_GRAPH_NAME_RE.fullmatch(name):
         return ""
     if _COORDINATE_GRAPH_NAME_RE.fullmatch(name):
+        return ""
+    if _URL_GRAPH_NAME_RE.match(name):
+        return ""
+    if _DOMAIN_GRAPH_NAME_RE.fullmatch(name):
+        return ""
+    if _PATH_GRAPH_NAME_RE.search(name):
+        return ""
+    if _FILEISH_GRAPH_NAME_RE.fullmatch(name):
         return ""
     return name[:80]
 
