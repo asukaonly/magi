@@ -86,6 +86,78 @@ describe('PluginInstallPanel', () => {
     window.removeEventListener('magi-plugins-changed', onPluginsChanged);
   }, 12000);
 
+  it('disables the close button while memory is still importing', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 'agent_history',
+            plugin_id: 'agent-history',
+            activation_flow: {
+              enabled_key: 'sensors.agent_history.enabled',
+              configured_key: 'sensors.agent_history.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+          },
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          {
+            source_name: 'agent_history',
+            plugin_id: 'agent-history',
+            last_success: 'x',
+            last_result_count: 34,
+          },
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'agent_history',
+    } as any);
+    let resolveReadiness: ((value: any) => void) | null = null;
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveReadiness = resolve;
+        }) as any,
+    );
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('agent-history');
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('step-memory-status')).toHaveAttribute('data-status', 'running');
+      },
+      { timeout: 8000 },
+    );
+    expect(screen.getByRole('button', { name: 'pluginInstallPanel.close' })).toBeDisabled();
+
+    await act(async () => {
+      resolveReadiness?.({
+        source_name: 'agent_history',
+        l1_event_count: 34,
+        l2_ready: true,
+        l2_total_count: 34,
+        l2_processed_count: 34,
+        l2_remaining_count: 0,
+      });
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByRole('button', { name: 'pluginInstallPanel.close' })).not.toBeDisabled();
+      },
+      { timeout: 8000 },
+    );
+  }, 12000);
+
   it('clears the previous flow before opening another plugin', async () => {
     vi.spyOn(sensorsApi, 'getStatus')
       .mockResolvedValueOnce({

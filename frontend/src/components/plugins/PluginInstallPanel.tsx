@@ -286,6 +286,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     flow.phase === 'done' && flow.backfillNote && !flow.memoryReady
       ? t('pluginInstallPanel.closeBackground')
       : t('pluginInstallPanel.close');
+  const closeDisabled = flow.phase === 'loading' || flow.phase === 'running';
 
   if (!open) {
     return null;
@@ -376,7 +377,8 @@ export function PluginInstallPanel(): JSX.Element | null {
           ) : (
             <button
               type="button"
-              className="min-w-[5.5rem] rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium transition hover:bg-muted"
+              className="min-w-[5.5rem] rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+              disabled={closeDisabled}
               onClick={closePanel}
             >
               {closeLabel}
