@@ -9,31 +9,31 @@
     --foreground: 20 15% 18%;
     --card: 0 0% 100%;
     --card-foreground: 20 15% 18%;
-    --primary: 28 10% 36%;
-    --primary-foreground: 35 32% 97%;
+    --primary: 16 25% 43%;
+    --primary-foreground: 30 34% 97%;
     --secondary: 25 15% 92%;
     --secondary-foreground: 20 20% 28%;
     --muted: 25 12% 94%;
     --muted-foreground: 20 10% 45%;
-    --accent: 30 18% 90%;
-    --accent-foreground: 25 16% 24%;
+    --accent: 18 28% 91%;
+    --accent-foreground: 18 22% 25%;
     --destructive: 0 72% 50%;
     --destructive-foreground: 0 0% 100%;
     --border: 20 12% 86%;
     --input: 20 12% 86%;
-    --ring: 28 12% 42%;
+    --ring: 16 24% 44%;
     --app-chrome-surface: 30 24% 96%;
     --app-chrome-elevated: 34 30% 98%;
-    --app-chrome-divider: 28 13% 84%;
-    --composer-background: 34 28% 98%;
-    --composer-border: 28 14% 84%;
+    --app-chrome-divider: 24 15% 84%;
+    --composer-background: 34 32% 98%;
+    --composer-border: 21 18% 80%;
     --chat-surface: var(--app-chrome-surface);
-    --chat-surface-elevated: 34 28% 98%;
-    --chat-assistant-background: 34 30% 98%;
-    --chat-assistant-border: 30 14% 86%;
-    --chat-user-background: 29 20% 90%;
-    --chat-user-foreground: var(--foreground);
-    --chat-user-border: 28 16% 80%;
+    --chat-surface-elevated: 34 30% 98%;
+    --chat-assistant-background: 34 32% 98%;
+    --chat-assistant-border: 23 16% 84%;
+    --chat-user-background: 18 25% 90%;
+    --chat-user-foreground: 20 16% 19%;
+    --chat-user-border: 18 22% 77%;
     --sidebar-background-start: var(--app-chrome-surface);
     --sidebar-background-end: var(--app-chrome-surface);
     --sidebar-border: var(--app-chrome-divider);
@@ -47,10 +47,10 @@
     --sidebar-tool-hover: 33 18% 84%;
     --sidebar-menu: 34 18% 92%;
     --sidebar-shadow: 25 25% 20%;
-    --sidebar-badge: 28 10% 36%;
-    --sidebar-badge-foreground: 35 32% 97%;
+    --sidebar-badge: 16 25% 43%;
+    --sidebar-badge-foreground: 30 34% 97%;
     --sidebar-divider: 30 15% 80%;
-    --sidebar-ring: 28 12% 42%;
+    --sidebar-ring: 16 24% 44%;
     --settings-background: 33 22% 96%;
     --settings-foreground: 22 16% 22%;
     --settings-card: 35 20% 96%;
@@ -59,13 +59,13 @@
     --settings-secondary-foreground: 24 16% 28%;
     --settings-muted: 32 14% 92%;
     --settings-muted-foreground: 24 10% 45%;
-    --settings-accent: 30 18% 89%;
-    --settings-accent-foreground: 25 16% 24%;
+    --settings-accent: 18 25% 90%;
+    --settings-accent-foreground: 18 22% 25%;
     --settings-border: 30 14% 82%;
     --settings-input: 30 14% 82%;
-    --settings-nav-active: 31 18% 88%;
-    --settings-nav-active-foreground: 25 16% 24%;
-    --settings-nav-hover: 31 18% 91%;
+    --settings-nav-active: 18 24% 88%;
+    --settings-nav-active-foreground: 18 22% 25%;
+    --settings-nav-hover: 18 20% 92%;
     --settings-nav-foreground: 24 14% 34%;
     --settings-shell: 34 18% 95%;
     --settings-shell-elevated: 35 24% 97%;
@@ -81,9 +81,9 @@
     --memory-title: 24 18% 20%;
     --memory-body: 25 16% 38%;
     --memory-muted: 25 12% 50%;
-    --memory-accent: 28 10% 36%;
-    --memory-accent-soft: 30 18% 88%;
-    --memory-accent-foreground: 35 32% 97%;
+    --memory-accent: 16 25% 43%;
+    --memory-accent-soft: 18 24% 88%;
+    --memory-accent-foreground: 30 34% 97%;
     --memory-tag-bg: 35 30% 98%;
     --memory-tag-border: 31 16% 84%;
     --memory-input-bg: 0 0% 100%;
@@ -97,7 +97,7 @@
     --trace-card: 0 0% 100%;
     --trace-border: 30 14% 84%;
     --trace-selected: 32 24% 90%;
-    --trace-selected-border: 29 24% 74%;
+    --trace-selected-border: 16 22% 72%;
     --trace-icon-bg: 34 26% 98%;
     --trace-icon-border: 30 14% 84%;
     --trace-status-completed-fg: 142 34% 34%;
@@ -232,39 +232,39 @@
     --radius: 0.9rem;
   }
 
-  .theme-clay {
-    --primary: 16 25% 43%;
-    --primary-foreground: 30 34% 97%;
+  .theme-mist {
+    --primary: 28 10% 36%;
+    --primary-foreground: 35 32% 97%;
     --app-chrome-surface: 30 24% 96%;
     --app-chrome-elevated: 34 30% 98%;
-    --app-chrome-divider: 24 15% 84%;
-    --composer-background: 34 32% 98%;
-    --composer-border: 21 18% 80%;
+    --app-chrome-divider: 28 13% 84%;
+    --composer-background: 34 28% 98%;
+    --composer-border: 28 14% 84%;
     --chat-surface: var(--app-chrome-surface);
-    --chat-surface-elevated: 34 30% 98%;
-    --chat-assistant-background: 34 32% 98%;
-    --chat-assistant-border: 23 16% 84%;
-    --chat-user-background: 18 25% 90%;
-    --chat-user-foreground: 20 16% 19%;
-    --chat-user-border: 18 22% 77%;
-    --accent: 18 28% 91%;
-    --accent-foreground: 18 22% 25%;
-    --ring: 16 24% 44%;
+    --chat-surface-elevated: 34 28% 98%;
+    --chat-assistant-background: 34 30% 98%;
+    --chat-assistant-border: 30 14% 86%;
+    --chat-user-background: 29 20% 90%;
+    --chat-user-foreground: var(--foreground);
+    --chat-user-border: 28 16% 80%;
+    --accent: 30 18% 90%;
+    --accent-foreground: 25 16% 24%;
+    --ring: 28 12% 42%;
     --sidebar-background-start: var(--app-chrome-surface);
     --sidebar-background-end: var(--app-chrome-surface);
     --sidebar-border: var(--app-chrome-divider);
-    --sidebar-badge: 16 25% 43%;
-    --sidebar-badge-foreground: 30 34% 97%;
-    --sidebar-ring: 16 24% 44%;
-    --settings-accent: 18 25% 90%;
-    --settings-accent-foreground: 18 22% 25%;
-    --settings-nav-active: 18 24% 88%;
-    --settings-nav-active-foreground: 18 22% 25%;
-    --settings-nav-hover: 18 20% 92%;
-    --memory-accent: 16 25% 43%;
-    --memory-accent-soft: 18 24% 88%;
-    --memory-accent-foreground: 30 34% 97%;
-    --trace-selected-border: 16 22% 72%;
+    --sidebar-badge: 28 10% 36%;
+    --sidebar-badge-foreground: 35 32% 97%;
+    --sidebar-ring: 28 12% 42%;
+    --settings-accent: 30 18% 89%;
+    --settings-accent-foreground: 25 16% 24%;
+    --settings-nav-active: 31 18% 88%;
+    --settings-nav-active-foreground: 25 16% 24%;
+    --settings-nav-hover: 31 18% 91%;
+    --memory-accent: 28 10% 36%;
+    --memory-accent-soft: 30 18% 88%;
+    --memory-accent-foreground: 35 32% 97%;
+    --trace-selected-border: 29 24% 74%;
   }
 
   * {
@@ -295,12 +295,12 @@
   /* Light theme background - clean, minimal */
   :root body,
   .light body {
-    background:
-      linear-gradient(180deg, hsl(30 25% 97%) 0%, hsl(25 20% 95%) 100%);
+    background: linear-gradient(180deg, hsl(32 28% 97%) 0%, hsl(24 24% 95%) 100%);
   }
 
-  .theme-clay body {
-    background: linear-gradient(180deg, hsl(32 28% 97%) 0%, hsl(24 24% 95%) 100%);
+  .theme-mist body {
+    background:
+      linear-gradient(180deg, hsl(30 25% 97%) 0%, hsl(25 20% 95%) 100%);
   }
 
 }

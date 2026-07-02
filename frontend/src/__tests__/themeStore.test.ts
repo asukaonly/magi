@@ -34,11 +34,11 @@ describe('theme store initialization', () => {
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('applies a custom light palette class from stored theme mode', async () => {
+  it('applies the soft mist palette class from stored theme mode', async () => {
     vi.stubGlobal(
       'localStorage',
       {
-        getItem: vi.fn(() => 'clay'),
+        getItem: vi.fn(() => 'mist'),
         setItem: vi.fn(),
       }
     );
@@ -47,10 +47,10 @@ describe('theme store initialization', () => {
     const { useThemeStore } = await import('@/stores/theme');
     const state = useThemeStore.getState();
 
-    expect(state.mode).toBe('clay');
+    expect(state.mode).toBe('mist');
     expect(state.resolvedTheme).toBe('light');
     expect(document.documentElement.classList.contains('light')).toBe(true);
-    expect(document.documentElement.classList.contains('theme-clay')).toBe(true);
+    expect(document.documentElement.classList.contains('theme-mist')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 });

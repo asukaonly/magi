@@ -1562,7 +1562,7 @@
       "light": "Light",
       "dark": "Dark",
       "system": "System",
-      "clay": "Warm Clay"
+      "mist": "Soft Mist"
     },
     "themeDesc": "Choose an interface palette, preview it, then save",
     "actions": {

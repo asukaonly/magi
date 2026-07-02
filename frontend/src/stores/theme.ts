@@ -5,7 +5,7 @@ export const THEME_MODE_OPTIONS = [
   'light',
   'dark',
   'system',
-  'clay',
+  'mist',
 ] as const;
 
 export type ThemeMode = typeof THEME_MODE_OPTIONS[number];
@@ -20,7 +20,7 @@ export interface ThemeState {
 const STORAGE_KEY = 'magi-theme-mode';
 const THEME_CLASS_NAMES = ['light', 'dark', ...THEME_MODE_OPTIONS.map((mode) => `theme-${mode}`)] as const;
 const CUSTOM_THEME_CLASS_BY_MODE: Partial<Record<ThemeMode, string>> = {
-  clay: 'theme-clay',
+  mist: 'theme-mist',
 };
 
 const isThemeMode = (value: string | null): value is ThemeMode => (
