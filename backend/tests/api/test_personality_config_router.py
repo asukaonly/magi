@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from types import SimpleNamespace
 
@@ -565,6 +566,87 @@ async def test_generation_stage_repairs_invalid_json_once() -> None:
     assert result == {"name": "明日香", "description": "修好了"}
     assert len(adapter.calls) == 2
     assert "Repair this invalid JSON" in str(adapter.calls[1]["messages"])
+
+
+@pytest.mark.asyncio
+async def test_generation_stage_logs_invalid_json_diagnostics_before_repair(monkeypatch) -> None:
+    from magi.api.routers import personality_config  # noqa: F401
+    import magi.api.services.personality_generation as personality_generation
+
+    warning_calls: list[dict[str, object]] = []
+
+    def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        warning_calls.append({"event": event, "args": args, **kwargs})
+
+    monkeypatch.setattr(personality_generation.logger, "warning", _capture_warning)
+
+    adapter = _SequentialLLMAdapter([
+        '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',
+        '{"name": "明日香", "description": "修好了"}',
+    ])
+
+    result = await personality_generation._run_generation_stage(
+        stage_id="integrate",
+        prompt="Return final JSON.",
+        system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+        max_tokens=400,
+        temperature=0.4,
+        llm_override=None,
+        adapter_resolver=lambda *args, **kwargs: adapter,
+        adapter_factory=None,
+        retry_on_json_error=True,
+    )
+
+    assert result == {"name": "明日香", "description": "修好了"}
+    diagnostic = next(
+        call for call in warning_calls
+        if call.get("event") == "personality_generation_invalid_json"
+    )
+    assert diagnostic["stage_id"] == "integrate"
+    assert "Return exactly one JSON object" in str(diagnostic["expected_output_contract"])
+    assert "Expecting ',' delimiter" in str(diagnostic["parse_error"])
+    assert '"description": "少了逗号"' in str(diagnostic["output_error_context"])
+    assert "^" in str(diagnostic["output_error_context"])
+
+
+@pytest.mark.asyncio
+async def test_generation_stage_logs_repair_output_when_repair_is_still_invalid(monkeypatch) -> None:
+    from magi.api.routers import personality_config  # noqa: F401
+    import magi.api.services.personality_generation as personality_generation
+
+    warning_calls: list[dict[str, object]] = []
+
+    def _capture_warning(event: str, *args, **kwargs):  # type: ignore[no-untyped-def]
+        warning_calls.append({"event": event, "args": args, **kwargs})
+
+    monkeypatch.setattr(personality_generation.logger, "warning", _capture_warning)
+
+    adapter = _SequentialLLMAdapter([
+        '{\n  "name": "明日香"\n  "description": "少了逗号"\n}',
+        '{\n  "name": "明日香"\n  "description": "还是少了逗号"\n}',
+    ])
+
+    with pytest.raises(json.JSONDecodeError):
+        await personality_generation._run_generation_stage(
+            stage_id="integrate",
+            prompt="Return final JSON.",
+            system_prompt=personality_generation.INTEGRATION_SYSTEM_PROMPT,
+            max_tokens=400,
+            temperature=0.4,
+            llm_override=None,
+            adapter_resolver=lambda *args, **kwargs: adapter,
+            adapter_factory=None,
+            retry_on_json_error=True,
+        )
+
+    repair_diagnostic = next(
+        call for call in warning_calls
+        if call.get("event") == "personality_generation_json_repair_invalid"
+    )
+    assert repair_diagnostic["stage_id"] == "integrate"
+    assert "Expecting ',' delimiter" in str(repair_diagnostic["repair_parse_error"])
+    assert '"description": "还是少了逗号"' in str(repair_diagnostic["repair_output_error_context"])
+    assert "Return exactly one JSON object" in str(repair_diagnostic["expected_output_contract"])
 
 
 def test_personality_generation_module_prompt_injects_meta_design_anchors() -> None:

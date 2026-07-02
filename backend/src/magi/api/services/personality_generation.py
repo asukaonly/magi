@@ -34,6 +34,9 @@ PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 2
 PERSONALITY_GENERATION_JOB_TTL_SECONDS = 30 * 60
 _PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
 _PERSONALITY_GENERATION_JOBS: dict[str, "PersonalityGenerationJob"] = {}
+JSON_DIAGNOSTIC_CONTRACT_CHARS = 2400
+JSON_DIAGNOSTIC_OUTPUT_CHARS = 1600
+JSON_DIAGNOSTIC_LINE_CONTEXT = 2
 META_DESIGN_KEY = "_meta_design"
 META_DESIGN_FIELDS = ("core_theme", "failure_mode", "key_constraint")
 GENERATION_INTERNAL_KEYS = frozenset({META_DESIGN_KEY})
@@ -220,8 +223,8 @@ def _ensure_list(payload: Dict[str, Any], key: str) -> list[Any]:
   return value
 
 
-def _extract_json_object(response_text: str) -> dict[str, Any]:
-  """Parse the first JSON object from an LLM response."""
+def _json_candidate_text(response_text: str) -> str:
+  """Return the response slice that is parsed as JSON."""
   text = response_text.strip()
   if not text:
     raise ValueError("AI returned empty response")
@@ -232,10 +235,115 @@ def _extract_json_object(response_text: str) -> dict[str, Any]:
   json_end = text.rfind("}")
   if json_start >= 0 and json_end > json_start:
     text = text[json_start : json_end + 1]
+  return text
+
+
+def _extract_json_object(response_text: str) -> dict[str, Any]:
+  """Parse the first JSON object from an LLM response."""
+  text = _json_candidate_text(response_text)
   data = json.loads(text)
   if not isinstance(data, dict):
     raise ValueError("AI returned JSON that is not an object")
   return data
+
+
+def _truncate_for_diagnostics(value: str, max_chars: int) -> str:
+  if len(value) <= max_chars:
+    return value
+  half = max_chars // 2
+  return f"{value[:half]}\n...[truncated {len(value) - max_chars} chars]...\n{value[-half:]}"
+
+
+def _expected_output_contract(system_prompt: str) -> str:
+  marker = "# Output Contract"
+  end_marker = "# Stage Quality Checks"
+  start = system_prompt.find(marker)
+  if start < 0:
+    return _truncate_for_diagnostics(system_prompt.strip(), JSON_DIAGNOSTIC_CONTRACT_CHARS)
+  start += len(marker)
+  end = system_prompt.find(end_marker, start)
+  contract = system_prompt[start:end if end >= 0 else len(system_prompt)].strip()
+  return _truncate_for_diagnostics(contract, JSON_DIAGNOSTIC_CONTRACT_CHARS)
+
+
+def _parse_error_summary(exc: Exception) -> dict[str, Any]:
+  if isinstance(exc, json.JSONDecodeError):
+    return {
+      "type": exc.__class__.__name__,
+      "message": exc.msg,
+      "line": exc.lineno,
+      "column": exc.colno,
+      "char": exc.pos,
+    }
+  return {
+    "type": exc.__class__.__name__,
+    "message": str(exc),
+  }
+
+
+def _line_excerpt_with_caret(line: str, column: int, *, radius: int = 180) -> tuple[str, str]:
+  index = max(column - 1, 0)
+  start = max(index - radius, 0)
+  end = min(index + radius, len(line))
+  prefix = "..." if start > 0 else ""
+  suffix = "..." if end < len(line) else ""
+  excerpt = f"{prefix}{line[start:end]}{suffix}"
+  caret_index = len(prefix) + max(index - start, 0)
+  return excerpt, " " * caret_index + "^"
+
+
+def _json_output_error_context(response_text: str, exc: Exception) -> str:
+  try:
+    candidate = _json_candidate_text(response_text)
+  except Exception:
+    candidate = response_text.strip()
+  if not isinstance(exc, json.JSONDecodeError):
+    return _truncate_for_diagnostics(candidate, JSON_DIAGNOSTIC_OUTPUT_CHARS)
+
+  lines = candidate.splitlines() or [candidate]
+  line_index = max(min(exc.lineno - 1, len(lines) - 1), 0)
+  start = max(line_index - JSON_DIAGNOSTIC_LINE_CONTEXT, 0)
+  end = min(line_index + JSON_DIAGNOSTIC_LINE_CONTEXT + 1, len(lines))
+  rendered: list[str] = []
+  for current in range(start, end):
+    line_no = current + 1
+    marker = ">" if current == line_index else " "
+    if current == line_index:
+      excerpt, caret = _line_excerpt_with_caret(lines[current], exc.colno)
+      rendered.append(f"{marker} {line_no}: {excerpt}")
+      rendered.append(f"  {' ' * (len(str(line_no)) + 2)}{caret}")
+    else:
+      rendered.append(f"{marker} {line_no}: {_truncate_for_diagnostics(lines[current], 420)}")
+  return "\n".join(rendered)
+
+
+def _json_output_preview(response_text: str) -> str:
+  try:
+    candidate = _json_candidate_text(response_text)
+  except Exception:
+    candidate = response_text.strip()
+  return _truncate_for_diagnostics(candidate, JSON_DIAGNOSTIC_OUTPUT_CHARS)
+
+
+def _log_invalid_generation_json(
+  *,
+  event: str,
+  stage_id: str,
+  system_prompt: str,
+  response_text: str,
+  parse_error: Exception,
+  extra_fields: Optional[dict[str, Any]] = None,
+) -> None:
+  fields: dict[str, Any] = {
+    "stage_id": stage_id,
+    "expected_output_contract": _expected_output_contract(system_prompt),
+    "parse_error": _parse_error_summary(parse_error),
+    "output_error_context": _json_output_error_context(response_text, parse_error),
+    "output_preview": _json_output_preview(response_text),
+  }
+  if extra_fields:
+    fields.update(extra_fields)
+  logger.warning(event, **fields)
 
 
 def _json_repair_user_prompt(stage_id: str, response_text: str, error: Exception) -> str:
@@ -828,7 +936,14 @@ async def _run_generation_stage(
   except (json.JSONDecodeError, ValueError) as exc:
     if not retry_on_json_error:
       raise
-    logger.warning("[AI Generate Personality] Stage %s returned invalid JSON; retrying JSON repair: %s", stage_id, exc)
+    _log_invalid_generation_json(
+      event="personality_generation_invalid_json",
+      stage_id=stage_id,
+      system_prompt=system_prompt,
+      response_text=response_text,
+      parse_error=exc,
+      extra_fields={"will_retry_repair": True},
+    )
     repaired_text = await _call_generation_llm(
       stage_id=f"{stage_id}.repair",
       prompt=_json_repair_user_prompt(stage_id, response_text, exc),
@@ -846,7 +961,22 @@ async def _run_generation_stage(
       stage_id,
       repaired_text[:300],
     )
-    return _extract_json_object(repaired_text)
+    try:
+      return _extract_json_object(repaired_text)
+    except (json.JSONDecodeError, ValueError) as repair_exc:
+      _log_invalid_generation_json(
+        event="personality_generation_json_repair_invalid",
+        stage_id=stage_id,
+        system_prompt=system_prompt,
+        response_text=repaired_text,
+        parse_error=repair_exc,
+        extra_fields={
+          "original_parse_error": _parse_error_summary(exc),
+          "repair_parse_error": _parse_error_summary(repair_exc),
+          "repair_output_error_context": _json_output_error_context(repaired_text, repair_exc),
+        },
+      )
+      raise
 
 
 async def _run_optional_generation_stage(
