@@ -217,6 +217,8 @@
     },
     "cancelCreate": "Cancel",
     "generationFailed": "Generation failed",
+    "generationTimedOut": "Generation is taking too long. Please try again in a moment.",
+    "generationFailedUnknown": "Generation did not finish. Please try again in a moment.",
     "waiting": "Typing…"
   },
   "firstContext": {

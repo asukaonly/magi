@@ -218,6 +218,8 @@
     },
     "cancelCreate": "取消",
     "generationFailed": "生成失败",
+    "generationTimedOut": "生成时间太久了，请稍后再试一次。",
+    "generationFailedUnknown": "生成没有完成，请稍后再试一次。",
     "waiting": "正在输入…"
   },
   "firstContext": {

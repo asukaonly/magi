@@ -340,11 +340,16 @@ export function PersonaPreviewChat({
       setCustomDescription('');
       setMode('chat');
     } catch (err) {
-      setGenError((err as Error).message);
+      const message = (err as Error).message;
+      setGenError(
+        message === 'Personality generation timed out'
+          ? t('personaPreview.generationTimedOut')
+          : message || t('personaPreview.generationFailedUnknown'),
+      );
     } finally {
       setGenerating(false);
     }
-  }, [customDescription, generating, i18n.language, llmConfig]);
+  }, [customDescription, generating, i18n.language, llmConfig, t]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[200px_1fr] gap-4">

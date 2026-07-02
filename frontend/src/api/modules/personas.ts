@@ -152,7 +152,7 @@ export interface PersonalityGenerationJobResponse {
 export type PersonalityGenerationProgressCallback = (snapshot: PersonalityGenerationJobSnapshot) => void;
 
 const GENERATION_JOB_POLL_MS = 1000;
-const GENERATION_JOB_TIMEOUT_MS = 180000;
+const GENERATION_JOB_TIMEOUT_MS = 600000;
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
 
@@ -383,7 +383,7 @@ export const personasApi = {
   /** AI-generate a personality config from a description. */
   generate: (request: AIGenerateRequest) =>
     api.post<PersonalityConfig>('/personality/generate', request, {
-      timeout: 120000,
+      timeout: GENERATION_JOB_TIMEOUT_MS,
     }) as Promise<PersonalityGenerateResponse>,
 
   /** Start AI personality generation as a background job. */
