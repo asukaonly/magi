@@ -166,44 +166,26 @@ appearance_prompt must be an English string suitable for Midjourney or Stable Di
 )
 
 INTEGRATION_SYSTEM_PROMPT = _build_stage_system_prompt(
-  """Run a cross-field consistency review across all generated modules and produce one coherent runtime configuration. Your job is not to merge fragments mechanically; fragments may contradict each other because they were generated in parallel.""",
-  """Return exactly one JSON object using the full target schema:
-{
-  "name": "string",
-  "avatar": "string",
-  "description": "string",
-  "appearance_prompt": "English portrait prompt",
-  "identity_core": {"identity_statement": "string", "values_loved": [], "values_rejected": [], "attention_biases": []},
-  "idiolect": {"sentence_style": "string", "vocab_available": [], "vocab_avoided": [], "structural_quirks": []},
-  "registers": {
-    "chat": {"description": "string", "behavior": "string", "examples": ["string"]},
-    "analysis": {"description": "string", "behavior": "string", "examples": ["string"]},
-    "task": {"description": "string", "behavior": "string", "examples": ["string"]},
-    "emotional": {"description": "string", "behavior": "string", "examples": ["string"]},
-    "crisis": {"description": "string", "behavior": "string", "examples": ["string"]}
-  },
-  "quiet_hours": [],
-  "signature_triggers": [],
-  "persona_layers": [{"layer_id": "surface", "unlock_condition": null, "modifiers": {}}],
-  "dynamic_state_rules": {},
-  "milestone_conditions": {},
-  "interim_lines": {},
-  "bootstrap": {"style_instruction": "string", "opening_line": "string", "max_rounds": 3}
-}
+  """Run a cross-field consistency review across all generated modules. The combined draft is already complete and mostly correct; the modules were generated in parallel, so a few fields may contradict each other or drift from the persona. Your job is to output corrections for only those fields, not to rewrite the whole configuration.""",
+  """Return exactly one JSON object that contains ONLY the fields you are correcting. Do not echo fields that are already coherent, and do not restate the full schema.
+Mirror the combined draft's key paths and nesting exactly, e.g. {"registers": {"chat": {"examples": ["..."]}}} or {"idiolect": {"structural_quirks": ["..."]}}.
+Arrays are replaced wholesale when merged, never appended. Whenever you change any array (examples, structural_quirks, values_loved, values_rejected, attention_biases, vocab_available, vocab_avoided, signature_triggers, quiet_hours, persona_layers), return the COMPLETE corrected array, not just the changed items.
+If you correct any non-surface persona layer, return the full persona_layers array with {"layer_id":"surface","unlock_condition":null,"modifiers":{}} as the first item.
+If the draft is already coherent, return an empty object: {}.
 Do not include _meta_design in the returned JSON. It is present in the combined draft only as a generation-time design anchor.
 Never return registers.examples or any register_id/example grouping layer.""",
   (
-    "Read identity_core, idiolect, registers, triggers, layers, bootstrap, and _meta_design together. Revise any field that drifted away from the same character.",
-    "Use _meta_design.failure_mode to remove examples, vocabulary, or opening copy that read like bad AI performance.",
-    "Ensure runtime examples are good-only examples. Do not leave Bad/Good contrast blocks or failure-mode demonstrations in the final config.",
-    "Check that examples use idiolect.vocab_available naturally, avoid idiolect.vocab_avoided, and match idiolect.sentence_style.",
-    "Ensure structural_quirks include anti-failure-mode behavior rules, especially for style callouts, praise, trivial facts, and user requests to reduce the persona mode.",
-    "Ensure all five required registers exist and task, analysis, and crisis stay useful before expressive.",
-    "Ensure crisis behavior uses concrete safety-first guidance without theatrical style. If region is unknown, do not invent hotline numbers.",
-    "Ensure at least three signature triggers and two quiet-hour clamps are present; at least two triggers should be specific to _meta_design.core_theme rather than generic fallbacks.",
-    "Keep surface exactly fixed and put relationship-depth behavior only in non-surface layers.",
-    "Keep target-language prose consistent, with appearance_prompt in English.",
-    "Remove contradictions, duplicated rules, legacy fields, and all generation-only fields from the final JSON.",
+    "Read identity_core, idiolect, registers, triggers, layers, bootstrap, and _meta_design together. Correct only the fields that drifted away from the same character; leave coherent fields untouched.",
+    "Use _meta_design.failure_mode to find examples, vocabulary, or opening copy that read like bad AI performance, and correct only those.",
+    "Runtime examples must be good-only. If any example still holds a Bad/Good contrast block or a failure-mode demonstration, return the corrected array for that register.",
+    "If examples do not use idiolect.vocab_available naturally, use idiolect.vocab_avoided, or clash with idiolect.sentence_style, correct the affected examples.",
+    "If structural_quirks is missing anti-failure-mode behavior rules for style callouts, praise, trivial facts, or requests to reduce the persona mode, return the corrected structural_quirks array.",
+    "If any of the five required registers is missing or if task, analysis, or crisis stopped being useful before expressive, correct only those registers.",
+    "If crisis behavior is theatrical or invents region-specific hotline numbers, correct the crisis register with concrete safety-first guidance.",
+    "If there are fewer than three signature triggers or two quiet-hour clamps, or fewer than two triggers specific to _meta_design.core_theme, return the corrected signature_triggers and/or quiet_hours arrays.",
+    "If a non-surface layer breaks character or the surface layer gained behavior, return the corrected persona_layers array with surface fixed and empty.",
+    "If any target-language prose drifted into another language, or appearance_prompt is not English, correct only those fields.",
+    "Do not output _meta_design or any other generation-only field.",
   ),
 )
 

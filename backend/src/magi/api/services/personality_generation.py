@@ -30,7 +30,12 @@ logger = get_logger(__name__)
 
 
 REQUIRED_REGISTERS = ("chat", "analysis", "task", "emotional", "crisis")
-PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 2
+# Upper bound on persona-generation LLM calls launched at once. The parallel
+# module phase fans out five stages (registers, rules, layers, bootstrap,
+# appearance); this cap must cover them so it does not become the bottleneck.
+# Actual provider/model load is still governed downstream by the per-model
+# LLMConcurrencyLimiter (which is model-aware and reserves high-priority slots).
+PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS = 6
 PERSONALITY_GENERATION_JOB_TTL_SECONDS = 30 * 60
 _PERSONALITY_GENERATION_LLM_SEMAPHORE = asyncio.Semaphore(PERSONALITY_GENERATION_MAX_CONCURRENT_LLM_CALLS)
 _PERSONALITY_GENERATION_JOBS: dict[str, "PersonalityGenerationJob"] = {}
@@ -890,7 +895,7 @@ Target Language: {target_language}
 {json.dumps(combined, ensure_ascii=False, indent=2)}
 
 # Task
-Conduct the cross-field consistency review from the system prompt. Identify fields that contradict each other or fail to support the persona's _meta_design. Revise as needed and return the final complete runtime personality configuration JSON.
+Conduct the cross-field consistency review from the system prompt. Identify the fields that contradict each other or fail to support the persona's _meta_design, and return ONLY those corrected fields. Omit anything already coherent, and return an empty object {{}} if nothing needs changing. Follow the output contract in the system prompt: mirror the draft's key paths, and for any array you change return the complete corrected array.
 
 Pay particular attention to:
 - Whether chat register examples resist the declared failure mode without including bad examples in the final runtime examples
@@ -898,7 +903,7 @@ Pay particular attention to:
 - Whether crisis register meets safety-first requirements without inventing region-specific resources
 - Whether relationship layers feel like the same character at different depths
 
-Return only the final JSON, no commentary, and do not include _meta_design."""
+Return only the JSON patch, no commentary, and do not include _meta_design."""
 
 
 async def _run_generation_stage(
@@ -1302,7 +1307,7 @@ async def _run_integration_personality_stage(
       stage_id="integrate",
       prompt=_integration_user_prompt(context.description, context.target_language, combined),
       system_prompt=INTEGRATION_SYSTEM_PROMPT,
-      max_tokens=3200,
+      max_tokens=2048,
       temperature=0.4,
       retry_on_json_error=True,
       **_generation_stage_dependencies(context),
