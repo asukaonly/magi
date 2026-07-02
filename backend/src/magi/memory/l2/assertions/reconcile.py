@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import time
-from typing import Any
+from typing import Any, Protocol, cast
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
@@ -22,6 +22,18 @@ class _ReconciledAssertionWrite:
     confidence: float
     last_seen: float
     outcome: ReconciledTraitOutcome
+
+
+class _L2StoreReconcileHostProtocol(Protocol):
+    db_path: str
+
+    async def list_tom_assertions(
+        self,
+        *,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]: ...
 
 
 class L2StoreReconcileMixin(
@@ -70,7 +82,8 @@ class L2StoreReconcileMixin(
         entity_id: str,
         entity_type: str | None,
     ) -> list[dict[str, Any]]:
-        assertions = await self.list_tom_assertions(
+        host = cast(_L2StoreReconcileHostProtocol, self)
+        assertions = await host.list_tom_assertions(
             entity_id=entity_id,
             entity_type=entity_type,
             limit=500,
@@ -161,7 +174,8 @@ class L2StoreReconcileMixin(
         writes: list[_ReconciledAssertionWrite],
     ) -> None:
         now = time.time()
-        async with sqlite_connection_async(self.db_path) as db:
+        host = cast(_L2StoreReconcileHostProtocol, self)
+        async with sqlite_connection_async(host.db_path) as db:
             for write in writes:
                 await db.execute(
                     """

@@ -56,15 +56,18 @@ class FunctionCallingLoopRunner:
         )
 
     def _build_initial_state(self, run_input: EngineRunInput) -> FunctionCallingStepState:
-        state = self._host.build_step_state(
-            turn=run_input.turn,
-            system_prompt=run_input.system_prompt,
-            selected_tools=run_input.selected_tools,
-            conversation_history=run_input.conversation_history,
-            session_summary=run_input.session_summary,
-            session_origin=run_input.session_origin,
-            reply_context=run_input.reply_context,
-            ephemeral_context=run_input.ephemeral_context,
+        state = cast(
+            FunctionCallingStepState,
+            self._host.build_step_state(
+                turn=run_input.turn,
+                system_prompt=run_input.system_prompt,
+                selected_tools=run_input.selected_tools,
+                conversation_history=run_input.conversation_history,
+                session_summary=run_input.session_summary,
+                session_origin=run_input.session_origin,
+                reply_context=run_input.reply_context,
+                ephemeral_context=run_input.ephemeral_context,
+            ),
         )
         self._host._current_messages = state.messages
         return state
@@ -81,12 +84,21 @@ class FunctionCallingLoopRunner:
                 iterations=state.iteration,
             )
         if control.retract_signal.is_requested():
-            return self._host._build_retracted_outcome(state, control.retract_signal)
+            return cast(
+                ExecutionOutcome,
+                self._host._build_retracted_outcome(state, control.retract_signal),
+            )
         if control.suspend_signal.is_requested():
-            return self._host._build_suspended_outcome(state, control.suspend_signal)
+            return cast(
+                ExecutionOutcome,
+                self._host._build_suspended_outcome(state, control.suspend_signal),
+            )
         await self._host.apply_steer_messages(state, control.steer_inbox)
         if control.detach_signal.is_requested():
-            return self._host._build_detached_outcome(state, control.detach_signal)
+            return cast(
+                ExecutionOutcome,
+                self._host._build_detached_outcome(state, control.detach_signal),
+            )
         return None
 
     async def _execute_step(
@@ -97,22 +109,25 @@ class FunctionCallingLoopRunner:
         thinking_depth: ThinkingDepth,
         control: RunControl,
     ) -> FunctionCallingStepOutcome:
-        return await self._host.step_executor.execute_step(
-            state=state,
-            user_message=run_input.turn.text,
-            thinking_depth=thinking_depth,
-            user_id=run_input.user_id,
-            session_id=run_input.session_id,
-            session_run_id=run_input.session_run_id,
-            session_run_revision=run_input.session_run_revision,
-            turn_id=run_input.turn_id,
-            intent=run_input.intent,
-            execution_agent_id=run_input.execution_agent_id,
-            execution_workspace=run_input.execution_workspace,
-            llm_timeout_seconds=run_input.llm_timeout_seconds,
-            cancel_token=control.cancel_token,
-            control=control,
-            route_decision=run_input.route_decision,
+        return cast(
+            FunctionCallingStepOutcome,
+            await self._host.step_executor.execute_step(
+                state=state,
+                user_message=run_input.turn.text,
+                thinking_depth=thinking_depth,
+                user_id=run_input.user_id,
+                session_id=run_input.session_id,
+                session_run_id=run_input.session_run_id,
+                session_run_revision=run_input.session_run_revision,
+                turn_id=run_input.turn_id,
+                intent=run_input.intent,
+                execution_agent_id=run_input.execution_agent_id,
+                execution_workspace=run_input.execution_workspace,
+                llm_timeout_seconds=run_input.llm_timeout_seconds,
+                cancel_token=control.cancel_token,
+                control=control,
+                route_decision=run_input.route_decision,
+            ),
         )
 
     async def _handle_step_outcome(

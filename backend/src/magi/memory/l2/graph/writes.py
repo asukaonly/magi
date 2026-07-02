@@ -269,9 +269,7 @@ class L2StoreGraphWriteMixin:
             object_id=str(edge_write["object_id"]),
             object_type=str(edge_write["object_type"]),
             fact_kind=_optional_mapping_text(edge_write, "fact_kind"),
-            evidence_event_ids=[
-                str(item) for item in edge_write.get("evidence_event_ids", [])
-            ],
+            evidence_event_ids=[str(item) for item in edge_write.get("evidence_event_ids", [])],
             confidence=float(edge_write["confidence"]),
             observed_at=float(edge_write["observed_at"]),
             source_type=str(edge_write["source_type"]),
@@ -347,7 +345,9 @@ class L2StoreGraphWriteMixin:
         if normalized_fact_kind == "future_intent" and effective_expires_at is None:
             effective_expires_at = observed_at_float + DEFAULT_FUTURE_INTENT_TTL_SECONDS
 
-        normalized_subject_type = normalize_store_entity_type(edge.subject_type) or edge.subject_type
+        normalized_subject_type = (
+            normalize_store_entity_type(edge.subject_type) or edge.subject_type
+        )
         normalized_object_type = normalize_store_entity_type(edge.object_type) or edge.object_type
         normalized_object_id = (
             normalize_store_entity_ref(edge.object_id, normalized_object_type) or edge.object_id
@@ -433,7 +433,7 @@ class L2StoreGraphWriteMixin:
             "WHERE triple_id = ?",
             (triple_id,),
         ) as cursor:
-            return await cursor.fetchone()
+            return cast(Mapping[str, Any] | None, await cursor.fetchone())
 
     @staticmethod
     async def _update_existing_knowledge_edge(

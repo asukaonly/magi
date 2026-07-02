@@ -67,9 +67,9 @@ class ProviderBridgeChatStreamingMixin:
         depth = thinking_depth if thinking_depth is not None else ThinkingDepth.MEDIUM
         state = _ChatStreamState(started_at=time.time())
 
-        async with self._limit_concurrency(
+        async with host._limit_concurrency(
             request_family="chat",
-            limit=self._resolve_chat_concurrency_limit(),
+            limit=host._resolve_chat_concurrency_limit(),
             priority=priority,
         ):
             if host.is_anthropic():

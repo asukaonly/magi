@@ -234,7 +234,7 @@ class L2EntityGhostGraphMaintenanceMixin(L2EntityGhostHostMixin):
             """,
             (from_id,),
         ) as cur:
-            return await cur.fetchall()
+            return cast(list[Any], await cur.fetchall())
 
     async def _rewrite_graph_row_locked(
         self,

@@ -369,9 +369,7 @@ class ProjectionQueueClaimingMixin:
         selected_event_ids: list[str] = []
         effective_owner_by_event_id: dict[str, str] = {}
 
-        for catch_up_owner, grouped_buckets in _tail_groups_by_oldest(
-            low_frequency_owners_by_tail
-        ):
+        for catch_up_owner, grouped_buckets in _tail_groups_by_oldest(low_frequency_owners_by_tail):
             if remaining <= 0:
                 break
             claim_count = self._claim_count_for_tail_group(
@@ -491,7 +489,7 @@ class ProjectionQueueClaimingMixin:
             """,
             tuple(selected_event_ids),
         ) as cursor:
-            claimed_rows = await cursor.fetchall()
+            claimed_rows = cast(list[aiosqlite.Row], await cursor.fetchall())
         await db.commit()
         return claimed_rows
 

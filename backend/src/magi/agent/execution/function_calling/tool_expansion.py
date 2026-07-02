@@ -59,8 +59,10 @@ def _resolve_available_expansion_slots(
     host: Any,
     state: FunctionCallingStepState,
 ) -> int:
-    available_slots = max(0, host._MAX_TOTAL_TOOLS_PER_TURN - len(state.selected_tool_names))
-    return min(host._MAX_TOOLS_PER_EXPANSION, available_slots)
+    total_limit = int(host._MAX_TOTAL_TOOLS_PER_TURN)
+    expansion_limit = int(host._MAX_TOOLS_PER_EXPANSION)
+    available_slots = max(0, total_limit - len(state.selected_tool_names))
+    return min(expansion_limit, available_slots)
 
 
 def _filter_known_additions(

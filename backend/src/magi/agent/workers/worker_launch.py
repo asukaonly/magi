@@ -195,15 +195,18 @@ class WorkerLaunchMixin:
         context: ToolExecutionContext,
         options: _WorkerBatchOptions,
     ) -> List[WorkerRunState] | ToolResult:
+        host = cast(_WorkerLaunchHostProtocol, self)
         run_states: List[WorkerRunState] = []
         for worker in workers:
             worker_params = _build_batch_worker_params(worker, parameters, options)
-            run_state = await self._start_worker(worker_params, context)
+            run_state = await host._start_worker(worker_params, context)
             if isinstance(run_state, ToolResult):
                 return run_state
             run_states.append(run_state)
             if _should_await_batch_worker_immediately(run_state, options):
-                await run_state.task
+                task = run_state.task
+                if task is not None:
+                    await task
         return run_states
 
 

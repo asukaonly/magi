@@ -6,7 +6,7 @@ import getpass
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 from ._tool_execution_contracts import (
     _FunctionCallingToolExecutionHostProtocol,
@@ -138,9 +138,7 @@ class _SkillToolExecutor:
                 error="Skill runner not available",
             )
 
-        workspace_root = self._host._resolve_execution_workspace(
-            request.execution_workspace
-        )
+        workspace_root = self._host._resolve_execution_workspace(request.execution_workspace)
         arguments_or_result = await self._apply_pre_hook(request, workspace_root)
         if isinstance(arguments_or_result, ToolCallResult):
             return arguments_or_result
@@ -240,7 +238,7 @@ class _SkillToolExecutor:
                 request.iteration,
                 request.tool_call_id,
             )
-        return build_root_span_id(normalized_turn_id)
+        return cast(str, build_root_span_id(normalized_turn_id))
 
     @staticmethod
     def _build_args_list(arguments: dict[str, Any]) -> list[str]:
@@ -280,9 +278,7 @@ class _SkillToolExecutor:
                 snapshot = self._snapshot_result(result, trace)
                 self._record_result_span(span, snapshot)
                 await self._publish_skill_event(request, trace, snapshot)
-                await self._dispatch_post_hook(
-                    request, workspace_root, arguments, snapshot
-                )
+                await self._dispatch_post_hook(request, workspace_root, arguments, snapshot)
                 return self._to_tool_call_result(request, snapshot)
             except Exception as exc:
                 return await self._handle_exception(span, request, trace, exc)
@@ -335,9 +331,7 @@ class _SkillToolExecutor:
                 "finished_at": snapshot.finished_at,
                 "result_summary": snapshot.result_summary,
                 "fork_mode": snapshot.fork_mode,
-                "allowed_tools": (
-                    list(snapshot.allowed_tools) if snapshot.allowed_tools else None
-                ),
+                "allowed_tools": (list(snapshot.allowed_tools) if snapshot.allowed_tools else None),
             }
         )
         span.set_result_preview(snapshot.result_summary)
@@ -399,9 +393,7 @@ class _SkillToolExecutor:
                 "result_summary": snapshot.result_summary,
                 "fork_mode": snapshot.fork_mode,
                 "error_message": (
-                    str(snapshot.error)
-                    if (not snapshot.success and snapshot.error)
-                    else None
+                    str(snapshot.error) if (not snapshot.success and snapshot.error) else None
                 ),
             },
         )

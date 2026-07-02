@@ -259,7 +259,7 @@ class L2StoreRelationshipQueryMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
-                return await cursor.fetchall()
+                return cast(list[aiosqlite.Row], await cursor.fetchall())
 
     def _bucket_relationship_rows(
         self,

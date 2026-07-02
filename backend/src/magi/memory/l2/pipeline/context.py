@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol, cast
 
 from ...event_contracts import (
     IngestTarget,
@@ -225,9 +225,12 @@ class L2PipelineContextMixin:
     ) -> list[dict[str, Any]]:
         if host._entity_catalog is None:
             return []
-        return await host._entity_catalog.resolve_query_entities(
-            query_text,
-            limit=DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
+        return cast(
+            list[dict[str, Any]],
+            await host._entity_catalog.resolve_query_entities(
+                query_text,
+                limit=DEFAULT_L2_HISTORY_ENTITY_MATCH_LIMIT,
+            ),
         )
 
     async def _search_history_contexts_for_entities(

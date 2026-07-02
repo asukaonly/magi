@@ -127,7 +127,7 @@ class L1EventEmbeddingSearchMixin:
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
-                return await cursor.fetchall()
+                return cast(list[aiosqlite.Row], await cursor.fetchall())
 
 
 def _add_ranked_hit_chunk(

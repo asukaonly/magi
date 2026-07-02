@@ -274,9 +274,10 @@ class L1EventQueryMixin(
         sql = _append_equal_filter(sql, args, "user_id", user_id)
         sql = _append_in_filter(sql, args, "event_type", event_types)
         sql = _append_in_filter(sql, args, "source", source_filters)
-        sql = _append_scope_filter(sql, args, l1_retrieval_scopes)
-        if sql is None:
+        scoped_sql = _append_scope_filter(sql, args, l1_retrieval_scopes)
+        if scoped_sql is None:
             return None
+        sql = scoped_sql
         sql = _append_domain_filters(sql, args, domain_filters, exclude_domain)
         sql = _append_time_filters(sql, args, time_start, time_end)
         return sql, args
@@ -310,7 +311,9 @@ class L1EventQueryMixin(
         offset: int = 0,
         include_metadata_json: bool = True,
         include_embedding_fields: bool = True,
-        order_by: Literal["timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"] = "timestamp_desc",
+        order_by: Literal[
+            "timestamp_desc", "timestamp_asc", "importance_desc", "created_at_desc"
+        ] = "timestamp_desc",
     ) -> List[Dict[str, Any]]:
         """Query events with SQL-level filters."""
         host = cast(L1EventQueryHostProtocol, self)
@@ -346,7 +349,7 @@ class L1EventQueryMixin(
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
-                return await cursor.fetchall()
+                return cast(list[aiosqlite.Row], await cursor.fetchall())
 
     @staticmethod
     def _query_event_rows_to_dicts(

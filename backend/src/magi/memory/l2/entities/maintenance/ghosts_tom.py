@@ -12,13 +12,11 @@ from .ghosts_common import L2EntityGhostHostMixin, _CatalogMaintenanceStatsProto
 
 async def _read_tom_ghost_entity_ids(db_path: str) -> list[str]:
     async with sqlite_connection_async(db_path) as db:
-        async with db.execute(
-            """
+        async with db.execute("""
             SELECT DISTINCT entity_id FROM tom_trait_assertions
             WHERE entity_id NOT IN (SELECT entity_id FROM entity_catalog)
               AND entity_id NOT LIKE 'user:%'
-            """
-        ) as cur:
+            """) as cur:
             return [str(r[0]) for r in await cur.fetchall()]
 
 
@@ -40,7 +38,7 @@ async def _fetch_tom_trait_conflicts(
         """,
         (target, ghost_id),
     ) as cur:
-        return await cur.fetchall()
+        return cast(list[aiosqlite.Row], await cur.fetchall())
 
 
 async def _delete_lower_confidence_tom_conflicts(

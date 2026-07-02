@@ -268,11 +268,14 @@ class ProviderBridgeToolStreamingMixin:
     async def _finish_anthropic_tool_call(
         state: _AnthropicToolStreamState,
     ) -> None:
+        tool_id = state.current_tool_id
+        if tool_id is None:
+            return
         raw_json = "".join(state.current_tool_json_parts)
         arguments = _parse_tool_arguments(raw_json)
         state.tool_calls.append(
             ProviderToolCall(
-                id=state.current_tool_id,
+                id=tool_id,
                 name=state.current_tool_name or "",
                 arguments=arguments,
             )
@@ -280,7 +283,7 @@ class ProviderBridgeToolStreamingMixin:
         state.assistant_blocks.append(
             {
                 "type": "tool_use",
-                "id": state.current_tool_id,
+                "id": tool_id,
                 "name": state.current_tool_name,
                 "input": arguments,
             }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Protocol
+from typing import Protocol, cast
 
 import aiosqlite
 
@@ -52,13 +52,16 @@ class L2EntityPredicateMaintenanceMixin:
 
 
 async def _fetch_active_knowledge_graph_rows(db: aiosqlite.Connection) -> list[aiosqlite.Row]:
-    return await db.execute_fetchall("""
-        SELECT triple_id, subject_id, predicate, object_id,
-               evidence_event_ids, observation_count, confidence,
-               first_observed_at, last_observed_at
-        FROM knowledge_graph
-        WHERE status = 'active'
-        """)
+    return cast(
+        list[aiosqlite.Row],
+        await db.execute_fetchall("""
+            SELECT triple_id, subject_id, predicate, object_id,
+                   evidence_event_ids, observation_count, confidence,
+                   first_observed_at, last_observed_at
+            FROM knowledge_graph
+            WHERE status = 'active'
+            """),
+    )
 
 
 def _core_predicates_by_synonym_group() -> dict[str, list[str]]:
@@ -102,17 +105,20 @@ async def _fetch_existing_core_predicates(
     core_predicates: list[str],
 ) -> list[aiosqlite.Row]:
     placeholders = ",".join("?" * len(core_predicates))
-    return await db.execute_fetchall(
-        f"""
-        SELECT triple_id, predicate, evidence_event_ids,
-               observation_count, confidence,
-               first_observed_at, last_observed_at
-        FROM knowledge_graph
-        WHERE subject_id = ? AND object_id = ?
-          AND predicate IN ({placeholders})
-          AND triple_id != ? AND status = 'active'
-        """,
-        (row["subject_id"], row["object_id"], *core_predicates, row["triple_id"]),
+    return cast(
+        list[aiosqlite.Row],
+        await db.execute_fetchall(
+            f"""
+            SELECT triple_id, predicate, evidence_event_ids,
+                   observation_count, confidence,
+                   first_observed_at, last_observed_at
+            FROM knowledge_graph
+            WHERE subject_id = ? AND object_id = ?
+              AND predicate IN ({placeholders})
+              AND triple_id != ? AND status = 'active'
+            """,
+            (row["subject_id"], row["object_id"], *core_predicates, row["triple_id"]),
+        ),
     )
 
 
@@ -176,4 +182,4 @@ def _canonical_triple_id(row: aiosqlite.Row, target_predicate: str) -> str:
 def _predicate_synonym_group(predicate: str) -> str | None:
     from . import get_predicate_synonym_group
 
-    return get_predicate_synonym_group(predicate)
+    return cast(str | None, get_predicate_synonym_group(predicate))

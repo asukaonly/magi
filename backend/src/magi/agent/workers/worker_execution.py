@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, List
+from typing import Any, Dict, List, Protocol, cast
 
 from ...agent.execution.function_calling import FunctionCallingOrchestrator
 from ...agent.execution.function_calling.run_input import EngineRunInput
@@ -21,6 +21,45 @@ from .worker_state import (
 )
 
 logger = get_logger(__name__)
+
+
+class _WorkerExecutionHostProtocol(Protocol):
+    _llm_adapter: Any
+    _tool_registry: Any
+    _runtime_trace_store: Any
+    _scenario_llm_pool: Any
+    _permission_gateway_provider: Any
+    _orchestration_store: Any
+
+    async def _publish_worker_fact(
+        self,
+        run_state: WorkerRunState,
+        event_type: str,
+        internal_payload: Dict[str, Any],
+        public_payload: Dict[str, Any] | None = None,
+    ) -> None: ...
+
+    async def _handle_tool_result(
+        self,
+        run_state: WorkerRunState,
+        payload: Dict[str, Any],
+    ) -> None: ...
+
+    async def _handle_worker_loop_event(
+        self,
+        run_state: WorkerRunState,
+        payload: Dict[str, Any],
+    ) -> None: ...
+
+    def _validate_worker_result(self, subagent_type: str, content: str) -> WorkerResult: ...
+
+    def _preview_worker_result(self, worker_result: WorkerResult, limit: int = 400) -> str: ...
+
+    async def _emit_worker_failed_trace(self, run_state: WorkerRunState) -> None: ...
+
+    async def _emit_worker_completed_trace(self, run_state: WorkerRunState) -> None: ...
+
+    async def _emit_worker_cancelled_trace(self, run_state: WorkerRunState) -> None: ...
 
 
 class WorkerExecutionMixin:
@@ -50,7 +89,8 @@ class WorkerExecutionMixin:
             await self._handle_unexpected_error(run_state, exc)
 
     async def _publish_worker_started(self, run_state: WorkerRunState) -> None:
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_PROGRESS,
             internal_payload={
@@ -87,15 +127,16 @@ class WorkerExecutionMixin:
             )
 
     def _build_worker_executor(self, run_state: WorkerRunState) -> FunctionCallingOrchestrator:
+        host = cast(_WorkerExecutionHostProtocol, self)
         return FunctionCallingOrchestrator(
-            llm_adapter=self._llm_adapter,
-            tool_registry=self._tool_registry,
+            llm_adapter=host._llm_adapter,
+            tool_registry=host._tool_registry,
             skill_runner=None,
-            tool_result_callback=lambda payload: self._handle_tool_result(run_state, payload),
-            loop_event_callback=lambda payload: self._handle_worker_loop_event(run_state, payload),
-            runtime_trace_store=self._runtime_trace_store,
-            scenario_llm_pool=self._scenario_llm_pool,
-            permission_gateway_provider=self._permission_gateway_provider,
+            tool_result_callback=lambda payload: host._handle_tool_result(run_state, payload),
+            loop_event_callback=lambda payload: host._handle_worker_loop_event(run_state, payload),
+            runtime_trace_store=host._runtime_trace_store,
+            scenario_llm_pool=host._scenario_llm_pool,
+            permission_gateway_provider=host._permission_gateway_provider,
         )
 
     async def _handle_worker_outcome(self, run_state: WorkerRunState, outcome: Any) -> None:
@@ -123,8 +164,9 @@ class WorkerExecutionMixin:
     ) -> WorkerResult | None:
         if not outcome.succeeded:
             return None
+        host = cast(_WorkerExecutionHostProtocol, self)
         try:
-            return self._validate_worker_result(
+            return host._validate_worker_result(
                 subagent_type=run_state.subagent_type,
                 content=outcome.content,
             )
@@ -140,8 +182,9 @@ class WorkerExecutionMixin:
         outcome: Any,
         validated_result: WorkerResult,
     ) -> None:
+        host = cast(_WorkerExecutionHostProtocol, self)
         run_state.result = validated_result.to_dict()
-        run_state.result_preview = self._preview_worker_result(validated_result)
+        run_state.result_preview = host._preview_worker_result(validated_result)
         await self._save_worker_result(run_state, validated_result)
         if validated_result.result_status == "failed":
             await self._handle_reported_worker_failure(
@@ -157,7 +200,8 @@ class WorkerExecutionMixin:
         run_state: WorkerRunState,
         validated_result: WorkerResult,
     ) -> None:
-        await self._orchestration_store.save_worker_result(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._orchestration_store.save_worker_result(
             worker_id=run_state.worker_id,
             orchestration_id=run_state.orchestration_id,
             subtask_id=run_state.subtask_id,
@@ -176,8 +220,9 @@ class WorkerExecutionMixin:
             validated_result.failure_reason or outcome.failure_reason or "WORKER_REPORTED_FAILURE"
         ).strip()
         run_state.error = run_state.failure_reason
-        await self._emit_worker_failed_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_failed_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_FAILED,
             internal_payload={
@@ -200,8 +245,9 @@ class WorkerExecutionMixin:
         validated_result: WorkerResult,
     ) -> None:
         run_state.status = "completed"
-        await self._emit_worker_completed_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_completed_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_COMPLETED,
             internal_payload={
@@ -222,8 +268,9 @@ class WorkerExecutionMixin:
             or outcome.failure_reason
             or "Worker execution failed"
         )
-        await self._emit_worker_failed_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_failed_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_FAILED,
             internal_payload={
@@ -243,8 +290,9 @@ class WorkerExecutionMixin:
         run_state.status = "cancelled"
         run_state.failure_reason = "CANCELLED"
         run_state.error = "Worker cancelled"
-        await self._emit_worker_cancelled_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_cancelled_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_FAILED,
             internal_payload={"stage": "cancelled", "error": run_state.error},
@@ -256,8 +304,9 @@ class WorkerExecutionMixin:
         run_state.error = "Worker cancelled"
         run_state.failure_reason = "CANCELLED"
         _mark_worker_finished(run_state)
-        await self._emit_worker_cancelled_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_cancelled_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_FAILED,
             internal_payload={"stage": "cancelled", "error": run_state.error},
@@ -278,8 +327,9 @@ class WorkerExecutionMixin:
             exc,
             exc_info=True,
         )
-        await self._emit_worker_failed_trace(run_state)
-        await self._publish_worker_fact(
+        host = cast(_WorkerExecutionHostProtocol, self)
+        await host._emit_worker_failed_trace(run_state)
+        await host._publish_worker_fact(
             run_state=run_state,
             event_type=WORKER_AGENT_FAILED,
             internal_payload={

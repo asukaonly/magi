@@ -97,7 +97,7 @@ class L2StoreEdgeEmbeddingMixin:
     async def _search_edge_vectors(
         self, vector_index: Any, embedding: Any, limit: int
     ) -> list[Any]:
-        return await vector_index.search(embedding=embedding, limit=limit * 3)
+        return cast(list[Any], await vector_index.search(embedding=embedding, limit=limit * 3))
 
     def _bounded_edge_search_inputs(
         self,
@@ -168,7 +168,7 @@ class L2StoreEdgeEmbeddingMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
-                return await cursor.fetchall()
+                return cast(list[aiosqlite.Row], await cursor.fetchall())
 
     def _rank_edge_search_rows(
         self,

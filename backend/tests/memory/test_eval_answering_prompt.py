@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from magi.api.routers.memory.eval.answering import _build_eval_answer_system_prompt
+from magi.memory.eval_support.answer_synthesis import _build_eval_answer_system_prompt
 
 
 def test_eval_answer_prompt_rejects_wrong_speaker_first_person_evidence() -> None:

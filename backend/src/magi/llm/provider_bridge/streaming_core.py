@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
 from typing import Any, Dict, Protocol
 
 from ...config.models import ThinkingDepth
@@ -78,41 +79,37 @@ class ThinkTagScrubber:
 class ProviderBridgeStreamingHostProtocol(Protocol):
     llm: Any
 
-    def is_anthropic(self) -> bool:
-        ...
+    def is_anthropic(self) -> bool: ...
 
-    def _convert_messages_to_anthropic(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        ...
+    def _convert_messages_to_anthropic(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]: ...
 
-    def _convert_messages_to_openai(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        ...
+    def _convert_messages_to_openai(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]: ...
 
     def _apply_provider_options(
         self,
         kwargs: Dict[str, Any],
         thinking_depth: ThinkingDepth,
-    ) -> Dict[str, Any]:
-        ...
+    ) -> Dict[str, Any]: ...
 
-    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any:
-        ...
+    def _cache_marked_system(self, system_prompt: str, *, cache_whole: bool = False) -> Any: ...
 
     def _inject_turn_context(
         self, messages: list[dict[str, Any]], system_prompt: str
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     def _mark_message_cache_breakpoints(
         self,
         injected_messages: list[dict[str, Any]],
         api_messages: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     def _apply_cache_routing(
         self, kwargs: dict[str, Any], event_context: dict[str, Any] | None
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
     def _with_cache_observation(
         self,
@@ -121,20 +118,15 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
         system_prompt: str,
         tools: list[dict[str, Any]] | None,
         cache_whole_system: bool = False,
-    ) -> dict[str, Any] | None:
-        ...
+    ) -> dict[str, Any] | None: ...
 
-    def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
-        ...
+    def _anthropic_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None: ...
 
-    def _openai_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None:
-        ...
+    def _openai_usage_to_wire(self, usage_data: Any) -> dict[str, int] | None: ...
 
-    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> Any:
-        ...
+    def _extract_anthropic_stream_usage(self, stream: Any, usage_data: Any) -> Any: ...
 
-    def _extract_openai_stream_usage(self, usage_data: Any) -> Any:
-        ...
+    def _extract_openai_stream_usage(self, usage_data: Any) -> Any: ...
 
     async def _emit_usage_event(
         self,
@@ -144,8 +136,17 @@ class ProviderBridgeStreamingHostProtocol(Protocol):
         usage: Any,
         event_context: dict[str, Any] | None,
         error: str | None = None,
-    ) -> None:
-        ...
+    ) -> None: ...
+
+    def _resolve_chat_concurrency_limit(self) -> int: ...
+
+    def _limit_concurrency(
+        self,
+        *,
+        request_family: str,
+        limit: int | None = None,
+        priority: Any = None,
+    ) -> AbstractAsyncContextManager[None]: ...
 
 
 __all__ = ["ProviderBridgeStreamingHostProtocol", "ThinkTagScrubber"]

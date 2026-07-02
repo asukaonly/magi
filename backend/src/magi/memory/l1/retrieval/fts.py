@@ -108,7 +108,7 @@ class L1EventFtsMixin:
         tokenized = tokenize_for_fts(query)
         if not tokenized:
             return ""
-        return escape_fts_query(tokenized)
+        return cast(str, escape_fts_query(tokenized))
 
     async def _run_bm25_search_phases(
         self,
