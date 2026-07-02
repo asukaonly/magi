@@ -18,8 +18,11 @@ from ...config.llm_registry import (
 )
 from ...config.models import LLMProviderSettings
 from ...core.logger import get_logger
-from .config import LLMProviderConfigModel
-from .config_schemas import LLMProviderConnectionConfigModel, LLMProviderServicesConfigModel
+from .config_schemas import (
+    LLMProviderConfigModel,
+    LLMProviderConnectionConfigModel,
+    LLMProviderServicesConfigModel,
+)
 from ..services.llm_testing_service import (
     DiscoverLLMModelsApiResponseModel,
     DiscoverLLMModelsResponseModel,

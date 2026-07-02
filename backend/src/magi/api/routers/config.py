@@ -31,11 +31,8 @@ from ..services.config_secrets import (
 )
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 from .config_update_paths import (
-    apply_llm_registry_defaults as _apply_llm_registry_defaults,
     build_full_update_paths as _build_full_update_paths,
     normalize_masked_config_secrets as _normalize_masked_config_secrets,
-    prune_sparse_value as _prune_sparse_value,
-    selection_limits_from_registry_limits as _selection_limits_from_registry_limits,
 )
 from .config_response_builders import (
     build_llm_config_model as _build_llm_config_model,
@@ -46,38 +43,17 @@ from .config_response_builders import (
 from .config_schemas import (
     AgentConfigModel,
     BackgroundTasksConfigModel,
-    BuiltInToolsConfigModel,
     ConfigResponse,
-    CrossEncoderConfigModel,
-    EmbeddingConfigModel,
-    EmbeddingLocalConfigModel,
-    EntitySemanticEdgeConfigModel,
     FullPersonalityConfigModel,
-    GraphSpreadingConfigModel,
-    LLMConfigModel,
-    LLMProviderConfigModel,
-    LLMSelectionConfigModel,
-    MemoryConfigModel,
-    MemoryL0ConfigModel,
-    MemoryL1ConfigModel,
-    MemoryL2ConfigModel,
-    MemoryL3ConfigModel,
-    MemoryL4ConfigModel,
-    MemoryRerankerConfigModel,
     NetworkProxyConfigModel,
     OnboardingTemplateDataModel,
     OnboardingTemplateResponse,
     PersonalitySettingsModel,
-    QueryExpansionConfigModel,
     SystemConfigModel,
     TestTelegramConnectionRequest,
     TestTelegramConnectionResponse,
     TimelineConfigModel,
-    ToolsConfigModel,
     UserPreferencesModel,
-    WeatherToolConfigModel,
-    WebFetchToolConfigModel,
-    WebSearchToolConfigModel,
 )
 
 logger = get_logger(__name__)
@@ -226,7 +202,7 @@ async def _run_with_response_budget(
         await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
     except asyncio.TimeoutError:
         logger.warning(
-            "Runtime operation is still running after onboarding response budget",
+            "Runtime operation is still running after configuration update response budget",
             operation=operation,
             timeout_seconds=timeout_seconds,
         )
@@ -237,7 +213,37 @@ async def _run_with_response_budget(
         task.cancel()
         raise
     except Exception:
-        logger.exception("Runtime operation failed during onboarding", operation=operation)
+        logger.exception("Runtime operation failed during configuration update", operation=operation)
+
+
+async def _refresh_or_initialize_runtime_after_config_update(
+    refreshed_config: Any,
+    *,
+    reason: str,
+) -> None:
+    """Refresh the runtime if it exists, or start it after a valid config save."""
+    from ...bootstrap import initialize_agent_runtime
+    from ...core.runtime_bindings import require_agent_runtime
+
+    try:
+        require_agent_runtime()
+        refresh_runtime_llm_config(refreshed_config)
+    except RuntimeError:
+        logger.info(
+            "Attempting to initialize agent runtime after configuration update",
+            reason=reason,
+        )
+        await _run_with_response_budget(
+            initialize_agent_runtime(),
+            operation=f"initialize_agent_runtime_after_{reason}",
+            timeout_seconds=ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS,
+        )
+
+    await _run_with_response_budget(
+        _enqueue_runtime_llm_refresh_command(reason=reason),
+        operation=f"enqueue_runtime_llm_refresh_after_{reason}",
+        timeout_seconds=ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS,
+    )
 
 
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
@@ -293,8 +299,10 @@ async def update_config(request: Request, config: SystemConfigModel):
                 detail=_t(request, "config.errors.save_failed", "Failed to save config"),
             )
         refreshed_config = reload_config()
-        refresh_runtime_llm_config(refreshed_config)
-        await _enqueue_runtime_llm_refresh_command(reason="config_updated")
+        await _refresh_or_initialize_runtime_after_config_update(
+            refreshed_config,
+            reason="config_updated",
+        )
         await _enqueue_runtime_channels_refresh_command(reason="config_updated")
         return ConfigResponse(
             success=True,
@@ -467,26 +475,9 @@ async def complete_onboarding(request: Request, config: SystemConfigModel):
             )
         refreshed_config = reload_config()
 
-        # Try to initialize agent runtime if not already initialized
-        from ...bootstrap import initialize_agent_runtime
-        from ...core.runtime_bindings import require_agent_runtime
-
-        try:
-            require_agent_runtime()
-            # Already initialized, just refresh LLM config
-            refresh_runtime_llm_config(refreshed_config)
-        except RuntimeError:
-            # Not initialized, try to initialize now
-            logger.info("Attempting to initialize agent runtime after onboarding")
-            await _run_with_response_budget(
-                initialize_agent_runtime(),
-                operation="initialize_agent_runtime_after_onboarding",
-                timeout_seconds=ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS,
-            )
-        await _run_with_response_budget(
-            _enqueue_runtime_llm_refresh_command(reason="onboarding_completed"),
-            operation="enqueue_runtime_llm_refresh_after_onboarding",
-            timeout_seconds=ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS,
+        await _refresh_or_initialize_runtime_after_config_update(
+            refreshed_config,
+            reason="onboarding_completed",
         )
 
         # NOTE: persona registry entries are created by the frontend via

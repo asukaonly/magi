@@ -9,14 +9,13 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.config import (
-    LLMProviderConfigModel,
-    LLMSelectionConfigModel,
     SystemConfigModel,
     _build_system_config,
     _build_onboarding_template,
     _build_update_paths,
     config_router,
 )
+from magi.api.routers.config_schemas import LLMProviderConfigModel, LLMSelectionConfigModel
 from magi.api.services.llm_testing_service import _default_llm_provider_registry
 from magi.api.routers.llm import llm_router
 from magi.config.loader import get_config
@@ -24,7 +23,6 @@ from magi.config.models import (
     BackgroundTasksSettings,
     LLMCapabilityOverridesSettings,
     LLMConcurrencyOverrideSettings,
-    LLMLimitsSettings,
     LLMLimitsOverrideSettings,
     LLMModelMetadataOverrideSettings,
     LLMProviderSettings,
@@ -1460,11 +1458,51 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
         "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
         _fake_enqueue_runtime_llm_refresh_command,
     )
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
 
     response = client.put("/config/", json=payload.model_dump(mode="json"))
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
+
+
+def test_update_config_initializes_runtime_when_runtime_is_deferred(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    calls: list[str] = []
+    payload = SystemConfigModel()
+
+    async def _fake_initialize_agent_runtime() -> None:
+        calls.append("initialize")
+
+    async def _fake_enqueue_runtime_llm_refresh_command(*, reason: str) -> None:
+        assert reason == "config_updated"
+        calls.append("enqueue")
+
+    def _require_agent_runtime():
+        raise RuntimeError("Runtime is not initialized")
+
+    monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda _: {})
+    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+    monkeypatch.setattr(
+        "magi.bootstrap.backend.initialize_agent_runtime",
+        _fake_initialize_agent_runtime,
+    )
+    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
+    monkeypatch.setattr(
+        "magi.api.routers.config._enqueue_runtime_llm_refresh_command",
+        _fake_enqueue_runtime_llm_refresh_command,
+    )
+
+    response = client.put("/config/", json=payload.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert calls == ["initialize", "enqueue"]
 
 
 def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences_payload(
@@ -1482,7 +1520,13 @@ def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences
 
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
+    async def _skip_runtime_refresh(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(
+        "magi.api.routers.config._refresh_or_initialize_runtime_after_config_update",
+        _skip_runtime_refresh,
+    )
 
     payload = SystemConfigModel().model_dump(mode="json")
     payload["preferences"]["close_to_tray_enabled"] = False
@@ -1526,7 +1570,13 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     )
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: refreshed_config)
-    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda config: None)
+    async def _skip_runtime_refresh(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr(
+        "magi.api.routers.config._refresh_or_initialize_runtime_after_config_update",
+        _skip_runtime_refresh,
+    )
     monkeypatch.setattr(
         "magi.api.routers.config._build_system_config",
         lambda mask_api_key=False: returned_config,
