@@ -3775,6 +3775,7 @@
       "degradedDeferredSelectionPending": "Backend is running, but the AI runtime still needs model configuration for core or context_decider.",
       "degradedDeferredInvalid": "Backend is running, but the current AI runtime configuration is invalid. Check the enabled provider and model.",
       "degradedHeartbeatStale": "Backend heartbeat is stale, so runtime status may be out of date.",
+      "degradedRuntimeUnresponsive": "Backend runtime loop is temporarily unresponsive; status is recovering.",
       "degradedLlmNotReady": "Backend is running, but the LLM runtime is not ready yet.",
       "degradedAgentRuntimeNotReady": "Backend is running, but the agent runtime has not finished initializing.",
       "offline": "Backend is not responding. Some features may be unavailable.",

@@ -114,3 +114,22 @@ async def test_get_runtime_system_status_uses_deferred_heartbeat_reason_when_sna
     assert status["runtime_status"] == "deferred"
     assert status["startup_state"] == "deferred"
     assert status["deferred_reason"] == "llm_configuration_invalid"
+
+
+async def test_get_runtime_system_status_can_trust_local_worker_without_heartbeat_store(monkeypatch) -> None:
+    app = SimpleNamespace(state=SimpleNamespace(backend_ready=True, process_role="ipc_worker"))
+
+    def fail_if_heartbeat_store_is_read():
+        raise AssertionError("local worker readiness must not read the persisted heartbeat")
+
+    monkeypatch.setattr(service, "resolve_runtime_trace_store", fail_if_heartbeat_store_is_read)
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: _FakeRuntimeCommandQueue(0))
+    monkeypatch.setattr(service, "get_runtime_startup_snapshot", lambda: _snapshot(startup_state="ready"))
+    monkeypatch.setattr(service, "_resolve_binding", lambda _name: object())
+
+    status = await service.get_runtime_system_status(app, trust_local_worker=True)
+
+    assert status["worker_ready"] is True
+    assert status["runtime_ready"] is True
+    assert status["runtime_status"] == "ready"
+    assert status["runtime_heartbeat_age_ms"] is None

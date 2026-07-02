@@ -28,9 +28,10 @@ class IpcServer:
         self._api_forward = None
 
         if asgi_app is not None:
-            from magi.ipc.handlers import ApiForwardHandler
+            from magi.ipc.handlers import ApiForwardHandler, RuntimeReadyHandler
             self._api_forward = ApiForwardHandler(asgi_app)
             self._dispatcher.register("api.forward", self._api_forward.handle)
+            self._dispatcher.register("runtime.ready", RuntimeReadyHandler(asgi_app).handle)
 
     def register(self, method: str, handler: Any) -> None:
         """Register an additional IPC method handler."""

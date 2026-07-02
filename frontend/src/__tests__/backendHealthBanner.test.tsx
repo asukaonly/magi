@@ -42,4 +42,20 @@ describe('BackendHealthBanner', () => {
 
     expect(screen.getByText('desktop.health.degradedDeferredSelectionPending')).toBeInTheDocument();
   });
+
+  it('renders a specific message when the runtime loop is unresponsive', () => {
+    useBackendHealthStore.setState({
+      status: 'degraded',
+      runtimeStatus: 'unresponsive',
+      startupState: 'unresponsive',
+      deferredReason: null,
+      llmReady: null,
+      agentRuntimeReady: null,
+      lastCheckedAt: Date.now(),
+    });
+
+    render(<BackendHealthBanner />);
+
+    expect(screen.getByText('desktop.health.degradedRuntimeUnresponsive')).toBeInTheDocument();
+  });
 });

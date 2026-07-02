@@ -9,7 +9,9 @@ import sys
 import tempfile
 
 import pytest
+from fastapi import FastAPI
 
+from magi.ipc import handlers
 from magi.ipc.server import IpcServer
 
 
@@ -79,6 +81,64 @@ async def test_ipc_server_accepts_large_request_lines() -> None:
             resp = json.loads(raw.decode("utf-8"))
             assert resp["id"] == "test-large"
             assert resp["result"] == {"status": "pong"}
+
+            writer.close()
+            await writer.wait_closed()
+            await server.stop()
+        finally:
+            os.environ.pop("MAGI_IPC_SOCKET", None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="Unix socket test")
+async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
+    app = FastAPI()
+
+    async def fake_runtime_status(received_app, *, trust_local_worker=False):
+        assert received_app is app
+        assert trust_local_worker is True
+        return {
+            "runtime_ready": True,
+            "worker_ready": True,
+            "llm_ready": True,
+            "agent_runtime_ready": True,
+            "queue_backlog_healthy": True,
+            "status": "ready",
+            "runtime_status": "ready",
+            "startup_state": "ready",
+            "deferred_reason": None,
+        }
+
+    monkeypatch.setattr(handlers, "get_runtime_system_status", fake_runtime_status, raising=False)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sock_path = os.path.join(tmpdir, "test.sock")
+        os.environ["MAGI_IPC_SOCKET"] = sock_path
+        try:
+            server = IpcServer(asgi_app=app)
+            await server.start()
+
+            reader, writer = await asyncio.open_unix_connection(sock_path)
+            req = json.dumps({"id": "ready-1", "method": "runtime.ready", "params": None}) + "\n"
+            writer.write(req.encode("utf-8"))
+            await writer.drain()
+
+            raw = await asyncio.wait_for(reader.readline(), timeout=2.0)
+            resp = json.loads(raw.decode("utf-8"))
+
+            assert resp["id"] == "ready-1"
+            assert resp["result"]["success"] is True
+            assert resp["result"]["data"] == {
+                "ready": True,
+                "status": "ready",
+                "runtime_ready": True,
+                "worker_ready": True,
+                "llm_ready": True,
+                "agent_runtime_ready": True,
+                "runtime_status": "ready",
+                "startup_state": "ready",
+                "deferred_reason": None,
+            }
 
             writer.close()
             await writer.wait_closed()

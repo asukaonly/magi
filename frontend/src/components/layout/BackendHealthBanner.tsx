@@ -35,6 +35,10 @@ export function getBackendHealthMessageKey(
     return 'desktop.health.degradedHeartbeatStale';
   }
 
+  if (health.runtimeStatus === 'unresponsive') {
+    return 'desktop.health.degradedRuntimeUnresponsive';
+  }
+
   if (health.llmReady === false) {
     return 'desktop.health.degradedLlmNotReady';
   }

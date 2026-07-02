@@ -140,15 +140,23 @@ This is why onboarding and early settings screens can still function before the 
 The runtime now exposes two layers of state:
 
 - worker liveness
-  Derived from the persisted IPC worker heartbeat in `runtime_trace.db`
+  Gateway `/api/ready` asks the IPC worker over the local worker channel with a
+  short timeout. When the worker itself answers, liveness is derived from the
+  process-local startup snapshot rather than from the persisted heartbeat. If
+  the worker channel does not answer in time, the gateway reports
+  `runtime_status=unresponsive`.
+
+- persisted heartbeat
+  Written by the IPC worker into `runtime_trace.db` for diagnostics and
+  non-local readers. It is no longer the sole proof that the worker is live.
 
 - full runtime readiness
-  Derived from heartbeat plus critical bindings such as `scenario_llm_pool` and `agent_runtime`
+  Derived from worker liveness plus critical bindings such as `scenario_llm_pool` and `agent_runtime`
 
 Current startup-state values are:
 
 - `offline`
-  No live worker heartbeat is available
+  No live worker signal is available
 
 - `starting`
   The worker is still assembling lifecycle modules
@@ -164,6 +172,9 @@ Current startup-state values are:
 
 - `stopping`
   Runtime shutdown is in progress
+
+- `unresponsive`
+  The gateway is alive but the IPC worker did not answer the bounded readiness request
 
 Frontend flows should treat `ready` as the only state that guarantees first-chat bootstrap and normal agent execution are fully available. `deferred` is intentionally usable for onboarding and configuration, but not equivalent to a fully initialized runtime.
 

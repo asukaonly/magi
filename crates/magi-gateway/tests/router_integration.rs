@@ -12,6 +12,7 @@ use http_body_util::BodyExt;
 use hyper::Request;
 use magi_gateway::{api, db, ipc};
 use serde_json::Value;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tower::ServiceExt;
 
 static TEST_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -119,6 +120,52 @@ async fn test_state() -> api::state::ApiState {
     }
 }
 
+#[cfg(unix)]
+async fn test_state_with_runtime_ready_response(result: Value) -> api::state::ApiState {
+    let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let sock_path =
+        std::env::temp_dir().join(format!("magi-test-ready-{}-{n}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&sock_path);
+
+    let listener = tokio::net::UnixListener::bind(&sock_path).unwrap();
+    tokio::spawn(async move {
+        loop {
+            if let Ok((stream, _)) = listener.accept().await {
+                let result = result.clone();
+                tokio::spawn(async move {
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        assert_eq!(request["method"], "runtime.ready");
+                        let response = serde_json::json!({
+                            "id": request["id"],
+                            "result": result,
+                        });
+                        writer
+                            .write_all(format!("{}\n", response).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
+                });
+            }
+        }
+    });
+
+    tokio::task::yield_now().await;
+
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
+        .await
+        .expect("Connect to test IPC socket");
+
+    api::state::ApiState {
+        ipc_client: Arc::new(ipc_client),
+        builtin_avatar_dir: None,
+        user_avatar_dir: None,
+    }
+}
+
 /// Create a test ApiState using a real temporary TCP loopback socket.
 #[cfg(not(unix))]
 async fn test_state() -> api::state::ApiState {
@@ -131,6 +178,49 @@ async fn test_state() -> api::state::ApiState {
             if let Ok((mut stream, _)) = listener.accept().await {
                 tokio::spawn(async move {
                     let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut [0u8; 1024]).await;
+                });
+            }
+        }
+    });
+
+    tokio::task::yield_now().await;
+
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
+        .await
+        .expect("Connect to test IPC socket");
+
+    api::state::ApiState {
+        ipc_client: Arc::new(ipc_client),
+        builtin_avatar_dir: None,
+        user_avatar_dir: None,
+    }
+}
+
+#[cfg(not(unix))]
+async fn test_state_with_runtime_ready_response(result: Value) -> api::state::ApiState {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        loop {
+            if let Ok((stream, _)) = listener.accept().await {
+                let result = result.clone();
+                tokio::spawn(async move {
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        assert_eq!(request["method"], "runtime.ready");
+                        let response = serde_json::json!({
+                            "id": request["id"],
+                            "result": result,
+                        });
+                        writer
+                            .write_all(format!("{}\n", response).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
                 });
             }
         }
@@ -191,6 +281,68 @@ async fn ready_returns_json() {
     assert!(json["data"]["ready"].is_boolean());
     assert!(json["data"]["startup_state"].is_string());
     drop(guard);
+}
+
+#[tokio::test]
+async fn ready_uses_runtime_ready_ipc_response() {
+    let home = isolated_home("ready-ipc");
+    let state = test_state_with_runtime_ready_response(serde_json::json!({
+        "success": true,
+        "message": "Backend startup state",
+        "data": {
+            "ready": true,
+            "status": "ready",
+            "runtime_ready": true,
+            "worker_ready": true,
+            "llm_ready": true,
+            "agent_runtime_ready": true,
+            "runtime_status": "ready",
+            "startup_state": "ready",
+            "deferred_reason": "ipc-test"
+        }
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    let req = Request::builder()
+        .uri("/api/ready")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = router.oneshot(req).await.unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["data"]["status"], "ready");
+    assert_eq!(json["data"]["runtime_status"], "ready");
+    assert_eq!(json["data"]["ready"], true);
+    assert_eq!(json["data"]["deferred_reason"], "ipc-test");
+    drop(home);
+}
+
+#[tokio::test]
+async fn ready_reports_unresponsive_when_ipc_does_not_reply() {
+    let home = isolated_home("ready-timeout");
+    let state = test_state().await;
+    let router = api::build_router(state);
+
+    let req = Request::builder()
+        .uri("/api/ready")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = router.oneshot(req).await.unwrap();
+
+    assert_eq!(response.status(), 200);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["data"]["status"], "degraded");
+    assert_eq!(json["data"]["runtime_status"], "unresponsive");
+    assert_eq!(json["data"]["ready"], false);
+    drop(home);
 }
 
 #[tokio::test]
@@ -575,9 +727,11 @@ async fn native_delete_session_route_removes_related_chat_data() {
         )
         .unwrap();
     let message_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM chat_messages WHERE session_id = 's-delete'", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT COUNT(*) FROM chat_messages WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     let attachment_count: i64 = conn
         .query_row(
@@ -587,9 +741,11 @@ async fn native_delete_session_route_removes_related_chat_data() {
         )
         .unwrap();
     let turn_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM chat_turns WHERE session_id = 's-delete'", [], |row| {
-            row.get(0)
-        })
+        .query_row(
+            "SELECT COUNT(*) FROM chat_turns WHERE session_id = 's-delete'",
+            [],
+            |row| row.get(0),
+        )
         .unwrap();
     drop(conn);
 
@@ -628,7 +784,9 @@ async fn native_delete_session_route_removes_related_chat_data() {
         .query_row("SELECT COUNT(*) FROM trace_tools", [], |row| row.get(0))
         .unwrap();
     let trace_intent_count: i64 = trace_conn
-        .query_row("SELECT COUNT(*) FROM trace_intent_resolutions", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM trace_intent_resolutions", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     drop(trace_conn);
 
@@ -638,7 +796,8 @@ async fn native_delete_session_route_removes_related_chat_data() {
     assert_eq!(trace_tool_count, 0);
     assert_eq!(trace_intent_count, 0);
 
-    let (status, sessions) = request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
+    let (status, sessions) =
+        request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
     assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
     assert_eq!(sessions["count"], 0);
     assert_eq!(sessions["sessions"].as_array().unwrap().len(), 0);

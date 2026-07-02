@@ -9,6 +9,8 @@ from typing import Any
 
 import structlog
 
+from magi.api.services import get_runtime_system_status
+
 logger = structlog.get_logger(__name__)
 
 
@@ -27,6 +29,36 @@ def _is_text_content_type(content_type: str) -> bool:
 async def handle_ping(params: dict[str, Any] | None) -> dict[str, str]:
     """Health-check ping — returns pong."""
     return {"status": "pong"}
+
+
+class RuntimeReadyHandler:
+    """Returns worker readiness over IPC without routing through HTTP forwarding."""
+
+    def __init__(self, asgi_app: Any) -> None:
+        self._asgi_app = asgi_app
+
+    async def handle(self, params: dict[str, Any] | None) -> dict[str, Any]:
+        _ = params
+        runtime_status = await get_runtime_system_status(
+            self._asgi_app,
+            trust_local_worker=True,
+        )
+        return {
+            "success": True,
+            "message": "Backend startup state",
+            "data": {
+                "ready": runtime_status["runtime_ready"]
+                and runtime_status["queue_backlog_healthy"],
+                "status": runtime_status["status"],
+                "runtime_ready": runtime_status["runtime_ready"],
+                "worker_ready": runtime_status["worker_ready"],
+                "llm_ready": runtime_status["llm_ready"],
+                "agent_runtime_ready": runtime_status["agent_runtime_ready"],
+                "runtime_status": runtime_status["runtime_status"],
+                "startup_state": runtime_status["startup_state"],
+                "deferred_reason": runtime_status["deferred_reason"],
+            },
+        }
 
 
 class ApiForwardHandler:
@@ -104,4 +136,3 @@ class ApiForwardHandler:
 
     async def close(self) -> None:
         await self._client.aclose()
-

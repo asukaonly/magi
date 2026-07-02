@@ -3774,6 +3774,7 @@
       "degradedDeferredSelectionPending": "后端已运行，但 AI 运行时还未完成配置。请补全 core 或 context_decider 的模型设置。",
       "degradedDeferredInvalid": "后端已运行，但当前 AI 运行时配置无效。请检查启用的 provider 和 model。",
       "degradedHeartbeatStale": "后端心跳已过期，运行时状态可能不同步。",
+      "degradedRuntimeUnresponsive": "后端主循环暂时无响应，运行状态正在恢复。",
       "degradedLlmNotReady": "后端已运行，但 LLM 运行时尚未就绪。",
       "degradedAgentRuntimeNotReady": "后端已运行，但 agent runtime 尚未完成初始化。",
       "offline": "后端无响应，部分功能可能不可用。",
