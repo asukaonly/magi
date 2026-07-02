@@ -7,11 +7,13 @@ import {
 import {
   pluginsApi,
   type ActivationFlowSpec,
+  type ExtensionFieldSpec,
   type PluginInstallJobSnapshot,
 } from '../api/modules/plugins';
+import type { PluginInstallPanelContext } from '../stores/pluginInstallPanel';
 
 export type InstallStepId = 'install' | 'enable' | 'sync' | 'memory';
-export type StepStatus = 'pending' | 'running' | 'done' | 'error' | 'skipped';
+export type StepStatus = 'pending' | 'running' | 'background' | 'done' | 'error' | 'skipped';
 export interface InstallStep {
   id: InstallStepId;
   status: StepStatus;
@@ -23,6 +25,37 @@ const SYNC_TIMEOUT_MS = 90_000;
 const MEMORY_TIMEOUT_MS = 20_000;
 const MEMORY_POLL_WAIT_MS = 1_500;
 const MEMORY_POLL_PAUSE_MS = 250;
+const FIRST_CONTEXT_CHROME_HISTORY_DAYS = 1;
+const FIRST_CONTEXT_CHROME_HISTORY_LIMIT = 200;
+
+const finiteNumberOrNull = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
+
+const readinessInputCount = (readiness: MemoryReadinessResponse | null): number | null => {
+  if (!readiness) return null;
+  return finiteNumberOrNull(readiness.l1_event_count) ?? finiteNumberOrNull(readiness.l2_total_count);
+};
+
+function applyFirstContextDefaults(
+  pluginId: string,
+  flow: ActivationFlowSpec,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  if (pluginId !== 'chrome-history') {
+    return values;
+  }
+  const fieldKeys = new Set((flow.fields ?? []).map((field: ExtensionFieldSpec) => field.key));
+  return {
+    ...values,
+    ...(fieldKeys.has('sensors.chrome_history.initial_sync_policy')
+      ? { 'sensors.chrome_history.initial_sync_policy': 'lookback_days' }
+      : {}),
+    ...(fieldKeys.has('sensors.chrome_history.initial_sync_lookback_days')
+      ? { 'sensors.chrome_history.initial_sync_lookback_days': FIRST_CONTEXT_CHROME_HISTORY_DAYS }
+      : {}),
+    'sensors.chrome_history.max_items_per_sync': FIRST_CONTEXT_CHROME_HISTORY_LIMIT,
+  };
+}
 
 export interface UsePluginInstallFlowResult {
   phase: FlowPhase;
@@ -32,6 +65,8 @@ export interface UsePluginInstallFlowResult {
   description: string | null;
   installProgress: PluginInstallJobSnapshot | null;
   syncedCount: number | null;
+  syncedRawCount: number | null;
+  syncDeferred: boolean;
   memoryReady: boolean;
   memoryCount: number | null;
   memoryTotalCount: number | null;
@@ -62,8 +97,9 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *     last_success advances beyond the baseline; "soft-done" on timeout (work
  *     continues in the background, the bell surfaces it) + backfillNote.
  *   - ④ memory: short bounded getMemoryReadiness polls; l2_ready drives a real
- *     ✓, otherwise the step is soft-done ("整理中") + backfillNote — never a fake ✓
- *     and never an error. Each poll refreshes the visible memory counts.
+ *     ✓, zero input finishes as an honest no-new-record state, otherwise the
+ *     step is soft-done ("整理中") + backfillNote — never a fake ✓ and never an
+ *     error. Each poll refreshes the visible memory counts.
  *
  * A plugin with no activation_flow lands on `unsupported` instead of the
  * previous silent no-op.
@@ -71,6 +107,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export function usePluginInstallFlow(
   pluginId: string | null,
   installMode: boolean,
+  panelContext: PluginInstallPanelContext = 'default',
 ): UsePluginInstallFlowResult {
   const [phase, setPhase] = useState<FlowPhase>('loading');
   const [flow, setFlow] = useState<ActivationFlowSpec | null>(null);
@@ -78,6 +115,8 @@ export function usePluginInstallFlow(
   const [description, setDescription] = useState<string | null>(null);
   const [installProgress, setInstallProgress] = useState<PluginInstallJobSnapshot | null>(null);
   const [syncedCount, setSyncedCount] = useState<number | null>(null);
+  const [syncedRawCount, setSyncedRawCount] = useState<number | null>(null);
+  const [syncDeferred, setSyncDeferred] = useState(false);
   const [memoryReady, setMemoryReady] = useState(false);
   const [memoryCount, setMemoryCount] = useState<number | null>(null);
   const [memoryTotalCount, setMemoryTotalCount] = useState<number | null>(null);
@@ -86,8 +125,32 @@ export function usePluginInstallFlow(
   const [backfillNote, setBackfillNote] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [steps, setSteps] = useState<InstallStep[]>([]);
+  const flowKey = pluginId
+    ? `${pluginId}:${installMode ? 'install' : 'connect'}:${panelContext}`
+    : null;
+  const [stateKey, setStateKey] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const runTokenRef = useRef(0);
   const fieldsResolveRef = useRef<((v: Record<string, unknown>) => void) | null>(null);
+
+  const resetTransientState = useCallback(() => {
+    setPhase('loading');
+    setFlow(null);
+    setSourceName(null);
+    setDescription(null);
+    setInstallProgress(null);
+    setSyncedCount(null);
+    setSyncedRawCount(null);
+    setSyncDeferred(false);
+    setMemoryReady(false);
+    setMemoryCount(null);
+    setMemoryTotalCount(null);
+    setMemoryProcessedCount(null);
+    setMemoryRemainingCount(null);
+    setBackfillNote(false);
+    setError(null);
+    setSteps([]);
+  }, []);
 
   const setStep = useCallback((id: InstallStepId, status: StepStatus) => {
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, status } : s)));
@@ -102,28 +165,16 @@ export function usePluginInstallFlow(
   );
 
   const applyMemoryReadiness = useCallback((readiness: MemoryReadinessResponse) => {
-    const l1Count =
-      typeof readiness.l1_event_count === 'number' && Number.isFinite(readiness.l1_event_count)
-        ? readiness.l1_event_count
-        : null;
-    const total =
-      typeof readiness.l2_total_count === 'number' && Number.isFinite(readiness.l2_total_count)
-        ? readiness.l2_total_count
-        : l1Count;
-    const remaining =
-      typeof readiness.l2_remaining_count === 'number' &&
-      Number.isFinite(readiness.l2_remaining_count)
-        ? readiness.l2_remaining_count
-        : null;
+    const l1Count = finiteNumberOrNull(readiness.l1_event_count);
+    const total = finiteNumberOrNull(readiness.l2_total_count) ?? l1Count;
+    const remaining = finiteNumberOrNull(readiness.l2_remaining_count);
     const processed =
-      typeof readiness.l2_processed_count === 'number' &&
-      Number.isFinite(readiness.l2_processed_count)
-        ? readiness.l2_processed_count
-        : total != null && remaining != null
-          ? Math.max(0, total - remaining)
-          : readiness.l2_ready
-            ? total
-            : l1Count;
+      finiteNumberOrNull(readiness.l2_processed_count) ??
+      (total != null && remaining != null
+        ? Math.max(0, total - remaining)
+        : readiness.l2_ready
+          ? total
+          : l1Count);
 
     setMemoryReady(!!readiness.l2_ready);
     setMemoryCount(l1Count);
@@ -132,9 +183,21 @@ export function usePluginInstallFlow(
     setMemoryRemainingCount(remaining);
   }, []);
 
-  const run = useCallback(async () => {
+  useEffect(() => {
+    runTokenRef.current += 1;
+    fieldsResolveRef.current = null;
+    startedRef.current = false;
+    setStateKey(flowKey);
+    resetTransientState();
+  }, [flowKey, resetTransientState]);
+
+  const run = useCallback(async (runToken: number) => {
     if (!pluginId) return;
+    const isActive = () => runTokenRef.current === runToken;
     setError(null);
+    setFlow(null);
+    setSourceName(null);
+    setDescription(null);
     const initialSteps: InstallStep[] = [
       ...(installMode ? [{ id: 'install' as const, status: 'pending' as const }] : []),
       { id: 'enable', status: 'pending' },
@@ -145,6 +208,8 @@ export function usePluginInstallFlow(
     setPhase('loading');
     setInstallProgress(null);
     setSyncedCount(null);
+    setSyncedRawCount(null);
+    setSyncDeferred(false);
     setMemoryReady(false);
     setMemoryCount(null);
     setMemoryTotalCount(null);
@@ -156,14 +221,16 @@ export function usePluginInstallFlow(
       // ① install (registry only)
       if (installMode) {
         setStep('install', 'running');
-        await pluginsApi.installFromRegistryWithProgress(pluginId, (snap) =>
-          setInstallProgress(snap),
-        );
+        await pluginsApi.installFromRegistryWithProgress(pluginId, (snap) => {
+          if (isActive()) setInstallProgress(snap);
+        });
+        if (!isActive()) return;
         setStep('install', 'done');
       }
 
       // fetch the activation flow
       const src = await findSource(pluginId);
+      if (!isActive()) return;
       if (!src || !src.activation_flow) {
         setPhase('unsupported');
         return;
@@ -179,6 +246,10 @@ export function usePluginInstallFlow(
         values = await new Promise<Record<string, unknown>>((resolve) => {
           fieldsResolveRef.current = resolve;
         });
+        if (!isActive()) return;
+      }
+      if (panelContext === 'first_context') {
+        values = applyFirstContextDefaults(pluginId, src.activation_flow, values);
       }
       setPhase('running');
 
@@ -189,6 +260,7 @@ export function usePluginInstallFlow(
           src.source_name,
           values as Record<string, any>,
         );
+        if (!isActive()) return;
         if (!auth.authorized) throw new Error(auth.message || 'authorization_denied');
       }
       await pluginsApi.updateSettings(pluginId, {
@@ -196,59 +268,82 @@ export function usePluginInstallFlow(
         [src.activation_flow.enabled_key]: true,
         [src.activation_flow.configured_key]: true,
       });
+      if (!isActive()) return;
       setStep('enable', 'done');
 
       // ③ sync (trigger + poll status until last_success advances, or timeout)
       setStep('sync', 'running');
       const baseSuccess = src.last_success ?? null;
       await sensorsApi.requestSync(src.source_name);
+      if (!isActive()) return;
       const deadline = Date.now() + SYNC_TIMEOUT_MS;
       let synced = false;
       while (Date.now() < deadline) {
         await sleep(SYNC_POLL_MS);
+        if (!isActive()) return;
         const cur = await findSource(pluginId);
+        if (!isActive()) return;
         if (cur && cur.last_success && cur.last_success !== baseSuccess) {
           setSyncedCount(typeof cur.last_result_count === 'number' ? cur.last_result_count : null);
+          setSyncedRawCount(
+            typeof cur.last_raw_result_count === 'number' ? cur.last_raw_result_count : null,
+          );
           synced = true;
           break;
         }
       }
       // soft-done on timeout: background sync continues and the bell notifies.
       setStep('sync', 'done');
-      if (!synced) setBackfillNote(true);
+      if (!synced) {
+        setSyncDeferred(true);
+        setBackfillNote(true);
+        setStep('memory', 'skipped');
+        setPhase('done');
+        return;
+      }
 
       // ④ build memory (short polling — backend flushes + reports the source backlog)
       setStep('memory', 'running');
       const memoryDeadline = Date.now() + MEMORY_TIMEOUT_MS;
       let latestReadiness: MemoryReadinessResponse | null = null;
-      while (true) {
+      let pollingMemory = true;
+      while (pollingMemory) {
         const remainingWait = Math.max(0, memoryDeadline - Date.now());
         const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
           maxWaitMs: Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
         });
+        if (!isActive()) return;
         latestReadiness = readiness;
         applyMemoryReadiness(readiness);
-        if (readiness.l2_ready || Date.now() >= memoryDeadline) {
-          break;
+        const inputCount = readinessInputCount(readiness);
+        if (readiness.l2_ready || inputCount === 0 || Date.now() >= memoryDeadline) {
+          pollingMemory = false;
+        } else {
+          await sleep(MEMORY_POLL_PAUSE_MS);
+          if (!isActive()) return;
         }
-        await sleep(MEMORY_POLL_PAUSE_MS);
       }
-      if (!latestReadiness?.l2_ready) setBackfillNote(true);
-      // labelled ✓ when memoryReady, "整理中" otherwise — soft-done, never an error.
-      setStep('memory', 'done');
+      const latestInputCount = readinessInputCount(latestReadiness);
+      const memoryIsReady = !!latestReadiness?.l2_ready || latestInputCount === 0;
+      if (!latestReadiness?.l2_ready && latestInputCount !== 0) setBackfillNote(true);
+      // When the bounded wait expires, the source is connected but memory is
+      // still being organized by the background worker. Keep the visual step
+      // honest instead of rendering a fake 100% completion.
+      setStep('memory', memoryIsReady ? 'done' : 'background');
       setPhase('done');
     } catch (e: any) {
+      if (!isActive()) return;
       setError(e?.message || String(e));
       setSteps((prev) => prev.map((s) => (s.status === 'running' ? { ...s, status: 'error' } : s)));
       setPhase('error');
     }
-  }, [pluginId, installMode, setStep, findSource, applyMemoryReadiness]);
+  }, [pluginId, installMode, panelContext, setStep, findSource, applyMemoryReadiness]);
 
   useEffect(() => {
-    if (!pluginId || startedRef.current) return;
+    if (!pluginId || !flowKey || stateKey !== flowKey || startedRef.current) return;
     startedRef.current = true;
-    void run();
-  }, [pluginId, run]);
+    void run(runTokenRef.current);
+  }, [pluginId, flowKey, stateKey, run]);
 
   const submitFields = useCallback((values: Record<string, unknown>) => {
     fieldsResolveRef.current?.(values);
@@ -258,6 +353,8 @@ export function usePluginInstallFlow(
   const retry = useCallback(() => {
     setInstallProgress(null);
     setSyncedCount(null);
+    setSyncedRawCount(null);
+    setSyncDeferred(false);
     setMemoryReady(false);
     setMemoryCount(null);
     setMemoryTotalCount(null);
@@ -265,24 +362,29 @@ export function usePluginInstallFlow(
     setMemoryRemainingCount(null);
     setBackfillNote(false);
     startedRef.current = true;
-    void run();
+    runTokenRef.current += 1;
+    void run(runTokenRef.current);
   }, [run]);
 
+  const stateMatchesRequest = stateKey === flowKey;
+
   return {
-    phase,
-    steps,
-    flow,
-    sourceName,
-    description,
-    installProgress,
-    syncedCount,
-    memoryReady,
-    memoryCount,
-    memoryTotalCount,
-    memoryProcessedCount,
-    memoryRemainingCount,
-    backfillNote,
-    error,
+    phase: stateMatchesRequest ? phase : 'loading',
+    steps: stateMatchesRequest ? steps : [],
+    flow: stateMatchesRequest ? flow : null,
+    sourceName: stateMatchesRequest ? sourceName : null,
+    description: stateMatchesRequest ? description : null,
+    installProgress: stateMatchesRequest ? installProgress : null,
+    syncedCount: stateMatchesRequest ? syncedCount : null,
+    syncedRawCount: stateMatchesRequest ? syncedRawCount : null,
+    syncDeferred: stateMatchesRequest ? syncDeferred : false,
+    memoryReady: stateMatchesRequest ? memoryReady : false,
+    memoryCount: stateMatchesRequest ? memoryCount : null,
+    memoryTotalCount: stateMatchesRequest ? memoryTotalCount : null,
+    memoryProcessedCount: stateMatchesRequest ? memoryProcessedCount : null,
+    memoryRemainingCount: stateMatchesRequest ? memoryRemainingCount : null,
+    backfillNote: stateMatchesRequest ? backfillNote : false,
+    error: stateMatchesRequest ? error : null,
     submitFields,
     retry,
   };

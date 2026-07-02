@@ -30,10 +30,10 @@ logger = get_logger(__name__)
 BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS = 10.0
 BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS = 1.0
 BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS = 15 * 60
-BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS = 2 * 60 * 60
+BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS = 24 * 60 * 60
 BOOTSTRAP_IMPORT_SAMPLE_MAX_SOURCES = 4
-BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE = 3
-BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT = 12
+BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE = 6
+BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT = 24
 BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS = 180
 _URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
 _EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
@@ -106,7 +106,6 @@ async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
             continue
         rows = await l1.query_events(
             source_filters=[source],
-            memory_domain="external_activity",
             cognition_eligible=True,
             limit=BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT,
             order_by="created_at_desc",

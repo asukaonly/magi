@@ -3,23 +3,17 @@ import { CheckCircle2, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
-import type { InstallableItem } from '@/api/modules/systemSuggestions';
 
 interface CompletionScreenProps {
   onFinish: () => void;
   loading?: boolean;
   loadingLabel?: string;
-  installableItems?: InstallableItem[];
-  installableLoading?: boolean;
 }
 
 export const CompletionScreen: React.FC<CompletionScreenProps> = ({
   onFinish,
   loading = false,
   loadingLabel,
-  installableItems,
-  installableLoading,
 }) => {
   const { t } = useTranslation('onboarding');
 
@@ -39,15 +33,6 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
               {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               {loading ? loadingLabel || t('actions.saving') : t('actions.enterApp')}
             </Button>
-          </div>
-
-          <div className="mx-auto mt-8 w-full max-w-3xl border-t border-border/60 pt-6">
-            <EmptyStateAvailableSensors
-              showBrowseAll={false}
-              fallbackPluginIds={['chrome-history', 'git-activity']}
-              installableItems={installableItems}
-              installableLoading={installableLoading}
-            />
           </div>
         </CardContent>
       </Card>

@@ -78,6 +78,55 @@ describe('EmptyStateAvailableSensors', () => {
     expect(screen.getByTestId('empty-state-connect-git-activity')).toBeInTheDocument();
   });
 
+  it('can fill a sparse preloaded list with first-context fallback cards', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: true,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        showBrowseAll={false}
+        installableItems={[item({ plugin_id: 'chrome-history', installed: false })]}
+        installableLoading={false}
+        fallbackPluginIds={['chrome-history', 'coding_agent_history', 'calendar', 'git-activity', 'photo-library']}
+        fillWithFallback
+      />,
+    );
+    const buttons = screen.getAllByTestId(/empty-state-connect-/);
+    expect(buttons.map((b) => b.getAttribute('data-testid'))).toEqual([
+      'empty-state-connect-chrome-history',
+      'empty-state-connect-coding_agent_history',
+      'empty-state-connect-calendar',
+      'empty-state-connect-git-activity',
+      'empty-state-connect-photo-library',
+    ]);
+  });
+
+  it('does not let a browser fallback displace an available non-Chrome browser source', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: true,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        showBrowseAll={false}
+        installableItems={[item({ plugin_id: 'safari-history', category: 'browser_history', installed: false })]}
+        installableLoading={false}
+        fallbackPluginIds={['chrome-history', 'calendar', 'git-activity']}
+        fillWithFallback
+      />,
+    );
+    const buttons = screen.getAllByTestId(/empty-state-connect-/);
+    expect(buttons.map((b) => b.getAttribute('data-testid'))).toEqual([
+      'empty-state-connect-safari-history',
+      'empty-state-connect-calendar',
+      'empty-state-connect-git-activity',
+    ]);
+    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
+  });
+
   it('still renders the browse-all exit when no cards are available', () => {
     mockUseInstallableSensors.mockReturnValue({
       items: [],

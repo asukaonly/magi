@@ -13,10 +13,13 @@ import { create } from 'zustand';
  * before the connect flow can run (entry points decide this from the plugin's
  * installed/available state).
  */
+export type PluginInstallPanelContext = 'default' | 'first_context';
+
 interface PluginInstallPanelState {
   open: boolean;
   pluginId: string | null;
   installMode: boolean;
+  context: PluginInstallPanelContext;
   /**
    * Optional callback fired ONCE when the connect flow reaches its `done` phase
    * (enable + sync succeeded; memory may still be backfilling). Lets an entry
@@ -25,7 +28,10 @@ interface PluginInstallPanelState {
    * closed panel never drops the item. Cleared on close.
    */
   onDone: (() => void) | null;
-  openPanel: (pluginId: string, opts?: { install?: boolean; onDone?: () => void }) => void;
+  openPanel: (
+    pluginId: string,
+    opts?: { install?: boolean; onDone?: () => void; context?: PluginInstallPanelContext },
+  ) => void;
   closePanel: () => void;
 }
 
@@ -33,8 +39,22 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
   open: false,
   pluginId: null,
   installMode: false,
+  context: 'default',
   onDone: null,
   openPanel: (pluginId, opts) =>
-    set({ open: true, pluginId, installMode: opts?.install ?? false, onDone: opts?.onDone ?? null }),
-  closePanel: () => set({ open: false, pluginId: null, installMode: false, onDone: null }),
+    set({
+      open: true,
+      pluginId,
+      installMode: opts?.install ?? false,
+      context: opts?.context ?? 'default',
+      onDone: opts?.onDone ?? null,
+    }),
+  closePanel: () =>
+    set({
+      open: false,
+      pluginId: null,
+      installMode: false,
+      context: 'default',
+      onDone: null,
+    }),
 }));

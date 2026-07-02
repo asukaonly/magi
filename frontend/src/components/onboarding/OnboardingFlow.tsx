@@ -19,6 +19,7 @@ import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
+import FirstContextStep from './FirstContextStep';
 import LLMSetupStep from './LLMSetupStep';
 import { PersonaPreviewChat, type CustomPersonaDraft } from './PersonaPreviewChat';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
@@ -29,6 +30,10 @@ const RUNTIME_READY_WAIT_TIMEOUT_MS = 12_000;
 const ONBOARDING_SAVE_TIMEOUT_MS = 20_000;
 const PERSONA_SETUP_TIMEOUT_MS = 15_000;
 const toI18nLanguage = (language?: string): 'en' | 'zh-CN' => (language === 'en' ? 'en' : 'zh-CN');
+const LLM_SETUP_STEP = 1;
+const PERSONA_STEP = 2;
+const FIRST_CONTEXT_STEP = 3;
+const COMPLETE_STEP = 4;
 
 interface RuntimeReadyResponse {
   success: boolean;
@@ -126,6 +131,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [personaGenerating, setPersonaGenerating] = useState(false);
   const [installableItems, setInstallableItems] = useState<InstallableItem[]>([]);
   const [installableLoading, setInstallableLoading] = useState(true);
+  const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>([]);
   const installablePreloadStartedRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -153,12 +159,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   }, [i18n, initialConfig.preferences?.language]);
 
-  // Linear 4-step sequence: Welcome → LLM Setup → Persona Preview → Complete
+  // Linear sequence: Welcome → LLM Setup → Persona Preview → First Context → Complete
   const steps = useMemo(
     () => [
       t('steps.welcome'),
       t('steps.llmSetup'),
       t('steps.personaPreview'),
+      t('steps.firstContext'),
       t('steps.complete'),
     ],
     [t, activeLanguage]
@@ -203,6 +210,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         values?: SystemConfig;
         seedSlug?: string | null;
         customPersonas?: CustomPersonaDraft[];
+        firstContextPluginIds?: string[];
       };
       if (typeof parsed.current === 'number') {
         setCurrent(parsed.current);
@@ -212,6 +220,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
       if (Array.isArray(parsed.customPersonas)) {
         setCustomPersonas(parsed.customPersonas);
+      }
+      if (Array.isArray(parsed.firstContextPluginIds)) {
+        setFirstContextPluginIds(
+          parsed.firstContextPluginIds.filter((pluginId) => typeof pluginId === 'string'),
+        );
       }
       if (parsed.values) {
         const savedLanguage = localStorage.getItem('magi_language');
@@ -268,14 +281,17 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     values: SystemConfig,
     nextSeedSlug: string | null = seedSlug,
     nextCustomPersonas: CustomPersonaDraft[] = customPersonas,
+    nextCurrent: number = current,
+    nextFirstContextPluginIds: string[] = firstContextPluginIds,
   ) => {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        current,
+        current: nextCurrent,
         values,
         seedSlug: nextSeedSlug,
         customPersonas: nextCustomPersonas,
+        firstContextPluginIds: nextFirstContextPluginIds,
       })
     );
   };
@@ -363,6 +379,57 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   };
 
+  const markFirstContextHandled = () => {
+    const values = form.getFieldsValue(true) as SystemConfig;
+    if (!values.preferences) {
+      values.preferences = { ...initialConfig.preferences };
+    }
+    values.preferences.product_tour_completed = true;
+    form.setFieldsValue(values);
+    saveProgress(values, seedSlug, customPersonas, COMPLETE_STEP, firstContextPluginIds);
+  };
+
+  const finishFirstContextStep = () => {
+    markFirstContextHandled();
+    setCurrent(COMPLETE_STEP);
+  };
+
+  const handleFirstContextConnectDone = (pluginId: string) => {
+    const values = form.getFieldsValue(true) as SystemConfig;
+    setFirstContextPluginIds((prev) => {
+      if (prev.includes(pluginId)) {
+        saveProgress(values, seedSlug, customPersonas, FIRST_CONTEXT_STEP, prev);
+        return prev;
+      }
+      const next = [...prev, pluginId];
+      saveProgress(values, seedSlug, customPersonas, FIRST_CONTEXT_STEP, next);
+      return next;
+    });
+  };
+
+  const persistRuntimeConfigBeforeFirstContext = async (): Promise<boolean> => {
+    setSaving(true);
+    try {
+      const values = form.getFieldsValue(true) as SystemConfig;
+      if (!values.preferences) {
+        values.preferences = { ...initialConfig.preferences };
+      }
+      values.llm = llmValue;
+      await withTimeout(
+        configApi.update(values),
+        ONBOARDING_SAVE_TIMEOUT_MS,
+        t('messages.saveTimedOut'),
+      );
+      saveProgress(values, seedSlug, customPersonas, FIRST_CONTEXT_STEP, firstContextPluginIds);
+      return true;
+    } catch (error: any) {
+      toast.error(error?.message || t('messages.saveFailed'));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleFinish = async () => {
     if (finishInFlightRef.current) {
       return;
@@ -373,6 +440,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     try {
       const values = form.getFieldsValue(true) as SystemConfig;
       values.preferences.onboarding_completed = true;
+      values.preferences.product_tour_completed = true;
       // Ensure the latest LLM state and selected persona slug land in the payload.
       values.llm = llmValue;
       await withTimeout(
@@ -432,8 +500,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   const handleNext = async () => {
-    if (current === 1 && !llmValid) {
+    if (current === LLM_SETUP_STEP && !llmValid) {
       toast.warning(t('llm.completeSelections'));
+      return;
+    }
+
+    if (current === PERSONA_STEP) {
+      const persisted = await persistRuntimeConfigBeforeFirstContext();
+      if (!persisted) {
+        return;
+      }
+    }
+
+    if (current === FIRST_CONTEXT_STEP) {
+      finishFirstContextStep();
       return;
     }
 
@@ -442,21 +522,29 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return;
     }
 
-    setCurrent((prev) => Math.min(steps.length - 1, prev + 1));
+    const next = Math.min(steps.length - 1, current + 1);
+    saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, next);
+    setCurrent(next);
   };
 
   const handlePrev = () => {
-    setCurrent((prev) => Math.max(0, prev - 1));
+    const prev = Math.max(0, current - 1);
+    saveProgress(form.getFieldsValue(true), seedSlug, customPersonas, prev);
+    setCurrent(prev);
   };
 
   // The persona preview step uses the standard Previous/Next footer (the
-  // active persona in the rail is the selection; Next confirms it). Step 3
-  // shows the completion screen and uses CompletionScreen's own Enter App CTA,
-  // so the footer is hidden there.
+  // active persona in the rail is the selection; Next confirms it). The
+  // completion screen uses its own Enter App CTA, so the footer is hidden there.
   const hideFooter = isLastStep;
+  const nextLabel = current === FIRST_CONTEXT_STEP
+    ? firstContextPluginIds.length > 0
+      ? t('actions.finishContext')
+      : t('actions.skipContext')
+    : t('actions.next');
 
   const renderStepContent = () => {
-    if (current === 1) {
+    if (current === LLM_SETUP_STEP) {
       // LLMSetupStep delegates to LLMForm, which self-loads the provider
       // catalog and shows its own loading state — no registry plumbing needed
       // from OnboardingFlow.
@@ -469,7 +557,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       );
     }
 
-    if (current === 2) {
+    if (current === PERSONA_STEP) {
       return (
         <PersonaPreviewChat
           previews={seedPreviews}
@@ -489,14 +577,24 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       );
     }
 
-    if (current === 3) {
+    if (current === FIRST_CONTEXT_STEP) {
+      return (
+        <FirstContextStep
+          llmConfig={llmValue}
+          installableItems={installableItems}
+          installableLoading={installableLoading}
+          connectedPluginIds={firstContextPluginIds}
+          onConnectDone={handleFirstContextConnectDone}
+        />
+      );
+    }
+
+    if (current === COMPLETE_STEP) {
       return (
         <CompletionScreen
           onFinish={handleFinish}
           loading={saving || finishingRuntime}
           loadingLabel={finishingRuntime ? t('actions.startingRuntime') : t('actions.saving')}
-          installableItems={installableItems}
-          installableLoading={installableLoading}
         />
       );
     }
@@ -520,8 +618,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           language={currentLang}
           onLanguageChange={handleWelcomeLanguageChange}
           onContinue={() => {
-            setCurrent(1);
-            saveProgress(form.getFieldsValue(true));
+            setCurrent(LLM_SETUP_STEP);
+            saveProgress(
+              form.getFieldsValue(true),
+              seedSlug,
+              customPersonas,
+              LLM_SETUP_STEP,
+              firstContextPluginIds,
+            );
           }}
         />
       </Form>
@@ -542,7 +646,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button
                 variant="outline"
                 onClick={handlePrev}
-                disabled={current === 2 && personaGenerating}
+                disabled={saving || (current === PERSONA_STEP && personaGenerating)}
               >
                 {t('actions.previous')}
               </Button>
@@ -550,13 +654,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
                 onClick={handleNext}
                 disabled={
                   saving ||
-                  (current === 1 && !llmValid) ||
-                  (current === 2 && personaGenerating)
+                  (current === LLM_SETUP_STEP && !llmValid) ||
+                  (current === PERSONA_STEP && personaGenerating)
                 }
               >
                 {saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
-                  : t('actions.next')}
+                  : nextLabel}
               </Button>
             </div>
           )}

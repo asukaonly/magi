@@ -48,11 +48,22 @@ const isFieldSatisfied = (field: ExtensionFieldSpec, value: unknown): boolean =>
  * this, a field whose visibility depends on another field's default value never
  * appears, and the required-gate would read undefined for defaulted fields.
  */
-const seedFieldValues = (fields: ExtensionFieldSpec[]): Record<string, unknown> => {
+const seedFieldValues = (
+  fields: ExtensionFieldSpec[],
+  options: { pluginId: string | null; panelContext: string },
+): Record<string, unknown> => {
   const seed: Record<string, unknown> = {};
   for (const field of fields) {
     if (field.default !== undefined && field.default !== null) {
       seed[field.key] = field.default;
+    }
+  }
+  if (options.pluginId === 'chrome-history' && options.panelContext === 'first_context') {
+    if ('sensors.chrome_history.initial_sync_policy' in seed) {
+      seed['sensors.chrome_history.initial_sync_policy'] = 'lookback_days';
+    }
+    if ('sensors.chrome_history.initial_sync_lookback_days' in seed) {
+      seed['sensors.chrome_history.initial_sync_lookback_days'] = 1;
     }
   }
   return seed;
@@ -72,6 +83,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   const open = usePluginInstallPanelStore((s) => s.open);
   const pluginId = usePluginInstallPanelStore((s) => s.pluginId);
   const installMode = usePluginInstallPanelStore((s) => s.installMode);
+  const panelContext = usePluginInstallPanelStore((s) => s.context);
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
   const onDone = usePluginInstallPanelStore((s) => s.onDone);
 
@@ -86,7 +98,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   // declared capabilities (mirrors the marketplace's consent dialog). The flow
   // stays idle while pluginId is null, so installs never run unseen.
   const flowActive = open && (!installMode || consented);
-  const flow = usePluginInstallFlow(flowActive ? pluginId : null, installMode);
+  const flow = usePluginInstallFlow(flowActive ? pluginId : null, installMode, panelContext);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const doneFiredRef = useRef(false);
 
@@ -146,10 +158,10 @@ export function PluginInstallPanel(): JSX.Element | null {
       return;
     }
     if (flow.phase === 'awaiting_fields') {
-      setValues(seedFieldValues(fieldSpecs));
+      setValues(seedFieldValues(fieldSpecs, { pluginId, panelContext }));
     }
     // fieldSpecs identity is stable per flow fetch; key off phase + flow.flow.
-  }, [open, flow.phase, flow.flow]);
+  }, [open, flow.phase, flow.flow, panelContext, pluginId]);
 
   const handleFieldChange = useCallback((key: string, nextValue: unknown) => {
     setValues((prev) => ({ ...prev, [key]: nextValue }));
@@ -163,6 +175,30 @@ export function PluginInstallPanel(): JSX.Element | null {
   const name = pluginId
     ? t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) })
     : '';
+  const syncStep = flow.steps.find((step) => step.id === 'sync');
+  const memoryStep = flow.steps.find((step) => step.id === 'memory');
+  const memoryInputCount = flow.memoryTotalCount ?? flow.memoryCount;
+  const memoryHasNoNewRecords = memoryStep?.status === 'done' && memoryInputCount === 0;
+  const syncedRawCount = flow.syncedRawCount ?? 0;
+  const rawRecordsRead = syncedRawCount > 0;
+
+  const syncProgressDetail = useMemo(() => {
+    if (flow.syncDeferred) {
+      return t('pluginInstallPanel.syncBackground');
+    }
+    if (flow.syncedCount != null) {
+      if (flow.syncedCount === 0) {
+        return rawRecordsRead
+          ? t('pluginInstallPanel.syncedRawOnly', { count: syncedRawCount })
+          : t('pluginInstallPanel.syncedEmpty');
+      }
+      return t('pluginInstallPanel.syncedCount', { count: flow.syncedCount });
+    }
+    if (syncStep?.status === 'running') {
+      return t('pluginInstallPanel.syncWaiting');
+    }
+    return undefined;
+  }, [flow.syncDeferred, flow.syncedCount, rawRecordsRead, syncedRawCount, syncStep?.status, t]);
 
   const memoryProgressDetail = useMemo(() => {
     const processed = flow.memoryProcessedCount ?? (flow.memoryReady ? flow.memoryCount : null);
@@ -170,8 +206,24 @@ export function PluginInstallPanel(): JSX.Element | null {
     const remaining =
       flow.memoryRemainingCount ??
       (processed != null && total != null ? Math.max(0, total - processed) : null);
+    const latestSyncCount = flow.syncedCount;
+    const hasLargerSourceTotal =
+      latestSyncCount != null && latestSyncCount > 0 && total != null && total > latestSyncCount;
 
     if (processed != null && total != null) {
+      if (total === 0) {
+        return rawRecordsRead
+          ? t('pluginInstallPanel.memoryEmptyAfterRaw')
+          : t('pluginInstallPanel.memoryEmpty');
+      }
+      if (hasLargerSourceTotal) {
+        return t('pluginInstallPanel.memoryProgressWithSourceTotal', {
+          synced: latestSyncCount,
+          processed,
+          total,
+          remaining: remaining ?? Math.max(0, total - processed),
+        });
+      }
       return t('pluginInstallPanel.memoryProgress', {
         processed,
         total,
@@ -182,7 +234,21 @@ export function PluginInstallPanel(): JSX.Element | null {
       return t('pluginInstallPanel.memoryProcessed', { count: processed });
     }
     if (total != null) {
+      if (total === 0) {
+        return rawRecordsRead
+          ? t('pluginInstallPanel.memoryEmptyAfterRaw')
+          : t('pluginInstallPanel.memoryEmpty');
+      }
+      if (hasLargerSourceTotal) {
+        return t('pluginInstallPanel.memoryTotalWithSourceTotal', {
+          synced: latestSyncCount,
+          total,
+        });
+      }
       return t('pluginInstallPanel.memoryTotal', { count: total });
+    }
+    if (memoryStep?.status === 'running') {
+      return t('pluginInstallPanel.memoryChecking');
     }
     return undefined;
   }, [
@@ -191,7 +257,9 @@ export function PluginInstallPanel(): JSX.Element | null {
     flow.memoryCount,
     flow.memoryTotalCount,
     flow.syncedCount,
+    rawRecordsRead,
     flow.memoryRemainingCount,
+    memoryStep?.status,
     t,
   ]);
 
@@ -199,20 +267,25 @@ export function PluginInstallPanel(): JSX.Element | null {
     install: t('pluginInstallPanel.stepInstall'),
     enable: t('pluginInstallPanel.stepEnable'),
     sync: t('pluginInstallPanel.stepSync'),
-    memory: flow.memoryReady
-      ? t('pluginInstallPanel.readyTitle')
-      : flow.backfillNote
-        ? t('pluginInstallPanel.memoryReadying')
-        : t('pluginInstallPanel.stepMemory'),
+    memory: flow.syncDeferred
+      ? t('pluginInstallPanel.memoryWaitingForSync')
+      : memoryHasNoNewRecords
+      ? t('pluginInstallPanel.memoryNoNewTitle')
+      : flow.memoryReady
+        ? t('pluginInstallPanel.readyTitle')
+        : flow.backfillNote
+          ? t('pluginInstallPanel.memoryReadying')
+          : t('pluginInstallPanel.stepMemory'),
   };
 
   const details: Partial<Record<InstallStepId, string>> = {
-    sync:
-      flow.syncedCount != null
-        ? t('pluginInstallPanel.syncedCount', { count: flow.syncedCount })
-        : undefined,
+    sync: syncProgressDetail,
     memory: memoryProgressDetail,
   };
+  const closeLabel =
+    flow.phase === 'done' && flow.backfillNote && !flow.memoryReady
+      ? t('pluginInstallPanel.closeBackground')
+      : t('pluginInstallPanel.close');
 
   if (!open) {
     return null;
@@ -246,9 +319,9 @@ export function PluginInstallPanel(): JSX.Element | null {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{name}</DialogTitle>
-          {flow.description ? (
-            <DialogDescription>{flow.description}</DialogDescription>
-          ) : null}
+          <DialogDescription>
+            {flow.description ?? t('pluginInstallPanel.description')}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="px-6 pb-2">
@@ -270,14 +343,11 @@ export function PluginInstallPanel(): JSX.Element | null {
             <InstallStepper steps={flow.steps} labels={labels} details={details} />
           )}
 
-          {flow.phase === 'done' && flow.memoryReady ? (
-            <p className="mt-3 text-sm font-medium text-primary">
-              ✓ {t('pluginInstallPanel.readyTitle')}
-            </p>
-          ) : null}
           {flow.phase === 'done' && flow.backfillNote ? (
             <p className="mt-3 text-xs text-muted-foreground">
-              {t('pluginInstallPanel.backfillNote')}
+              {flow.syncDeferred
+                ? t('pluginInstallPanel.syncBackgroundNote')
+                : t('pluginInstallPanel.backfillNote')}
             </p>
           ) : null}
           {flow.phase === 'error' && flow.error ? (
@@ -309,7 +379,7 @@ export function PluginInstallPanel(): JSX.Element | null {
               className="min-w-[5.5rem] rounded-md border border-border px-3 py-1.5 text-center text-xs font-medium transition hover:bg-muted"
               onClick={closePanel}
             >
-              {t('pluginInstallPanel.close')}
+              {closeLabel}
             </button>
           )}
         </DialogFooter>

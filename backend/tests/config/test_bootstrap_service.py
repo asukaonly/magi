@@ -545,6 +545,51 @@ async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(mon
 
 
 @pytest.mark.asyncio
+async def test_recent_l1_import_samples_include_user_authored_plugin_sources(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+
+    class FakeL1:
+        async def query_events(self, *, source_filters, limit, order_by, memory_domain=None, **_kwargs):
+            assert order_by == "created_at_desc"
+            source = source_filters[0]
+            rows = {
+                "chrome_history": [
+                    {
+                        "source": "chrome_history",
+                        "content": f"Chrome 浏览 long context sample {idx}",
+                        "created_at": 2000.0 - idx,
+                    }
+                    for idx in range(1, 6)
+                ],
+                "claude_code_agent_history": [
+                    {
+                        "source": "claude_code_agent_history",
+                        "content": "Claude Code 对话 Magi onboarding context design",
+                        "created_at": 2001.0,
+                    }
+                ],
+            }
+            if source == "claude_code_agent_history" and memory_domain == "external_activity":
+                return []
+            return rows.get(source, [])[:limit]
+
+        async def summarize_event_sources(self, **_kwargs):
+            return [
+                {"source": "chrome_history", "event_count": 122},
+                {"source": "claude_code_agent_history", "event_count": 35},
+            ]
+
+    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
+
+    snippet = await mod._fetch_recent_import_activity_snippet(type("M", (), {"l1": FakeL1()})())
+
+    assert snippet is not None
+    assert "claude_code_agent_history" in snippet
+    assert "Magi onboarding context design" in snippet
+    assert "long context sample 5" in snippet
+
+
+@pytest.mark.asyncio
 async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
     from magi import i18n as core_i18n
     import magi.personality.bootstrap_service as mod

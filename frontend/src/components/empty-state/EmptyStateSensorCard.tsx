@@ -32,8 +32,8 @@ export function EmptyStateSensorCard({
   const { t } = useTranslation(i18nNamespace);
   const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
   return (
-    <div className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[hsl(var(--app-chrome-surface)/0.5)]">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background/80 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+    <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[hsl(var(--app-chrome-surface)/0.5)]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
         <PluginIcon iconId={iconId} pluginId={pluginId} className="h-4 w-4" />
       </span>
       <div className="flex min-w-0 flex-col gap-0.5">
@@ -45,7 +45,7 @@ export function EmptyStateSensorCard({
         data-testid={`empty-state-connect-${pluginId}`}
         onClick={() => onConnect(pluginId)}
         disabled={disabled}
-        className="ml-auto shrink-0 min-w-[5.5rem] rounded-md px-3 py-1.5 text-center text-xs font-semibold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.34)] transition-[background-color,color,box-shadow] hover:bg-primary/10 hover:shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.48)] disabled:opacity-50"
+        className="shrink-0 rounded-md border border-primary/30 bg-background px-3 py-1.5 text-center text-xs font-semibold text-primary transition-[background-color,border-color,color] hover:border-primary/50 hover:bg-primary/10 disabled:opacity-50"
       >
         {t(keyed(connectLabelKey ?? 'emptyState.connect'))}
       </button>

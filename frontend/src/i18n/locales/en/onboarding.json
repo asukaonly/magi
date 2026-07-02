@@ -8,6 +8,7 @@
     "welcome": "Welcome",
     "llmSetup": "LLM Setup",
     "personaPreview": "Choose a persona",
+    "firstContext": "First context",
     "complete": "Done"
   },
   "actions": {
@@ -17,6 +18,8 @@
     "saving": "Saving...",
     "startingRuntime": "Starting runtime...",
     "enterApp": "Enter Magi",
+    "skipContext": "Skip and continue",
+    "finishContext": "Done and continue",
     "enableL1": "Enable L1"
   },
   "common": {
@@ -28,8 +31,8 @@
     "personaSetupTimedOut": "Persona setup did not return in time, so Magi will continue for now. You can choose a persona again in Settings later.",
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
-    "completedTitle": "Magi has found its voice",
-    "completedDesc": "Next, you can connect one data source you are comfortable sharing. Magi will use it to build the first layer of context, so the first conversation does not have to start from zero.",
+    "completedTitle": "Ready to begin",
+    "completedDesc": "Magi has its voice and knows where the first hello should start. You can enter chat now.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
@@ -216,6 +219,16 @@
     "generationFailed": "Generation failed",
     "waiting": "Typing…"
   },
+  "firstContext": {
+    "kicker": "Optional context source",
+    "title": "Add a little context to the first conversation?",
+    "body": "Connect one historical source you are comfortable sharing. Magi will read a small representative sample so the first hello does not start from zero. You can also skip this and connect sources later.",
+    "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
+    "connectedCount": "{{count}} source connected",
+    "connectedHint": "You can add more sources here, then continue when you are ready.",
+    "memoryWarningTitle": "No vector model is configured yet",
+    "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate."
+  },
   "pluginNames": {
     "chrome-history": "Chrome history",
     "safari-history": "Safari history",
@@ -224,6 +237,7 @@
     "calendar": "Calendar",
     "git-activity": "Git activity",
     "photo-library": "Photo library",
+    "coding_agent_history": "Agent history",
     "netease-music": "Listening history",
     "terminal-history": "Terminal history",
     "screen-time": "Screen Time",
@@ -288,16 +302,30 @@
     "stepSync": "Sync history",
     "stepMemory": "Build memory",
     "syncedCount": "Synced {{count}} items",
+    "syncedEmpty": "No new history items were imported this time",
+    "syncedRawOnly": "Read {{count}} history items, but nothing new needed importing",
+    "syncWaiting": "Reading local history now. Large histories can take a little while; the count appears when it finishes.",
+    "syncBackground": "Sync is queued and will continue in the background. Organizing starts after it finishes.",
     "memoryCount": "Organized {{count}} memories",
     "memoryProgress": "Organized {{processed}} / {{total}} items, {{remaining}} remaining",
+    "memoryProgressWithSourceTotal": "Latest sync {{synced}} items; source total organized {{processed}} / {{total}}, {{remaining}} remaining",
     "memoryProcessed": "Organized {{count}} items",
     "memoryTotal": "{{count}} items to organize",
+    "memoryTotalWithSourceTotal": "Latest sync {{synced}} items; source total {{total}} to organize",
+    "memoryChecking": "Checking context for the first conversation…",
+    "memoryEmpty": "No new items entered the organizing queue this time. They may already be imported, or there may be no new items in the sync range.",
+    "memoryEmptyAfterRaw": "History was read, but no new items entered the organizing queue. They may already be imported, or skipped by the sync range or filters.",
+    "memoryNoNewTitle": "No new items to organize",
+    "memoryWaitingForSync": "Waiting for sync",
     "fieldsTitle": "First, choose what to connect",
     "connect": "Connect",
     "cancel": "Later",
     "close": "Done",
-    "readyTitle": "Now I get you",
+    "closeBackground": "Finish for now",
+    "description": "Magi will enable the source, read recent history, then prepare context for the first conversation.",
+    "readyTitle": "Connection complete",
     "backfillNote": "Your full history is still being organized in the background — we'll let you know when it's ready.",
+    "syncBackgroundNote": "Sync is still queued or running in the background. Organizing will start automatically after it finishes.",
     "memoryReadying": "Organizing — ready soon",
     "unsupported": "This data source can't be connected in one click yet — you can set it up in Settings.",
     "errorRetry": "Retry"

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { sensorsApi } from '../api/modules/sensors';
 import { pluginsApi } from '../api/modules/plugins';
@@ -71,6 +71,7 @@ describe('PluginInstallPanel', () => {
     await waitFor(
       () => {
         expect(screen.getAllByText(/pluginInstallPanel\.memoryProgress/).length).toBeGreaterThan(0);
+        expect(screen.getAllByText('pluginInstallPanel.readyTitle')).toHaveLength(2);
         expect(
           screen.getByRole('button', { name: 'pluginInstallPanel.close' }),
         ).toBeInTheDocument();
@@ -83,6 +84,201 @@ describe('PluginInstallPanel', () => {
     // A completed connect flow broadcasts PLUGINS_CHANGED so suggestion surfaces refresh.
     expect(pluginsChangedFired).toBe(true);
     window.removeEventListener('magi-plugins-changed', onPluginsChanged);
+  }, 12000);
+
+  it('clears the previous flow before opening another plugin', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            description: 'Chrome desc',
+            activation_flow: {
+              enabled_key: 'sensors.chrome_history.enabled',
+              configured_key: 'sensors.chrome_history.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+          },
+        ],
+      } as any)
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            description: 'Chrome desc',
+            last_success: 'chrome-done',
+            last_result_count: 9,
+          },
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          {
+            source_name: 'agent_history',
+            plugin_id: 'agent-history',
+            description: 'Agent desc',
+            activation_flow: {
+              enabled_key: 'sensors.agent_history.enabled',
+              configured_key: 'sensors.agent_history.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+          },
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'chrome_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'chrome_history',
+      l1_event_count: 9,
+      l2_ready: true,
+      l2_total_count: 9,
+      l2_processed_count: 9,
+      l2_remaining_count: 0,
+    } as any);
+
+    const firstDone = vi.fn();
+    const secondDone = vi.fn();
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('chrome-history', { onDone: firstDone });
+    });
+
+    await waitFor(() => expect(firstDone).toHaveBeenCalledTimes(1), { timeout: 8000 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'pluginInstallPanel.close' }));
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('agent-history', { onDone: secondDone });
+    });
+
+    expect(screen.getByText('pluginNames.agent-history')).toBeInTheDocument();
+    expect(secondDone).not.toHaveBeenCalled();
+    expect(screen.queryByText('Chrome desc')).not.toBeInTheDocument();
+    expect(screen.queryByText('pluginInstallPanel.readyTitle')).not.toBeInTheDocument();
+  }, 12000);
+
+  it('clarifies when source memory total is larger than the latest sync count', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            activation_flow: {
+              enabled_key: 'sensors.chrome_history.enabled',
+              configured_key: 'sensors.chrome_history.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+          },
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            last_success: 'x',
+            last_result_count: 12,
+          },
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'chrome_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'chrome_history',
+      l1_event_count: 122,
+      l2_ready: true,
+      l2_total_count: 122,
+      l2_processed_count: 122,
+      l2_remaining_count: 0,
+    } as any);
+
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('chrome-history');
+    });
+
+    await waitFor(
+      () => {
+        expect(
+          screen.getAllByText('pluginInstallPanel.memoryProgressWithSourceTotal').length,
+        ).toBeGreaterThan(0);
+        expect(screen.queryByText('pluginInstallPanel.memoryProgress')).not.toBeInTheDocument();
+      },
+      { timeout: 8000 },
+    );
+  }, 12000);
+
+  it('explains raw history reads that produce no new memory input', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 's',
+            plugin_id: 'chrome-history',
+            activation_flow: {
+              enabled_key: 'sensors.s.enabled',
+              configured_key: 'sensors.s.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+            last_raw_result_count: 0,
+          },
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          {
+            source_name: 's',
+            plugin_id: 'chrome-history',
+            last_success: 'x',
+            last_result_count: 0,
+            last_raw_result_count: 7,
+          },
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 's',
+      l1_event_count: 0,
+      l2_ready: false,
+      l2_total_count: 0,
+      l2_processed_count: 0,
+      l2_remaining_count: 0,
+    } as any);
+
+    render(<PluginInstallPanel />);
+    usePluginInstallPanelStore.getState().openPanel('chrome-history');
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText('pluginInstallPanel.syncedRawOnly').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('pluginInstallPanel.memoryEmptyAfterRaw').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('pluginInstallPanel.memoryNoNewTitle').length).toBeGreaterThan(0);
+        expect(screen.queryByText('pluginInstallPanel.memoryReadying')).not.toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'pluginInstallPanel.close' })).toBeInTheDocument();
+      },
+      { timeout: 8000 },
+    );
   }, 12000);
 
   it('shows the capability consent before installing in install mode', async () => {

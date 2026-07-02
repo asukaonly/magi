@@ -17,6 +17,7 @@ import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
 import { personasApi } from '@/api/modules/personas';
 import * as systemSuggestions from '@/api/modules/systemSuggestions';
 import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 vi.mock('react-i18next', () => ({
   initReactI18next: {
@@ -101,7 +102,7 @@ const stubSeedPreviews = () => [
   },
 ];
 
-describe('OnboardingFlow (linear 4-step)', () => {
+describe('OnboardingFlow (linear 5-step)', () => {
   beforeEach(() => {
     vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(
       stubCatalog() as any,
@@ -109,6 +110,11 @@ describe('OnboardingFlow (linear 4-step)', () => {
     vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(
       stubTemplate() as any,
     );
+    vi.spyOn(configApi, 'update').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
     vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({
       success: true,
       data: stubSeedPreviews(),
@@ -174,6 +180,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
     localStorageMock.getItem.mockReturnValue(null);
     localStorageMock.setItem.mockClear();
     localStorageMock.removeItem.mockClear();
+    usePluginInstallPanelStore.getState().closePanel();
   });
 
   it('renders the welcome entrypoint with no mode cards', () => {
@@ -193,7 +200,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
     expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
   });
 
-  it('walks through welcome → LLM setup → persona preview → completion and persists seed_slug on save', async () => {
+  it('walks through welcome → LLM setup → persona preview → first context → completion and persists seed_slug on save', async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
@@ -220,18 +227,75 @@ describe('OnboardingFlow (linear 4-step)', () => {
     await user.click(screen.getByRole('button', { name: /Ember/i }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
-    // Step 3: Completion — click Enter App
+    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
+    const earlyPayload = vi.mocked(configApi.update).mock.calls[0][0] as any;
+    expect(earlyPayload.preferences.onboarding_completed).toBe(false);
+    expect(earlyPayload.llm.providers.openai.enabled).toBe(true);
+
+    // Step 3: First context — this is a real step now, not a footer on completion.
+    expect(await screen.findByText('firstContext.title')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
+    expect(screen.queryByText('firstContext.kicker')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
+
+    // Step 4: Completion — click Enter App. No source cards are rendered here.
     const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
+    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
     await user.click(enterApp);
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     const payload = completeOnboarding.mock.calls[0][0] as any;
     expect(payload.preferences.onboarding_completed).toBe(true);
+    expect(payload.preferences.product_tour_completed).toBe(true);
     expect(payload.llm.providers.openai.enabled).toBe(true);
     expect(payload.llm.providers.openai.api_key).toBe('sk-test');
 
     // No mode references anywhere across the rendered flow.
     expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+  });
+
+  it('keeps the first-context step open after a selected source finishes connecting', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await screen.findByText('firstContext.title');
+    await user.click(screen.getByTestId('empty-state-connect-chrome-history'));
+
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
+      install: true,
+      context: 'first_context',
+      onDone: expect.any(Function),
+    });
+    expect(screen.getByText('firstContext.title')).toBeInTheDocument();
+
+    const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
+    onDone?.();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.finishContext' })).toBeInTheDocument(),
+    );
+    expect(screen.getByText('firstContext.connectedCount')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'actions.enterApp' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'actions.finishContext' }));
+    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
   });
 
   it('surfaces the embedding-fallback row when an Anthropic-style provider is picked', async () => {
@@ -247,6 +311,31 @@ describe('OnboardingFlow (linear 4-step)', () => {
     await waitFor(() =>
       expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument(),
     );
+  });
+
+  it('repeats the missing-vector warning on the first-context step without blocking skip', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const warning = await screen.findByTestId('first-context-memory-warning');
+    const title = screen.getByText('firstContext.title');
+    expect(warning.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
+    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
   });
 
   it('activates the chosen persona slug after onboarding completes', async () => {
@@ -270,6 +359,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
     await screen.findByRole('button', { name: /Ember/i });
     await user.click(screen.getByRole('button', { name: /Ember/i }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
     const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
     await user.click(enterApp);
 
@@ -341,6 +431,7 @@ describe('OnboardingFlow (linear 4-step)', () => {
       expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
     );
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
 
     const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
     await user.click(enterApp);

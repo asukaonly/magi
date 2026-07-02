@@ -1,11 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProductTour } from '@/components/onboarding/ProductTour';
-import { configApi, DEFAULT_SYSTEM_CONFIG, type SystemConfig } from '@/api/modules/config';
 import type { InstallableItem } from '@/api/modules/systemSuggestions';
-import { useChatShellStore } from '@/stores/chat-shell';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
 
 vi.mock('react-i18next', () => ({
@@ -27,36 +25,15 @@ function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
   };
 }
 
-function configWithRemoteEmbedding(): SystemConfig {
-  const config = structuredClone(DEFAULT_SYSTEM_CONFIG);
-  config.memory.embedding.mode = 'remote';
-  config.llm.selections.embedding.provider_id = 'openai';
-  config.llm.selections.embedding.model = 'text-embedding-3-small';
-  return config;
-}
-
-function configWithoutEmbedding(): SystemConfig {
-  const config = structuredClone(DEFAULT_SYSTEM_CONFIG);
-  config.memory.embedding.mode = 'off';
-  config.llm.selections.embedding.provider_id = '';
-  config.llm.selections.embedding.model = '';
-  return config;
-}
-
 describe('ProductTour', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(configApi, 'get').mockResolvedValue({
-      success: true,
-      data: configWithRemoteEmbedding(),
-    } as any);
     mockUseInstallableSensors.mockReset();
     mockUseInstallableSensors.mockReturnValue({
       items: [item()],
       loading: false,
       refresh: vi.fn(),
     });
-    useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
     usePluginInstallPanelStore.getState().closePanel();
   });
 
@@ -101,6 +78,7 @@ describe('ProductTour', () => {
 
     expect(openPanel).toHaveBeenCalledWith('chrome-history', {
       install: true,
+      context: 'first_context',
       onDone: expect.any(Function),
     });
     expect(onComplete).not.toHaveBeenCalled();
@@ -115,45 +93,11 @@ describe('ProductTour', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
-  it('shows the vector model prompt before the plugin prompt when embeddings are missing', async () => {
-    vi.mocked(configApi.get).mockResolvedValue({
-      success: true,
-      data: configWithoutEmbedding(),
-    } as any);
-
+  it('does not interrupt with vector-model setup when embeddings are missing', async () => {
     render(<ProductTour onComplete={vi.fn()} />);
-
-    expect(await screen.findByText('productTour.memoryModelTitle')).toBeInTheDocument();
-    expect(screen.queryByText('productTour.memoryModelKicker')).not.toBeInTheDocument();
-    expect(screen.getByText('productTour.memoryModelImpact')).toBeInTheDocument();
-    expect(screen.queryByText('productTour.memoryModelNote')).not.toBeInTheDocument();
-    expect(screen.queryByText('productTour.firstContextTitle')).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole('button', { name: 'productTour.memoryModelSkip' }));
 
     expect(await screen.findByText('productTour.firstContextTitle')).toBeInTheDocument();
     expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
-  });
-
-  it('opens model settings from the vector model prompt and resumes the plugin prompt after settings closes', async () => {
-    vi.mocked(configApi.get).mockResolvedValue({
-      success: true,
-      data: configWithoutEmbedding(),
-    } as any);
-
-    render(<ProductTour onComplete={vi.fn()} />);
-
-    await screen.findByText('productTour.memoryModelTitle');
-    await userEvent.click(screen.getByRole('button', { name: 'productTour.memoryModelConfigure' }));
-
-    expect(useChatShellStore.getState().activePanel).toBe('settings');
-    expect(useChatShellStore.getState().settingsNavigationIntent).toEqual({ section: 'llmModels' });
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-
-    act(() => {
-      useChatShellStore.setState({ activePanel: 'none' });
-    });
-
-    expect(await screen.findByText('productTour.firstContextTitle')).toBeInTheDocument();
+    expect(screen.queryByText('productTour.memoryModelTitle')).not.toBeInTheDocument();
   });
 });

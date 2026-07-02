@@ -2,7 +2,10 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useInstallableSensors } from '../../hooks/useInstallableSensors';
-import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
+import {
+  usePluginInstallPanelStore,
+  type PluginInstallPanelContext,
+} from '../../stores/pluginInstallPanel';
 import { useChatShellStore } from '../../stores/chat-shell';
 import {
   BROWSER_HISTORY_PRIORITY_PLUGINS,
@@ -58,6 +61,12 @@ export interface EmptyStateAvailableSensorsProps {
    */
   fallbackPluginIds?: string[];
   /**
+   * When the backend only returns a sparse installable list, embedded first-run
+   * surfaces can still fill the remaining top slots with conservative fallback
+   * cards so the page does not look artificially limited.
+   */
+  fillWithFallback?: boolean;
+  /**
    * Optional preloaded suggestions. Onboarding uses this to avoid a blank
    * completion page while the same suggestions are already being fetched.
    */
@@ -74,6 +83,11 @@ export interface EmptyStateAvailableSensorsProps {
    * actually connected.
    */
   onConnectDone?: (pluginId: string) => void;
+  /**
+   * Lets embedded first-run surfaces request a lighter connect flow without
+   * changing Settings or normal plugin-entry behavior.
+   */
+  panelContext?: PluginInstallPanelContext;
 }
 
 /**
@@ -115,10 +129,12 @@ export function EmptyStateAvailableSensors({
   i18nKeyPrefix,
   showBrowseAll = true,
   fallbackPluginIds,
+  fillWithFallback = false,
   installableItems,
   installableLoading,
   onConnectStart,
   onConnectDone,
+  panelContext = 'default',
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
   const { t } = useTranslation(i18nNamespace);
   const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
@@ -169,12 +185,6 @@ export function EmptyStateAvailableSensors({
       return withMeta;
     };
 
-    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
-    const fromInstallable = collectWithMeta(candidates);
-    if (fromInstallable.length > 0) {
-      return fromInstallable.slice(0, MAX_EMPTY_STATE_CARDS);
-    }
-
     const fallbackItems = (fallbackPluginIds ?? [])
       .filter((pluginId) => !excluded.has(pluginId))
       .map((pluginId) => ({
@@ -183,8 +193,28 @@ export function EmptyStateAvailableSensors({
         installed: false,
         rationale: { zh: '', en: '' },
       }));
+
+    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
+    const candidatesHaveBrowserHistory = candidates.some((item) =>
+      isBrowserHistoryPlugin(item.plugin_id),
+    );
+    const mergedCandidates = fillWithFallback
+      ? [
+          ...candidates,
+          ...fallbackItems.filter(
+            (fallback) =>
+              !candidates.some((item) => item.plugin_id === fallback.plugin_id) &&
+              !(candidatesHaveBrowserHistory && isBrowserHistoryPlugin(fallback.plugin_id)),
+          ),
+        ]
+      : candidates;
+    const fromInstallable = collectWithMeta(mergedCandidates);
+    if (fromInstallable.length > 0) {
+      return fromInstallable.slice(0, MAX_EMPTY_STATE_CARDS);
+    }
+
     return collectWithMeta(fallbackItems).slice(0, MAX_EMPTY_STATE_CARDS);
-  }, [items, excluded, fallbackPluginIds]);
+  }, [items, excluded, fallbackPluginIds, fillWithFallback]);
 
   if (loading && visible.length === 0) {
     // Suppress flash-of-cards while the installable list is in flight, unless
@@ -241,12 +271,11 @@ export function EmptyStateAvailableSensors({
               // Install-first for registry-only items: the panel downloads
               // from the registry before the connect flow runs.
               const options = { install: !item.installed };
-              openPanel(
-                pluginId,
-                onConnectDone
-                  ? { ...options, onDone: () => onConnectDone(pluginId) }
-                  : options,
-              );
+              openPanel(pluginId, {
+                ...options,
+                ...(panelContext !== 'default' ? { context: panelContext } : {}),
+                ...(onConnectDone ? { onDone: () => onConnectDone(pluginId) } : {}),
+              });
               onConnectStart?.(pluginId, options);
             }}
           />

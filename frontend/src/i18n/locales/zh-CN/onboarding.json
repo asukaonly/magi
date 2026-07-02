@@ -8,6 +8,7 @@
     "welcome": "欢迎",
     "llmSetup": "配置模型",
     "personaPreview": "选择人格",
+    "firstContext": "首次上下文",
     "complete": "完成"
   },
   "actions": {
@@ -17,6 +18,8 @@
     "saving": "保存中...",
     "startingRuntime": "正在启动运行时...",
     "enterApp": "进入 Magi",
+    "skipContext": "跳过，继续",
+    "finishContext": "完成并继续",
     "enableL1": "一键启用 L1"
   },
   "common": {
@@ -29,8 +32,8 @@
     "requiredFieldMissing": "请先补全必填项再继续。",
     "chooseModeFirst": "请先选择模式再继续。",
     "validationFailed": "请补全必填配置项。",
-    "completedTitle": "Magi 已经有了声音",
-    "completedDesc": "下一步，你可以连接一个愿意分享的数据源。Magi 会用它整理第一份上下文，让第一次对话不必从零开始。",
+    "completedTitle": "准备好了",
+    "completedDesc": "Magi 已经有了声音，也知道第一次见面该从哪里开始。现在可以进入聊天了。",
     "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
   },
   "language": {
@@ -217,6 +220,16 @@
     "generationFailed": "生成失败",
     "waiting": "正在输入…"
   },
+  "firstContext": {
+    "kicker": "可选的数据源",
+    "title": "要不要给第一次对话加一点上下文？",
+    "body": "连接一个你愿意分享的历史数据源，Magi 会先读取一小部分代表性内容，让第一次开场不必从零开始。也可以跳过，之后随时再连接。",
+    "note": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
+    "connectedCount": "已连接 {{count}} 个来源",
+    "connectedHint": "还可以继续添加其他来源；准备好了再点右下角继续。",
+    "memoryWarningTitle": "当前还没有向量模型",
+    "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。"
+  },
   "pluginNames": {
     "chrome-history": "Chrome 历史",
     "safari-history": "Safari 历史",
@@ -225,6 +238,7 @@
     "calendar": "日历",
     "git-activity": "Git 活动",
     "photo-library": "照片库",
+    "coding_agent_history": "Agent 历史",
     "netease-music": "听歌历史",
     "terminal-history": "终端历史",
     "screen-time": "屏幕使用时间",
@@ -289,16 +303,30 @@
     "stepSync": "同步历史数据",
     "stepMemory": "整理记忆",
     "syncedCount": "已同步 {{count}} 条",
+    "syncedEmpty": "本次没有导入新的历史记录",
+    "syncedRawOnly": "读到了 {{count}} 条历史，但没有新的记录需要导入",
+    "syncWaiting": "正在读取本地历史，数据多时可能需要几十秒。完成后会显示读到的数量。",
+    "syncBackground": "同步已经排队，后台会继续处理；完成后再进入整理。",
     "memoryCount": "已整理 {{count}} 条记忆",
     "memoryProgress": "已整理 {{processed}} / {{total}} 条，剩余 {{remaining}} 条",
+    "memoryProgressWithSourceTotal": "本次同步 {{synced}} 条；来源累计已整理 {{processed}} / {{total}} 条，剩余 {{remaining}} 条",
     "memoryProcessed": "已整理 {{count}} 条",
     "memoryTotal": "待整理 {{count}} 条",
+    "memoryTotalWithSourceTotal": "本次同步 {{synced}} 条；来源累计待整理 {{total}} 条",
+    "memoryChecking": "正在确认可用于第一次对话的上下文…",
+    "memoryEmpty": "本次没有新的记录进入整理队列；可能已经导入过，或同步范围内没有新增。",
+    "memoryEmptyAfterRaw": "读到了历史，但没有新的记录进入整理队列；可能已经导入过，或被同步范围/过滤规则跳过。",
+    "memoryNoNewTitle": "没有新的记录进入整理",
+    "memoryWaitingForSync": "等待同步完成",
     "fieldsTitle": "连接前，先选择要接入的内容",
     "connect": "连接",
     "cancel": "稍后",
     "close": "完成",
-    "readyTitle": "现在我懂你了",
+    "closeBackground": "先完成",
+    "description": "我们会先启用来源，再读取最近历史，最后整理成第一次对话可用的上下文。",
+    "readyTitle": "已完成连接",
     "backfillNote": "完整历史正在后台整理中，完成后会通知你",
+    "syncBackgroundNote": "同步还在后台排队或处理中，完成后会自动进入整理。",
     "memoryReadying": "整理中，稍后就绪",
     "unsupported": "该数据源暂不支持一键连接，可在设置中配置",
     "errorRetry": "重试"

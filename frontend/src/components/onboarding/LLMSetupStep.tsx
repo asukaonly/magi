@@ -27,6 +27,7 @@ import {
 } from '@/components/config-forms/llm-form-state';
 import { getRecommendedModels } from '@/constants/llm';
 import { cn } from '@/lib/utils';
+import { getMemoryModelStatus } from './memoryModelStatus';
 
 export interface LLMSetupStepProps {
   value: LLMConfig;
@@ -311,23 +312,6 @@ function findExistingProviderByType(value: LLMConfig, providerType: LLMProvider 
 
 function getActiveProviderId(value: LLMConfig): string {
   return value.selections?.core?.provider_id || Object.keys(value.providers || {})[0] || '';
-}
-
-function hasConfiguredEmbeddingSelection(value: LLMConfig): boolean {
-  const selection = value.selections?.embedding;
-  if (!selection?.provider_id || !selection.model) {
-    return false;
-  }
-  const provider = value.providers?.[selection.provider_id];
-  return Boolean(provider?.enabled && provider.services?.embedding?.enabled);
-}
-
-function getMemoryModelStatus(value: LLMConfig): 'ready' | 'missing' | null {
-  const coreProviderId = value.selections?.core?.provider_id;
-  if (!coreProviderId || !value.providers?.[coreProviderId]) {
-    return null;
-  }
-  return hasConfiguredEmbeddingSelection(value) ? 'ready' : 'missing';
 }
 
 export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): JSX.Element {

@@ -63,6 +63,72 @@ describe('usePluginInstallFlow', () => {
     expect(result.current.memoryRemainingCount).toBe(0);
   });
 
+  it('finishes zero memory input without a background organizing note', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({ sources: [source()] } as any)
+      .mockResolvedValue({
+        sources: [
+          source({
+            last_success: '2026-01-01T00:00:01Z',
+            last_result_count: 0,
+            last_raw_result_count: 7,
+          }),
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 's',
+      l1_event_count: 0,
+      l2_ready: false,
+      l2_total_count: 0,
+      l2_processed_count: 0,
+      l2_remaining_count: 0,
+    } as any);
+
+    const { result } = renderHook(() => usePluginInstallFlow('p', false));
+    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
+    expect(sensorsApi.getMemoryReadiness).toHaveBeenCalledTimes(1);
+    expect(result.current.syncedCount).toBe(0);
+    expect(result.current.syncedRawCount).toBe(7);
+    expect(result.current.memoryReady).toBe(false);
+    expect(result.current.memoryTotalCount).toBe(0);
+    expect(result.current.memoryProcessedCount).toBe(0);
+    expect(result.current.backfillNote).toBe(false);
+  });
+
+  it('does not check memory when sync has not completed yet', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sensorsApi, 'getStatus')
+        .mockResolvedValueOnce({ sources: [source()] } as any)
+        .mockResolvedValue({ sources: [source({ last_success: null })] } as any);
+      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+        queued: true,
+        source_name: 's',
+      } as any);
+      const readinessSpy = vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+        source_name: 's',
+        l1_event_count: 0,
+        l2_ready: false,
+      } as any);
+
+      const { result } = renderHook(() => usePluginInstallFlow('p', false));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(95_000);
+      });
+
+      expect(result.current.phase).toBe('done');
+      expect(result.current.syncDeferred).toBe(true);
+      expect(result.current.backfillNote).toBe(true);
+      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('skipped');
+      expect(readinessSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('with fields: waits for submit before enabling', async () => {
     const withFields = (over: any = {}) =>
       source({
@@ -95,6 +161,91 @@ describe('usePluginInstallFlow', () => {
     });
     await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
     expect(upd).toHaveBeenCalledWith('p', expect.objectContaining({ 'sensors.s.source_paths': ['/x'] }));
+  });
+
+  it('uses lightweight Chrome defaults in first-context mode', async () => {
+    const chromeFlow = () => ({
+      title: 't',
+      description: 'd',
+      confirm_label: 'c',
+      cancel_label: 'x',
+      authorize_on_confirm: false,
+      enabled_key: 'sensors.chrome_history.enabled',
+      configured_key: 'sensors.chrome_history.initial_sync_configured',
+      fields: [
+        {
+          key: 'sensors.chrome_history.initial_sync_policy',
+          type: 'select',
+          label: 'scope',
+          required: false,
+          default: 'lookback_days',
+        },
+        {
+          key: 'sensors.chrome_history.initial_sync_lookback_days',
+          type: 'number',
+          label: 'days',
+          required: false,
+          default: 7,
+        },
+      ],
+    });
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          source({
+            plugin_id: 'chrome-history',
+            source_name: 'chrome_history',
+            activation_flow: chromeFlow(),
+          }),
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          source({
+            plugin_id: 'chrome-history',
+            source_name: 'chrome_history',
+            activation_flow: chromeFlow(),
+            last_success: '2026-01-01T00:00:01Z',
+            last_result_count: 2,
+          }),
+        ],
+      } as any);
+    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'chrome_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'chrome_history',
+      l1_event_count: 2,
+      l2_ready: true,
+      l2_total_count: 2,
+      l2_processed_count: 2,
+      l2_remaining_count: 0,
+    } as any);
+
+    const { result } = renderHook(() =>
+      usePluginInstallFlow('chrome-history', false, 'first_context'),
+    );
+    await waitFor(() => expect(result.current.phase).toBe('awaiting_fields'));
+    await act(async () => {
+      result.current.submitFields({
+        'sensors.chrome_history.initial_sync_policy': 'lookback_days',
+        'sensors.chrome_history.initial_sync_lookback_days': 7,
+      });
+    });
+    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
+
+    expect(upd).toHaveBeenCalledWith(
+      'chrome-history',
+      expect.objectContaining({
+        'sensors.chrome_history.enabled': true,
+        'sensors.chrome_history.initial_sync_configured': true,
+        'sensors.chrome_history.initial_sync_policy': 'lookback_days',
+        'sensors.chrome_history.initial_sync_lookback_days': 1,
+        'sensors.chrome_history.max_items_per_sync': 200,
+      }),
+    );
   });
 
   it('no activation_flow → unsupported (no silent no-op)', async () => {
@@ -170,6 +321,7 @@ describe('usePluginInstallFlow', () => {
       expect(result.current.memoryProcessedCount).toBe(1);
       expect(result.current.memoryRemainingCount).toBe(2);
       expect(result.current.backfillNote).toBe(true);
+      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('background');
     } finally {
       vi.useRealTimers();
     }

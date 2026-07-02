@@ -23,6 +23,13 @@ const statusIcon = (status: StepStatus, shouldReduceMotion: boolean) => {
       />
     );
   }
+  if (status === 'background') {
+    return (
+      <Loader2
+        className={cn(statusIconClassName, 'text-primary', !shouldReduceMotion && 'animate-spin')}
+      />
+    );
+  }
   if (status === 'error') {
     return <XCircle className={cn(statusIconClassName, 'text-destructive')} />;
   }
@@ -32,18 +39,18 @@ const statusIcon = (status: StepStatus, shouldReduceMotion: boolean) => {
 const progressValue = (steps: InstallStep[]): number => {
   if (steps.length === 0) return 0;
   const doneCount = steps.filter((step) => step.status === 'done' || step.status === 'skipped').length;
-  const hasRunning = steps.some((step) => step.status === 'running');
+  const hasRunning = steps.some((step) => step.status === 'running' || step.status === 'background');
   return Math.min(100, Math.round(((doneCount + (hasRunning ? 0.45 : 0)) / steps.length) * 100));
 };
 
 export function InstallStepper({ steps, labels, details = {} }: InstallStepperProps) {
   const shouldReduceMotion = useReducedMotion() ?? false;
   const activeStep =
-    steps.find((step) => step.status === 'running' || step.status === 'error') ??
+    steps.find((step) => step.status === 'running' || step.status === 'background' || step.status === 'error') ??
     [...steps].reverse().find((step) => step.status === 'done' || step.status === 'skipped') ??
     steps[0];
   const value = progressValue(steps);
-  const isBusy = steps.some((step) => step.status === 'running');
+  const isBusy = steps.some((step) => step.status === 'running' || step.status === 'background');
 
   if (steps.length === 0) {
     return null;
@@ -53,7 +60,7 @@ export function InstallStepper({ steps, labels, details = {} }: InstallStepperPr
     <div
       role="status"
       aria-live="polite"
-      className="mt-2 overflow-hidden rounded-lg border border-border/45 bg-muted/30 p-4"
+      className="mt-2 overflow-hidden rounded-lg border border-border/50 bg-background/80 p-4 shadow-[0_10px_28px_hsl(var(--foreground)/0.04)]"
     >
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
@@ -82,7 +89,7 @@ export function InstallStepper({ steps, labels, details = {} }: InstallStepperPr
         aria-valuemax={100}
         aria-valuenow={value}
         aria-label={activeStep ? labels[activeStep.id] : undefined}
-        className="relative mt-3 h-2.5 overflow-hidden rounded-full bg-primary/10 shadow-inner ring-1 ring-primary/15"
+        className="relative mt-3 h-3 overflow-hidden rounded-full bg-primary/10 shadow-inner ring-1 ring-primary/15"
       >
         <div
           className={cn(
@@ -102,7 +109,7 @@ export function InstallStepper({ steps, labels, details = {} }: InstallStepperPr
 
       <ul className="mt-3 space-y-1">
         {steps.map((step) => {
-          const isRunning = step.status === 'running';
+          const isRunning = step.status === 'running' || step.status === 'background';
           const isDone = step.status === 'done' || step.status === 'skipped';
           const isError = step.status === 'error';
           return (
@@ -112,7 +119,7 @@ export function InstallStepper({ steps, labels, details = {} }: InstallStepperPr
               aria-current={isRunning ? 'step' : undefined}
               className={cn(
                 'flex items-start gap-3 rounded-md px-2.5 py-2 text-sm transition-colors duration-300',
-                isRunning && 'bg-background/80 text-foreground shadow-sm',
+                isRunning && 'bg-primary/5 text-foreground shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.12)]',
                 isDone && 'text-foreground',
                 isError && 'bg-destructive/5 text-destructive',
                 !isRunning && !isDone && !isError && 'text-muted-foreground',
