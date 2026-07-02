@@ -2160,12 +2160,12 @@
         },
         "health": {
           "queueStatus": "Queue status",
-          "heartbeat": "Heartbeat age",
+          "workerStatus": "Worker status",
           "good": "Healthy",
           "needsAttention": "Needs attention",
           "queueHealthy": "Queues remain contained and runtime health looks steady.",
           "queueBacklog": "Queue pressure is rising and deserves a closer look.",
-          "runtimeOffline": "Runtime readiness is degraded or waiting for a worker heartbeat.",
+          "runtimeOffline": "Runtime readiness is degraded or the worker is temporarily unresponsive.",
           "successDrift": "Core model success rate is drifting below the healthy range."
         },
         "summary": {
@@ -3774,7 +3774,7 @@
       "degradedStarting": "Backend startup is still in progress. If this continues for a while, check the runtime status.",
       "degradedDeferredSelectionPending": "Backend is running, but the AI runtime still needs model configuration for core or context_decider.",
       "degradedDeferredInvalid": "Backend is running, but the current AI runtime configuration is invalid. Check the enabled provider and model.",
-      "degradedHeartbeatStale": "Backend heartbeat is stale, so runtime status may be out of date.",
+      "degradedRuntimeOutOfSync": "Backend runtime status is temporarily out of sync and waiting to recover.",
       "degradedRuntimeUnresponsive": "Backend runtime loop is temporarily unresponsive; status is recovering.",
       "degradedLlmNotReady": "Backend is running, but the LLM runtime is not ready yet.",
       "degradedAgentRuntimeNotReady": "Backend is running, but the agent runtime has not finished initializing.",

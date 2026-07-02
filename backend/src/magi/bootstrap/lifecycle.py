@@ -103,7 +103,7 @@ class ModuleLifecycleOrchestrator:
             logger.info("Lifecycle startup completed", module_count=len(initialized), total_ms=round(total_ms, 1))
         except LifecycleInitDeferred:
             # Graceful deferral — keep infrastructure modules alive so that
-            # services like heartbeat, settings UI, etc. remain operational.
+            # services like readiness, settings UI, etc. remain operational.
             self._initialized_modules = initialized
             self._started = True
             logger.info(

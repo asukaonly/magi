@@ -32,7 +32,7 @@ export function getBackendHealthMessageKey(
   }
 
   if (health.runtimeStatus === 'stale') {
-    return 'desktop.health.degradedHeartbeatStale';
+    return 'desktop.health.degradedRuntimeOutOfSync';
   }
 
   if (health.runtimeStatus === 'unresponsive') {

@@ -111,7 +111,7 @@ function sleep(ms: number): Promise<void> {
 async function waitForBackendReady(apiBaseUrl: string): Promise<void> {
   // Poll the gateway liveness endpoint — a plain 200 confirms the Axum
   // gateway is bound and serving. We do not require the Python worker
-  // heartbeat (ready:true) here; that is monitored separately by the
+  // readiness signal here; that is monitored separately by the
   // health-check hook after startup completes.
   const healthUrl = `${apiBaseUrl.replace(/\/+$/, "").replace(/\/api$/, "")}/api/health`;
   const deadline = Date.now() + READY_CHECK_TIMEOUT_MS;

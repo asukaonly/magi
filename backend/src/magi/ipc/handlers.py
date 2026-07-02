@@ -39,10 +39,7 @@ class RuntimeReadyHandler:
 
     async def handle(self, params: dict[str, Any] | None) -> dict[str, Any]:
         _ = params
-        runtime_status = await get_runtime_system_status(
-            self._asgi_app,
-            trust_local_worker=True,
-        )
+        runtime_status = await get_runtime_system_status(self._asgi_app)
         return {
             "success": True,
             "message": "Backend startup state",
@@ -57,6 +54,8 @@ class RuntimeReadyHandler:
                 "runtime_status": runtime_status["runtime_status"],
                 "startup_state": runtime_status["startup_state"],
                 "deferred_reason": runtime_status["deferred_reason"],
+                "queue_backlog_healthy": runtime_status["queue_backlog_healthy"],
+                "pending_commands": runtime_status["pending_commands"],
             },
         }
 

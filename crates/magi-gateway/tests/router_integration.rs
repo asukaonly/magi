@@ -346,6 +346,40 @@ async fn ready_reports_unresponsive_when_ipc_does_not_reply() {
 }
 
 #[tokio::test]
+async fn runtime_overview_uses_worker_status_without_heartbeat_age() {
+    let home = isolated_home("runtime-overview-worker-status");
+    let state = test_state_with_runtime_ready_response(serde_json::json!({
+        "success": true,
+        "message": "Backend startup state",
+        "data": {
+            "ready": true,
+            "status": "ready",
+            "runtime_ready": true,
+            "worker_ready": true,
+            "llm_ready": true,
+            "agent_runtime_ready": true,
+            "runtime_status": "ready",
+            "startup_state": "ready",
+            "deferred_reason": null,
+            "queue_backlog_healthy": true,
+            "pending_commands": 2
+        }
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    let (status, json) = request_json(router, "GET", "/api/metrics/runtime/overview", None).await;
+
+    assert_eq!(status, 200);
+    let runtime = &json["data"]["runtime"];
+    assert_eq!(runtime["status"], "ready");
+    assert_eq!(runtime["runtime_status"], "ready");
+    assert_eq!(runtime["pending_commands"], 2);
+    assert!(runtime.get("runtime_heartbeat_age_ms").is_none());
+    drop(home);
+}
+
+#[tokio::test]
 async fn unknown_api_path_hits_fallback_proxy() {
     let guard = router_test_guard();
     let state = test_state().await;

@@ -132,7 +132,6 @@ def _register_health_routes(app: FastAPI) -> None:
                 "deferred_reason": runtime_status["deferred_reason"],
                 "startup_detail": runtime_status["startup_detail"],
                 "queue_backlog_healthy": runtime_status["queue_backlog_healthy"],
-                "runtime_heartbeat_age_ms": runtime_status["runtime_heartbeat_age_ms"],
                 "pending_commands": runtime_status["pending_commands"],
             },
         }

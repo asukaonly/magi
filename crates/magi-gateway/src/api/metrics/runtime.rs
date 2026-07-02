@@ -1,24 +1,24 @@
 // Runtime Overview
 // ---------------------------------------------------------------------------
 
-use axum::Json;
+use axum::{extract::State, Json};
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
 use std::sync::Mutex;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 
 use crate::api::memory::read_l2_projection_backlog;
+use crate::api::state::ApiState;
 use crate::db;
 
-const HEARTBEAT_ROLE: &str = "ipc_worker";
-const HEARTBEAT_STALE_AFTER_MS: i64 = 15_000;
-const PENDING_COMMAND_WARNING_THRESHOLD: i64 = 100;
+const RUNTIME_READY_IPC_TIMEOUT_MS: u64 = 1_000;
 const MODEL_EXECUTION_WINDOW_SECS: f64 = 3600.0;
 
 /// Native GET /api/metrics/runtime/overview handler.
-pub async fn runtime_overview() -> Json<Value> {
-    let result = tokio::task::spawn_blocking(build_runtime_overview)
+pub async fn runtime_overview(State(state): State<ApiState>) -> Json<Value> {
+    let runtime_status = load_runtime_status(&state).await;
+    let result = tokio::task::spawn_blocking(move || build_runtime_overview(runtime_status))
         .await
         .unwrap_or_else(|_| empty_runtime_overview());
     Json(json!({
@@ -54,16 +54,44 @@ fn empty_runtime_overview() -> Value {
     json!({
         "captured_at_ms": now_ms(),
         "system": { "cpu_percent": 0.0, "memory_percent": 0.0, "memory_used_gb": 0.0, "memory_total_gb": 0.0 },
-        "runtime": { "status": "offline", "runtime_ready": false, "runtime_status": "offline", "runtime_heartbeat_age_ms": null, "queue_backlog_healthy": null, "pending_commands": null },
+        "runtime": { "status": "offline", "runtime_ready": false, "runtime_status": "offline", "queue_backlog_healthy": null, "pending_commands": null },
         "model_execution": { "avg_ttft_ms": null, "ttft_available": false, "core_model_success_rate": null, "core_model_success_rate_available": false, "intent_success_rate": null, "intent_success_rate_available": false },
         "memory": empty_memory_section(),
         "scheduler": empty_scheduler_section(),
     })
 }
 
-fn build_runtime_overview() -> Value {
+async fn load_runtime_status(state: &ApiState) -> Value {
+    let timeout = Duration::from_millis(RUNTIME_READY_IPC_TIMEOUT_MS);
+    match state
+        .ipc_client
+        .request_with_timeout("runtime.ready", None, timeout)
+        .await
+    {
+        Ok(value) => runtime_status_from_ready_payload(value),
+        Err(_) => json!({
+            "status": "degraded",
+            "runtime_ready": false,
+            "runtime_status": "unresponsive",
+            "queue_backlog_healthy": null,
+            "pending_commands": null,
+        }),
+    }
+}
+
+fn runtime_status_from_ready_payload(value: Value) -> Value {
+    let data = value.get("data").unwrap_or(&Value::Null);
+    json!({
+        "status": data.get("status").cloned().unwrap_or_else(|| Value::String("degraded".into())),
+        "runtime_ready": data.get("runtime_ready").cloned().unwrap_or(Value::Bool(false)),
+        "runtime_status": data.get("runtime_status").cloned().unwrap_or_else(|| Value::String("offline".into())),
+        "queue_backlog_healthy": data.get("queue_backlog_healthy").cloned().unwrap_or(Value::Null),
+        "pending_commands": data.get("pending_commands").cloned().unwrap_or(Value::Null),
+    })
+}
+
+fn build_runtime_overview(runtime_status: Value) -> Value {
     let system_metrics = build_system_metrics();
-    let runtime = build_runtime_status();
     let model_execution = build_model_execution();
     let memory = build_memory_section();
     let scheduler = build_scheduler_section();
@@ -71,7 +99,7 @@ fn build_runtime_overview() -> Value {
     json!({
         "captured_at_ms": now_ms(),
         "system": system_metrics,
-        "runtime": runtime,
+        "runtime": runtime_status,
         "model_execution": model_execution,
         "memory": memory,
         "scheduler": scheduler,
@@ -148,77 +176,6 @@ impl SysMetricsCache {
             "memory_total_gb": (total_mem / gb * 100.0).round() / 100.0,
         })
     }
-}
-
-fn build_runtime_status() -> Value {
-    let db_path = db::runtime_trace_db_path();
-    if !db_path.exists() {
-        return json!({
-            "status": "offline", "runtime_ready": false, "runtime_status": "offline",
-            "runtime_heartbeat_age_ms": null, "queue_backlog_healthy": null, "pending_commands": null,
-        });
-    }
-
-    let conn = match db::open_readonly(&db_path) {
-        Some(c) => c,
-        None => {
-            return json!({
-                "status": "offline", "runtime_ready": false, "runtime_status": "offline",
-                "runtime_heartbeat_age_ms": null, "queue_backlog_healthy": null, "pending_commands": null,
-            });
-        }
-    };
-
-    let heartbeat = conn.query_row(
-        "SELECT status, last_seen_at_ms, queue_backlog FROM runtime_heartbeats WHERE role = ?1",
-        [HEARTBEAT_ROLE],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-            ))
-        },
-    );
-
-    let (runtime_ready, runtime_status, heartbeat_age_ms, queue_backlog) = match heartbeat {
-        Ok((status, last_seen_at_ms, backlog)) => {
-            let age_ms = (now_ms() - last_seen_at_ms).max(0);
-            if age_ms > HEARTBEAT_STALE_AFTER_MS {
-                (false, "stale".to_string(), Some(age_ms), Some(backlog))
-            } else {
-                let ready = status == "ready";
-                (ready, status, Some(age_ms), Some(backlog))
-            }
-        }
-        Err(_) => (false, "offline".to_string(), None, None),
-    };
-
-    // `pending_commands` exposes the worker's command-queue depth (sourced from
-    // runtime_heartbeats.queue_backlog). The previous query against
-    // `runtime_notifications.consumed_at` was a no-op — that column has never
-    // existed in the schema, so the row-fetch silently errored and the metric
-    // was always null. Reuse the heartbeat-reported backlog instead.
-    let pending_commands = queue_backlog;
-
-    let queue_backlog_healthy = queue_backlog.map(|b| b <= PENDING_COMMAND_WARNING_THRESHOLD);
-
-    let status = if runtime_ready && queue_backlog_healthy.unwrap_or(true) {
-        "ready"
-    } else if runtime_ready {
-        "degraded"
-    } else {
-        &runtime_status
-    };
-
-    json!({
-        "status": status,
-        "runtime_ready": runtime_ready,
-        "runtime_status": runtime_status,
-        "runtime_heartbeat_age_ms": heartbeat_age_ms,
-        "queue_backlog_healthy": queue_backlog_healthy,
-        "pending_commands": pending_commands,
-    })
 }
 
 fn build_model_execution() -> Value {

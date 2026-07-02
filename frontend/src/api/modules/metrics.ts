@@ -75,7 +75,6 @@ export interface RuntimeOverviewStatus {
   status: string;
   runtime_ready: boolean;
   runtime_status: string;
-  runtime_heartbeat_age_ms?: number | null;
   queue_backlog_healthy?: boolean | null;
   pending_commands?: number | null;
 }

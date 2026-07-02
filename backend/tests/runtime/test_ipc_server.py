@@ -94,9 +94,8 @@ async def test_ipc_server_accepts_large_request_lines() -> None:
 async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
     app = FastAPI()
 
-    async def fake_runtime_status(received_app, *, trust_local_worker=False):
+    async def fake_runtime_status(received_app):
         assert received_app is app
-        assert trust_local_worker is True
         return {
             "runtime_ready": True,
             "worker_ready": True,
@@ -107,6 +106,7 @@ async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
             "runtime_status": "ready",
             "startup_state": "ready",
             "deferred_reason": None,
+            "pending_commands": 0,
         }
 
     monkeypatch.setattr(handlers, "get_runtime_system_status", fake_runtime_status, raising=False)
@@ -138,6 +138,8 @@ async def test_ipc_runtime_ready_round_trip(monkeypatch) -> None:
                 "runtime_status": "ready",
                 "startup_state": "ready",
                 "deferred_reason": None,
+                "queue_backlog_healthy": True,
+                "pending_commands": 0,
             }
 
             writer.close()

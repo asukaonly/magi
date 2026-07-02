@@ -117,7 +117,7 @@ def _build_runtime_trace_module(context: RuntimeBootstrapContext) -> LifecycleMo
         store = RuntimeTraceStore(db_path=str(runtime_paths.runtime_trace_db_path))
         await store.initialize()
         context.runtime_trace.store = store
-        # Eagerly register DI binding so heartbeat and other infra consumers
+        # Eagerly register DI binding so readiness and other infra consumers
         # work even when later modules (e.g. LLM) defer initialization.
         get_container().runtime_trace_store.override(di_providers.Object(store))
 

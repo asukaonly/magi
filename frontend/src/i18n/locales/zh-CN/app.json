@@ -2134,7 +2134,7 @@
           "degraded": "状态降级",
           "starting": "启动中",
           "offline": "离线",
-          "stale": "心跳过期"
+          "stale": "状态过期"
         },
         "bottlenecks": {
           "cpu": "CPU 压力偏高",
@@ -2159,12 +2159,12 @@
         },
         "health": {
           "queueStatus": "队列状态",
-          "heartbeat": "心跳年龄",
+          "workerStatus": "运行进程状态",
           "good": "健康",
           "needsAttention": "需要关注",
           "queueHealthy": "当前队列压力可控，系统整体运行比较平稳。",
           "queueBacklog": "队列压力正在上升，建议优先关注堆积变化。",
-          "runtimeOffline": "运行时可用性下降，或仍在等待 worker 心跳。",
+          "runtimeOffline": "运行时可用性下降，或 worker 暂时无响应。",
           "successDrift": "核心模型成功率已经低于健康区间。"
         },
         "summary": {
@@ -3773,7 +3773,7 @@
       "degradedStarting": "后端正在继续启动，若持续一段时间仍未恢复，请稍后检查运行时状态。",
       "degradedDeferredSelectionPending": "后端已运行，但 AI 运行时还未完成配置。请补全 core 或 context_decider 的模型设置。",
       "degradedDeferredInvalid": "后端已运行，但当前 AI 运行时配置无效。请检查启用的 provider 和 model。",
-      "degradedHeartbeatStale": "后端心跳已过期，运行时状态可能不同步。",
+      "degradedRuntimeOutOfSync": "后端运行状态暂时不同步，正在等待恢复。",
       "degradedRuntimeUnresponsive": "后端主循环暂时无响应，运行状态正在恢复。",
       "degradedLlmNotReady": "后端已运行，但 LLM 运行时尚未就绪。",
       "degradedAgentRuntimeNotReady": "后端已运行，但 agent runtime 尚未完成初始化。",

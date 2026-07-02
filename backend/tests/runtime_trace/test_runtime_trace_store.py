@@ -316,74 +316,15 @@ async def test_runtime_trace_store_preserves_latest_run_revision(tmp_path: Path)
 
 
 @pytest.mark.asyncio
-async def test_runtime_trace_store_persists_runtime_heartbeat(tmp_path: Path) -> None:
-    from magi.runtime_trace import RuntimeHeartbeatRecord, RuntimeTraceStore
+async def test_runtime_trace_store_does_not_create_runtime_heartbeats_table(tmp_path: Path) -> None:
+    from magi.runtime_trace import RuntimeTraceStore
 
     db_path = tmp_path / "runtime_trace.db"
     store = RuntimeTraceStore(db_path=str(db_path))
     await store.initialize()
 
     try:
-        await store.upsert_runtime_heartbeat(
-            RuntimeHeartbeatRecord(
-                role="runtime_worker",
-                instance_id="worker-1",
-                pid=1234,
-                started_at_ms=100,
-                last_seen_at_ms=200,
-                status="ready",
-                queue_backlog=3,
-                active_turns=1,
-                active_workers=2,
-            )
-        )
-
-        heartbeat = await store.get_runtime_heartbeat(role="runtime_worker")
-        assert heartbeat is not None
-        assert heartbeat.role == "runtime_worker"
-        assert heartbeat.instance_id == "worker-1"
-        assert heartbeat.status == "ready"
-        assert heartbeat.queue_backlog == 3
-    finally:
-        await store.shutdown()
-
-
-@pytest.mark.asyncio
-async def test_runtime_trace_store_retries_transient_locked_heartbeat_write(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from magi.runtime_trace import RuntimeHeartbeatRecord, RuntimeTraceStore
-    from magi.runtime_trace import store as store_module
-
-    db_path = tmp_path / "runtime_trace.db"
-    store = RuntimeTraceStore(db_path=str(db_path))
-    await store.initialize()
-    retry_state = _patch_one_locked_hot_write(
-        monkeypatch,
-        target_sql="INSERT INTO runtime_heartbeats",
-    )
-
-    try:
-        await store.upsert_runtime_heartbeat(
-            RuntimeHeartbeatRecord(
-                role="runtime_worker",
-                instance_id="worker-1",
-                pid=1234,
-                started_at_ms=100,
-                last_seen_at_ms=200,
-                status="ready",
-                queue_backlog=2,
-                active_turns=1,
-                active_workers=1,
-            )
-        )
-
-        heartbeat = await store.get_runtime_heartbeat(role="runtime_worker")
-        assert heartbeat is not None
-        assert heartbeat.instance_id == "worker-1"
-        assert retry_state["failures"] == 1
-        assert retry_state["sleep_delays"] == [store_module._SQLITE_LOCK_RETRY_DELAYS_SECONDS[0]]
+        assert "runtime_heartbeats" not in _list_tables(db_path)
     finally:
         await store.shutdown()
 

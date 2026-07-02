@@ -15,33 +15,26 @@ from pathlib import Path
 import signal
 import sys
 import time
-import uuid
 from typing import Any
 
 from fastapi import FastAPI
 
 from ..core.container import get_container, wire_container
 from ..core.logger import configure_logging, get_logger
-from ..core.runtime_bindings import require_runtime_command_queue
-from ..runtime_trace import RuntimeHeartbeatRecord
-from ..runtime_trace.provider import resolve_runtime_trace_store
 from ..utils.runtime import get_runtime_paths
 from .backend import initialize_agent_runtime, shutdown_agent_runtime
 from .runtime_startup_state import get_runtime_startup_snapshot
 
 logger = get_logger(__name__, category="WORKER")
 
-DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS = 2.0
+DEFAULT_RUNTIME_MONITOR_INTERVAL_SECONDS = 2.0
 DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS = 5.0
-RUNTIME_HEARTBEAT_ROLE = "ipc_worker"
 
 
 @dataclass(slots=True)
-class RuntimeHeartbeatHandle:
-    """Runtime heartbeat task state owned by the IPC worker."""
+class RuntimeMonitorHandle:
+    """Runtime monitor task state owned by the IPC worker."""
 
-    instance_id: str
-    started_at_ms: int
     stop_event: asyncio.Event
     task: asyncio.Task[None]
     startup_state: str
@@ -73,15 +66,15 @@ async def _run_worker() -> None:
 
     app = await _initialize_worker_transport_app()
     ipc_server = await _start_ipc_server(app)
-    heartbeat = await _start_runtime_heartbeat()
+    runtime_monitor = _start_runtime_monitor()
     health_file = _write_worker_ready_file(runtime_paths)
-    _log_worker_ready(worker_t0, heartbeat.startup_state)
+    _log_worker_ready(worker_t0, runtime_monitor.startup_state)
 
     shutdown_event = _install_shutdown_signal_handlers()
     await shutdown_event.wait()
     await _shutdown_worker(
         ipc_server=ipc_server,
-        heartbeat=heartbeat,
+        runtime_monitor=runtime_monitor,
         health_file=health_file,
     )
 
@@ -119,30 +112,17 @@ async def _start_ipc_server(app: FastAPI) -> Any | None:
     return ipc_server
 
 
-async def _start_runtime_heartbeat() -> RuntimeHeartbeatHandle:
-    instance_id = uuid.uuid4().hex
-    started_at_ms = int(time.time() * 1000)
-    heartbeat_stop = asyncio.Event()
+def _start_runtime_monitor() -> RuntimeMonitorHandle:
+    monitor_stop = asyncio.Event()
     startup_snapshot = get_runtime_startup_snapshot()
-
-    await _publish_runtime_heartbeat(
-        instance_id=instance_id,
-        started_at_ms=started_at_ms,
-        status=startup_snapshot.startup_state,
-        last_error=startup_snapshot.reason or startup_snapshot.detail,
-    )
-    heartbeat_task = asyncio.create_task(
-        _heartbeat_loop(
-            stop_event=heartbeat_stop,
-            instance_id=instance_id,
-            started_at_ms=started_at_ms,
+    monitor_task = asyncio.create_task(
+        _event_loop_monitor_loop(
+            stop_event=monitor_stop,
         )
     )
-    return RuntimeHeartbeatHandle(
-        instance_id=instance_id,
-        started_at_ms=started_at_ms,
-        stop_event=heartbeat_stop,
-        task=heartbeat_task,
+    return RuntimeMonitorHandle(
+        stop_event=monitor_stop,
+        task=monitor_task,
         startup_state=startup_snapshot.startup_state,
     )
 
@@ -187,20 +167,13 @@ def _install_shutdown_signal_handlers() -> asyncio.Event:
 async def _shutdown_worker(
     *,
     ipc_server: Any | None,
-    heartbeat: RuntimeHeartbeatHandle,
+    runtime_monitor: RuntimeMonitorHandle,
     health_file: Path,
 ) -> None:
     logger.info("IPC worker shutting down")
 
     await _begin_runtime_drain(timeout_seconds=DEFAULT_RUNTIME_DRAIN_TIMEOUT_SECONDS)
-    shutdown_snapshot = get_runtime_startup_snapshot()
-    await _publish_runtime_heartbeat(
-        instance_id=heartbeat.instance_id,
-        started_at_ms=heartbeat.started_at_ms,
-        status=shutdown_snapshot.startup_state,
-        last_error=shutdown_snapshot.reason or shutdown_snapshot.detail,
-    )
-    await _stop_runtime_heartbeat(heartbeat)
+    await _stop_runtime_monitor(runtime_monitor)
 
     if ipc_server is not None:
         await ipc_server.stop()
@@ -215,11 +188,11 @@ async def _shutdown_worker(
     logger.info("IPC worker stopped")
 
 
-async def _stop_runtime_heartbeat(heartbeat: RuntimeHeartbeatHandle) -> None:
-    heartbeat.stop_event.set()
-    heartbeat.task.cancel()
+async def _stop_runtime_monitor(runtime_monitor: RuntimeMonitorHandle) -> None:
+    runtime_monitor.stop_event.set()
+    runtime_monitor.task.cancel()
     try:
-        await heartbeat.task
+        await runtime_monitor.task
     except asyncio.CancelledError:
         pass
 
@@ -229,12 +202,10 @@ def main() -> None:
     asyncio.run(_run_worker())
 
 
-async def _heartbeat_loop(
+async def _event_loop_monitor_loop(
     *,
     stop_event: asyncio.Event,
-    instance_id: str,
-    started_at_ms: int,
-    interval_seconds: float = DEFAULT_RUNTIME_HEARTBEAT_INTERVAL_SECONDS,
+    interval_seconds: float = DEFAULT_RUNTIME_MONITOR_INTERVAL_SECONDS,
 ) -> None:
     previous_tick_started: float | None = None
     while not stop_event.is_set():
@@ -243,71 +214,15 @@ async def _heartbeat_loop(
             tick_delay = tick_started - previous_tick_started
             if tick_delay > max(interval_seconds * 2, 5.0):
                 logger.warning(
-                    "Runtime heartbeat loop delayed",
-                    instance_id=instance_id,
+                    "Runtime event loop delayed",
                     interval_ms=round(interval_seconds * 1000, 1),
                     delay_ms=round(tick_delay * 1000, 1),
                 )
         previous_tick_started = tick_started
-        snapshot = get_runtime_startup_snapshot()
-        publish_started = time.monotonic()
-        await _publish_runtime_heartbeat(
-            instance_id=instance_id,
-            started_at_ms=started_at_ms,
-            status=snapshot.startup_state,
-            last_error=snapshot.reason or snapshot.detail,
-        )
-        publish_elapsed = time.monotonic() - publish_started
-        if publish_elapsed > max(interval_seconds * 2, 5.0):
-            logger.warning(
-                "Runtime heartbeat publish slow",
-                instance_id=instance_id,
-                elapsed_ms=round(publish_elapsed * 1000, 1),
-                status=snapshot.startup_state,
-            )
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:
             continue
-
-
-async def _publish_runtime_heartbeat(
-    *,
-    instance_id: str,
-    started_at_ms: int,
-    status: str,
-    last_error: str | None = None,
-) -> None:
-    try:
-        store = resolve_runtime_trace_store()
-        queue_backlog = await _load_pending_command_count()
-        await store.upsert_runtime_heartbeat(
-            RuntimeHeartbeatRecord(
-                role=RUNTIME_HEARTBEAT_ROLE,
-                instance_id=instance_id,
-                pid=os.getpid(),
-                started_at_ms=started_at_ms,
-                last_seen_at_ms=int(time.time() * 1000),
-                status=status,
-                queue_backlog=queue_backlog,
-                active_turns=0,
-                active_workers=0,
-                last_error=last_error,
-            )
-        )
-    except Exception as exc:
-        if not getattr(_publish_runtime_heartbeat, "_warned", False):
-            logger.warning("Failed to publish runtime heartbeat", error=str(exc))
-            _publish_runtime_heartbeat._warned = True
-
-
-async def _load_pending_command_count() -> int:
-    try:
-        queue = require_runtime_command_queue()
-        stats = await queue.get_stats()
-    except Exception:
-        return 0
-    return int(stats.get("pending_count", 0) or 0)
 
 
 async def _begin_runtime_drain(*, timeout_seconds: float) -> None:

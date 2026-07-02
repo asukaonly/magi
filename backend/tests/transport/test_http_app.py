@@ -72,7 +72,6 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
             "startup_state": "ready",
             "deferred_reason": None,
             "startup_detail": None,
-            "runtime_heartbeat_age_ms": 1200,
             "pending_commands": 4,
         }
 
@@ -98,7 +97,6 @@ def test_transport_app_exposes_runtime_health_details(monkeypatch) -> None:
         "deferred_reason": None,
         "startup_detail": None,
         "queue_backlog_healthy": True,
-        "runtime_heartbeat_age_ms": 1200,
         "pending_commands": 4,
     }
 

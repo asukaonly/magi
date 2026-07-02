@@ -58,4 +58,20 @@ describe('BackendHealthBanner', () => {
 
     expect(screen.getByText('desktop.health.degradedRuntimeUnresponsive')).toBeInTheDocument();
   });
+
+  it('renders a generic out-of-sync message for stale runtime status', () => {
+    useBackendHealthStore.setState({
+      status: 'degraded',
+      runtimeStatus: 'stale',
+      startupState: 'stale',
+      deferredReason: null,
+      llmReady: null,
+      agentRuntimeReady: null,
+      lastCheckedAt: Date.now(),
+    });
+
+    render(<BackendHealthBanner />);
+
+    expect(screen.getByText('desktop.health.degradedRuntimeOutOfSync')).toBeInTheDocument();
+  });
 });

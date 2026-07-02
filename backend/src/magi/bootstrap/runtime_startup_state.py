@@ -1,4 +1,4 @@
-"""Process-local runtime startup state shared by readiness and heartbeat flows."""
+"""Process-local runtime startup state shared by readiness flows."""
 
 from __future__ import annotations
 

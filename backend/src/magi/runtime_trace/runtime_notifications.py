@@ -1,4 +1,4 @@
-"""Runtime notification (and heartbeat) persistence."""
+"""Runtime notification persistence."""
 
 from __future__ import annotations
 
@@ -7,19 +7,14 @@ from typing import Any, Awaitable, Callable, TypeVar
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .contracts import RuntimeHeartbeatRecord, RuntimeNotificationRecord
+from .contracts import RuntimeNotificationRecord
 
 T = TypeVar("T")
 
 
 class RuntimeNotificationPersistenceMixin:
     """Persist runtime_notifications rows (the primary IPC bus to the Rust
-    notification bridge) and the related runtime_heartbeats row that the
-    bridge / metrics endpoints inspect for worker liveness.
-
-    Notifications dominate (append, list, latest-id); heartbeat upsert and
-    read live alongside because they share the same underlying connection
-    and hot-write profile.
+    notification bridge).
     """
 
     db_path: str
@@ -124,62 +119,3 @@ class RuntimeNotificationPersistenceMixin:
         if row is None:
             return 0
         return int(row["notification_id"] or 0)
-
-    async def upsert_runtime_heartbeat(self, record: RuntimeHeartbeatRecord) -> None:
-        await self.initialize()
-        await self._execute_hot_write(
-            operation="upsert_runtime_heartbeat",
-            write=lambda db: self._write_runtime_heartbeat(db, record),
-        )
-
-    async def _write_runtime_heartbeat(
-        self,
-        db: aiosqlite.Connection,
-        record: RuntimeHeartbeatRecord,
-    ) -> None:
-        await db.execute(
-            """
-            INSERT INTO runtime_heartbeats (
-                role,
-                instance_id,
-                pid,
-                started_at_ms,
-                last_seen_at_ms,
-                status,
-                queue_backlog,
-                active_turns,
-                active_workers,
-                last_error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(role) DO UPDATE SET
-                instance_id = excluded.instance_id,
-                pid = excluded.pid,
-                started_at_ms = excluded.started_at_ms,
-                last_seen_at_ms = excluded.last_seen_at_ms,
-                status = excluded.status,
-                queue_backlog = excluded.queue_backlog,
-                active_turns = excluded.active_turns,
-                active_workers = excluded.active_workers,
-                last_error = excluded.last_error
-            """,
-            (
-                record.role,
-                record.instance_id,
-                int(record.pid),
-                int(record.started_at_ms),
-                int(record.last_seen_at_ms or self._now_ms()),
-                record.status,
-                int(record.queue_backlog),
-                int(record.active_turns),
-                int(record.active_workers),
-                record.last_error,
-            ),
-        )
-
-    async def get_runtime_heartbeat(self, *, role: str) -> RuntimeHeartbeatRecord | None:
-        await self.initialize()
-        row = await self._fetchone(
-            "SELECT * FROM runtime_heartbeats WHERE role = ?",
-            (role,),
-        )
-        return self._row_to_record(RuntimeHeartbeatRecord, row)

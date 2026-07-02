@@ -117,20 +117,6 @@ class RuntimeNotificationRecord:
 
 
 @dataclass(slots=True)
-class RuntimeHeartbeatRecord:
-    role: str
-    instance_id: str
-    pid: int
-    started_at_ms: int
-    last_seen_at_ms: int
-    status: str
-    queue_backlog: int = 0
-    active_turns: int = 0
-    active_workers: int = 0
-    last_error: str | None = None
-
-
-@dataclass(slots=True)
 class PluginIngressEventRecord:
     event_id: int
     source_kind: str

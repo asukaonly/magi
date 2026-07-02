@@ -119,7 +119,7 @@ When `LLMRuntimeModule` cannot initialize, startup enters a deliberate deferred 
 In this mode:
 
 - already-started infrastructure modules stay alive
-- the worker heartbeat reports `startup_state=deferred`
+- the worker readiness snapshot reports `startup_state=deferred`
 - `/api/ready` and `/api/health` report degraded startup state instead of pretending the full runtime is ready
 - lightweight configuration and skills flows remain available
 - bootstrap opening generation must fall back to static persona config until `scenario_llm_pool` becomes available
@@ -142,13 +142,13 @@ The runtime now exposes two layers of state:
 - worker liveness
   Gateway `/api/ready` asks the IPC worker over the local worker channel with a
   short timeout. When the worker itself answers, liveness is derived from the
-  process-local startup snapshot rather than from the persisted heartbeat. If
-  the worker channel does not answer in time, the gateway reports
-  `runtime_status=unresponsive`.
+  process-local startup snapshot. If the worker channel does not answer in
+  time, the gateway reports `runtime_status=unresponsive`.
 
-- persisted heartbeat
-  Written by the IPC worker into `runtime_trace.db` for diagnostics and
-  non-local readers. It is no longer the sole proof that the worker is live.
+- event-loop delay diagnostics
+  The IPC worker keeps a lightweight monitor that logs when the runtime event
+  loop is delayed. It does not write runtime readiness rows into
+  `runtime_trace.db`; persisted trace data is kept for execution observability.
 
 - full runtime readiness
   Derived from worker liveness plus critical bindings such as `scenario_llm_pool` and `agent_runtime`

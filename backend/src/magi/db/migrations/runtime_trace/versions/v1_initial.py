@@ -115,19 +115,6 @@ CREATE TABLE IF NOT EXISTS runtime_notifications (
     created_at_ms INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS runtime_heartbeats (
-    role TEXT PRIMARY KEY,
-    instance_id TEXT NOT NULL,
-    pid INTEGER NOT NULL,
-    started_at_ms INTEGER NOT NULL,
-    last_seen_at_ms INTEGER NOT NULL,
-    status TEXT NOT NULL,
-    queue_backlog INTEGER NOT NULL DEFAULT 0,
-    active_turns INTEGER NOT NULL DEFAULT 0,
-    active_workers INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT
-);
-
 CREATE TABLE IF NOT EXISTS plugin_ingress_events (
     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_kind TEXT NOT NULL,
@@ -231,8 +218,6 @@ DROP INDEX IF EXISTS idx_trace_turns_session_turn;
 DROP TABLE IF EXISTS user_notifications;
 
 DROP TABLE IF EXISTS plugin_ingress_events;
-
-DROP TABLE IF EXISTS runtime_heartbeats;
 
 DROP TABLE IF EXISTS runtime_notifications;
 
