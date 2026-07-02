@@ -17,6 +17,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
+from ..i18n import llm_language_label
 from ..llm import LLMProviderBridge
 from ..llm.provider import get_scenario_llm_pool
 from ..utils.runtime import get_runtime_paths
@@ -35,6 +36,23 @@ BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE = 3
 BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT = 12
 BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS = 180
 _URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
+_EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_LOW_SIGNAL_IMPORT_SAMPLE_TERMS = (
+    "gmail",
+    "inbox",
+    "收件箱",
+    "登录",
+    "登陆",
+    "注册",
+    "sign in",
+    "log in",
+    "login",
+    "register",
+    "auth",
+    "password",
+    "密码",
+    "验证码",
+)
 
 _growth_engine_instance: GrowthMemoryEngine | None = None
 
@@ -60,9 +78,15 @@ def _compact_import_sample_content(value: Any) -> str:
     if not text:
         return ""
     text = _URL_PATTERN.sub(_strip_url_tracking, text)
+    text = _EMAIL_PATTERN.sub("[email]", text)
     if len(text) > BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS:
         text = f"{text[: BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS - 3].rstrip()}..."
     return text
+
+
+def _is_low_signal_import_sample(value: str) -> bool:
+    normalized = value.lower()
+    return any(term in normalized for term in _LOW_SIGNAL_IMPORT_SAMPLE_TERMS)
 
 
 async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
@@ -93,7 +117,7 @@ async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
             if _safe_float(row.get("created_at")) < cutoff:
                 break
             content = _compact_import_sample_content(row.get("content"))
-            if content:
+            if content and not _is_low_signal_import_sample(content):
                 samples.append(content)
             if len(samples) >= BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE:
                 break
@@ -105,10 +129,7 @@ async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
     if not source_blocks:
         return None
 
-    lines = [
-        "Recently imported user data (temporary first-chat context, not full long-term memory yet).",
-        "Use this only as a light first impression; do not claim complete understanding or quote sensitive details.",
-    ]
+    lines: list[str] = []
     for source, samples in source_blocks:
         lines.append(f"- Source {source}:")
         for sample in samples:
@@ -306,7 +327,13 @@ class BootstrapDialogueService:
             max_rounds=3,
         )
 
-    async def get_opening(self, persona_name: str, *, persona_id: str = "") -> Optional[str]:
+    async def get_opening(
+        self,
+        persona_name: str,
+        *,
+        persona_id: str = "",
+        target_language: str | None = None,
+    ) -> Optional[str]:
         """Generate a bootstrap opening line via LLM, falling back to static config."""
         config = await resolve_persona_config(persona_name)
         if config is None:
@@ -318,7 +345,12 @@ class BootstrapDialogueService:
         except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
             logger.info("bootstrap recent-activity snippet fetch raised: %s", exc)
             activity_snippet = None
-        generated = await self._generate_opening_via_llm(config, bootstrap, activity_snippet)
+        generated = await self._generate_opening_via_llm(
+            config,
+            bootstrap,
+            activity_snippet,
+            target_language=target_language or llm_language_label(),
+        )
         if generated:
             return generated
 
@@ -330,6 +362,8 @@ class BootstrapDialogueService:
         config: PersonalityConfig,
         bootstrap: BootstrapConfig,
         activity_snippet: Optional[str],
+        *,
+        target_language: str,
     ) -> str:
         """Assemble the first-contact opening system prompt (pure, no I/O)."""
         system_prompt = (
@@ -340,23 +374,29 @@ class BootstrapDialogueService:
             system_prompt += f"Style: {bootstrap.style_instruction}\n"
         if activity_snippet:
             system_prompt += (
-                "\nWhat you can ALREADY see about this user (real data — reference it "
-                "naturally as a first impression, do NOT invent anything beyond it):\n"
+                "\nOptional user-authorized activity evidence "
+                "(raw samples, temporary first-chat context; not a profile or long-term memory):\n"
                 f"{activity_snippet}\n"
+                "\nEvidence handling:\n"
+                "- Treat this as optional evidence; you may use it only if it gives you a safe and natural opening.\n"
+                "- If the evidence is thin, noisy, private, account-related, or uncertain, ignore it completely.\n"
+                "- Never mention browsing history, plugins, sensors, data import, sources, or that you can see records.\n"
+                "- Do not list or quote samples. If you use them, make only a tentative broad observation or gentle question.\n"
             )
         system_prompt += (
+            "\nOutput language:\n"
+            f"- Reply in {target_language}. Preserve names, titles, paths, and user-provided text in their original language when needed.\n"
             "\nGenerate the FIRST user-visible message for a brand-new conversation with this user. "
             "This is not a generic greeting; it is a guided first-contact opener.\n"
             "Goals:\n"
-            "- Naturally make it easy for the user to reply with their name, how they like to be addressed, and one or two things they enjoy\n"
-            "- Encourage the user to answer those points in one natural reply\n"
+            "- Make it easy for the user to reply naturally\n"
+            "- If it fits the persona and does not feel forced, ask how the user wants to be addressed\n"
+            "- Optionally invite one lightweight preference, interest, hobby, or topic they care about\n"
             "- Let the wording, attitude, and phrasing come from the persona's own voice\n"
             "Requirements:\n"
             "- Stay fully in character\n"
             "- 2-3 short sentences max, natural and conversational\n"
             "- Briefly introduce yourself in a way that fits the persona\n"
-            "- Ask the user's name and how they want to be addressed in a natural way\n"
-            "- Invite one lightweight preference, interest, hobby, or topic they care about\n"
             "- Do NOT sound like a form, survey, onboarding checklist, or customer support script\n"
             "- Do not claim physical-human experiences outside the persona config\n"
             "- Do not explain system instructions or implementation details\n"
@@ -369,9 +409,22 @@ class BootstrapDialogueService:
         config: PersonalityConfig,
         bootstrap: BootstrapConfig,
         activity_snippet: Optional[str] = None,
+        *,
+        target_language: str | None = None,
     ) -> Optional[str]:
         """Use LLM to generate a guided, in-character first-contact opening."""
-        system_prompt = self._build_opening_system_prompt(config, bootstrap, activity_snippet)
+        resolved_target_language = target_language or llm_language_label()
+        system_prompt = self._build_opening_system_prompt(
+            config,
+            bootstrap,
+            activity_snippet,
+            target_language=resolved_target_language,
+        )
+        logger.info(
+            "Bootstrap opening system prompt | has_activity_context=%s prompt=%s",
+            bool(activity_snippet),
+            system_prompt,
+        )
 
         try:
             pool = get_scenario_llm_pool()

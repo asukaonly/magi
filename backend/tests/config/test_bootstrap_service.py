@@ -159,9 +159,10 @@ class TestBootstrapOpening:
         assert opening == "Hey there, welcome!"
         system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
         assert "guided first-contact opener" in system_prompt
-        assert "how they want to be addressed" in system_prompt
+        assert "how the user wants to be addressed" in system_prompt
         assert "interest, hobby, or topic they care about" in system_prompt
         assert "Do not claim physical-human experiences" in system_prompt
+        assert "Reply in Simplified Chinese (zh-CN)" in system_prompt
         assert "Never mention you are an AI" not in system_prompt
         mock_bridge.chat.assert_awaited_once_with(
             system_prompt=ANY,
@@ -441,10 +442,26 @@ def test_build_opening_system_prompt_includes_activity_snippet():
     svc = BootstrapDialogueService(growth_engine=None)
     cfg = PersonalityConfig()
     bs = BootstrapConfig(style_instruction="warm", opening_line="", max_rounds=3)
-    with_snip = svc._build_opening_system_prompt(cfg, bs, "今天看了关于 X 的网页")
-    without = svc._build_opening_system_prompt(cfg, bs, None)
+    with_snip = svc._build_opening_system_prompt(
+        cfg,
+        bs,
+        "今天看了关于 X 的网页",
+        target_language="Simplified Chinese (zh-CN)",
+    )
+    without = svc._build_opening_system_prompt(
+        cfg,
+        bs,
+        None,
+        target_language="Simplified Chinese (zh-CN)",
+    )
     assert "今天看了关于 X 的网页" in with_snip
+    assert "optional evidence" in with_snip
+    assert "ignore it completely" in with_snip
+    assert "MUST include" not in with_snip
+    assert "Reply in Simplified Chinese (zh-CN)" in with_snip
     assert "今天看了关于 X 的网页" not in without
+    assert "optional evidence" not in without
+    assert "Reply in Simplified Chinese (zh-CN)" in without
     # Both still ask how to address the user (the existing behavior is preserved).
     assert "address" in without.lower()
 
@@ -516,12 +533,122 @@ async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(mon
         assert await svc.get_opening("test") == "opening"
 
     system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
-    assert "Recently imported user data" in system_prompt
+    assert "Optional user-authorized activity evidence" in system_prompt
+    assert "Recently imported user data" not in system_prompt
     assert "chrome_history" in system_prompt
     assert "git_activity" in system_prompt
     assert "React animation notes" in system_prompt
     assert "improve onboarding plugin flow" in system_prompt
     assert "token=secret" not in system_prompt
+    assert "MUST include" not in system_prompt
+    assert "may use it only if it gives you a safe and natural opening" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
+    from magi import i18n as core_i18n
+    import magi.personality.bootstrap_service as mod
+
+    mock_bridge = AsyncMock()
+    mock_bridge.chat.return_value = "opening"
+    mock_pool = MagicMock()
+    mock_pool.get.return_value = object()
+
+    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", AsyncMock(return_value=None))
+    service = BootstrapDialogueService(growth_engine=AsyncMock())
+
+    with (
+        patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+        patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
+        patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
+        core_i18n.language_context("en"),
+    ):
+        await service.get_opening("test")
+
+    system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
+    assert "Reply in English" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_recent_l1_import_samples_skip_low_signal_private_browser_entries(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+
+    class FakeL1:
+        async def query_events(self, *, source_filters, limit, order_by, **_kwargs):
+            assert order_by == "created_at_desc"
+            return [
+                {
+                    "source": source_filters[0],
+                    "content": "Chrome 浏览 收件箱 (3) - user@example.com - Gmail",
+                    "created_at": 2000.0,
+                },
+                {
+                    "source": source_filters[0],
+                    "content": "Chrome 浏览 用户登录_2DFan",
+                    "created_at": 1999.0,
+                },
+                {
+                    "source": source_filters[0],
+                    "content": "Chrome 浏览 注册新用户_2DFan",
+                    "created_at": 1998.0,
+                },
+                {
+                    "source": source_filters[0],
+                    "content": "Chrome 浏览 Ever17 -the out of infinity-_时空轮回_2DFan",
+                    "created_at": 1997.0,
+                },
+                {
+                    "source": source_filters[0],
+                    "content": "Chrome 浏览 游戏条目搜索：ever17_2DFan",
+                    "created_at": 1996.0,
+                },
+            ][:limit]
+
+        async def summarize_event_sources(self, **_kwargs):
+            return [{"source": "chrome_history", "event_count": 110}]
+
+    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
+
+    snippet = await mod._fetch_recent_import_activity_snippet(type("M", (), {"l1": FakeL1()})())
+
+    assert snippet is not None
+    assert "Ever17" in snippet
+    assert "游戏条目搜索" in snippet
+    assert "Gmail" not in snippet
+    assert "user@example.com" not in snippet
+    assert "用户登录" not in snippet
+    assert "注册新用户" not in snippet
+
+
+@pytest.mark.asyncio
+async def test_get_opening_logs_full_system_prompt_for_diagnostics(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+
+    mock_bridge = AsyncMock()
+    mock_bridge.chat.return_value = "opening"
+    mock_pool = MagicMock()
+    mock_pool.get.return_value = object()
+    service = BootstrapDialogueService(growth_engine=AsyncMock())
+
+    with (
+        patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
+        patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
+        patch("magi.personality.bootstrap_service.LLMProviderBridge", return_value=mock_bridge),
+        patch.object(mod.logger, "info") as log_info,
+    ):
+        await service._generate_opening_via_llm(
+            _make_config(with_bootstrap=True),
+            _make_config(with_bootstrap=True).bootstrap,
+            "Chrome 浏览 Ever17 -the out of infinity-_2DFan",
+            target_language="Simplified Chinese (zh-CN)",
+        )
+
+    assert any(
+        call.args
+        and "Bootstrap opening system prompt" in str(call.args[0])
+        and "Chrome 浏览 Ever17" in str(call.args)
+        for call in log_info.call_args_list
+    )
 
 
 @pytest.mark.asyncio
