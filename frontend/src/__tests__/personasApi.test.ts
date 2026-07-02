@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { personasApi, type PersonalityConfig } from '../api/modules/personas';
 
+vi.mock('@/runtime/config', () => ({
+  getRuntimeConfig: () => ({ apiBaseUrl: 'http://localhost/api' }),
+}));
+
 function makeGeneratedConfig(): PersonalityConfig {
   return {
     name: 'Soryu',
@@ -78,5 +82,15 @@ describe('personasApi generation jobs', () => {
       success: true,
       data: { name: 'Soryu' },
     });
+  });
+});
+
+describe('personasApi avatar URLs', () => {
+  it('does not turn generated avatar text into a broken static image URL', () => {
+    expect(personasApi.getAvatarUrl('惣流·明日香·兰格雷')).toBe('');
+  });
+
+  it('resolves image filenames to the built-in static avatar directory', () => {
+    expect(personasApi.getAvatarUrl('echo.png')).toBe('http://localhost/static/avatars/echo.png');
   });
 });

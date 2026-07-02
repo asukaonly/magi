@@ -155,6 +155,7 @@ const GENERATION_JOB_POLL_MS = 1000;
 const GENERATION_JOB_TIMEOUT_MS = 600000;
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+const AVATAR_IMAGE_FILENAME_RE = /\.(?:avif|gif|jpe?g|png|svg|webp)$/i;
 
 // ---------------------------------------------------------------------------
 // Personality config defaults
@@ -358,13 +359,15 @@ export const personasApi = {
 
   /** Resolve an avatar value to a full URL. */
   getAvatarUrl: (avatar?: string): string => {
-    if (!avatar) return '';
-    if (avatar.startsWith('http://') || avatar.startsWith('https://') || avatar.startsWith('data:')) {
-      return avatar;
+    const value = (avatar || '').trim();
+    if (!value) return '';
+    if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:image/')) {
+      return value;
     }
     const origin = getRuntimeConfig().apiBaseUrl.replace(/\/api$/, '');
-    if (avatar.startsWith('/')) return `${origin}${avatar}`;
-    return `${origin}/static/avatars/${encodeURIComponent(avatar)}`;
+    if (value.startsWith('/')) return `${origin}${value}`;
+    if (!AVATAR_IMAGE_FILENAME_RE.test(value)) return '';
+    return `${origin}/static/avatars/${encodeURIComponent(value)}`;
   },
 
   /** Upload an avatar image. */

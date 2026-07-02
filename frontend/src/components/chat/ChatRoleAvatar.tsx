@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { getRuntimeConfig } from '@/runtime/config';
 import { cn } from '@/lib/utils';
@@ -30,12 +31,22 @@ const resolveAvatarSrc = (assistantAvatar: string): string => {
   return assistantAvatar;
 };
 
+const canRenderImage = (src: string): boolean =>
+  src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:image/');
+
 export const ChatRoleAvatar = ({
   role,
   assistantName,
   assistantAvatar,
   avatarState = 'static',
 }: ChatRoleAvatarProps) => {
+  const avatarSrc = resolveAvatarSrc(assistantAvatar);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [avatarSrc]);
+
   if (role === 'user') {
     return (
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border/55 bg-card text-muted-foreground shadow-sm">
@@ -44,17 +55,21 @@ export const ChatRoleAvatar = ({
     );
   }
 
-  const initial = assistantName?.charAt(0)?.toUpperCase() || 'A';
-  const avatarSrc = resolveAvatarSrc(assistantAvatar);
+  const initial = assistantName?.trim().charAt(0)?.toUpperCase() || 'A';
 
   // Only the lifecycle states emit a `data-avatar-state` attribute. Static
   // (historical) avatars render without any animation hook so they don't
   // distract from the active turn.
   const animatedState = avatarState === 'static' ? undefined : avatarState;
 
-  const content = avatarSrc && avatarSrc.startsWith('http') ? (
+  const content = avatarSrc && canRenderImage(avatarSrc) && !avatarFailed ? (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
-      <img src={avatarSrc} alt={assistantName} className="h-full w-full object-cover" />
+      <img
+        src={avatarSrc}
+        alt={assistantName}
+        className="h-full w-full object-cover"
+        onError={() => setAvatarFailed(true)}
+      />
     </div>
   ) : (
     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
