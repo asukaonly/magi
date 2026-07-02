@@ -125,6 +125,13 @@ class BootstrapConfig:
     opening_line: str = ""
     max_rounds: int = 3
 
+    opening_examples: List[str] = field(default_factory=list)
+    """Optional author-curated first-contact voice anchors (few-shot).
+
+    When empty, the opening prompt falls back to the persona's ``chat``
+    register examples.
+    """
+
 
 # ---------------------------------------------------------------------------
 # Top-level config
@@ -290,6 +297,7 @@ def _parse_bootstrap(raw: Any) -> Optional[BootstrapConfig]:
         style_instruction=str(raw.get("style_instruction", "")),
         opening_line=str(raw.get("opening_line", "")),
         max_rounds=int(raw.get("max_rounds", 3)),
+        opening_examples=[str(e) for e in raw.get("opening_examples", []) if isinstance(e, str)],
     )
 
 

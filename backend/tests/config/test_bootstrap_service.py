@@ -159,8 +159,8 @@ class TestBootstrapOpening:
         assert opening == "Hey there, welcome!"
         system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
         assert "guided first-contact opener" in system_prompt
-        assert "how the user wants to be addressed" in system_prompt
-        assert "interest, hobby, or topic they care about" in system_prompt
+        assert "what to call them" in system_prompt
+        assert "one interest/topic they care about" in system_prompt
         assert "Do not claim physical-human experiences" in system_prompt
         assert "Reply in Simplified Chinese (zh-CN)" in system_prompt
         assert "Never mention you are an AI" not in system_prompt
@@ -173,6 +173,57 @@ class TestBootstrapOpening:
             timeout_seconds=BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS,
             event_context=ANY,
         )
+
+    def test_opening_prompt_includes_persona_voice_and_evidence_tiering(self):
+        config = PersonalityConfig.from_dict(
+            {
+                "name": "司辰",
+                "identity_core": {
+                    "identity_statement": "直球。",
+                    "values_loved": ["逻辑密度"],
+                    "values_rejected": ["靠资历压人"],
+                    "attention_biases": ["先看论证的隐含假设"],
+                },
+                "idiolect": {
+                    "sentence_style": "直接、密度高。",
+                    "chattiness": 0.3,
+                    "vocab_available": ["问题在于", "证据呢"],
+                    "vocab_avoided": ["作为AI"],
+                    "structural_quirks": ["不用缓冲句开场"],
+                },
+                "registers": {
+                    "chat": {
+                        "description": "日常",
+                        "behavior": "直接",
+                        "examples": ["[User: 你是不是 AI？]\n司辰: 是。这影响你想问的问题吗？"],
+                    }
+                },
+                "bootstrap": {"style_instruction": "首次接触保持高冷。"},
+            }
+        )
+        service = BootstrapDialogueService(growth_engine=None)
+        prompt = service._build_opening_system_prompt(
+            config,
+            config.bootstrap,
+            "- Source chrome_history:\n  - 浏览 X",
+            target_language="Simplified Chinese (zh-CN)",
+        )
+        # Layer 1: persona fingerprint fields wired into the opening prompt.
+        assert "Signature words/phrases you use: 问题在于; 证据呢" in prompt
+        assert "Words/phrasings you NEVER use: 作为AI" in prompt
+        assert "Speech quirks: 不用缓冲句开场" in prompt
+        assert "Verbosity: terse" in prompt
+        assert "You care about: 逻辑密度" in prompt
+        assert "You push back on: 靠资历压人" in prompt
+        assert "What you notice first about someone: 先看论证的隐含假设" in prompt
+        # Few-shot voice anchor pulled from the chat register.
+        assert "voice anchors" in prompt
+        assert "你是不是 AI" in prompt
+        # Layer 2: onboarding goals are subordinate to staying in character.
+        assert "subordinate to staying in character" in prompt
+        # Layer 3B: tiered evidence use with a creepiness self-check.
+        assert "Creepiness check" in prompt
+        assert "broad, non-sensitive THEME" in prompt
 
     @pytest.mark.asyncio
     async def test_get_opening_llm_fails_uses_static_fallback(self):
@@ -455,15 +506,15 @@ def test_build_opening_system_prompt_includes_activity_snippet():
         target_language="Simplified Chinese (zh-CN)",
     )
     assert "今天看了关于 X 的网页" in with_snip
-    assert "optional evidence" in with_snip
+    assert "How to use it (tiered" in with_snip
     assert "ignore it completely" in with_snip
     assert "MUST include" not in with_snip
     assert "Reply in Simplified Chinese (zh-CN)" in with_snip
     assert "今天看了关于 X 的网页" not in without
-    assert "optional evidence" not in without
+    assert "How to use it (tiered" not in without
     assert "Reply in Simplified Chinese (zh-CN)" in without
-    # Both still ask how to address the user (the existing behavior is preserved).
-    assert "address" in without.lower()
+    # Both still invite the user to share what to call them (persona-gated, optional).
+    assert "what to call them" in without
 
 
 @pytest.mark.asyncio
@@ -541,7 +592,8 @@ async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(mon
     assert "improve onboarding plugin flow" in system_prompt
     assert "token=secret" not in system_prompt
     assert "MUST include" not in system_prompt
-    assert "may use it only if it gives you a safe and natural opening" in system_prompt
+    assert "Creepiness check" in system_prompt
+    assert "broad, non-sensitive THEME" in system_prompt
 
 
 @pytest.mark.asyncio

@@ -156,6 +156,7 @@ class BootstrapConfigModel(BaseModel):
     style_instruction: str = Field(default="")
     opening_line: str = Field(default="")
     max_rounds: int = Field(default=3)
+    opening_examples: List[str] = Field(default_factory=list)
 
 
 class PersonalityConfigModel(BaseModel):

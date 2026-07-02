@@ -64,6 +64,56 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _format_persona_list(items: Any, *, limit: Optional[int] = None) -> str:
+    """Join a persona string list into a compact ``; ``-separated inline string."""
+    cleaned = [str(item).strip() for item in (items or []) if str(item).strip()]
+    if limit is not None:
+        cleaned = cleaned[:limit]
+    return "; ".join(cleaned)
+
+
+def _chattiness_label(value: Any) -> str:
+    """Map a 0..1 chattiness score to a coarse verbosity label for the prompt."""
+    score = _safe_float(value, 0.5)
+    if score <= 0.34:
+        return "terse"
+    if score >= 0.67:
+        return "chatty"
+    return "balanced"
+
+
+def _select_voice_examples(
+    config: PersonalityConfig,
+    bootstrap: BootstrapConfig,
+    *,
+    limit: int = 2,
+    max_chars: int = 220,
+) -> List[str]:
+    """Pick a few short voice-anchor examples for the opening prompt.
+
+    Prefers author-curated ``bootstrap.opening_examples``; falls back to the
+    persona's ``chat`` register examples. Each example is whitespace-collapsed
+    and truncated so the opening prompt stays compact.
+    """
+    raw = list(getattr(bootstrap, "opening_examples", []) or [])
+    if not raw:
+        chat_register = (config.registers or {}).get("chat")
+        if chat_register is not None:
+            raw = list(getattr(chat_register, "examples", []) or [])
+
+    examples: List[str] = []
+    for item in raw:
+        text = re.sub(r"\s+", " ", str(item or "")).strip()
+        if not text:
+            continue
+        if len(text) > max_chars:
+            text = f"{text[: max_chars - 3].rstrip()}..."
+        examples.append(text)
+        if len(examples) >= limit:
+            break
+    return examples
+
+
 def _strip_url_tracking(match: re.Match[str]) -> str:
     raw = match.group(0)
     try:
@@ -365,34 +415,85 @@ class BootstrapDialogueService:
         target_language: str,
     ) -> str:
         """Assemble the first-contact opening system prompt (pure, no I/O)."""
-        system_prompt = (
-            f"You are {config.name}. {config.identity_core.identity_statement}\n\n"
-            f"Language style: {config.idiolect.sentence_style}\n"
-        )
+        identity = config.identity_core
+        idiolect = config.idiolect
+
+        system_prompt = f"You are {config.name}. {identity.identity_statement}\n"
+
+        # --- Voice fingerprint (idiolect) ---
+        voice_lines: List[str] = [f"Language style: {idiolect.sentence_style}"]
+        vocab_available = _format_persona_list(idiolect.vocab_available, limit=12)
+        if vocab_available:
+            voice_lines.append(f"Signature words/phrases you use: {vocab_available}")
+        vocab_avoided = _format_persona_list(idiolect.vocab_avoided, limit=12)
+        if vocab_avoided:
+            voice_lines.append(f"Words/phrasings you NEVER use: {vocab_avoided}")
+        quirks = _format_persona_list(idiolect.structural_quirks, limit=3)
+        if quirks:
+            voice_lines.append(f"Speech quirks: {quirks}")
+        voice_lines.append(f"Verbosity: {_chattiness_label(idiolect.chattiness)}")
+        system_prompt += "\n# Your voice\n" + "\n".join(voice_lines) + "\n"
+
+        # --- Who you are (identity core) ---
+        who_lines: List[str] = []
+        values_loved = _format_persona_list(identity.values_loved, limit=5)
+        if values_loved:
+            who_lines.append(f"You care about: {values_loved}")
+        values_rejected = _format_persona_list(identity.values_rejected, limit=5)
+        if values_rejected:
+            who_lines.append(f"You push back on: {values_rejected}")
+        attention_biases = _format_persona_list(identity.attention_biases, limit=3)
+        if attention_biases:
+            who_lines.append(f"What you notice first about someone: {attention_biases}")
+        if who_lines:
+            system_prompt += "\n# Who you are\n" + "\n".join(who_lines) + "\n"
+
+        # --- Voice anchors (few-shot) ---
+        voice_examples = _select_voice_examples(config, bootstrap)
+        if voice_examples:
+            system_prompt += (
+                "\n# How you actually talk (voice anchors — match the tone, do not copy)\n"
+                + "\n".join(f"- {example}" for example in voice_examples)
+                + "\n"
+            )
+
+        # --- First-contact stance ---
         if bootstrap.style_instruction:
-            system_prompt += f"Style: {bootstrap.style_instruction}\n"
+            system_prompt += f"\n# First-contact stance\n{bootstrap.style_instruction}\n"
+
+        # --- Optional activity evidence (tiered use) ---
         if activity_snippet:
             system_prompt += (
                 "\nOptional user-authorized activity evidence "
                 "(raw samples, temporary first-chat context; not a profile or long-term memory):\n"
                 f"{activity_snippet}\n"
-                "\nEvidence handling:\n"
-                "- Treat this as optional evidence; you may use it only if it gives you a safe and natural opening.\n"
-                "- If the evidence is thin, noisy, private, account-related, or uncertain, ignore it completely.\n"
-                "- Never mention browsing history, plugins, sensors, data import, sources, or that you can see records.\n"
-                "- Do not list or quote samples. If you use them, make only a tentative broad observation or gentle question.\n"
+                "\nHow to use it (tiered — when unsure, use less):\n"
+                "- You MAY surface ONLY a broad, non-sensitive THEME (a general interest or "
+                "domain), rephrased in your own voice as a light, tentative guess.\n"
+                "- Ignore silently anything specific, account-related, name-bearing, private, "
+                "or that could reveal you saw any records.\n"
+                "- Creepiness check: if your line could make the user wonder \"how do you know "
+                "that?\", cut it.\n"
+                "- Never mention browsing history, plugins, sensors, data import, records, or "
+                "sources. Do not list or quote samples.\n"
+                "- If the evidence is thin, noisy, or uncertain, ignore it completely and open "
+                "from persona alone.\n"
             )
+
         system_prompt += (
-            "\nOutput language:\n"
-            f"- Reply in {target_language}. Preserve names, titles, paths, and user-provided text in their original language when needed.\n"
-            "\nGenerate the FIRST user-visible message for a brand-new conversation with this user. "
+            "\n# Output language\n"
+            f"- Reply in {target_language}. Preserve names, titles, paths, and user-provided "
+            "text in their original language when needed.\n"
+            "\n# Task\n"
+            "Write the FIRST user-visible message for a brand-new conversation with this user. "
             "This is not a generic greeting; it is a guided first-contact opener.\n"
-            "Goals:\n"
-            "- Make it easy for the user to reply naturally\n"
-            "- If it fits the persona and does not feel forced, ask how the user wants to be addressed\n"
-            "- Optionally invite one lightweight preference, interest, hobby, or topic they care about\n"
-            "- Let the wording, attitude, and phrasing come from the persona's own voice\n"
-            "Requirements:\n"
+            "\nPersona first (everything here is optional and subordinate to staying in character):\n"
+            "- If any of this would make you sound like a form or break character, drop it entirely.\n"
+            "- You MAY invite the user to say what to call them, or mention one interest/topic they "
+            "care about — but ONLY in the way this persona naturally would (a challenge, a dare, an "
+            "offhand aside), never as a polite survey question.\n"
+            "- Let the wording, attitude, and phrasing come from the persona's own voice.\n"
+            "\nHard rules:\n"
             "- Stay fully in character\n"
             "- 2-3 short sentences max, natural and conversational\n"
             "- Briefly introduce yourself in a way that fits the persona\n"
