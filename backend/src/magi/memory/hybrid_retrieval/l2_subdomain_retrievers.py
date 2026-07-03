@@ -257,27 +257,15 @@ async def retrieve_episodes(
     *,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
-    """Retrieve episodes matching the grounding plan via time overlap + FTS."""
+    """Retrieve episodes matching the grounding plan via time overlap.
+
+    Episodes participate in recall as the time-anchored narrative substrate
+    only. Content-based recall is deliberately delegated to L1 event search
+    and experiences: episode summaries are folded sensor digests, so letting
+    them match on content mostly spends token budget on noise.
+    """
     tc = plan.temporal_context
-    episodes: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-
-    time_episodes = await _query_episodes_by_time(store, tc, limit=limit)
-    for ep in time_episodes:
-        eid = ep.get("episode_id", "")
-        if eid and eid not in seen_ids:
-            seen_ids.add(eid)
-            episodes.append(ep)
-
-    if plan.predicate_family or plan.query_kind != "unknown":
-        content = _build_episode_fts_query(plan)
-        if content:
-            fts_episodes = await store.search_episodes_fts(query=content, limit=limit)
-            for ep in fts_episodes:
-                eid = ep.get("episode_id", "")
-                if eid and eid not in seen_ids:
-                    seen_ids.add(eid)
-                    episodes.append(ep)
+    episodes = await _query_episodes_by_time(store, tc, limit=limit)
 
     for ep in episodes:
         ep["_temporal_score"] = _compute_episode_temporal_score(ep, tc)
@@ -323,20 +311,6 @@ async def _query_episodes_by_time(
 
     kwargs["statuses"] = ["active", "candidate"]
     return await store.list_episodes(**kwargs)
-
-
-def _build_episode_fts_query(plan: L2GroundingPlan) -> str | None:
-    """Build FTS query string from grounding plan entities."""
-    terms: list[str] = []
-    for c in plan.subject_candidates:
-        if c.surface and c.surface != "self":
-            terms.append(c.surface)
-    for c in plan.object_candidates:
-        if c.surface:
-            terms.append(c.surface)
-    if not terms:
-        return None
-    return " ".join(terms)
 
 
 def _compute_episode_temporal_score(ep: dict[str, Any], tc: Any) -> float:

@@ -213,12 +213,15 @@ class TestRetrieveEpisodes:
         assert result[0]["_candidate_kind"] == "episode"
 
     @pytest.mark.asyncio
-    async def test_deduplicates_across_channels(self):
+    async def test_content_fts_not_consulted(self):
+        """Episode recall is time-anchored only; content recall belongs to L1/experiences."""
         store = _make_store()
         now = time.time()
         ep = {"episode_id": "ep1", "time_start": now - 3600, "time_end": now}
         store.list_episodes.return_value = [ep]
-        store.search_episodes_fts.return_value = [ep]
+        store.search_episodes_fts.return_value = [
+            {"episode_id": "ep2", "time_start": now - 7200, "time_end": now - 3600},
+        ]
         plan = _make_plan(
             predicate_family="preference",
             object_candidates=[
@@ -231,7 +234,8 @@ class TestRetrieveEpisodes:
             ],
         )
         result = await retrieve_episodes(plan, store)
-        assert len(result) == 1
+        assert [item["episode_id"] for item in result] == ["ep1"]
+        store.search_episodes_fts.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_entity_overlap_scored(self):
