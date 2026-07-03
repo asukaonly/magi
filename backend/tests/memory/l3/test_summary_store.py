@@ -192,7 +192,7 @@ async def test_experience_member_events_are_sampled_across_episode_span(tmp_path
     )
 
     assert episode_ids == [f"ep-{index}" for index in range(8)]
-    assert len(event_ids) == 30
+    assert len(event_ids) == 60
     for episode_index in range(8):
         assert any(event_id.startswith(f"evt-{episode_index}-") for event_id in event_ids)
     assert "evt-0-0" in event_ids
@@ -424,7 +424,7 @@ async def test_generate_experience_summary_marks_llm_candidate(
         )
 
     monkeypatch.setattr(
-        l3_store._episodic_llm_service, "generate_episodic_candidate", _fake_generate
+        l3_store._episodic_llm_service, "generate_experience_review", _fake_generate
     )
 
     summary = await l3_store.generate_experience_summary(
@@ -445,6 +445,74 @@ async def test_generate_experience_summary_marks_llm_candidate(
 
     assert summary is not None
     assert summary["generated_by_model"] == "episodic-llm"
+
+
+@pytest.mark.asyncio
+async def test_generate_experience_summary_allows_sixty_verbatim_events(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    event_ids = [f"evt-long-{index:02d}" for index in range(70)]
+    l1_store = _FetchOnlyL1Stub(
+        [
+            {
+                "event_id": event_id,
+                "timestamp": float(index),
+                "event_type": "USER_MESSAGE",
+                "source": "chat",
+                "content": f"Long experience event {index}",
+            }
+            for index, event_id in enumerate(event_ids)
+        ]
+    )
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    captured: dict[str, object] = {}
+
+    async def _fake_generate(pack, *, fallback_label, fallback_content):  # type: ignore[no-untyped-def]
+        _ = fallback_label, fallback_content
+        captured["verbatim_count"] = len(pack.events)
+        captured["source_event_count"] = len(pack.source_event_ids)
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="你把一段较长的项目经历从开头推进到收尾。",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={
+                    "label": "长项目推进",
+                    "intent": "你想推进这个项目。",
+                    "outcome": "项目推进到了可复查的阶段。",
+                },
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        l3_store._episodic_llm_service, "generate_experience_review", _fake_generate
+    )
+
+    summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(event_ids),
+        experience={
+            "experience_id": "exp-long",
+            "title": "Long project",
+            "time_start": 0.0,
+            "time_end": 70.0,
+            "primary_entity_ids": ["project:magi"],
+            "primary_topic_keys": ["memory"],
+        },
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep-long", "role": "core"},
+        ],
+    )
+
+    assert summary is not None
+    assert captured == {"verbatim_count": 60, "source_event_count": 60}
+    assert summary["insight_metadata"]["intent"] == "你想推进这个项目。"
+    assert summary["insight_metadata"]["outcome"] == "项目推进到了可复查的阶段。"
 
 
 @pytest.mark.asyncio

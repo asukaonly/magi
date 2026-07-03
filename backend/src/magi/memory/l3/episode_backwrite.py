@@ -76,14 +76,9 @@ def _is_placeholder_label(value: Any) -> bool:
         return True
     if text in _PLACEHOLDER_LABELS or text.startswith("untitled exper"):
         return True
-    parts = [
-        part.strip()
-        for part in text.replace("|", "/").split("/")
-        if part.strip()
-    ]
+    parts = [part.strip() for part in text.replace("|", "/").split("/") if part.strip()]
     return bool(parts) and all(
-        part in _PLACEHOLDER_LABELS or part.startswith("untitled exper")
-        for part in parts
+        part in _PLACEHOLDER_LABELS or part.startswith("untitled exper") for part in parts
     )
 
 
@@ -111,17 +106,28 @@ def _experience_interpretation_needs_backwrite(experience: dict[str, Any]) -> bo
     if not text:
         return True
     lowered = text.casefold()
-    return (
-        lowered == LEGACY_GENERIC_EXPERIENCE_INTERPRETATION
-        or text.startswith("Magi 看到这段经历主要围绕")
+    return lowered == LEGACY_GENERIC_EXPERIENCE_INTERPRETATION or text.startswith(
+        "Magi 看到这段经历主要围绕"
     )
+
+
+def _experience_generated_field_needs_backwrite(
+    experience: dict[str, Any],
+    field_name: str,
+) -> bool:
+    text = str(experience.get(field_name) or "").strip()
+    if not text:
+        return True
+    title = str(experience.get("title") or "").strip()
+    return bool(title) and text.casefold() == title.casefold()
 
 
 def episode_needs_summary_backfill(episode: dict[str, Any]) -> bool:
     """True when the episode row has no generated label/summary yet."""
-    return not str(episode.get("label") or "").strip() and not str(
-        episode.get("summary") or ""
-    ).strip()
+    return (
+        not str(episode.get("label") or "").strip()
+        and not str(episode.get("summary") or "").strip()
+    )
 
 
 async def backwrite_episode_summary(
@@ -188,6 +194,12 @@ async def backwrite_experience_review(
         updates["title"] = label
     if content and _experience_interpretation_needs_backwrite(experience):
         updates["magi_interpretation"] = content
+    intent = str(metadata.get("intent") or "").strip()
+    if intent and _experience_generated_field_needs_backwrite(experience, "intent"):
+        updates["intent"] = intent
+    outcome = str(metadata.get("outcome") or "").strip()
+    if outcome and _experience_generated_field_needs_backwrite(experience, "outcome"):
+        updates["outcome"] = outcome
     if not updates:
         return False
 

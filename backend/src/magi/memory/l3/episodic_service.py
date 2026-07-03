@@ -12,10 +12,12 @@ from ...i18n import llm_language_label
 from ...llm import LLMProviderBridge, LLMRequestPriority, LLMScenario, ScenarioLLMPool
 from .episodic_evidence import EpisodicEvidencePackMixin
 from .episodic_prompts import EPISODIC_SUMMARY_OUTPUT_SCHEMA, EPISODIC_SUMMARY_SYSTEM_PROMPT
+from .experience_prompts import EXPERIENCE_REVIEW_OUTPUT_SCHEMA, EXPERIENCE_REVIEW_SYSTEM_PROMPT
 from .models import (
     EpisodicEvidencePack,
     EpisodicGenerationResult,
     EpisodicSummaryLLMOutput,
+    ExperienceReviewLLMOutput,
     L3Candidate,
 )
 
@@ -99,6 +101,34 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
             used_fallback=False,
         )
 
+    async def generate_experience_review(
+        self,
+        pack: EpisodicEvidencePack,
+        *,
+        fallback_label: str,
+        fallback_content: str,
+    ) -> EpisodicGenerationResult:
+        if not self._enabled or self._scenario_llm_pool is None:
+            return self._build_fallback_result(pack, fallback_label, fallback_content)
+
+        try:
+            raw = await asyncio.wait_for(
+                self._call_experience_review_model(pack),
+                timeout=self._llm_timeout_seconds,
+            )
+        except Exception:
+            return self._build_fallback_result(pack, fallback_label, fallback_content)
+
+        parsed = self._parse_experience_review_output(str(raw or ""))
+        if parsed is None:
+            return self._build_fallback_result(pack, fallback_label, fallback_content)
+
+        return EpisodicGenerationResult(
+            candidate=self._candidate_from_experience_review_output(pack, parsed),
+            summary_overrides={},
+            used_fallback=False,
+        )
+
     async def _call_episodic_prose_model(self, pack: EpisodicEvidencePack) -> str | None:
         llm_target = self._get_llm_target()
         if llm_target is None:
@@ -118,7 +148,9 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         logger.info("L3 episodic prose LLM call started", extra=log_context)
         try:
             response = await bridge.chat_response(
-                system_prompt=EPISODIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
+                system_prompt=EPISODIC_SUMMARY_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 json_mode=False,
                 temperature=0.3,
@@ -133,11 +165,16 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                 priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
-            logger.warning("L3 episodic prose LLM call failed", extra={**log_context, "error": str(exc)})
+            logger.warning(
+                "L3 episodic prose LLM call failed", extra={**log_context, "error": str(exc)}
+            )
             raise
 
         raw = str(response.content or "").strip()
-        logger.info("L3 episodic prose LLM call completed", extra={**log_context, "response_char_count": len(raw)})
+        logger.info(
+            "L3 episodic prose LLM call completed",
+            extra={**log_context, "response_char_count": len(raw)},
+        )
         return raw or None
 
     async def _call_episodic_structure_model(
@@ -164,7 +201,9 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         logger.info("L3 episodic structure LLM call started", extra=log_context)
         try:
             response = await bridge.chat_response(
-                system_prompt=EPISODIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
+                system_prompt=EPISODIC_SUMMARY_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 json_mode=True,
                 temperature=0.0,
@@ -179,17 +218,71 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                 priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
-            logger.warning("L3 episodic structure LLM call failed", extra={**log_context, "error": str(exc)})
+            logger.warning(
+                "L3 episodic structure LLM call failed", extra={**log_context, "error": str(exc)}
+            )
             raise
 
         raw = str(response.content or "").strip()
-        logger.info("L3 episodic structure LLM call completed", extra={**log_context, "response_char_count": len(raw)})
+        logger.info(
+            "L3 episodic structure LLM call completed",
+            extra={**log_context, "response_char_count": len(raw)},
+        )
         try:
             parsed = json.loads(raw)
         except Exception:
             logger.warning("L3 episodic structure LLM returned invalid JSON", extra=log_context)
             return None
         return parsed if isinstance(parsed, dict) else None
+
+    async def _call_experience_review_model(self, pack: EpisodicEvidencePack) -> str | None:
+        llm_target = self._get_llm_target()
+        if llm_target is None:
+            return None
+
+        adapter, bridge = llm_target
+        prompt = self._render_experience_review_prompt(pack)
+        provider = str(getattr(adapter, "provider_name", "unknown") or "unknown")
+        model = str(getattr(adapter, "model_name", "unknown") or "unknown")
+        log_context = {
+            "request_kind": "memory:l3_experience_review",
+            "provider": provider,
+            "model": model,
+            "event_count": pack.source_event_count,
+            "experience_id": pack.episode_id,
+        }
+        logger.info("L3 experience review LLM call started", extra=log_context)
+        try:
+            response = await bridge.chat_response(
+                system_prompt=EXPERIENCE_REVIEW_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
+                messages=[{"role": "user", "content": prompt}],
+                json_mode=True,
+                temperature=0.2,
+                disable_thinking=True,
+                cache_system=True,
+                timeout_seconds=self._llm_timeout_seconds,
+                event_context={
+                    "request_kind": "memory:l3_experience_review",
+                    "turn_id": pack.source_event_ids[0] if pack.source_event_ids else None,
+                    "agent_id": "memory:l3",
+                },
+                priority=LLMRequestPriority.LOW,
+            )
+        except Exception as exc:
+            logger.warning(
+                "L3 experience review LLM call failed",
+                extra={**log_context, "error": str(exc)},
+            )
+            raise
+
+        raw = str(response.content or "").strip()
+        logger.info(
+            "L3 experience review LLM call completed",
+            extra={**log_context, "response_char_count": len(raw)},
+        )
+        return raw or None
 
     def _get_adapter(self) -> Any | None:
         if self._scenario_llm_pool is None:
@@ -200,7 +293,9 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                 if adapter is not None:
                     return adapter
             except Exception as exc:
-                logger.debug("L3 episodic LLM adapter unavailable for scenario %s: %s", scenario, exc)
+                logger.debug(
+                    "L3 episodic LLM adapter unavailable for scenario %s: %s", scenario, exc
+                )
         return None
 
     def _get_llm_target(self) -> tuple[Any, LLMProviderBridge] | None:
@@ -245,12 +340,14 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         return "\n".join(lines)
 
     def _render_user_prompt(self, pack: EpisodicEvidencePack) -> str:
-        return self._render_context_prompt(pack) + f"\nOutput JSON schema:\n{EPISODIC_SUMMARY_OUTPUT_SCHEMA}"
+        return (
+            self._render_context_prompt(pack)
+            + f"\nOutput JSON schema:\n{EPISODIC_SUMMARY_OUTPUT_SCHEMA}"
+        )
 
     def _render_prose_prompt(self, pack: EpisodicEvidencePack) -> str:
         return (
-            self._render_context_prompt(pack)
-            + "\nGeneration Task / 生成用户可读正文:\n"
+            self._render_context_prompt(pack) + "\nGeneration Task / 生成用户可读正文:\n"
             "- Write only the user-facing episode summary body.\n"
             "- Do not return JSON.\n"
             "- Keep it concrete, compact, and grounded in the evidence.\n"
@@ -263,8 +360,7 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         prose_content: str,
     ) -> str:
         return (
-            self._render_context_prompt(pack)
-            + "\nAccepted User-Facing Summary:\n"
+            self._render_context_prompt(pack) + "\nAccepted User-Facing Summary:\n"
             f"{prose_content.strip()}\n\n"
             "Extraction Task / 提取结构化字段:\n"
             "- Extract label, key_topics, and key_entities from the same evidence and accepted summary.\n"
@@ -272,6 +368,16 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
             "- Return one JSON object only.\n"
             "- `content` is optional here; when present it must exactly match the accepted summary.\n\n"
             f"Output JSON schema:\n{EPISODIC_SUMMARY_OUTPUT_SCHEMA}"
+        )
+
+    def _render_experience_review_prompt(self, pack: EpisodicEvidencePack) -> str:
+        return (
+            self._render_context_prompt(pack) + "\nExperience Review Task / 生成用户可读经历回顾:\n"
+            "- Return one JSON object only.\n"
+            "- Write a narrative that covers why the experience started, what happened, and where it landed.\n"
+            "- Keep intent and outcome separate from the narrative.\n"
+            "- Stay grounded in the evidence; say unresolved when the ending is unclear.\n\n"
+            f"Output JSON schema:\n{EXPERIENCE_REVIEW_OUTPUT_SCHEMA}"
         )
 
     def _parse_output(self, raw: str) -> EpisodicSummaryLLMOutput | None:
@@ -296,12 +402,14 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         if isinstance(key_entities_raw, list):
             for item in key_entities_raw[:5]:
                 if isinstance(item, dict) and item.get("id"):
-                    key_entities.append({
-                        "id": str(item.get("id")).strip(),
-                        "label": str(item.get("label") or item.get("id")).strip(),
-                    })
+                    key_entities.append(
+                        {
+                            "id": str(item.get("id")).strip(),
+                            "label": str(item.get("label") or item.get("id")).strip(),
+                        }
+                    )
         return EpisodicSummaryLLMOutput(
-            label=label[:36],     # allow 18 zh chars
+            label=label[:36],  # allow 18 zh chars
             content=content[:240],  # allow ~100 zh chars
             key_topics=key_topics,
             key_entities=key_entities,
@@ -337,16 +445,59 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
         if isinstance(key_entities_raw, list):
             for item in key_entities_raw[:5]:
                 if isinstance(item, dict) and item.get("id"):
-                    key_entities.append({
-                        "id": str(item.get("id")).strip(),
-                        "label": str(item.get("label") or item.get("id")).strip(),
-                    })
+                    key_entities.append(
+                        {
+                            "id": str(item.get("id")).strip(),
+                            "label": str(item.get("label") or item.get("id")).strip(),
+                        }
+                    )
         return {
             "source_episode_id": pack.episode_id,
             "label": label,
             "key_topics": key_topics,
             "key_entities": key_entities,
         }
+
+    def _parse_experience_review_output(self, raw: str) -> ExperienceReviewLLMOutput | None:
+        try:
+            data = json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(data, dict):
+            return None
+
+        label = str(data.get("label") or "").strip()[:48]
+        narrative = str(data.get("narrative") or "").strip()[:400]
+        if not label or not narrative:
+            return None
+
+        intent = str(data.get("intent") or "").strip()[:180]
+        outcome = str(data.get("outcome") or "").strip()[:180]
+        key_topics_raw = data.get("key_topics") or []
+        key_entities_raw = data.get("key_entities") or []
+        key_topics = [
+            str(t).strip()
+            for t in key_topics_raw
+            if isinstance(t, (str, int, float)) and str(t).strip()
+        ][:5]
+        key_entities: list[dict[str, object]] = []
+        if isinstance(key_entities_raw, list):
+            for item in key_entities_raw[:5]:
+                if isinstance(item, dict) and item.get("id"):
+                    key_entities.append(
+                        {
+                            "id": str(item.get("id")).strip(),
+                            "label": str(item.get("label") or item.get("id")).strip(),
+                        }
+                    )
+        return ExperienceReviewLLMOutput(
+            label=label,
+            narrative=narrative,
+            intent=intent,
+            outcome=outcome,
+            key_topics=key_topics,
+            key_entities=key_entities,
+        )
 
     def _candidate_from_output(
         self,
@@ -364,6 +515,28 @@ class EpisodicSummaryLLMService(EpisodicEvidencePackMixin):
                 "key_topics": parsed.key_topics,
                 "key_entities": parsed.key_entities,
             },
+        )
+
+    def _candidate_from_experience_review_output(
+        self,
+        pack: EpisodicEvidencePack,
+        parsed: ExperienceReviewLLMOutput,
+    ) -> L3Candidate:
+        metadata: dict[str, object] = {
+            "label": parsed.label,
+            "key_topics": parsed.key_topics,
+            "key_entities": parsed.key_entities,
+        }
+        if parsed.intent:
+            metadata["intent"] = parsed.intent
+        if parsed.outcome:
+            metadata["outcome"] = parsed.outcome
+        return L3Candidate(
+            content=parsed.narrative,
+            source_event_ids=list(pack.source_event_ids),
+            summary_category="episodic",
+            summary_type="thematic",
+            insight_metadata=metadata,
         )
 
     def _build_fallback_result(

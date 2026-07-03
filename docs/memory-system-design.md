@@ -475,6 +475,11 @@ Experience promotion is a second-stage process over active episodes:
   memory, not merely as a source/app cluster.
 - Generate the L3 experience review after promotion so the prose is attached to
   a stable L2 object with traceable evidence.
+- Experience reviews use an experience-specific review prompt rather than the
+  shorter episode recap prompt. The review stores a longer narrative plus
+  generated intent/outcome metadata; non-fallback reviews backfill only generated
+  L2 fields that are still blank or template-derived, preserving user-owned
+  labels and notes.
 - Trigger promotion from both the manual `l2/episodes/reconsolidate` catch-up
   endpoint and the periodic L2 consolidation job, so the review page can refresh
   from the same evidence pipeline instead of relying on frontend-only filters.

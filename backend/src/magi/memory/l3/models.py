@@ -43,7 +43,9 @@ class TaskOutcomePacket:
     user_id: str
     task_title: str
     task_status: Literal["completed", "partial", "failed", "cancelled"]
-    task_kind: Literal["user_goal_task", "orchestration_task", "system_task", "tool_task"] | None = None
+    task_kind: (
+        Literal["user_goal_task", "orchestration_task", "system_task", "tool_task"] | None
+    ) = None
     user_goal: str | None = None
     evidence_event_ids: list[str] = field(default_factory=list)
     result_summary: str | None = None
@@ -97,7 +99,9 @@ class L3Candidate:
 
     def __post_init__(self) -> None:
         if self.summary_type is None:
-            self.summary_type = "insight" if self.summary_category == "task_reflection" else "temporal"
+            self.summary_type = (
+                "insight" if self.summary_category == "task_reflection" else "temporal"
+            )
 
 
 @dataclass(slots=True)
@@ -217,7 +221,7 @@ class EpisodicEvidenceItem:
     timestamp: float | None = None
     importance_score: float | None = None
     source: str | None = None  # raw L1 source name, e.g. "chat_projector"
-    role: str | None = None    # "user" / "assistant" / None — for chat events
+    role: str | None = None  # "user" / "assistant" / None — for chat events
 
 
 @dataclass(slots=True)
@@ -243,6 +247,18 @@ class EpisodicSummaryLLMOutput:
 
     label: str
     content: str
+    key_topics: list[str] = field(default_factory=list)
+    key_entities: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ExperienceReviewLLMOutput:
+    """Structured LLM output for experience review."""
+
+    label: str
+    narrative: str
+    intent: str = ""
+    outcome: str = ""
     key_topics: list[str] = field(default_factory=list)
     key_entities: list[dict[str, object]] = field(default_factory=list)
 

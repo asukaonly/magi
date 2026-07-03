@@ -83,7 +83,7 @@ _EXPERIENCE_LOW_VALUE_LABELS = {
     "user",
     "user self",
 }
-_EXPERIENCE_EVIDENCE_EVENT_LIMIT = 30
+_EXPERIENCE_EVIDENCE_EVENT_LIMIT = 60
 _EXPERIENCE_MIN_EVENTS_PER_EPISODE = 2
 
 
@@ -1213,8 +1213,9 @@ class L3SummaryStore(
                 context=context,
             ),
             events=context.events,
+            max_events=_EXPERIENCE_EVIDENCE_EVENT_LIMIT,
         )
-        generation = await self._episodic_llm_service.generate_episodic_candidate(
+        generation = await self._episodic_llm_service.generate_experience_review(
             pack,
             fallback_label=context.fallback_label,
             fallback_content=context.fallback_content,
