@@ -363,6 +363,11 @@ class L2EpisodeReviewService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=memory_t("memory.errors.episode_summary_generation_failed", "Episode summary generation failed"),
             )
+        await self._memory.l2.update_episode(
+            episode_id=str(episode.get("episode_id") or ""),
+            label=episode_summary["label"],
+            summary=episode_summary["content"],
+        )
         await self._memory.l2.index_episode_fts(
             episode_id=str(episode.get("episode_id") or ""),
             summary=episode_summary["content"],

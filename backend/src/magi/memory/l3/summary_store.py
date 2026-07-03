@@ -19,6 +19,7 @@ from ...llm import ScenarioLLMPool
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..l1.event_store import L1EventStore
 from ..embedding.sqlite_vec_index import SqliteVecIndex
+from .episode_backwrite import backwrite_episode_summary, episode_needs_summary_backfill
 from .evidence_selector import TemporalEvidenceSelection, select_temporal_evidence
 from .episodic_service import EpisodicSummaryLLMService
 from .topic_llm_service import TopicSummaryLLMService
@@ -847,9 +848,14 @@ class L3SummaryStore(
         """Eagerly generate L3 episodic summaries for episodes that lack one.
 
         For each ``episode_id``: skip if an episodic summary already exists
-        (dedup), resolve the episode + its event memberships from L2, then call
+        (dedup; back-writing label/summary onto the episode row when the row
+        is still empty), resolve the episode + its event memberships from L2,
+        then call
         :meth:`generate_episodic_summary` (configured summary model, no extended
-        thinking). Generation failures are captured per-episode and never raised,
+        thinking). Newly generated summaries are back-written onto the episode
+        row (``label`` / ``summary``) and its FTS entry so the episode surface
+        and 经历 page search can see them. Generation failures are captured
+        per-episode and never raised,
         so one bad episode does not block the rest.
 
         This is the caller-side seam for eager summary generation: callers that
@@ -868,11 +874,18 @@ class L3SummaryStore(
                 continue
             seen.add(episode_id)
             try:
-                existing = await self.get_episodic_summary_by_episode_id(episode_id)
-                if existing is not None:
-                    continue
                 episode = await l2_store.get_episode(episode_id=episode_id)
                 if episode is None:
+                    continue
+                existing = await self.get_episodic_summary_by_episode_id(episode_id)
+                if existing is not None:
+                    # Backfill episodes summarized before back-writing existed.
+                    if episode_needs_summary_backfill(episode):
+                        await backwrite_episode_summary(
+                            l2_store,
+                            episode=episode,
+                            summary=existing,
+                        )
                     continue
                 event_links = await l2_store.list_episode_events(episode_id=episode_id)
                 event_ids = [
@@ -882,11 +895,17 @@ class L3SummaryStore(
                 ]
                 if not event_ids:
                     continue
-                await self.generate_episodic_summary(
+                summary = await self.generate_episodic_summary(
                     l1_store=l1_store,
                     episode=episode,
                     episode_event_ids=event_ids,
                 )
+                if summary is not None:
+                    await backwrite_episode_summary(
+                        l2_store,
+                        episode=episode,
+                        summary=summary,
+                    )
                 generated += 1
             except Exception as exc:  # non-blocking: log + continue
                 logger.warning(

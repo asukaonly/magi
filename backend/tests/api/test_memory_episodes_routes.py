@@ -517,6 +517,7 @@ def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
         return_value=[{"episode_id": "target", "event_id": "e1"}]
     )
     l2.index_episode_fts = AsyncMock()
+    l2.update_episode = AsyncMock(return_value=True)
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
     l1 = MagicMock()
     l1.get_events_by_ids = AsyncMock(
@@ -669,6 +670,7 @@ def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory
     )
     l2.split_episode = AsyncMock(return_value={"left": left, "right": right})
     l2.index_episode_fts = AsyncMock()
+    l2.update_episode = AsyncMock(return_value=True)
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
     l1 = MagicMock()
     l1.get_events_by_ids = AsyncMock(side_effect=_get_events_by_ids)
@@ -708,6 +710,7 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "user_label": "Trip"})
     l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
     l2.index_episode_fts = AsyncMock()
+    l2.update_episode = AsyncMock(return_value=True)
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
     l3 = MagicMock()
     l3.generate_episodic_summary = AsyncMock(
@@ -743,6 +746,11 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
         summary="New recap",
         label="New title",
         user_label="Trip",
+    )
+    l2.update_episode.assert_awaited_once_with(
+        episode_id="ep1",
+        label="New title",
+        summary="New recap",
     )
 
 
@@ -834,11 +842,17 @@ def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_m
     assert r.status_code == 200
     assert r.json()["episode_summary"]["content"] == "Updated recap"
     l2.add_episode_events.assert_awaited_once_with(episode_id="ep1", event_ids=["e2"])
-    l2.update_episode.assert_awaited_once_with(
+    l2.update_episode.assert_any_await(
         episode_id="ep1",
         source_event_count=2,
         time_start=120.0,
         time_end=180.0,
+    )
+    # Regeneration also back-writes the refreshed label/summary.
+    l2.update_episode.assert_any_await(
+        episode_id="ep1",
+        label="Updated title",
+        summary="Updated recap",
     )
 
 
