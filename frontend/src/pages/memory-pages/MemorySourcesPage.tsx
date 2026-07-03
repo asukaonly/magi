@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CalendarDays, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
   memoryApi,
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
+  MEMORY_FILTER_INPUT_CLASS,
   MEMORY_SECTION_CARD_CLASS,
 } from './MemoryPageFrame';
 import {
@@ -183,10 +185,10 @@ const PULSE_TIME_LABELS = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00',
 const PULSE_COLORS = ['#2f80d8', '#49b861', '#ef4b3f', '#9061d0', '#f39a2f', '#6f6a63'];
 const SOURCE_DETAIL_PAGE_SIZE = 50;
 
-type SourceDetailTimeRange = 'all' | 'today' | 'last7Days' | 'last30Days';
-type SourceDetailEventType = 'all' | 'sensor';
+type SourceDetailTimeRange = 'all' | 'today' | 'last7Days' | 'last30Days' | 'custom';
+type SourceDetailPresetTimeRange = Exclude<SourceDetailTimeRange, 'custom'>;
 
-const SOURCE_DETAIL_TIME_RANGES: SourceDetailTimeRange[] = ['all', 'today', 'last7Days', 'last30Days'];
+const SOURCE_DETAIL_TIME_RANGES: SourceDetailPresetTimeRange[] = ['all', 'today', 'last7Days', 'last30Days'];
 
 interface PulseMark {
   left: number;
@@ -218,16 +220,18 @@ const shiftDateString = (value: string, offsetDays: number): string => {
 const buildSourceDetailEventParams = ({
   sourceName,
   timeRange,
-  eventType,
   query,
   anchorDate,
+  customStartDate,
+  customEndDate,
   offset,
 }: {
   sourceName: string;
   timeRange: SourceDetailTimeRange;
-  eventType: SourceDetailEventType;
   query: string;
   anchorDate: string;
+  customStartDate: string;
+  customEndDate: string;
   offset: number;
 }): L1EventQueryParams => {
   const params: L1EventQueryParams = {
@@ -244,9 +248,13 @@ const buildSourceDetailEventParams = ({
   } else if (timeRange === 'last30Days') {
     params.start_date = shiftDateString(anchorDate, -29);
     params.end_date = anchorDate;
-  }
-  if (eventType === 'sensor') {
-    params.event_type = 'SENSOR_EVENT';
+  } else if (timeRange === 'custom') {
+    if (customStartDate) {
+      params.start_date = customStartDate;
+    }
+    if (customEndDate) {
+      params.end_date = customEndDate;
+    }
   }
   const normalizedQuery = query.trim();
   if (normalizedQuery) {
@@ -789,10 +797,11 @@ function SourceRecentEvents({
   loadingMore,
   hasMore,
   timeRange,
-  eventType,
+  customStartDate,
+  customEndDate,
   queryDraft,
   onTimeRangeChange,
-  onEventTypeChange,
+  onApplyCustomRange,
   onQueryDraftChange,
   onSearch,
   onLoadMore,
@@ -803,16 +812,24 @@ function SourceRecentEvents({
   loadingMore: boolean;
   hasMore: boolean;
   timeRange: SourceDetailTimeRange;
-  eventType: SourceDetailEventType;
+  customStartDate: string;
+  customEndDate: string;
   queryDraft: string;
   onTimeRangeChange: (value: SourceDetailTimeRange) => void;
-  onEventTypeChange: (value: SourceDetailEventType) => void;
+  onApplyCustomRange: (startDate: string, endDate: string) => void;
   onQueryDraftChange: (value: string) => void;
   onSearch: () => void;
   onLoadMore: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
+  const [timePickerOpen, setTimePickerOpen] = useState(false);
+  const [draftCustomStartDate, setDraftCustomStartDate] = useState(customStartDate);
+  const [draftCustomEndDate, setDraftCustomEndDate] = useState(customEndDate);
+
   const timeRangeLabel = (value: SourceDetailTimeRange): string => {
+    if (value === 'custom') {
+      return t('memory.sourcesPage.detail.timeRange.custom');
+    }
     if (value === 'today') {
       return t('memory.sourcesPage.detail.timeRange.today');
     }
@@ -823,6 +840,30 @@ function SourceRecentEvents({
       return t('memory.sourcesPage.detail.timeRange.last30Days');
     }
     return t('memory.sourcesPage.detail.timeRange.all');
+  };
+  const selectedTimeRangeLabel = () => {
+    if (timeRange !== 'custom') {
+      return timeRangeLabel(timeRange);
+    }
+    if (customStartDate && customEndDate) {
+      return `${customStartDate} - ${customEndDate}`;
+    }
+    return customStartDate || customEndDate || timeRangeLabel('custom');
+  };
+  const handleTimePickerOpenChange = (open: boolean) => {
+    if (open) {
+      setDraftCustomStartDate(customStartDate);
+      setDraftCustomEndDate(customEndDate);
+    }
+    setTimePickerOpen(open);
+  };
+  const selectPresetTimeRange = (value: SourceDetailPresetTimeRange) => {
+    onTimeRangeChange(value);
+    setTimePickerOpen(false);
+  };
+  const applyCustomRange = () => {
+    onApplyCustomRange(draftCustomStartDate, draftCustomEndDate);
+    setTimePickerOpen(false);
   };
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -842,27 +883,79 @@ function SourceRecentEvents({
         </span>
       </div>
       <form className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between" onSubmit={submitSearch}>
-        <div
-          className="inline-flex w-fit rounded-lg border border-[hsl(var(--memory-input-border)/0.62)] bg-[hsl(var(--memory-panel-subtle)/0.42)] p-1"
-          aria-label={t('memory.sourcesPage.detail.timeRangeLabel')}
-        >
-          {SOURCE_DETAIL_TIME_RANGES.map((value) => (
+        <Popover open={timePickerOpen} onOpenChange={handleTimePickerOpenChange}>
+          <PopoverTrigger asChild>
             <button
-              key={value}
               type="button"
-              aria-pressed={timeRange === value}
               className={cn(
-                'h-8 rounded-md px-3 text-xs font-medium transition-colors',
-                timeRange === value
-                  ? 'bg-[hsl(var(--memory-panel-elevated))] text-[hsl(var(--memory-title))] shadow-[inset_0_0_0_1px_hsl(var(--memory-border)/0.56)]'
-                  : 'text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))]'
+                MEMORY_ACTION_BUTTON_CLASS,
+                'inline-flex w-fit min-w-[10rem] items-center justify-between gap-2 px-3'
               )}
-              onClick={() => onTimeRangeChange(value)}
             >
-              {timeRangeLabel(value)}
+              <span className="inline-flex min-w-0 items-center gap-2">
+                <CalendarDays className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+                <span className="truncate">{selectedTimeRangeLabel()}</span>
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
             </button>
-          ))}
-        </div>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            className="w-[280px] border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-panel-elevated))] p-2 text-[hsl(var(--memory-title))] shadow-[0_18px_36px_rgba(15,23,42,0.08)]"
+          >
+            <div className="grid gap-1">
+              {SOURCE_DETAIL_TIME_RANGES.map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={cn(
+                    'flex h-9 items-center justify-between rounded-sm px-3 text-sm transition-colors',
+                    timeRange === value
+                      ? 'bg-[hsl(var(--memory-panel-subtle)/0.76)] text-[hsl(var(--memory-title))]'
+                      : 'text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.56)]'
+                  )}
+                  onClick={() => selectPresetTimeRange(value)}
+                >
+                  {timeRangeLabel(value)}
+                  {timeRange === value ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-[hsl(var(--memory-accent))]" aria-hidden="true" />
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            <div className="my-2 h-px bg-[hsl(var(--memory-divider)/0.56)]" />
+            <div className="grid gap-2 px-1 pb-1">
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="date"
+                  aria-label={t('memory.sourcesPage.detail.customStart')}
+                  value={draftCustomStartDate}
+                  onChange={(event) => setDraftCustomStartDate(event.target.value)}
+                  className={cn(MEMORY_FILTER_INPUT_CLASS, 'w-full border px-2 text-xs')}
+                />
+                <input
+                  type="date"
+                  aria-label={t('memory.sourcesPage.detail.customEnd')}
+                  value={draftCustomEndDate}
+                  onChange={(event) => setDraftCustomEndDate(event.target.value)}
+                  className={cn(MEMORY_FILTER_INPUT_CLASS, 'w-full border px-2 text-xs')}
+                />
+              </div>
+              <button
+                type="button"
+                className={cn(
+                  MEMORY_ACTION_BUTTON_CLASS,
+                  'inline-flex w-full items-center justify-center',
+                  !draftCustomStartDate && !draftCustomEndDate ? 'opacity-50' : ''
+                )}
+                onClick={applyCustomRange}
+                disabled={!draftCustomStartDate && !draftCustomEndDate}
+              >
+                {t('memory.sourcesPage.detail.applyCustomRange')}
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative min-w-0 sm:w-[260px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
@@ -880,15 +973,6 @@ function SourceRecentEvents({
             <Search className="h-3.5 w-3.5" aria-hidden="true" />
             {t('memory.sourcesPage.detail.searchAction')}
           </button>
-          <select
-            aria-label={t('memory.sourcesPage.detail.eventType.all')}
-            value={eventType}
-            onChange={(event) => onEventTypeChange(event.target.value as SourceDetailEventType)}
-            className="h-9 rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors focus:border-[hsl(var(--memory-accent)/0.55)]"
-          >
-            <option value="all">{t('memory.sourcesPage.detail.eventType.all')}</option>
-            <option value="sensor">{t('memory.sourcesPage.detail.eventType.sensor')}</option>
-          </select>
         </div>
       </form>
       <div className="mt-4 divide-y divide-[hsl(var(--memory-divider)/0.58)]">
@@ -900,26 +984,19 @@ function SourceRecentEvents({
             </div>
           </div>
         ) : events.length > 0 ? (
-          events.map((event) => {
-            const typeKey = `memory.eventTypes.${String(event.event_type || '').toLowerCase()}`;
-            const typeLabel = t(typeKey);
-            return (
-              <article key={event.event_id} className="grid gap-2 py-3 md:grid-cols-[160px_minmax(0,1fr)_110px] md:items-start">
-                <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                  {formatOverviewTimestamp(event.timestamp, i18n.language) || t('memory.sourcesPage.unknownTime')}
-                </div>
-                <div className="min-w-0">
-                  <div className="line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-title))]">{event.content}</div>
-                  <div className="mt-1 text-xs text-[hsl(var(--memory-muted))]">
-                    {typeLabel === typeKey ? event.event_type : typeLabel}
-                  </div>
-                </div>
-                <div className="text-xs text-[hsl(var(--memory-muted))] md:text-right">
-                  {t('memory.sourcesPage.detail.stored')}
-                </div>
-              </article>
-            );
-          })
+          events.map((event) => (
+            <article key={event.event_id} className="grid gap-2 py-3 md:grid-cols-[160px_minmax(0,1fr)_110px] md:items-start">
+              <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                {formatOverviewTimestamp(event.timestamp, i18n.language) || t('memory.sourcesPage.unknownTime')}
+              </div>
+              <div className="min-w-0">
+                <div className="line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-title))]">{event.content}</div>
+              </div>
+              <div className="text-xs text-[hsl(var(--memory-muted))] md:text-right">
+                {t('memory.sourcesPage.detail.stored')}
+              </div>
+            </article>
+          ))
         ) : (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.detail.eventsEmpty')}</div>
         )}
@@ -957,7 +1034,7 @@ export const MemorySourceDetailPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
-  const [eventType, setEventType] = useState<SourceDetailEventType>('all');
+  const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [queryDraft, setQueryDraft] = useState('');
   const [query, setQuery] = useState('');
 
@@ -1007,9 +1084,10 @@ export const MemorySourceDetailPage = () => {
       const eventsPayload = await memoryApi.getL1Events(buildSourceDetailEventParams({
         sourceName,
         timeRange,
-        eventType,
         query,
         anchorDate: todaySummary?.date || formatDateString(new Date()),
+        customStartDate: customDateRange.start,
+        customEndDate: customDateRange.end,
         offset,
       }));
       if (options?.cancelledRef?.cancelled) {
@@ -1050,7 +1128,7 @@ export const MemorySourceDetailPage = () => {
     return () => {
       cancelledRef.cancelled = true;
     };
-  }, [metadataReady, sourceName, timeRange, eventType, query, todaySummary?.date]);
+  }, [metadataReady, sourceName, timeRange, customDateRange.start, customDateRange.end, query, todaySummary?.date]);
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
@@ -1075,6 +1153,11 @@ export const MemorySourceDetailPage = () => {
     setQuery(queryDraft.trim());
   };
 
+  const handleApplyCustomRange = (startDate: string, endDate: string) => {
+    setCustomDateRange({ start: startDate, end: endDate });
+    setTimeRange('custom');
+  };
+
   const handleLoadMore = () => {
     void loadEvents({ offset: events.length, append: true });
   };
@@ -1096,10 +1179,11 @@ export const MemorySourceDetailPage = () => {
             loadingMore={loadingMore}
             hasMore={hasMore}
             timeRange={timeRange}
-            eventType={eventType}
+            customStartDate={customDateRange.start}
+            customEndDate={customDateRange.end}
             queryDraft={queryDraft}
             onTimeRangeChange={setTimeRange}
-            onEventTypeChange={setEventType}
+            onApplyCustomRange={handleApplyCustomRange}
             onQueryDraftChange={setQueryDraft}
             onSearch={handleSearch}
             onLoadMore={handleLoadMore}

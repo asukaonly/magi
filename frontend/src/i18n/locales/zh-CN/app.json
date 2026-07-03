@@ -2622,12 +2622,12 @@
           "all": "全部",
           "today": "今天",
           "last7Days": "近 7 天",
-          "last30Days": "近 30 天"
+          "last30Days": "近 30 天",
+          "custom": "自定义"
         },
-        "eventType": {
-          "all": "全部类型",
-          "sensor": "传感器事件"
-        },
+        "customStart": "开始日期",
+        "customEnd": "结束日期",
+        "applyCustomRange": "应用",
         "eventsLoading": "正在加载最近内容。",
         "eventsEmpty": "这个来源还没有进入记忆的内容。",
         "stored": "已入记忆",

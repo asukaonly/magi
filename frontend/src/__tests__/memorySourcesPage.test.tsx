@@ -36,8 +36,10 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.detail.timeRange.today': '今天',
         'memory.sourcesPage.detail.timeRange.last7Days': '近 7 天',
         'memory.sourcesPage.detail.timeRange.last30Days': '近 30 天',
-        'memory.sourcesPage.detail.eventType.all': '全部类型',
-        'memory.sourcesPage.detail.eventType.sensor': '传感器事件',
+        'memory.sourcesPage.detail.timeRange.custom': '自定义',
+        'memory.sourcesPage.detail.customStart': '开始日期',
+        'memory.sourcesPage.detail.customEnd': '结束日期',
+        'memory.sourcesPage.detail.applyCustomRange': '应用',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
         'memory.sourcesPage.pulseStats.today': '今日事件',
         'memory.sourcesPage.pulseStats.backlog': '待处理',
@@ -365,7 +367,7 @@ describe('MemorySourcesPage', () => {
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 50 });
   });
 
-  it('filters source detail events by text, day, and event type', async () => {
+  it('filters source detail events by text and a custom date range', async () => {
     vi.mocked(memoryApi.getL1Events).mockResolvedValue({
       items: [buildEvent(1, { event_id: 'filtered-1', content: 'Bilibili result' })],
       total: 1,
@@ -383,8 +385,11 @@ describe('MemorySourcesPage', () => {
     );
 
     await screen.findByText('最近进入记忆的内容');
-    await user.click(screen.getByRole('button', { name: '今天' }));
-    await user.selectOptions(screen.getByLabelText('全部类型'), 'sensor');
+    expect(screen.queryByLabelText('全部类型')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '全部' }));
+    await user.type(screen.getByLabelText('开始日期'), '2026-07-01');
+    await user.type(screen.getByLabelText('结束日期'), '2026-07-03');
+    await user.click(screen.getByRole('button', { name: '应用' }));
     await user.type(screen.getByPlaceholderText('搜索内容'), 'bilibili');
     await user.click(screen.getByRole('button', { name: '搜索' }));
 
@@ -392,9 +397,8 @@ describe('MemorySourcesPage', () => {
       source: 'chrome_history',
       limit: 50,
       offset: 0,
-      start_date: '2026-07-03',
+      start_date: '2026-07-01',
       end_date: '2026-07-03',
-      event_type: 'SENSOR_EVENT',
       query: 'bilibili',
     }));
     expect(screen.getByText('Bilibili result')).toBeInTheDocument();

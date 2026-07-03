@@ -2623,12 +2623,12 @@
           "all": "All",
           "today": "Today",
           "last7Days": "Last 7 days",
-          "last30Days": "Last 30 days"
+          "last30Days": "Last 30 days",
+          "custom": "Custom"
         },
-        "eventType": {
-          "all": "All types",
-          "sensor": "Sensor events"
-        },
+        "customStart": "Start date",
+        "customEnd": "End date",
+        "applyCustomRange": "Apply",
         "eventsLoading": "Loading recent items.",
         "eventsEmpty": "This source has not added anything to memory yet.",
         "stored": "Stored",
