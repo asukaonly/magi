@@ -6166,3 +6166,103 @@ class TestDerivePlaceAndTopicHints:
         )
         assert place_ids == []
         assert topic_keys == []
+
+
+class TestEpisodeCandidateJobEntityAttribution:
+    def _worker(self):
+        from magi.memory.l2.pipeline.workers import L2PipelineWorkerMixin
+
+        return L2PipelineWorkerMixin()
+
+    def _job(self):
+        from magi.memory.l2.models import L2BatchJob
+
+        return L2BatchJob(
+            job_id="job-episode-attribution",
+            bucket_key="session:s1",
+            flush_reason="test",
+            estimated_tokens=0,
+            events=[
+                {
+                    "event_id": "evt-chat",
+                    "timestamp": 100.0,
+                    "event_type": EventTypes.USER_MESSAGE,
+                },
+                {
+                    "event_id": "evt-browse",
+                    "timestamp": 120.0,
+                    "event_type": "SENSOR_EVENT",
+                },
+            ],
+        )
+
+    def test_episode_jobs_use_per_event_entity_map(self):
+        jobs = self._worker()._build_episode_candidate_jobs(
+            self._job(),
+            result={
+                "event_entity_map": {
+                    "evt-chat": ["person:sarah", "user:local_user"],
+                    "evt-browse": ["software:v2ex"],
+                },
+                "touched_place_ids": [],
+                "touched_topic_keys": [],
+            },
+            touched_entity_ids=["person:sarah", "software:v2ex", "user:local_user"],
+        )
+
+        assert [job.event_id for job in jobs] == ["evt-chat", "evt-browse"]
+        assert jobs[0].entity_ids == ["person:sarah", "user:local_user"]
+        assert jobs[1].entity_ids == ["software:v2ex"]
+
+    def test_episode_jobs_fall_back_to_batch_entities_without_event_map(self):
+        jobs = self._worker()._build_episode_candidate_jobs(
+            self._job(),
+            result={"touched_place_ids": [], "touched_topic_keys": []},
+            touched_entity_ids=["person:sarah", "software:v2ex"],
+        )
+
+        assert jobs[0].entity_ids == ["person:sarah", "software:v2ex"]
+        assert jobs[1].entity_ids == ["person:sarah", "software:v2ex"]
+
+    def test_phase2_touch_scope_exposes_event_entity_map(self):
+        from magi.memory.l2.pipeline.phase2_flow import _phase2_touch_scope
+
+        class _Pipeline:
+            def _collect_touched_entities(self, graph_candidates, assertion_candidates):
+                _ = graph_candidates, assertion_candidates
+                return ["user:local_user", "person:sarah", "software:v2ex"]
+
+            def _derive_place_and_topic_hints(self, touched_entity_ids):
+                _ = touched_entity_ids
+                return [], []
+
+        batch = SimpleNamespace(direct_write_candidates=[], self_entity_id=None)
+        candidates = SimpleNamespace(
+            graph_candidates=[
+                {
+                    "subject_id": "user:local_user",
+                    "object_id": "person:sarah",
+                    "evidence_event_ids": ["evt-chat"],
+                }
+            ],
+            assertion_candidates=[
+                {
+                    "entity_id": "software:v2ex",
+                    "evidence_events": ["evt-browse"],
+                }
+            ],
+            contradiction_hints=[],
+        )
+
+        payload = _phase2_touch_scope(
+            _Pipeline(),
+            batch,
+            candidates,
+            relation_count=1,
+            conflict_decision=None,
+        )
+
+        assert payload["event_entity_map"] == {
+            "evt-chat": ["person:sarah", "user:local_user"],
+            "evt-browse": ["software:v2ex"],
+        }

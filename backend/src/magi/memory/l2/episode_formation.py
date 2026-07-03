@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from ...core.logger import get_logger
+from .anchors import is_generic_experience_anchor
 from .models import EpisodeCandidateJob, EpisodeConsolidationStats
 from .store import L2CognitionStore
 from .storage.utils import _l2_setting
@@ -183,11 +184,15 @@ def _shares_theme(
 
     Adapted from ``TimelineClusterBuilder._shares_theme``.
     """
-    if entity_ids_a and entity_ids_b:
-        if set(entity_ids_a) & set(entity_ids_b):
+    concrete_entities_a = _concrete_anchors(entity_ids_a)
+    concrete_entities_b = _concrete_anchors(entity_ids_b)
+    concrete_topics_a = _concrete_anchors(topic_keys_a or [])
+    concrete_topics_b = _concrete_anchors(topic_keys_b or [])
+    if concrete_entities_a and concrete_entities_b:
+        if set(concrete_entities_a) & set(concrete_entities_b):
             return True
-    if topic_keys_a and topic_keys_b:
-        if set(topic_keys_a) & set(topic_keys_b):
+    if concrete_topics_a and concrete_topics_b:
+        if set(concrete_topics_a) & set(concrete_topics_b):
             return True
     return False
 
@@ -195,9 +200,21 @@ def _shares_theme(
 def _entity_overlap_ratio(a: List[str], b: List[str]) -> float:
     if not a or not b:
         return 0.0
-    sa, sb = set(a), set(b)
+    sa, sb = set(_concrete_anchors(a)), set(_concrete_anchors(b))
+    if not sa or not sb:
+        return 0.0
     intersection = len(sa & sb)
     return intersection / min(len(sa), len(sb))
+
+
+def _concrete_anchors(values: List[str]) -> list[str]:
+    return sorted(
+        {
+            text
+            for value in values
+            if (text := str(value or "").strip()) and not is_generic_experience_anchor(text)
+        }
+    )
 
 
 async def assign_events_to_episode(
@@ -267,7 +284,7 @@ async def _find_extendable_candidate(
         episode_type=batch.episode_type_hint,
         max_gap=max_gap,
         before_time=batch.max_ts + 1,
-        entity_ids=batch.entity_ids or None,
+        entity_ids=_concrete_anchors(batch.entity_ids) or None,
     )
 
     if candidate is None:

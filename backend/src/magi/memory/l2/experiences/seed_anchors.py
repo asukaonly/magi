@@ -6,32 +6,14 @@ import hashlib
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
+from ..anchors import (
+    MACHINE_ID_PATTERN,
+    anchor_leaf as _anchor_leaf,
+    canonical_anchor as _canonical_anchor,
+    is_generic_experience_anchor,
+)
 from .seed_models import _EpisodeSeedFeatures
 
-
-GENERIC_EXPERIENCE_ANCHORS = {
-    "browser",
-    "chrome",
-    "gmail",
-    "google",
-    "google search",
-    "github",
-    "local user",
-    "local_user",
-    "self",
-    "software:chrome",
-    "software:gmail",
-    "software:google",
-    "software:github",
-    "twitter",
-    "user",
-    "user local user",
-    "user self",
-    "user:local_user",
-    "x",
-    "x formerly twitter",
-}
-MACHINE_ID_PATTERN = re.compile(r"^(?:[0-9a-f]{10,}|[0-9A-HJKMNP-TV-Z]{12,})$", re.IGNORECASE)
 TEXT_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,，;；、|]+")
 TEXT_SOURCE_NOISE = {
     "about",
@@ -136,35 +118,8 @@ def _ordered_unique(values: Iterable[Any]) -> list[str]:
     return result
 
 
-def _canonical_anchor(value: Any) -> str:
-    text = str(value or "").strip().casefold()
-    text = text.replace("_", " ").replace("-", " ")
-    return " ".join(text.split())
-
-
-def _anchor_leaf(value: Any) -> str:
-    text = str(value or "").strip()
-    if ":" in text:
-        _, _, text = text.partition(":")
-    return text.strip()
-
-
 def _normalized_match_text(value: Any) -> str:
     return re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "", str(value or "").casefold())
-
-
-def is_generic_experience_anchor(value: Any) -> bool:
-    """Return True when an anchor is too generic to justify an experience."""
-    raw = str(value or "").strip()
-    leaf = _anchor_leaf(raw)
-    canonical_values = {_canonical_anchor(raw), _canonical_anchor(leaf)}
-    if not raw or not leaf:
-        return True
-    if _canonical_anchor(raw).startswith("hardware:"):
-        return True
-    if MACHINE_ID_PATTERN.fullmatch(raw) or MACHINE_ID_PATTERN.fullmatch(leaf):
-        return True
-    return any(item in GENERIC_EXPERIENCE_ANCHORS for item in canonical_values)
 
 
 def is_technical_artifact_experience_token(value: Any) -> bool:
@@ -198,7 +153,11 @@ def is_technical_artifact_experience_token(value: Any) -> bool:
 def readable_anchor_label(value: Any) -> str:
     """Convert a concrete anchor into a compact human-readable label."""
     leaf = _anchor_leaf(value)
-    if not leaf or is_generic_experience_anchor(value) or is_technical_artifact_experience_token(value):
+    if (
+        not leaf
+        or is_generic_experience_anchor(value)
+        or is_technical_artifact_experience_token(value)
+    ):
         return ""
     label = leaf.replace("_", " ").replace("-", " ").strip()
     if "/" in label:
@@ -338,11 +297,7 @@ def _source_entity_label_variants(anchor: Any) -> set[str]:
     }
     if "." in leaf:
         variants.add(leaf.split(".", 1)[0])
-    return {
-        normalized
-        for value in variants
-        if (normalized := _normalized_match_text(value))
-    }
+    return {normalized for value in variants if (normalized := _normalized_match_text(value))}
 
 
 def _token_matches_source_entity(
