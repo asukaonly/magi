@@ -83,6 +83,8 @@ _EXPERIENCE_LOW_VALUE_LABELS = {
     "user",
     "user self",
 }
+_EXPERIENCE_EVIDENCE_EVENT_LIMIT = 30
+_EXPERIENCE_MIN_EVENTS_PER_EPISODE = 2
 
 
 def _is_placeholder_experience_text(value: Any) -> bool:
@@ -210,6 +212,122 @@ def _topic_fallback_summary(
 
 def _event_timestamps(events: list[dict[str, Any]]) -> list[float]:
     return [float(event["timestamp"]) for event in events if event.get("timestamp") is not None]
+
+
+def _ordered_unique_event_ids(values: list[Any]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        event_id = str(value or "").strip()
+        if event_id and event_id not in seen:
+            seen.add(event_id)
+            result.append(event_id)
+    return result
+
+
+def _evenly_spaced_indices(length: int, count: int) -> list[int]:
+    if length <= 0 or count <= 0:
+        return []
+    if count >= length:
+        return list(range(length))
+    if count == 1:
+        return [0]
+
+    last_index = length - 1
+    indices: list[int] = []
+    seen: set[int] = set()
+    for offset in range(count):
+        index = round(last_index * offset / (count - 1))
+        if index not in seen:
+            seen.add(index)
+            indices.append(index)
+
+    if len(indices) < count:
+        for index in range(length):
+            if index in seen:
+                continue
+            seen.add(index)
+            indices.append(index)
+            if len(indices) >= count:
+                break
+    return sorted(indices)
+
+
+def _sample_event_ids_evenly(event_ids: list[str], limit: int) -> list[str]:
+    unique_ids = _ordered_unique_event_ids(event_ids)
+    indices = _evenly_spaced_indices(len(unique_ids), min(limit, len(unique_ids)))
+    return [unique_ids[index] for index in indices]
+
+
+def _next_even_event_id(event_ids: list[str], selected_event_ids: list[str]) -> str | None:
+    selected = set(selected_event_ids)
+    target_count = min(len(_ordered_unique_event_ids(event_ids)), len(selected_event_ids) + 1)
+    for event_id in _sample_event_ids_evenly(event_ids, target_count):
+        if event_id not in selected:
+            return event_id
+    for event_id in _ordered_unique_event_ids(event_ids):
+        if event_id not in selected:
+            return event_id
+    return None
+
+
+def _stratified_event_sample(
+    event_groups: list[tuple[str, list[str]]],
+    *,
+    standalone_event_ids: list[str],
+    limit: int = _EXPERIENCE_EVIDENCE_EVENT_LIMIT,
+) -> list[str]:
+    if limit <= 0:
+        return []
+
+    groups = [
+        (episode_id, _ordered_unique_event_ids(event_ids))
+        for episode_id, event_ids in event_groups
+        if event_ids
+    ]
+    if not groups:
+        return _ordered_unique_event_ids(standalone_event_ids)[:limit]
+
+    if len(groups) > limit:
+        selected_indices = _evenly_spaced_indices(len(groups), limit)
+        sampled = [
+            groups[group_index][1][0] for group_index in selected_indices if groups[group_index][1]
+        ]
+        return _ordered_unique_event_ids(sampled + standalone_event_ids)[:limit]
+
+    base_quota = (
+        max(_EXPERIENCE_MIN_EVENTS_PER_EPISODE, limit // len(groups))
+        if len(groups) * _EXPERIENCE_MIN_EVENTS_PER_EPISODE <= limit
+        else 1
+    )
+    selected_by_group: list[list[str]] = [
+        _sample_event_ids_evenly(event_ids, min(base_quota, len(event_ids)))
+        for _, event_ids in groups
+    ]
+
+    def _flatten() -> list[str]:
+        flattened: list[str] = []
+        for (_, event_ids), selected_ids in zip(groups, selected_by_group):
+            selected = set(selected_ids)
+            flattened.extend(event_id for event_id in event_ids if event_id in selected)
+        return _ordered_unique_event_ids(flattened)
+
+    remaining = limit - len(_flatten())
+    while remaining > 0:
+        added = False
+        for group_index in _evenly_spaced_indices(len(groups), min(remaining, len(groups))):
+            event_id = _next_even_event_id(groups[group_index][1], selected_by_group[group_index])
+            if event_id is None:
+                continue
+            selected_by_group[group_index].append(event_id)
+            remaining -= 1
+            added = True
+            if remaining <= 0:
+                break
+        if not added:
+            break
+
+    return _ordered_unique_event_ids(_flatten() + standalone_event_ids)[:limit]
 
 
 def _summary_period_start(period_start: float | None, timestamps: list[float]) -> float:
@@ -796,12 +914,10 @@ class L3SummaryStore(
         if not episode_event_ids:
             return None
 
-        # Resolve each event_id to its full L1 row. Skip missing.
-        events: list[Dict[str, Any]] = []
-        for event_id in episode_event_ids:
-            row = await l1_store.get_event(event_id)
-            if row is not None:
-                events.append(row)
+        events = await self._load_events_by_ids(
+            l1_store=l1_store,
+            event_ids=episode_event_ids,
+        )
         if not events:
             return None
 
@@ -1000,7 +1116,8 @@ class L3SummaryStore(
         experience_members: List[Dict[str, Any]],
     ) -> tuple[list[str], list[str]]:
         episode_ids: list[str] = []
-        event_ids: list[str] = []
+        event_groups: list[tuple[str, list[str]]] = []
+        standalone_event_ids: list[str] = []
         seen_events: set[str] = set()
         for member in experience_members:
             if str(member.get("role") or "") == "excluded":
@@ -1011,15 +1128,21 @@ class L3SummaryStore(
                 continue
             if member_type == "episode":
                 episode_ids.append(member_id)
+                episode_event_ids: list[str] = []
                 for link in await l2_store.list_episode_events(episode_id=member_id):
                     event_id = str(link.get("event_id") or "").strip()
                     if event_id and event_id not in seen_events:
                         seen_events.add(event_id)
-                        event_ids.append(event_id)
+                        episode_event_ids.append(event_id)
+                if episode_event_ids:
+                    event_groups.append((member_id, episode_event_ids))
             elif member_type == "event" and member_id not in seen_events:
                 seen_events.add(member_id)
-                event_ids.append(member_id)
-        return episode_ids, event_ids
+                standalone_event_ids.append(member_id)
+        return episode_ids, _stratified_event_sample(
+            event_groups,
+            standalone_event_ids=standalone_event_ids,
+        )
 
     async def _load_experience_events(
         self,
@@ -1027,9 +1150,28 @@ class L3SummaryStore(
         l1_store: L1EventStore,
         event_ids: list[str],
     ) -> list[Dict[str, Any]]:
+        return await self._load_events_by_ids(l1_store=l1_store, event_ids=event_ids)
+
+    async def _load_events_by_ids(
+        self,
+        *,
+        l1_store: L1EventStore,
+        event_ids: list[str],
+    ) -> list[Dict[str, Any]]:
+        rows = await l1_store.fetch_events(event_ids)
+        rows_by_id: dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            event_id = str(row.get("event_id") or "").strip()
+            if event_id and event_id not in rows_by_id:
+                rows_by_id[event_id] = row
+
         events: list[Dict[str, Any]] = []
-        for event_id in event_ids:
-            row = await l1_store.get_event(event_id)
+        seen: set[str] = set()
+        for event_id in _ordered_unique_event_ids(event_ids):
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            row = rows_by_id.get(event_id)
             if row is not None:
                 events.append(row)
         return events

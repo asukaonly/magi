@@ -73,7 +73,9 @@ async def test_create_list_update_seed_and_attach_to_experience(l2_store_with_sc
         ("episode", "ep-google-map", "support"),
     ]
 
-    updated = await store.update_experience_seed(seed_id=seed_id, status="accepted", confidence=0.82)
+    updated = await store.update_experience_seed(
+        seed_id=seed_id, status="accepted", confidence=0.82
+    )
     assert updated is True
     updated_seed = await store.get_experience_seed(seed_id=seed_id)
     assert updated_seed is not None
@@ -424,7 +426,7 @@ async def test_seed_recall_includes_triggers_and_caps_raw_events(l2_store_with_s
     )
     await store.add_episode_events(
         episode_id="ep-train",
-        event_ids=[f"train-{index}" for index in range(30)],
+        event_ids=[f"train-{index:02d}" for index in range(30)],
     )
     await store.add_episode_events(episode_id="ep-map", event_ids=["map-1", "map-2", "map-3"])
     await store.add_episode_events(episode_id="ep-mc", event_ids=["mc-1", "mc-2"])
@@ -458,7 +460,18 @@ async def test_seed_recall_includes_triggers_and_caps_raw_events(l2_store_with_s
         "ep-map",
         "ep-mc",
     ]
-    assert len(pack["candidate_event_ids"]) == 10
+    assert pack["candidate_event_ids"] == [
+        "train-00",
+        "map-1",
+        "mc-1",
+        "train-01",
+        "map-2",
+        "mc-2",
+        "train-02",
+        "map-3",
+        "train-03",
+        "train-04",
+    ]
 
 
 @pytest.mark.asyncio
@@ -509,14 +522,18 @@ async def test_seed_selection_can_exclude_unrelated_interlude(l2_store_with_sche
             "one_sentence_review": "你在车票、地图和住宿之间整理日本旅行计划。",
             "included_episode_ids": ["ep-train", "ep-map"],
             "included_event_ids": [],
-            "excluded_refs": [{"ref_type": "episode", "ref_id": "ep-mc", "reason": "Minecraft interlude"}],
+            "excluded_refs": [
+                {"ref_type": "episode", "ref_id": "ep-mc", "reason": "Minecraft interlude"}
+            ],
             "time_start": 100.0,
             "time_end": 320.0,
             "confidence": 0.86,
             "reason": "Travel planning evidence forms a coherent experience.",
         }
 
-    selection = await select_experience_from_seed(seed=pack["seed"], evidence_pack=pack, selector=selector)
+    selection = await select_experience_from_seed(
+        seed=pack["seed"], evidence_pack=pack, selector=selector
+    )
 
     assert selection.is_experience is True
     assert selection.included_episode_ids == ["ep-train", "ep-map"]
