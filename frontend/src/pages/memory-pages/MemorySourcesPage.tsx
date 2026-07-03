@@ -22,7 +22,6 @@ import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
-  MEMORY_INFO_PANEL_CLASS,
   MEMORY_SECTION_CARD_CLASS,
 } from './MemoryPageFrame';
 import {
@@ -39,7 +38,6 @@ interface SourceLedgerRow extends SourceCoverageRow {
   supportsPullSync: boolean;
   syncMode: string | null;
   storageMode: string | null;
-  lastError: string | null;
   nextRunAt: number | string | null;
 }
 
@@ -110,7 +108,6 @@ const rowFromSource = (
     supportsPullSync: Boolean(sensor?.supports_pull_sync),
     syncMode: sensor?.sync_mode ?? null,
     storageMode: sensor?.storage_mode ?? null,
-    lastError: sensor?.last_error ?? null,
     nextRunAt: sensor?.next_run_at ?? null,
   };
 };
@@ -699,7 +696,6 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
   supportsPullSync: false,
   syncMode: null,
   storageMode: null,
-  lastError: null,
   nextRunAt: null,
 });
 
@@ -945,37 +941,6 @@ function SourceRecentEvents({
   );
 }
 
-function SourceUsageSection({ row }: { row: SourceLedgerRow }) {
-  const { t } = useTranslation('app');
-  const items = [
-    t('memory.sourcesPage.detail.usage.recall'),
-    t('memory.sourcesPage.detail.usage.summaries'),
-    t('memory.sourcesPage.detail.usage.experiences'),
-  ];
-  return (
-    <section className={MEMORY_SECTION_CARD_CLASS}>
-      <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-        {t('memory.sourcesPage.detail.usageTitle')}
-      </h2>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        {items.map((item, index) => (
-          <div key={item} className={MEMORY_INFO_PANEL_CLASS}>
-            <div className="mb-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
-              {t('memory.sourcesPage.detail.usageStep', { index: index + 1 })}
-            </div>
-            <div>{item}</div>
-          </div>
-        ))}
-      </div>
-      {row.lastError ? (
-        <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-4 text-red-600')}>
-          {t('memory.sourcesPage.detail.lastError', { message: row.lastError })}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 export const MemorySourceDetailPage = () => {
   const params = useParams();
   const { t } = useTranslation('app');
@@ -1139,7 +1104,6 @@ export const MemorySourceDetailPage = () => {
             onSearch={handleSearch}
             onLoadMore={handleLoadMore}
           />
-          <SourceUsageSection row={row} />
         </div>
       )}
     </MemoryPageFrame>

@@ -38,7 +38,6 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.detail.timeRange.last30Days': '近 30 天',
         'memory.sourcesPage.detail.eventType.all': '全部类型',
         'memory.sourcesPage.detail.eventType.sensor': '传感器事件',
-        'memory.sourcesPage.detail.usageTitle': '这个来源如何使用',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
         'memory.sourcesPage.pulseStats.today': '今日事件',
         'memory.sourcesPage.pulseStats.backlog': '待处理',
@@ -329,6 +328,8 @@ describe('MemorySourcesPage', () => {
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 0 });
     expect(screen.getByText('36')).toBeInTheDocument();
     expect(screen.getByText('共 2 条 / 当前 2 条')).toBeInTheDocument();
+    expect(screen.queryByText('这个来源如何使用')).not.toBeInTheDocument();
+    expect(screen.queryByText('memory.sourcesPage.detail.usageTitle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-source-detail-drawer')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '同步一次' }));

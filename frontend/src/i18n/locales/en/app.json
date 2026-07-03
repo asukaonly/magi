@@ -2632,16 +2632,8 @@
         "eventsLoading": "Loading recent items.",
         "eventsEmpty": "This source has not added anything to memory yet.",
         "stored": "Stored",
-        "usageTitle": "How this source is used",
         "nextRun": "Next sync",
-        "syncMode": "Sync mode",
-        "usageStep": "Use {{index}}",
-        "usage": {
-          "recall": "Provides raw signals when searching memory, so Magi can recover concrete past activity.",
-          "summaries": "Feeds summaries so Magi can notice stage changes and repeated patterns.",
-          "experiences": "Combines with other sources to shape fuller experiences across a stretch of time."
-        },
-        "lastError": "Latest sync failed: {{message}}"
+        "syncMode": "Sync mode"
       }
     },
     "stories": {

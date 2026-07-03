@@ -2631,16 +2631,8 @@
         "eventsLoading": "正在加载最近内容。",
         "eventsEmpty": "这个来源还没有进入记忆的内容。",
         "stored": "已入记忆",
-        "usageTitle": "这个来源如何使用",
         "nextRun": "下次同步",
-        "syncMode": "同步方式",
-        "usageStep": "用途 {{index}}",
-        "usage": {
-          "recall": "在找记忆时提供原始线索，帮助 Magi 找回具体发生过的事。",
-          "summaries": "进入总结流程后，能帮助 Magi 看见阶段变化和重复模式。",
-          "experiences": "和其他来源一起组成经历，让一段时间里的活动更完整。"
-        },
-        "lastError": "最近一次同步失败：{{message}}"
+        "syncMode": "同步方式"
       }
     },
     "stories": {
