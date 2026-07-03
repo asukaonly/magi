@@ -1084,6 +1084,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     l2.list_experience_members = AsyncMock(return_value=[
         {"member_type": "episode", "member_id": "ep_need", "role": "core", "confidence": 0.8}
     ])
+    l2.update_experience = AsyncMock(return_value=True)
     l3 = MagicMock()
     l3.generate_missing_episodic_summaries = AsyncMock(
         return_value={"generated": 1, "errors": []}
@@ -1099,6 +1100,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = l1
+    unified.scenario_llm_pool = object()
 
     # consolidate_episodes is invoked from within the route; patch where it's imported.
     with (
@@ -1118,7 +1120,7 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
                 promoted=1,
                 promoted_experience_ids=["exp_need"],
             )),
-        ),
+        ) as promote,
     ):
         client = TestClient(app)
         r = client.post("/api/memory/l2/episodes/reconsolidate")
@@ -1132,6 +1134,9 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     assert body["experiences_promoted"] == 1
     assert body["experience_summaries_generated"] == 1
     assert body["experience_summary_errors"] == []
+    promote.assert_awaited_once()
+    assert promote.await_args.args == (l2,)
+    assert callable(promote.await_args.kwargs["selector"])
     # Active episodes (not list_standout_episodes) drive the catch-up.
     l2.list_episodes.assert_awaited_once()
     assert l2.list_episodes.await_args.kwargs["status"] == "active"
@@ -1170,6 +1175,7 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
     l2.list_experience_members = AsyncMock(return_value=[
         {"member_type": "episode", "member_id": "ep-old", "role": "core", "confidence": 0.8}
     ])
+    l2.update_experience = AsyncMock(return_value=True)
     l3 = MagicMock()
     l3.generate_missing_episodic_summaries = AsyncMock(
         return_value={"generated": 0, "errors": []}

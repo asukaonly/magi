@@ -308,6 +308,8 @@ def test_runtime_config_l2_experience_defaults():
     assert experience.min_repeated_goal_events == 8
     assert experience.max_repeated_goal_window_seconds == 30 * 24 * 60 * 60
     assert experience.max_repeated_goal_gap_seconds == 7 * 24 * 60 * 60
+    assert AppConfig().agent.memory.l2.experience_seed_llm_selection_enabled is True
+    assert AppConfig().agent.memory.l2.experience_seed_llm_timeout_seconds == 30.0
 
 
 def test_l2_experience_config_defaults_match_module_constants():

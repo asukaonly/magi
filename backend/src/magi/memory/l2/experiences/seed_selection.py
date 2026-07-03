@@ -272,6 +272,8 @@ async def select_experience_from_seed(
         selection = await _selector_result(selector, seed=seed, evidence_pack=evidence_pack)
         if selection.title and selection.one_sentence_review:
             return selection
+        if not selection.is_experience and selection.reason:
+            return selection
     return _default_selection(seed, evidence_pack)
 
 

@@ -143,6 +143,7 @@ class UnifiedMemoryStore(
             l4=enable_l4,
         )
         self.memory_db_path = context.paths.shared_memory_db_path
+        self.scenario_llm_pool = scenario_llm_pool
         self._initialize_layer_slots(context.paths.archive_dir, l2_batch_flush_interval_seconds)
         self._build_enabled_layers(context, enabled_layers)
         self._finalize_initial_state()

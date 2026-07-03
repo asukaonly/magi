@@ -78,6 +78,7 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
+    unified.scenario_llm_pool = object()
 
     with (
         build_patcher(unified),
@@ -112,7 +113,10 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     )
     l2.add_experience_seed_evidence.assert_awaited_once()
     assert l2.add_experience_seed_evidence.await_args.kwargs["evidence"][0]["ref_id"] == "ep2"
-    promote.assert_awaited_once_with(l2, target_seed_id="seed1")
+    promote.assert_awaited_once()
+    assert promote.await_args.args == (l2,)
+    assert promote.await_args.kwargs["target_seed_id"] == "seed1"
+    assert callable(promote.await_args.kwargs["selector"])
 
 
 def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_mock_memory):
@@ -239,6 +243,7 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     unified.l2 = l2
     unified.l3 = l3
     unified.l1 = None
+    unified.scenario_llm_pool = object()
 
     with (
         build_patcher(unified),
@@ -253,7 +258,10 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     assert response.status_code == 200
     assert response.json()["promoted_experience_id"] == "exp1"
     l2.update_experience_seed.assert_awaited_once_with(seed_id="seed1", status="accepted")
-    promote.assert_awaited_once_with(l2, target_seed_id="seed1")
+    promote.assert_awaited_once()
+    assert promote.await_args.args == (l2,)
+    assert promote.await_args.kwargs["target_seed_id"] == "seed1"
+    assert callable(promote.await_args.kwargs["selector"])
 
 
 def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):

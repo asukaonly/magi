@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException, Query, UploadFile, status
 
+from magi.config import get_config
 from magi.api.services.l2_episode_review_helpers import (
     build_episode_display_fields,
     serialize_episodic_summary,
@@ -19,6 +20,10 @@ from magi.api.services.l2_episode_review_read_model import (
 )
 from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
 from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+from magi.memory.l2.experiences.seed_selection_llm import (
+    build_experience_seed_selector,
+    scenario_llm_pool_from_unified_memory,
+)
 
 from ..asset_uploads import store_uploaded_image_asset
 from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
@@ -324,6 +329,15 @@ def _experience_seed_extra_evidence(
     return evidence
 
 
+def _experience_seed_selector(unified_memory: Any) -> Any | None:
+    l2_cfg = get_config().agent.memory.l2
+    return build_experience_seed_selector(
+        scenario_llm_pool=scenario_llm_pool_from_unified_memory(unified_memory),
+        enabled=bool(l2_cfg.experience_seed_llm_selection_enabled),
+        timeout_seconds=float(l2_cfg.experience_seed_llm_timeout_seconds),
+    )
+
+
 async def _create_manual_experience_seed(
     unified_memory: Any,
     *,
@@ -363,9 +377,13 @@ async def _promote_seed_for_create_response(
 ) -> tuple[str | None, dict[str, Any] | None]:
     if not promote_now:
         return None, None
+    selector = _experience_seed_selector(unified_memory)
+    promotion_kwargs: dict[str, Any] = {"target_seed_id": seed_id}
+    if selector is not None:
+        promotion_kwargs["selector"] = selector
     stats = await promote_experiences_from_episodes(
         unified_memory.l2,
-        target_seed_id=seed_id,
+        **promotion_kwargs,
     )
     if not stats.promoted_experience_ids:
         return None, None
@@ -469,9 +487,13 @@ async def promote_l2_experience_seed(seed_id: str):
             detail=memory_t("memory.errors.experience_seed_not_found", "Experience seed not found"),
         )
     await unified_memory.l2.update_experience_seed(seed_id=seed_id, status="accepted")
+    selector = _experience_seed_selector(unified_memory)
+    promotion_kwargs: dict[str, Any] = {"target_seed_id": seed_id}
+    if selector is not None:
+        promotion_kwargs["selector"] = selector
     stats = await promote_experiences_from_episodes(
         unified_memory.l2,
-        target_seed_id=seed_id,
+        **promotion_kwargs,
     )
     seed = await unified_memory.l2.get_experience_seed(seed_id=seed_id)
     promoted_experience_id = _clean_text((seed or {}).get("promoted_experience_id")) or None

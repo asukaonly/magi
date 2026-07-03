@@ -444,6 +444,15 @@ class MemoryL2Settings(BaseModel):
         ge=300.0,
         description="Interval between L2 episode/experience consolidation runs (seconds). Minimum 300 to avoid excessive load.",
     )
+    experience_seed_llm_selection_enabled: bool = Field(
+        default=True,
+        description="Use the memory summarizer/core model to select coherent experience seed evidence before promotion.",
+    )
+    experience_seed_llm_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0.0,
+        description="Timeout for one LLM-backed experience seed selection call.",
+    )
     edge_embedding_drain_interval_seconds: float = Field(
         default=5.0,
         ge=1.0,

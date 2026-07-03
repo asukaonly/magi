@@ -26,6 +26,7 @@ class _L2ConsolidationStores:
     cognition_store: Any
     l1_store: Any | None
     l3_store: Any | None
+    scenario_llm_pool: Any | None = None
 
 
 @dataclass(slots=True)
@@ -115,6 +116,7 @@ def _resolve_l2_consolidation_stores() -> _L2ConsolidationStores | ScheduledExec
         cognition_store=cognition_store,
         l1_store=getattr(unified, "l1", None),
         l3_store=getattr(unified, "l3", None),
+        scenario_llm_pool=vars(unified).get("scenario_llm_pool"),
     )
 
 
@@ -162,9 +164,22 @@ async def _promote_experiences_and_summaries(
     stats = _ExperienceConsolidationStats()
     try:
         from .experiences.promotion import promote_experiences_from_episodes
+        from .experiences.seed_selection_llm import build_experience_seed_selector
         from .experiences.summary_generation import generate_missing_experience_summaries
 
-        experience_stats = await promote_experiences_from_episodes(stores.cognition_store)
+        l2_cfg = get_config().agent.memory.l2
+        selector = build_experience_seed_selector(
+            scenario_llm_pool=stores.scenario_llm_pool,
+            enabled=bool(l2_cfg.experience_seed_llm_selection_enabled),
+            timeout_seconds=float(l2_cfg.experience_seed_llm_timeout_seconds),
+        )
+        promotion_kwargs: dict[str, Any] = {}
+        if selector is not None:
+            promotion_kwargs["selector"] = selector
+        experience_stats = await promote_experiences_from_episodes(
+            stores.cognition_store,
+            **promotion_kwargs,
+        )
         stats.candidates = int(experience_stats.candidates)
         stats.promoted = int(experience_stats.promoted)
         stats.duplicates = int(experience_stats.skipped_duplicates)

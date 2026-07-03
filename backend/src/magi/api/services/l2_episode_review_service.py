@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
+from magi.config import get_config
 from magi.api.routers.memory.helpers import memory_t
 from magi.api.services.l2_episode_review_helpers import (
     build_episode_display_fields,
@@ -26,6 +27,10 @@ from magi.api.services.l2_episode_review_read_model import (
 from magi.memory.l2.consolidation_schedule import (
     SCHEDULE_ID_L2_CONSOLIDATE,
     TARGET_KEY_L2_CONSOLIDATE,
+)
+from magi.memory.l2.experiences.seed_selection_llm import (
+    build_experience_seed_selector,
+    scenario_llm_pool_from_unified_memory,
 )
 from magi.scheduler.contracts import ScheduledExecutionResult, ScheduledTargetType
 from magi.scheduler.repository import ScheduleRepository
@@ -612,7 +617,19 @@ async def reconsolidate_episode_reviews(unified_memory: Any) -> dict[str, Any]:
             summaries_generated = int(result.get("generated") or 0)
             summary_errors = list(result.get("errors") or [])
 
-        experience_stats = await promote_experiences_from_episodes(unified_memory.l2)
+        l2_cfg = get_config().agent.memory.l2
+        selector = build_experience_seed_selector(
+            scenario_llm_pool=scenario_llm_pool_from_unified_memory(unified_memory),
+            enabled=bool(l2_cfg.experience_seed_llm_selection_enabled),
+            timeout_seconds=float(l2_cfg.experience_seed_llm_timeout_seconds),
+        )
+        promotion_kwargs: dict[str, Any] = {}
+        if selector is not None:
+            promotion_kwargs["selector"] = selector
+        experience_stats = await promote_experiences_from_episodes(
+            unified_memory.l2,
+            **promotion_kwargs,
+        )
         if unified_memory.l3 is not None and unified_memory.l1 is not None:
             experience_summary_result = await generate_missing_experience_summaries(
                 l1_store=unified_memory.l1,
