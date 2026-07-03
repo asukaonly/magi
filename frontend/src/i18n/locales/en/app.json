@@ -2490,6 +2490,7 @@
     "subtitle": "L0-L4 Layered Memory System",
     "nav": {
       "overview": "Overview",
+      "sources": "Sources",
       "pending": "Pending",
       "stories": "Summaries",
       "episodes": "Experiences",
@@ -2564,6 +2565,65 @@
         "sources": "No sources have entered memory yet.",
         "pending": "Nothing needs your judgment right now.",
         "recent": "No recent reviews yet."
+      }
+    },
+    "sourcesPage": {
+      "title": "Sources",
+      "subtitle": "See where Magi is forming memories today.",
+      "loading": "Preparing sources.",
+      "error": "Sources could not load right now.",
+      "empty": "No sources are available yet.",
+      "localOnly": "Data stays on this device",
+      "neverSynced": "Never synced",
+      "noRecentBatch": "No recent batch",
+      "lastBatch": "{{count}} stored last run",
+      "descriptionFallback": "This source turns local activity into memory signals you can review later.",
+      "notScheduled": "Not scheduled",
+      "unknown": "Unknown",
+      "unknownTime": "Unknown time",
+      "sections": {
+        "pulse": "Today's pulse",
+        "ledger": "Source ledger"
+      },
+      "pulseSubtitle": "See today's memory intake by source, including what is active and what is still waiting.",
+      "pulseStats": {
+        "today": "Today",
+        "sources": "Sources",
+        "backlog": "Queued"
+      },
+      "ledgerSubtitle": "Status, latest sync, and stored memory counts for each source.",
+      "columns": {
+        "source": "Source",
+        "status": "Status",
+        "lastSync": "Last sync",
+        "today": "Today",
+        "stored": "Stored",
+        "action": "Action"
+      },
+      "actions": {
+        "view": "View",
+        "sync": "Sync once",
+        "settings": "Open settings",
+        "pause": "Pause",
+        "back": "Back to sources"
+      },
+      "detail": {
+        "lastSync": "Last sync: {{value}}",
+        "recentTitle": "Recently added to memory",
+        "recentCount": "{{count}} item(s)",
+        "eventsLoading": "Loading recent items.",
+        "eventsEmpty": "This source has not added anything to memory yet.",
+        "stored": "Stored",
+        "usageTitle": "How this source is used",
+        "nextRun": "Next sync",
+        "syncMode": "Sync mode",
+        "usageStep": "Use {{index}}",
+        "usage": {
+          "recall": "Provides raw signals when searching memory, so Magi can recover concrete past activity.",
+          "summaries": "Feeds summaries so Magi can notice stage changes and repeated patterns.",
+          "experiences": "Combines with other sources to shape fuller experiences across a stretch of time."
+        },
+        "lastError": "Latest sync failed: {{message}}"
       }
     },
     "stories": {
@@ -3485,7 +3545,17 @@
       "runtime_event_emitter": "Runtime event emitter",
       "timeline_importer": "Timeline importer",
       "manual_journal": "Manual journal",
-      "l2_lab": "L2 lab"
+      "l2_lab": "L2 lab",
+      "chrome_history": "Chrome history",
+      "claude_code_agent_history": "Claude Code",
+      "netease_music": "NetEase Music",
+      "photo_library": "Photos",
+      "screen_time": "Screen Time",
+      "terminal_history": "Terminal history",
+      "git_activity": "Git activity",
+      "steam_play_history": "Steam play history",
+      "system_media": "System media",
+      "calendar": "Calendar"
     },
     "architectureLabel": "Memory Architecture",
     "memoryArchitectureValue": "L0-L4 Lifecycle",

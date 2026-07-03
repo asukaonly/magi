@@ -2489,6 +2489,7 @@
     "subtitle": "L0-L4 分层记忆系统",
     "nav": {
       "overview": "总览",
+      "sources": "来源",
       "pending": "待确认",
       "stories": "总结",
       "episodes": "经历",
@@ -2563,6 +2564,65 @@
         "sources": "还没有来源进入记忆。",
         "pending": "现在没有需要确认的内容。",
         "recent": "还没有新的回顾。"
+      }
+    },
+    "sourcesPage": {
+      "title": "来源",
+      "subtitle": "看看 Magi 今天从哪里形成记忆。",
+      "loading": "正在整理来源。",
+      "error": "来源暂时加载失败。",
+      "empty": "还没有可查看的来源。",
+      "localOnly": "数据只保存在本机",
+      "neverSynced": "还没有同步",
+      "noRecentBatch": "暂无最近批次",
+      "lastBatch": "上次入库 {{count}} 条",
+      "descriptionFallback": "这个来源会把本机活动整理成可回看的记忆线索。",
+      "notScheduled": "未安排",
+      "unknown": "未知",
+      "unknownTime": "未知时间",
+      "sections": {
+        "pulse": "今日脉搏",
+        "ledger": "来源总账"
+      },
+      "pulseSubtitle": "按来源看今天进入记忆的节奏，快速发现哪些来源活跃、哪些还在等待处理。",
+      "pulseStats": {
+        "today": "今日入库",
+        "sources": "来源数",
+        "backlog": "待处理"
+      },
+      "ledgerSubtitle": "每个来源的状态、最近同步和已入库数量都在这里。",
+      "columns": {
+        "source": "来源",
+        "status": "状态",
+        "lastSync": "最近同步",
+        "today": "今日入库",
+        "stored": "已入库",
+        "action": "操作"
+      },
+      "actions": {
+        "view": "查看",
+        "sync": "同步一次",
+        "settings": "打开设置",
+        "pause": "暂停",
+        "back": "返回来源"
+      },
+      "detail": {
+        "lastSync": "最近同步：{{value}}",
+        "recentTitle": "最近进入记忆的内容",
+        "recentCount": "{{count}} 条",
+        "eventsLoading": "正在加载最近内容。",
+        "eventsEmpty": "这个来源还没有进入记忆的内容。",
+        "stored": "已入记忆",
+        "usageTitle": "这个来源如何使用",
+        "nextRun": "下次同步",
+        "syncMode": "同步方式",
+        "usageStep": "用途 {{index}}",
+        "usage": {
+          "recall": "在找记忆时提供原始线索，帮助 Magi 找回具体发生过的事。",
+          "summaries": "进入总结流程后，能帮助 Magi 看见阶段变化和重复模式。",
+          "experiences": "和其他来源一起组成经历，让一段时间里的活动更完整。"
+        },
+        "lastError": "最近一次同步失败：{{message}}"
       }
     },
     "stories": {
@@ -3484,7 +3544,17 @@
       "runtime_event_emitter": "运行时事件发射器",
       "timeline_importer": "时间线导入",
       "manual_journal": "手动日志",
-      "l2_lab": "L2 实验台"
+      "l2_lab": "L2 实验台",
+      "chrome_history": "Chrome 浏览器历史",
+      "claude_code_agent_history": "Claude Code",
+      "netease_music": "网易云音乐",
+      "photo_library": "照片",
+      "screen_time": "屏幕使用时间",
+      "terminal_history": "终端历史",
+      "git_activity": "Git 活动",
+      "steam_play_history": "Steam 游玩记录",
+      "system_media": "系统媒体",
+      "calendar": "日历"
     },
     "architectureLabel": "记忆架构",
     "memoryArchitectureValue": "L0-L4 生命周期",

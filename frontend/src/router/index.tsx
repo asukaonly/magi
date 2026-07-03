@@ -17,6 +17,12 @@ const TimelinePage = React.lazy(() =>
 const MemoryOverviewPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryOverviewPage }))
 );
+const MemorySourcesPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemorySourcesPage }))
+);
+const MemorySourceDetailPage = React.lazy(() =>
+  import('../pages/memory-pages').then((m) => ({ default: m.MemorySourceDetailPage }))
+);
 const MemoryPendingPage = React.lazy(() =>
   import('../pages/memory-pages').then((m) => ({ default: m.MemoryPendingPage }))
 );
@@ -185,6 +191,22 @@ const router = createBrowserRouter([
             element: (
               <React.Suspense fallback={<LoadingFallback />}>
                 <MemoryOverviewPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'sources',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemorySourcesPage />
+              </React.Suspense>
+            ),
+          },
+          {
+            path: 'sources/:sourceName',
+            element: (
+              <React.Suspense fallback={<LoadingFallback />}>
+                <MemorySourceDetailPage />
               </React.Suspense>
             ),
           },

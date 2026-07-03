@@ -47,6 +47,8 @@ vi.mock('../pages/Onboarding', () => ({
 
 vi.mock('../pages/memory-pages', () => ({
   MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
+  MemorySourcesPage: () => <div data-testid="memory-sources-page">memory-sources-page</div>,
+  MemorySourceDetailPage: () => <div data-testid="memory-source-detail-page">memory-source-detail-page</div>,
   MemoryPendingPage: () => <div data-testid="memory-pending-page">memory-pending-page</div>,
   MemoryEventsPage: () => <div data-testid="memory-events-page">memory-events-page</div>,
   MemoryKnowledgePage: () => <div data-testid="memory-knowledge-page">memory-knowledge-page</div>,

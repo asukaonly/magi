@@ -727,9 +727,12 @@ assertions, L3 reviewable insights, storage usage, and recent memory formation.
 Its summary cards show current memory totals plus live same-day formation
 deltas from L1 event creation, L2 assertion inference, and L3 summary creation;
 storage remains a current usage value until a durable daily snapshot exists.
-Raw L1 events, L2 graph inspection, and L4 skill memory remain available from
-Manage as operator/developer surfaces, not as the default mental model for
-ordinary memory review.
+A dedicated Sources page expands the overview's source coverage into a
+user-facing ledger with per-source status, recent intake, and full-page source
+detail views for recent raw items and source actions. Raw L1 events, L2 graph
+inspection, and L4 skill memory remain available from Manage as
+operator/developer surfaces, not as the default mental model for ordinary
+memory review.
 The memory story feed is a backend-assembled read model over L3 insight and
 temporal summary records. The API owns story grouping, summary-page visibility,
 featured ordering hints, display timestamps, preview text, detail lead text, and

@@ -1,4 +1,5 @@
 export { MemoryOverviewPage } from './MemoryOverviewPage';
+export { MemorySourcesPage, MemorySourceDetailPage } from './MemorySourcesPage';
 export { MemoryPendingPage } from './MemoryPendingPage';
 export { MemoryEventsPage } from './MemoryEventsPage';
 export { MemoryKnowledgePage } from './MemoryKnowledgePage';

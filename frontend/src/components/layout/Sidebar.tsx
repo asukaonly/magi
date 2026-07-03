@@ -4,6 +4,7 @@ import {
   Brain,
   BookOpen,
   CalendarClock,
+  Database,
   History,
   Inbox,
   LayoutDashboard,
@@ -49,6 +50,7 @@ type ActivityPanel = Exclude<ChatPanelType, 'none'>;
 
 const MEMORY_DESTINATIONS = [
   { key: 'overview', path: '/memory/overview', icon: LayoutDashboard },
+  { key: 'sources', path: '/memory/sources', icon: Database },
   { key: 'portrait', path: '/memory/portrait', icon: UserRound },
   { key: 'pending', path: '/memory/pending', icon: Inbox },
   { key: 'stories', path: '/memory/stories', icon: History },
@@ -509,6 +511,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
             const Icon = item.icon;
             const destinationActive =
               location.pathname === item.path ||
+              (item.path === '/memory/sources' && location.pathname.startsWith('/memory/sources/')) ||
               (item.path === '/memory/stories' && location.pathname === '/events');
             const pendingCount = item.key === 'pending' ? pendingMemoryConflictCount : 0;
             return (
@@ -656,7 +659,7 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
     <aside
       className={cn(
         'relative flex h-full min-h-0 overflow-hidden bg-[hsl(var(--app-chrome-surface))] shadow-[inset_-1px_0_0_hsl(var(--app-chrome-divider)/0.46)] transition-[width] duration-150 ease-out',
-        openPanel ? 'w-[284px]' : 'w-14'
+        openPanel === 'memory' ? 'w-[248px]' : openPanel ? 'w-[284px]' : 'w-14'
       )}
     >
       {sessionMenu && sessionMenuSession ? (
@@ -732,7 +735,12 @@ export default function Sidebar({ collapsed = false }: SidebarProps) {
       </div>
 
       {openPanel ? (
-        <div className="flex min-h-0 w-[228px] shrink-0 flex-col bg-[hsl(var(--app-chrome-surface))]">
+        <div
+          className={cn(
+            'flex min-h-0 shrink-0 flex-col bg-[hsl(var(--app-chrome-surface))]',
+            openPanel === 'memory' ? 'w-[192px]' : 'w-[228px]'
+          )}
+        >
           {renderPanelContent()}
         </div>
       ) : null}

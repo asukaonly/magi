@@ -616,13 +616,18 @@ describe('sidebar navigation', () => {
 
     expect(screen.getByTestId('location')).toHaveTextContent('/memory/overview');
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('sidebar-memory-icon-overview')).toBeInTheDocument();
+
+    const sidebarRoot = document.querySelector('aside');
+    expect(sidebarRoot).toHaveClass('w-[248px]');
 
     await user.click(screen.getByRole('button', { name: 'memory.nav.episodes' }));
 
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.pending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
@@ -634,6 +639,11 @@ describe('sidebar navigation', () => {
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByTestId('location')).toHaveTextContent('/memory/episodes');
     expect(useChatShellStore.getState().activePanel).toBe('memory');
+
+    await user.click(screen.getByRole('button', { name: 'memory.nav.sources' }));
+
+    expect(screen.getByTestId('location')).toHaveTextContent('/memory/sources');
+    expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('renders all memory destinations without loading user mode', async () => {
@@ -658,6 +668,7 @@ describe('sidebar navigation', () => {
     expect(configApi.get).not.toHaveBeenCalled();
     expect(screen.getByTestId('sidebar-memory-panel')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.overview' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'memory.nav.sources' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.pending' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.stories' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'memory.nav.episodes' })).toBeInTheDocument();
