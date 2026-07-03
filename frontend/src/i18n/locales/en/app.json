@@ -2606,7 +2606,18 @@
         "sync": "Sync once",
         "settings": "Open settings",
         "pause": "Pause",
+        "resume": "Resume",
         "back": "Back to sources"
+      },
+      "syncModes": {
+        "interval": "Interval sync",
+        "manual": "Manual sync",
+        "event": "Event-triggered"
+      },
+      "feedback": {
+        "pauseSuccess": "{{source}} paused",
+        "resumeSuccess": "{{source}} resumed",
+        "toggleFailed": "Could not update source status: {{message}}"
       },
       "detail": {
         "lastSync": "Last sync: {{value}}",
