@@ -82,6 +82,22 @@ TEXT_SOURCE_NOISE = {
     "动态",
     "应用",
 }
+# Connector words ignored when judging whether a multi-word phrase is
+# composed purely of source-noise vocabulary.
+TEXT_NEUTRAL_WORDS = {
+    "a",
+    "an",
+    "and",
+    "at",
+    "for",
+    "in",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "with",
+}
 OPERATIONAL_ARTIFACT_EXTENSIONS = {
     ".db",
     ".env",
@@ -267,7 +283,26 @@ def _is_text_noise(token: str) -> bool:
         return True
     if MACHINE_ID_PATTERN.fullmatch(text):
         return True
+    if _is_source_noise_phrase(text):
+        return True
     return False
+
+
+def _is_source_noise_phrase(text: str) -> bool:
+    """True when every content word of a multi-word phrase is source noise.
+
+    Episode labels such as "Browse Chrome and Google Search" survive the
+    single-token noise checks because the phrase as a whole is not in
+    ``TEXT_SOURCE_NOISE``. Judge the individual words instead, ignoring
+    connector words.
+    """
+    words = [word for word in re.split(r"[\s./_-]+", text) if word]
+    if len(words) < 2:
+        return False
+    content_words = [word for word in words if word not in TEXT_NEUTRAL_WORDS]
+    if not content_words:
+        return True
+    return all(word in TEXT_SOURCE_NOISE for word in content_words)
 
 
 def _text_tokens(value: str) -> list[str]:

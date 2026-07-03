@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .seed_features import _episode_features, _load_episodic_summary_texts
+from .seed_features import _episode_features
 from .seed_models import ExperienceSeedDiscoveryStats, RepeatedGoalSelector
 from .seed_source_anchor import _discover_anchor_repeated_goal_seeds
 from .seed_source_project import _discover_project_seeds
@@ -37,11 +37,7 @@ async def discover_experience_seeds(
     if not episodes:
         return ExperienceSeedDiscoveryStats()
     sorted_episodes = sorted(episodes, key=lambda item: float(item["time_start"]))
-    summary_texts = await _load_episodic_summary_texts(
-        store,
-        [str(episode["episode_id"]) for episode in sorted_episodes],
-    )
-    features = _episode_features(sorted_episodes, summary_texts)
+    features = _episode_features(sorted_episodes)
     project_stats = await _discover_project_seeds(store, sorted_episodes)
     anchor_stats = await _discover_anchor_repeated_goal_seeds(store, features)
     text_stats = await _discover_text_repeated_goal_seeds(store, features)

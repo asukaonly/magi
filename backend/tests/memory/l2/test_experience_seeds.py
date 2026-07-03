@@ -2,62 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import time
-
 import pytest
-
-
-async def _insert_episodic_summary(
-    store,
-    *,
-    episode_id: str,
-    content: str,
-    period_start: float,
-    period_end: float,
-    key_topics: list[str] | None = None,
-    key_entities: list[dict[str, str]] | None = None,
-) -> None:
-    from magi.core.sqlite import sqlite_connection_async
-
-    now = time.time()
-    async with sqlite_connection_async(store.db_path) as db:
-        await db.execute(
-            """
-            INSERT INTO summaries(
-                summary_id, summary_type, summary_category,
-                period_start, period_end, content,
-                key_topics, key_entities, source_event_ids, source_event_count,
-                generated_by_model, generation_reason, insight_metadata,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"summary-{episode_id}",
-                "thematic",
-                "episodic",
-                period_start,
-                period_end,
-                content,
-                "[]",
-                "[]",
-                "[]",
-                0,
-                "test",
-                "test:episodic",
-                json.dumps(
-                    {
-                        "source_episode_id": episode_id,
-                        "key_topics": key_topics or [],
-                        "key_entities": key_entities or [],
-                    },
-                    ensure_ascii=False,
-                ),
-                now,
-                now,
-            ),
-        )
-        await db.commit()
 
 
 @pytest.mark.asyncio
@@ -250,8 +195,34 @@ async def test_does_not_discover_seed_from_only_generic_anchors(l2_store_with_sc
     assert await store.list_experience_seeds(statuses=["candidate", "accepted"]) == []
 
 
+def test_episode_seed_text_reads_local_label_and_summary_quotes():
+    from magi.memory.l2.experiences.seed_features import _episode_seed_text
+
+    episode = {
+        "episode_id": "ep1",
+        "user_label": "手动标注",
+        "label": "日本旅行",
+        "summary": "围绕「新干线车票」和东京住宿做准备。",
+    }
+    text = _episode_seed_text(episode)
+    assert "手动标注" in text
+    assert "日本旅行" in text
+    assert "新干线车票" in text
+    # Whole summary prose is not folded into clustering tokens.
+    assert "东京住宿" not in text
+
+
+def test_text_tokens_reject_source_noise_phrases():
+    from magi.memory.l2.experiences.seed_anchors import _text_tokens
+
+    # A label composed purely of source-noise vocabulary is not a seed token.
+    assert _text_tokens("Browse Chrome and Google Search") == []
+    # Concrete phrases survive.
+    assert _text_tokens("Book Shinkansen tickets") == ["book shinkansen tickets"]
+
+
 @pytest.mark.asyncio
-async def test_discovers_repeated_goal_seed_from_l3_episode_summaries(
+async def test_discovers_repeated_goal_seed_from_backwritten_episode_summaries(
     l2_store_with_schema,
 ):
     from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
@@ -282,18 +253,12 @@ async def test_discovers_repeated_goal_seed_from_l3_episode_summaries(
         await store.create_episode(
             episode_id=episode_id,
             status="active",
+            label="日本旅行",
+            summary=summary,
             time_start=start,
             time_end=end,
             primary_entity_ids=["user:local_user", "software:chrome"],
             source_event_count=8,
-        )
-        await _insert_episodic_summary(
-            store,
-            episode_id=episode_id,
-            content=summary,
-            period_start=start,
-            period_end=end,
-            key_topics=["日本旅行"],
         )
 
     stats = await discover_experience_seeds(store)
@@ -312,7 +277,7 @@ async def test_discovers_repeated_goal_seed_from_l3_episode_summaries(
 
 
 @pytest.mark.asyncio
-async def test_repeated_goal_seed_rejects_source_noise_from_l3_summaries(
+async def test_repeated_goal_seed_rejects_source_noise_from_episode_labels(
     l2_store_with_schema,
 ):
     from magi.memory.l2.experiences.seed_discovery import discover_experience_seeds
@@ -329,6 +294,8 @@ async def test_repeated_goal_seed_rejects_source_noise_from_l3_summaries(
         await store.create_episode(
             episode_id=f"ep-source-noise-{index}",
             status="active",
+            label="Chrome",
+            summary=summary,
             time_start=start,
             time_end=start + 300.0,
             primary_entity_ids=[
@@ -339,14 +306,6 @@ async def test_repeated_goal_seed_rejects_source_noise_from_l3_summaries(
                 "software:gmail",
             ],
             source_event_count=20,
-        )
-        await _insert_episodic_summary(
-            store,
-            episode_id=f"ep-source-noise-{index}",
-            content=summary,
-            period_start=start,
-            period_end=start + 300.0,
-            key_topics=["Chrome", "Google", "Gmail", "GitHub"],
         )
 
     stats = await discover_experience_seeds(store)
@@ -374,18 +333,12 @@ async def test_repeated_goal_seed_rejects_technical_artifact_topic(
         await store.create_episode(
             episode_id=episode_id,
             status="active",
+            label="dev-tauri-hot.sh",
+            summary=summary,
             time_start=start,
             time_end=start + 300.0,
             primary_entity_ids=["software:terminal"],
             source_event_count=8,
-        )
-        await _insert_episodic_summary(
-            store,
-            episode_id=episode_id,
-            content=summary,
-            period_start=start,
-            period_end=start + 300.0,
-            key_topics=["dev-tauri-hot.sh"],
         )
 
     stats = await discover_experience_seeds(store)

@@ -328,6 +328,8 @@ async def test_experience_promotion_promotes_repeated_goal_seed_from_l3_summarie
         await store.create_episode(
             episode_id=episode_id,
             status="active",
+            label="日本旅行",
+            summary=summary,
             time_start=start,
             time_end=end,
             primary_entity_ids=["user:local_user", "software:chrome"],
@@ -336,14 +338,6 @@ async def test_experience_promotion_promotes_repeated_goal_seed_from_l3_summarie
         await store.add_episode_events(
             episode_id=episode_id,
             event_ids=[f"japan-{index}-{event}" for event in range(6)],
-        )
-        await _insert_episodic_summary(
-            store,
-            episode_id=episode_id,
-            content=summary,
-            period_start=start,
-            period_end=end,
-            key_topics=["日本旅行"],
         )
 
     stats = await promote_experiences_from_episodes(store)

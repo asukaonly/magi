@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Mapping, Sequence
 
-import aiosqlite
-
-from ....core.sqlite import sqlite_connection_async
 from ..storage.utils import _l2_setting
 from .seed_anchors import (
     _episode_concrete_entity_ids,
@@ -27,87 +23,38 @@ MIN_REPEATED_GOAL_EPISODES = 3
 MIN_REPEATED_GOAL_EVENTS = 8
 
 
-def _summary_metadata_terms(raw_metadata: Any, content: str) -> list[str]:
-    try:
-        metadata = json.loads(str(raw_metadata or "{}"))
-    except json.JSONDecodeError:
-        metadata = {}
-    if not isinstance(metadata, Mapping):
-        metadata = {}
+def _episode_summary_terms(episode: Mapping[str, Any]) -> list[str]:
+    """High-signal text terms from the episode's back-written label/summary.
 
+    The L3 episodic summary label/content are back-written onto the episode
+    row during consolidation, so seed discovery can read them locally instead
+    of querying the L3 summaries table across layers. Only the concise label
+    and quoted phrases are used — whole summary prose would dilute the
+    clustering tokens.
+    """
+    label = str(episode.get("label") or "").strip()
+    summary = str(episode.get("summary") or "").strip()
     terms: list[str] = []
-    for topic in metadata.get("key_topics") or []:
-        if isinstance(topic, str):
-            terms.append(topic)
-        elif isinstance(topic, Mapping):
-            terms.append(str(topic.get("label") or topic.get("id") or ""))
-    terms.extend(match.strip() for match in QUOTE_PATTERN.findall(content or ""))
-
-    if not terms:
-        label = str(metadata.get("label") or "").strip()
-        if label:
-            terms.append(label)
+    if label:
+        terms.append(label)
+    terms.extend(match.strip() for match in QUOTE_PATTERN.findall(summary))
     return _ordered_unique(terms)
 
 
-async def _load_episodic_summary_texts(
-    store: Any,
-    episode_ids: list[str],
-) -> dict[str, str]:
-    db_path = str(getattr(store, "db_path", "") or "")
-    if not db_path or not episode_ids:
-        return {}
-    placeholders = ", ".join("?" for _ in episode_ids)
-    try:
-        await store.initialize()
-        async with sqlite_connection_async(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                f"""
-                SELECT json_extract(insight_metadata, '$.source_episode_id') AS episode_id,
-                       content,
-                       insight_metadata,
-                       updated_at
-                FROM summaries
-                WHERE summary_category = 'episodic'
-                  AND json_extract(insight_metadata, '$.source_episode_id') IN ({placeholders})
-                ORDER BY updated_at DESC
-                """,
-                tuple(episode_ids),
-            ) as cursor:
-                rows = await cursor.fetchall()
-    except Exception:
-        return {}
-
-    summaries: dict[str, str] = {}
-    for row in rows:
-        episode_id = str(row["episode_id"] or "").strip()
-        content = str(row["content"] or "").strip()
-        terms = _summary_metadata_terms(row["insight_metadata"], content)
-        if episode_id and terms and episode_id not in summaries:
-            summaries[episode_id] = "\n".join(terms)
-    return summaries
-
-
-def _episode_seed_text(
-    episode: Mapping[str, Any],
-    summary_texts: Mapping[str, str],
-) -> str:
-    episode_id = str(episode.get("episode_id") or "")
+def _episode_seed_text(episode: Mapping[str, Any]) -> str:
     parts = [
         episode.get("user_label"),
-        summary_texts.get(episode_id),
+        "\n".join(_episode_summary_terms(episode)),
     ]
     return "\n".join(str(part).strip() for part in parts if str(part or "").strip())
 
 
 def _episode_features(
     episodes: Sequence[dict[str, Any]],
-    summary_texts: Mapping[str, str],
 ) -> list[_EpisodeSeedFeatures]:
     features: list[_EpisodeSeedFeatures] = []
     for episode in episodes:
-        text = _episode_seed_text(episode, summary_texts)
+        text = _episode_seed_text(episode)
         features.append(
             _EpisodeSeedFeatures(
                 episode=episode,
