@@ -198,77 +198,93 @@ function SourcePulseSection({
 }) {
   const { t } = useTranslation('app');
   const pulseRows = rows.slice(0, 6);
-  const totalPulse = pulseRows.reduce((sum, row) => sum + Math.max(row.lastResultCount ?? row.eventCount, 0), 0);
+  const maxBatchCount = Math.max(1, ...pulseRows.map((row) => Math.max(row.lastResultCount ?? 0, 0)));
   const todayCount = dashboard?.deltas?.today?.l1_events ?? 0;
   const backlogCount = dashboard?.processing_backlog?.total_pending ?? 0;
 
   return (
-    <section className={MEMORY_SECTION_CARD_CLASS}>
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-[1.7rem] font-semibold text-[hsl(var(--memory-title))]">
-            {t('memory.sourcesPage.sections.pulse')}
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
-            {t('memory.sourcesPage.pulseSubtitle')}
-          </p>
+    <section className={cn(MEMORY_SECTION_CARD_CLASS, 'overflow-hidden p-0')}>
+      <div className="grid lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 px-5 py-5">
+          <div className="min-w-0 space-y-1">
+            <h1 className="text-[1.45rem] font-semibold text-[hsl(var(--memory-title))]">
+              {t('memory.sourcesPage.sections.pulse')}
+            </h1>
+            <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+              {t('memory.sourcesPage.pulseSubtitle')}
+            </p>
+          </div>
+
+          {pulseRows.length > 0 ? (
+            <div className="mt-5 divide-y divide-[hsl(var(--memory-divider)/0.5)]">
+              {pulseRows.map((row) => {
+                const value = Math.max(row.lastResultCount ?? 0, 0);
+                const intensity = value > 0 ? Math.max(12, Math.round((value / maxBatchCount) * 100)) : 3;
+                return (
+                  <div
+                    key={row.key}
+                    className="grid gap-3 py-2.5 sm:grid-cols-[minmax(130px,190px)_minmax(0,1fr)_72px] sm:items-center"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--memory-panel-subtle)/0.72)]">
+                        <PluginIcon
+                          iconId={row.icon}
+                          pluginId={row.pluginId}
+                          sourceName={row.key}
+                          className="h-3.5 w-3.5 text-[hsl(var(--memory-body))]"
+                        />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
+                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[hsl(var(--memory-muted))]">
+                          <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
+                          <span className="truncate">{sourceStatusLabel(row.status, t)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="h-2 overflow-hidden rounded-full bg-[hsl(var(--memory-panel-subtle)/0.58)]">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-[width] duration-300 ease-out',
+                            value > 0
+                              ? 'bg-[hsl(var(--memory-accent)/0.72)]'
+                              : 'bg-[hsl(var(--memory-divider)/0.7)]'
+                          )}
+                          style={{ width: `${intensity}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 sm:block sm:text-right">
+                      <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(value)}</div>
+                      <div className="text-[11px] text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.columns.today')}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.empty')}</div>
+          )}
         </div>
-        <div className="grid grid-cols-3 gap-2 text-right text-xs text-[hsl(var(--memory-muted))] sm:min-w-[360px]">
-          <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-3 py-2">
-            <div>{t('memory.sourcesPage.pulseStats.today')}</div>
-            <div className="mt-1 text-base font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</div>
-          </div>
-          <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-3 py-2">
-            <div>{t('memory.sourcesPage.pulseStats.sources')}</div>
-            <div className="mt-1 text-base font-semibold text-[hsl(var(--memory-title))]">{formatInteger(rows.length)}</div>
-          </div>
-          <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-3 py-2">
-            <div>{t('memory.sourcesPage.pulseStats.backlog')}</div>
-            <div className="mt-1 text-base font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</div>
+
+        <div className="border-t border-[hsl(var(--memory-divider)/0.6)] bg-[hsl(var(--memory-panel-subtle)/0.24)] px-5 py-5 lg:border-l lg:border-t-0">
+          <div className="grid grid-cols-3 gap-4 lg:grid-cols-1 lg:gap-5">
+            <div>
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</div>
+              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.sources')}</div>
+              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(rows.length)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</div>
+              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</div>
+            </div>
           </div>
         </div>
       </div>
-
-      {pulseRows.length > 0 ? (
-        <div className="mt-5 space-y-3">
-          <div className="flex h-12 overflow-hidden rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.5)] shadow-[inset_0_0_0_1px_hsl(var(--memory-divider)/0.28)]">
-            {pulseRows.map((row, index) => {
-              const value = Math.max(row.lastResultCount ?? row.eventCount, 0);
-              const width = totalPulse > 0 ? Math.max(9, Math.round((value / totalPulse) * 100)) : Math.max(14, Math.round(100 / pulseRows.length));
-              return (
-                <div
-                  key={row.key}
-                  className={cn(
-                    'flex min-w-0 items-center border-r border-[hsl(var(--memory-divider)/0.38)] px-3 last:border-r-0',
-                    index % 3 === 0 && 'bg-[hsl(var(--memory-accent-soft)/0.62)]',
-                    index % 3 === 1 && 'bg-[hsl(var(--memory-panel-elevated)/0.82)]',
-                    index % 3 === 2 && 'bg-[hsl(var(--memory-panel-subtle)/0.82)]',
-                  )}
-                  style={{ width: `${width}%` }}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-xs font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
-                    <div className="truncate text-[11px] text-[hsl(var(--memory-muted))]">{sourceResultLabel(row, t)}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="grid gap-2 md:grid-cols-3">
-            {pulseRows.slice(0, 3).map((row) => (
-              <div key={row.key} className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.32)] px-3 py-2 text-xs text-[hsl(var(--memory-body))]">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate">{row.label}</span>
-                  <span className="shrink-0 text-[hsl(var(--memory-muted))]">{formatInteger(row.eventCount)}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.empty')}</div>
-      )}
     </section>
   );
 }
