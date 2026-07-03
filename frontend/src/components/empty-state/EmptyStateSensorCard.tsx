@@ -32,9 +32,9 @@ export function EmptyStateSensorCard({
   const { t } = useTranslation(i18nNamespace);
   const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
   return (
-    <div className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3.5 transition-colors hover:bg-[hsl(var(--app-chrome-surface)/0.5)]">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
-        <PluginIcon iconId={iconId} pluginId={pluginId} className="h-4 w-4" />
+    <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 transition-colors hover:bg-[hsl(var(--app-chrome-surface)/0.5)]">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
+        <PluginIcon iconId={iconId} pluginId={pluginId} className="h-6 w-6" />
       </span>
       <div className="flex min-w-0 flex-col gap-0.5">
         <h3 className="truncate text-sm font-semibold text-foreground">{t(keyed(titleKey))}</h3>

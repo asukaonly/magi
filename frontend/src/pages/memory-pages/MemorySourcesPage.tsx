@@ -242,17 +242,25 @@ const buildPulseMarks = (
   });
 };
 
-function SourceIcon({ row, className }: { row: SourceLedgerRow; className?: string }) {
+function SourceIcon({
+  row,
+  className,
+  iconClassName,
+}: {
+  row: SourceLedgerRow;
+  className?: string;
+  iconClassName?: string;
+}) {
   return (
     <span className={cn(
-      'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]',
+      'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]',
       className
     )}>
       <PluginIcon
         iconId={row.icon}
         pluginId={row.pluginId}
         sourceName={row.key}
-        className="h-4 w-4 text-[hsl(var(--memory-body))]"
+        className={cn('h-6 w-6 text-[hsl(var(--memory-body))]', iconClassName)}
       />
     </span>
   );
@@ -663,7 +671,7 @@ function SourceDetailHeader({
       </Link>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 gap-4">
-          <SourceIcon row={row} className="h-12 w-12" />
+          <SourceIcon row={row} className="h-16 w-16 rounded-xl" iconClassName="h-8 w-8" />
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-[1.75rem] font-semibold text-[hsl(var(--memory-title))]">{row.label}</h1>
