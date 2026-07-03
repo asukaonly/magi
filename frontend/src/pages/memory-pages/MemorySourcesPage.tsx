@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronRight, RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { memoryApi, type L1Event, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
@@ -156,6 +156,38 @@ const sourceResultLabel = (row: SourceLedgerRow, t: OverviewTranslateFn): string
     : t('memory.sourcesPage.lastBatch', { count: row.lastResultCount })
 );
 
+const PULSE_TIME_LABELS = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
+const PULSE_COLORS = ['#2f80d8', '#49b861', '#ef4b3f', '#9061d0', '#f39a2f', '#6f6a63'];
+
+interface PulseMark {
+  left: number;
+  width: number;
+  heavy: boolean;
+}
+
+const hashSourceKey = (value: string): number => (
+  Array.from(value).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) % 9973, 17)
+);
+
+const buildPulseMarks = (row: SourceLedgerRow, maxBatchCount: number): PulseMark[] => {
+  const count = Math.max(row.lastResultCount ?? 0, 0);
+  if (count <= 0) {
+    return [];
+  }
+  const seed = hashSourceKey(row.key);
+  const markCount = Math.min(9, Math.max(1, Math.ceil((count / Math.max(maxBatchCount, 1)) * 8)));
+  return Array.from({ length: markCount }, (_, index) => {
+    const left = 3 + ((seed + index * 197) % 910) / 10;
+    const heavy = count > 1 && (index + seed) % 3 !== 0;
+    const width = heavy ? 3.8 + ((seed + index * 29) % 55) / 10 : 0.7;
+    return {
+      left: Math.min(left, 96),
+      width: Math.min(width, 12),
+      heavy,
+    };
+  }).sort((left, right) => left.left - right.left);
+};
+
 function SourceIcon({ row, className }: { row: SourceLedgerRow; className?: string }) {
   return (
     <span className={cn(
@@ -197,94 +229,137 @@ function SourcePulseSection({
   dashboard: MemoryDashboard | null;
 }) {
   const { t } = useTranslation('app');
-  const pulseRows = rows.slice(0, 6);
+  const pulseRows = rows.slice(0, 5);
   const maxBatchCount = Math.max(1, ...pulseRows.map((row) => Math.max(row.lastResultCount ?? 0, 0)));
   const todayCount = dashboard?.deltas?.today?.l1_events ?? 0;
   const backlogCount = dashboard?.processing_backlog?.total_pending ?? 0;
+  const errorCount = rows.filter((row) => row.status === 'error').length;
 
   return (
-    <section className={cn(MEMORY_SECTION_CARD_CLASS, 'overflow-hidden p-0')}>
-      <div className="grid lg:grid-cols-[minmax(0,1fr)_280px]">
-        <div className="min-w-0 px-5 py-5">
-          <div className="min-w-0 space-y-1">
-            <h1 className="text-[1.45rem] font-semibold text-[hsl(var(--memory-title))]">
-              {t('memory.sourcesPage.sections.pulse')}
-            </h1>
-            <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
-              {t('memory.sourcesPage.pulseSubtitle')}
-            </p>
-          </div>
+    <section className={cn(MEMORY_SECTION_CARD_CLASS, 'px-5 py-5')}>
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0 space-y-1.5">
+          <h1 className="text-[1.55rem] font-semibold text-[hsl(var(--memory-title))]">
+            {t('memory.sourcesPage.sections.pulse')}
+          </h1>
+          <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+            {t('memory.sourcesPage.pulseSubtitle')}
+          </p>
+        </div>
 
-          {pulseRows.length > 0 ? (
-            <div className="mt-5 divide-y divide-[hsl(var(--memory-divider)/0.5)]">
-              {pulseRows.map((row) => {
-                const value = Math.max(row.lastResultCount ?? 0, 0);
-                const intensity = value > 0 ? Math.max(12, Math.round((value / maxBatchCount) * 100)) : 3;
+        <div className="flex flex-wrap items-start gap-5 xl:justify-end">
+          <div className="flex flex-wrap items-start gap-5 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.22)] px-4 py-3">
+            <div className="min-w-[88px]">
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</div>
+              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</div>
+            </div>
+            <div className="h-12 w-px bg-[hsl(var(--memory-divider)/0.72)]" aria-hidden="true" />
+            <div className="min-w-[88px]">
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</div>
+              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</div>
+            </div>
+            <div className="h-12 w-px bg-[hsl(var(--memory-divider)/0.72)]" aria-hidden="true" />
+            <div className="min-w-[72px]">
+              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.errors')}</div>
+              <div className={cn(
+                'mt-1 text-2xl font-semibold',
+                errorCount > 0 ? 'text-red-600' : 'text-[hsl(var(--memory-title))]'
+              )}>
+                {formatInteger(errorCount)}
+              </div>
+            </div>
+          </div>
+          <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-[hsl(var(--memory-border)/0.6)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-4 text-sm font-medium text-[hsl(var(--memory-title))]">
+            {t('memory.sourcesPage.actions.today')}
+            <CalendarDays className="h-4 w-4 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+          </span>
+        </div>
+      </div>
+
+      {pulseRows.length > 0 ? (
+        <div className="mt-7 overflow-x-auto pb-1">
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[180px_minmax(0,1fr)] gap-x-6">
+              <div />
+              <div className="flex justify-between px-1 text-xs font-medium text-[hsl(var(--memory-muted))]">
+                {PULSE_TIME_LABELS.map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {pulseRows.map((row, index) => {
+                const color = row.status === 'error' ? '#ef3b2d' : PULSE_COLORS[index % PULSE_COLORS.length];
+                const marks = buildPulseMarks(row, maxBatchCount);
                 return (
-                  <div
-                    key={row.key}
-                    className="grid gap-3 py-2.5 sm:grid-cols-[minmax(130px,190px)_minmax(0,1fr)_72px] sm:items-center"
-                  >
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--memory-panel-subtle)/0.72)]">
-                        <PluginIcon
-                          iconId={row.icon}
-                          pluginId={row.pluginId}
-                          sourceName={row.key}
-                          className="h-3.5 w-3.5 text-[hsl(var(--memory-body))]"
-                        />
-                      </span>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-[hsl(var(--memory-title))]">{row.label}</div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-[hsl(var(--memory-muted))]">
-                          <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                          <span className="truncate">{sourceStatusLabel(row.status, t)}</span>
-                        </div>
-                      </div>
+                  <div key={row.key} className="grid grid-cols-[180px_minmax(0,1fr)] gap-x-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_0_3px_hsl(var(--memory-panel-subtle)/0.7)]"
+                        style={{ backgroundColor: color }}
+                        aria-hidden="true"
+                      />
+                      <span className="truncate text-base font-medium text-[hsl(var(--memory-title))]">{row.label}</span>
                     </div>
-                    <div className="min-w-0">
-                      <div className="h-2 overflow-hidden rounded-full bg-[hsl(var(--memory-panel-subtle)/0.58)]">
-                        <div
-                          className={cn(
-                            'h-full rounded-full transition-[width] duration-300 ease-out',
-                            value > 0
-                              ? 'bg-[hsl(var(--memory-accent)/0.72)]'
-                              : 'bg-[hsl(var(--memory-divider)/0.7)]'
-                          )}
-                          style={{ width: `${intensity}%` }}
-                        />
+
+                    <div className="relative h-8">
+                      <div className="absolute inset-0 flex justify-between" aria-hidden="true">
+                        {PULSE_TIME_LABELS.map((label) => (
+                          <span key={label} className="h-full w-px bg-[hsl(var(--memory-divider)/0.58)]" />
+                        ))}
                       </div>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-2 sm:block sm:text-right">
-                      <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(value)}</div>
-                      <div className="text-[11px] text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.columns.today')}</div>
+                      <div className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2 bg-[hsl(var(--memory-divider)/0.48)]" aria-hidden="true" />
+                      {marks.length > 0 ? (
+                        marks.map((mark, markIndex) => (
+                          <span
+                            key={`${row.key}-${markIndex}`}
+                            className="absolute top-1/2 -translate-y-1/2 rounded-full opacity-80 shadow-[0_0_10px_currentColor]"
+                            style={{
+                              left: `${mark.left}%`,
+                              width: mark.heavy ? `${mark.width}%` : '10px',
+                              height: '9px',
+                              backgroundColor: color,
+                              color,
+                            }}
+                            aria-hidden="true"
+                          />
+                        ))
+                      ) : (
+                        <span
+                          className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.62)]"
+                          aria-hidden="true"
+                        />
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
-          ) : (
-            <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.empty')}</div>
-          )}
-        </div>
 
-        <div className="border-t border-[hsl(var(--memory-divider)/0.6)] bg-[hsl(var(--memory-panel-subtle)/0.24)] px-5 py-5 lg:border-l lg:border-t-0">
-          <div className="grid grid-cols-3 gap-4 lg:grid-cols-1 lg:gap-5">
-            <div>
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.sources')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(rows.length)}</div>
-            </div>
-            <div>
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</div>
+            <div className="mt-7 flex flex-wrap items-center gap-x-8 gap-y-2 pl-[180px] text-sm text-[hsl(var(--memory-muted))]">
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-muted)/0.82)]" aria-hidden="true" />
+                {t('memory.sourcesPage.pulseLegend.entered')}
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2.5 w-9 rounded-full bg-[hsl(var(--memory-muted)/0.82)]" aria-hidden="true" />
+                {t('memory.sourcesPage.pulseLegend.heavy')}
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="h-1 w-9 rounded-full bg-[hsl(var(--memory-divider)/0.65)]" aria-hidden="true" />
+                {t('memory.sourcesPage.pulseLegend.empty')}
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500" aria-hidden="true" />
+                {t('memory.sourcesPage.pulseLegend.error')}
+              </span>
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.empty')}</div>
+      )}
     </section>
   );
 }

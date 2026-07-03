@@ -2589,7 +2589,14 @@
       "pulseStats": {
         "today": "Today",
         "sources": "Sources",
-        "backlog": "Queued"
+        "backlog": "Queued",
+        "errors": "Errors"
+      },
+      "pulseLegend": {
+        "entered": "Data entered",
+        "heavy": "More data",
+        "empty": "No data",
+        "error": "Error"
       },
       "ledgerSubtitle": "Status, latest sync, and stored memory counts for each source.",
       "columns": {
@@ -2605,6 +2612,7 @@
         "sync": "Sync once",
         "settings": "Open settings",
         "pause": "Pause",
+        "today": "Today",
         "back": "Back to sources"
       },
       "detail": {

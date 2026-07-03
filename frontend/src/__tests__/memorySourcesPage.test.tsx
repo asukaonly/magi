@@ -25,9 +25,17 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.sync': '同步一次',
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
+        'memory.sourcesPage.actions.today': '今天',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
         'memory.sourcesPage.detail.usageTitle': '这个来源如何使用',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
+        'memory.sourcesPage.pulseStats.today': '今日入库',
+        'memory.sourcesPage.pulseStats.backlog': '待处理',
+        'memory.sourcesPage.pulseStats.errors': '异常',
+        'memory.sourcesPage.pulseLegend.entered': '有数据进入',
+        'memory.sourcesPage.pulseLegend.heavy': '数据较多',
+        'memory.sourcesPage.pulseLegend.empty': '无数据',
+        'memory.sourcesPage.pulseLegend.error': '异常',
         'memory.overview.sourceStatus.ready': '正常',
         'memory.overview.sourceStatus.stale': '延迟',
         'memory.overview.sourceStatus.setup_required': '待配置',
@@ -220,6 +228,10 @@ describe('MemorySourcesPage', () => {
     );
 
     expect(await screen.findByText('今日脉搏')).toBeInTheDocument();
+    expect(screen.getByText('00:00')).toBeInTheDocument();
+    expect(screen.getByText('24:00')).toBeInTheDocument();
+    expect(screen.getAllByText('异常').length).toBeGreaterThan(0);
+    expect(screen.getByText('今天')).toBeInTheDocument();
     expect(screen.getByText('来源总账')).toBeInTheDocument();
     expect(screen.getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);
