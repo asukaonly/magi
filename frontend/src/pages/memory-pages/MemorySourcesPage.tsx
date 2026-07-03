@@ -431,10 +431,6 @@ function SourcePulseSection({
               </div>
             </div>
           </div>
-          <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-[hsl(var(--memory-border)/0.6)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-4 text-sm font-medium text-[hsl(var(--memory-title))]">
-            {t('memory.sourcesPage.actions.today')}
-            <CalendarDays className="h-4 w-4 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
-          </span>
         </div>
       </div>
 

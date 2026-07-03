@@ -25,7 +25,6 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.sync': '同步一次',
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
-        'memory.sourcesPage.actions.today': '今天',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
         'memory.sourcesPage.detail.recentCountDetailed': '共 {{total}} 条 / 当前 {{shown}} 条',
         'memory.sourcesPage.detail.searchPlaceholder': '搜索内容',
@@ -296,7 +295,7 @@ describe('MemorySourcesPage', () => {
     expect(screen.getByText('00:00')).toBeInTheDocument();
     expect(screen.getByText('24:00')).toBeInTheDocument();
     expect(screen.getAllByText('异常').length).toBeGreaterThan(0);
-    expect(screen.getByText('今天')).toBeInTheDocument();
+    expect(screen.queryByText('今天')).not.toBeInTheDocument();
     expect(screen.queryByText('数据较多')).not.toBeInTheDocument();
     expect(screen.queryByText('无数据')).not.toBeInTheDocument();
     expect(screen.getByText('来源总账')).toBeInTheDocument();
