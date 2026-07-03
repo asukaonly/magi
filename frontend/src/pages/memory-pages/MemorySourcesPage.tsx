@@ -5,7 +5,12 @@ import { ArrowLeft, CalendarDays, ChevronRight, RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { memoryApi, type L1Event, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
-import { sensorsApi, type SensorSourceStatusItem, type SensorSourceStatusResponse } from '@/api/modules/sensors';
+import {
+  sensorsApi,
+  type SensorSourceStatusItem,
+  type SensorSourceStatusResponse,
+  type SensorTodaySummaryResponse,
+} from '@/api/modules/sensors';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
@@ -136,10 +141,25 @@ const sourceDetailPath = (sourceName: string): string => (
   `/memory/sources/${encodeURIComponent(sourceName)}`
 );
 
-const loadSourceOverview = async () => Promise.all([
-  memoryApi.getDashboard({ pending_limit: 8 }),
-  sensorsApi.getStatus(),
-]);
+const loadSourceOverview = async () => {
+  const [dashboardPayload, sensorPayload, todayPayload] = await Promise.all([
+    memoryApi.getDashboard({ pending_limit: 8 }),
+    sensorsApi.getStatus(),
+    sensorsApi.getTodaySummary(),
+  ]);
+  const todayEventsPayload = await memoryApi.getL1Events({
+    start_date: todayPayload.date,
+    end_date: todayPayload.date,
+    limit: 500,
+    offset: 0,
+  });
+  return {
+    dashboard: dashboardPayload,
+    sensorStatus: sensorPayload,
+    todaySummary: todayPayload,
+    todayEvents: todayEventsPayload.items || [],
+  };
+};
 
 const sourceSyncLabel = (
   row: SourceLedgerRow,
@@ -165,27 +185,61 @@ interface PulseMark {
   heavy: boolean;
 }
 
-const hashSourceKey = (value: string): number => (
-  Array.from(value).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) % 9973, 17)
-);
+const getTodayCountMap = (todaySummary: SensorTodaySummaryResponse | null): Map<string, number> => {
+  const counts = new Map<string, number>();
+  (todaySummary?.sources || []).forEach((source) => {
+    counts.set(normalizeSourceKey(source.source_name), Math.max(0, Number(source.count || 0)));
+  });
+  return counts;
+};
 
-const buildPulseMarks = (row: SourceLedgerRow, maxBatchCount: number): PulseMark[] => {
-  const count = Math.max(row.lastResultCount ?? 0, 0);
-  if (count <= 0) {
+const dayBoundsFromSummary = (todaySummary: SensorTodaySummaryResponse | null): { start: number; end: number } => {
+  const date = todaySummary?.date || new Date().toISOString().slice(0, 10);
+  const startMs = new Date(`${date}T00:00:00`).getTime();
+  const start = Number.isFinite(startMs) ? startMs / 1000 : new Date().setHours(0, 0, 0, 0) / 1000;
+  return { start, end: start + 24 * 60 * 60 };
+};
+
+const buildPulseMarks = (
+  events: L1Event[],
+  dayStart: number,
+  dayEnd: number,
+): PulseMark[] => {
+  if (events.length === 0 || dayEnd <= dayStart) {
     return [];
   }
-  const seed = hashSourceKey(row.key);
-  const markCount = Math.min(9, Math.max(1, Math.ceil((count / Math.max(maxBatchCount, 1)) * 8)));
-  return Array.from({ length: markCount }, (_, index) => {
-    const left = 3 + ((seed + index * 197) % 910) / 10;
-    const heavy = count > 1 && (index + seed) % 3 !== 0;
-    const width = heavy ? 3.8 + ((seed + index * 29) % 55) / 10 : 0.7;
+  const sorted = [...events]
+    .map((event) => Number(event.timestamp || 0))
+    .filter((timestamp) => Number.isFinite(timestamp) && timestamp >= dayStart && timestamp <= dayEnd)
+    .sort((left, right) => left - right);
+  if (sorted.length === 0) {
+    return [];
+  }
+
+  const groups: number[][] = [];
+  const mergeWindowSeconds = 45 * 60;
+  sorted.forEach((timestamp) => {
+    const current = groups[groups.length - 1];
+    if (!current || timestamp - current[current.length - 1] > mergeWindowSeconds) {
+      groups.push([timestamp]);
+      return;
+    }
+    current.push(timestamp);
+  });
+
+  const dayLength = dayEnd - dayStart;
+  return groups.map((group) => {
+    const first = group[0];
+    const last = group[group.length - 1];
+    const left = ((first - dayStart) / dayLength) * 100;
+    const durationWidth = ((last - first) / dayLength) * 100;
+    const countWidth = group.length > 1 ? 1.8 + group.length * 0.65 : 0.7;
     return {
-      left: Math.min(left, 96),
-      width: Math.min(width, 12),
-      heavy,
+      left: Math.max(0, Math.min(left, 98)),
+      width: Math.min(Math.max(durationWidth, countWidth), 12),
+      heavy: group.length > 1,
     };
-  }).sort((left, right) => left.left - right.left);
+  });
 };
 
 function SourceIcon({ row, className }: { row: SourceLedgerRow; className?: string }) {
@@ -224,14 +278,36 @@ function MemorySourcesError() {
 function SourcePulseSection({
   rows,
   dashboard,
+  todaySummary,
+  todayEvents,
 }: {
   rows: SourceLedgerRow[];
   dashboard: MemoryDashboard | null;
+  todaySummary: SensorTodaySummaryResponse | null;
+  todayEvents: L1Event[];
 }) {
   const { t } = useTranslation('app');
-  const pulseRows = rows.slice(0, 5);
-  const maxBatchCount = Math.max(1, ...pulseRows.map((row) => Math.max(row.lastResultCount ?? 0, 0)));
-  const todayCount = dashboard?.deltas?.today?.l1_events ?? 0;
+  const todayCounts = getTodayCountMap(todaySummary);
+  const todaySourceByKey = new Map(
+    (todaySummary?.sources || []).map((source) => [normalizeSourceKey(source.source_name), source])
+  );
+  const pulseRows = rows
+    .filter((row) => (todayCounts.get(normalizeSourceKey(row.key)) || 0) > 0)
+    .slice(0, 5);
+  const eventGroups = todayEvents.reduce((groups, event) => {
+    const source = normalizeSourceKey(event.source);
+    if (!source) {
+      return groups;
+    }
+    const items = groups.get(source) || [];
+    items.push(event);
+    groups.set(source, items);
+    return groups;
+  }, new Map<string, L1Event[]>());
+  const dayBounds = dayBoundsFromSummary(todaySummary);
+  const todayCount = todaySummary
+    ? Array.from(todayCounts.values()).reduce((sum, count) => sum + count, 0)
+    : dashboard?.deltas?.today?.l1_events ?? 0;
   const backlogCount = dashboard?.processing_backlog?.total_pending ?? 0;
   const errorCount = rows.filter((row) => row.status === 'error').length;
 
@@ -290,10 +366,33 @@ function SourcePulseSection({
 
             <div className="mt-4 space-y-4">
               {pulseRows.map((row, index) => {
+                const sourceKey = normalizeSourceKey(row.key);
                 const color = row.status === 'error' ? '#ef3b2d' : PULSE_COLORS[index % PULSE_COLORS.length];
-                const marks = buildPulseMarks(row, maxBatchCount);
+                const sourceEvents = eventGroups.get(sourceKey) || [];
+                const fallbackEventAt = todaySourceByKey.get(sourceKey)?.last_event_at;
+                const marks = buildPulseMarks(
+                  sourceEvents.length > 0 || fallbackEventAt == null
+                    ? sourceEvents
+                    : [{
+                        event_id: `${row.key}:last-event`,
+                        event_type: 'SENSOR_EVENT',
+                        source: row.key,
+                        timestamp: fallbackEventAt,
+                        content: '',
+                        memory_domain: 'activity',
+                        retention_class: 'normal',
+                        importance_score: 0,
+                        cognition_eligible: true,
+                      }],
+                  dayBounds.start,
+                  dayBounds.end,
+                );
                 return (
-                  <div key={row.key} className="grid grid-cols-[180px_minmax(0,1fr)] gap-x-6">
+                  <div
+                    key={row.key}
+                    data-testid={`source-pulse-row-${row.key}`}
+                    className="grid grid-cols-[180px_minmax(0,1fr)] gap-x-6"
+                  >
                     <div className="flex min-w-0 items-center gap-3">
                       <span
                         className="h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_0_3px_hsl(var(--memory-panel-subtle)/0.7)]"
@@ -364,8 +463,15 @@ function SourcePulseSection({
   );
 }
 
-function SourceLedgerSection({ rows }: { rows: SourceLedgerRow[] }) {
+function SourceLedgerSection({
+  rows,
+  todaySummary,
+}: {
+  rows: SourceLedgerRow[];
+  todaySummary: SensorTodaySummaryResponse | null;
+}) {
   const { t, i18n } = useTranslation('app');
+  const todayCounts = getTodayCountMap(todaySummary);
 
   return (
     <section className={MEMORY_SECTION_CARD_CLASS}>
@@ -421,7 +527,7 @@ function SourceLedgerSection({ rows }: { rows: SourceLedgerRow[] }) {
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                      {formatInteger(row.lastResultCount ?? 0)}
+                      {formatInteger(todayCounts.get(normalizeSourceKey(row.key)) || 0)}
                     </div>
                     <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.today')}</div>
                   </div>
@@ -454,6 +560,8 @@ export const MemorySourcesPage = () => {
   const { t } = useTranslation('app');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
+  const [todaySummary, setTodaySummary] = useState<SensorTodaySummaryResponse | null>(null);
+  const [todayEvents, setTodayEvents] = useState<L1Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -463,12 +571,14 @@ export const MemorySourcesPage = () => {
       setLoading(true);
       setError(null);
       try {
-        const [dashboardPayload, sensorPayload] = await loadSourceOverview();
+        const payload = await loadSourceOverview();
         if (cancelled) {
           return;
         }
-        setDashboard(dashboardPayload);
-        setSensorStatus(sensorPayload);
+        setDashboard(payload.dashboard);
+        setSensorStatus(payload.sensorStatus);
+        setTodaySummary(payload.todaySummary);
+        setTodayEvents(payload.todayEvents);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : String(err));
@@ -498,8 +608,13 @@ export const MemorySourcesPage = () => {
         <MemorySourcesError />
       ) : (
         <div className="space-y-4">
-          <SourcePulseSection rows={rows} dashboard={dashboard} />
-          <SourceLedgerSection rows={rows} />
+          <SourcePulseSection
+            rows={rows}
+            dashboard={dashboard}
+            todaySummary={todaySummary}
+            todayEvents={todayEvents}
+          />
+          <SourceLedgerSection rows={rows} todaySummary={todaySummary} />
         </div>
       )}
     </MemoryPageFrame>

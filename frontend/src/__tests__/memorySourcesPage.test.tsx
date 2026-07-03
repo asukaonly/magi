@@ -18,7 +18,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.columns.source': '来源',
         'memory.sourcesPage.columns.status': '状态',
         'memory.sourcesPage.columns.lastSync': '最近同步',
-        'memory.sourcesPage.columns.today': '今日入库',
+        'memory.sourcesPage.columns.today': '今日事件',
         'memory.sourcesPage.columns.stored': '已入库',
         'memory.sourcesPage.columns.action': '操作',
         'memory.sourcesPage.actions.view': '查看',
@@ -29,7 +29,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
         'memory.sourcesPage.detail.usageTitle': '这个来源如何使用',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
-        'memory.sourcesPage.pulseStats.today': '今日入库',
+        'memory.sourcesPage.pulseStats.today': '今日事件',
         'memory.sourcesPage.pulseStats.backlog': '待处理',
         'memory.sourcesPage.pulseStats.errors': '异常',
         'memory.sourcesPage.pulseLegend.entered': '有数据进入',
@@ -70,6 +70,7 @@ vi.mock('@/api/modules/memory', async () => {
 vi.mock('@/api/modules/sensors', () => ({
   sensorsApi: {
     getStatus: vi.fn(),
+    getTodaySummary: vi.fn(),
     requestSync: vi.fn(),
   },
 }));
@@ -185,6 +186,37 @@ const sensorPayload = {
   ],
 };
 
+const todayPayload = {
+  date: '2026-07-03',
+  weekday: 4,
+  sources: [
+    {
+      source_name: 'chrome_history',
+      plugin_id: 'chrome-history',
+      display_name: 'Chrome 历史',
+      enabled: true,
+      count: 12,
+      last_event_at: 1783049433,
+    },
+    {
+      source_name: 'netease_music',
+      plugin_id: 'netease-music',
+      display_name: '网易云音乐',
+      enabled: true,
+      count: 21,
+      last_event_at: 1782913076,
+    },
+    {
+      source_name: 'claude_code_agent_history',
+      plugin_id: 'coding-agent-history',
+      display_name: 'Claude Code',
+      enabled: true,
+      count: 0,
+      last_event_at: null,
+    },
+  ],
+};
+
 const LocationProbe = () => {
   const location = useLocation();
   return <div data-testid="location">{location.pathname}</div>;
@@ -194,6 +226,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
   vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as never);
+  vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue(todayPayload as never);
   vi.mocked(memoryApi.getL1Events).mockResolvedValue({
     items: [
       {
@@ -207,9 +240,20 @@ beforeEach(() => {
         importance_score: 0.6,
         cognition_eligible: true,
       },
+      {
+        event_id: 'evt-2',
+        event_type: 'SENSOR_EVENT',
+        source: 'netease_music',
+        timestamp: 1782912000,
+        content: 'Played a playlist',
+        memory_domain: 'activity',
+        retention_class: 'normal',
+        importance_score: 0.4,
+        cognition_eligible: true,
+      },
     ],
-    total: 1,
-    limit: 50,
+    total: 2,
+    limit: 500,
     offset: 0,
   } as never);
   vi.mocked(sensorsApi.requestSync).mockResolvedValue({ queued: true, source_name: 'chrome_history' } as never);
@@ -237,6 +281,9 @@ describe('MemorySourcesPage', () => {
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);
     expect(screen.getAllByText('网易云音乐').length).toBeGreaterThan(0);
     expect(screen.getAllByText('照片').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('source-pulse-row-chrome_history')).toBeInTheDocument();
+    expect(screen.getByTestId('source-pulse-row-netease_music')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-pulse-row-claude_code_agent_history')).not.toBeInTheDocument();
     expect(screen.getAllByText('查看')).toHaveLength(4);
 
     await user.click(screen.getAllByText('查看')[0]);

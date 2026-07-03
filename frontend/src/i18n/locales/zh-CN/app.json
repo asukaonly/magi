@@ -2586,7 +2586,7 @@
       },
       "pulseSubtitle": "按来源看今天进入记忆的节奏，快速发现哪些来源活跃、哪些还在等待处理。",
       "pulseStats": {
-        "today": "今日入库",
+        "today": "今日事件",
         "sources": "来源数",
         "backlog": "待处理",
         "errors": "异常"
@@ -2602,7 +2602,7 @@
         "source": "来源",
         "status": "状态",
         "lastSync": "最近同步",
-        "today": "今日入库",
+        "today": "今日事件",
         "stored": "已入库",
         "action": "操作"
       },
