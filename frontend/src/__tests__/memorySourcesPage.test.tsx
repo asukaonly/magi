@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 import { memoryApi } from '@/api/modules/memory';
+import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { MemorySourceDetailPage, MemorySourcesPage } from '@/pages/memory-pages';
+import { useChatShellStore } from '@/stores';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -25,6 +27,9 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.sync': '同步一次',
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
+        'memory.sourcesPage.actions.resume': '恢复',
+        'memory.sourcesPage.syncModes.interval': '定时同步',
+        'memory.sourcesPage.syncModes.manual': '手动同步',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
         'memory.sourcesPage.detail.recentCountDetailed': '共 {{total}} 条 / 当前 {{shown}} 条',
         'memory.sourcesPage.detail.searchPlaceholder': '搜索内容',
@@ -81,6 +86,14 @@ vi.mock('@/api/modules/sensors', () => ({
     requestSync: vi.fn(),
   },
 }));
+
+vi.mock('@/api/modules/plugins', () => ({
+  pluginsApi: {
+    updateSettings: vi.fn(),
+  },
+}));
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 const dashboardPayload = {
   statistics: {
@@ -247,6 +260,8 @@ beforeEach(() => {
   vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
   vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as never);
   vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue(todayPayload as never);
+  vi.mocked(pluginsApi.updateSettings).mockResolvedValue({} as never);
+  useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
   vi.mocked(memoryApi.getL1Events).mockResolvedValue({
     items: [
       {
@@ -328,10 +343,26 @@ describe('MemorySourcesPage', () => {
     expect(await screen.findByText('Chrome 历史')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 0 });
     expect(screen.getByText('36')).toBeInTheDocument();
+    expect(screen.getByText('定时同步')).toBeInTheDocument();
+    expect(screen.queryByText('interval')).not.toBeInTheDocument();
     expect(screen.getByText('共 2 条 / 当前 2 条')).toBeInTheDocument();
     expect(screen.queryByText('这个来源如何使用')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.sourcesPage.detail.usageTitle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-source-detail-drawer')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '打开设置' }));
+
+    expect(useChatShellStore.getState().activePanel).toBe('settings');
+    expect(useChatShellStore.getState().settingsNavigationIntent).toEqual({
+      section: 'timeline',
+      source: 'chrome_history',
+    });
+
+    await user.click(screen.getByRole('button', { name: '暂停' }));
+
+    await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalledWith('chrome-history', {
+      'sensors.chrome_history.enabled': false,
+    }));
 
     await user.click(screen.getByRole('button', { name: '同步一次' }));
 

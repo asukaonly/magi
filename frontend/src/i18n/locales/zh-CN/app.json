@@ -2605,7 +2605,18 @@
         "sync": "同步一次",
         "settings": "打开设置",
         "pause": "暂停",
+        "resume": "恢复",
         "back": "返回来源"
+      },
+      "syncModes": {
+        "interval": "定时同步",
+        "manual": "手动同步",
+        "event": "事件触发"
+      },
+      "feedback": {
+        "pauseSuccess": "{{source}} 已暂停",
+        "resumeSuccess": "{{source}} 已恢复",
+        "toggleFailed": "更新来源状态失败：{{message}}"
       },
       "detail": {
         "lastSync": "最近同步：{{value}}",

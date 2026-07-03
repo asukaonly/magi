@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { toast } from 'sonner';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
@@ -12,12 +13,15 @@ import {
   type MemoryDashboard,
   type MemorySourceCount,
 } from '@/api/modules/memory';
+import { pluginsApi } from '@/api/modules/plugins';
 import {
   sensorsApi,
   type SensorSourceStatusItem,
   type SensorSourceStatusResponse,
   type SensorTodaySummaryResponse,
 } from '@/api/modules/sensors';
+import { useChatShellStore } from '@/stores';
+import { buildTimelineCapabilities } from '@/utils/timeline-capabilities';
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 import { cn } from '@/lib/utils';
 import MemoryPageFrame, {
@@ -180,6 +184,36 @@ const sourceResultLabel = (row: SourceLedgerRow, t: OverviewTranslateFn): string
     ? t('memory.sourcesPage.noRecentBatch')
     : t('memory.sourcesPage.lastBatch', { count: row.lastResultCount })
 );
+
+const sourceSyncModeLabel = (syncMode: string | null, t: OverviewTranslateFn): string => {
+  const normalized = normalizeSourceKey(syncMode);
+  if (!normalized) {
+    return t('memory.sourcesPage.unknown');
+  }
+  const key = `memory.sourcesPage.syncModes.${normalized}`;
+  const translated = t(key);
+  return translated === key ? String(syncMode) : translated;
+};
+
+const sourceEnabledSettingKey = (
+  sensor: SensorSourceStatusItem | undefined,
+  sourceName: string,
+): string => (
+  sensor?.fields.find((field) => field.key.endsWith('.enabled'))?.key
+  ?? `sensors.${sourceName}.enabled`
+);
+
+const settingsSourceIdForSource = (
+  sourceName: string,
+  status: SensorSourceStatusResponse | null,
+  t: OverviewTranslateFn,
+): string => {
+  const sensors = status?.sources || [];
+  const capability = buildTimelineCapabilities(t, sensors).find((item) => (
+    item.sources.some((source) => sensorMatchesSource(source, sourceName))
+  ));
+  return capability?.id || sourceName;
+};
 
 const PULSE_TIME_LABELS = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
 const PULSE_COLORS = ['#2f80d8', '#49b861', '#ef4b3f', '#9061d0', '#f39a2f', '#6f6a63'];
@@ -706,11 +740,17 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
 function SourceDetailHeader({
   row,
   syncing,
+  togglingEnabled,
   onSync,
+  onOpenSettings,
+  onToggleEnabled,
 }: {
   row: SourceLedgerRow;
   syncing: boolean;
+  togglingEnabled: boolean;
   onSync: () => void;
+  onOpenSettings: () => void;
+  onToggleEnabled: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const statusLabel = sourceStatusLabel(row.status, t);
@@ -754,11 +794,18 @@ function SourceDetailHeader({
             {syncing ? <LoadingSpinner className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
             {t('memory.sourcesPage.actions.sync')}
           </button>
-          <button type="button" className={MEMORY_ACTION_BUTTON_CLASS}>
+          <button type="button" className={MEMORY_ACTION_BUTTON_CLASS} onClick={onOpenSettings}>
             {t('memory.sourcesPage.actions.settings')}
           </button>
-          <button type="button" className={MEMORY_ACTION_BUTTON_CLASS}>
-            {t('memory.sourcesPage.actions.pause')}
+          <button
+            type="button"
+            className={cn(MEMORY_ACTION_BUTTON_CLASS, togglingEnabled && 'opacity-70')}
+            onClick={onToggleEnabled}
+            disabled={togglingEnabled || !row.pluginId}
+          >
+            {row.enabled === false
+              ? t('memory.sourcesPage.actions.resume')
+              : t('memory.sourcesPage.actions.pause')}
           </button>
         </div>
       </div>
@@ -772,7 +819,7 @@ function SourceDetailStats({ row, todayCount }: { row: SourceLedgerRow; todayCou
     { label: t('memory.sourcesPage.columns.stored'), value: formatInteger(row.eventCount) },
     { label: t('memory.sourcesPage.columns.today'), value: formatInteger(todayCount) },
     { label: t('memory.sourcesPage.detail.nextRun'), value: formatOverviewTimestamp(row.nextRunAt, i18n.language) || t('memory.sourcesPage.notScheduled') },
-    { label: t('memory.sourcesPage.detail.syncMode'), value: row.syncMode || t('memory.sourcesPage.unknown') },
+    { label: t('memory.sourcesPage.detail.syncMode'), value: sourceSyncModeLabel(row.syncMode, t) },
   ];
   return (
     <section className="grid gap-3 md:grid-cols-4">
@@ -1017,6 +1064,8 @@ function SourceRecentEvents({
 export const MemorySourceDetailPage = () => {
   const params = useParams();
   const { t } = useTranslation('app');
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const sourceName = decodeURIComponent(params.sourceName || '');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
@@ -1029,6 +1078,7 @@ export const MemorySourceDetailPage = () => {
   const [metadataReady, setMetadataReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [togglingEnabled, setTogglingEnabled] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [queryDraft, setQueryDraft] = useState('');
@@ -1132,6 +1182,7 @@ export const MemorySourceDetailPage = () => {
   );
   const row = rows.find((item) => normalizeSourceKey(item.key) === normalizeSourceKey(sourceName))
     || fallbackSourceRow(sourceName, t);
+  const sourceSensor = findSensorForSource(sourceName, sensorStatus?.sources || []);
   const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
   const hasMore = events.length < eventsTotal;
 
@@ -1142,6 +1193,42 @@ export const MemorySourceDetailPage = () => {
       await loadMetadata();
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    setSettingsNavigationIntent({
+      section: 'timeline',
+      source: settingsSourceIdForSource(sourceName, sensorStatus, t),
+    });
+    setActivePanel('settings');
+  };
+
+  const handleToggleEnabled = async () => {
+    const pluginId = sourceSensor?.plugin_id || row.pluginId;
+    if (!pluginId) {
+      toast.error(t('memory.sourcesPage.feedback.toggleFailed', { message: 'missing_plugin' }));
+      return;
+    }
+    const nextEnabled = row.enabled === false;
+    setTogglingEnabled(true);
+    try {
+      await pluginsApi.updateSettings(pluginId, {
+        [sourceEnabledSettingKey(sourceSensor, sourceName)]: nextEnabled,
+      });
+      toast.success(t(
+        nextEnabled
+          ? 'memory.sourcesPage.feedback.resumeSuccess'
+          : 'memory.sourcesPage.feedback.pauseSuccess',
+        { source: row.label },
+      ));
+      await loadMetadata();
+    } catch (err) {
+      toast.error(t('memory.sourcesPage.feedback.toggleFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setTogglingEnabled(false);
     }
   };
 
@@ -1166,7 +1253,14 @@ export const MemorySourceDetailPage = () => {
         <MemorySourcesError />
       ) : (
         <div className="space-y-4">
-          <SourceDetailHeader row={row} syncing={syncing} onSync={handleSync} />
+          <SourceDetailHeader
+            row={row}
+            syncing={syncing}
+            togglingEnabled={togglingEnabled}
+            onSync={handleSync}
+            onOpenSettings={handleOpenSettings}
+            onToggleEnabled={handleToggleEnabled}
+          />
           <SourceDetailStats row={row} todayCount={todayCount} />
           <SourceRecentEvents
             events={events}
