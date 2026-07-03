@@ -2618,6 +2618,22 @@
         "lastSync": "最近同步：{{value}}",
         "recentTitle": "最近进入记忆的内容",
         "recentCount": "{{count}} 条",
+        "recentCountDetailed": "共 {{total}} 条 / 当前 {{shown}} 条",
+        "timeRangeLabel": "时间范围",
+        "searchPlaceholder": "搜索内容",
+        "searchAction": "搜索",
+        "loadMore": "加载更多",
+        "loadingMore": "正在加载",
+        "timeRange": {
+          "all": "全部",
+          "today": "今天",
+          "last7Days": "近 7 天",
+          "last30Days": "近 30 天"
+        },
+        "eventType": {
+          "all": "全部类型",
+          "sensor": "传感器事件"
+        },
         "eventsLoading": "正在加载最近内容。",
         "eventsEmpty": "这个来源还没有进入记忆的内容。",
         "stored": "已入记忆",

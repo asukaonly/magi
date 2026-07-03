@@ -27,6 +27,17 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.pause': '暂停',
         'memory.sourcesPage.actions.today': '今天',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
+        'memory.sourcesPage.detail.recentCountDetailed': '共 {{total}} 条 / 当前 {{shown}} 条',
+        'memory.sourcesPage.detail.searchPlaceholder': '搜索内容',
+        'memory.sourcesPage.detail.searchAction': '搜索',
+        'memory.sourcesPage.detail.loadMore': '加载更多',
+        'memory.sourcesPage.detail.loadingMore': '正在加载',
+        'memory.sourcesPage.detail.timeRange.all': '全部',
+        'memory.sourcesPage.detail.timeRange.today': '今天',
+        'memory.sourcesPage.detail.timeRange.last7Days': '近 7 天',
+        'memory.sourcesPage.detail.timeRange.last30Days': '近 30 天',
+        'memory.sourcesPage.detail.eventType.all': '全部类型',
+        'memory.sourcesPage.detail.eventType.sensor': '传感器事件',
         'memory.sourcesPage.detail.usageTitle': '这个来源如何使用',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
         'memory.sourcesPage.pulseStats.today': '今日事件',
@@ -127,7 +138,7 @@ const sensorPayload = {
       status: 'ready',
       running: false,
       last_sync_at: 1783049433,
-      last_result_count: 12,
+      last_result_count: 7,
       last_raw_result_count: 18,
       supports_pull_sync: true,
       fields: [],
@@ -195,7 +206,7 @@ const todayPayload = {
       plugin_id: 'chrome-history',
       display_name: 'Chrome 历史',
       enabled: true,
-      count: 12,
+      count: 36,
       last_event_at: 1783049433,
     },
     {
@@ -221,6 +232,19 @@ const LocationProbe = () => {
   const location = useLocation();
   return <div data-testid="location">{location.pathname}</div>;
 };
+
+const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => ({
+  event_id: `evt-${index}`,
+  event_type: 'SENSOR_EVENT',
+  source: 'chrome_history',
+  timestamp: 1783049000 - index * 60,
+  content: `Chrome event ${index}`,
+  memory_domain: 'activity',
+  retention_class: 'normal',
+  importance_score: 0.6,
+  cognition_eligible: true,
+  ...overrides,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -305,10 +329,75 @@ describe('MemorySourcesPage', () => {
 
     expect(await screen.findByText('Chrome 历史')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 0 });
+    expect(screen.getByText('36')).toBeInTheDocument();
+    expect(screen.getByText('共 2 条 / 当前 2 条')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-source-detail-drawer')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '同步一次' }));
 
     await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history'));
+  });
+
+  it('loads additional source detail events without replacing the first page', async () => {
+    const firstPage = Array.from({ length: 50 }, (_, index) => buildEvent(index + 1));
+    const secondPage = Array.from({ length: 25 }, (_, index) => buildEvent(index + 51));
+    vi.mocked(memoryApi.getL1Events).mockImplementation(async (params) => ({
+      items: params?.offset === 50 ? secondPage : firstPage,
+      total: 75,
+      limit: 50,
+      offset: params?.offset ?? 0,
+    }) as never);
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('共 75 条 / 当前 50 条')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '加载更多' }));
+
+    expect(await screen.findByText('Chrome event 75')).toBeInTheDocument();
+    expect(screen.getByText('共 75 条 / 当前 75 条')).toBeInTheDocument();
+    expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 50 });
+  });
+
+  it('filters source detail events by text, day, and event type', async () => {
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      items: [buildEvent(1, { event_id: 'filtered-1', content: 'Bilibili result' })],
+      total: 1,
+      limit: 50,
+      offset: 0,
+    } as never);
+    const user = userEvent.setup();
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await screen.findByText('最近进入记忆的内容');
+    await user.click(screen.getByRole('button', { name: '今天' }));
+    await user.selectOptions(screen.getByLabelText('全部类型'), 'sensor');
+    await user.type(screen.getByPlaceholderText('搜索内容'), 'bilibili');
+    await user.click(screen.getByRole('button', { name: '搜索' }));
+
+    await waitFor(() => expect(memoryApi.getL1Events).toHaveBeenLastCalledWith({
+      source: 'chrome_history',
+      limit: 50,
+      offset: 0,
+      start_date: '2026-07-03',
+      end_date: '2026-07-03',
+      event_type: 'SENSOR_EVENT',
+      query: 'bilibili',
+    }));
+    expect(screen.getByText('Bilibili result')).toBeInTheDocument();
   });
 });

@@ -1,10 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CalendarDays, ChevronRight, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronRight, RefreshCw, Search } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
-import { memoryApi, type L1Event, type MemoryDashboard, type MemorySourceCount } from '@/api/modules/memory';
+import {
+  memoryApi,
+  type L1Event,
+  type L1EventQueryParams,
+  type MemoryDashboard,
+  type MemorySourceCount,
+} from '@/api/modules/memory';
 import {
   sensorsApi,
   type SensorSourceStatusItem,
@@ -178,12 +184,79 @@ const sourceResultLabel = (row: SourceLedgerRow, t: OverviewTranslateFn): string
 
 const PULSE_TIME_LABELS = ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'];
 const PULSE_COLORS = ['#2f80d8', '#49b861', '#ef4b3f', '#9061d0', '#f39a2f', '#6f6a63'];
+const SOURCE_DETAIL_PAGE_SIZE = 50;
+
+type SourceDetailTimeRange = 'all' | 'today' | 'last7Days' | 'last30Days';
+type SourceDetailEventType = 'all' | 'sensor';
+
+const SOURCE_DETAIL_TIME_RANGES: SourceDetailTimeRange[] = ['all', 'today', 'last7Days', 'last30Days'];
 
 interface PulseMark {
   left: number;
   width: number;
   heavy: boolean;
 }
+
+const parseDateString = (value: string): Date => {
+  const [year, month, day] = value.split('-').map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) {
+    return new Date();
+  }
+  return new Date(year, month - 1, day);
+};
+
+const formatDateString = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const shiftDateString = (value: string, offsetDays: number): string => {
+  const date = parseDateString(value);
+  date.setDate(date.getDate() + offsetDays);
+  return formatDateString(date);
+};
+
+const buildSourceDetailEventParams = ({
+  sourceName,
+  timeRange,
+  eventType,
+  query,
+  anchorDate,
+  offset,
+}: {
+  sourceName: string;
+  timeRange: SourceDetailTimeRange;
+  eventType: SourceDetailEventType;
+  query: string;
+  anchorDate: string;
+  offset: number;
+}): L1EventQueryParams => {
+  const params: L1EventQueryParams = {
+    source: sourceName,
+    limit: SOURCE_DETAIL_PAGE_SIZE,
+    offset,
+  };
+  if (timeRange === 'today') {
+    params.start_date = anchorDate;
+    params.end_date = anchorDate;
+  } else if (timeRange === 'last7Days') {
+    params.start_date = shiftDateString(anchorDate, -6);
+    params.end_date = anchorDate;
+  } else if (timeRange === 'last30Days') {
+    params.start_date = shiftDateString(anchorDate, -29);
+    params.end_date = anchorDate;
+  }
+  if (eventType === 'sensor') {
+    params.event_type = 'SENSOR_EVENT';
+  }
+  const normalizedQuery = query.trim();
+  if (normalizedQuery) {
+    params.query = normalizedQuery;
+  }
+  return params;
+};
 
 const getTodayCountMap = (todaySummary: SensorTodaySummaryResponse | null): Map<string, number> => {
   const counts = new Map<string, number>();
@@ -712,11 +785,11 @@ function SourceDetailHeader({
   );
 }
 
-function SourceDetailStats({ row }: { row: SourceLedgerRow }) {
+function SourceDetailStats({ row, todayCount }: { row: SourceLedgerRow; todayCount: number }) {
   const { t, i18n } = useTranslation('app');
   const stats = [
     { label: t('memory.sourcesPage.columns.stored'), value: formatInteger(row.eventCount) },
-    { label: t('memory.sourcesPage.columns.today'), value: formatInteger(row.lastResultCount ?? 0) },
+    { label: t('memory.sourcesPage.columns.today'), value: formatInteger(todayCount) },
     { label: t('memory.sourcesPage.detail.nextRun'), value: formatOverviewTimestamp(row.nextRunAt, i18n.language) || t('memory.sourcesPage.notScheduled') },
     { label: t('memory.sourcesPage.detail.syncMode'), value: row.syncMode || t('memory.sourcesPage.unknown') },
   ];
@@ -732,16 +805,115 @@ function SourceDetailStats({ row }: { row: SourceLedgerRow }) {
   );
 }
 
-function SourceRecentEvents({ events, loading }: { events: L1Event[]; loading: boolean }) {
+function SourceRecentEvents({
+  events,
+  total,
+  loading,
+  loadingMore,
+  hasMore,
+  timeRange,
+  eventType,
+  queryDraft,
+  onTimeRangeChange,
+  onEventTypeChange,
+  onQueryDraftChange,
+  onSearch,
+  onLoadMore,
+}: {
+  events: L1Event[];
+  total: number;
+  loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
+  timeRange: SourceDetailTimeRange;
+  eventType: SourceDetailEventType;
+  queryDraft: string;
+  onTimeRangeChange: (value: SourceDetailTimeRange) => void;
+  onEventTypeChange: (value: SourceDetailEventType) => void;
+  onQueryDraftChange: (value: string) => void;
+  onSearch: () => void;
+  onLoadMore: () => void;
+}) {
   const { t, i18n } = useTranslation('app');
+  const timeRangeLabel = (value: SourceDetailTimeRange): string => {
+    if (value === 'today') {
+      return t('memory.sourcesPage.detail.timeRange.today');
+    }
+    if (value === 'last7Days') {
+      return t('memory.sourcesPage.detail.timeRange.last7Days');
+    }
+    if (value === 'last30Days') {
+      return t('memory.sourcesPage.detail.timeRange.last30Days');
+    }
+    return t('memory.sourcesPage.detail.timeRange.all');
+  };
+  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSearch();
+  };
   return (
     <section className={MEMORY_SECTION_CARD_CLASS}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
           {t('memory.sourcesPage.detail.recentTitle')}
         </h2>
-        <span className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.detail.recentCount', { count: events.length })}</span>
+        <span className="text-xs text-[hsl(var(--memory-muted))]">
+          {t('memory.sourcesPage.detail.recentCountDetailed', {
+            total: formatInteger(total),
+            shown: formatInteger(events.length),
+          })}
+        </span>
       </div>
+      <form className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between" onSubmit={submitSearch}>
+        <div
+          className="inline-flex w-fit rounded-lg border border-[hsl(var(--memory-input-border)/0.62)] bg-[hsl(var(--memory-panel-subtle)/0.42)] p-1"
+          aria-label={t('memory.sourcesPage.detail.timeRangeLabel')}
+        >
+          {SOURCE_DETAIL_TIME_RANGES.map((value) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={timeRange === value}
+              className={cn(
+                'h-8 rounded-md px-3 text-xs font-medium transition-colors',
+                timeRange === value
+                  ? 'bg-[hsl(var(--memory-panel-elevated))] text-[hsl(var(--memory-title))] shadow-[inset_0_0_0_1px_hsl(var(--memory-border)/0.56)]'
+                  : 'text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))]'
+              )}
+              onClick={() => onTimeRangeChange(value)}
+            >
+              {timeRangeLabel(value)}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative min-w-0 sm:w-[260px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+            <input
+              value={queryDraft}
+              onChange={(event) => onQueryDraftChange(event.target.value)}
+              placeholder={t('memory.sourcesPage.detail.searchPlaceholder')}
+              className="h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.55)]"
+            />
+          </div>
+          <button
+            type="submit"
+            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center justify-center gap-2')}
+          >
+            <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('memory.sourcesPage.detail.searchAction')}
+          </button>
+          <select
+            aria-label={t('memory.sourcesPage.detail.eventType.all')}
+            value={eventType}
+            onChange={(event) => onEventTypeChange(event.target.value as SourceDetailEventType)}
+            className="h-9 rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors focus:border-[hsl(var(--memory-accent)/0.55)]"
+          >
+            <option value="all">{t('memory.sourcesPage.detail.eventType.all')}</option>
+            <option value="sensor">{t('memory.sourcesPage.detail.eventType.sensor')}</option>
+          </select>
+        </div>
+      </form>
       <div className="mt-4 divide-y divide-[hsl(var(--memory-divider)/0.58)]">
         {loading ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>
@@ -775,6 +947,19 @@ function SourceRecentEvents({ events, loading }: { events: L1Event[]; loading: b
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.detail.eventsEmpty')}</div>
         )}
       </div>
+      {!loading && hasMore ? (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-2')}
+            onClick={onLoadMore}
+            disabled={loadingMore}
+          >
+            {loadingMore ? <LoadingSpinner className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5 rotate-90" aria-hidden="true" />}
+            {loadingMore ? t('memory.sourcesPage.detail.loadingMore') : t('memory.sourcesPage.detail.loadMore')}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -816,47 +1001,110 @@ export const MemorySourceDetailPage = () => {
   const sourceName = decodeURIComponent(params.sourceName || '');
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
+  const [todaySummary, setTodaySummary] = useState<SensorTodaySummaryResponse | null>(null);
   const [events, setEvents] = useState<L1Event[]>([]);
+  const [eventsTotal, setEventsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [metadataReady, setMetadataReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
+  const [eventType, setEventType] = useState<SourceDetailEventType>('all');
+  const [queryDraft, setQueryDraft] = useState('');
+  const [query, setQuery] = useState('');
 
-  const loadPage = async (cancelledRef?: { cancelled: boolean }) => {
+  const loadMetadata = async (cancelledRef?: { cancelled: boolean }) => {
     setLoading(true);
-    setEventsLoading(true);
+    setMetadataReady(false);
     setError(null);
     try {
-      const [dashboardPayload, sensorPayload, eventsPayload] = await Promise.all([
+      const [dashboardPayload, sensorPayload, todayPayload] = await Promise.all([
         memoryApi.getDashboard({ pending_limit: 8 }),
         sensorsApi.getStatus(),
-        memoryApi.getL1Events({ source: sourceName, limit: 50, offset: 0 }),
+        sensorsApi.getTodaySummary(),
       ]);
       if (cancelledRef?.cancelled) {
         return;
       }
       setDashboard(dashboardPayload);
       setSensorStatus(sensorPayload);
-      setEvents(eventsPayload.items || []);
+      setTodaySummary(todayPayload);
+      setMetadataReady(true);
     } catch (err) {
       if (!cancelledRef?.cancelled) {
         setError(err instanceof Error ? err.message : String(err));
+        setMetadataReady(false);
       }
     } finally {
       if (!cancelledRef?.cancelled) {
         setLoading(false);
-        setEventsLoading(false);
+      }
+    }
+  };
+
+  const loadEvents = async (options?: {
+    offset?: number;
+    append?: boolean;
+    cancelledRef?: { cancelled: boolean };
+  }) => {
+    const offset = options?.offset ?? 0;
+    const append = Boolean(options?.append);
+    if (append) {
+      setLoadingMore(true);
+    } else {
+      setEventsLoading(true);
+    }
+    setError(null);
+    try {
+      const eventsPayload = await memoryApi.getL1Events(buildSourceDetailEventParams({
+        sourceName,
+        timeRange,
+        eventType,
+        query,
+        anchorDate: todaySummary?.date || formatDateString(new Date()),
+        offset,
+      }));
+      if (options?.cancelledRef?.cancelled) {
+        return;
+      }
+      const nextEvents = eventsPayload.items || [];
+      setEvents((current) => (append ? [...current, ...nextEvents] : nextEvents));
+      setEventsTotal(eventsPayload.total ?? nextEvents.length);
+    } catch (err) {
+      if (!options?.cancelledRef?.cancelled) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      if (!options?.cancelledRef?.cancelled) {
+        if (append) {
+          setLoadingMore(false);
+        } else {
+          setEventsLoading(false);
+        }
       }
     }
   };
 
   useEffect(() => {
     const cancelledRef = { cancelled: false };
-    void loadPage(cancelledRef);
+    void loadMetadata(cancelledRef);
     return () => {
       cancelledRef.cancelled = true;
     };
   }, [sourceName]);
+
+  useEffect(() => {
+    if (!metadataReady) {
+      return undefined;
+    }
+    const cancelledRef = { cancelled: false };
+    void loadEvents({ cancelledRef });
+    return () => {
+      cancelledRef.cancelled = true;
+    };
+  }, [metadataReady, sourceName, timeRange, eventType, query, todaySummary?.date]);
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
@@ -864,15 +1112,25 @@ export const MemorySourceDetailPage = () => {
   );
   const row = rows.find((item) => normalizeSourceKey(item.key) === normalizeSourceKey(sourceName))
     || fallbackSourceRow(sourceName, t);
+  const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
+  const hasMore = events.length < eventsTotal;
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       await sensorsApi.requestSync(sourceName);
-      await loadPage();
+      await loadMetadata();
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleSearch = () => {
+    setQuery(queryDraft.trim());
+  };
+
+  const handleLoadMore = () => {
+    void loadEvents({ offset: events.length, append: true });
   };
 
   return (
@@ -884,8 +1142,22 @@ export const MemorySourceDetailPage = () => {
       ) : (
         <div className="space-y-4">
           <SourceDetailHeader row={row} syncing={syncing} onSync={handleSync} />
-          <SourceDetailStats row={row} />
-          <SourceRecentEvents events={events} loading={eventsLoading} />
+          <SourceDetailStats row={row} todayCount={todayCount} />
+          <SourceRecentEvents
+            events={events}
+            total={eventsTotal}
+            loading={eventsLoading}
+            loadingMore={loadingMore}
+            hasMore={hasMore}
+            timeRange={timeRange}
+            eventType={eventType}
+            queryDraft={queryDraft}
+            onTimeRangeChange={setTimeRange}
+            onEventTypeChange={setEventType}
+            onQueryDraftChange={setQueryDraft}
+            onSearch={handleSearch}
+            onLoadMore={handleLoadMore}
+          />
           <SourceUsageSection row={row} />
         </div>
       )}
