@@ -884,6 +884,40 @@ async def test_episode_fts_search(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_episode_fts_search_or_combines_terms(tmp_path):
+    """Multi-term queries match episodes containing any term, not the exact phrase."""
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    eid = str(uuid.uuid4())
+    await store.create_episode(
+        episode_id=eid,
+        time_start=100.0,
+        time_end=200.0,
+        source_event_count=3,
+    )
+    await store.index_episode_fts(
+        episode_id=eid,
+        summary="Discussed AI tooling with Sarah over coffee",
+        label="Chat with Sarah",
+        user_label="",
+    )
+
+    # Terms appear in the text but never adjacently as a phrase.
+    results = await store.search_episodes_fts(query="Sarah tooling")
+    assert [item["episode_id"] for item in results] == [eid]
+
+    # One matching term out of several is enough.
+    partial = await store.search_episodes_fts(query="Sarah zzznonexistent")
+    assert [item["episode_id"] for item in partial] == [eid]
+
+    # Blank queries return nothing instead of raising FTS syntax errors.
+    assert await store.search_episodes_fts(query="   ") == []
+
+
+@pytest.mark.asyncio
 async def test_clear_includes_episodes(tmp_path):
     """clear() should also delete episodes and episode_events."""
     from magi.memory.l2.store import L2CognitionStore

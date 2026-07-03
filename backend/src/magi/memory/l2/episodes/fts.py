@@ -33,9 +33,19 @@ class L2EpisodeFtsMixin(L2EpisodeStoreBaseMixin):
     async def search_episodes_fts(
         self, *, query: str, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """Full-text search over episode summary/label/user_label."""
+        """Full-text search over episode summary/label/user_label.
+
+        Terms are OR-combined: quoting the whole query as a single phrase
+        would require all terms to appear adjacently, which kills recall
+        for multi-term queries (e.g. entity names joined by spaces).
+        """
         await self.initialize()
-        safe_query = query.replace('"', '""')
+        terms = [term for term in query.split() if term.strip()]
+        if not terms:
+            return []
+        match_expression = " OR ".join(
+            '"{}"'.format(term.replace('"', '""')) for term in terms
+        )
         status_ph = ", ".join("?" for _ in RETRIEVAL_EXCLUDED_STATUSES)
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -48,7 +58,7 @@ class L2EpisodeFtsMixin(L2EpisodeStoreBaseMixin):
                 ORDER BY rank
                 LIMIT ?
                 """,
-                (f'"{safe_query}"', *RETRIEVAL_EXCLUDED_STATUSES, limit),
+                (match_expression, *RETRIEVAL_EXCLUDED_STATUSES, limit),
             ) as cursor:
                 rows = await cursor.fetchall()
         return [self._episode_row_to_dict(row) for row in rows]
