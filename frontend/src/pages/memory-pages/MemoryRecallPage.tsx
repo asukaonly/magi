@@ -118,6 +118,8 @@ export const MemoryRecallPage = () => {
   const hasLoadedMemoryTotal = typeof stats.total_memories === 'number';
   const memoryTotal = stats.total_memories ?? 0;
   const showColdStartGuide = !loading && hasLoadedMemoryTotal && memoryTotal === 0 && !hasSearched && noResults;
+  const showSearching = hasSearched && searching;
+  const showNoResults = hasSearched && !searching && noResults;
 
   return (
     <MemoryPageFrame title={t('memory.recall.title')} description={t('memory.recall.subtitle')} hideHeader>
@@ -150,7 +152,14 @@ export const MemoryRecallPage = () => {
           </Button>
         </div>
 
-        {hasSearched && noResults ? (
+        {showSearching ? (
+          <div role="status" className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
+            <LoadingSpinner className="h-4 w-4" />
+            <span>{t('memory.recall.searching')}</span>
+          </div>
+        ) : null}
+
+        {showNoResults ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.recall.noResults')}</div>
         ) : null}
 

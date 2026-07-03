@@ -15,6 +15,7 @@ vi.mock('react-i18next', () => {
     'memory.recall.manualEntry': '手动添加一条记忆',
     'memory.recall.advancedToggle': '调试细节',
     'memory.recall.noResults': '没找到合适的记忆',
+    'memory.recall.searching': '正在找相关记忆',
   };
   return {
     useTranslation: () => ({
@@ -139,6 +140,37 @@ describe('MemoryRecallPage', () => {
     expect(searchButton).toBeInstanceOf(HTMLButtonElement);
     await user.click(searchButton as HTMLButtonElement);
     expect(handleSearch).toHaveBeenCalledWith();
+  });
+
+  it('shows progress instead of no results while a search is pending', async () => {
+    const handleSearch = vi.fn();
+    let memoryState = {
+      loading: false,
+      stats: { total_memories: 5, l1: { event_count: 3 }, l2: { relation_count: 1, assertion_count: 1 }, l3: { summary_count: 0 }, l4: { skill_count: 0 } },
+      searchQuery: '我听过的歌',
+      setSearchQuery: vi.fn(),
+      searchResults: { l1_events: [], l2_relationships: [], l2_entity_cards: [], l3_reflections: [], l4_procedures: [], trace: {} },
+      searching: false,
+      handleSearch,
+      refreshAll: vi.fn(),
+    } as unknown as ReturnType<typeof useMemory>;
+    vi.mocked(useMemory).mockImplementation(() => memoryState);
+
+    const user = userEvent.setup();
+    const { rerender } = renderPage();
+    const searchSection = screen.getByTestId('memory-recall-search');
+    const searchButton = searchSection.querySelector('button.bg-primary');
+
+    await user.click(searchButton as HTMLButtonElement);
+    memoryState = { ...memoryState, searching: true } as ReturnType<typeof useMemory>;
+    rerender(
+      <MemoryRouter>
+        <MemoryRecallPage />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByText('没找到合适的记忆')).not.toBeInTheDocument();
+    expect(screen.getByText('正在找相关记忆')).toBeInTheDocument();
   });
 
   it('hides diagnostics panel until disclosure is toggled', async () => {

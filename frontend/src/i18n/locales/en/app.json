@@ -2908,6 +2908,7 @@
       "subtitle": "Dig up the past in natural language.",
       "searchPlaceholder": "Find a conversation, a name, something you did...",
       "advancedToggle": "Debug details",
+      "searching": "Searching related memories...",
       "noResults": "No matching memories found. Try a more specific term.",
       "resultCount": "{{count}} items",
       "resultFallback": "Result {{index}}",

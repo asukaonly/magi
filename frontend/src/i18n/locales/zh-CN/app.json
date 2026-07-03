@@ -2907,6 +2907,7 @@
       "subtitle": "用自然语言把过去翻出来。",
       "searchPlaceholder": "想找一段对话、一个名字、一件做过的事…",
       "advancedToggle": "调试细节",
+      "searching": "正在找相关记忆…",
       "noResults": "没找到合适的记忆，可以换一个更具体的词。",
       "resultCount": "{{count}} 条",
       "resultFallback": "结果 {{index}}",
