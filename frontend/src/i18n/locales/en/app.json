@@ -2592,12 +2592,6 @@
         "backlog": "Queued",
         "errors": "Errors"
       },
-      "pulseLegend": {
-        "entered": "Data entered",
-        "heavy": "More data",
-        "empty": "No data",
-        "error": "Error"
-      },
       "ledgerSubtitle": "Status, latest sync, and stored memory counts for each source.",
       "columns": {
         "source": "Source",

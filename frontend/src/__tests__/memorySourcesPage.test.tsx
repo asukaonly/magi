@@ -43,10 +43,6 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.pulseStats.today': '今日事件',
         'memory.sourcesPage.pulseStats.backlog': '待处理',
         'memory.sourcesPage.pulseStats.errors': '异常',
-        'memory.sourcesPage.pulseLegend.entered': '有数据进入',
-        'memory.sourcesPage.pulseLegend.heavy': '数据较多',
-        'memory.sourcesPage.pulseLegend.empty': '无数据',
-        'memory.sourcesPage.pulseLegend.error': '异常',
         'memory.overview.sourceStatus.ready': '正常',
         'memory.overview.sourceStatus.stale': '延迟',
         'memory.overview.sourceStatus.setup_required': '待配置',
@@ -300,6 +296,8 @@ describe('MemorySourcesPage', () => {
     expect(screen.getByText('24:00')).toBeInTheDocument();
     expect(screen.getAllByText('异常').length).toBeGreaterThan(0);
     expect(screen.getByText('今天')).toBeInTheDocument();
+    expect(screen.queryByText('数据较多')).not.toBeInTheDocument();
+    expect(screen.queryByText('无数据')).not.toBeInTheDocument();
     expect(screen.getByText('来源总账')).toBeInTheDocument();
     expect(screen.getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);

@@ -2591,12 +2591,6 @@
         "backlog": "待处理",
         "errors": "异常"
       },
-      "pulseLegend": {
-        "entered": "有数据进入",
-        "heavy": "数据较多",
-        "empty": "无数据",
-        "error": "异常"
-      },
       "ledgerSubtitle": "每个来源的状态、最近同步和已入库数量都在这里。",
       "columns": {
         "source": "来源",

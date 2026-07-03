@@ -494,13 +494,13 @@ function SourcePulseSection({
                         marks.map((mark, markIndex) => (
                           <span
                             key={`${row.key}-${markIndex}`}
-                            className="absolute top-1/2 -translate-y-1/2 rounded-full opacity-80 shadow-[0_0_10px_currentColor]"
+                            className="absolute top-1/2 -translate-y-1/2 rounded-full"
                             style={{
                               left: `${mark.left}%`,
-                              width: mark.heavy ? `${mark.width}%` : '10px',
-                              height: '9px',
+                              width: mark.heavy ? `${mark.width}%` : '8px',
+                              height: '8px',
                               backgroundColor: color,
-                              color,
+                              opacity: mark.heavy ? 0.68 : 0.82,
                             }}
                             aria-hidden="true"
                           />
@@ -515,25 +515,6 @@ function SourcePulseSection({
                   </div>
                 );
               })}
-            </div>
-
-            <div className="mt-7 flex flex-wrap items-center gap-x-8 gap-y-2 pl-[180px] text-sm text-[hsl(var(--memory-muted))]">
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-[hsl(var(--memory-muted)/0.82)]" aria-hidden="true" />
-                {t('memory.sourcesPage.pulseLegend.entered')}
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-9 rounded-full bg-[hsl(var(--memory-muted)/0.82)]" aria-hidden="true" />
-                {t('memory.sourcesPage.pulseLegend.heavy')}
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-1 w-9 rounded-full bg-[hsl(var(--memory-divider)/0.65)]" aria-hidden="true" />
-                {t('memory.sourcesPage.pulseLegend.empty')}
-              </span>
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-500" aria-hidden="true" />
-                {t('memory.sourcesPage.pulseLegend.error')}
-              </span>
             </div>
           </div>
         </div>
