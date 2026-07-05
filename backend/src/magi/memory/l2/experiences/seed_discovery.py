@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
+from ..anchors import GENERIC_EXPERIENCE_ANCHORS, is_generic_experience_anchor
 from .seed_anchors import (
-    GENERIC_EXPERIENCE_ANCHORS,
-    is_generic_experience_anchor,
     is_technical_artifact_experience_token,
     readable_anchor_label,
 )
@@ -17,7 +16,6 @@ from .seed_features import (
 from .seed_models import ExperienceSeedDiscoveryStats, RepeatedGoalSelector
 from .seed_sources import discover_experience_seeds
 from .seed_writes import discover_manual_experience_seed
-
 
 __all__ = [
     "ExperienceSeedDiscoveryStats",

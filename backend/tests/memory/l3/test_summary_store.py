@@ -11,11 +11,17 @@ from magi.memory.l3.models import EpisodicGenerationResult, L3Candidate, Validat
 
 
 class _ExperienceSummaryL2Stub:
-    def __init__(self, event_ids: list[str]) -> None:
-        self._event_ids = list(event_ids)
+    def __init__(self, event_ids: list[str] | dict[str, list[str]]) -> None:
+        if isinstance(event_ids, dict):
+            self._events_by_episode = {key: list(value) for key, value in event_ids.items()}
+            self._default_event_ids: list[str] = []
+        else:
+            self._events_by_episode = {}
+            self._default_event_ids = list(event_ids)
 
     async def list_episode_events(self, *, episode_id: str):
-        return [{"episode_id": episode_id, "event_id": event_id} for event_id in self._event_ids]
+        event_ids = self._events_by_episode.get(episode_id, self._default_event_ids)
+        return [{"episode_id": episode_id, "event_id": event_id} for event_id in event_ids]
 
 
 class _BatchTrackingEmbeddingService:
@@ -68,6 +74,131 @@ class _RecordingVectorIndex:
         return None
 
 
+class _FetchOnlyL1Stub:
+    def __init__(self, rows: list[dict[str, object]]) -> None:
+        self.rows_by_id = {str(row["event_id"]): dict(row) for row in rows}
+        self.calls: list[list[str]] = []
+
+    async def fetch_events(self, event_ids, **_kwargs):  # type: ignore[no-untyped-def]
+        self.calls.append(list(event_ids))
+        rows = [self.rows_by_id[event_id] for event_id in event_ids if event_id in self.rows_by_id]
+        return list(reversed(rows))
+
+
+@pytest.mark.asyncio
+async def test_load_experience_events_fetches_batch_and_preserves_requested_order(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    l1_store = _FetchOnlyL1Stub(
+        [
+            {"event_id": "evt-a", "timestamp": 1.0, "event_type": "USER_MESSAGE", "content": "A"},
+            {"event_id": "evt-b", "timestamp": 2.0, "event_type": "USER_MESSAGE", "content": "B"},
+            {"event_id": "evt-c", "timestamp": 3.0, "event_type": "USER_MESSAGE", "content": "C"},
+        ]
+    )
+
+    events = await l3_store._load_experience_events(
+        l1_store=l1_store,
+        event_ids=["evt-a", "evt-b", "evt-missing", "evt-c"],
+    )
+
+    assert l1_store.calls == [["evt-a", "evt-b", "evt-missing", "evt-c"]]
+    assert [event["event_id"] for event in events] == ["evt-a", "evt-b", "evt-c"]
+
+
+@pytest.mark.asyncio
+async def test_generate_episodic_summary_fetches_events_in_one_batch(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    l1_store = _FetchOnlyL1Stub(
+        [
+            {
+                "event_id": "evt-first",
+                "timestamp": 10.0,
+                "event_type": "USER_MESSAGE",
+                "source": "chat",
+                "content": "First event",
+            },
+            {
+                "event_id": "evt-second",
+                "timestamp": 20.0,
+                "event_type": "AI_RESPONSE",
+                "source": "chat",
+                "content": "Second event",
+            },
+        ]
+    )
+
+    async def _fake_generate(pack, *, fallback_label, fallback_content):  # type: ignore[no-untyped-def]
+        _ = fallback_label, fallback_content
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="Generated from fetched batch.",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={"label": "Fetched batch"},
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        l3_store._episodic_llm_service, "generate_episodic_candidate", _fake_generate
+    )
+
+    summary = await l3_store.generate_episodic_summary(
+        l1_store=l1_store,
+        episode={
+            "episode_id": "ep-batch",
+            "episode_type": "activity",
+            "time_start": 10.0,
+            "time_end": 20.0,
+            "primary_entity_ids": [],
+            "primary_topic_keys": [],
+        },
+        episode_event_ids=["evt-first", "evt-second"],
+    )
+
+    assert summary is not None
+    assert l1_store.calls == [["evt-first", "evt-second"]]
+    assert summary["source_event_ids"] == ["evt-first", "evt-second"]
+
+
+@pytest.mark.asyncio
+async def test_experience_member_events_are_sampled_across_episode_span(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    l2_store = _ExperienceSummaryL2Stub(
+        {
+            f"ep-{episode_index}": [
+                f"evt-{episode_index}-{event_index}" for event_index in range(20)
+            ]
+            for episode_index in range(8)
+        }
+    )
+
+    episode_ids, event_ids = await l3_store._collect_experience_member_event_ids(
+        l2_store=l2_store,
+        experience_members=[
+            {"member_type": "episode", "member_id": f"ep-{episode_index}", "role": "core"}
+            for episode_index in range(8)
+        ],
+    )
+
+    assert episode_ids == [f"ep-{index}" for index in range(8)]
+    assert len(event_ids) == 60
+    for episode_index in range(8):
+        assert any(event_id.startswith(f"evt-{episode_index}-") for event_id in event_ids)
+    assert "evt-0-0" in event_ids
+    assert "evt-7-19" in event_ids
+
+
 @pytest.mark.asyncio
 async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
@@ -81,13 +212,18 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "I want to switch jobs this year.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        event_id="evt-1"),
-        )
+            event_id="evt-1",
+        ),
+    )
     telemetry_event = normalize_runtime_event(
         Event(
             type=EventTypes.TASK_COMPLETED,
@@ -96,8 +232,9 @@ async def test_l3_summary_excludes_runtime_telemetry_and_keeps_sources(tmp_path)
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        event_id="evt-2"),
-        )
+            event_id="evt-2",
+        ),
+    )
 
     await l1_store.store(chat_event)
     await l1_store.store(telemetry_event)
@@ -245,7 +382,9 @@ async def test_generate_experience_summary_ignores_machine_entity_ids_in_label(t
 
 
 @pytest.mark.asyncio
-async def test_generate_experience_summary_marks_llm_candidate(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_experience_summary_marks_llm_candidate(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -257,7 +396,11 @@ async def test_generate_experience_summary_marks_llm_candidate(tmp_path, monkeyp
     event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "content": "在 V2EX 和 Kimi 之间切换，比较 AI 工具。"},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "在 V2EX 和 Kimi 之间切换，比较 AI 工具。",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-exp-llm",
@@ -280,7 +423,9 @@ async def test_generate_experience_summary_marks_llm_candidate(tmp_path, monkeyp
             used_fallback=False,
         )
 
-    monkeypatch.setattr(l3_store._episodic_llm_service, "generate_episodic_candidate", _fake_generate)
+    monkeypatch.setattr(
+        l3_store._episodic_llm_service, "generate_experience_review", _fake_generate
+    )
 
     summary = await l3_store.generate_experience_summary(
         l1_store=l1_store,
@@ -300,6 +445,74 @@ async def test_generate_experience_summary_marks_llm_candidate(tmp_path, monkeyp
 
     assert summary is not None
     assert summary["generated_by_model"] == "episodic-llm"
+
+
+@pytest.mark.asyncio
+async def test_generate_experience_summary_allows_sixty_verbatim_events(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    event_ids = [f"evt-long-{index:02d}" for index in range(70)]
+    l1_store = _FetchOnlyL1Stub(
+        [
+            {
+                "event_id": event_id,
+                "timestamp": float(index),
+                "event_type": "USER_MESSAGE",
+                "source": "chat",
+                "content": f"Long experience event {index}",
+            }
+            for index, event_id in enumerate(event_ids)
+        ]
+    )
+    l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
+    captured: dict[str, object] = {}
+
+    async def _fake_generate(pack, *, fallback_label, fallback_content):  # type: ignore[no-untyped-def]
+        _ = fallback_label, fallback_content
+        captured["verbatim_count"] = len(pack.events)
+        captured["source_event_count"] = len(pack.source_event_ids)
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="你把一段较长的项目经历从开头推进到收尾。",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={
+                    "label": "长项目推进",
+                    "intent": "你想推进这个项目。",
+                    "outcome": "项目推进到了可复查的阶段。",
+                },
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        l3_store._episodic_llm_service, "generate_experience_review", _fake_generate
+    )
+
+    summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(event_ids),
+        experience={
+            "experience_id": "exp-long",
+            "title": "Long project",
+            "time_start": 0.0,
+            "time_end": 70.0,
+            "primary_entity_ids": ["project:magi"],
+            "primary_topic_keys": ["memory"],
+        },
+        experience_members=[
+            {"member_type": "episode", "member_id": "ep-long", "role": "core"},
+        ],
+    )
+
+    assert summary is not None
+    assert captured == {"verbatim_count": 60, "source_event_count": 60}
+    assert summary["insight_metadata"]["intent"] == "你想推进这个项目。"
+    assert summary["insight_metadata"]["outcome"] == "项目推进到了可复查的阶段。"
 
 
 @pytest.mark.asyncio
@@ -409,7 +622,9 @@ async def test_count_summaries_can_filter_by_creation_time(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_search_summaries_fuses_bm25_and_vector_hits(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l3.summary_store import L3SummaryStore
 
     l3_store = L3SummaryStore(db_path=str(tmp_path / "memory.db"), vector_enabled=False)
@@ -485,7 +700,9 @@ async def test_search_summaries_fuses_bm25_and_vector_hits(tmp_path, monkeypatch
     monkeypatch.setattr(l3_store, "bm25_search", _fake_bm25)
     monkeypatch.setattr(l3_store, "vector_search", _fake_semantic)
 
-    results = await l3_store.search_summaries(query="career planning", summary_type="thematic", limit=5)
+    results = await l3_store.search_summaries(
+        query="career planning", summary_type="thematic", limit=5
+    )
 
     assert [item["summary_id"] for item in results] == ["summary-bm25", "summary-vector"]
 
@@ -566,7 +783,9 @@ async def test_search_summaries_filters_summary_category(tmp_path, monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_temporal_summary_uses_llm_candidate_when_available(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -578,23 +797,33 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "I want to switch jobs this year.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        event_id="evt-1"),
-        )
+            event_id="evt-1",
+        ),
+    )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "You should compare growth and salary tradeoffs.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        event_id="evt-2"),
-        )
+            event_id="evt-2",
+        ),
+    )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
@@ -605,12 +834,19 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
         assert prose_content == "LLM rewritten temporal summary"
         return {
             "key_topics": ["job_search"],
-            "change_and_pattern": {"changes": ["moved from exploration to planning"], "patterns": []},
+            "change_and_pattern": {
+                "changes": ["moved from exploration to planning"],
+                "patterns": [],
+            },
             "importance_aggregate": 0.9,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model
+    )
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model
+    )
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -622,14 +858,19 @@ async def test_generate_temporal_summary_uses_llm_candidate_when_available(tmp_p
     assert summary is not None
     assert summary["content"] == "LLM rewritten temporal summary"
     assert summary["key_topics"] == ["job_search"]
-    assert summary["change_and_pattern"] == {"changes": ["moved from exploration to planning"], "patterns": []}
+    assert summary["change_and_pattern"] == {
+        "changes": ["moved from exploration to planning"],
+        "patterns": [],
+    }
     assert summary["generated_by_model"] == "temporal-llm"
     event_links = await l3_store.list_summary_event_links(summary["summary_id"])
     assert len(event_links) == 2
 
 
 @pytest.mark.asyncio
-async def test_generate_temporal_summary_includes_period_context(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_temporal_summary_includes_period_context(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -677,25 +918,35 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "This month I started building the portfolio."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "This month I started building the portfolio.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-current-1",
                 timestamp=320.0,
-            event_id="evt-current-1"),
-            )
+                event_id="evt-current-1",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "content": "The work moved from exploration into execution."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "The work moved from exploration into execution.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-current-2",
                 timestamp=325.0,
-            event_id="evt-current-2"),
-            )
+                event_id="evt-current-2",
+            ),
+        )
     )
     captured: dict[str, object] = {}
 
@@ -708,11 +959,18 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
         assert prose_content == "The month shifted from exploration toward portfolio execution."
         return {
             "key_topics": ["portfolio"],
-            "change_and_pattern": {"changes": ["exploration shifted toward execution"], "patterns": []},
+            "change_and_pattern": {
+                "changes": ["exploration shifted toward execution"],
+                "patterns": [],
+            },
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model
+    )
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model
+    )
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -731,7 +989,9 @@ async def test_generate_temporal_summary_includes_period_context(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_temporal_summary_falls_back_when_llm_disabled(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -747,30 +1007,42 @@ async def test_generate_temporal_summary_falls_back_when_llm_disabled(tmp_path, 
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "I want to switch jobs this year.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        event_id="evt-1"),
-        )
+            event_id="evt-1",
+        ),
+    )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "You should compare growth and salary tradeoffs.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        event_id="evt-2"),
-        )
+            event_id="evt-2",
+        ),
+    )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
     async def _unexpected_model(_pack):  # type: ignore[no-untyped-def]
         raise AssertionError("LLM path should be disabled")
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _unexpected_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _unexpected_model
+    )
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -821,13 +1093,18 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "openai.com docs and github.com issues"},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "openai.com docs and github.com issues",
+                },
                 source="chrome_history",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            event_id="evt-1"),
-            )
+                event_id="evt-1",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -838,8 +1115,9 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            event_id="evt-2"),
-            )
+                event_id="evt-2",
+            ),
+        )
     )
 
     captured_features: dict[str, object] = {}
@@ -855,8 +1133,12 @@ async def test_generate_temporal_summary_includes_plugin_summary_features(
             "importance_aggregate": 0.7,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model
+    )
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model
+    )
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -912,13 +1194,18 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "openai.com docs and github.com issues"},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "openai.com docs and github.com issues",
+                },
                 source="chrome_history",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            event_id="evt-1"),
-            )
+                event_id="evt-1",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
@@ -929,8 +1216,9 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            event_id="evt-2"),
-            )
+                event_id="evt-2",
+            ),
+        )
     )
 
     summary = await l3_store.generate_temporal_summary(
@@ -945,7 +1233,9 @@ async def test_generate_temporal_summary_uses_plugin_summary_lines_in_fallback(t
 
 
 @pytest.mark.asyncio
-async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_temporal_summary_uses_source_aware_compaction(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -964,8 +1254,9 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
                     level=EventLevel.INFO,
                     correlation_id=f"chrome-{index}",
                     timestamp=1710001000.0 + index,
-                event_id=f"chrome-{index}"),
-                )
+                    event_id=f"chrome-{index}",
+                ),
+            )
         )
     for index in range(2):
         await l1_store.store(
@@ -977,8 +1268,9 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
                     level=EventLevel.INFO,
                     correlation_id=f"music-{index}",
                     timestamp=1710000000.0 + index,
-                event_id=f"music-{index}"),
-                )
+                    event_id=f"music-{index}",
+                ),
+            )
         )
 
     captured_pack = None
@@ -995,8 +1287,12 @@ async def test_generate_temporal_summary_uses_source_aware_compaction(tmp_path, 
             "importance_aggregate": 0.7,
         }
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model
+    )
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model
+    )
 
     summary = await l3_store.generate_temporal_summary(
         l1_store=l1_store,
@@ -1033,23 +1329,33 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
     chat_event = normalize_runtime_event(
         Event(
             type=EventTypes.USER_MESSAGE,
-            data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "I want to switch jobs this year.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        event_id="evt-1"),
-        )
+            event_id="evt-1",
+        ),
+    )
     ai_event = normalize_runtime_event(
         Event(
             type=EventTypes.AI_RESPONSE,
-            data={"user_id": "u1", "session_id": "s1", "content": "You should compare growth and salary tradeoffs."},
+            data={
+                "user_id": "u1",
+                "session_id": "s1",
+                "content": "You should compare growth and salary tradeoffs.",
+            },
             source="chat",
             level=EventLevel.INFO,
             correlation_id="evt-2",
             timestamp=1710000300.0,
-        event_id="evt-2"),
-        )
+            event_id="evt-2",
+        ),
+    )
     await l1_store.store(chat_event)
     await l1_store.store(ai_event)
 
@@ -1069,8 +1375,12 @@ async def test_generate_temporal_summary_falls_back_when_llm_candidate_is_reject
             return ValidationDecision(action="reject", reason="synthetic_rejection")
         return ValidationDecision(action="accept", reason="accepted")
 
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_prose_model", _fake_prose_model
+    )
+    monkeypatch.setattr(
+        l3_store._temporal_llm_service, "_call_temporal_structure_model", _fake_structure_model
+    )
     monkeypatch.setattr(summary_store_module, "validate_candidate", _fake_validate)
 
     summary = await l3_store.generate_temporal_summary(
@@ -1099,37 +1409,52 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I want to switch jobs this year.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            event_id="evt-1"),
-            )
+                event_id="evt-1",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "content": "The job market looks stronger for remote roles."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "The job market looks stronger for remote roles.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            event_id="evt-2"),
-            )
+                event_id="evt-2",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I should finish my portfolio first."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I should finish my portfolio first.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-3",
                 timestamp=1710000600.0,
-            event_id="evt-3"),
-            )
+                event_id="evt-3",
+            ),
+        )
     )
 
     summary = await l3_store.generate_thematic_summary(
@@ -1149,7 +1474,9 @@ async def test_generate_thematic_summary_groups_topic_events_and_links_sources(t
 
 
 @pytest.mark.asyncio
-async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_generate_thematic_summary_uses_llm_candidate_when_available(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l1.event_store import L1EventStore
     from magi.memory.l3.summary_store import L3SummaryStore
 
@@ -1162,25 +1489,35 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
         normalize_runtime_event(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I want to switch jobs this year."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I want to switch jobs this year.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-1",
                 timestamp=1710000000.0,
-            event_id="evt-1"),
-            )
+                event_id="evt-1",
+            ),
+        )
     )
     await l1_store.store(
         normalize_runtime_event(
             Event(
                 type=EventTypes.AI_RESPONSE,
-                data={"user_id": "u1", "session_id": "s1", "content": "The job market looks stronger for remote roles."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "The job market looks stronger for remote roles.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="evt-2",
                 timestamp=1710000300.0,
-            event_id="evt-2"),
-            )
+                event_id="evt-2",
+            ),
+        )
     )
 
     async def _fake_prose_model(_pack):  # type: ignore[no-untyped-def]
@@ -1194,7 +1531,9 @@ async def test_generate_thematic_summary_uses_llm_candidate_when_available(tmp_p
         }
 
     monkeypatch.setattr(l3_store._topic_llm_service, "_call_topic_prose_model", _fake_prose_model)
-    monkeypatch.setattr(l3_store._topic_llm_service, "_call_topic_structure_model", _fake_structure_model)
+    monkeypatch.setattr(
+        l3_store._topic_llm_service, "_call_topic_structure_model", _fake_structure_model
+    )
 
     summary = await l3_store.generate_thematic_summary(
         l1_store=l1_store,
@@ -1355,12 +1694,17 @@ async def test_l3_batch_embedding_flush_indexes_summary_chunks(tmp_path):
     try:
         await store._store_summary(summary)
         await store._maybe_upsert_summary_embeddings([summary])
-        results = await store.fetch_by_ids(["summary-chunked"], summary_type=None, summary_category=None)
+        results = await store.fetch_by_ids(
+            ["summary-chunked"], summary_type=None, summary_category=None
+        )
     finally:
         await store.shutdown()
 
     assert len(recording_index.upsert_many_calls) == 1
-    assert all(chunk_id.startswith("summary-chunked::chunk-") for chunk_id in recording_index.upsert_many_calls[0])
+    assert all(
+        chunk_id.startswith("summary-chunked::chunk-")
+        for chunk_id in recording_index.upsert_many_calls[0]
+    )
     assert results[0]["embedding_chunk_count"] > 1
 
 
@@ -1399,7 +1743,9 @@ async def test_l3_summary_exposes_embedding_status_and_profile_id(tmp_path):
         }
         await store._store_summary(summary)
         await store._maybe_upsert_summary_embeddings([summary])
-        results = await store.fetch_by_ids(["summary-status"], summary_type=None, summary_category=None)
+        results = await store.fetch_by_ids(
+            ["summary-status"], summary_type=None, summary_category=None
+        )
     finally:
         await store.shutdown()
 
@@ -1427,8 +1773,7 @@ async def test_l3_semantic_search_folds_chunk_hits_to_parent_summary(tmp_path):
             "period_start": 1.0,
             "period_end": 2.0,
             "content": (
-                "career planning summary block one " * 18
-                + "recovery summary block two " * 18
+                "career planning summary block one " * 18 + "recovery summary block two " * 18
             ),
             "key_topics": ["career"],
             "key_entities": [],

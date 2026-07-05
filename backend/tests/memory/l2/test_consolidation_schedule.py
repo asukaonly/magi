@@ -99,6 +99,7 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     l2_store.list_experience_members = AsyncMock(return_value=[
         {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.8}
     ])
+    l2_store.update_experience = AsyncMock(return_value=True)
     l1_store = MagicMock()
     l3_store = MagicMock()
     l3_store.generate_missing_episodic_summaries = AsyncMock(
@@ -118,6 +119,7 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     unified_mock.l2_pipeline = pipeline_mock
     unified_mock.l1 = l1_store
     unified_mock.l3 = l3_store
+    unified_mock.scenario_llm_pool = object()
 
     consolidation_stats = EpisodeConsolidationStats(promoted=2)
     consolidation_stats.promoted_episode_ids = ["ep-a", "ep-b"]
@@ -139,7 +141,10 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     assert result.success is True
     assert result.message == "consolidation_ok"
     consolidate_mock.assert_awaited_once_with(l2_store)
-    promote_mock.assert_awaited_once_with(l2_store)
+    promote_mock.assert_awaited_once()
+    promote_kwargs = promote_mock.await_args.kwargs
+    assert promote_mock.await_args.args == (l2_store,)
+    assert callable(promote_kwargs["selector"])
     l3_store.generate_missing_episodic_summaries.assert_awaited_once()
     call_kwargs = l3_store.generate_missing_episodic_summaries.await_args.kwargs
     assert call_kwargs["l1_store"] is l1_store

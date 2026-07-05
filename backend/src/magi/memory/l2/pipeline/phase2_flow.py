@@ -13,6 +13,7 @@ from .extraction_contracts import (
     _Phase2Context,
     _PreparedExtractionBatch,
 )
+from .event_entity_map import build_event_entity_map
 
 logger = get_logger("magi.memory.l2.pipeline")
 
@@ -34,6 +35,7 @@ def _fast_track_result_payload(
         "touched_entity_ids": touched_entity_ids,
         "touched_place_ids": touched_place_ids,
         "touched_topic_keys": touched_topic_keys,
+        "event_entity_map": build_event_entity_map(candidates),
         "snapshot_refresh_entity_ids": [],
         "skipped": False,
         "evidence_class": batch.classification.evidence_class,
@@ -108,6 +110,11 @@ def _phase2_touch_scope(
     touched_place_ids, touched_topic_keys = pipeline._derive_place_and_topic_hints(
         touched_entity_ids
     )
+    all_candidates = (
+        candidates.graph_candidates
+        + batch.direct_write_candidates
+        + candidates.assertion_candidates
+    )
     snapshot_refresh_entity_ids = (
         touched_entity_ids
         if conflict_decision == "mark_evolution" and relation_count > 0
@@ -117,6 +124,7 @@ def _phase2_touch_scope(
         "touched_entity_ids": touched_entity_ids,
         "touched_place_ids": touched_place_ids,
         "touched_topic_keys": touched_topic_keys,
+        "event_entity_map": build_event_entity_map(all_candidates),
         "snapshot_refresh_entity_ids": snapshot_refresh_entity_ids,
     }
 

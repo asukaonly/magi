@@ -200,12 +200,13 @@ class L2PipelineWorkerMixin:
         result: dict[str, Any],
         touched_entity_ids: Any,
     ) -> list[EpisodeCandidateJob]:
-        entity_ids = touched_entity_ids if isinstance(touched_entity_ids, list) else []
+        batch_entity_ids = _normalized_ids(touched_entity_ids)
+        event_entity_map = _normalized_event_entity_map(result.get("event_entity_map"))
         return [
             EpisodeCandidateJob(
                 event_id=eid,
                 event_timestamp=float(evt.get("timestamp", 0.0) or 0.0),
-                entity_ids=entity_ids,
+                entity_ids=event_entity_map.get(eid) or batch_entity_ids,
                 place_ids=result.get("touched_place_ids", []) or [],
                 topic_keys=result.get("touched_topic_keys", []) or [],
                 episode_type_hint=episode_type_for_event(str(evt.get("event_type") or "")),
@@ -375,3 +376,28 @@ class L2PipelineWorkerMixin:
 
     def _worker_host(self) -> _L2PipelineWorkerHostProtocol:
         return self  # type: ignore[return-value]
+
+
+def _normalized_ids(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in raw:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(text)
+    return result
+
+
+def _normalized_event_entity_map(raw: Any) -> dict[str, list[str]]:
+    if not isinstance(raw, dict):
+        return {}
+    normalized: dict[str, list[str]] = {}
+    for event_id, entity_ids in raw.items():
+        key = str(event_id or "").strip()
+        values = _normalized_ids(entity_ids)
+        if key and values:
+            normalized[key] = values
+    return normalized

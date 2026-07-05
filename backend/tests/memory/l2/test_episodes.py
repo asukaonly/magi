@@ -485,6 +485,43 @@ async def test_streaming_candidate_formation_does_not_extend_without_theme(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_streaming_candidate_formation_does_not_extend_on_only_generic_entity(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import assign_events_to_episode
+    from magi.memory.l2.models import EpisodeCandidateJob
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    ep1_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-generic-1",
+                event_timestamp=now,
+                entity_ids=["user:local_user"],
+            ),
+        ],
+    )
+
+    ep2_id = await assign_events_to_episode(
+        store,
+        [
+            EpisodeCandidateJob(
+                event_id="evt-generic-2",
+                event_timestamp=now + 60,
+                entity_ids=["user:local_user"],
+            ),
+        ],
+    )
+
+    assert ep2_id != ep1_id
+    assert await store.count_episode_events(episode_id=ep1_id) == 1
+    assert await store.count_episode_events(episode_id=ep2_id) == 1
+
+
+@pytest.mark.asyncio
 async def test_streaming_candidate_formation_extends_existing_by_topic(tmp_path):
     """Topic overlap can extend a recent candidate even without entity overlap."""
     from magi.memory.l2.store import L2CognitionStore
@@ -776,6 +813,46 @@ async def test_consolidation_merges_adjacent(tmp_path):
     # Survivor count is derived from true membership: 5 (eid1) + 3 moved (eid2).
     assert ep1["source_event_count"] == 8
     assert ep1["source_event_count"] == await store.count_episode_events(episode_id=eid1)
+
+
+@pytest.mark.asyncio
+async def test_consolidation_does_not_merge_on_only_generic_entity_overlap(tmp_path):
+    """Adjacent active episodes should not merge solely because both mention local user."""
+    from magi.memory.l2.store import L2CognitionStore
+    from magi.memory.l2.episode_formation import consolidate_episodes
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+
+    now = time.time()
+    eid1 = str(uuid.uuid4())
+    eid2 = str(uuid.uuid4())
+    await store.create_episode(
+        episode_id=eid1,
+        status="active",
+        time_start=now - 7200,
+        time_end=now - 3600,
+        primary_entity_ids=["user:local_user"],
+        source_event_count=3,
+    )
+    await store.create_episode(
+        episode_id=eid2,
+        status="active",
+        time_start=now - 3300,
+        time_end=now - 1800,
+        primary_entity_ids=["user:local_user"],
+        source_event_count=3,
+    )
+    await store.add_episode_events(episode_id=eid1, event_ids=["evt-generic-a"])
+    await store.add_episode_events(episode_id=eid2, event_ids=["evt-generic-b"])
+
+    stats = await consolidate_episodes(store)
+
+    assert stats.merged == 0
+    ep1 = await store.get_episode(episode_id=eid1)
+    ep2 = await store.get_episode(episode_id=eid2)
+    assert ep1["status"] == "active"
+    assert ep2["status"] == "active"
 
 
 @pytest.mark.asyncio

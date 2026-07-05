@@ -6,6 +6,8 @@ import json
 import re
 from typing import Any
 
+from ...l3.episode_backwrite import backwrite_experience_review
+
 _PLACEHOLDER_LABELS = {
     "untitled",
     "untitled episode",
@@ -145,10 +147,15 @@ async def generate_missing_experience_summaries(
     for experience_id in await _get_experience_ids(l2_store, experience_ids, limit):
         try:
             existing_review = await get_review(experience_id) if callable(get_review) else None
-            if existing_review is not None and not _review_needs_refresh(existing_review):
-                continue
             experience = await get_experience(experience_id=experience_id)
             if not experience:
+                continue
+            if existing_review is not None and not _review_needs_refresh(existing_review):
+                await backwrite_experience_review(
+                    l2_store,
+                    experience=experience,
+                    summary=existing_review,
+                )
                 continue
             members = await list_members(experience_id=experience_id)
             result = await generate_review(
@@ -158,6 +165,11 @@ async def generate_missing_experience_summaries(
                 experience_members=members,
             )
             if result is not None:
+                await backwrite_experience_review(
+                    l2_store,
+                    experience=experience,
+                    summary=result,
+                )
                 generated += 1
         except Exception as exc:  # noqa: BLE001 - batch generation should keep going.
             errors.append(f"{experience_id}: {exc}")

@@ -16,6 +16,32 @@ def _ordered_unique(values: list[str]) -> list[str]:
     return result
 
 
+def _round_robin_event_ids(event_groups: list[list[str]], *, limit: int) -> list[str]:
+    if limit <= 0:
+        return []
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    offset = 0
+    while len(selected) < limit:
+        added_at_offset = False
+        for event_ids in event_groups:
+            if offset >= len(event_ids):
+                continue
+            added_at_offset = True
+            event_id = str(event_ids[offset] or "").strip()
+            if not event_id or event_id in seen:
+                continue
+            seen.add(event_id)
+            selected.append(event_id)
+            if len(selected) >= limit:
+                return selected
+        if not added_at_offset:
+            break
+        offset += 1
+    return selected
+
+
 async def _seed_episode_ids(store: Any, *, seed_id: str) -> tuple[list[str], list[str]]:
     evidence = await store.list_experience_seed_evidence(seed_id=seed_id)
     trigger_episode_ids = [
@@ -24,9 +50,7 @@ async def _seed_episode_ids(store: Any, *, seed_id: str) -> tuple[list[str], lis
         if item["ref_type"] == "episode" and item["role"] == "trigger"
     ]
     evidence_episode_ids = [
-        str(item["ref_id"])
-        for item in evidence
-        if item["ref_type"] == "episode"
+        str(item["ref_id"]) for item in evidence if item["ref_type"] == "episode"
     ]
     return _ordered_unique(trigger_episode_ids), _ordered_unique(evidence_episode_ids)
 
@@ -70,16 +94,14 @@ async def _candidate_event_ids(
     episodes: list[dict[str, Any]],
     raw_event_limit: int,
 ) -> list[str]:
-    event_ids: list[str] = []
+    event_groups: list[list[str]] = []
     for episode in episodes:
         rows = await store.list_episode_events(
             episode_id=str(episode["episode_id"]),
-            limit=max(0, raw_event_limit - len(event_ids)),
+            limit=max(0, raw_event_limit),
         )
-        event_ids.extend(str(row["event_id"]) for row in rows)
-        if len(event_ids) >= raw_event_limit:
-            break
-    return _ordered_unique(event_ids)[:raw_event_limit]
+        event_groups.append(_ordered_unique([str(row["event_id"]) for row in rows]))
+    return _round_robin_event_ids(event_groups, limit=raw_event_limit)
 
 
 async def recall_candidate_evidence_for_seed(
