@@ -116,7 +116,7 @@ def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_moc
     promote.assert_awaited_once()
     assert promote.await_args.args == (l2,)
     assert promote.await_args.kwargs["target_seed_id"] == "seed1"
-    assert callable(promote.await_args.kwargs["selector"])
+    assert "selector" not in promote.await_args.kwargs
 
 
 def test_create_experience_seed_from_event_ids_resolves_episode(public_app_with_mock_memory):
@@ -261,7 +261,7 @@ def test_promote_experience_seed_targets_selected_seed(public_app_with_mock_memo
     promote.assert_awaited_once()
     assert promote.await_args.args == (l2,)
     assert promote.await_args.kwargs["target_seed_id"] == "seed1"
-    assert callable(promote.await_args.kwargs["selector"])
+    assert "selector" not in promote.await_args.kwargs
 
 
 def test_reject_experience_seed_marks_it_rejected(public_app_with_mock_memory):

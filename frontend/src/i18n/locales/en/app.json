@@ -2816,6 +2816,16 @@
           "reject": "Not one"
         }
       },
+      "create": {
+        "title": "New experience",
+        "description": "Choose source chapters to save as one experience.",
+        "loading": "Loading source chapters...",
+        "empty": "No source chapters available.",
+        "error": "Could not create the experience.",
+        "noPromotion": "The selected chapters were saved for review.",
+        "sourceCount": "{{count}} source chapters",
+        "selectedCount": "{{count}} selected"
+      },
       "noNarrative": "No narrative yet.",
       "noSummary": "No summary yet.",
       "noRecap": "No recap yet.",
@@ -2872,6 +2882,8 @@
         "editDescription": "Edit recap",
         "regenerateDescription": "Regenerate recap",
         "confirmRegenerate": "Regenerate now",
+        "createExperience": "New experience",
+        "createExperienceSubmit": "Create experience",
         "changeCover": "Change cover",
         "changeCoverFile": "Choose cover file",
         "hide": "Hide",

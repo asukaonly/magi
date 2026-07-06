@@ -34,6 +34,14 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.pending.evidenceCount': '{{count}} fragments',
     'memory.episodes.pending.actions.promote': 'Make experience',
     'memory.episodes.pending.actions.reject': 'Not one',
+    'memory.episodes.create.title': 'New experience',
+    'memory.episodes.create.description': 'Choose source chapters to save as one experience.',
+    'memory.episodes.create.loading': 'Loading source chapters...',
+    'memory.episodes.create.empty': 'No source chapters available.',
+    'memory.episodes.create.error': 'Could not create the experience.',
+    'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
+    'memory.episodes.create.sourceCount': '{{count}} source chapters',
+    'memory.episodes.create.selectedCount': '{{count}} selected',
     'memory.episodes.searchLabel': 'Search experiences',
     'memory.episodes.searchPlaceholder': 'Search experiences, places, topics',
     'memory.episodes.filterPinned': 'Filter',
@@ -67,6 +75,8 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.fields.pinned': 'Pinned',
     'memory.episodes.actions.open': 'Open experience',
     'memory.episodes.actions.backToList': 'Back to experiences',
+    'memory.episodes.actions.createExperience': 'New experience',
+    'memory.episodes.actions.createExperienceSubmit': 'Create experience',
     'memory.episodes.actions.rename': 'Rename',
     'memory.episodes.actions.editDescription': 'Edit recap',
     'memory.episodes.actions.regenerateDescription': 'Regenerate recap',
@@ -113,6 +123,7 @@ vi.mock('@/api/modules/memory', () => ({
     listExperienceSeeds: vi.fn(),
     promoteExperienceSeed: vi.fn(),
     rejectExperienceSeed: vi.fn(),
+    createExperienceSeed: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
     uploadExperienceCover: vi.fn(),
@@ -239,6 +250,35 @@ const pendingSeeds: L2ExperienceSeed[] = [
     time_end: 1700300000,
     confidence: 0.7,
     evidence_count: 3,
+  },
+];
+
+const sourceEpisodes = [
+  {
+    episode_id: 'ep-create-1',
+    episode_type: 'activity',
+    status: 'active',
+    display_title: 'Planning thread',
+    display_description: 'Drafted the route and hotels.',
+    time_start: 1700000000,
+    time_end: 1700050000,
+    source_event_count: 2,
+    primary_entity_ids: [],
+    primary_place_ids: [],
+    primary_topic_keys: ['topic:travel'],
+  },
+  {
+    episode_id: 'ep-create-2',
+    episode_type: 'activity',
+    status: 'active',
+    label: 'Ticket booking',
+    summary: 'Booked Shinkansen tickets.',
+    time_start: 1700060000,
+    time_end: 1700063000,
+    source_event_count: 1,
+    primary_entity_ids: [],
+    primary_place_ids: [],
+    primary_topic_keys: ['topic:travel'],
   },
 ];
 
@@ -370,6 +410,11 @@ beforeEach(() => {
     seed_id: 'seed-1',
     seed: { ...pendingSeeds[0], status: 'rejected' },
   } as never);
+  vi.mocked(memoryApi.createExperienceSeed).mockResolvedValue({
+    seed_id: 'seed-manual',
+    promoted_experience_id: 'exp-manual',
+    experience: null,
+  } as never);
   let currentExperienceDetail = experienceDetail;
   vi.mocked(memoryApi.getExperience).mockImplementation(async () => currentExperienceDetail);
   vi.mocked(memoryApi.annotateExperience).mockResolvedValue(experienceDetail);
@@ -386,8 +431,8 @@ beforeEach(() => {
     status: 'hidden',
   });
   vi.mocked(memoryApi.listEpisodes).mockResolvedValue({
-    items: [],
-    total: 0,
+    items: sourceEpisodes,
+    total: sourceEpisodes.length,
     limit: 100,
     offset: 0,
   } as never);
@@ -566,6 +611,30 @@ describe('MemoryEpisodesPage', () => {
       expect(memoryApi.promoteExperienceSeed).toHaveBeenCalledWith('seed-1');
     });
     expect(memoryApi.listExperiences).toHaveBeenCalledTimes(2);
+  });
+
+  it('creates a manual experience from selected source chapters', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Launch week');
+    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    expect(await screen.findByText('Planning thread')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('checkbox', { name: /Planning thread/ }));
+    await user.type(screen.getByLabelText('Title'), 'Japan trip');
+    await user.click(screen.getByRole('button', { name: 'Create experience' }));
+
+    await waitFor(() => {
+      expect(memoryApi.createExperienceSeed).toHaveBeenCalledWith({
+        episode_ids: ['ep-create-1'],
+        title_hint: 'Japan trip',
+        promote_now: true,
+      });
+    });
+    await waitFor(() => {
+      expect(memoryApi.getExperience).toHaveBeenCalledWith('exp-manual');
+    });
   });
 
   it('dismisses a pending signal from the home page', async () => {

@@ -2815,6 +2815,16 @@
           "reject": "不是一段"
         }
       },
+      "create": {
+        "title": "新建经历",
+        "description": "选择来源片段，保存成一段完整经历。",
+        "loading": "正在加载来源片段...",
+        "empty": "暂无可用来源片段。",
+        "error": "没能创建这段经历。",
+        "noPromotion": "所选片段已保存到待整理。",
+        "sourceCount": "{{count}} 个来源片段",
+        "selectedCount": "已选 {{count}} 个"
+      },
       "noNarrative": "还没有叙事。",
       "noSummary": "还没有摘要。",
       "noRecap": "还没有回顾。",
@@ -2871,6 +2881,8 @@
         "editDescription": "编辑回顾",
         "regenerateDescription": "重新生成回顾",
         "confirmRegenerate": "立即重新生成",
+        "createExperience": "新建经历",
+        "createExperienceSubmit": "创建经历",
         "changeCover": "调整封面",
         "changeCoverFile": "选择封面文件",
         "hide": "隐藏",

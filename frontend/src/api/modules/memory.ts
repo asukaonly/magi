@@ -365,6 +365,13 @@ export interface ExperienceSeedPromotionResponse {
   experience?: L2ExperienceReviewDetail | null;
 }
 
+export interface ExperienceSeedCreatePayload {
+  episode_ids?: string[];
+  event_ids?: string[];
+  title_hint?: string | null;
+  promote_now?: boolean;
+}
+
 export interface L2ExperienceSourceEpisode extends L2EpisodeWithSummary {
   membership_role?: string | null;
   membership_confidence?: number | null;
@@ -808,6 +815,13 @@ export const memoryApi = {
     status?: string;
   }): Promise<PaginatedResponse<L2ExperienceSeed>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2ExperienceSeed>>('/memory/l2/experience-seeds', { params })),
+  createExperienceSeed: async (payload: ExperienceSeedCreatePayload): Promise<ExperienceSeedPromotionResponse> =>
+    unwrapMemoryResponse(await api.post<ExperienceSeedPromotionResponse>('/memory/l2/experience-seeds', {
+      episode_ids: payload.episode_ids ?? [],
+      event_ids: payload.event_ids ?? [],
+      title_hint: payload.title_hint ?? null,
+      promote_now: payload.promote_now ?? false,
+    })),
   promoteExperienceSeed: async (seedId: string): Promise<ExperienceSeedPromotionResponse> =>
     unwrapMemoryResponse(await api.post<ExperienceSeedPromotionResponse>(`/memory/l2/experience-seeds/${seedId}/promote`)),
   rejectExperienceSeed: async (seedId: string): Promise<{ seed_id: string; seed?: L2ExperienceSeed | null }> =>
