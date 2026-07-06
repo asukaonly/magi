@@ -45,7 +45,7 @@ async def test_backwrite_experience_review_updates_generated_template_fields():
 
 
 @pytest.mark.asyncio
-async def test_backwrite_experience_review_preserves_existing_good_title():
+async def test_backwrite_experience_review_refreshes_generated_title_and_body():
     from magi.memory.l3.episode_backwrite import backwrite_experience_review
 
     l2_store = MagicMock()
@@ -65,6 +65,7 @@ async def test_backwrite_experience_review_preserves_existing_good_title():
     assert updated is True
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-good-title",
+        title="东京夏季路线筛选",
         magi_interpretation="你围绕东京夏季旅行做了路线筛选，并把动漫巡礼和避暑节奏放在一起比较。",
     )
 
@@ -96,6 +97,7 @@ async def test_backwrite_experience_review_preserves_existing_intent_and_outcome
     assert updated is True
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-existing-fields",
+        title="东京夏季路线筛选",
         magi_interpretation="你围绕东京夏季旅行做了路线筛选。",
     )
 
@@ -275,7 +277,7 @@ async def test_generate_missing_experience_summaries_refreshes_fallback_title_du
 
 
 @pytest.mark.asyncio
-async def test_generate_missing_experience_summaries_skips_existing_good_review():
+async def test_generate_missing_experience_summaries_backwrites_existing_good_review():
     from magi.memory.l2.experiences.summary_generation import (
         generate_missing_experience_summaries,
     )
@@ -311,4 +313,8 @@ async def test_generate_missing_experience_summaries_skips_existing_good_review(
 
     assert result == {"generated": 0, "errors": []}
     l3_store.generate_experience_summary.assert_not_awaited()
-    l2_store.update_experience.assert_not_awaited()
+    l2_store.update_experience.assert_awaited_once_with(
+        experience_id="exp-good",
+        title="AI coding tool tests",
+        magi_interpretation="Reviewed the week of testing AI coding tools.",
+    )

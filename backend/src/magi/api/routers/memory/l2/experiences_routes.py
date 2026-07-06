@@ -19,6 +19,7 @@ from magi.api.services.l2_episode_review_read_model import (
 )
 from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
 from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+from magi.memory.l3.episode_backwrite import backwrite_experience_review
 
 from ..asset_uploads import store_uploaded_image_asset
 from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
@@ -664,14 +665,13 @@ async def regenerate_l2_experience(experience_id: str):
         )
     experience = await _get_experience_or_404(unified_memory, experience_id)
     members = await unified_memory.l2.list_experience_members(experience_id=experience_id)
-    review = serialize_episodic_summary(
-        await l3_store.generate_experience_summary(
-            l1_store=l1_store,
-            l2_store=unified_memory.l2,
-            experience=experience,
-            experience_members=members,
-        )
+    generated_summary = await l3_store.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=unified_memory.l2,
+        experience=experience,
+        experience_members=members,
     )
+    review = serialize_episodic_summary(generated_summary)
     if review is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -680,6 +680,11 @@ async def regenerate_l2_experience(experience_id: str):
                 "Experience summary generation failed",
             ),
         )
+    await backwrite_experience_review(
+        unified_memory.l2,
+        experience=experience,
+        summary=generated_summary,
+    )
     return await _build_experience_review_response(
         unified_memory,
         experience=experience,

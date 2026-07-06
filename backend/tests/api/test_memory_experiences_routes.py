@@ -621,6 +621,7 @@ def test_regenerate_experience_review_binds_source_experience_id(public_app_with
     ])
     l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "label": "Read docs"})
     l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
+    l2.update_experience = AsyncMock(return_value=True)
     l3 = MagicMock()
     l3.generate_experience_summary = AsyncMock(return_value={
         "summary_id": "sum1",
@@ -642,5 +643,10 @@ def test_regenerate_experience_review_binds_source_experience_id(public_app_with
 
     assert response.status_code == 200
     l3.generate_experience_summary.assert_awaited_once()
+    l2.update_experience.assert_awaited_once_with(
+        experience_id="exp1",
+        title="Generated title",
+        magi_interpretation="Generated experience recap",
+    )
     assert response.json()["experience_review"]["label"] == "Generated title"
     assert response.json()["experience_review"]["content"] == "Generated experience recap"
