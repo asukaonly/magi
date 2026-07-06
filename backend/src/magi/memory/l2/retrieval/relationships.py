@@ -8,20 +8,42 @@ from typing import Any, Dict, List, Optional, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...sql_search import build_like_search_clause
 from .common import L2RetrievalQueryHostProtocol
 
 
 class L2StoreRelationshipQueryMixin:
     """Read and batch-query L2 knowledge-graph relationships."""
 
-    async def count_relationships(self) -> int:
+    async def count_relationships(self, *, query: str | None = None) -> int:
         """Count all active relationships in the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
+        sql = "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'"
+        args: list[Any] = []
+        search_sql, search_args = build_like_search_clause(
+            [
+                "triple_id",
+                "subject_id",
+                "subject_type",
+                "predicate",
+                "object_id",
+                "object_type",
+                "fact_kind",
+                "evidence_event_ids",
+                "evidence_text",
+                "natural_summary",
+                "source_type",
+                "extraction_method",
+                "evidence_class",
+                "status",
+            ],
+            query,
+        )
+        sql += search_sql
+        args.extend(search_args)
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute(
-                "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'"
-            ) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -38,47 +60,70 @@ class L2StoreRelationshipQueryMixin:
         offset: int = 0,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         evidence_classes: Optional[List[str]] = None,
+        query: str | None = None,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
+        search_query = query
         if status_filters:
             placeholders = ", ".join("?" for _ in status_filters)
-            query = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
+            sql = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
             args: list[Any] = [str(item).strip() for item in status_filters]
         else:
-            query = "SELECT * FROM knowledge_graph WHERE status = ?"
+            sql = "SELECT * FROM knowledge_graph WHERE status = ?"
             args = [status]
         if subject_id:
-            query += " AND subject_id = ?"
+            sql += " AND subject_id = ?"
             args.append(subject_id)
         if object_id:
-            query += " AND object_id = ?"
+            sql += " AND object_id = ?"
             args.append(object_id)
         if predicates:
             placeholders = ", ".join("?" for _ in predicates)
-            query += f" AND predicate IN ({placeholders})"
+            sql += f" AND predicate IN ({placeholders})"
             args.extend([str(item).strip().upper() for item in predicates])
         if object_types:
             placeholders = ", ".join("?" for _ in object_types)
-            query += f" AND object_type IN ({placeholders})"
+            sql += f" AND object_type IN ({placeholders})"
             args.extend([str(item).strip().lower() for item in object_types])
         if temporal_clause:
             tc_sql, tc_params = temporal_clause
             if tc_sql:
-                query += f" AND {tc_sql}"
+                sql += f" AND {tc_sql}"
                 args.extend(tc_params)
         if evidence_classes:
             ec_ph = ", ".join("?" for _ in evidence_classes)
             # NULL passes through: pre-backfill rows must not be silently excluded.
-            query += f" AND (evidence_class IN ({ec_ph}) OR evidence_class IS NULL)"
+            sql += f" AND (evidence_class IN ({ec_ph}) OR evidence_class IS NULL)"
             args.extend(str(c).strip() for c in evidence_classes)
-        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        search_sql, search_args = build_like_search_clause(
+            [
+                "triple_id",
+                "subject_id",
+                "subject_type",
+                "predicate",
+                "object_id",
+                "object_type",
+                "fact_kind",
+                "evidence_event_ids",
+                "evidence_text",
+                "natural_summary",
+                "source_type",
+                "extraction_method",
+                "evidence_class",
+                "status",
+            ],
+            search_query,
+        )
+        sql += search_sql
+        args.extend(search_args)
+        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [host._relation_row_to_dict(row) for row in rows]
 

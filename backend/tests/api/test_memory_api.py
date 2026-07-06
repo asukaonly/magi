@@ -131,24 +131,35 @@ class _FakeL2Store:
     def __init__(self):
         self.rejected_edges: list[str] = []
         self.forgotten_entities: list[str] = []
+        self.relationship_kwargs: dict | None = None
+        self.assertion_kwargs: dict | None = None
+        self.snapshot_kwargs: dict | None = None
+        self.relationship_count_kwargs: dict | None = None
+        self.assertion_count_kwargs: dict | None = None
+        self.snapshot_count_kwargs: dict | None = None
 
-    async def count_relationships(self):
+    async def count_relationships(self, **kwargs):
+        self.relationship_count_kwargs = kwargs
         return 0
 
-    async def count_tom_assertions(self):
+    async def count_tom_assertions(self, **kwargs):
+        self.assertion_count_kwargs = kwargs
         return 0
 
-    async def get_relationships(self, limit: int = 100, offset: int = 0):
+    async def get_relationships(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.relationship_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return []
 
-    async def list_tom_assertions(self, limit: int = 100, offset: int = 0):
+    async def list_tom_assertions(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.assertion_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return []
 
-    async def count_tom_snapshots(self):
+    async def count_tom_snapshots(self, **kwargs):
+        self.snapshot_count_kwargs = kwargs
         return 1
 
-    async def list_tom_snapshots(self, limit: int = 100, offset: int = 0):
-        _ = limit
+    async def list_tom_snapshots(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.snapshot_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return [
             {
                 "snapshot_id": "snapshot-1",
@@ -200,11 +211,16 @@ class _FakeL2Store:
 
 
 class _FakeL2EntityCatalog:
-    async def count_entities(self):
+    def __init__(self):
+        self.entity_kwargs: dict | None = None
+        self.entity_count_kwargs: dict | None = None
+
+    async def count_entities(self, **kwargs):
+        self.entity_count_kwargs = kwargs
         return 1
 
-    async def list_entities(self, limit: int = 100, offset: int = 0):
-        _ = limit
+    async def list_entities(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.entity_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return [{"entity_id": "user:u1", "canonical_name": "User U1", "entity_type": "user", "aliases": []}]
 
     async def count_mentions(self):
@@ -221,11 +237,16 @@ class _FakeL2EntityCatalog:
 class _FakeL3Store:
     db_path = "/tmp/l3.db"
 
-    async def count_summaries(self):
+    def __init__(self):
+        self.summary_kwargs: dict | None = None
+        self.summary_count_kwargs: dict | None = None
+
+    async def count_summaries(self, **kwargs):
+        self.summary_count_kwargs = kwargs
         return 3
 
-    async def list_summaries(self, limit: int = 100, offset: int = 0):
-        _ = limit
+    async def list_summaries(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.summary_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return [
             {"summary_id": "sum-1", "summary_type": "insight", "summary_category": "state_change"},
             {"summary_id": "sum-2", "summary_type": "insight", "summary_category": "trend_shift"},
@@ -248,11 +269,16 @@ class _FakeL3Store:
 class _FakeL4Store:
     db_path = "/tmp/l4.db"
 
-    async def count_skills(self):
+    def __init__(self):
+        self.skill_kwargs: dict | None = None
+        self.skill_count_kwargs: dict | None = None
+
+    async def count_skills(self, **kwargs):
+        self.skill_count_kwargs = kwargs
         return 1
 
-    async def get_all_skills(self, limit: int = 100, offset: int = 0):
-        _ = limit
+    async def get_all_skills(self, limit: int = 100, offset: int = 0, **kwargs):
+        self.skill_kwargs = {"limit": limit, "offset": offset, **kwargs}
         return [
             {
                 "skill_id": "skill-1",
@@ -1528,6 +1554,42 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     assert update_rule_response.status_code == 200
     assert update_rule_response.json()["predicate"] == "ENDORSES"
     assert update_rule_response.json()["exclusive_group"] == "stance"
+
+
+def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    fake_memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    client = TestClient(app)
+
+    endpoints = [
+        "/api/memory/l2/relations",
+        "/api/memory/l2/assertions",
+        "/api/memory/l2/entities",
+        "/api/memory/l2/snapshots",
+        "/api/memory/l3/summaries",
+        "/api/memory/procedures",
+    ]
+    for endpoint in endpoints:
+        response = client.get(endpoint, params={"query": "codex", "limit": 20, "offset": 40})
+        assert response.status_code == 200
+
+    assert fake_memory.l2.relationship_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l2.relationship_count_kwargs == {"query": "codex"}
+    assert fake_memory.l2.assertion_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l2.assertion_count_kwargs == {"query": "codex"}
+    assert fake_memory.l2_entity_catalog.entity_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
+    assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l2.snapshot_count_kwargs == {"query": "codex"}
+    assert fake_memory.l3.summary_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l3.summary_count_kwargs == {"query": "codex"}
+    assert fake_memory.l4.skill_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l4.skill_count_kwargs == {"query": "codex"}
 
 
 def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(monkeypatch):

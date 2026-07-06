@@ -242,7 +242,7 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
   });
 
-  it('filters loaded object records from the search field', async () => {
+  it('requests global object search for the active category', async () => {
     vi.mocked(useMemory).mockReturnValue({
       ...baseMemoryState,
       l2Relations: [
@@ -261,22 +261,32 @@ describe('MemoryGovernancePage', () => {
           updated_at: 1719301400,
         },
       ],
-      l2RelationsTotal: 2,
+      l2RelationsTotal: 42,
     } as ReturnType<typeof useMemory>);
     const user = userEvent.setup();
 
     renderPage();
     await user.click(screen.getByRole('button', { name: /关系图谱/ }));
 
-    const search = await screen.findByRole('searchbox', { name: '搜索当前页记录' });
+    const search = await screen.findByRole('searchbox', { name: '搜索当前选项记录' });
     await user.type(search, 'codex');
 
     expect(screen.getByRole('button', { name: /关系：ent_user_8f3e USES tool_codex/ })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).not.toBeInTheDocument();
-    expect(screen.getByText('1-1 / 1 条')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: 'codex' });
+    });
+
+    await user.click(screen.getByRole('button', { name: '下一页' }));
+    await waitFor(() => {
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 20, query: 'codex' });
+    });
 
     await user.clear(search);
-    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0 });
+    });
   });
 
   it('uses readable record content in the list and keeps ids in the drawer', async () => {

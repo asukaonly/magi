@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle,
@@ -37,6 +37,8 @@ export const MemoryGovernancePage = () => {
   const [recordActionLoading, setRecordActionLoading] = useState(false);
   const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
   const [reconsolidateError, setReconsolidateError] = useState<string | null>(null);
+  const [baseLayerCounts, setBaseLayerCounts] = useState<Partial<Record<MaintenanceCategoryId, number>>>({});
+  const skipNextBaseCountUpdate = useRef(false);
 
   const memory = useMemory({ initialLoadScope: 'all' });
 
@@ -46,34 +48,58 @@ export const MemoryGovernancePage = () => {
   );
 
   const layerSummaries = useMemo<LayerSummary[]>(() => buildLayerSummaries(memory, label), [memory, label]);
+  const normalizedRecordSearchQuery = recordSearchQuery.trim();
+  const isRecordSearchActive = normalizedRecordSearchQuery.length > 0;
+
+  useEffect(() => {
+    if (isRecordSearchActive) return;
+    if (skipNextBaseCountUpdate.current) {
+      skipNextBaseCountUpdate.current = false;
+      return;
+    }
+    setBaseLayerCounts((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const layer of layerSummaries) {
+        if (next[layer.id] !== layer.count) {
+          next[layer.id] = layer.count;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [isRecordSearchActive, layerSummaries]);
+
+  const navigationLayers = useMemo<LayerSummary[]>(
+    () => (
+      isRecordSearchActive
+        ? layerSummaries.map((layer) => ({
+            ...layer,
+            count: baseLayerCounts[layer.id] ?? layer.count,
+          }))
+        : layerSummaries
+    ),
+    [baseLayerCounts, isRecordSearchActive, layerSummaries]
+  );
 
   const activeLayerSummary = layerSummaries.find((layer) => layer.id === activeLayer) || layerSummaries[0];
   const activeRecords = activeLayerSummary.records;
   const activeTotal = activeLayerSummary.count || activeRecords.length;
   const pageCount = Math.max(1, Math.ceil(activeTotal / RECORD_PAGE_SIZE));
   const currentPage = Math.min(activePage, pageCount);
-  const currentPageRecords = useMemo(() => activeRecords.slice(0, RECORD_PAGE_SIZE), [activeRecords]);
-  const normalizedRecordSearchQuery = recordSearchQuery.trim().toLowerCase();
-  const isRecordSearchActive = normalizedRecordSearchQuery.length > 0;
-  const visibleRecords = useMemo(
-    () => (
-      isRecordSearchActive
-        ? currentPageRecords.filter((record) => recordMatchesSearch(record, normalizedRecordSearchQuery))
-        : currentPageRecords
-    ),
-    [currentPageRecords, isRecordSearchActive, normalizedRecordSearchQuery]
-  );
-  const displayTotal = isRecordSearchActive ? visibleRecords.length : activeTotal;
-  const displayPage = isRecordSearchActive ? 1 : currentPage;
-  const displayPageCount = isRecordSearchActive ? 1 : pageCount;
+  const visibleRecords = useMemo(() => activeRecords.slice(0, RECORD_PAGE_SIZE), [activeRecords]);
+  const displayTotal = activeTotal;
+  const displayPage = currentPage;
+  const displayPageCount = pageCount;
   const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
   const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
-  const currentPageParams = () => ({
+  const currentPageParams = useCallback(() => ({
     limit: RECORD_PAGE_SIZE,
     offset: (currentPage - 1) * RECORD_PAGE_SIZE,
-  });
+    ...(isRecordSearchActive ? { query: normalizedRecordSearchQuery } : {}),
+  }), [currentPage, isRecordSearchActive, normalizedRecordSearchQuery]);
 
   const refreshCategory = async (category: MaintenanceCategoryId) => {
     const params = currentPageParams();
@@ -106,8 +132,7 @@ export const MemoryGovernancePage = () => {
   };
 
   useEffect(() => {
-    const offset = (currentPage - 1) * RECORD_PAGE_SIZE;
-    const params = { limit: RECORD_PAGE_SIZE, offset };
+    const params = currentPageParams();
     switch (activeLayer) {
       case 'sessions':
         void memory.loadL0Sessions(params);
@@ -136,7 +161,7 @@ export const MemoryGovernancePage = () => {
     }
   }, [
     activeLayer,
-    currentPage,
+    currentPageParams,
     memory.loadL0Sessions,
     memory.queryL1Events,
     memory.loadL2Entities,
@@ -250,7 +275,7 @@ export const MemoryGovernancePage = () => {
     >
       <div className="flex h-full min-h-0 flex-col gap-4">
         <section className="grid gap-3 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-3 md:grid-cols-4">
-          <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.objects', '维护对象')} value={formatCount(layerSummaries.reduce((sum, layer) => sum + layer.count, 0))} />
+          <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.objects', '维护对象')} value={formatCount(navigationLayers.reduce((sum, layer) => sum + layer.count, 0))} />
           <MetricCell icon={<AlertTriangle className="h-5 w-5" />} label={label('metrics.pending', '待处理')} value={formatCount(pendingAssertionCount)} tone={pendingAssertionCount > 0 ? 'warn' : 'default'} />
           <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.events', '原始事件')} value={formatCount(l1EventCount)} />
           <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.toolBreakers', '工具熔断')} value={formatCount(openBreakerCount)} tone={openBreakerCount > 0 ? 'danger' : 'default'} />
@@ -279,7 +304,7 @@ export const MemoryGovernancePage = () => {
 
           <TabsContent value="objects" className="mt-0 min-h-0 flex-1">
             <LayerWorkspace
-              layers={layerSummaries}
+              layers={navigationLayers}
               activeLayer={activeLayer}
               activeRecords={activeRecords}
               visibleRecords={visibleRecords}
@@ -291,17 +316,19 @@ export const MemoryGovernancePage = () => {
               onSelectLayer={(layer) => {
                 setActiveLayer(layer);
                 setActivePage(1);
+                if (recordSearchQuery.trim()) skipNextBaseCountUpdate.current = true;
                 setRecordSearchQuery('');
                 setSelectedRecord(null);
               }}
               onRecordSearchChange={(value) => {
+                if (!value.trim() && recordSearchQuery.trim()) skipNextBaseCountUpdate.current = true;
                 setRecordSearchQuery(value);
+                setActivePage(1);
                 setSelectedRecord(null);
               }}
               onSelectRecord={setSelectedRecord}
               onPageChange={(page) => {
                 setActivePage(Math.min(Math.max(1, page), pageCount));
-                setRecordSearchQuery('');
                 setSelectedRecord(null);
               }}
               label={label}
@@ -352,18 +379,3 @@ export const MemoryGovernancePage = () => {
 };
 
 export default MemoryGovernancePage;
-
-function recordMatchesSearch(record: LayerRecord, query: string): boolean {
-  const values = [
-    record.id,
-    record.categoryLabel,
-    record.title,
-    record.type,
-    record.source,
-    record.status,
-    record.summary,
-    ...(record.related || []),
-    ...(record.impact || []).flatMap((item) => [item.label, item.value]),
-  ];
-  return values.some((value) => String(value ?? '').toLowerCase().includes(query));
-}

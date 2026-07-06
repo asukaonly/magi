@@ -15,6 +15,7 @@ from ..router import memory_router
 async def list_l3_summaries(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
     summary_type: Optional[str] = Query(default=None, description="Filter by type: temporal, thematic, insight"),
     summary_category: Optional[str] = Query(default=None, description="Filter by category: topic, task_reflection, state_change, trend_shift, etc."),
 ):
@@ -24,8 +25,8 @@ async def list_l3_summaries(
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
     items, total = await asyncio.gather(
-        unified_memory.l3.list_summaries(limit=limit, offset=offset),
-        unified_memory.l3.count_summaries(),
+        unified_memory.l3.list_summaries(limit=limit, offset=offset, query=query),
+        unified_memory.l3.count_summaries(query=query),
     )
     if summary_type:
         items = [s for s in items if s.get("summary_type") == summary_type]

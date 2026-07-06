@@ -8,6 +8,7 @@ from typing import Any, Optional, Protocol, cast
 import aiosqlite
 
 from .....core.sqlite import sqlite_connection_async
+from ....sql_search import build_like_search_clause
 from .embeddings import EMBEDDING_STATUS_DISABLED
 from ...ontology import coerce_unknown_entity_type
 
@@ -38,12 +39,15 @@ class _EntityCatalogQueryHostProtocol(Protocol):
 class L2EntityCatalogQueryMixin:
     """Read, listing, and natural-language entity query behavior."""
 
-    async def count_entities(self) -> int:
+    async def count_entities(self, *, query: str | None = None) -> int:
         """Count all entities in the catalog."""
         host = self._query_host()
         await host.initialize()
+        sql = "SELECT COUNT(*) FROM entity_catalog AS ec WHERE 1=1"
+        search_sql, search_args = self._entity_search_clause(query)
+        sql += search_sql
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM entity_catalog") as cursor:
+            async with db.execute(sql, tuple(search_args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -62,12 +66,18 @@ class L2EntityCatalogQueryMixin:
         limit: int = 100,
         offset: int = 0,
         entity_ids: list[str] | None = None,
+        query: str | None = None,
     ) -> list[dict[str, Any]]:
         host = self._query_host()
         await host.initialize()
         if entity_ids is not None and not entity_ids:
             return []
-        return await self._list_entities(limit=limit, offset=offset, entity_ids=entity_ids)
+        return await self._list_entities(
+            limit=limit,
+            offset=offset,
+            entity_ids=entity_ids,
+            query=query,
+        )
 
     async def list_mentions(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         host = self._query_host()
@@ -339,35 +349,37 @@ class L2EntityCatalogQueryMixin:
         entity_type: Optional[str] = None,
         entity_ids: list[str] | None = None,
         order_by_recency: bool = False,
+        query: str | None = None,
     ) -> list[dict[str, Any]]:
         host = self._query_host()
-        query = """
-            SELECT entity_id, canonical_name, entity_type, embedding_status, embedding_profile_id,
-                   last_embedded_at, created_at, updated_at
-            FROM entity_catalog
+        sql = """
+            SELECT ec.entity_id, ec.canonical_name, ec.entity_type, ec.embedding_status,
+                   ec.embedding_profile_id, ec.last_embedded_at, ec.created_at, ec.updated_at
+            FROM entity_catalog AS ec
+            WHERE 1=1
         """
         args: list[Any] = []
-        conditions: list[str] = []
         if entity_type:
-            conditions.append("entity_type = ?")
+            sql += " AND ec.entity_type = ?"
             args.append(entity_type)
         if entity_ids is not None:
             placeholders = ", ".join("?" for _ in entity_ids)
-            conditions.append(f"entity_id IN ({placeholders})")
+            sql += f" AND ec.entity_id IN ({placeholders})"
             args.extend(entity_ids)
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
+        search_sql, search_args = self._entity_search_clause(query)
+        sql += search_sql
+        args.extend(search_args)
         if order_by_recency:
-            query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+            sql += " ORDER BY ec.updated_at DESC LIMIT ? OFFSET ?"
         else:
-            query += " ORDER BY entity_id ASC LIMIT ? OFFSET ?"
+            sql += " ORDER BY ec.entity_id ASC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                query,
+                sql,
                 tuple(args),
             ) as cursor:
                 entities = await cursor.fetchall()
@@ -401,6 +413,19 @@ class L2EntityCatalogQueryMixin:
             }
             for row in entities
         ]
+
+    @staticmethod
+    def _entity_search_clause(query: str | None) -> tuple[str, list[Any]]:
+        return build_like_search_clause(
+            [
+                "ec.entity_id",
+                "ec.canonical_name",
+                "ec.entity_type",
+                "(SELECT GROUP_CONCAT(ea.alias_text, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+                "(SELECT GROUP_CONCAT(ea.normalized_alias, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+            ],
+            query,
+        )
 
     def _query_host(self) -> _EntityCatalogQueryHostProtocol:
         return cast(_EntityCatalogQueryHostProtocol, self)

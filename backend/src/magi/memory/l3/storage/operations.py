@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...sql_search import build_like_search_clause
 from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
@@ -76,33 +77,90 @@ class L3SummaryPersistenceMixin:
         *,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        query: str | None = None,
     ) -> int:
         """Count summaries, optionally filtered by creation time."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
-        query = "SELECT COUNT(*) FROM summaries WHERE 1=1"
+        search_query = query
+        sql = "SELECT COUNT(*) FROM summaries WHERE 1=1"
         args: list[Any] = []
         if start_time is not None:
-            query += " AND created_at >= ?"
+            sql += " AND created_at >= ?"
             args.append(float(start_time))
         if end_time is not None:
-            query += " AND created_at < ?"
+            sql += " AND created_at < ?"
             args.append(float(end_time))
+        search_sql, search_args = build_like_search_clause(
+            [
+                "summary_id",
+                "summary_type",
+                "summary_category",
+                "content",
+                "key_topics",
+                "key_entities",
+                "sentiment_summary",
+                "change_and_pattern",
+                "source_event_ids",
+                "generated_by_model",
+                "generation_prompt",
+                "generation_reason",
+                "insight_key",
+                "review_state",
+                "insight_metadata",
+                "narrative_style",
+                "essence_prose",
+            ],
+            search_query,
+        )
+        sql += search_sql
+        args.extend(search_args)
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute(query, tuple(args)) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def list_summaries(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def list_summaries(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        query: str | None = None,
+    ) -> List[Dict[str, Any]]:
         """List most recent summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
+        sql = "SELECT * FROM summaries WHERE 1=1"
+        args: list[Any] = []
+        search_sql, search_args = build_like_search_clause(
+            [
+                "summary_id",
+                "summary_type",
+                "summary_category",
+                "content",
+                "key_topics",
+                "key_entities",
+                "sentiment_summary",
+                "change_and_pattern",
+                "source_event_ids",
+                "generated_by_model",
+                "generation_prompt",
+                "generation_reason",
+                "insight_key",
+                "review_state",
+                "insight_metadata",
+                "narrative_style",
+                "essence_prose",
+            ],
+            query,
+        )
+        sql += search_sql
+        args.extend(search_args)
+        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        args.extend([int(limit), int(offset)])
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM summaries ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                (int(limit), int(offset)),
-            ) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

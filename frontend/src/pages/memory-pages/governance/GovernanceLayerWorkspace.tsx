@@ -46,6 +46,7 @@ export function LayerWorkspace({
 }) {
   const selectedLayer = layers.find((layer) => layer.id === activeLayer) || layers[0];
   const displayRecordCount = Math.max(0, totalRecordCount);
+  const isSearching = recordSearchQuery.trim().length > 0;
   const pageStart = displayRecordCount === 0 || visibleRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = pageStart === 0 ? 0 : Math.min(displayRecordCount, pageStart + visibleRecords.length - 1);
   return (
@@ -89,7 +90,7 @@ export function LayerWorkspace({
             <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">
               {label('objects.tableSubtitle', '{{description}}（共 {{count}} 条）', {
                 description: selectedLayer.description,
-                count: formatCount(selectedLayer.count),
+                count: formatCount(displayRecordCount),
               })}
             </p>
           </div>
@@ -97,8 +98,8 @@ export function LayerWorkspace({
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--memory-muted))]" />
             <input
               type="search"
-              aria-label={label('objects.searchLabel', '搜索当前页记录')}
-              placeholder={label('objects.searchPlaceholder', '搜索当前页记录')}
+              aria-label={label('objects.searchLabel', '搜索当前选项记录')}
+              placeholder={label('objects.searchPlaceholder', '搜索当前选项记录')}
               value={recordSearchQuery}
               onChange={(event) => onRecordSearchChange(event.target.value)}
               className="h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.58)] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]"
@@ -106,13 +107,13 @@ export function LayerWorkspace({
           </label>
         </div>
 
-        {activeRecords.length === 0 ? (
+        {!isSearching && activeRecords.length === 0 ? (
           <div className="min-h-0 flex-1 p-4">
             <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.empty', '这个对象类型暂时没有可展示的记录。')}</div>
           </div>
         ) : visibleRecords.length === 0 ? (
           <div className="min-h-0 flex-1 p-4">
-            <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.searchEmpty', '当前页没有匹配的记录。')}</div>
+            <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.searchEmpty', '这个选项里没有匹配的记录。')}</div>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">

@@ -15,14 +15,15 @@ from .procedures import build_procedure_list_response
 async def list_procedures(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
 ):
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l4:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
 
     items, total = await asyncio.gather(
-        unified_memory.l4.get_all_skills(limit=limit, offset=offset),
-        unified_memory.l4.count_skills(),
+        unified_memory.l4.get_all_skills(limit=limit, offset=offset, query=query),
+        unified_memory.l4.count_skills(query=query),
     )
     return build_procedure_list_response(
         items=items,

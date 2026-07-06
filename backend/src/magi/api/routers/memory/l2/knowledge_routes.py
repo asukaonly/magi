@@ -24,14 +24,15 @@ logger = logging.getLogger(__name__)
 async def list_l2_relations(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
 ):
     """List knowledge graph relations."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2.get_relationships(limit=limit, offset=offset),
-        unified_memory.l2.count_relationships(),
+        unified_memory.l2.get_relationships(limit=limit, offset=offset, query=query),
+        unified_memory.l2.count_relationships(query=query),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -40,14 +41,15 @@ async def list_l2_relations(
 async def list_l2_assertions(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
 ):
     """List ToM trait assertions."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2.list_tom_assertions(limit=limit, offset=offset),
-        unified_memory.l2.count_tom_assertions(),
+        unified_memory.l2.list_tom_assertions(limit=limit, offset=offset, query=query),
+        unified_memory.l2.count_tom_assertions(query=query),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -122,14 +124,15 @@ async def _refresh_user_portrait_after_assertion_change(unified_memory: Any, ass
 async def list_l2_entities(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
 ):
     """List canonical L2 entities for the frontend lab picker."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2_entity_catalog:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2_entity_catalog.list_entities(limit=limit, offset=offset),
-        unified_memory.l2_entity_catalog.count_entities(),
+        unified_memory.l2_entity_catalog.list_entities(limit=limit, offset=offset, query=query),
+        unified_memory.l2_entity_catalog.count_entities(query=query),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -154,14 +157,15 @@ async def list_l2_mentions(
 async def list_l2_snapshots(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    query: str | None = Query(default=None),
 ):
     """List materialized L2 snapshots."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2.list_tom_snapshots(limit=limit, offset=offset),
-        unified_memory.l2.count_tom_snapshots(),
+        unified_memory.l2.list_tom_snapshots(limit=limit, offset=offset, query=query),
+        unified_memory.l2.count_tom_snapshots(query=query),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 

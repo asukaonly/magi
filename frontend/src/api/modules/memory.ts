@@ -146,6 +146,8 @@ export interface PaginationParams {
   offset?: number;
 }
 
+export type MemoryListQueryParams = PaginationParams & { query?: string };
+
 export interface L1EventQueryParams {
   limit?: number;
   offset?: number;
@@ -748,7 +750,7 @@ export type MemorySearchQueryMode =
   | 'strategy';
 
 type L0SessionsResponse = PaginatedResponse<L0Session> & { stats: L0Stats };
-type L3SummariesParams = PaginationParams & { summary_type?: string; summary_category?: string };
+type L3SummariesParams = MemoryListQueryParams & { summary_type?: string; summary_category?: string };
 
 const unwrapMemoryResponse = <T>(response: GatewayResponse<T>): T => unwrapGatewayPayload<T>(response);
 
@@ -771,21 +773,21 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<L2Statistics>('/memory/l2/statistics')),
   getIdentityLinks: async (): Promise<MemoryIdentityLinksResponse> =>
     unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
-  getL2Relations: async (params?: PaginationParams): Promise<PaginatedResponse<L2Relation>> =>
+  getL2Relations: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Relation>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
   rejectL2Edge: async (tripleId: string): Promise<L2Relation> =>
     unwrapMemoryResponse(await api.patch<L2Relation>(`/memory/l2/edges/${tripleId}/reject`)),
-  getL2Assertions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Assertion>> =>
+  getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
   submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed' | 'rejected'): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
   correctAssertion: async (assertionId: string, newValue: string, reason?: string): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.post<L2Assertion>(`/memory/l2/assertions/${assertionId}/correct`, { new_value: newValue, reason })),
-  getL2Entities: async (params?: PaginationParams): Promise<PaginatedResponse<L2Entity>> =>
+  getL2Entities: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Entity>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params })),
   getL2Mentions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Mention>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Mention>>('/memory/l2/mentions', { params })),
-  getL2Snapshots: async (params?: PaginationParams): Promise<PaginatedResponse<L2Snapshot>> =>
+  getL2Snapshots: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Snapshot>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Snapshot>>('/memory/l2/snapshots', { params })),
   getL2ConflictRules: async (): Promise<L2GraphConflictRule[]> =>
     unwrapMemoryResponse(await api.get<L2GraphConflictRule[]>('/memory/l2/conflict-rules')),
@@ -893,7 +895,7 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<PaginatedResponse<L3Summary>>('/memory/l3/summaries', { params })),
 
   // L4 Procedural
-  getL4Skills: async (params?: PaginationParams): Promise<PaginatedResponse<L4Skill>> =>
+  getL4Skills: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L4Skill>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L4Skill>>('/memory/procedures', { params })),
 
   // Statistics & Search

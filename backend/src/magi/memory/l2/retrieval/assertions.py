@@ -9,6 +9,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
+from ...sql_search import build_like_search_clause
 from .common import L2RetrievalQueryHostProtocol
 
 
@@ -37,44 +38,72 @@ class L2StoreAssertionQueryMixin:
         include_superseded: bool = False,
         target_entity_id: Optional[str] = None,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
+        query: str | None = None,
     ) -> int:
         """Count ToM assertions with the same filters as list_tom_assertions."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
-        query = "SELECT COUNT(*) FROM tom_trait_assertions WHERE 1=1"
+        search_query = query
+        sql = "SELECT COUNT(*) FROM tom_trait_assertions WHERE 1=1"
         args: list[Any] = []
         if entity_id:
-            query += " AND entity_id = ?"
+            sql += " AND entity_id = ?"
             args.append(entity_id)
         if entity_type:
-            query += " AND entity_type = ?"
+            sql += " AND entity_type = ?"
             args.append(entity_type)
         if trait_families:
             placeholders = ", ".join("?" for _ in trait_families)
-            query += f" AND trait_family IN ({placeholders})"
+            sql += f" AND trait_family IN ({placeholders})"
             args.extend([str(item).strip().lower() for item in trait_families])
         if validation_states:
             placeholders = ", ".join("?" for _ in validation_states)
-            query += f" AND validation_state IN ({placeholders})"
+            sql += f" AND validation_state IN ({placeholders})"
             args.extend([str(item).strip() for item in validation_states])
         if target_entity_id:
-            query += " AND target_entity_id = ?"
+            sql += " AND target_entity_id = ?"
             args.append(target_entity_id)
         if not include_expired:
             now = time.time()
-            query += " AND (expires_at IS NULL OR expires_at > ?)"
+            sql += " AND (expires_at IS NULL OR expires_at > ?)"
             args.append(now)
         if not include_inactive:
             status_sql, status_args = _excluded_status_clause(include_superseded=include_superseded)
-            query += status_sql
+            sql += status_sql
             args.extend(status_args)
         if temporal_clause:
             tc_sql, tc_params = temporal_clause
             if tc_sql:
-                query += f" AND {tc_sql}"
+                sql += f" AND {tc_sql}"
                 args.extend(tc_params)
+        search_sql, search_args = build_like_search_clause(
+            [
+                "assertion_id",
+                "entity_id",
+                "entity_type",
+                "trait_family",
+                "trait_name",
+                "trait_value",
+                "evidence_events",
+                "source_domain",
+                "inference_depth",
+                "validation_state",
+                "target_entity_id",
+                "target_entity_type",
+                "target_scope",
+                "temporal_scope",
+                "context_ref_id",
+                "status",
+                "superseded_by",
+                "memory_subdomain",
+                "natural_summary",
+            ],
+            search_query,
+        )
+        sql += search_sql
+        args.extend(search_args)
         async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute(query, tuple(args)) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
@@ -92,6 +121,7 @@ class L2StoreAssertionQueryMixin:
         limit: int = 100,
         offset: int = 0,
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
+        query: str | None = None,
     ) -> List[Dict[str, Any]]:
         """List ToM assertions ordered by recency.
 
@@ -100,6 +130,7 @@ class L2StoreAssertionQueryMixin:
         """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
+        search_query = query
         query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
         args: list[Any] = []
         if entity_id:
@@ -132,6 +163,32 @@ class L2StoreAssertionQueryMixin:
             if tc_sql:
                 query += f" AND {tc_sql}"
                 args.extend(tc_params)
+        search_sql, search_args = build_like_search_clause(
+            [
+                "assertion_id",
+                "entity_id",
+                "entity_type",
+                "trait_family",
+                "trait_name",
+                "trait_value",
+                "evidence_events",
+                "source_domain",
+                "inference_depth",
+                "validation_state",
+                "target_entity_id",
+                "target_entity_type",
+                "target_scope",
+                "temporal_scope",
+                "context_ref_id",
+                "status",
+                "superseded_by",
+                "memory_subdomain",
+                "natural_summary",
+            ],
+            search_query,
+        )
+        query += search_sql
+        args.extend(search_args)
         query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
         args.append(int(limit))
         args.append(int(offset))

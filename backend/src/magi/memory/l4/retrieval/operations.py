@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...sql_search import build_like_search_clause
 from ...hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..advisory.tools import build_tool_advisory, is_tool_advisory_notable
 from ..storage.schema import EXECUTION_TRACES_TABLE, SKILL_CHUNKS_TABLE
@@ -48,23 +49,64 @@ class L4ProceduralRetrievalMixin:
                 row = await cursor.fetchone()
         return self._row_to_dict(row) if row else None
 
-    async def count_skills(self) -> int:
+    async def count_skills(self, *, query: str | None = None) -> int:
         """Count all procedural skills."""
         await self.initialize()
+        sql = "SELECT COUNT(*) FROM procedural_skills WHERE deleted_at IS NULL"
+        args: list[Any] = []
+        search_sql, search_args = build_like_search_clause(
+            [
+                "skill_id",
+                "skill_name",
+                "skill_category",
+                "skill_type",
+                "circuit_breaker_state",
+                "optimized_prompt",
+                "optimized_params",
+                "context_affinity",
+                "source_event_ids",
+            ],
+            query,
+        )
+        sql += search_sql
+        args.extend(search_args)
         async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM procedural_skills WHERE deleted_at IS NULL") as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 row = await cursor.fetchone()
         return int(row[0]) if row else 0
 
-    async def get_all_skills(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    async def get_all_skills(
+        self,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        query: str | None = None,
+    ) -> List[Dict[str, Any]]:
         """List all stored skills."""
         await self.initialize()
+        sql = "SELECT * FROM procedural_skills WHERE deleted_at IS NULL"
+        args: list[Any] = []
+        search_sql, search_args = build_like_search_clause(
+            [
+                "skill_id",
+                "skill_name",
+                "skill_category",
+                "skill_type",
+                "circuit_breaker_state",
+                "optimized_prompt",
+                "optimized_params",
+                "context_affinity",
+                "source_event_ids",
+            ],
+            query,
+        )
+        sql += search_sql
+        args.extend(search_args)
+        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        args.extend([int(limit), int(offset)])
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM procedural_skills WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT ? OFFSET ?",
-                (int(limit), int(offset)),
-            ) as cursor:
+            async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
         return [self._row_to_dict(row) for row in rows]
 

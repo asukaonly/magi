@@ -10991,6 +10991,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
             };
             readonly header?: never;
             readonly path?: never;
@@ -11179,6 +11180,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
             };
             readonly header?: never;
             readonly path?: never;
@@ -11986,6 +11988,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
             };
             readonly header?: never;
             readonly path?: never;
@@ -12018,6 +12021,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
             };
             readonly header?: never;
             readonly path?: never;
@@ -12070,6 +12074,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
                 /** @description Filter by type: temporal, thematic, insight */
                 readonly summary_type?: string | null;
                 /** @description Filter by category: topic, task_reflection, state_change, trend_shift, etc. */
@@ -12373,6 +12378,7 @@ export interface operations {
             readonly query?: {
                 readonly limit?: number;
                 readonly offset?: number;
+                readonly query?: string | null;
             };
             readonly header?: never;
             readonly path?: never;

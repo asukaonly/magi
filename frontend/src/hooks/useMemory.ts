@@ -32,6 +32,7 @@ import type {
   MemoryStatistics,
   MemorySearchResultPayload,
   MemorySearchQueryMode,
+  MemoryListQueryParams,
   PaginationParams,
 } from '@/api/modules/memory';
 
@@ -82,21 +83,21 @@ export interface UseMemoryReturn {
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
   submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
   correctAssertion: (assertionId: string, newValue: string) => Promise<void>;
-  loadL2Relations: (params?: PaginationParams) => Promise<void>;
-  loadL2Assertions: (params?: PaginationParams) => Promise<void>;
-  loadL2Entities: (params?: PaginationParams) => Promise<void>;
+  loadL2Relations: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL2Assertions: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL2Entities: (params?: MemoryListQueryParams) => Promise<void>;
   loadL2Mentions: (params?: PaginationParams) => Promise<void>;
-  loadL2Snapshots: (params?: PaginationParams) => Promise<void>;
+  loadL2Snapshots: (params?: MemoryListQueryParams) => Promise<void>;
 
   // L3 data
   l3Summaries: L3Summary[];
   l3Total: number;
-  loadL3Summaries: (params?: PaginationParams) => Promise<void>;
+  loadL3Summaries: (params?: MemoryListQueryParams) => Promise<void>;
 
   // L4 data
   l4Skills: L4Skill[];
   l4Total: number;
-  loadL4Skills: (params?: PaginationParams) => Promise<void>;
+  loadL4Skills: (params?: MemoryListQueryParams) => Promise<void>;
 
   // Search
   searchQuery: string;
@@ -271,7 +272,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     [loadL1Events]
   );
 
-  const loadL2Relations = useCallback(async (params?: PaginationParams) => {
+  const loadL2Relations = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL2Relations({ limit: 50, ...params });
       setL2Relations(data.items || []);
@@ -281,7 +282,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL2Assertions = useCallback(async (params?: PaginationParams) => {
+  const loadL2Assertions = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL2Assertions({ limit: 50, ...params });
       setL2Assertions(data.items || []);
@@ -291,7 +292,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL2Entities = useCallback(async (params?: PaginationParams) => {
+  const loadL2Entities = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL2Entities({ limit: 50, ...params });
       setL2Entities(data.items || []);
@@ -311,7 +312,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL2Snapshots = useCallback(async (params?: PaginationParams) => {
+  const loadL2Snapshots = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL2Snapshots({ limit: 50, ...params });
       setL2Snapshots(data.items || []);
@@ -503,7 +504,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     [refreshL2Lab, t]
   );
 
-  const loadL3Summaries = useCallback(async (params?: PaginationParams) => {
+  const loadL3Summaries = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL3Summaries({ limit: 50, ...params });
       setL3Summaries(data.items || []);
@@ -513,7 +514,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     }
   }, []);
 
-  const loadL4Skills = useCallback(async (params?: PaginationParams) => {
+  const loadL4Skills = useCallback(async (params?: MemoryListQueryParams) => {
     try {
       const data = await memoryApi.getL4Skills({ limit: 50, ...params });
       setL4Skills(data.items || []);
