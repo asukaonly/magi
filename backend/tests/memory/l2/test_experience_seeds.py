@@ -580,3 +580,64 @@ async def test_default_selection_rejects_generic_only_candidate(l2_store_with_sc
 
     assert selection.is_experience is False
     assert selection.included_episode_ids == []
+
+
+@pytest.mark.asyncio
+async def test_limited_selector_falls_back_after_budget():
+    from magi.memory.l2.experiences.promotion import _limit_selector_calls
+    from magi.memory.l2.experiences.seed_selection import select_experience_from_seed
+
+    calls: list[str] = []
+
+    def selector(seed, _evidence_pack):
+        calls.append(seed["seed_id"])
+        return {
+            "is_experience": True,
+            "title": "LLM selected",
+            "one_sentence_review": "LLM selected the coherent experience.",
+            "included_episode_ids": ["ep1"],
+            "time_start": 1,
+            "time_end": 2,
+            "confidence": 0.9,
+        }
+
+    limited = _limit_selector_calls(selector, max_selector_calls=1)
+    evidence_pack = {
+        "episodes": [
+            {
+                "episode_id": "ep1",
+                "label": "Japan planning",
+                "time_start": 1,
+                "time_end": 2,
+                "primary_entity_ids": ["place:japan"],
+                "primary_place_ids": [],
+                "primary_topic_keys": [],
+            }
+        ],
+    }
+    seed = {
+        "seed_id": "seed1",
+        "status": "accepted",
+        "title": "Local fallback",
+        "description": "Local fallback review.",
+        "anchor_entity_ids": ["place:japan"],
+        "anchor_place_ids": [],
+        "anchor_topic_keys": [],
+        "confidence": 0.9,
+    }
+
+    first = await select_experience_from_seed(
+        seed=seed,
+        evidence_pack={**evidence_pack, "seed": seed},
+        selector=limited,
+    )
+    second_seed = {**seed, "seed_id": "seed2"}
+    second = await select_experience_from_seed(
+        seed=second_seed,
+        evidence_pack={**evidence_pack, "seed": second_seed},
+        selector=limited,
+    )
+
+    assert calls == ["seed1"]
+    assert first.title == "LLM selected"
+    assert second.title == "Local fallback"

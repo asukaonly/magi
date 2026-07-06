@@ -477,9 +477,9 @@ Experience promotion is a second-stage process over active episodes:
   a stable L2 object with traceable evidence.
 - Experience reviews use an experience-specific review prompt rather than the
   shorter episode recap prompt. The review stores a longer narrative plus
-  generated intent/outcome metadata; non-fallback reviews backfill only generated
-  L2 fields that are still blank or template-derived, preserving user-owned
-  labels and notes.
+  generated intent/outcome metadata; non-fallback reviews refresh generated L2
+  title/body fields so review pages and recall use the same prose, while
+  user-owned labels and notes stay independent.
 - Trigger promotion from both the manual `l2/episodes/reconsolidate` catch-up
   endpoint and the periodic L2 consolidation job, so the review page can refresh
   from the same evidence pipeline instead of relying on frontend-only filters.
@@ -514,6 +514,7 @@ Batch policy:
 - The `runtime_worker` registers `memory_l1_maintenance` as a periodic task for L1 retention cleanup, including compressible L1 events that are already covered by L3 summaries and pinned-payload pruning.
 - The `runtime_worker` registers `memory_l2_maintenance` as a periodic task for offline entity catalog / knowledge graph maintenance, including ghost references, mergeable types, orphan entities, assertion reconciliation, edge embedding refresh, predicate consolidation, and promotion-counter pruning.
 - The `runtime_worker` registers `memory_l2_consolidate` as a separate periodic task for episode promotion/merge/invalidations, experience promotion, and missing episodic/experience summary generation.
+- L2 experience consolidation caps LLM-backed seed selection per run, then falls back to local selection for remaining seeds so daily maintenance cannot spend unbounded time waiting on model calls.
 - The `runtime_worker` registers `memory_l3_maintenance` as a periodic task for L3 summary retention cleanup.
 - The `runtime_worker` registers `runtime_operational_gc` as a periodic task for non-layer cleanup such as L0 session expiry/checkpointing, runtime operational garbage collection, and chat asset garbage collection.
 - `MaintenanceDaemon` remains only for lightweight process-local checks such as health checks and log-size warnings; it does not own data-retention cleanup.

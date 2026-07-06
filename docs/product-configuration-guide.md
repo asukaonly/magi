@@ -366,6 +366,7 @@ Current storage implementation notes:
 - The vector backend is fixed to sqlite and vector writes stay async; Settings no longer exposes backend or scheduling switches.
 - Vector table identity is strict for incompatible embeddings. Remote vectors are keyed by model, dimension, and text-builder version; local vectors are keyed by model file hash, dimension, and text-builder version. Provider provenance changes are surfaced as warnings but do not invalidate the hard identity by themselves.
 - L2 batch flush timing and conflict arbitration thresholds remain internal pipeline strategy defaults rather than ordinary user-facing settings.
+- `agent.memory.l2.experience_seed_llm_selection_max_per_run` bounds automatic experience-seed LLM selection during each consolidation run; seeds beyond the cap use local selection so background maintenance remains bounded.
 - Profile-memory conflict notifications should be routed through the Pending memory page so users can either accept the newer inferred memory or keep the existing user-authoritative memory.
 - Managed local reranker assets belong under `~/.magi/cache/models/rerank/<managed_model_id>/`; externally referenced local reranker files stay in place and are referenced by path only.
 - Current `local` reranker execution first tries a configured provider instance such as `llm.providers.local.services.chat` that points to a local OpenAI-compatible service.

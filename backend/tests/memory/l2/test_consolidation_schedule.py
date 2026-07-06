@@ -145,6 +145,7 @@ async def test_consolidation_handler_promotes_episodes_experiences_and_summaries
     promote_kwargs = promote_mock.await_args.kwargs
     assert promote_mock.await_args.args == (l2_store,)
     assert callable(promote_kwargs["selector"])
+    assert promote_kwargs["max_selector_calls"] == 4
     l3_store.generate_missing_episodic_summaries.assert_awaited_once()
     call_kwargs = l3_store.generate_missing_episodic_summaries.await_args.kwargs
     assert call_kwargs["l1_store"] is l1_store

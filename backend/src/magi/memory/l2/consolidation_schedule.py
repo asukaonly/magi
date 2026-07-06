@@ -178,6 +178,7 @@ async def _promote_experiences_and_summaries(
             promotion_kwargs["selector"] = selector
         experience_stats = await promote_experiences_from_episodes(
             stores.cognition_store,
+            max_selector_calls=int(l2_cfg.experience_seed_llm_selection_max_per_run),
             **promotion_kwargs,
         )
         stats.candidates = int(experience_stats.candidates)

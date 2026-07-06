@@ -327,6 +327,29 @@ async def _promote_single_seed(
     )
 
 
+def _limit_selector_calls(
+    selector: SelectionProvider | None,
+    *,
+    max_selector_calls: int | None,
+) -> SelectionProvider | None:
+    """Wrap selector so automatic runs cannot spend unbounded time on LLM calls."""
+    if selector is None or max_selector_calls is None:
+        return selector
+    remaining = max(0, int(max_selector_calls))
+
+    async def limited_selector(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> dict[str, Any]:
+        nonlocal remaining
+        if remaining <= 0:
+            return {}
+        remaining -= 1
+        result = selector(seed, evidence_pack)
+        if hasattr(result, "__await__"):
+            return await result
+        return dict(result or {})
+
+    return limited_selector
+
+
 def _candidate_confidence_below_threshold(seed: dict[str, Any]) -> bool:
     return (
         str(seed.get("status") or "") == "candidate"
@@ -369,6 +392,7 @@ async def promote_experiences_from_episodes(
     store: Any,
     *,
     selector: SelectionProvider | None = None,
+    max_selector_calls: int | None = None,
     repeated_goal_selector: Any | None = None,
     target_seed_id: str | None = None,
 ) -> ExperiencePromotionStats:
@@ -382,12 +406,13 @@ async def promote_experiences_from_episodes(
     )
     existing_sets = await _existing_active_episode_member_sets(store)
     outcomes: list[SeedPromotionOutcome] = []
+    limited_selector = _limit_selector_calls(selector, max_selector_calls=max_selector_calls)
 
     for seed in seeds:
         outcome = await _promote_single_seed(
             store,
             seed=seed,
-            selector=selector,
+            selector=limited_selector,
             existing_sets=existing_sets,
         )
         outcomes.append(outcome)

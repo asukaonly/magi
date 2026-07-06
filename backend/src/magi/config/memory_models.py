@@ -453,6 +453,11 @@ class MemoryL2Settings(BaseModel):
         gt=0.0,
         description="Timeout for one LLM-backed experience seed selection call.",
     )
+    experience_seed_llm_selection_max_per_run: int = Field(
+        default=4,
+        ge=0,
+        description="Maximum LLM-backed experience seed selection calls per automatic consolidation run; extra seeds use local selection.",
+    )
     edge_embedding_drain_interval_seconds: float = Field(
         default=5.0,
         ge=1.0,
