@@ -3057,6 +3057,9 @@
       },
       "objects": {
         "openRecord": "打开记录 {{title}}",
+        "searchLabel": "搜索当前页记录",
+        "searchPlaceholder": "搜索当前页记录",
+        "searchEmpty": "当前页没有匹配的记录。",
         "recordSubtitle": {
           "entity": "{{type}} · {{source}}",
           "relation": "{{source}} 关系"

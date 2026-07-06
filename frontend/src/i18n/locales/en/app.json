@@ -3058,6 +3058,9 @@
       },
       "objects": {
         "openRecord": "Open record {{title}}",
+        "searchLabel": "Search current page records",
+        "searchPlaceholder": "Search current page records",
+        "searchEmpty": "No matching records on this page.",
         "recordSubtitle": {
           "entity": "{{type}} · {{source}}",
           "relation": "{{source}} relation"

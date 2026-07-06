@@ -21,7 +21,10 @@ export function LayerWorkspace({
   page,
   pageCount,
   pageSize,
+  totalRecordCount,
+  recordSearchQuery,
   onSelectLayer,
+  onRecordSearchChange,
   onSelectRecord,
   onPageChange,
   label,
@@ -33,15 +36,18 @@ export function LayerWorkspace({
   page: number;
   pageCount: number;
   pageSize: number;
+  totalRecordCount: number;
+  recordSearchQuery: string;
   onSelectLayer: (layer: MaintenanceCategoryId) => void;
+  onRecordSearchChange: (value: string) => void;
   onSelectRecord: (record: LayerRecord) => void;
   onPageChange: (page: number) => void;
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
   const selectedLayer = layers.find((layer) => layer.id === activeLayer) || layers[0];
-  const totalRecordCount = selectedLayer.count || activeRecords.length;
-  const pageStart = totalRecordCount === 0 || visibleRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
-  const pageEnd = pageStart === 0 ? 0 : Math.min(totalRecordCount, pageStart + visibleRecords.length - 1);
+  const displayRecordCount = Math.max(0, totalRecordCount);
+  const pageStart = displayRecordCount === 0 || visibleRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const pageEnd = pageStart === 0 ? 0 : Math.min(displayRecordCount, pageStart + visibleRecords.length - 1);
   return (
     <section className="grid h-full min-h-0 gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
       <aside className="min-h-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-2">
@@ -87,15 +93,26 @@ export function LayerWorkspace({
               })}
             </p>
           </div>
-          <div className="flex min-w-0 items-center gap-2 rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 py-2 text-sm text-[hsl(var(--memory-muted))]">
-            <Search className="h-4 w-4" />
-            <span>{label('objects.searchHint', '点击记录查看详情和影响')}</span>
-          </div>
+          <label className="relative block w-full min-w-0 md:w-[260px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--memory-muted))]" />
+            <input
+              type="search"
+              aria-label={label('objects.searchLabel', '搜索当前页记录')}
+              placeholder={label('objects.searchPlaceholder', '搜索当前页记录')}
+              value={recordSearchQuery}
+              onChange={(event) => onRecordSearchChange(event.target.value)}
+              className="h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.58)] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]"
+            />
+          </label>
         </div>
 
         {activeRecords.length === 0 ? (
           <div className="min-h-0 flex-1 p-4">
             <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.empty', '这个对象类型暂时没有可展示的记录。')}</div>
+          </div>
+        ) : visibleRecords.length === 0 ? (
+          <div className="min-h-0 flex-1 p-4">
+            <div className={MEMORY_EMPTY_PANEL_CLASS}>{label('objects.searchEmpty', '当前页没有匹配的记录。')}</div>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
@@ -142,7 +159,7 @@ export function LayerWorkspace({
                 {label('objects.pageSummary', '{{start}}-{{end}} / {{total}} 条', {
                   start: pageStart,
                   end: pageEnd,
-                  total: totalRecordCount,
+                  total: displayRecordCount,
                 })}
               </span>
               <div className="flex items-center justify-end gap-2">

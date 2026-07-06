@@ -31,6 +31,7 @@ export const MemoryGovernancePage = () => {
   const [activeTab, setActiveTab] = useState<GovernanceTab>('objects');
   const [activeLayer, setActiveLayer] = useState<MaintenanceCategoryId>('entities');
   const [activePage, setActivePage] = useState(1);
+  const [recordSearchQuery, setRecordSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<LayerRecord | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [recordActionLoading, setRecordActionLoading] = useState(false);
@@ -51,7 +52,20 @@ export const MemoryGovernancePage = () => {
   const activeTotal = activeLayerSummary.count || activeRecords.length;
   const pageCount = Math.max(1, Math.ceil(activeTotal / RECORD_PAGE_SIZE));
   const currentPage = Math.min(activePage, pageCount);
-  const visibleRecords = activeRecords.slice(0, RECORD_PAGE_SIZE);
+  const currentPageRecords = useMemo(() => activeRecords.slice(0, RECORD_PAGE_SIZE), [activeRecords]);
+  const normalizedRecordSearchQuery = recordSearchQuery.trim().toLowerCase();
+  const isRecordSearchActive = normalizedRecordSearchQuery.length > 0;
+  const visibleRecords = useMemo(
+    () => (
+      isRecordSearchActive
+        ? currentPageRecords.filter((record) => recordMatchesSearch(record, normalizedRecordSearchQuery))
+        : currentPageRecords
+    ),
+    [currentPageRecords, isRecordSearchActive, normalizedRecordSearchQuery]
+  );
+  const displayTotal = isRecordSearchActive ? visibleRecords.length : activeTotal;
+  const displayPage = isRecordSearchActive ? 1 : currentPage;
+  const displayPageCount = isRecordSearchActive ? 1 : pageCount;
   const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
@@ -269,17 +283,25 @@ export const MemoryGovernancePage = () => {
               activeLayer={activeLayer}
               activeRecords={activeRecords}
               visibleRecords={visibleRecords}
-              page={currentPage}
-              pageCount={pageCount}
+              page={displayPage}
+              pageCount={displayPageCount}
               pageSize={RECORD_PAGE_SIZE}
+              totalRecordCount={displayTotal}
+              recordSearchQuery={recordSearchQuery}
               onSelectLayer={(layer) => {
                 setActiveLayer(layer);
                 setActivePage(1);
+                setRecordSearchQuery('');
+                setSelectedRecord(null);
+              }}
+              onRecordSearchChange={(value) => {
+                setRecordSearchQuery(value);
                 setSelectedRecord(null);
               }}
               onSelectRecord={setSelectedRecord}
               onPageChange={(page) => {
                 setActivePage(Math.min(Math.max(1, page), pageCount));
+                setRecordSearchQuery('');
                 setSelectedRecord(null);
               }}
               label={label}
@@ -330,3 +352,18 @@ export const MemoryGovernancePage = () => {
 };
 
 export default MemoryGovernancePage;
+
+function recordMatchesSearch(record: LayerRecord, query: string): boolean {
+  const values = [
+    record.id,
+    record.categoryLabel,
+    record.title,
+    record.type,
+    record.source,
+    record.status,
+    record.summary,
+    ...(record.related || []),
+    ...(record.impact || []).flatMap((item) => [item.label, item.value]),
+  ];
+  return values.some((value) => String(value ?? '').toLowerCase().includes(query));
+}

@@ -242,6 +242,43 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
   });
 
+  it('filters loaded object records from the search field', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [
+        baseMemoryState.l2Relations[0],
+        {
+          triple_id: 'rel_2',
+          subject_id: 'ent_user_8f3e',
+          subject_type: 'person',
+          predicate: 'VISITED',
+          object_id: 'place:huzhou',
+          object_type: 'place',
+          confidence: 0.76,
+          evidence_event_ids: ['evt_2'],
+          observation_count: 1,
+          status: 'active',
+          updated_at: 1719301400,
+        },
+      ],
+      l2RelationsTotal: 2,
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+
+    const search = await screen.findByRole('searchbox', { name: '搜索当前页记录' });
+    await user.type(search, 'codex');
+
+    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e USES tool_codex/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).not.toBeInTheDocument();
+    expect(screen.getByText('1-1 / 1 条')).toBeInTheDocument();
+
+    await user.clear(search);
+    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).toBeInTheDocument();
+  });
+
   it('uses readable record content in the list and keeps ids in the drawer', async () => {
     const user = userEvent.setup();
     renderPage();
