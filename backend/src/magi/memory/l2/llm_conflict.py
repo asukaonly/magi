@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...llm import LLMScenario
+from .llm_priority import l2_llm_priority_for_event_window
 from .models import (
     ContradictionHint,
     L2CandidateSet,
@@ -50,6 +51,7 @@ class L2LLMConflictMixin:
             },
             scenario=LLMScenario.CORE,
             disable_thinking=False,
+            priority=l2_llm_priority_for_event_window(new_event_window),
         )
         decision = str(payload.get("decision") or "").strip()
         if decision not in {"keep_new", "keep_existing", "mark_evolution"}:

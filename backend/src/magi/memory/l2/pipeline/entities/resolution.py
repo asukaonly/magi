@@ -90,7 +90,10 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             allowed_entity_types=allowed_entity_types,
             profile_signal_object_refs=profile_signal_object_refs,
         )
-        llm_results = await self._resolve_phase1_entity_batch(llm_batch_items)
+        llm_results = await self._resolve_phase1_entity_batch(
+            llm_batch_items,
+            source=event.source,
+        )
 
         resolved_mentions: list[ResolvedEntityMention] = []
         for pending_item in pending:
@@ -305,10 +308,15 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     async def _resolve_phase1_entity_batch(
         self,
         llm_batch_items: list[L2BatchEntityResolutionItem],
+        *,
+        source: str | None = None,
     ) -> dict[str, Any]:
         if not llm_batch_items or self._llm_service is None:
             return {}
-        return await self._llm_service.resolve_entities_batch(items=llm_batch_items)
+        return await self._llm_service.resolve_entities_batch(
+            items=llm_batch_items,
+            source=source,
+        )
 
     async def _finalize_phase1_entity_resolution(
         self,

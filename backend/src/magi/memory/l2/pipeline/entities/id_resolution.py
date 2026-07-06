@@ -92,6 +92,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                     candidate_entities=[
                         L2EntityCandidate.from_dict(item) for item in candidate_entities
                     ],
+                    source=event.source,
                 )
                 if llm_resolution.decision == "match" and llm_resolution.matched_entity_id:
                     return (

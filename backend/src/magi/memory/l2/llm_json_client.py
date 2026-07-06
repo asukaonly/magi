@@ -31,6 +31,7 @@ class _L2JsonCall:
     session_id: str | None
     scenario: LLMScenario
     disable_thinking: bool
+    priority: LLMRequestPriority
 
 
 @dataclass(slots=True)
@@ -57,6 +58,7 @@ class L2LLMJsonClientMixin:
         log_context: dict[str, Any] | None = None,
         scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER,
         disable_thinking: bool = True,
+        priority: LLMRequestPriority | str | int | None = None,
     ) -> dict[str, Any]:
         call = _L2JsonCall(
             system_prompt=system_prompt,
@@ -66,6 +68,11 @@ class L2LLMJsonClientMixin:
             session_id=session_id,
             scenario=scenario,
             disable_thinking=disable_thinking,
+            priority=(
+                LLMRequestPriority.coerce(priority)
+                if priority is not None
+                else LLMRequestPriority.LOW
+            ),
         )
         target = self._get_json_target(call)
         if target is None:
@@ -169,7 +176,7 @@ class L2LLMJsonClientMixin:
                 "session_id": call.session_id,
                 "agent_id": "memory:l2",
             },
-            priority=LLMRequestPriority.LOW,
+            priority=call.priority,
         )
 
     async def _handle_json_call_failure(

@@ -510,8 +510,8 @@ The limiter keeps one shared total cap per provider/base-url/model/request
 family key, then schedules waiters by request priority:
 
 - high priority: foreground chat, direct replies, function-calling decisions, and streamed user-facing responses
-- medium priority: reserved for explicit user-triggered maintenance or future manual operations
-- low priority: automatic memory work such as L2 extraction/reconciliation and L3 summary generation
+- medium priority: chat-origin L2 extraction and its immediate entity/conflict resolution work
+- low priority: non-chat L2 extraction, L2 maintenance work, and L3 summary generation
 
 Low and medium priority calls may use idle capacity, but they cannot consume the
 last reserved slot when the model cap is greater than one. This keeps at least

@@ -8,6 +8,7 @@ from .models import (
     L2EntityResolution,
     L2EntityResolutionMention,
 )
+from .llm_priority import l2_llm_priority_for_source
 from .pipeline.prompts import (
     BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
     ENTITY_RESOLUTION_SYSTEM_PROMPT,
@@ -25,6 +26,7 @@ class L2LLMEntityResolutionMixin:
         mention: L2EntityResolutionMention,
         candidate_entities: list[L2EntityCandidate],
         min_confidence: float = 0.8,
+        source: str | None = None,
     ) -> L2EntityResolution:
         payload = await self._generate_json(
             system_prompt=ENTITY_RESOLUTION_SYSTEM_PROMPT,
@@ -32,6 +34,7 @@ class L2LLMEntityResolutionMixin:
                 mention=mention, candidate_entities=candidate_entities
             ),
             request_kind="memory:l2_entity_resolution",
+            priority=l2_llm_priority_for_source(source),
         )
         resolution = payload.get("resolution")
         if not isinstance(resolution, dict):
@@ -61,6 +64,7 @@ class L2LLMEntityResolutionMixin:
         *,
         items: list[L2BatchEntityResolutionItem],
         min_confidence: float = 0.8,
+        source: str | None = None,
     ) -> dict[str, L2EntityResolution]:
         """Resolve multiple entity mentions in a single LLM call."""
         if not items:
@@ -72,6 +76,7 @@ class L2LLMEntityResolutionMixin:
                 mention=item.mention,
                 candidate_entities=item.candidate_entities,
                 min_confidence=min_confidence,
+                source=source,
             )
             return {item.mention_key: result}
 
@@ -79,6 +84,7 @@ class L2LLMEntityResolutionMixin:
             system_prompt=BATCH_ENTITY_RESOLUTION_SYSTEM_PROMPT,
             prompt=render_batch_entity_resolution_prompt(items=items),
             request_kind="memory:l2_entity_resolution",
+            priority=l2_llm_priority_for_source(source),
         )
         raw_resolutions = payload.get("resolutions")
         if not isinstance(raw_resolutions, list):

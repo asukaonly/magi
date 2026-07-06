@@ -7,6 +7,7 @@ from typing import Any
 
 from ...core.logger import get_logger
 from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
+from .llm_priority import l2_llm_priority_for_event_window
 from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -64,6 +65,7 @@ class L2LLMExtractionMixin:
                 "existing_entity_count": len(existing_entities) if existing_entities else 0,
                 "context_message_count": len(context_messages) if context_messages else 0,
             },
+            priority=l2_llm_priority_for_event_window(event_window),
         )
         result = L2Phase1Result.from_dict(payload)
         is_single_event = len(event_window.event_ids) <= 1
@@ -131,6 +133,7 @@ class L2LLMExtractionMixin:
                 existing_assertions=existing_assertions,
                 event_window=event_window,
             ),
+            priority=l2_llm_priority_for_event_window(event_window),
         )
         result = L2Phase2Result.from_dict(payload)
         _cap_single_event_assertions(result, event_window)

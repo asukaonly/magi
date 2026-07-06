@@ -107,6 +107,24 @@ class _SelectionAwarePool(_ScenarioAwarePool):
         return self._selections.get(scenario)
 
 
+class _RecordingLimiter:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def run_with_limit(self, key, operation, *, limit=None, priority=None):  # type: ignore[no-untyped-def]
+        self.calls.append({"key": key, "limit": limit, "priority": priority})
+        return await operation()
+
+
+def _install_recording_limiter(monkeypatch: pytest.MonkeyPatch) -> _RecordingLimiter:
+    limiter = _RecordingLimiter()
+    monkeypatch.setattr(
+        "magi.llm.provider_bridge.get_llm_concurrency_limiter",
+        lambda: limiter,
+    )
+    return limiter
+
+
 def _make_event_window(**overrides):  # type: ignore[no-untyped-def]
     from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary
 
@@ -401,23 +419,13 @@ def test_integrate_phase2_passes_source_integration_instructions():
     assert "preference_profile only after repeated plays" in user_prompt
 
 
-def test_l2_json_calls_use_low_priority_limiter(monkeypatch: pytest.MonkeyPatch):
+def test_chat_source_l2_extraction_uses_medium_priority_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+):
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
 
-    class _RecordingLimiter:
-        def __init__(self) -> None:
-            self.calls: list[dict[str, object]] = []
-
-        async def run_with_limit(self, key, operation, *, limit=None, priority=None):  # type: ignore[no-untyped-def]
-            self.calls.append({"key": key, "limit": limit, "priority": priority})
-            return await operation()
-
-    limiter = _RecordingLimiter()
-    monkeypatch.setattr(
-        "magi.llm.provider_bridge.get_llm_concurrency_limiter",
-        lambda: limiter,
-    )
+    limiter = _install_recording_limiter(monkeypatch)
     adapter = _FakeAdapter(
         json.dumps(
             {
@@ -436,7 +444,56 @@ def test_l2_json_calls_use_low_priority_limiter(monkeypatch: pytest.MonkeyPatch)
             existing_graph_edges=[],
             existing_assertions=[],
             event_window=L2EventWindow(
-                events=[{"event_id": "evt-song", "content": "played Track A", "timestamp": 1.0}],
+                events=[
+                    {
+                        "event_id": "evt-chat",
+                        "content": "I like quiet cafes.",
+                        "timestamp": 1.0,
+                        "source": "chat",
+                    }
+                ],
+                summary=L2EventWindowSummary(session_id="s1"),
+            ),
+            focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
+        )
+    )
+
+    assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
+
+
+def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EventWindow, L2EventWindowSummary, L2Phase1Result
+
+    limiter = _install_recording_limiter(monkeypatch)
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "graph_edges": [],
+                "refinements": [],
+                "assertion_candidates": [],
+                "contradiction_hints": [],
+            }
+        )
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    asyncio.run(
+        service.integrate_phase2(
+            phase1_result=L2Phase1Result(),
+            existing_graph_edges=[],
+            existing_assertions=[],
+            event_window=L2EventWindow(
+                events=[
+                    {
+                        "event_id": "evt-song",
+                        "content": "played Track A",
+                        "timestamp": 1.0,
+                        "source": "media",
+                    }
+                ],
                 summary=L2EventWindowSummary(session_id="s1"),
             ),
             focal_subject={"entity_ref": "user:u1", "entity_type": "user"},
@@ -444,6 +501,51 @@ def test_l2_json_calls_use_low_priority_limiter(monkeypatch: pytest.MonkeyPatch)
     )
 
     assert limiter.calls[-1]["priority"] is LLMRequestPriority.LOW
+
+
+def test_chat_source_entity_resolution_uses_medium_priority_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l2.llm_service import L2LLMService
+    from magi.memory.l2.models import L2EntityCandidate, L2EntityResolutionMention
+
+    limiter = _install_recording_limiter(monkeypatch)
+    adapter = _FakeAdapter(
+        json.dumps(
+            {
+                "resolution": {
+                    "decision": "match",
+                    "matched_entity_id": "place:cafe",
+                    "matched_entity_name": "Quiet Cafe",
+                    "confidence": 0.91,
+                    "reason_tags": ["same_name"],
+                    "should_merge": False,
+                    "canonical_name_suggestion": None,
+                }
+            }
+        )
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    asyncio.run(
+        service.resolve_entity(
+            mention=L2EntityResolutionMention(
+                mention_text="Quiet Cafe",
+                entity_type="place",
+                context_text="I like Quiet Cafe.",
+            ),
+            candidate_entities=[
+                L2EntityCandidate(
+                    entity_id="place:cafe",
+                    canonical_name="Quiet Cafe",
+                    entity_type="place",
+                )
+            ],
+            source="chat",
+        )
+    )
+
+    assert limiter.calls[-1]["priority"] is LLMRequestPriority.MEDIUM
 
 
 def test_conflict_arbitration_uses_core_scenario_adapter():
