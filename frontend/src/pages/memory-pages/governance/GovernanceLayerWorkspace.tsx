@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -44,11 +45,27 @@ export function LayerWorkspace({
   onPageChange: (page: number) => void;
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
+  const [draftSearchQuery, setDraftSearchQuery] = useState(recordSearchQuery);
+  const isComposingSearchRef = useRef(false);
+  const lastCommittedSearchQueryRef = useRef(recordSearchQuery);
   const selectedLayer = layers.find((layer) => layer.id === activeLayer) || layers[0];
   const displayRecordCount = Math.max(0, totalRecordCount);
   const isSearching = recordSearchQuery.trim().length > 0;
   const pageStart = displayRecordCount === 0 || visibleRecords.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const pageEnd = pageStart === 0 ? 0 : Math.min(displayRecordCount, pageStart + visibleRecords.length - 1);
+
+  useEffect(() => {
+    if (isComposingSearchRef.current) return;
+    setDraftSearchQuery(recordSearchQuery);
+    lastCommittedSearchQueryRef.current = recordSearchQuery;
+  }, [recordSearchQuery]);
+
+  const commitSearchQuery = (value: string) => {
+    if (value === lastCommittedSearchQueryRef.current) return;
+    lastCommittedSearchQueryRef.current = value;
+    onRecordSearchChange(value);
+  };
+
   return (
     <section className="grid h-full min-h-0 gap-3 lg:grid-cols-[230px_minmax(0,1fr)]">
       <aside className="min-h-0 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-2">
@@ -100,8 +117,23 @@ export function LayerWorkspace({
               type="search"
               aria-label={label('objects.searchLabel', '搜索当前选项记录')}
               placeholder={label('objects.searchPlaceholder', '搜索当前选项记录')}
-              value={recordSearchQuery}
-              onChange={(event) => onRecordSearchChange(event.target.value)}
+              value={draftSearchQuery}
+              onCompositionStart={() => {
+                isComposingSearchRef.current = true;
+              }}
+              onCompositionEnd={(event) => {
+                isComposingSearchRef.current = false;
+                const value = event.currentTarget.value;
+                setDraftSearchQuery(value);
+                commitSearchQuery(value);
+              }}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDraftSearchQuery(value);
+                if (!isComposingSearchRef.current) {
+                  commitSearchQuery(value);
+                }
+              }}
               className="h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.58)] focus:ring-2 focus:ring-[hsl(var(--memory-accent)/0.16)]"
             />
           </label>

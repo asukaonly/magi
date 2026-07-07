@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -286,6 +286,29 @@ describe('MemoryGovernancePage', () => {
     await user.clear(search);
     await waitFor(() => {
       expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0 });
+    });
+  });
+
+  it('waits for IME composition before searching object records', async () => {
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+
+    const search = await screen.findByRole('searchbox', { name: '搜索当前选项记录' });
+    baseMemoryState.loadL2Relations.mockClear();
+
+    fireEvent.compositionStart(search);
+    fireEvent.change(search, { target: { value: 'm' } });
+    fireEvent.change(search, { target: { value: '梅' } });
+
+    expect(search).toHaveValue('梅');
+    expect(baseMemoryState.loadL2Relations).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(search);
+
+    await waitFor(() => {
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: '梅' });
     });
   });
 
