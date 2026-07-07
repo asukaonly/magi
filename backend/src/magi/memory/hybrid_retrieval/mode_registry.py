@@ -95,7 +95,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         mode="episode_recall",
         primary_layers=["L2", "L1"],
         fallback_layers=["L3"],
-        retrieval_units=["episode", "event_cluster", "event"],
+        retrieval_units=["experience", "event"],
         rrf_profile={
             "rrf_weight_bm25": 1.0,
             "rrf_weight_vector": 1.2,
@@ -133,7 +133,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         mode="cross_session",
         primary_layers=["L2", "L1"],
         fallback_layers=["L3"],
-        retrieval_units=["entity_group", "episode_span", "event"],
+        retrieval_units=["entity_group", "experience_span", "event"],
         rrf_profile={
             "rrf_weight_bm25": 0.8,
             "rrf_weight_vector": 1.0,
@@ -152,7 +152,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         mode="temporal_compare",
         primary_layers=["L2", "L1"],
         fallback_layers=["L3"],
-        retrieval_units=["state_version", "episode_pair", "time_anchor"],
+        retrieval_units=["state_version", "experience_pair", "time_anchor"],
         rrf_profile={
             "rrf_weight_bm25": 1.0,
             "rrf_weight_vector": 1.0,

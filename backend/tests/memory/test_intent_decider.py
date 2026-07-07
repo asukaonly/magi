@@ -545,7 +545,7 @@ class TestLayerRouting:
 
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
 
-    def test_query_mode_episode_recall_also_checks_experiences(
+    def test_query_mode_episode_recall_checks_experiences_without_episode_substrate(
         self, decider: RuleBasedIntentDecider
     ):
         inp = IntentDeciderInput(query="那次日本旅行发生了什么", query_mode_hint="episode_recall")
@@ -553,7 +553,7 @@ class TestLayerRouting:
 
         l2_plan = next(plan for plan in result.plans if plan.layer == "L2")
         assert isinstance(l2_plan.conditions, L2Conditions)
-        assert l2_plan.conditions.include_episodes is True
+        assert l2_plan.conditions.include_episodes is False
         assert l2_plan.conditions.include_experiences is True
 
     def test_query_mode_experience_recall_prefers_experience_layer(

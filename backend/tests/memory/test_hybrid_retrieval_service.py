@@ -231,6 +231,38 @@ class TestServiceBasicFlow:
 
 class TestServiceLayerRouting:
     @pytest.mark.asyncio
+    async def test_episode_recall_query_does_not_enable_l2_episode_substrate(self):
+        l1 = _make_l1_store([])
+        l2 = AsyncMock()
+        mem = _make_memory(l1=l1, l2=l2)
+        svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
+
+        async def execute_plan_stub(plan, **_kwargs):
+            if plan.layer == "L2":
+                return {
+                    "entity_cards": [],
+                    "relationships": [],
+                    "assertions": [],
+                    "episodes": [],
+                    "experiences": [],
+                }
+            return []
+
+        execute_plan_mock = AsyncMock(side_effect=execute_plan_stub)
+        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
+            await svc.query(_make_request(query="那次日本旅行发生了什么", query_mode="episode_recall"))
+
+        l2_plans = [
+            call.args[0]
+            for call in execute_plan_mock.await_args_list
+            if call.args and call.args[0].layer == "L2"
+        ]
+        assert l2_plans
+        assert isinstance(l2_plans[0].conditions, L2Conditions)
+        assert l2_plans[0].conditions.include_episodes is False
+        assert l2_plans[0].conditions.include_experiences is True
+
+    @pytest.mark.asyncio
     async def test_detail_mode_queries_l1(self):
         l1 = _make_l1_store([{"event_id": "e1", "content": "test", "timestamp": 1000.0}])
         mem = _make_memory(l1=l1)

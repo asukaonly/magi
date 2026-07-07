@@ -26,3 +26,18 @@ def test_experience_recall_uses_l2_with_l1_fallback():
     assert "experience" in plan.retrieval_units
     assert "episode" not in plan.retrieval_units
     assert plan.layer_quota and plan.layer_quota.get("L2", 0) >= 4
+
+
+def test_episode_recall_does_not_declare_episode_substrate_retrieval():
+    plan = MODE_REGISTRY["episode_recall"]
+
+    assert plan.primary_layers == ["L2", "L1"]
+    assert "experience" in plan.retrieval_units
+    assert "episode" not in plan.retrieval_units
+
+
+def test_user_recall_modes_do_not_advertise_episode_substrate_units():
+    for mode in ("episode_recall", "experience_recall", "cross_session", "temporal_compare"):
+        plan = MODE_REGISTRY[mode]
+
+        assert all("episode" not in unit for unit in plan.retrieval_units)
