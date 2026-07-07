@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from dataclasses import asdict
 
+import pytest
+
+from magi.memory.hybrid_retrieval import build_query
 from magi.memory.hybrid_retrieval.models import (
     IntentDeciderInput,
     IntentDecision,
@@ -156,6 +159,10 @@ class TestRetrievalQueryBackwardCompat:
             query_mode="detail",
         )
         assert q.query_mode == "detail"
+
+    def test_build_query_rejects_legacy_recall_intent(self):
+        with pytest.raises(TypeError, match="recall_intent"):
+            build_query(query="test", recall_intent="event_recall")
 
 
 class TestRetrievalConfig:

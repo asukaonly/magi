@@ -644,7 +644,7 @@ The evidence assembler and reducer fields are the mode contract, not a guarantee
 
 **Fallback / auto routing**: Tool callers should pass an explicit `query_mode` when the answer shape is clear. Product-facing search surfaces and uncertain tool callers may omit `query_mode` to request auto routing. In that case the rule router chooses a mode from the query text, defaulting to `exact_fact` when no stronger signal is present. The workbench trace exposes the requested mode, resolved mode, executed layers, and per-layer result counts.
 
-**Legacy migration**: Old `recall_intent` values (`event_recall`, `preference_recall`, etc.) and old mode names (`detail`, `experience`, `graph`) are mapped to unified modes via `normalize_query_mode()`.
+**Legacy mode aliases**: Old `query_mode` names (`detail`, `experience`, `graph`) are mapped to unified modes via `normalize_query_mode()`. The older `recall_intent` contract is no longer accepted by the retrieval query builder; callers should pass `query_mode` or omit it for auto routing.
 
 **Semantic frame**: The `L2SemanticFrame` expresses structured query slots:
 

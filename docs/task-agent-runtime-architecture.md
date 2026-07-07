@@ -531,7 +531,7 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - `ContextDecider` remains a fast classifier and only performs a lightweight rule-based post-pass to mark explicit memory recall requests
 - routing prompt assembly may include only a compact top-N subset of notable `L4` tool advisories rather than dumping every known procedural note into `Tool Experience Notes`
 - when such a request is detected, `memory_query` is promoted into the selected tool set and a routing-scoped structured hint payload (`routing_memory_hint`) is attached for first-attempt parameters
-- that first-attempt hint now carries a recall-intent taxonomy such as `event_recall`, `preference_recall`, `profile_fact_recall`, `relationship_recall`, or `workflow_reuse`
+- that first-attempt hint carries the unified memory `query_mode` when the desired answer shape is clear, or omits it to let retrieval auto-route
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
 - the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
