@@ -238,6 +238,15 @@ class TestRetrieveEpisodes:
         store.search_episodes_fts.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_queries_only_active_episodes(self):
+        store = _make_store()
+        plan = _make_plan()
+
+        await retrieve_episodes(plan, store)
+
+        assert store.list_episodes.await_args.kwargs["statuses"] == ["active"]
+
+    @pytest.mark.asyncio
     async def test_entity_overlap_scored(self):
         store = _make_store()
         now = time.time()

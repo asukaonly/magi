@@ -526,6 +526,8 @@ class TestLayerRouting:
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
         assert result.plans[0].is_fallback is False
         assert result.plans[1].is_fallback is True
+        assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].conditions.include_episodes is False
 
     def test_query_mode_current_state_prefers_l2_with_l1_fallback(
         self, decider: RuleBasedIntentDecider
@@ -551,6 +553,7 @@ class TestLayerRouting:
 
         l2_plan = next(plan for plan in result.plans if plan.layer == "L2")
         assert isinstance(l2_plan.conditions, L2Conditions)
+        assert l2_plan.conditions.include_episodes is True
         assert l2_plan.conditions.include_experiences is True
 
     def test_query_mode_experience_recall_prefers_experience_layer(
@@ -562,6 +565,7 @@ class TestLayerRouting:
         assert [plan.layer for plan in result.plans[:2]] == ["L2", "L1"]
         assert result.plans[0].is_fallback is False
         assert isinstance(result.plans[0].conditions, L2Conditions)
+        assert result.plans[0].conditions.include_episodes is False
         assert result.plans[0].conditions.include_experiences is True
 
     def test_query_mode_strategy_prefers_l4_with_l1_fallback(self, decider: RuleBasedIntentDecider):

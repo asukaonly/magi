@@ -24,4 +24,5 @@ def test_experience_recall_uses_l2_with_l1_fallback():
 
     assert plan.primary_layers == ["L2", "L1"]
     assert "experience" in plan.retrieval_units
+    assert "episode" not in plan.retrieval_units
     assert plan.layer_quota and plan.layer_quota.get("L2", 0) >= 4

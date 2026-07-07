@@ -441,6 +441,10 @@ user-facing memory object. They organize L1 evidence into bounded activity or
 theme segments such as browsing bursts, search sessions, debugging windows, or
 conversation spans. They may be useful evidence even when they are too shallow,
 generic, or source-driven to feel like a meaningful life/work experience.
+Default L2 retrieval must not surface episodes as top-level user results.
+`experience_recall` returns promoted experiences, with source episodes attached
+only as evidence on those experiences; `episode_recall` is reserved for explicit
+activity-span recall and uses active episodes rather than raw candidates.
 
 **Experiences** are the product-grade episodic object surfaced in the review
 page and timeline. An experience is promoted only when one or more substrate

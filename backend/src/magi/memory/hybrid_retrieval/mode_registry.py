@@ -114,7 +114,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         mode="experience_recall",
         primary_layers=["L2", "L1"],
         fallback_layers=["L3"],
-        retrieval_units=["experience", "episode", "event"],
+        retrieval_units=["experience", "event"],
         rrf_profile={
             "rrf_weight_bm25": 0.9,
             "rrf_weight_vector": 1.0,

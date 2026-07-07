@@ -309,7 +309,7 @@ async def _query_episodes_by_time(
         elif tc.mode == "after" and tc.start is not None:
             kwargs["time_start"] = tc.start
 
-    kwargs["statuses"] = ["active", "candidate"]
+    kwargs["statuses"] = ["active"]
     return await store.list_episodes(**kwargs)
 
 

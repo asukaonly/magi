@@ -150,6 +150,7 @@ class L2Conditions:
     include_tom_snapshot: bool = True
     include_relationships: bool = True
     include_assertions: bool = True
+    include_episodes: bool = False
     include_experiences: bool = False
     relation_direction: Optional[str] = None
     hop_count: int = 1

@@ -145,10 +145,14 @@ async def _retrieve_l2_channels(
         else _empty_list()
     )
 
-    episode_task = retrieve_episodes(
-        plan,
-        host._store,
-        limit=conditions.limit,
+    episode_task = (
+        retrieve_episodes(
+            plan,
+            host._store,
+            limit=conditions.limit,
+        )
+        if conditions.include_episodes
+        else _empty_list()
     )
 
     experience_task = (
@@ -173,7 +177,11 @@ async def _retrieve_l2_channels(
         knowledge_edges=knowledge_edges,
         assertions=assertions,
         snapshots=snapshots,
-        episodes=_merge_experience_source_episodes(episodes, experiences),
+        episodes=(
+            _merge_experience_source_episodes(episodes, experiences)
+            if conditions.include_episodes
+            else []
+        ),
         experiences=experiences,
     )
 

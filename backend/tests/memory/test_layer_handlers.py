@@ -389,6 +389,32 @@ class TestL2Handler:
         assert "grounding_plan" in results["trace"]
         assert results["trace"]["grounding_plan"]["subject_count"] == 0
 
+    @pytest.mark.asyncio
+    async def test_default_l2_query_does_not_return_episode_substrate(self):
+        store = _make_l2_store(
+            episodes=[
+                {
+                    "episode_id": "ep-candidate",
+                    "status": "candidate",
+                    "time_start": 100.0,
+                    "time_end": 200.0,
+                }
+            ],
+        )
+        handler = L2Handler(store)
+
+        results = await handler.execute(
+            L2Conditions(
+                content_query="我听过什么歌",
+                include_tom_snapshot=False,
+                include_relationships=False,
+                include_assertions=False,
+            )
+        )
+
+        assert results["episodes"] == []
+        store.list_episodes.assert_not_awaited()
+
     def test_filter_by_time_range_uses_observed_at_schema_fields(self):
         items = [
             {"triple_id": "in", "first_observed_at": 1661990400.0, "last_observed_at": 1662114600.0},

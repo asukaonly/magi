@@ -131,6 +131,7 @@ class RuleBasedIntentDecider:
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,
+                include_episodes=mode == "episode_recall",
                 include_experiences=mode in {"episode_recall", "experience_recall"},
             )
             enrich_l2_conditions(conditions, inp.query)
