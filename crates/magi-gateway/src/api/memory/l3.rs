@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::db;
 
-use super::query::{clamp_limit, clamp_offset, SummariesQuery, DEFAULT_LIMIT};
+use super::query::{append_like_search, clamp_limit, clamp_offset, SummariesQuery, DEFAULT_LIMIT};
 
 // ---------------------------------------------------------------------------
 
@@ -35,6 +35,30 @@ fn build_l3_summaries(params: &SummariesQuery) -> Value {
         where_parts.push("summary_category = ?".into());
         bind.push(rusqlite::types::Value::Text(v.clone()));
     }
+    append_like_search(
+        &mut where_parts,
+        &mut bind,
+        &[
+            "summary_id",
+            "summary_type",
+            "summary_category",
+            "content",
+            "key_topics",
+            "key_entities",
+            "sentiment_summary",
+            "change_and_pattern",
+            "source_event_ids",
+            "generated_by_model",
+            "generation_prompt",
+            "generation_reason",
+            "insight_key",
+            "review_state",
+            "insight_metadata",
+            "narrative_style",
+            "essence_prose",
+        ],
+        params.query.as_deref(),
+    );
 
     let where_clause = if where_parts.is_empty() {
         String::new()

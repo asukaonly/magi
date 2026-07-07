@@ -406,6 +406,242 @@ async fn unknown_api_path_hits_fallback_proxy() {
 }
 
 #[tokio::test]
+async fn memory_l2_entities_searches_catalog_and_aliases() {
+    let home = isolated_home("memory-l2-entities-search");
+    let memory_dir = home.path().join(".magi").join("data").join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    let conn = rusqlite::Connection::open(memory_dir.join("memory.db")).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE entity_catalog (
+            entity_id TEXT PRIMARY KEY,
+            canonical_name TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            embedding_status TEXT NOT NULL DEFAULT 'disabled',
+            last_embedded_at REAL,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+        CREATE TABLE entity_aliases (
+            alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_id TEXT NOT NULL,
+            alias_text TEXT NOT NULL,
+            normalized_alias TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 1.0,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        );
+
+        INSERT INTO entity_catalog(entity_id, canonical_name, entity_type, created_at, updated_at)
+        VALUES
+            ('hardware:iphone', 'Apple iPhone', 'hardware', 1, 1),
+            ('product:melvor-idle', 'Melvor Idle', 'product', 2, 2),
+            ('media:melvor-idle', 'Melvor Idle', 'media', 3, 3);
+        INSERT INTO entity_aliases(entity_id, alias_text, normalized_alias, created_at, updated_at)
+        VALUES
+            ('product:melvor-idle', '梅尔沃放置', '梅尔沃放置', 2, 2),
+            ('media:melvor-idle', '梅尔沃放置', '梅尔沃放置', 3, 3);
+        "#,
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+
+    let (status, json) = request_json(
+        router,
+        "GET",
+        "/api/memory/l2/entities?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, 200);
+    assert_eq!(json["total"], 2);
+    let ids: Vec<&str> = json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|item| item["entity_id"].as_str())
+        .collect();
+    assert_eq!(ids, vec!["media:melvor-idle", "product:melvor-idle"]);
+    assert!(json["items"].to_string().contains("梅尔沃放置"));
+    drop(home);
+}
+
+#[tokio::test]
+async fn memory_object_routes_apply_search_query_in_native_gateway() {
+    let home = isolated_home("memory-object-routes-search");
+    let memory_dir = home.path().join(".magi").join("data").join("memory");
+    std::fs::create_dir_all(&memory_dir).unwrap();
+    let conn = rusqlite::Connection::open(memory_dir.join("memory.db")).unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE knowledge_graph (
+            triple_id TEXT PRIMARY KEY,
+            subject_id TEXT,
+            subject_type TEXT,
+            predicate TEXT,
+            object_id TEXT,
+            object_type TEXT,
+            fact_kind TEXT,
+            evidence_event_ids TEXT,
+            evidence_text TEXT,
+            natural_summary TEXT,
+            source_type TEXT,
+            extraction_method TEXT,
+            evidence_class TEXT,
+            status TEXT,
+            updated_at REAL
+        );
+        CREATE TABLE tom_trait_assertions (
+            assertion_id TEXT PRIMARY KEY,
+            entity_id TEXT,
+            entity_type TEXT,
+            trait_family TEXT,
+            trait_name TEXT,
+            trait_value TEXT,
+            evidence_events TEXT,
+            source_domain TEXT,
+            inference_depth TEXT,
+            validation_state TEXT,
+            target_entity_id TEXT,
+            target_entity_type TEXT,
+            target_scope TEXT,
+            temporal_scope TEXT,
+            context_ref_id TEXT,
+            status TEXT,
+            superseded_by TEXT,
+            memory_subdomain TEXT,
+            natural_summary TEXT,
+            updated_at REAL
+        );
+        CREATE TABLE tom_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            entity_id TEXT,
+            entity_type TEXT,
+            core_traits TEXT,
+            sensitive_triggers TEXT,
+            preferences TEXT,
+            public_sentiment_profile TEXT,
+            relationship_topology TEXT,
+            current_stress_level REAL,
+            current_mood TEXT,
+            current_engagement REAL,
+            current_context TEXT,
+            interaction_count INTEGER,
+            last_interaction_at REAL,
+            last_updated_at REAL,
+            snapshot_version INTEGER,
+            created_at REAL,
+            update_source_assertion_ids TEXT,
+            core_traits_history TEXT,
+            preferences_history TEXT,
+            relationship_history TEXT,
+            active_record_ids TEXT,
+            superseded_record_ids TEXT,
+            emerging_signals TEXT,
+            mood_trajectory TEXT
+        );
+        CREATE TABLE summaries (
+            summary_id TEXT PRIMARY KEY,
+            summary_type TEXT,
+            summary_category TEXT,
+            period_start REAL,
+            period_end REAL,
+            content TEXT,
+            key_topics TEXT,
+            key_entities TEXT,
+            sentiment_summary TEXT,
+            change_and_pattern TEXT,
+            source_event_ids TEXT,
+            source_event_count INTEGER,
+            importance_aggregate REAL,
+            generated_by_model TEXT,
+            generation_prompt TEXT,
+            generation_reason TEXT,
+            insight_key TEXT,
+            review_state TEXT,
+            insight_metadata TEXT,
+            narrative_style TEXT,
+            essence_prose TEXT,
+            created_at REAL,
+            updated_at REAL
+        );
+        CREATE TABLE procedural_skills (
+            skill_id TEXT PRIMARY KEY,
+            skill_name TEXT,
+            skill_category TEXT,
+            skill_type TEXT,
+            success_rate REAL,
+            total_attempts INTEGER,
+            circuit_breaker_state TEXT,
+            optimized_prompt TEXT,
+            optimized_params TEXT,
+            context_affinity TEXT,
+            source_event_ids TEXT,
+            updated_at REAL
+        );
+
+        INSERT INTO knowledge_graph VALUES
+            ('rel-apple', 'user:self', 'user', 'OWNS', 'hardware:iphone', 'hardware', 'fact', '[]', 'Apple phone', '', '', '', '', 'active', 1),
+            ('rel-melvor', 'user:self', 'user', 'PLAYS', 'product:melvor-idle', 'product', 'fact', '[]', '梅尔沃放置', '', '', '', '', 'active', 2);
+        INSERT INTO tom_trait_assertions VALUES
+            ('assert-apple', 'user:self', 'user', 'preference', 'tool', 'iPhone', '[]', 'chat', 'explicit', 'stable', '', '', 'global', 'session', '', 'active', '', 'state', '', 1),
+            ('assert-melvor', 'user:self', 'user', 'preference', 'game', '梅尔沃放置', '[]', 'chat', 'explicit', 'stable', '', '', 'global', 'session', '', 'active', '', 'state', '', 2);
+        INSERT INTO tom_snapshots VALUES
+            ('snap-apple', 'hardware:iphone', 'hardware', '{}', '', '{}', '', '{}', 0, 'neutral', 0, 'Apple context', 1, 1, 1, 1, 1, '[]', '', '', '', '', '', '', ''),
+            ('snap-melvor', 'product:melvor-idle', 'product', '{"name":"梅尔沃放置"}', '', '{}', '', '{}', 0, 'neutral', 0, 'game context', 1, 1, 2, 1, 2, '[]', '', '', '', '', '', '', '');
+        INSERT INTO summaries VALUES
+            ('sum-apple', 'thematic', 'topic', 1, 1, 'Apple summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 1, 1),
+            ('sum-melvor', 'thematic', 'topic', 2, 2, '梅尔沃放置 summary', '[]', '[]', '', '', '[]', 1, 0, 'model', '', '', '', 'ready', '{}', 'default', '', 2, 2);
+        INSERT INTO procedural_skills VALUES
+            ('skill-apple', 'Apple tool', 'tool', 'tool', 1.0, 1, 'closed', '', '', '', '[]', 1),
+            ('skill-melvor', '梅尔沃 helper', 'tool', 'tool', 1.0, 1, 'closed', '', '', '', '[]', 2);
+        "#,
+    )
+    .unwrap();
+    drop(conn);
+
+    let state = test_state().await;
+    let router = api::build_router(state);
+    let endpoints = [
+        (
+            "/api/memory/l2/relations?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+            "rel-melvor",
+        ),
+        (
+            "/api/memory/l2/assertions?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+            "assert-melvor",
+        ),
+        (
+            "/api/memory/l2/snapshots?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+            "snap-melvor",
+        ),
+        (
+            "/api/memory/l3/summaries?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+            "sum-melvor",
+        ),
+        (
+            "/api/memory/procedures?limit=20&offset=0&query=%E6%A2%85%E5%B0%94",
+            "skill-melvor",
+        ),
+    ];
+
+    for (endpoint, expected_id) in endpoints {
+        let (status, json) = request_json(router.clone(), "GET", endpoint, None).await;
+        assert_eq!(status, 200, "{endpoint}");
+        assert_eq!(json["total"], 1, "{endpoint}");
+        assert!(
+            json["items"].to_string().contains(expected_id),
+            "{endpoint} returned {json}"
+        );
+    }
+    drop(home);
+}
+
+#[tokio::test]
 async fn cors_headers_present() {
     let guard = router_test_guard();
     let state = test_state().await;

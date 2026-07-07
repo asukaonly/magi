@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::db;
 
-use super::query::{clamp_limit, clamp_offset, PaginationQuery, DEFAULT_LIMIT};
+use super::query::{append_like_search, clamp_limit, clamp_offset, PaginationQuery, DEFAULT_LIMIT};
 use super::{l2_projection_backlog_json, read_l2_projection_backlog};
 
 // ---------------------------------------------------------------------------
@@ -76,22 +76,59 @@ fn build_l2_statistics() -> Value {
 pub async fn list_l2_relations(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
     let offset = clamp_offset(params.offset);
+    let search_query = params.query.clone();
     Json(
         tokio::task::spawn_blocking(move || {
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
+                    let mut where_parts = vec!["status = 'active'".to_string()];
+                    let mut bind: Vec<rusqlite::types::Value> = Vec::new();
+                    append_like_search(
+                        &mut where_parts,
+                        &mut bind,
+                        &[
+                            "triple_id",
+                            "subject_id",
+                            "subject_type",
+                            "predicate",
+                            "object_id",
+                            "object_type",
+                            "fact_kind",
+                            "evidence_event_ids",
+                            "evidence_text",
+                            "natural_summary",
+                            "source_type",
+                            "extraction_method",
+                            "evidence_class",
+                            "status",
+                        ],
+                        search_query.as_deref(),
+                    );
+                    let where_clause = format!("WHERE {}", where_parts.join(" AND "));
+                    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
                     let total = db::count_rows(
                         &conn,
-                        "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'",
-                        &[],
+                        &format!("SELECT COUNT(*) FROM knowledge_graph {where_clause}"),
+                        &count_refs,
                     );
+                    bind.push(rusqlite::types::Value::Integer(limit));
+                    bind.push(rusqlite::types::Value::Integer(offset));
+                    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
                     let items = db::query_to_json_array(
                         &conn,
-                        "SELECT * FROM knowledge_graph \
-                         WHERE status = 'active' \
-                         ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
-                        rusqlite::params![limit, offset],
+                        &format!(
+                            "SELECT * FROM knowledge_graph \
+                             {where_clause} \
+                             ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+                        ),
+                        &refs,
                     );
                     json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
@@ -110,18 +147,64 @@ pub async fn list_l2_relations(Query(params): Query<PaginationQuery>) -> Json<Va
 pub async fn list_l2_assertions(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
     let offset = clamp_offset(params.offset);
+    let search_query = params.query.clone();
     Json(
         tokio::task::spawn_blocking(move || {
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    let total =
-                        db::count_rows(&conn, "SELECT COUNT(*) FROM tom_trait_assertions", &[]);
+                    let mut where_parts: Vec<String> = Vec::new();
+                    let mut bind: Vec<rusqlite::types::Value> = Vec::new();
+                    append_like_search(
+                        &mut where_parts,
+                        &mut bind,
+                        &[
+                            "assertion_id",
+                            "entity_id",
+                            "entity_type",
+                            "trait_family",
+                            "trait_name",
+                            "trait_value",
+                            "evidence_events",
+                            "source_domain",
+                            "inference_depth",
+                            "validation_state",
+                            "target_entity_id",
+                            "target_entity_type",
+                            "target_scope",
+                            "temporal_scope",
+                            "context_ref_id",
+                            "status",
+                            "superseded_by",
+                            "memory_subdomain",
+                            "natural_summary",
+                        ],
+                        search_query.as_deref(),
+                    );
+                    let where_clause = sql_where_clause(&where_parts);
+                    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
+                    let total = db::count_rows(
+                        &conn,
+                        &format!("SELECT COUNT(*) FROM tom_trait_assertions {where_clause}"),
+                        &count_refs,
+                    );
+                    bind.push(rusqlite::types::Value::Integer(limit));
+                    bind.push(rusqlite::types::Value::Integer(offset));
+                    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
                     let items = db::query_to_json_array(
                         &conn,
-                        "SELECT * FROM tom_trait_assertions \
-                         ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2",
-                        rusqlite::params![limit, offset],
+                        &format!(
+                            "SELECT * FROM tom_trait_assertions \
+                             {where_clause} \
+                             ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+                        ),
+                        &refs,
                     );
                     json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
@@ -583,25 +666,58 @@ mod l2_statistics_tests {
 pub async fn list_l2_entities(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
     let offset = clamp_offset(params.offset);
-    let result = tokio::task::spawn_blocking(move || build_l2_entities(limit, offset))
-        .await
-        .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset}));
+    let search_query = params.query.clone();
+    let result =
+        tokio::task::spawn_blocking(move || build_l2_entities(limit, offset, search_query))
+            .await
+            .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset}));
     Json(result)
 }
 
-fn build_l2_entities(limit: i64, offset: i64) -> Value {
+fn build_l2_entities(limit: i64, offset: i64, query: Option<String>) -> Value {
     let conn = match db::open_readonly(&db::memory_db_path()) {
         Some(c) => c,
         None => return json!({"items": [], "total": 0, "limit": limit, "offset": offset}),
     };
 
-    let total = db::count_rows(&conn, "SELECT COUNT(*) FROM entity_catalog", &[]);
+    let mut where_parts: Vec<String> = Vec::new();
+    let mut bind: Vec<rusqlite::types::Value> = Vec::new();
+    append_like_search(
+        &mut where_parts,
+        &mut bind,
+        &[
+            "ec.entity_id",
+            "ec.canonical_name",
+            "ec.entity_type",
+            "(SELECT GROUP_CONCAT(ea.alias_text, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+            "(SELECT GROUP_CONCAT(ea.normalized_alias, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+        ],
+        query.as_deref(),
+    );
+    let where_clause = sql_where_clause(&where_parts);
+    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
+    let total = db::count_rows(
+        &conn,
+        &format!("SELECT COUNT(*) FROM entity_catalog AS ec {where_clause}"),
+        &count_refs,
+    );
 
+    bind.push(rusqlite::types::Value::Integer(limit));
+    bind.push(rusqlite::types::Value::Integer(offset));
+    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+        .iter()
+        .map(|v| v as &dyn rusqlite::types::ToSql)
+        .collect();
     let entities = db::query_to_json_array(
         &conn,
-        "SELECT entity_id, canonical_name, entity_type, embedding_status, last_embedded_at \
-         FROM entity_catalog ORDER BY entity_id ASC LIMIT ?1 OFFSET ?2",
-        rusqlite::params![limit, offset],
+        &format!(
+            "SELECT ec.entity_id, ec.canonical_name, ec.entity_type, ec.embedding_status, ec.last_embedded_at \
+             FROM entity_catalog AS ec {where_clause} ORDER BY ec.entity_id ASC LIMIT ? OFFSET ?"
+        ),
+        &refs,
     );
 
     // Collect entity_ids from the current page to scope the alias query.
@@ -696,17 +812,61 @@ pub async fn list_l2_mentions(Query(params): Query<PaginationQuery>) -> Json<Val
 pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Value> {
     let limit = clamp_limit(params.limit, DEFAULT_LIMIT);
     let offset = clamp_offset(params.offset);
+    let search_query = params.query.clone();
     Json(
         tokio::task::spawn_blocking(move || {
             let empty = json!({"items": [], "total": 0, "limit": limit, "offset": offset});
             db::open_readonly(&db::memory_db_path())
                 .map(|conn| {
-                    let total = db::count_rows(&conn, "SELECT COUNT(*) FROM tom_snapshots", &[]);
+                    let mut where_parts: Vec<String> = Vec::new();
+                    let mut bind: Vec<rusqlite::types::Value> = Vec::new();
+                    append_like_search(
+                        &mut where_parts,
+                        &mut bind,
+                        &[
+                            "snapshot_id",
+                            "entity_id",
+                            "entity_type",
+                            "core_traits",
+                            "sensitive_triggers",
+                            "preferences",
+                            "public_sentiment_profile",
+                            "relationship_topology",
+                            "current_context",
+                            "current_mood",
+                            "update_source_assertion_ids",
+                            "core_traits_history",
+                            "preferences_history",
+                            "relationship_history",
+                            "active_record_ids",
+                            "superseded_record_ids",
+                            "emerging_signals",
+                            "mood_trajectory",
+                        ],
+                        search_query.as_deref(),
+                    );
+                    let where_clause = sql_where_clause(&where_parts);
+                    let count_refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
+                    let total = db::count_rows(
+                        &conn,
+                        &format!("SELECT COUNT(*) FROM tom_snapshots {where_clause}"),
+                        &count_refs,
+                    );
                     // Only select columns the frontend uses; skip heavy
                     // history/evolution columns (relationship_history etc.).
+                    bind.push(rusqlite::types::Value::Integer(limit));
+                    bind.push(rusqlite::types::Value::Integer(offset));
+                    let refs: Vec<&dyn rusqlite::types::ToSql> = bind
+                        .iter()
+                        .map(|v| v as &dyn rusqlite::types::ToSql)
+                        .collect();
                     let items = db::query_to_json_array(
                         &conn,
-                        "SELECT snapshot_id, entity_id, entity_type, \
+                        &format!(
+                            "SELECT snapshot_id, entity_id, entity_type, \
                          core_traits, preferences, relationship_topology, \
                          current_stress_level, current_mood, current_engagement, \
                          current_context, interaction_count, last_interaction_at, \
@@ -714,8 +874,10 @@ pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Va
                          sensitive_triggers, public_sentiment_profile, \
                          update_source_assertion_ids \
                          FROM tom_snapshots \
-                         ORDER BY last_updated_at DESC LIMIT ?1 OFFSET ?2",
-                        rusqlite::params![limit, offset],
+                         {where_clause} \
+                         ORDER BY last_updated_at DESC LIMIT ? OFFSET ?"
+                        ),
+                        &refs,
                     );
                     json!({"items": items, "total": total, "limit": limit, "offset": offset})
                 })
@@ -724,6 +886,14 @@ pub async fn list_l2_snapshots(Query(params): Query<PaginationQuery>) -> Json<Va
         .await
         .unwrap_or_else(|_| json!({"items": [], "total": 0, "limit": limit, "offset": offset})),
     )
+}
+
+fn sql_where_clause(where_parts: &[String]) -> String {
+    if where_parts.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {} ", where_parts.join(" AND "))
+    }
 }
 
 // ---------------------------------------------------------------------------
