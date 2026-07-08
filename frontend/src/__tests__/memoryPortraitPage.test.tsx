@@ -24,8 +24,7 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.world.groups.identity': '身份信息',
     'memory.portrait.world.groups.projects': '长期项目',
     'memory.portrait.world.groups.preferences': '偏好与关注',
-    'memory.portrait.world.groups.work_style': '工作方式',
-    'memory.portrait.world.groups.invariants': '稳定事实',
+    'memory.portrait.world.groups.work_style': '协作方式',
     'memory.portrait.review.title': '需要你看一眼',
     'memory.portrait.review.count': '{{count}} 条',
     'memory.portrait.review.source': '来源：{{source}}',
@@ -93,8 +92,8 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('身份信息')).toBeInTheDocument();
     expect(screen.getByText('长期项目')).toBeInTheDocument();
     expect(screen.getByText('偏好与关注')).toBeInTheDocument();
-    expect(screen.getByText('工作方式')).toBeInTheDocument();
-    expect(screen.getByText('稳定事实')).toBeInTheDocument();
+    expect(screen.getByText('协作方式')).toBeInTheDocument();
+    expect(screen.queryByText('稳定事实')).not.toBeInTheDocument();
     expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
     expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
@@ -110,10 +109,10 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       session_id: '', persona_id: '', topic: 'self', generated_at: 0,
       observations: [
-        { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['family:preference_profile', 'preference:current_project'] },
-        { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['family:communication_profile', 'communication:response_style.preferred'] },
+        { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['family:preference_profile', 'claim_kind:active_work', 'world_group:projects', 'preference:current_project'] },
+        { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['family:communication_profile', 'claim_kind:collaboration_style', 'world_group:work_style', 'communication:response_style.preferred'] },
         { kind: 'relationship', text: '常用工具：Chrome', basis_count: 4, basis_summary: 'browser history', basis_refs: ['source:chrome-history'] },
-        { kind: 'assertion', text: 'project_tool: 项目管理工具', basis_count: 2, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-stable', 'family:routine_profile', 'status:stable', 'source:conversation'] },
+        { kind: 'assertion', text: 'workflow.review_style: 先看代码再判断', basis_count: 2, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-stable', 'family:routine_profile', 'claim_kind:collaboration_style', 'world_group:work_style', 'status:stable', 'source:conversation'] },
         { kind: 'assertion', text: 'focus_project: Magi 记忆体验', basis_count: 1, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-1', 'family:preference_profile', 'status:tentative', 'source:conversation'] },
         { kind: 'assertion', text: '近期状态：focus = 插件导入', basis_count: 5, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-2', 'family:state_profile', 'status:stable', 'source:conversation'] },
         { kind: 'reflection', text: '最近对话更偏产品设计判断，同时会追问实现链路是否闭环。', basis_count: 4, basis_summary: 'tom', basis_refs: ['tom-1'] },
@@ -134,7 +133,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByTestId('portrait-world-branch-projects')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-preferences')).toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-work_style')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-branch-invariants')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-branch-invariants')).not.toBeInTheDocument();
     screen.getAllByTestId(/^portrait-world-branch-/).forEach((branch) => {
       expect(branch.className).not.toContain('border-l');
     });
@@ -143,11 +142,11 @@ describe('MemoryPortraitPage', () => {
     expect(within(screen.getByTestId('portrait-world-branch-work_style')).queryByTestId('portrait-world-trunk-segment')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
-    expect(screen.getByText('工作方式')).toBeInTheDocument();
+    expect(screen.getByText('协作方式')).toBeInTheDocument();
     expect(screen.getByText('直接深入')).toBeInTheDocument();
-    expect(screen.getByText('稳定事实')).toBeInTheDocument();
+    expect(screen.queryByText('稳定事实')).not.toBeInTheDocument();
     expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
-    expect(within(screen.getByTestId('portrait-world-branch-work_style')).getByText('项目管理工具')).toBeInTheDocument();
+    expect(within(screen.getByTestId('portrait-world-branch-work_style')).getByText('先看代码再判断')).toBeInTheDocument();
     expect(screen.queryByTestId('portrait-world-root-connector')).not.toBeInTheDocument();
 
     const review = screen.getByTestId('portrait-review-queue');
@@ -179,7 +178,6 @@ describe('MemoryPortraitPage', () => {
             { id: 'projects', summary: '长期推进 Magi 记忆系统', items: [] },
             { id: 'preferences', items: [] },
             { id: 'work_style', items: [] },
-            { id: 'invariants', items: [] },
           ],
         },
         review: {
@@ -224,7 +222,6 @@ describe('MemoryPortraitPage', () => {
               }],
             },
             { id: 'work_style', items: [] },
-            { id: 'invariants', items: [] },
           ],
         },
         review: { items: [] },
@@ -255,24 +252,12 @@ describe('MemoryPortraitPage', () => {
               id: 'work_style',
               items: [{
                 id: 'work-style-1',
-                text: 'Chrome',
+                text: '先看代码再判断',
                 source: 'Chrome 浏览器历史',
                 source_key: 'chrome_history',
                 assertion_id: 'assert-routine',
                 basis_count: 4,
                 basis_refs: ['assertion:assert-routine', 'source:chrome_history'],
-              }],
-            },
-            {
-              id: 'invariants',
-              items: [{
-                id: 'place-1',
-                text: 'Tiankongzhicheng, Hangzhou, Zhejiang, China',
-                source: '照片库',
-                source_key: 'photo_library_apple_photos',
-                assertion_id: 'assert-place',
-                basis_count: 2,
-                basis_refs: ['assertion:assert-place', 'source:photo_library_apple_photos'],
               }],
             },
             { id: 'projects', items: [] },
@@ -307,8 +292,7 @@ describe('MemoryPortraitPage', () => {
     renderPage();
 
     const world = await screen.findByTestId('portrait-world-map');
-    expect(within(world).getByText('Chrome')).toBeInTheDocument();
-    expect(within(world).getByText('Tiankongzhicheng, Hangzhou, Zhejiang, China')).toBeInTheDocument();
+    expect(within(world).getByText('先看代码再判断')).toBeInTheDocument();
     expect(within(world).queryByText('Chrome 浏览器历史')).not.toBeInTheDocument();
     expect(within(world).queryByText('照片库')).not.toBeInTheDocument();
 

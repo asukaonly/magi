@@ -3,13 +3,38 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, Literal, cast
 
 PortraitAssertionRole = Literal["world", "review", "recent", "skip"]
+PortraitClaimKind = Literal[
+    "identity_fact",
+    "active_work",
+    "preference_interest",
+    "collaboration_style",
+    "recent_context",
+    "inventory_signal",
+]
+PortraitWorldGroup = Literal["identity", "projects", "preferences", "work_style"]
+
+
+@dataclass(frozen=True)
+class PortraitSignalDecision:
+    """Decision for how a memory signal can appear in the user portrait."""
+
+    role: PortraitAssertionRole
+    claim_kind: PortraitClaimKind
+    world_group: PortraitWorldGroup | None = None
 
 PORTRAIT_WORLD_STATES = frozenset({"stable", "confirmed", "corroborated", "validated"})
 PORTRAIT_REVIEW_STATES = frozenset({"tentative", "contradicted"})
 PORTRAIT_RECENT_FAMILIES = frozenset({"state_profile", "mood", "stress", "engagement"})
+PORTRAIT_WORLD_GROUP_IDS: tuple[PortraitWorldGroup, ...] = (
+    "identity",
+    "projects",
+    "preferences",
+    "work_style",
+)
 
 # Single source of truth for portrait signal strength ordering. Both the
 # materialized projection builder and the API fallback path rank portrait items
@@ -34,12 +59,13 @@ PORTRAIT_VALIDATION_STRENGTH = {
     "contradicted": 0,
 }
 
-# Admission rules for promoting safe L2 graph relationships into the portrait
-# worldview. Keyed by predicate; an edge qualifies only when its object type is
-# allowed and it has been observed at least ``min_observations`` times.
-PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
+# Admission rules for graph relationships. Passive graph edges are recent clues,
+# not stable portrait worldview. Durable portrait items must come from qualified
+# assertions or explicit user profile fields.
+PORTRAIT_GRAPH_SIGNAL_RULES: dict[str, dict[str, Any]] = {
     "INTERESTED_IN": {
-        "group": "preferences",
+        "role": "recent",
+        "claim_kind": "preference_interest",
         "object_types": frozenset({
             "activity",
             "group",
@@ -53,7 +79,8 @@ PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
         "min_observations": 3,
     },
     "LIKES": {
-        "group": "preferences",
+        "role": "recent",
+        "claim_kind": "preference_interest",
         "object_types": frozenset({
             "activity",
             "group",
@@ -67,32 +94,20 @@ PORTRAIT_GRAPH_WORLD_RULES: dict[str, dict[str, Any]] = {
         "min_observations": 2,
     },
     "LISTENED": {
-        "group": "preferences",
+        "role": "recent",
+        "claim_kind": "preference_interest",
         "object_types": frozenset({"group", "media", "person"}),
         "min_observations": 3,
     },
-    "VISITED": {
-        "group": "invariants",
-        "object_types": frozenset({"place"}),
-        "min_observations": 2,
-    },
-    "OWNS": {
-        "group": "work_style",
-        "object_types": frozenset({"hardware", "product"}),
-        "min_observations": 2,
-    },
-    "USES": {
-        "group": "work_style",
-        "object_types": frozenset({"software", "hardware", "technology", "product"}),
-        "min_observations": 3,
-    },
     "WORKS_WITH": {
-        "group": "projects",
+        "role": "recent",
+        "claim_kind": "active_work",
         "object_types": frozenset({"organization", "product", "software", "technology", "topic"}),
         "min_observations": 2,
     },
     "COMMITTED": {
-        "group": "projects",
+        "role": "recent",
+        "claim_kind": "active_work",
         "object_types": frozenset({"organization", "product", "software", "technology", "topic"}),
         "min_observations": 2,
     },
@@ -116,21 +131,20 @@ _WORLD_FAMILY_TRAIT_PREFIXES = {
         "taste.",
         "music.",
         "game.",
+        "project.",
+        "focus.",
     ),
     "routine_profile": (
         "routine.",
         "habit.",
-        "tool.",
-        "app.",
         "project.",
         "workflow.",
-        "hardware.",
-        "environment.",
+        "focus.",
     ),
 }
 _WORLD_FAMILY_EXACT_TRAITS = {
     "preference_profile": frozenset({"preference", "taste_preference"}),
-    "routine_profile": frozenset({"routine", "habit", "tool", "app", "project", "workflow"}),
+    "routine_profile": frozenset({"routine", "habit", "project", "workflow"}),
 }
 _PASSIVE_MIN_EVIDENCE_BY_FAMILY = {
     "preference_profile": 3,
@@ -147,28 +161,56 @@ _MIN_PASSIVE_CONFIDENCE = 0.5
 
 def assertion_portrait_role(assertion: Mapping[str, Any]) -> PortraitAssertionRole:
     """Return how an assertion may participate in the product-facing portrait."""
+    return classify_assertion_portrait(assertion).role
+
+
+def classify_assertion_portrait(assertion: Mapping[str, Any]) -> PortraitSignalDecision:
+    """Classify an L2 assertion into a portrait role and optional world group."""
     family = _text(assertion.get("trait_family")).casefold()
+    trait_name = _text(assertion.get("trait_name")).casefold()
+    claim_kind = _claim_kind_for_assertion(family=family, trait_name=trait_name)
     state = _assertion_state(assertion)
     if state in PORTRAIT_REVIEW_STATES:
-        return "review"
+        return PortraitSignalDecision(role="review", claim_kind=claim_kind)
     if family in PORTRAIT_RECENT_FAMILIES:
-        return "recent"
-    if assertion_is_portrait_world_ready(assertion):
-        return "world"
-    return "skip"
+        return PortraitSignalDecision(role="recent", claim_kind="recent_context")
+    if _assertion_is_portrait_world_ready(
+        assertion,
+        family=family,
+        trait_name=trait_name,
+        claim_kind=claim_kind,
+    ):
+        return PortraitSignalDecision(
+            role="world",
+            claim_kind=claim_kind,
+            world_group=_world_group_for_claim_kind(claim_kind),
+        )
+    return PortraitSignalDecision(role="skip", claim_kind=claim_kind)
 
 
 def assertion_is_portrait_world_ready(assertion: Mapping[str, Any]) -> bool:
     """Decide whether an assertion is strong enough to become portrait worldview."""
+    return classify_assertion_portrait(assertion).role == "world"
+
+
+def _assertion_is_portrait_world_ready(
+    assertion: Mapping[str, Any],
+    *,
+    family: str,
+    trait_name: str,
+    claim_kind: PortraitClaimKind,
+) -> bool:
     family = _text(assertion.get("trait_family")).casefold()
     state = _assertion_state(assertion)
     if state not in PORTRAIT_WORLD_STATES:
+        return False
+    if _world_group_for_claim_kind(claim_kind) is None:
         return False
     if family not in _WORLD_FAMILY_TRAIT_PREFIXES:
         return False
     if not _trait_matches_family(
         family=family,
-        trait_name=_text(assertion.get("trait_name")).casefold(),
+        trait_name=trait_name,
     ):
         return False
 
@@ -189,26 +231,66 @@ def assertion_is_portrait_world_ready(assertion: Mapping[str, Any]) -> bool:
     return evidence_count >= _SEMANTIC_MIN_EVIDENCE_BY_FAMILY.get(family, 2)
 
 
-def graph_relation_portrait_world_group(
+def classify_graph_portrait_signal(
     *,
     predicate: str,
     object_type: str,
     observation_count: int,
-) -> str | None:
-    """Return the portrait world group a graph relationship qualifies for, or None.
+) -> PortraitSignalDecision | None:
+    """Return how a graph relationship may appear in the portrait, or None.
 
-    Centralizes the graph-to-portrait admission policy so the materialized
-    projection and the API fallback path apply the same predicate, object-type,
-    and observation-count gates.
+    Graph relationships only become recent clues here. Promotion to stable
+    world items happens through assertions after the L2 pipeline has made a
+    qualified judgement.
     """
-    rule = PORTRAIT_GRAPH_WORLD_RULES.get(_text(predicate).upper())
+    rule = PORTRAIT_GRAPH_SIGNAL_RULES.get(_text(predicate).upper())
     if rule is None:
         return None
     if observation_count < int(rule["min_observations"]):
         return None
     if _text(object_type).casefold() not in rule["object_types"]:
         return None
-    return str(rule["group"])
+    return PortraitSignalDecision(
+        role=cast(PortraitAssertionRole, str(rule["role"])),
+        claim_kind=cast(PortraitClaimKind, str(rule["claim_kind"])),
+        world_group=None,
+    )
+
+
+def _claim_kind_for_assertion(*, family: str, trait_name: str) -> PortraitClaimKind:
+    if family == "identity_profile" and trait_name.startswith("identity."):
+        return "identity_fact"
+    if family == "communication_profile" and trait_name.startswith("communication."):
+        return "collaboration_style"
+    if family == "preference_profile":
+        if trait_name.startswith(("project.", "current_project", "focus_project", "focus.")):
+            return "active_work"
+        if trait_name.startswith(("interest.", "preference.", "taste.", "music.", "game.")):
+            return "preference_interest"
+    if family == "routine_profile":
+        if trait_name.startswith(("project.", "current_project", "focus_project", "focus.")):
+            return "active_work"
+        if trait_name.startswith(("routine.", "habit.", "workflow.")) or trait_name in {
+            "routine",
+            "habit",
+            "workflow",
+        }:
+            return "collaboration_style"
+    if family in PORTRAIT_RECENT_FAMILIES:
+        return "recent_context"
+    return "inventory_signal"
+
+
+def _world_group_for_claim_kind(claim_kind: PortraitClaimKind) -> PortraitWorldGroup | None:
+    if claim_kind == "identity_fact":
+        return "identity"
+    if claim_kind == "active_work":
+        return "projects"
+    if claim_kind == "preference_interest":
+        return "preferences"
+    if claim_kind == "collaboration_style":
+        return "work_style"
+    return None
 
 
 def _trait_matches_family(*, family: str, trait_name: str) -> bool:
@@ -255,14 +337,19 @@ def _text(value: Any) -> str:
 
 
 __all__ = [
-    "PORTRAIT_GRAPH_WORLD_RULES",
+    "PORTRAIT_GRAPH_SIGNAL_RULES",
     "PORTRAIT_RECENT_FAMILIES",
     "PORTRAIT_REVIEW_STATES",
     "PORTRAIT_SOURCE_STRENGTH",
     "PORTRAIT_VALIDATION_STRENGTH",
     "PORTRAIT_WORLD_STATES",
+    "PORTRAIT_WORLD_GROUP_IDS",
     "PortraitAssertionRole",
+    "PortraitClaimKind",
+    "PortraitSignalDecision",
+    "PortraitWorldGroup",
     "assertion_is_portrait_world_ready",
     "assertion_portrait_role",
-    "graph_relation_portrait_world_group",
+    "classify_assertion_portrait",
+    "classify_graph_portrait_signal",
 ]

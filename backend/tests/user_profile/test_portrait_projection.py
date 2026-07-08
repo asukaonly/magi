@@ -318,13 +318,12 @@ async def test_portrait_projection_uses_profile_projection_as_strong_input_and_c
         "projects",
         "preferences",
         "work_style",
-        "invariants",
     ]
     assert "子涵" in world_groups["identity"]["summary"]
-    assert "杭州" in world_groups["invariants"]["summary"]
+    assert "杭州" in world_groups["identity"]["summary"]
     assert "Magi 记忆系统" in world_groups["projects"]["summary"]
     assert "插件生态" in world_groups["preferences"]["summary"]
-    assert "Codex" in world_groups["work_style"]["summary"]
+    assert "Codex" not in str(projection.world)
     assert "先讲结论" in world_groups["work_style"]["summary"]
     assert "一次性页面" not in str(projection.world)
 
@@ -333,6 +332,7 @@ async def test_portrait_projection_uses_profile_projection_as_strong_input_and_c
     assert "Magi 记忆系统" in prompt_text
     assert "插件生态" in prompt_text
     assert "先讲结论" in prompt_text
+    assert "Codex" not in prompt_text
     assert "interest." not in prompt_text
     assert "tool." not in prompt_text
     assert "external_activity" not in prompt_text
@@ -435,21 +435,25 @@ class _RicherGraphSignalL2:
         ]
 
 
-async def test_portrait_projection_includes_safe_graph_world_clues():
+async def test_portrait_projection_keeps_inventory_graph_signals_out_of_world():
     projection = await UserPortraitProjectionBuilder(_GraphSignalL2()).build("local_user")
 
     world_groups = {group["id"]: [item["text"] for item in group["items"]] for group in projection.world["groups"]}
-    assert world_groups["invariants"] == ["东京"]  # single-observation place is dropped
-    assert world_groups["work_style"] == ["本地插件仓库", "Chrome"]  # assertion ranks above passive clue
+    assert world_groups["identity"] == []
+    assert world_groups["projects"] == []
+    assert world_groups["preferences"] == []
+    assert world_groups["work_style"] == []
+    assert "东京" not in str(projection.recent)
+    assert "Chrome" not in str(projection.recent)
+    assert "本地插件仓库" not in str(projection.recent)
 
     prompt_text = "\n".join(projection.prompt_summary)
-    assert "本地插件仓库" in prompt_text
-    # Passive graph clues stay on the page but must not leak into the prompt.
+    assert "本地插件仓库" not in prompt_text
     assert "Chrome" not in prompt_text
     assert "东京" not in prompt_text
 
 
-async def test_portrait_projection_maps_stable_graph_signals_to_world_groups():
+async def test_portrait_projection_keeps_graph_under_recent_clues():
     projection = await UserPortraitProjectionBuilder(_RicherGraphSignalL2()).build("local_user")
 
     world_groups = {
@@ -457,8 +461,14 @@ async def test_portrait_projection_maps_stable_graph_signals_to_world_groups():
         for group in projection.world["groups"]
     }
 
-    assert set(world_groups["preferences"]) == {"DIIV", "coding-agent"}
-    assert world_groups["projects"] == ["magi"]
+    assert world_groups["identity"] == []
+    assert world_groups["projects"] == []
+    assert world_groups["preferences"] == []
+    assert world_groups["work_style"] == []
+    recent_text = str(projection.recent)
+    assert "DIIV" in recent_text
+    assert "coding agent" in recent_text
+    assert "magi" in recent_text
     assert "one-off-track" not in str(projection.world)
     assert "example.com" not in str(projection.world)
 

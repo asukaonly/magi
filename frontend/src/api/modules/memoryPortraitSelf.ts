@@ -18,8 +18,7 @@ export type PortraitSelfViewWorldGroupId =
   | 'identity'
   | 'projects'
   | 'preferences'
-  | 'work_style'
-  | 'invariants';
+  | 'work_style';
 
 export interface PortraitSelfViewItem {
   id: string;

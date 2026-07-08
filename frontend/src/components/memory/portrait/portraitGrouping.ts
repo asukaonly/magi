@@ -36,7 +36,6 @@ const WORLD_GROUP_IDS: PortraitWorldGroupId[] = [
   'projects',
   'preferences',
   'work_style',
-  'invariants',
 ];
 
 const STATE_FAMILIES = new Set([
@@ -47,13 +46,6 @@ const STATE_FAMILIES = new Set([
   'trigger',
   'relationship_shift',
   'group_atmosphere',
-]);
-
-const FAMILY_GROUPS = new Map<string, PortraitWorldGroupId>([
-  ['identity_profile', 'identity'],
-  ['preference_profile', 'preferences'],
-  ['routine_profile', 'work_style'],
-  ['communication_profile', 'work_style'],
 ]);
 
 const REVIEW_STATUSES = new Set(['tentative', 'contradicted']);
@@ -166,8 +158,23 @@ const isRecentItem = (obs: SelfPortraitObservation): boolean => {
 };
 
 const worldGroupFor = (obs: SelfPortraitObservation): PortraitWorldGroupId | null => {
-  const family = refValue(obs, 'family');
-  return family ? FAMILY_GROUPS.get(family) ?? null : null;
+  const explicitGroup = refValue(obs, 'world_group');
+  if (explicitGroup && WORLD_GROUP_IDS.includes(explicitGroup as PortraitWorldGroupId)) {
+    return explicitGroup as PortraitWorldGroupId;
+  }
+  const claimKind = refValue(obs, 'claim_kind');
+  switch (claimKind) {
+    case 'identity_fact':
+      return 'identity';
+    case 'active_work':
+      return 'projects';
+    case 'preference_interest':
+      return 'preferences';
+    case 'collaboration_style':
+      return 'work_style';
+    default:
+      return null;
+  }
 };
 
 const emptyWorldGroups = (): PortraitWorldGroup[] =>

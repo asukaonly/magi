@@ -1,8 +1,7 @@
-"""Shared extraction of safe L2 graph relationships into portrait world clues.
+"""Shared extraction of safe L2 graph relationships into portrait clues.
 
-Both the materialized portrait projection (``UserPortraitProjectionBuilder``)
-and the API fallback path consume this module so visited places, owned/used
-tools, and similar graph clues are admitted, cleaned, and deduped through one
+Both the materialized portrait projection and the API fallback path consume
+this module so graph clues are admitted, cleaned, and deduped through one
 implementation instead of diverging per call site.
 """
 
@@ -16,8 +15,10 @@ from typing import Any
 
 from ..memory.l2.entities.catalog.lookup import get_canonical_names
 from .portrait_signal_policy import (
-    PORTRAIT_GRAPH_WORLD_RULES,
-    graph_relation_portrait_world_group,
+    PORTRAIT_GRAPH_SIGNAL_RULES,
+    PortraitAssertionRole,
+    PortraitClaimKind,
+    classify_graph_portrait_signal,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +48,11 @@ _FILEISH_GRAPH_NAME_RE = re.compile(
 
 @dataclass(frozen=True)
 class PortraitGraphSignal:
-    """A safe graph relationship promoted to a portrait world clue."""
+    """A graph relationship allowed to appear as a portrait clue."""
 
-    world_group: str
+    role: PortraitAssertionRole
+    claim_kind: PortraitClaimKind
+    world_group: str | None
     text: str
     observation_count: int
     source_type: str
@@ -64,7 +67,7 @@ async def collect_portrait_graph_signals(
     entity_id: str,
     limit: int = _GRAPH_SIGNAL_LIMIT,
 ) -> list[PortraitGraphSignal]:
-    """Return deduped portrait world clues derived from L2 graph relationships.
+    """Return deduped portrait clues derived from L2 graph relationships.
 
     Resilient to a store without ``get_relationships`` or a non-awaiting stub,
     in which case an empty list is returned so callers degrade gracefully.
@@ -75,7 +78,7 @@ async def collect_portrait_graph_signals(
 
     result = getter(
         subject_id=entity_id,
-        predicates=list(PORTRAIT_GRAPH_WORLD_RULES),
+        predicates=list(PORTRAIT_GRAPH_SIGNAL_RULES),
         status="active",
         limit=_GRAPH_QUERY_LIMIT,
     )
@@ -95,7 +98,7 @@ async def collect_portrait_graph_signals(
         signal = _signal_from_edge(edge, canonical_names)
         if signal is None:
             continue
-        key = (signal.world_group, signal.text.casefold())
+        key = (signal.role, signal.claim_kind, signal.text.casefold())
         if key in seen:
             continue
         seen.add(key)
@@ -130,12 +133,12 @@ def _signal_from_edge(
 ) -> PortraitGraphSignal | None:
     predicate = str(edge.get("predicate") or "").strip().upper()
     object_type = str(edge.get("object_type") or "").strip().casefold()
-    world_group = graph_relation_portrait_world_group(
+    decision = classify_graph_portrait_signal(
         predicate=predicate,
         object_type=object_type,
         observation_count=int(edge.get("observation_count", 0) or 0),
     )
-    if world_group is None:
+    if decision is None or decision.role == "skip":
         return None
 
     text = _graph_object_name(edge=edge, canonical_names=canonical_names)
@@ -143,7 +146,9 @@ def _signal_from_edge(
         return None
 
     return PortraitGraphSignal(
-        world_group=world_group,
+        role=decision.role,
+        claim_kind=decision.claim_kind,
+        world_group=decision.world_group,
         text=text,
         observation_count=int(edge.get("observation_count") or 1),
         source_type=str(edge.get("source_type") or "").strip(),
@@ -162,7 +167,7 @@ def _graph_object_name(
     raw_name = canonical_names.get(object_id, "") if object_id else ""
     if not raw_name:
         raw_name = _object_slug(object_id)
-    name = raw_name.replace("_", " ").strip()
+    name = raw_name.replace("_", " ").replace("-", " ").strip()
     if not name:
         return ""
     if _LOW_VALUE_GRAPH_NAME_RE.fullmatch(name):

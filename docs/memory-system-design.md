@@ -354,10 +354,16 @@ user-authored, settings-backed, and user-confirmed profile assertions may enter
 the portrait once they are active, but passive source assertions must also pass
 source strength, evidence-count, validation-state, and trait-family alignment
 checks. For example, an external `interest.*` assertion can become a preference
-only after enough evidence accumulates, while a `tool.*` assertion belongs in
-working style and must not appear as a preference. Assertions that fail this gate can
-remain L2 facts or review material, but they must not enter `world` or
+only after enough evidence accumulates. Tool, device, app, browser, and place
+names are inventory signals by default: they can support a higher-level project,
+preference, or collaboration-style assertion, but they must not enter the
+portrait world as raw profile items. Assertions that fail this gate can remain
+L2 facts, review material, or recent clues, but they must not enter `world` or
 `prompt_summary`.
+The product-facing portrait world uses four stable groups: identity facts,
+long-running work, preferences/interests, and collaboration style. Passive graph
+relationships can appear as recent clues when useful, but graph edges do not
+directly create world-group items.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
 and prompt assembly must rebuild them when newer profile, assertion, snapshot,
 or safe graph inputs exist. User feedback or correction on a user assertion

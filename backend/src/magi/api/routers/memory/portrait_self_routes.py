@@ -19,11 +19,12 @@ from ....user_profile.portrait_graph_signals import (
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ....user_profile.portrait_signal_policy import (
+    PORTRAIT_WORLD_GROUP_IDS,
     PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_REVIEW_STATES,
     PORTRAIT_SOURCE_STRENGTH,
     PORTRAIT_VALIDATION_STRENGTH,
-    assertion_portrait_role,
+    classify_assertion_portrait,
 )
 from ....user_profile.portrait_values import snapshot_recent_values
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
@@ -33,13 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 _ASSERTION_REF_MIN_LENGTH = 20
-_WORLD_GROUP_IDS = ("identity", "projects", "preferences", "work_style", "invariants")
-_FAMILY_WORLD_GROUPS = {
-    "identity_profile": "identity",
-    "preference_profile": "preferences",
-    "routine_profile": "work_style",
-    "communication_profile": "work_style",
-}
+_WORLD_GROUP_IDS = PORTRAIT_WORLD_GROUP_IDS
 _INTERNAL_SOURCE_KEYS = {
     "external_activity",
     "photo_library",
@@ -351,17 +346,29 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
             (
                 f"住在{projection.home_location}",
                 "identity_profile",
-                "home_location|world_group:invariants",
+                "identity.location.home|claim_kind:identity_fact|world_group:identity",
             )
         )
     for key, value in (projection.preferences or {}).items():
-        facts.append((f"偏好：{key} = {value}", "preference_profile", f"preference:{key}"))
+        facts.append((
+            f"偏好：{key} = {value}",
+            "preference_profile",
+            f"preference:{key}|claim_kind:preference_interest|world_group:preferences",
+        ))
     for key, value in (projection.communication or {}).items():
         facts.append(
-            (f"沟通风格：{key} = {value}", "communication_profile", f"communication:{key}")
+            (
+                f"沟通风格：{key} = {value}",
+                "communication_profile",
+                f"communication:{key}|claim_kind:collaboration_style|world_group:work_style",
+            )
         )
     for key, value in (projection.state or {}).items():
-        facts.append((f"近期状态：{key} = {value}", "state_profile", f"state:{key}"))
+        facts.append((
+            f"近期状态：{key} = {value}",
+            "state_profile",
+            f"state:{key}|claim_kind:recent_context|role:recent",
+        ))
 
     observations: list[UserPortraitObservation] = []
     for text, family, ref in facts:
@@ -404,7 +411,8 @@ def _observations_from_assertion_items(
         return []
     obs: list[UserPortraitObservation] = []
     for item in items:
-        role = assertion_portrait_role(item)
+        decision = classify_assertion_portrait(item)
+        role = decision.role
         if role == "skip":
             continue
         trait = str(item.get("trait_name") or item.get("predicate") or "")
@@ -415,6 +423,9 @@ def _observations_from_assertion_items(
         assertion_id = str(item.get("assertion_id") or "").strip()
         if assertion_id:
             refs.append(f"assertion:{assertion_id}")
+        refs.append(f"claim_kind:{decision.claim_kind}")
+        if decision.world_group:
+            refs.append(f"world_group:{decision.world_group}")
         for key, prefix in (
             ("trait_family", "family"),
             ("validation_state", "status"),
@@ -448,10 +459,13 @@ async def _observations_from_graph_relationships(
 
 def _observation_from_graph_signal(signal: PortraitGraphSignal) -> UserPortraitObservation:
     refs = [
-        f"world_group:{signal.world_group}",
+        f"role:{signal.role}",
+        f"claim_kind:{signal.claim_kind}",
         f"predicate:{signal.predicate}",
         f"object_type:{signal.object_type}",
     ]
+    if signal.world_group:
+        refs.append(f"world_group:{signal.world_group}")
     if signal.source_type:
         refs.append(f"source:{signal.source_type}")
     if signal.triple_id:
@@ -546,12 +560,16 @@ def _world_group_id(observation: UserPortraitObservation) -> str | None:
     explicit_group = _ref_value(observation, "world_group")
     if explicit_group in _WORLD_GROUP_IDS:
         return explicit_group
-    family = _ref_value(observation, "family")
-    if family == "routine_profile":
-        trait_ref = _ref_value(observation, "routine") or _ref_value(observation, "trait")
-        if trait_ref and trait_ref.startswith("project."):
-            return "projects"
-    return _FAMILY_WORLD_GROUPS.get(family or "")
+    claim_kind = _ref_value(observation, "claim_kind")
+    if claim_kind == "identity_fact":
+        return "identity"
+    if claim_kind == "active_work":
+        return "projects"
+    if claim_kind == "preference_interest":
+        return "preferences"
+    if claim_kind == "collaboration_style":
+        return "work_style"
+    return None
 
 
 def _projection_has_content(projection: Any) -> bool:
@@ -600,8 +618,6 @@ def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
         return f"关注或偏好：{'、'.join(short)}"
     if group_id == "work_style":
         return f"工作和沟通方式：{'、'.join(short)}"
-    if group_id == "invariants":
-        return f"稳定背景：{'、'.join(short)}"
     return "、".join(short)
 
 
