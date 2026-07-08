@@ -455,6 +455,7 @@ export interface MemoryL2Config {
   conflict_arbitration_enabled: boolean;
   conflict_arbitration_min_confidence: number;
   shadow_conflict_notification_enabled: boolean;
+  portrait_projection_refresh_delay_seconds: number;
 }
 
 export interface MemoryL3Config {
@@ -771,6 +772,7 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
       conflict_arbitration_enabled: true,
       conflict_arbitration_min_confidence: 0.85,
       shadow_conflict_notification_enabled: true,
+      portrait_projection_refresh_delay_seconds: 120,
     },
     l3: {
       enabled: true,

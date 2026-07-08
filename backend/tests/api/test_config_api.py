@@ -144,6 +144,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.l2.conflict_arbitration_enabled is True
     assert config.memory.l2.conflict_arbitration_min_confidence == 0.85
     assert config.memory.l2.shadow_conflict_notification_enabled is True
+    assert config.memory.l2.portrait_projection_refresh_delay_seconds == 120
     assert config.memory.l1.retention_days == 30
     assert config.memory.l3.temporal_llm_timeout_seconds == 3.0
     assert config.memory.l3.temporal_llm_min_event_count == 2
@@ -364,6 +365,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.l2.conflict_arbitration_enabled = False
     config.memory.l2.conflict_arbitration_min_confidence = 0.9
     config.memory.l2.shadow_conflict_notification_enabled = False
+    config.memory.l2.portrait_projection_refresh_delay_seconds = 45
     config.memory.l3.retention_days = 210
     config.memory.l4.inactive_skill_retention_days = 45
     config.memory.l4.inactive_skill_min_attempts = 9
@@ -395,6 +397,7 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.l2.conflict_arbitration_enabled"] is False
     assert updates["agent.memory.l2.conflict_arbitration_min_confidence"] == 0.9
     assert updates["agent.memory.l2.shadow_conflict_notification_enabled"] is False
+    assert updates["agent.memory.l2.portrait_projection_refresh_delay_seconds"] == 45
     assert updates["agent.memory.l3.retention_days"] == 210
     assert updates["agent.memory.l4.inactive_skill_retention_days"] == 45
     assert updates["agent.memory.l4.inactive_skill_min_attempts"] == 9

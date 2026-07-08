@@ -481,6 +481,11 @@ class MemoryL2Settings(BaseModel):
         default=True,
         description="Emit a 'profile_conflict' notification for each active shadow assertion that conflicts with a user-authoritative row, prompting the user to resolve the discrepancy.",
     )
+    portrait_projection_refresh_delay_seconds: float = Field(
+        default=120.0,
+        ge=0.0,
+        description="Delay before refreshing the product-facing user portrait projection after L2 assertion changes. Multiple changes for the same user are coalesced.",
+    )
     derive_schedule_enabled: bool = Field(
         default=True,
         description="Register periodic L2 derived-data (interest aggregation + conflict notifications) task, independent of maintenance.",

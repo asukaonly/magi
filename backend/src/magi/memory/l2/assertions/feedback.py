@@ -54,6 +54,8 @@ class _FeedbackHostProtocol(Protocol):
         entity_type: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]: ...
 
+    async def _notify_assertion_changed(self, assertion: Dict[str, Any]) -> None: ...
+
 
 class L2StoreFeedbackMixin:
     """Apply user feedback and user-initiated assertion corrections."""
@@ -126,7 +128,9 @@ class L2StoreFeedbackMixin:
             old_state=current_state,
             new_state=new_state,
         )
-        return await host.get_tom_assertion(assertion_id=assertion_id)
+        result = await host.get_tom_assertion(assertion_id=assertion_id)
+        await _notify_feedback_assertion_changed(host, result)
+        return result
 
     async def correct_assertion(
         self,
@@ -164,7 +168,9 @@ class L2StoreFeedbackMixin:
             new_value=new_value,
             reason=reason,
         )
-        return await host.get_tom_assertion(assertion_id=new_assertion_id)
+        result = await host.get_tom_assertion(assertion_id=new_assertion_id)
+        await _notify_feedback_assertion_changed(host, result)
+        return result
 
     async def resolve_shadow_conflict(
         self,
@@ -213,7 +219,27 @@ class L2StoreFeedbackMixin:
 
         await _refresh_snapshot_after_shadow_confirmation(host, context)
 
-        return await host.get_tom_assertion(assertion_id=shadow_id)
+        result = await host.get_tom_assertion(assertion_id=shadow_id)
+        await _notify_feedback_assertion_changed(host, result)
+        return result
+
+
+async def _notify_feedback_assertion_changed(
+    host: _FeedbackHostProtocol,
+    assertion: Dict[str, Any] | None,
+) -> None:
+    if assertion is None:
+        return
+    try:
+        await host._notify_assertion_changed(assertion)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "L2 feedback assertion change notification failed",
+            assertion_id=str(assertion.get("assertion_id", "")),
+            entity_id=str(assertion.get("entity_id", "")),
+            trait_name=str(assertion.get("trait_name", "")),
+            error=str(exc),
+        )
 
 
 async def _load_assertion_row(

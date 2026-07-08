@@ -1469,6 +1469,34 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('saves portrait refresh delay from knowledge memory settings', async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memory' }));
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.memoryKnowledge' }));
+    await screen.findByRole('heading', { name: 'settings.tabs.memoryKnowledge' });
+
+    const delayInput = await screen.findByLabelText(
+      'settings.memory.fields.l2_portrait_projection_refresh_delay_seconds.label'
+    );
+    fireEvent.change(delayInput, { target: { value: '45' } });
+
+    await user.click(screen.getByRole('button', { name: 'settings.actions.save' }));
+
+    await waitFor(() =>
+      expect(configApi.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memory: expect.objectContaining({
+            l2: expect.objectContaining({
+              portrait_projection_refresh_delay_seconds: 45,
+            }),
+          }),
+        })
+      )
+    );
+  });
+
   it('shows grouped model configuration navigation with provider and model sub-sections', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);

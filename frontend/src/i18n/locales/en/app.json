@@ -1894,6 +1894,10 @@
           "label": "Ask me to confirm memory conflicts",
           "description": "When a new inference disagrees with a preference you explicitly confirmed, send it to Pending so you can choose the right memory."
         },
+        "l2_portrait_projection_refresh_delay_seconds": {
+          "label": "Portrait refresh delay (seconds)",
+          "description": "How long to wait before updating About You after assertion changes. Multiple changes in that window are merged."
+        },
         "l2_batch_flush_interval_seconds": {
           "label": "Knowledge extraction batch interval (seconds)",
           "description": "How long to wait before processing a batch of new conversations for knowledge extraction. Minimum 30 seconds."

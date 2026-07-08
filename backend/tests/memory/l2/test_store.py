@@ -209,6 +209,33 @@ async def _write_assertion_candidate(
 
 
 @pytest.mark.asyncio
+async def test_tom_assertion_upsert_notifies_assertion_change_callback(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    db_path = _migrated_l2_db_path(tmp_path)
+    store = L2CognitionStore(db_path=db_path)
+    changes = []
+
+    async def callback(assertion):
+        changes.append(assertion)
+
+    store.set_assertion_change_callback(callback)
+
+    await _write_assertion_candidate(
+        store,
+        trait_name="interest.ai",
+        trait_value="AI",
+        event_id="evt-assertion-callback",
+        timestamp=1710000000.0,
+    )
+
+    assert len(changes) == 1
+    assert changes[0]["entity_id"] == "user:u1"
+    assert changes[0]["entity_type"] == "user"
+    assert changes[0]["trait_name"] == "interest.ai"
+
+
+@pytest.mark.asyncio
 async def test_tom_assertion_intake_from_llm_style_candidate(tmp_path):
     # Was `test_tom_assertion_starts_tentative_with_low_confidence`: under the
     # shared state machine (assertions/state_machine.py) a temporary trait

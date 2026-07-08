@@ -608,6 +608,23 @@ export function MemoryKnowledgeSettingsSection({
             draft.memory.l2.shadow_conflict_notification_enabled = checked;
           })}
         />
+        <div className="max-w-xs py-3">
+          <NumberField
+            label={t('settings.memory.fields.l2_portrait_projection_refresh_delay_seconds.label')}
+            value={
+              draftConfig.memory.l2.portrait_projection_refresh_delay_seconds ??
+              DEFAULT_SYSTEM_CONFIG.memory.l2.portrait_projection_refresh_delay_seconds
+            }
+            min={0}
+            step={5}
+            onChange={(value) => patchDraftConfig((draft) => {
+              draft.memory.l2.portrait_projection_refresh_delay_seconds = value;
+            })}
+          />
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+            {t('settings.memory.fields.l2_portrait_projection_refresh_delay_seconds.description')}
+          </p>
+        </div>
       </MemoryGroup>
     </MemorySectionShell>
   );

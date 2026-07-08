@@ -30,6 +30,7 @@ from .store_lifecycle import UnifiedMemoryLifecycleMixin
 from .store_maintenance import UnifiedMemoryMaintenanceMixin
 from .store_monitoring import MonitoringMixin
 from .store_summaries import UnifiedMemorySummaryMixin
+from ..user_profile.portrait_projection_scheduler import register_l2_portrait_projection_refresh
 
 if TYPE_CHECKING:
     from ..llm import ScenarioLLMPool
@@ -144,6 +145,8 @@ class UnifiedMemoryStore(
         )
         self.memory_db_path = context.paths.shared_memory_db_path
         self.scenario_llm_pool = scenario_llm_pool
+        self._memory_config_getter = context.memory_config_getter
+        self._portrait_projection_scheduler = None
         self._initialize_layer_slots(context.paths.archive_dir, l2_batch_flush_interval_seconds)
         self._build_enabled_layers(context, enabled_layers)
         self._finalize_initial_state()
@@ -255,6 +258,7 @@ class UnifiedMemoryStore(
 
     def _build_l2_stack(self, context: _MemoryStoreBuildContext) -> None:
         self.l2 = L2CognitionStore(db_path=context.paths.shared_memory_db_path)
+        register_l2_portrait_projection_refresh(self)
         self.l2_entity_catalog = L2EntityCatalog(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,

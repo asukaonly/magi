@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
@@ -68,6 +69,7 @@ class L2CognitionStore(
         self._seed_graph_conflict_rules = build_graph_conflict_matrix(graph_conflict_rules)
         self._graph_conflict_rules = dict(self._seed_graph_conflict_rules)
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
+        self._assertion_change_callback: Callable[[Dict[str, Any]], Awaitable[None]] | None = None
 
     async def initialize(self) -> None:
         """Verify cognition schema (alembic-managed) is reachable."""
@@ -135,6 +137,19 @@ class L2CognitionStore(
     async def upsert_assertion_candidate(self, candidate: Dict[str, Any]) -> str:
         """Persist a normalized assertion candidate."""
         return await self._upsert_assertion(candidate)
+
+    def set_assertion_change_callback(
+        self,
+        callback: Callable[[Dict[str, Any]], Awaitable[None]] | None,
+    ) -> None:
+        """Register an async callback invoked after assertion changes commit."""
+        self._assertion_change_callback = callback
+
+    async def _notify_assertion_changed(self, assertion: Dict[str, Any]) -> None:
+        callback = self._assertion_change_callback
+        if callback is None:
+            return
+        await callback(assertion)
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight counts for API reporting."""

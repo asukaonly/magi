@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from typing import Any
 
 from fastapi import HTTPException, Query, status
 
@@ -12,12 +10,9 @@ from ..dependencies import _resolve_unified_memory
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
 from ..schemas import AssertionCorrectionRequest, AssertionFeedbackRequest, GraphConflictRuleBody
-from .....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
-from .....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
-from .....user_profile.projection_repository import UserProfileProjectionRepository
-
-
-logger = logging.getLogger(__name__)
+from .....user_profile.portrait_projection_scheduler import (
+    schedule_portrait_projection_refresh_after_assertion_change,
+)
 
 
 @memory_router.get("/l2/relations")
@@ -66,7 +61,7 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
     result = await unified_memory.l2.apply_user_feedback(assertion_id=assertion_id, feedback=body.feedback)
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))
-    await _refresh_user_portrait_after_assertion_change(unified_memory, result)
+    await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
     return result
 
 
@@ -86,38 +81,8 @@ async def correct_assertion(assertion_id: str, body: AssertionCorrectionRequest)
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))
-    await _refresh_user_portrait_after_assertion_change(unified_memory, result)
+    await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
     return result
-
-
-async def _refresh_user_portrait_after_assertion_change(unified_memory: Any, assertion: Any) -> None:
-    if not isinstance(assertion, dict):
-        return
-    if str(assertion.get("entity_type") or "") != "user":
-        return
-    entity_id = str(assertion.get("entity_id") or "")
-    if not entity_id.startswith("user:"):
-        return
-    user_id = entity_id.split(":", 1)[1]
-    if not user_id:
-        return
-    l2 = getattr(unified_memory, "l2", None)
-    db_path = str(getattr(l2, "db_path", "") or "") if l2 is not None else ""
-    if not db_path:
-        return
-    try:
-        profile_projection = await UserProfileProjectionRepository(db_path).get(user_id)
-    except Exception as exc:
-        logger.debug("portrait refresh after assertion: profile lookup failed: %s", exc)
-        profile_projection = None
-    try:
-        projection = await UserPortraitProjectionBuilder(
-            l2,
-            profile_projection=profile_projection,
-        ).build(user_id)
-        await UserPortraitProjectionRepository(db_path).upsert(projection)
-    except Exception as exc:
-        logger.debug("portrait refresh after assertion failed for %s: %s", user_id, exc)
 
 
 @memory_router.get("/l2/entities")
