@@ -802,7 +802,9 @@ The marketplace index is a `registry.json` file at the repository root containin
 1. The frontend starts an install, update, or upload job through the plugin API and polls the returned `job_id`
 2. The backend job reports `status`, `stage`, `progress_pct`, installer messages, and bounded install logs while work continues in the background
 3. `PluginInstallService` owns the install or update workflow and delegates registry reads/downloads to `RegistryClient`
-4. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote repository
+4. For registry installs, `RegistryClient.fetch_index()` fetches `registry.json` from the remote
+   repository, persists the last successful index under the local plugin cache, and falls back to
+   that cached index if the remote registry is temporarily unavailable
 5. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
 6. The requested plugin subdirectory is extracted from the tarball into a temporary directory
 7. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
