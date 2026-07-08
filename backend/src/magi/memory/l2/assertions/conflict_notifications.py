@@ -27,11 +27,14 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from magi.identity.defaults import CANONICAL_LOCAL_USER
+
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 
 logger = get_logger(__name__)
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 # Statuses that mean an authoritative row is no longer "live".
 # Extends RETRIEVAL_EXCLUDED_STATUSES with terminal non-governance statuses that
@@ -92,7 +95,7 @@ async def materialize_shadow_conflict_notifications(
     notification_service: Any,
     *,
     user_id: str,
-    entity_id: str = "user:self",
+    entity_id: str = _CANONICAL_SELF_ENTITY_ID,
     entity_type: str = "user",
     locale: str = "zh",
 ) -> dict[str, int]:
@@ -113,7 +116,7 @@ async def materialize_shadow_conflict_notifications(
         notification_service: A ``NotificationService`` instance.
         user_id: The canonical self-user ID used as ``user_id`` for
             notification rows.
-        entity_id: L2 entity whose shadows we scan (default: ``"user:self"``).
+        entity_id: L2 entity whose shadows we scan.
         entity_type: Entity type string (default: ``"user"``).
         locale: Locale for the notification body (``"zh"`` or ``"en"``).
 

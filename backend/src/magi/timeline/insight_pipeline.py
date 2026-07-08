@@ -4,7 +4,11 @@ from __future__ import annotations
 import inspect
 from typing import Any, Iterable
 
+from magi.identity.defaults import CANONICAL_LOCAL_USER
+
 from .contracts import TimelineEvent
+
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 ALLOWED_EDGE_TYPES = {
     "LIKES",
@@ -59,7 +63,7 @@ class TimelineInsightPipeline:
             predicate = self.normalize_relation(str(candidate.get("predicate", "")))
             if predicate is None or predicate not in allowed:
                 continue
-            subject_id = str(candidate.get("subject_id", "user:self"))
+            subject_id = str(candidate.get("subject_id", _CANONICAL_SELF_ENTITY_ID))
             object_id = str(candidate.get("object_id", "")).strip()
             if not object_id:
                 continue

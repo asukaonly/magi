@@ -7,9 +7,11 @@ from magi.awareness.kg_write_queue import KnowledgeGraphEdgeWrite
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import SensorEventEmitted
 from magi.events.payload_helpers import expect_payload, PayloadTypeError
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from ..insight_pipeline import ALLOWED_EDGE_TYPES
 
 logger = logging.getLogger(__name__)
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 class KGSubscriber:
@@ -83,7 +85,7 @@ class KGSubscriber:
                 if not object_id:
                     continue
 
-                subject_id = str(candidate.get("subject_id", "user:self"))
+                subject_id = str(candidate.get("subject_id", _CANONICAL_SELF_ENTITY_ID))
                 subject_type = str(candidate.get("subject_type", "user"))
                 object_type = str(candidate.get("object_type", "topic"))
                 confidence = float(candidate.get("confidence", 0.5))

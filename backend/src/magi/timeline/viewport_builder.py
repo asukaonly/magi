@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 
 from ..core.logger import get_logger
 from .cluster_builder import TimelineClusterBuilder
@@ -21,6 +22,7 @@ from .viewport_state_summary import TimelineStateSummaryBuilder
 from .viewport_themes import ThemeCardBuilder
 
 logger = get_logger("magi.timeline.viewport_builder")
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 # Upper bound on raw L1 events pulled per viewport window. Previously
 # hardcoded at 500, which silently truncated power-user days (screen-time
@@ -465,12 +467,12 @@ class TimelineViewportBuilder:
     async def _load_assertions(self) -> list[dict[str, Any]]:
         if self._l2 is None or not hasattr(self._l2, "list_tom_assertions"):
             return []
-        return await self._l2.list_tom_assertions(entity_id="user:self", limit=200)
+        return await self._l2.list_tom_assertions(entity_id=_CANONICAL_SELF_ENTITY_ID, limit=200)
 
     async def _load_snapshots(self) -> list[dict[str, Any]]:
         if self._l2 is None or not hasattr(self._l2, "list_tom_snapshots"):
             return []
-        return await self._l2.list_tom_snapshots(entity_id="user:self", limit=50)
+        return await self._l2.list_tom_snapshots(entity_id=_CANONICAL_SELF_ENTITY_ID, limit=50)
 
     async def _load_episodes(self, *, start: float, end: float) -> list[dict[str, Any]]:
         """Load durable L2 episodes that overlap the viewport window.

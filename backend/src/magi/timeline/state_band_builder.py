@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import Any
 
 from .. import i18n as core_i18n
+from ..identity.defaults import CANONICAL_LOCAL_USER
+
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 _TONE_TO_VALENCE = {
     "positive": 0.75,
@@ -215,7 +218,7 @@ class TimelineStateBandBuilder:
         _excluded_statuses = {"superseded", "archived", "expired", "user_rejected"}
         matches: list[dict[str, Any]] = []
         for assertion in assertions:
-            if str(assertion.get("entity_id") or "") != "user:self":
+            if str(assertion.get("entity_id") or "") != _CANONICAL_SELF_ENTITY_ID:
                 continue
             status = str(assertion.get("status") or assertion.get("validation_state") or "")
             if status in _excluded_statuses:
@@ -236,7 +239,7 @@ class TimelineStateBandBuilder:
         matches = [
             snapshot
             for snapshot in snapshots
-            if str(snapshot.get("entity_id") or "") == "user:self"
+            if str(snapshot.get("entity_id") or "") == _CANONICAL_SELF_ENTITY_ID
             and float(snapshot.get("last_updated_at") or 0.0) >= period_start
             and float(snapshot.get("last_updated_at") or 0.0) <= period_end
         ]

@@ -1604,7 +1604,7 @@ def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_i
 
     assert response.status_code == 200
     assert response.json() == {
-        "canonical_self_id": "user:self",
+        "canonical_self_id": "user:local_user",
         "links": [],
     }
 

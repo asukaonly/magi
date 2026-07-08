@@ -43,7 +43,7 @@ async def test_upsert_user_graph_edges_delegates_to_l2_batch_writer():
     l2.upsert_knowledge_edges.assert_awaited_once_with(
         [
             {
-                "subject_id": "user:self",
+                "subject_id": "user:local_user",
                 "subject_type": "user",
                 "predicate": "VIEWED",
                 "object_id": "site:1",
@@ -55,6 +55,37 @@ async def test_upsert_user_graph_edges_delegates_to_l2_batch_writer():
                 "source_type": "chrome_history",
             }
         ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_upsert_user_graph_edge_canonicalizes_self_subject():
+    l2 = AsyncMock()
+    harness = _Harness(l2)
+
+    await harness.upsert_user_graph_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="VIEWED",
+        object_id="site:1",
+        object_type="web_page",
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1.0,
+        source_type="chrome_history",
+    )
+
+    l2.upsert_knowledge_edge.assert_awaited_once_with(
+        subject_id="user:local_user",
+        subject_type="user",
+        predicate="VIEWED",
+        object_id="site:1",
+        object_type="web_page",
+        fact_kind=None,
+        evidence_event_ids=["evt-1"],
+        confidence=0.8,
+        observed_at=1.0,
+        source_type="chrome_history",
     )
 
 

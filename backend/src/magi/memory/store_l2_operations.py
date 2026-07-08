@@ -4,7 +4,19 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, Mapping, Optional
 
+from magi.identity.defaults import CANONICAL_LOCAL_USER
+
 from ..core.sqlite import sqlite_connection_async
+
+
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
+
+
+def _canonicalize_user_entity_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    if text == "user:self":
+        return _CANONICAL_SELF_ENTITY_ID
+    return text
 
 
 class UnifiedMemoryL2OperationsMixin:
@@ -105,10 +117,10 @@ class UnifiedMemoryL2OperationsMixin:
         if self.l2 is None:
             return
         await self.l2.upsert_knowledge_edge(
-            subject_id=subject_id,
+            subject_id=_canonicalize_user_entity_ref(subject_id),
             subject_type=subject_type,
             predicate=predicate,
-            object_id=object_id,
+            object_id=_canonicalize_user_entity_ref(object_id),
             object_type=object_type,
             fact_kind=fact_kind,
             evidence_event_ids=evidence_event_ids,
@@ -124,10 +136,10 @@ class UnifiedMemoryL2OperationsMixin:
 
         edge_writes = [
             {
-                "subject_id": str(edge["subject_id"]),
+                "subject_id": _canonicalize_user_entity_ref(edge["subject_id"]),
                 "subject_type": str(edge["subject_type"]),
                 "predicate": str(edge["predicate"]),
-                "object_id": str(edge["object_id"]),
+                "object_id": _canonicalize_user_entity_ref(edge["object_id"]),
                 "object_type": str(edge["object_type"]),
                 "fact_kind": edge.get("fact_kind"),
                 "evidence_event_ids": [str(item) for item in edge.get("evidence_event_ids", [])],

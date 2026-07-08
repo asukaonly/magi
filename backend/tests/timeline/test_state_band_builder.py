@@ -29,7 +29,7 @@ async def test_state_band_builder_creates_self_bands_and_markers() -> None:
     assertions = [
         {
             "assertion_id": "assertion-1",
-            "entity_id": "user:self",
+            "entity_id": "user:local_user",
             "entity_type": "user",
             "trait_name": "mood",
             "trait_value": "focused",
@@ -39,7 +39,7 @@ async def test_state_band_builder_creates_self_bands_and_markers() -> None:
         },
         {
             "assertion_id": "assertion-2",
-            "entity_id": "user:self",
+            "entity_id": "user:local_user",
             "entity_type": "user",
             "trait_name": "engagement",
             "trait_value": "0.88",
@@ -51,7 +51,7 @@ async def test_state_band_builder_creates_self_bands_and_markers() -> None:
     snapshots = [
         {
             "snapshot_id": "snapshot-1",
-            "entity_id": "user:self",
+            "entity_id": "user:local_user",
             "entity_type": "user",
             "current_mood": "focused",
             "current_stress_level": 0.31,
@@ -115,4 +115,3 @@ def test_derive_state_from_tone_returns_expected_values() -> None:
     assert unknown["valence"] == 0.0
     assert unknown["stress"] == 0.5
     assert unknown["engagement"] == 0.5
-

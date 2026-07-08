@@ -7,18 +7,33 @@ from typing import Any, Dict
 from fastapi import HTTPException, status
 
 from magi import i18n as core_i18n
+from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.event_contracts import MemoryEvent
+
+
+_CANONICAL_SELF_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
 
 
 def memory_t(key: str, fallback: str, **kwargs: Any) -> str:
     return core_i18n.t(key, fallback=fallback, **kwargs)
 
 
+def _memory_user_entity_id(raw_user_id: Any) -> str:
+    raw = str(raw_user_id or "").strip()
+    if not raw:
+        return _CANONICAL_SELF_ENTITY_ID
+    if raw.startswith("user:"):
+        return raw
+    return f"user:{raw}"
+
+
 def canonical_self_id(unified_memory: Any) -> str:
     resolver = getattr(unified_memory, "identity_resolver", None)
     if resolver is None:
-        return "user:self"
-    return str(getattr(resolver, "default_memory_owner_id", "user:self"))
+        return _CANONICAL_SELF_ENTITY_ID
+    if hasattr(resolver, "canonical_local"):
+        return _memory_user_entity_id(resolver.canonical_local())
+    return _memory_user_entity_id(getattr(resolver, "default_memory_owner_id", None))
 
 
 def build_l2_pending_breakdown(

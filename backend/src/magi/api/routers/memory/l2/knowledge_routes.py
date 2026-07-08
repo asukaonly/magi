@@ -185,7 +185,7 @@ async def list_memory_identity_links():
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not hasattr(unified_memory, "list_identity_links"):
         return {
-            "canonical_self_id": "user:self",
+            "canonical_self_id": canonical_self_id(unified_memory),
             "links": [],
         }
     return {
