@@ -64,6 +64,7 @@ Magi currently supports:
 
 Expected behavior:
 
+- first launch uses the browser/system language when no language preference has been saved
 - users can switch language at any time
 - language preference is persisted
 - the application re-renders in the chosen language

@@ -5,6 +5,7 @@ import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'ax
 import type { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { getRuntimeConfig } from '@/runtime/config';
 import { useBackendHealthStore } from '@/stores/backend-health';
+import { resolveInitialLanguage } from '@/utils/language';
 
 // API response types
 export interface ApiResponse<T = unknown> {
@@ -262,7 +263,7 @@ const createApiClient = (): AxiosInstance => {
         config.headers['X-Magi-Session-Token'] = sessionToken;
       }
       // Add language header
-      const language = localStorage.getItem('magi_language') || 'en';
+      const language = resolveInitialLanguage();
       if (config.headers) {
         config.headers['Accept-Language'] = language;
       }

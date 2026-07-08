@@ -4,16 +4,21 @@ import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { PluginInstallPanel } from '@/components/plugins/PluginInstallPanel';
 import { STORAGE_KEYS } from '@/constants/app';
-import { configApi, DEFAULT_SYSTEM_CONFIG, type LanguageCode, SystemConfig } from '../api/modules/config';
+import { resolveInitialLanguage } from '@/utils/language';
+import { configApi, DEFAULT_SYSTEM_CONFIG, SystemConfig } from '../api/modules/config';
 import OnboardingFlow from '../components/onboarding/OnboardingFlow';
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
-const LANGUAGE_KEY = 'magi_language';
 
-// Detect browser language preference
-const browserPreferredLanguage = (): 'en' | 'zh' => {
-  const language = typeof navigator !== 'undefined' ? navigator.language.toLowerCase() : 'en';
-  return language.startsWith('zh') ? 'zh' : 'en';
+const withInitialLanguage = (config: SystemConfig): SystemConfig => {
+  const language = resolveInitialLanguage();
+  return {
+    ...config,
+    preferences: {
+      ...config.preferences,
+      language,
+    },
+  };
 };
 
 const OnboardingPage: React.FC = () => {
@@ -24,7 +29,7 @@ const OnboardingPage: React.FC = () => {
     const load = async () => {
       try {
         const response = await configApi.getOnboardingTemplate();
-        let template = response.data?.config || DEFAULT_SYSTEM_CONFIG;
+        const template = response.data?.config || DEFAULT_SYSTEM_CONFIG;
 
         const coreProviderId = template.llm?.selections?.core?.provider_id;
         const coreProvider = coreProviderId ? template.llm?.providers?.[coreProviderId] : undefined;
@@ -34,24 +39,10 @@ const OnboardingPage: React.FC = () => {
           localStorage.removeItem(STORAGE_KEY);
         }
 
-        // Merge saved language preference
-        const savedLanguage = localStorage.getItem(LANGUAGE_KEY);
-        const language: LanguageCode = savedLanguage === 'en' || savedLanguage === 'zh'
-          ? savedLanguage
-          : browserPreferredLanguage();
-
-        template = {
-          ...template,
-          preferences: {
-            ...template.preferences,
-            language,
-          },
-        };
-
-        setConfig(template);
+        setConfig(withInitialLanguage(template));
       } catch (error: any) {
         toast.error(error?.message || t('page.loadConfigFailed'));
-        setConfig(DEFAULT_SYSTEM_CONFIG);
+        setConfig(withInitialLanguage(DEFAULT_SYSTEM_CONFIG));
       }
     };
     void load();

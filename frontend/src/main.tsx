@@ -22,6 +22,7 @@ import { initializeDesktopLogging } from './runtime/logging';
 import { scheduleStartupUpdateCheck } from './runtime/updater';
 import { initializeTheme } from './stores/theme';
 import { persistLanguageSelection, previewLanguageSelection } from './utils/settings-helpers';
+import { shouldApplyConfigLanguagePreference } from './utils/language';
 
 initializeDesktopLogging();
 initializeTheme();
@@ -81,7 +82,12 @@ const RuntimeBootstrap: React.FC = () => {
       try {
         const response = await configApi.get();
         const prefs = response.data?.preferences;
-        if (prefs?.language) {
+        if (
+          prefs?.language
+          && shouldApplyConfigLanguagePreference({
+            onboardingCompleted: prefs.onboarding_completed,
+          })
+        ) {
           const lang = prefs.language as LanguageCode;
           persistLanguageSelection(lang);
           await previewLanguageSelection(lang);
