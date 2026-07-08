@@ -330,7 +330,7 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
 
 
 def test_evidence_temporal_uses_time_window(app_factory):
-    """For temporal summaries, evidence is the L1 events in [period_start, period_end)."""
+    """Temporal summaries fall back to the L1 window when no source ids exist."""
     l3 = MagicMock()
     l3.get_summary_by_id = AsyncMock(
         return_value={
@@ -373,6 +373,56 @@ def test_evidence_temporal_uses_time_window(app_factory):
     assert call_kwargs["cognition_eligible"] is True
     assert call_kwargs["order_by"] == "timestamp_desc"
     assert call_kwargs["include_embedding_fields"] is False
+
+
+def test_evidence_temporal_prefers_source_event_ids(app_factory):
+    """Temporal summaries expose the representative evidence used at generation time."""
+    l3 = MagicMock()
+    l3.get_summary_by_id = AsyncMock(
+        return_value={
+            "summary_id": "week-1",
+            "summary_type": "temporal",
+            "summary_category": "week",
+            "source_event_ids": ["evt-a", "evt-b"],
+            "period_start": 1700000000.0,
+            "period_end": 1700604800.0,
+        }
+    )
+    l1 = MagicMock()
+    l1.get_event = AsyncMock(
+        side_effect=[
+            {
+                "event_id": "evt-a",
+                "timestamp": 1700010000.0,
+                "source": "terminal-history",
+                "event_type": "SENSOR_EVENT",
+                "memory_domain": "external_activity",
+                "content": "fixed CI",
+            },
+            {
+                "event_id": "evt-b",
+                "timestamp": 1700020000.0,
+                "source": "chrome_history",
+                "event_type": "SENSOR_EVENT",
+                "memory_domain": "external_activity",
+                "content": "read model notes",
+            },
+        ]
+    )
+    l1.query_events = AsyncMock(return_value=[])
+    unified = MagicMock()
+    unified.l3 = l3
+    unified.l1 = l1
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories/week-1/evidence")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["mode"] == "source_ids"
+    assert [it["event_id"] for it in body["items"]] == ["evt-a", "evt-b"]
+    l1.get_event.assert_any_await("evt-a")
+    l1.get_event.assert_any_await("evt-b")
+    l1.query_events.assert_not_awaited()
 
 
 def test_evidence_404_for_missing_summary(app_factory):

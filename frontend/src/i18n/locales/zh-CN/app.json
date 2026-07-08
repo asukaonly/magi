@@ -2725,6 +2725,7 @@
       "detailRail": {
         "close": "关闭详情",
         "evidenceTitle": "证据",
+        "evidenceToggle": "查看依据 · {{count}} 条",
         "evidenceLoading": "加载中…",
         "evidenceEmpty": "没有找到关联的事件。"
       }

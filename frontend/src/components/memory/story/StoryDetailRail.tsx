@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import {
   memoryStoriesApi,
   type StoryEvidenceItem,
   type StoryItem,
 } from '@/api/modules/memoryStories';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -21,37 +22,6 @@ interface StoryDetailRailProps {
   onClose: () => void;
 }
 
-const DETAIL_TITLE_MAX_LENGTH = 96;
-
-const compactStoryText = (value: string | null | undefined): string => (
-  String(value ?? '').replace(/\s+/g, ' ').trim()
-);
-
-const isGeneratedMarkdownTitle = (value: string): boolean => (
-  value.length > DETAIL_TITLE_MAX_LENGTH
-  || value.includes('\n')
-  || /(^|\s)#{1,6}\s/.test(value)
-  || /^\s*[-*]\s+/m.test(value)
-);
-
-const truncateTitle = (value: string): string => (
-  value.length > DETAIL_TITLE_MAX_LENGTH ? `${value.slice(0, DETAIL_TITLE_MAX_LENGTH - 1)}…` : value
-);
-
-const resolveDetailTitle = (story: StoryItem, fallback: string): string => {
-  const title = compactStoryText(story.title);
-  if (title && !isGeneratedMarkdownTitle(title)) {
-    return truncateTitle(title);
-  }
-
-  const preview = compactStoryText(story.preview_text || story.detail_lead_text);
-  if (preview) {
-    return truncateTitle(preview);
-  }
-
-  return fallback;
-};
-
 const formatEvidenceTimestamp = (ts: number | null, locale: string): string => {
   if (!ts) return '—';
   return new Date(ts * 1000).toLocaleString(locale, {
@@ -62,21 +32,59 @@ const formatEvidenceTimestamp = (ts: number | null, locale: string): string => {
   });
 };
 
+const formatDateOnly = (date: Date, locale: string): string => (
+  new Intl.DateTimeFormat(locale, {
+    month: 'numeric',
+    day: 'numeric',
+  }).format(date)
+);
+
+const displayPeriodEndDate = (periodStart: number, periodEnd: number): Date => {
+  const endDate = new Date(periodEnd * 1000);
+  if (
+    periodEnd > periodStart
+    && endDate.getHours() === 0
+    && endDate.getMinutes() === 0
+    && endDate.getSeconds() === 0
+    && endDate.getMilliseconds() === 0
+  ) {
+    return new Date(endDate.getTime() - 1000);
+  }
+  return endDate;
+};
+
+const formatStoryPeriod = (story: StoryItem, locale: string): string => {
+  if (story.period_start != null && story.period_end != null) {
+    const startDate = new Date(story.period_start * 1000);
+    const endDate = displayPeriodEndDate(story.period_start, story.period_end);
+    const startText = formatDateOnly(startDate, locale);
+    const endText = formatDateOnly(endDate, locale);
+    return startText === endText ? startText : `${startText} - ${endText}`;
+  }
+  if (!story.display_timestamp) return '';
+  return formatDateOnly(new Date(story.display_timestamp * 1000), locale);
+};
+
 export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   const { t, i18n } = useTranslation('app');
   const [evidence, setEvidence] = useState<StoryEvidenceItem[] | null>(null);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceTargetId, setEvidenceTargetId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!story) {
-      setEvidence(null);
-      setEvidenceLoading(false);
-      return;
-    }
+    setEvidenceOpen(false);
+    setEvidence(null);
+    setEvidenceLoading(false);
+    setEvidenceTargetId(story?.summary_id ?? null);
+  }, [story?.summary_id]);
+
+  useEffect(() => {
+    const summaryId = story?.summary_id;
+    if (!summaryId || !evidenceOpen || evidence !== null || evidenceTargetId !== summaryId) return;
     let cancelled = false;
     setEvidenceLoading(true);
-    setEvidence(null);
-    memoryStoriesApi.evidence(story.summary_id, { limit: 25 })
+    memoryStoriesApi.evidence(summaryId, { limit: 25 })
       .then((payload) => {
         if (cancelled) return;
         setEvidence(payload.items);
@@ -90,13 +98,13 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
         setEvidenceLoading(false);
       });
     return () => { cancelled = true; };
-  }, [story?.summary_id]);
+  }, [story?.summary_id, evidenceOpen, evidenceTargetId]);
 
   if (!story) return null;
 
-  const period = story.display_timestamp ? new Date(story.display_timestamp * 1000).toLocaleString(i18n.language) : '';
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
-  const detailTitle = resolveDetailTitle(story, categoryLabel);
+  const period = formatStoryPeriod(story, i18n.language);
+  const headerLabel = period ? `${categoryLabel} · ${period}` : categoryLabel;
 
   return (
     <Dialog open={Boolean(story)} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -108,11 +116,10 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
         <DialogHeader className="shrink-0 flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
           <div className="min-w-0 flex-1">
             <DialogDescription className="text-xs text-[hsl(var(--memory-muted))]">
-              {categoryLabel}
-              {period ? ` · ${period}` : ''}
+              {headerLabel}
             </DialogDescription>
-            <DialogTitle className="mt-1 line-clamp-2 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
-              {detailTitle}
+            <DialogTitle className="sr-only">
+              {headerLabel}
             </DialogTitle>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')} className="shrink-0">
@@ -128,37 +135,52 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
             {story.content}
           </MarkdownBlock>
 
-          <div>
-            <div className="text-xs font-medium text-[hsl(var(--memory-muted))]">
-              {t('memory.stories.detailRail.evidenceTitle')}
-            </div>
-            {evidenceLoading ? (
-              <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
-                {t('memory.stories.detailRail.evidenceLoading')}
-              </div>
-            ) : evidence && evidence.length > 0 ? (
-              <ul className="mt-2 space-y-2">
-                {evidence.map((item) => (
-                  <li
-                    key={item.event_id}
-                    className="rounded-md border border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--memory-muted))]">
-                      <span>{formatEvidenceTimestamp(item.timestamp, i18n.language)}</span>
-                      {item.source ? <span>· {item.source}</span> : null}
-                      {item.event_type ? <span>· {item.event_type}</span> : null}
-                    </div>
-                    <div className="mt-1 text-xs leading-5 text-[hsl(var(--memory-body))]">
-                      {item.content || '—'}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
-                {t('memory.stories.detailRail.evidenceEmpty')}
-              </div>
-            )}
+          <div className="border-t border-[hsl(var(--memory-divider)/0.55)] pt-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-expanded={evidenceOpen}
+              onClick={() => setEvidenceOpen((open) => !open)}
+              className="h-8 gap-1 px-0 text-xs font-medium text-[hsl(var(--memory-muted))] hover:bg-transparent hover:text-[hsl(var(--memory-title))]"
+            >
+              <ChevronDown
+                className={cn(
+                  'h-3.5 w-3.5 transition-transform',
+                  evidenceOpen ? 'rotate-180' : ''
+                )}
+              />
+              {t('memory.stories.detailRail.evidenceToggle', { count: story.evidence_event_count })}
+            </Button>
+            {evidenceOpen ? (
+              evidenceLoading ? (
+                <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
+                  {t('memory.stories.detailRail.evidenceLoading')}
+                </div>
+              ) : evidence && evidence.length > 0 ? (
+                <ul className="mt-2 space-y-2">
+                  {evidence.map((item) => (
+                    <li
+                      key={item.event_id}
+                      className="rounded-md border border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--memory-muted))]">
+                        <span>{formatEvidenceTimestamp(item.timestamp, i18n.language)}</span>
+                        {item.source ? <span>· {item.source}</span> : null}
+                        {item.event_type ? <span>· {item.event_type}</span> : null}
+                      </div>
+                      <div className="mt-1 text-xs leading-5 text-[hsl(var(--memory-body))]">
+                        {item.content || '—'}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-2 text-xs text-[hsl(var(--memory-muted))]">
+                  {t('memory.stories.detailRail.evidenceEmpty')}
+                </div>
+              )
+            ) : null}
           </div>
         </div>
       </DialogContent>

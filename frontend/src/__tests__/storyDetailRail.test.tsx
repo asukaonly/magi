@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import { memoryStoriesApi } from '@/api/modules/memoryStories';
@@ -14,7 +15,9 @@ vi.mock('@/api/modules/memoryStories', () => ({
 vi.mock('react-i18next', () => {
   const labels: Record<string, string> = {
     'memory.stories.categories.state_change': '状态变化',
+    'memory.stories.categories.week': '本周总结',
     'memory.stories.detailRail.evidenceTitle': '证据',
+    'memory.stories.detailRail.evidenceToggle': '查看依据 · {{count}} 条',
     'memory.stories.detailRail.notePlaceholder': '想加个备注吗？',
     'memory.stories.detailRail.savedNote': '备注已保存',
     'memory.stories.detailRail.evidenceLoading': '加载中…',
@@ -76,16 +79,16 @@ describe('StoryDetailRail', () => {
       <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
     expect(screen.getByText('你最近开始更频繁地夜间上线')).toBeInTheDocument();
-    expect(screen.getByText(/状态变化/)).toBeInTheDocument();
+    expect(screen.getByText('状态变化 · 11/15 - 11/16', { selector: 'p' })).toBeInTheDocument();
   });
 
   it('does not render the note input', async () => {
     render(<StoryDetailRail story={baseStory} onClose={() => {}} />);
-    await screen.findByText('证据');
+    await screen.findByRole('button', { name: '查看依据 · 3 条' });
     expect(screen.queryByPlaceholderText(/想加个备注/)).not.toBeInTheDocument();
   });
 
-  it('fetches and renders evidence items', async () => {
+  it('loads and renders evidence items after expanding the evidence section', async () => {
     vi.mocked(memoryStoriesApi.evidence).mockResolvedValue({
       summary_id: 's1', summary_type: 'insight', summary_category: 'state_change',
       mode: 'source_ids',
@@ -98,6 +101,8 @@ describe('StoryDetailRail', () => {
     render(
       <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
+    expect(memoryStoriesApi.evidence).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: '查看依据 · 3 条' }));
     expect(await screen.findByText('我昨晚睡得不好')).toBeInTheDocument();
     expect(screen.getByText('蚊子一直在叫')).toBeInTheDocument();
     expect(memoryStoriesApi.evidence).toHaveBeenCalledWith('s1', { limit: 25 });
@@ -111,10 +116,11 @@ describe('StoryDetailRail', () => {
     render(
       <StoryDetailRail story={baseStory} onClose={() => {}} />
     );
+    await userEvent.click(screen.getByRole('button', { name: '查看依据 · 3 条' }));
     expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
   });
 
-  it('keeps long markdown titles from replacing the scrollable detail body', () => {
+  it('shows the period range and keeps the generated title out of the visible header', () => {
     const storyWithGeneratedTitle: StoryItem = {
       ...baseStory,
       summary_category: 'week',
@@ -128,12 +134,19 @@ describe('StoryDetailRail', () => {
         '- 06-30：关注国内大模型动态。',
         '- 07-01：处理项目 CI 通知。',
       ].join('\n'),
+      period_start: 1700000000,
+      period_end: 1700100000,
+      display_timestamp: 1700100000,
     };
 
     render(<StoryDetailRail story={storyWithGeneratedTitle} onClose={() => {}} />);
 
-    expect(screen.getByRole('heading', { name: '本周工作主要集中在代码审查、CI 修复和模型动态追踪。' })).toBeInTheDocument();
+    expect(screen.getByText('本周总结 · 11/15 - 11/16', { selector: 'p' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '本周总结 · 11/15 - 11/16' })).toHaveClass('sr-only');
+    expect(screen.queryByRole('heading', { name: '本周工作主要集中在代码审查、CI 修复和模型动态追踪。' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /## 要点/ })).not.toBeInTheDocument();
+    expect(memoryStoriesApi.evidence).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: '查看依据 · 3 条' })).toBeInTheDocument();
     expect(screen.getByTestId('story-detail-rail')).toHaveClass('flex', 'flex-col', 'overflow-hidden');
     expect(screen.getByTestId('story-detail-scroll')).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
   });

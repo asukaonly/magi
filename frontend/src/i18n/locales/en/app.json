@@ -2726,6 +2726,7 @@
       "detailRail": {
         "close": "Close details",
         "evidenceTitle": "Evidence",
+        "evidenceToggle": "View evidence · {{count}}",
         "evidenceLoading": "Loading…",
         "evidenceEmpty": "No related events found."
       }

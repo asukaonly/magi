@@ -136,7 +136,7 @@ def _source_event_ids(summary: dict[str, Any]) -> list[str]:
 
 
 def _uses_time_window(summary_type: str, source_ids: list[str]) -> bool:
-    return summary_type == "temporal" or (summary_type != "insight" and not source_ids)
+    return summary_type != "insight" and not source_ids
 
 
 async def _time_window_evidence(
