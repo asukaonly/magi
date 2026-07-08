@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from magi.plugins.registry_client import PluginRegistryClient
+from magi.plugins.registry_client import DEFAULT_REGISTRY_URL, PluginRegistryClient
 
 
 def _registry_payload(version: str = "1") -> dict[str, Any]:
@@ -64,6 +64,10 @@ class _FakeHttpClient:
         if self._error is not None:
             raise self._error
         return _FakeResponse(self._payload)
+
+
+def test_default_registry_url_uses_jsdelivr_cdn() -> None:
+    assert DEFAULT_REGISTRY_URL == "https://cdn.jsdelivr.net/gh/asukaonly/magi-plugins@main/registry.json"
 
 
 @pytest.mark.asyncio

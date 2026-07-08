@@ -138,6 +138,17 @@ Instead, lifecycle work is split across runtime services:
 - `PluginProjectionService` owns plugin-provided memory summary, extraction profile, and recall artifact projection
 - dedicated runtime modules own execution after registration, such as tool execution, sensor sync, channel delivery, memory projection, and plugin ingress processing
 
+## Marketplace Registry Distribution
+
+The public marketplace registry is authored in the external `magi-plugins`
+repository, but the runtime default reads `registry.json` through jsDelivr:
+
+- `https://cdn.jsdelivr.net/gh/asukaonly/magi-plugins@main/registry.json`
+
+This keeps normal marketplace browsing away from GitHub raw-file rate limits.
+Operators can still override the URL with `plugins.registry_url` for internal
+mirrors, staged registries, or future dedicated CDN endpoints.
+
 ## Plugin Ingress Events
 
 Some plugin-backed capabilities depend on local host events that are produced outside the Python plugin package itself.
