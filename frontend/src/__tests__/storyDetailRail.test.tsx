@@ -113,4 +113,28 @@ describe('StoryDetailRail', () => {
     );
     expect(await screen.findByText('没有找到关联的事件。')).toBeInTheDocument();
   });
+
+  it('keeps long markdown titles from replacing the scrollable detail body', () => {
+    const storyWithGeneratedTitle: StoryItem = {
+      ...baseStory,
+      summary_category: 'week',
+      title: '## 要点 - 这是一整段很长的本周总结，会把弹窗标题区域撑得非常高。## 时间线 - 06-30：关注国内大模型动态。## 决策与行动 - 继续追踪项目进展。',
+      preview_text: '本周工作主要集中在代码审查、CI 修复和模型动态追踪。',
+      content: [
+        '## 要点',
+        '本周工作主要集中在代码审查、CI 修复和模型动态追踪。',
+        '',
+        '## 时间线',
+        '- 06-30：关注国内大模型动态。',
+        '- 07-01：处理项目 CI 通知。',
+      ].join('\n'),
+    };
+
+    render(<StoryDetailRail story={storyWithGeneratedTitle} onClose={() => {}} />);
+
+    expect(screen.getByRole('heading', { name: '本周工作主要集中在代码审查、CI 修复和模型动态追踪。' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /## 要点/ })).not.toBeInTheDocument();
+    expect(screen.getByTestId('story-detail-rail')).toHaveClass('flex', 'flex-col', 'overflow-hidden');
+    expect(screen.getByTestId('story-detail-scroll')).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
+  });
 });

@@ -21,6 +21,37 @@ interface StoryDetailRailProps {
   onClose: () => void;
 }
 
+const DETAIL_TITLE_MAX_LENGTH = 96;
+
+const compactStoryText = (value: string | null | undefined): string => (
+  String(value ?? '').replace(/\s+/g, ' ').trim()
+);
+
+const isGeneratedMarkdownTitle = (value: string): boolean => (
+  value.length > DETAIL_TITLE_MAX_LENGTH
+  || value.includes('\n')
+  || /(^|\s)#{1,6}\s/.test(value)
+  || /^\s*[-*]\s+/m.test(value)
+);
+
+const truncateTitle = (value: string): string => (
+  value.length > DETAIL_TITLE_MAX_LENGTH ? `${value.slice(0, DETAIL_TITLE_MAX_LENGTH - 1)}…` : value
+);
+
+const resolveDetailTitle = (story: StoryItem, fallback: string): string => {
+  const title = compactStoryText(story.title);
+  if (title && !isGeneratedMarkdownTitle(title)) {
+    return truncateTitle(title);
+  }
+
+  const preview = compactStoryText(story.preview_text || story.detail_lead_text);
+  if (preview) {
+    return truncateTitle(preview);
+  }
+
+  return fallback;
+};
+
 const formatEvidenceTimestamp = (ts: number | null, locale: string): string => {
   if (!ts) return '—';
   return new Date(ts * 1000).toLocaleString(locale, {
@@ -64,31 +95,35 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
   if (!story) return null;
 
   const period = story.display_timestamp ? new Date(story.display_timestamp * 1000).toLocaleString(i18n.language) : '';
-  const detailTitle = story.title || story.preview_text || story.content.slice(0, 80);
+  const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
+  const detailTitle = resolveDetailTitle(story, categoryLabel);
 
   return (
     <Dialog open={Boolean(story)} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent
         data-testid="story-detail-rail"
         hideClose
-        className="max-h-[min(760px,calc(100vh-64px))] max-w-3xl overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
+        className="flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
       >
-        <DialogHeader className="flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
-          <div className="min-w-0">
+        <DialogHeader className="shrink-0 flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
+          <div className="min-w-0 flex-1">
             <DialogDescription className="text-xs text-[hsl(var(--memory-muted))]">
-              {t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category })}
+              {categoryLabel}
               {period ? ` · ${period}` : ''}
             </DialogDescription>
-            <DialogTitle className="mt-1 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
+            <DialogTitle className="mt-1 line-clamp-2 text-left text-lg font-semibold leading-7 text-[hsl(var(--memory-title))]">
               {detailTitle}
             </DialogTitle>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')}>
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')} className="shrink-0">
             <X className="h-4 w-4" />
           </Button>
         </DialogHeader>
 
-        <div className="max-h-[calc(min(760px,100vh-64px)-96px)] space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
+        <div
+          data-testid="story-detail-scroll"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]"
+        >
           <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
             {story.content}
           </MarkdownBlock>
