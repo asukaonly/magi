@@ -2377,17 +2377,31 @@
       "badge": {
         "official": "官方",
         "installed": "已安装",
+        "installedAll": "已全部安装",
+        "installedPartial": "已安装 {{installed}}/{{total}}",
         "entryCount": "{{count}} 个入口",
         "localOnly": "纯本地",
         "localOnlyHint": "所有数据只留在本机，不上传任何地方。"
       },
       "actions": {
         "install": "安装",
+        "chooseEntries": "选择入口安装",
+        "addEntries": "添加入口",
         "uninstall": "卸载",
         "update": "更新",
         "refresh": "刷新",
         "retry": "重试",
         "uploadPlugin": "上传插件"
+      },
+      "entryStatus": {
+        "installed": "已安装",
+        "available": "可添加"
+      },
+      "entryPicker": {
+        "title": "选择 {{name}} 的入口",
+        "description": "已安装的入口会保留，选择还要添加的入口后再确认安装权限。",
+        "confirm": "安装所选入口",
+        "cancel": "取消"
       },
       "feedback": {
         "installSuccess": "插件安装成功",

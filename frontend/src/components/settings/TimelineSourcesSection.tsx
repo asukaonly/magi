@@ -455,6 +455,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const capabilityId = selectedCapability?.id ?? selectedSource.source_name;
   const entrySources = selectedCapability?.sources ?? [selectedSource];
   const hasMultipleEntries = entrySources.length > 1;
+  const showEntrySelector = entrySources.length > 0;
   const getEntryEnabled = (source: SensorSourceStatusItem) =>
     Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled));
   const getEntryAttention = (source: SensorSourceStatusItem) =>
@@ -578,17 +579,22 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
           </div>
         </header>
 
-        {hasMultipleEntries ? (
+        {showEntrySelector ? (
           <section
             className="relative"
             data-testid={`timeline-entry-selector-${capabilityId}`}
           >
+            {hasMultipleEntries ? (
+              <div
+                className="pointer-events-none absolute bottom-3 right-0 top-0 z-10 w-10 bg-gradient-to-l from-[hsl(var(--background))] to-transparent"
+                aria-hidden="true"
+              />
+            ) : null}
             <div
-              className="pointer-events-none absolute bottom-3 right-0 top-0 z-10 w-10 bg-gradient-to-l from-[hsl(var(--background))] to-transparent"
-              aria-hidden="true"
-            />
-            <div
-              className="flex snap-x gap-3 overflow-x-auto px-1 pb-3 pr-10 [scrollbar-width:thin]"
+              className={cn(
+                'flex snap-x gap-3 overflow-x-auto px-1 pb-3 [scrollbar-width:thin]',
+                hasMultipleEntries && 'pr-10'
+              )}
               data-testid={`timeline-entry-selector-scroll-${capabilityId}`}
               role="tablist"
               aria-label={capabilityDisplayName}

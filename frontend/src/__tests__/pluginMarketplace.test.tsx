@@ -64,7 +64,7 @@ describe('PluginMarketplace', () => {
     expect(screen.getByTestId('plugin-icon-photo-library')).toBeInTheDocument();
   });
 
-  it('groups browser history implementations into one marketplace plugin and installs the entries together', async () => {
+  it('groups browser history implementations and lets users choose entries before installing', async () => {
     const user = userEvent.setup();
     vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
       registry_version: '1',
@@ -180,13 +180,117 @@ describe('PluginMarketplace', () => {
     expect(screen.queryByTestId('marketplace-plugin-brave-history')).not.toBeInTheDocument();
     expect(await screen.findByTestId('marketplace-plugin-photo-library')).toHaveTextContent('照片库');
 
-    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.install' }));
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.chooseEntries' }));
+    const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    expect(within(picker).getByTestId('marketplace-entry-option-chrome-history')).toHaveTextContent('Chrome');
+    expect(within(picker).getByTestId('marketplace-entry-option-safari-history')).toHaveTextContent('Safari');
+    expect(within(picker).getByTestId('marketplace-entry-option-brave-history')).toHaveTextContent('Brave');
+    await user.click(within(picker).getByTestId('marketplace-entry-checkbox-brave-history'));
+    await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
     await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
 
     await waitFor(() => {
       expect(install).toHaveBeenCalledWith('chrome-history', expect.any(Function));
       expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
-      expect(install).toHaveBeenCalledWith('brave-history', expect.any(Function));
+      expect(install).not.toHaveBeenCalledWith('brave-history', expect.any(Function));
+    });
+  });
+
+  it('shows partially installed grouped entries and installs only missing selections', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(pluginsApi, 'getRegistry').mockResolvedValue({
+      registry_version: '1',
+      plugins: [
+        {
+          plugin_id: 'chrome-history',
+          name: 'Chrome History',
+          name_i18n: { 'zh-CN': 'Chrome 浏览器历史' },
+          version: '0.1.0',
+          description: 'Read local Chrome browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Chrome 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:googlechrome',
+          display_group: browserDisplayGroup('Chrome', 10),
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'chrome-history',
+          installed: true,
+          installed_version: '0.1.0',
+          update_available: false,
+          capabilities: [],
+        },
+        {
+          plugin_id: 'safari-history',
+          name: 'Safari History',
+          name_i18n: { 'zh-CN': 'Safari 浏览器历史' },
+          version: '0.1.0',
+          description: 'Read local Safari browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Safari 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:safari',
+          display_group: browserDisplayGroup('Safari', 20),
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'safari-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+        {
+          plugin_id: 'firefox-history',
+          name: 'Firefox History',
+          name_i18n: { 'zh-CN': 'Firefox 浏览器历史' },
+          version: '0.1.0',
+          description: 'Read local Firefox browsing history.',
+          description_i18n: { 'zh-CN': '读取本地 Firefox 浏览记录。' },
+          author: 'Magi Team',
+          icon: 'brand:firefox',
+          display_group: browserDisplayGroup('Firefox', 30),
+          official: true,
+          data_locality: 'local_only',
+          contribution_types: ['sensor'],
+          platforms: [],
+          min_sdk_version: '0.1.0',
+          homepage: '',
+          repository: '',
+          path: 'firefox-history',
+          installed: false,
+          installed_version: null,
+          update_available: false,
+          capabilities: [],
+        },
+      ],
+    });
+    const install = vi.spyOn(pluginsApi, 'installFromRegistryWithProgress').mockResolvedValue({} as any);
+
+    render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
+
+    const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
+    expect(browserCard).toHaveTextContent('settings.marketplace.badge.installedPartial');
+    expect(within(browserCard).getByTestId('marketplace-entry-chip-chrome-history')).toHaveTextContent('settings.marketplace.entryStatus.installed');
+    expect(within(browserCard).getByTestId('marketplace-entry-chip-safari-history')).toHaveTextContent('settings.marketplace.entryStatus.available');
+
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.addEntries' }));
+    const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    expect(within(picker).getByTestId('marketplace-entry-checkbox-chrome-history')).toBeDisabled();
+    await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
+    await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
+
+    await waitFor(() => {
+      expect(install).toHaveBeenCalledWith('safari-history', expect.any(Function));
+      expect(install).toHaveBeenCalledWith('firefox-history', expect.any(Function));
+      expect(install).not.toHaveBeenCalledWith('chrome-history', expect.any(Function));
     });
   });
 
@@ -267,7 +371,9 @@ describe('PluginMarketplace', () => {
     render(<PluginMarketplace installedPlugins={[]} onInstallComplete={vi.fn()} />);
 
     const browserCard = await screen.findByTestId('marketplace-plugin-browser-history');
-    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.install' }));
+    await user.click(within(browserCard).getByRole('button', { name: 'settings.marketplace.actions.chooseEntries' }));
+    const picker = await screen.findByTestId('marketplace-entry-picker-browser-history');
+    await user.click(within(picker).getByRole('button', { name: 'settings.marketplace.entryPicker.confirm' }));
     await user.click(await screen.findByText('settings.marketplace.consent.confirm.install'));
 
     await waitFor(() => {

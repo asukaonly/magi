@@ -2378,17 +2378,31 @@
       "badge": {
         "official": "Official",
         "installed": "Installed",
+        "installedAll": "All installed",
+        "installedPartial": "{{installed}}/{{total}} installed",
         "entryCount": "{{count}} entries",
         "localOnly": "Local only",
         "localOnlyHint": "All data stays on this device — nothing is uploaded."
       },
       "actions": {
         "install": "Install",
+        "chooseEntries": "Choose entries",
+        "addEntries": "Add entries",
         "uninstall": "Uninstall",
         "update": "Update",
         "refresh": "Refresh",
         "retry": "Retry",
         "uploadPlugin": "Upload plugin"
+      },
+      "entryStatus": {
+        "installed": "Installed",
+        "available": "Available"
+      },
+      "entryPicker": {
+        "title": "Choose entries for {{name}}",
+        "description": "Installed entries stay in place. Select the additional entries you want before confirming permissions.",
+        "confirm": "Install selected entries",
+        "cancel": "Cancel"
       },
       "feedback": {
         "installSuccess": "Plugin installed successfully",

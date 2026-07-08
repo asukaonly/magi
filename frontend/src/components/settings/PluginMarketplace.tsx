@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Check,
   Download,
   ExternalLink,
   Loader2,
   Lock,
   Package,
+  Plus,
   RefreshCw,
   Search,
   Trash2,
@@ -22,6 +24,14 @@ import {
 } from '@/api/modules/plugins';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
@@ -30,6 +40,7 @@ import { capabilitiesExceedingConsent } from '@/lib/pluginCapabilities';
 import { cn } from '@/lib/utils';
 import {
   buildMarketplacePluginDisplayItems,
+  getMarketplaceEntryMemberName,
   getMarketplaceItemCapabilities,
   getMarketplaceItemContributionTypes,
   getMarketplaceItemDescription,
@@ -42,6 +53,11 @@ import {
 
 const CONTRIBUTION_TYPE_FILTERS = ['all', 'sensor', 'tool', 'channel'] as const;
 type ContributionFilter = (typeof CONTRIBUTION_TYPE_FILTERS)[number];
+
+interface EntryPickerState {
+  item: MarketplacePluginDisplayItem;
+  selectedIds: string[];
+}
 
 const subtlePillClass =
   'rounded-md border-transparent bg-[hsl(var(--settings-shell)/0.72)] px-2.5 py-1 text-xs font-semibold text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)]';
@@ -76,6 +92,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [typeFilter, setTypeFilter] = useState<ContributionFilter>('all');
   const [processingIds, setProcessingIds] = useState<Record<string, string>>({});
   const [installSnapshots, setInstallSnapshots] = useState<Record<string, PluginInstallJobSnapshot>>({});
+  const [entryPicker, setEntryPicker] = useState<EntryPickerState | null>(null);
   const [consent, setConsent] = useState<{
     mode: ConsentMode;
     name: string;
@@ -147,11 +164,37 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const isItemInstalled = (item: MarketplacePluginDisplayItem): boolean =>
     item.entries.some(isEntryInstalled);
 
-  const runInstall = async (item: MarketplacePluginDisplayItem) => {
+  const getInstallableEntries = (item: MarketplacePluginDisplayItem): PluginRegistryEntry[] =>
+    item.entries.filter((entry) => !isEntryInstalled(entry));
+
+  const getEntryCapabilities = (entries: PluginRegistryEntry[]): PluginCapability[] => {
+    const seen = new Set<string>();
+    const capabilities: PluginCapability[] = [];
+    for (const capability of entries.flatMap((entry) => entry.capabilities ?? [])) {
+      const key = JSON.stringify({
+        capability: capability.capability,
+        scope: capability.scope ?? [],
+        optional: capability.optional ?? false,
+        reason: capability.reason ?? '',
+        reason_i18n: capability.reason_i18n ?? {},
+      });
+      if (seen.has(key)) continue;
+      seen.add(key);
+      capabilities.push(capability);
+    }
+    return capabilities;
+  };
+
+  const runInstall = async (
+    item: MarketplacePluginDisplayItem,
+    selectedEntries: PluginRegistryEntry[] = getInstallableEntries(item),
+  ) => {
+    if (selectedEntries.length === 0) {
+      return;
+    }
     setProcessingIds((prev) => ({ ...prev, [item.id]: 'installing' }));
     try {
-      for (const entry of item.entries) {
-        if (isEntryInstalled(entry)) continue;
+      for (const entry of selectedEntries) {
         await pluginsApi.installFromRegistryWithProgress(entry.plugin_id, (snapshot) => {
           setInstallSnapshots((prev) => ({ ...prev, [entry.plugin_id]: snapshot }));
         });
@@ -167,13 +210,63 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   };
 
   const handleInstall = (item: MarketplacePluginDisplayItem) => {
+    const installableEntries = getInstallableEntries(item);
+    if (item.kind === 'group') {
+      setEntryPicker({
+        item,
+        selectedIds: installableEntries.map((entry) => entry.plugin_id),
+      });
+      return;
+    }
+    if (installableEntries.length === 0) {
+      return;
+    }
     setConsent({
       mode: 'install',
       name: getMarketplaceItemName(item, language),
       version: item.primary.version,
-      official: item.entries.every((entry) => entry.official),
-      capabilities: getMarketplaceItemCapabilities(item),
-      proceed: () => runInstall(item),
+      official: installableEntries.every((entry) => entry.official),
+      capabilities: getEntryCapabilities(installableEntries),
+      proceed: () => runInstall(item, installableEntries),
+    });
+  };
+
+  const toggleEntryPickerSelection = (pluginId: string) => {
+    setEntryPicker((prev) => {
+      if (!prev) return prev;
+      const selected = new Set(prev.selectedIds);
+      if (selected.has(pluginId)) {
+        selected.delete(pluginId);
+      } else {
+        selected.add(pluginId);
+      }
+      return {
+        ...prev,
+        selectedIds: [...selected],
+      };
+    });
+  };
+
+  const confirmEntryPickerSelection = () => {
+    if (!entryPicker) {
+      return;
+    }
+    const selected = new Set(entryPicker.selectedIds);
+    const selectedEntries = entryPicker.item.entries.filter(
+      (entry) => selected.has(entry.plugin_id) && !isEntryInstalled(entry)
+    );
+    if (selectedEntries.length === 0) {
+      return;
+    }
+    const item = entryPicker.item;
+    setEntryPicker(null);
+    setConsent({
+      mode: 'install',
+      name: getMarketplaceItemName(item, language),
+      version: item.primary.version,
+      official: selectedEntries.every((entry) => entry.official),
+      capabilities: getEntryCapabilities(selectedEntries),
+      proceed: () => runInstall(item, selectedEntries),
     });
   };
 
@@ -384,9 +477,12 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             const entry = item.primary;
             const itemName = getMarketplaceItemName(item, language);
             const itemDescription = getMarketplaceItemDescription(item, language);
-            const memberNames = getMarketplaceItemMemberNames(item, language);
             const contributionTypes = getMarketplaceItemContributionTypes(item);
             const isInstalled = isItemInstalled(item);
+            const installedCount = item.entries.filter(isEntryInstalled).length;
+            const installableEntries = getInstallableEntries(item);
+            const allEntriesInstalled = item.kind === 'group' && installedCount === item.entries.length;
+            const hasInstallableEntries = installableEntries.length > 0;
             const operation = processingIds[item.id]
               || item.entries.map((candidate) => processingIds[candidate.plugin_id]).find(Boolean);
             const isProcessing = !!operation;
@@ -431,6 +527,16 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             {t('settings.marketplace.badge.entryCount', { count: item.entries.length })}
                           </Badge>
                         )}
+                        {item.kind === 'group' && installedCount > 0 ? (
+                          <Badge variant="secondary" className={primaryPillClass}>
+                            {allEntriesInstalled
+                              ? t('settings.marketplace.badge.installedAll')
+                              : t('settings.marketplace.badge.installedPartial', {
+                                installed: installedCount,
+                                total: item.entries.length,
+                              })}
+                          </Badge>
+                        ) : null}
                         {item.entries.every((candidate) => candidate.official) && (
                           <Badge variant="secondary" className={primaryPillClass}>
                             {t('settings.marketplace.badge.official')}
@@ -452,13 +558,32 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       <p className="max-w-4xl text-sm leading-6 text-muted-foreground">
                         {itemDescription}
                       </p>
-                      {memberNames.length > 0 ? (
+                      {item.kind === 'group' ? (
                         <div className="flex flex-wrap gap-1.5">
-                          {memberNames.map((name) => (
-                            <Badge key={name} variant="outline" className={subtlePillClass}>
-                              {name}
-                            </Badge>
-                          ))}
+                          {item.entries.map((candidate) => {
+                            const candidateInstalled = isEntryInstalled(candidate);
+                            const memberName = getMarketplaceEntryMemberName(candidate, language);
+                            return (
+                              <Badge
+                                key={candidate.plugin_id}
+                                data-testid={`marketplace-entry-chip-${candidate.plugin_id}`}
+                                variant="outline"
+                                className={cn(
+                                  'gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold',
+                                  candidateInstalled
+                                    ? 'border-transparent bg-[hsl(var(--primary)/0.1)] text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]'
+                                    : 'border-transparent bg-[hsl(var(--settings-shell)/0.72)] text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)]'
+                                )}
+                              >
+                                <span>{memberName}</span>
+                                <span className="text-[10px] font-medium opacity-75">
+                                  {candidateInstalled
+                                    ? t('settings.marketplace.entryStatus.installed')
+                                    : t('settings.marketplace.entryStatus.available')}
+                                </span>
+                              </Badge>
+                            );
+                          })}
                         </div>
                       ) : null}
                       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -488,7 +613,53 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       </a>
                     )}
 
-                    {isInstalled ? (
+                    {item.kind === 'group' ? (
+                      <div className="flex items-center gap-2">
+                        {updateAvailable && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={isProcessing}
+                            onClick={() => handleUpdate(item)}
+                            className="h-9 bg-[hsl(var(--settings-shell)/0.72)] px-3.5"
+                          >
+                            {operation === 'updating' ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                            )}
+                            {t('settings.marketplace.actions.update')}
+                          </Button>
+                        )}
+                        {hasInstallableEntries ? (
+                          <Button
+                            type="button"
+                            variant="default"
+                            size="sm"
+                            disabled={isProcessing}
+                            onClick={() => handleInstall(item)}
+                            className="h-9 rounded-md px-4 shadow-[0_10px_24px_hsl(var(--primary)/0.14)]"
+                          >
+                            {operation === 'installing' ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : installedCount > 0 ? (
+                              <Plus className="mr-2 h-4 w-4" />
+                            ) : (
+                              <Download className="mr-2 h-4 w-4" />
+                            )}
+                            {installedCount > 0
+                              ? t('settings.marketplace.actions.addEntries')
+                              : t('settings.marketplace.actions.chooseEntries')}
+                          </Button>
+                        ) : (
+                          <Badge variant="secondary" className={subtlePillClass}>
+                            <Check className="mr-1 h-3 w-3" />
+                            {t('settings.marketplace.badge.installedAll')}
+                          </Badge>
+                        )}
+                      </div>
+                    ) : isInstalled ? (
                       <div className="flex items-center gap-2">
                         {updateAvailable && (
                           <Button
@@ -574,6 +745,88 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           })}
         </div>
       )}
+
+      {entryPicker ? (
+        <Dialog open onOpenChange={(open) => { if (!open) setEntryPicker(null); }}>
+          <DialogContent
+            className="max-w-xl overflow-hidden p-0"
+            data-testid={`marketplace-entry-picker-${entryPicker.item.id}`}
+          >
+            <DialogHeader className="border-b border-[hsl(var(--settings-subnav-border)/0.58)] bg-[hsl(var(--settings-shell)/0.36)] px-6 py-5">
+              <DialogTitle className="text-base">
+                {t('settings.marketplace.entryPicker.title', {
+                  name: getMarketplaceItemName(entryPicker.item, language),
+                })}
+              </DialogTitle>
+              <DialogDescription className="leading-6">
+                {t('settings.marketplace.entryPicker.description')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 px-6 py-4">
+              {entryPicker.item.entries.map((candidate) => {
+                const candidateInstalled = isEntryInstalled(candidate);
+                const checked = candidateInstalled || entryPicker.selectedIds.includes(candidate.plugin_id);
+                const memberName = getMarketplaceEntryMemberName(candidate, language);
+                return (
+                  <label
+                    key={candidate.plugin_id}
+                    data-testid={`marketplace-entry-option-${candidate.plugin_id}`}
+                    className={cn(
+                      'flex cursor-pointer items-start gap-3 rounded-lg px-3 py-3 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] transition-colors',
+                      candidateInstalled
+                        ? 'cursor-default bg-[hsl(var(--settings-shell)/0.52)] text-muted-foreground'
+                        : 'bg-[hsl(var(--settings-shell-elevated)/0.58)] hover:bg-[hsl(var(--settings-shell-elevated)/0.78)]'
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      data-testid={`marketplace-entry-checkbox-${candidate.plugin_id}`}
+                      checked={checked}
+                      disabled={candidateInstalled}
+                      onChange={() => toggleEntryPickerSelection(candidate.plugin_id)}
+                      className="mt-1 h-4 w-4 rounded border-[hsl(var(--settings-subnav-border))] accent-[hsl(var(--primary))]"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <PluginIcon
+                          iconId={candidate.icon || candidate.display_group?.icon}
+                          pluginId={candidate.plugin_id}
+                          sourceName={memberName}
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm font-semibold text-foreground">{memberName}</span>
+                        <Badge
+                          variant="outline"
+                          className={candidateInstalled ? primaryPillClass : subtlePillClass}
+                        >
+                          {candidateInstalled
+                            ? t('settings.marketplace.entryStatus.installed')
+                            : t('settings.marketplace.entryStatus.available')}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
+                        {localized(candidate.description, candidate.description_i18n, language)}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <DialogFooter className="bg-[hsl(var(--settings-shell)/0.26)]">
+              <Button type="button" variant="ghost" onClick={() => setEntryPicker(null)}>
+                {t('settings.marketplace.entryPicker.cancel')}
+              </Button>
+              <Button
+                type="button"
+                disabled={entryPicker.selectedIds.length === 0}
+                onClick={confirmEntryPickerSelection}
+              >
+                {t('settings.marketplace.entryPicker.confirm')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
 
       {consent && (
         <PluginConsentDialog

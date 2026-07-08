@@ -1738,7 +1738,7 @@ describe('settings page draft saving', () => {
     expect(within(browserWorkspace).getByTestId('timeline-entry-detail-safari_history')).toBeInTheDocument();
   });
 
-  it('keeps single-entry sensor detail headers compact', async () => {
+  it('shows the installed entry option even for single-entry sensor details', async () => {
     const user = userEvent.setup();
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({
       sources: [
@@ -1767,7 +1767,8 @@ describe('settings page draft saving', () => {
 
     const panel = await screen.findByTestId('timeline-capability-detail-git_activity');
     expect(within(panel).getAllByRole('heading', { name: 'Git 活动' })).toHaveLength(1);
-    expect(within(panel).queryByTestId('timeline-entry-selector-git_activity')).not.toBeInTheDocument();
+    expect(within(panel).getByTestId('timeline-entry-selector-git_activity')).toBeInTheDocument();
+    expect(within(panel).getByTestId('timeline-entry-option-git_activity')).toHaveTextContent('Git 活动');
     expect(within(panel).getByTestId('timeline-source-header-actions')).toBeInTheDocument();
   });
 

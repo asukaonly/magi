@@ -194,16 +194,18 @@ export function getMarketplaceItemCapabilities(item: MarketplacePluginDisplayIte
 
 export function getMarketplaceItemMemberNames(item: MarketplacePluginDisplayItem, lang: string): string[] {
   if (item.kind !== 'group') return [];
-  return item.entries.map((entry) => {
-    const group = entry.display_group;
-    return localizedPluginText(
-      group?.member_label || entry.name.replace(/\s*History$/i, ''),
-      group?.member_label_i18n || entry.name_i18n,
-      lang,
-    )
-      .replace(/\s*浏览(?:器)?历史$/u, '')
-      .trim();
-  });
+  return item.entries.map((entry) => getMarketplaceEntryMemberName(entry, lang));
+}
+
+export function getMarketplaceEntryMemberName(entry: PluginRegistryEntry, lang: string): string {
+  const group = entry.display_group;
+  return localizedPluginText(
+    group?.member_label || entry.name.replace(/\s*History$/i, ''),
+    group?.member_label_i18n || entry.name_i18n,
+    lang,
+  )
+    .replace(/\s*浏览(?:器)?历史$/u, '')
+    .trim();
 }
 
 export function getInstalledItemMemberNames(item: InstalledPluginDisplayItem, lang: string): string[] {
