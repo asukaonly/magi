@@ -127,6 +127,9 @@ def _build_memory_l2_config(memory_cfg: Any) -> MemoryL2ConfigModel:
         conflict_arbitration_enabled=memory_cfg.l2.conflict_arbitration_enabled,
         conflict_arbitration_min_confidence=memory_cfg.l2.conflict_arbitration_min_confidence,
         shadow_conflict_notification_enabled=memory_cfg.l2.shadow_conflict_notification_enabled,
+        portrait_projection_refresh_delay_seconds=(
+            memory_cfg.l2.portrait_projection_refresh_delay_seconds
+        ),
     )
 
 

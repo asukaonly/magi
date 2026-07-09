@@ -80,6 +80,8 @@ class _AssertionHostProtocol(Protocol):
         entity_type: str | None = None,
     ) -> Dict[str, Any] | None: ...
 
+    async def _notify_assertion_changed(self, assertion: Dict[str, Any]) -> None: ...
+
 
 _INSERT_SQL = """
 INSERT INTO tom_trait_assertions(
@@ -442,6 +444,12 @@ class L2StoreAssertionMixin:
             trait_name=trait_name,
             result=result,
         )
+        await self._notify_assertion_change_after_write(
+            host=host,
+            candidate=normalized_candidate,
+            trait_name=trait_name,
+            result=result,
+        )
         return result.assertion_id
 
     async def _fetch_active_assertion(
@@ -762,6 +770,34 @@ class L2StoreAssertionMixin:
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning(
                 "L2 snapshot refresh after stable assertion failed",
+                entity_id=candidate["entity_id"],
+                trait_name=trait_name,
+                error=str(exc),
+            )
+
+    async def _notify_assertion_change_after_write(
+        self,
+        *,
+        host: _AssertionHostProtocol,
+        candidate: Dict[str, Any],
+        trait_name: str,
+        result: _AssertionWriteResult,
+    ) -> None:
+        try:
+            await host._notify_assertion_changed(
+                {
+                    "assertion_id": result.assertion_id,
+                    "entity_id": candidate["entity_id"],
+                    "entity_type": candidate["entity_type"],
+                    "trait_family": candidate["trait_family"],
+                    "trait_name": trait_name,
+                    "trait_value": candidate["trait_value"],
+                }
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "L2 assertion change notification failed",
+                assertion_id=result.assertion_id,
                 entity_id=candidate["entity_id"],
                 trait_name=trait_name,
                 error=str(exc),

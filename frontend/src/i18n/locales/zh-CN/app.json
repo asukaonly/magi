@@ -1893,6 +1893,10 @@
           "label": "发现记忆冲突时提醒我确认",
           "description": "当新推断和你明确说过的偏好不一致时，放入待处理，让你决定采用新记忆还是保留旧记忆。"
         },
+        "l2_portrait_projection_refresh_delay_seconds": {
+          "label": "画像刷新延迟（秒）",
+          "description": "断言变化后，等待多久再更新「关于你」的画像；同一时间段内的多次变化会合并处理。"
+        },
         "l2_batch_flush_interval_seconds": {
           "label": "知识提炼批处理间隔（秒）",
           "description": "新对话进入后，等待多久再统一处理一批知识提炼，最少 30 秒。"

@@ -20,6 +20,7 @@ class UnifiedMemoryLifecycleMixin:
     l4: Any
     _edge_embedding_drainer: Any
     _edge_embedding_worker: Any
+    _portrait_projection_scheduler: Any
     _initialized: bool
 
     async def initialize(self) -> None:
@@ -49,6 +50,8 @@ class UnifiedMemoryLifecycleMixin:
         """Drain asynchronous workers and close store resources."""
         if self.l2_pipeline is not None:
             await self.l2_pipeline.shutdown()
+        if self._portrait_projection_scheduler is not None:
+            await self._portrait_projection_scheduler.shutdown()
         if self._edge_embedding_worker is not None:
             await self._edge_embedding_worker.stop()
         for store in (self.l1, self.l3, self.l4):

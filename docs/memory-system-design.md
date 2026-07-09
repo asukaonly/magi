@@ -367,7 +367,10 @@ directly create world-group items.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
 and prompt assembly must rebuild them when newer profile, assertion, snapshot,
 or safe graph inputs exist. User feedback or correction on a user assertion
-should refresh the portrait projection after the assertion update succeeds.
+should enqueue a debounced portrait projection refresh after the assertion
+update succeeds. The delay is controlled by
+`agent.memory.l2.portrait_projection_refresh_delay_seconds`, and multiple
+assertion changes for the same user within that window are coalesced.
 
 Bootstrap is only responsible for injecting the first assistant opening for a
 persona. After that opening is persisted, all profile extraction returns to the

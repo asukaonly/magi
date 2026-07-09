@@ -4161,6 +4161,8 @@ export interface components {
              * @default 3
              */
             readonly max_rounds: number;
+            /** Opening Examples */
+            readonly opening_examples?: readonly string[];
             /**
              * Opening Line
              * @default
@@ -6049,6 +6051,11 @@ export interface components {
              * @default true
              */
             readonly enabled: boolean;
+            /**
+             * Portrait Projection Refresh Delay Seconds
+             * @default 120
+             */
+            readonly portrait_projection_refresh_delay_seconds: number;
             /**
              * Shadow Conflict Notification Enabled
              * @default true
