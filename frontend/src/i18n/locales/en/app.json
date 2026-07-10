@@ -93,6 +93,9 @@
     "fallbackTitle": "Magi AI Framework"
   },
   "shell": {
+    "onboardingStatusErrorTitle": "Setup status is temporarily unavailable",
+    "onboardingStatusErrorDescription": "Your settings were not changed. To avoid opening setup by mistake, check that the service is available and try again.",
+    "retryOnboardingStatus": "Check again",
     "headerTitle": "AI Conversation Workspace",
     "desktopMode": "Desktop Mode",
     "clientMode": "Client Mode",

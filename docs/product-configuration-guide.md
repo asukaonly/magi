@@ -87,6 +87,14 @@ Current design expectations:
 - onboarding uses a dedicated layout rather than the main application shell
 - partially completed onboarding progress should survive refreshes or temporary exits
 
+Safety and configuration ownership rules:
+
+- onboarding eligibility must come from a successfully loaded persisted status; a read failure is a recoverable error and must never be interpreted as incomplete onboarding
+- completed installations must not render onboarding through direct navigation, refresh, or stale browser history, and onboarding-specific writes must be rejected after completion
+- a failed or invalid onboarding template response must stop the flow and offer retry; the client must not substitute a fresh default configuration
+- onboarding writes own only the selected language, LLM configuration, and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
+- onboarding completion is server-owned state; ordinary settings saves must preserve it and cannot move a completed installation back into onboarding
+
 The current first-run path is intentionally single-lane and progressive. It should
 reduce friction for first-time users while leaving the full configuration surface
 available in Settings after onboarding.
@@ -102,6 +110,8 @@ It focuses on:
 Onboarding should not reuse the full Settings LLM editor as the default path. Expert fields such as service-specific endpoints, image generation services, per-scenario model routing, model metadata overrides, and detailed memory/tool settings should remain collapsed or move to Settings after onboarding.
 
 Plugin and sensor activation should stay progressive. The first-run flow may explain that data sources improve context and surface direct connection cards in a dedicated first-context step, but it should not require plugin choices before the user enters the main app. Before showing the first-context step, onboarding should persist the selected LLM configuration and allow the backend runtime to start so source sync jobs are actually consumed instead of only queued. These first-context cards should prioritize historical sources that can immediately backfill useful context; purely forward-looking incremental sources, such as continuous screen capture, belong in later suggestions or Settings. History-heavy sources should use a lightweight first-context sample by default and leave full backfill controls to Settings or later background work. Installable source suggestions should start loading before the first-context step so the page can show connection cards immediately; if the installable suggestion endpoint is unavailable or still loading, the page should still show a small conservative fallback set of connection cards rather than collapsing to an empty state. A selected source finishing its connect flow should keep the user on the first-context step so they can add more sources; skipping the step or explicitly finishing it should mark the first-context prompt complete so the main app does not ask the same question again.
+
+The pre-context persistence described above must use the scoped onboarding save rather than replace the full configuration document.
 
 After the user enters the main application for the first time, the post-onboarding first-context dialog is only a fallback for older installs, interrupted onboarding, or other states where `product_tour_completed` is still false. It should offer optional data-source connection cards, make skipping clear, and hand off to the shared plugin install/connect panel when the user chooses a source. Skipping the prompt or completing the connect flow should mark the prompt complete so the initial persona bootstrap can continue. It should not repeat vector-model setup; missing vector-model guidance belongs in first-run model setup and the first-context step as a non-blocking warning.
 

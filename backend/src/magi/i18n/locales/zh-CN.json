@@ -203,6 +203,10 @@
       "llm_selection_image_generation_disabled": "LLM 选择“{selection_id}”引用的提供商“{provider_id}”未启用图像生成服务"
     },
     "onboarding": {
+      "already_completed": "初始化引导已经完成",
+      "draft_saved": "初始化草稿已保存",
+      "status_loaded": "初始化状态已加载",
+      "status_read_failed": "无法读取初始化状态",
       "template_loaded": "引导配置模板已加载",
       "save_failed": "保存引导配置失败",
       "saved": "引导配置已保存"

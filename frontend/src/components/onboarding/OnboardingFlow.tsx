@@ -416,7 +416,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       }
       values.llm = llmValue;
       await withTimeout(
-        configApi.update(values),
+        configApi.updateOnboardingDraft({
+          language: values.preferences.language,
+          llm: values.llm,
+        }),
         ONBOARDING_SAVE_TIMEOUT_MS,
         t('messages.saveTimedOut'),
       );
@@ -427,6 +430,32 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return false;
     } finally {
       setSaving(false);
+    }
+  };
+
+  const enterAppAfterCompletion = (language: string | undefined) => {
+    localStorage.removeItem(STORAGE_KEY);
+    if (language) {
+      localStorage.setItem('magi_language', language);
+    }
+    if (language !== initialConfig.preferences.language) {
+      window.location.href = '/';
+      return;
+    }
+    navigate('/');
+  };
+
+  const recoverCompletedOnboarding = async (): Promise<boolean> => {
+    try {
+      const response = await configApi.getOnboardingStatus();
+      if (response.data?.completed !== true) {
+        return false;
+      }
+      const values = form.getFieldsValue(true) as SystemConfig;
+      enterAppAfterCompletion(values.preferences?.language);
+      return true;
+    } catch {
+      return false;
     }
   };
 
@@ -444,7 +473,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       // Ensure the latest LLM state and selected persona slug land in the payload.
       values.llm = llmValue;
       await withTimeout(
-        configApi.completeOnboarding(values),
+        configApi.completeOnboarding({
+          language: values.preferences.language,
+          llm: values.llm,
+        }),
         ONBOARDING_SAVE_TIMEOUT_MS,
         t('messages.saveTimedOut'),
       );
@@ -472,16 +504,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         toast.warning(t('messages.runtimeStartingSlow'));
       }
 
-      localStorage.removeItem(STORAGE_KEY);
-      if (values.preferences.language) {
-        localStorage.setItem('magi_language', values.preferences.language);
-      }
-      if (values.preferences.language !== initialConfig.preferences.language) {
-        window.location.href = '/';
+      enterAppAfterCompletion(values.preferences.language);
+    } catch (error: any) {
+      if (await recoverCompletedOnboarding()) {
         return;
       }
-      navigate('/');
-    } catch (error: any) {
       toast.error(error?.message || t('messages.saveFailed'));
     } finally {
       finishInFlightRef.current = false;

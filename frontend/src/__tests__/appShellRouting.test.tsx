@@ -1,6 +1,11 @@
 import { Outlet } from 'react-router-dom';
 import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { getOnboardingStatusMock } = vi.hoisted(() => ({
+  getOnboardingStatusMock: vi.fn(),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -14,6 +19,7 @@ vi.mock('../api/modules/config', async () => {
     ...actual,
     configApi: {
       ...actual.configApi,
+      getOnboardingStatus: getOnboardingStatusMock,
       get: vi.fn().mockResolvedValue({
         data: {
           preferences: {
@@ -67,6 +73,8 @@ vi.mock('../pages/Personality', () => ({
 
 describe('app shell routing', () => {
   beforeEach(() => {
+    getOnboardingStatusMock.mockReset();
+    getOnboardingStatusMock.mockResolvedValue({ data: { completed: true } });
     window.history.replaceState({}, '', '/chat');
   });
 
@@ -103,5 +111,51 @@ describe('app shell routing', () => {
 
     expect(await screen.findByTestId('personality-page')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-page')).not.toBeInTheDocument();
+  });
+
+  it('stops on a retryable error when onboarding status cannot be read', async () => {
+    const user = userEvent.setup();
+    getOnboardingStatusMock
+      .mockRejectedValueOnce(new Error('backend unavailable'))
+      .mockResolvedValueOnce({ data: { completed: true } });
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+
+    await act(async () => {
+      render(<AppRouter />);
+    });
+
+    expect(await screen.findByText('shell.onboardingStatusErrorTitle')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'shell.retryOnboardingStatus' }));
+
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+  });
+
+  it('routes incomplete installations to onboarding', async () => {
+    getOnboardingStatusMock.mockResolvedValue({ data: { completed: false } });
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+
+    await act(async () => {
+      render(<AppRouter />);
+    });
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('main-layout')).not.toBeInTheDocument();
+  });
+
+  it('redirects completed installations away from onboarding', async () => {
+    window.history.replaceState({}, '', '/onboarding');
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+
+    await act(async () => {
+      render(<AppRouter />);
+    });
+
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
   });
 });

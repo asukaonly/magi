@@ -615,6 +615,15 @@ export interface OnboardingState {
   completedSteps: OnboardingStep[];
 }
 
+export interface OnboardingConfigUpdate {
+  language: LanguageCode;
+  llm: LLMConfig;
+}
+
+export interface OnboardingStatus {
+  completed: boolean;
+}
+
 export const DEFAULT_LLM_CAPABILITIES: LLMCapabilities = {
   vision: false,
   image_output: false,
@@ -861,8 +870,12 @@ export const configApi = {
     unwrapConfigResponse(await api.post<DiscoverLLMProviderModelsResponse>('/llm/providers/discover-models', payload)),
   testLLMProviderConnection: async (payload: TestLLMProviderConnectionRequest): Promise<TestLLMProviderConnectionResponse> =>
     unwrapConfigResponse(await api.post<TestLLMProviderConnectionResponse>('/llm/providers/test', payload)),
+  getOnboardingStatus: () => api.get<OnboardingStatus>('/config/onboarding-status'),
   getOnboardingTemplate: () => api.get<OnboardingTemplateData>('/config/onboarding-template'),
-  completeOnboarding: (config: SystemConfig) => api.post<SystemConfig>('/config/onboarding-complete', config),
+  updateOnboardingDraft: (config: OnboardingConfigUpdate) =>
+    api.put<SystemConfig>('/config/onboarding-draft', config),
+  completeOnboarding: (config: OnboardingConfigUpdate) =>
+    api.post<SystemConfig>('/config/onboarding-complete', config),
   testTelegramConnection: (payload: { bot_token: string; proxy?: string }) =>
     api.post<{ success: boolean; message: string; bot_username?: string; bot_id?: number }>(
       '/config/channels/telegram/test',

@@ -203,6 +203,10 @@
       "llm_selection_image_generation_disabled": "LLM selection '{selection_id}' references provider '{provider_id}' with image generation disabled"
     },
     "onboarding": {
+      "already_completed": "Onboarding has already been completed",
+      "draft_saved": "Onboarding draft saved",
+      "status_loaded": "Onboarding status loaded",
+      "status_read_failed": "Failed to read onboarding status",
       "template_loaded": "Onboarding template loaded",
       "save_failed": "Failed to save onboarding configuration",
       "saved": "Onboarding configuration saved"

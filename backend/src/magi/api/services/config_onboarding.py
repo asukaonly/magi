@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import yaml
+
 from ...core.logger import get_logger
 from ...i18n import language_family
 from ...utils.packaged_paths import get_backend_root
@@ -34,6 +36,29 @@ QUICK_MODE_PERSONALITY_SEEDS: dict[str, dict[str, str]] = {
         "en": "nova",
     },
 }
+
+
+def read_onboarding_completed(config_path: Path) -> bool:
+    """Read onboarding completion without masking persisted config errors."""
+    if not config_path.exists():
+        return False
+
+    with config_path.open("r", encoding="utf-8") as file:
+        payload = yaml.safe_load(file)
+
+    if payload is None:
+        raise ValueError("Persisted configuration is empty")
+    if not isinstance(payload, dict):
+        raise ValueError("Persisted configuration must be a mapping")
+
+    preferences = payload.get("preferences", {})
+    if not isinstance(preferences, dict):
+        raise ValueError("Persisted configuration preferences must be a mapping")
+
+    completed = preferences.get("onboarding_completed", False)
+    if not isinstance(completed, bool):
+        raise ValueError("Persisted onboarding completion state must be a boolean")
+    return completed
 
 
 def build_onboarding_template() -> SystemConfigModel:
@@ -140,5 +165,6 @@ __all__ = [
     "quick_mode_personality_seed_slug",
     "quick_mode_personality_locale_candidates",
     "quick_mode_personality_sort_key",
+    "read_onboarding_completed",
     "resolve_personality_language_code",
 ]

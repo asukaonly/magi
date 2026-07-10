@@ -1,7 +1,9 @@
 {
   "page": {
     "title": "Getting Started",
-    "loadConfigFailed": "Failed to load configuration",
+    "loadConfigFailed": "Failed to load setup configuration",
+    "loadConfigFailedDescription": "Magi stopped here to protect your existing settings. Check that the service is available, then try again.",
+    "retryLoadConfig": "Try again",
     "badge": "Takes about 2 minutes"
   },
   "steps": {

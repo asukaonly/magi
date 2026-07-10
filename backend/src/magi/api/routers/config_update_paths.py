@@ -256,6 +256,23 @@ def build_full_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
     return updates
 
 
+def build_onboarding_update_paths(
+    config: SystemConfigModel,
+    *,
+    complete: bool,
+) -> Dict[str, Any]:
+    """Build the only configuration paths owned by onboarding."""
+    apply_llm_registry_defaults(config, get_llm_provider_registry())
+    _validate_llm_selections(config)
+
+    updates = _llm_update_paths(config)
+    updates["preferences.language"] = core_i18n.app_language_code(config.preferences.language)
+    if complete:
+        updates["preferences.onboarding_completed"] = True
+        updates["preferences.product_tour_completed"] = True
+    return updates
+
+
 def _validate_llm_selections(config: SystemConfigModel) -> None:
     for selection_id, selection in config.llm.selections.items():
         if not str(selection.provider_id or "").strip():
@@ -471,6 +488,7 @@ def _tool_provider_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
 __all__ = [
     "apply_llm_registry_defaults",
     "build_full_update_paths",
+    "build_onboarding_update_paths",
     "normalize_masked_config_secrets",
     "prune_sparse_value",
     "selection_limits_from_registry_limits",

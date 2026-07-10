@@ -99,7 +99,9 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/test": {"POST"},
         "/embedding-preflight": {"POST"},
         "/channels/telegram/test": {"POST"},
+        "/onboarding-status": {"GET"},
         "/onboarding-template": {"GET"},
+        "/onboarding-draft": {"PUT"},
         "/onboarding-complete": {"POST"},
     },
     "llm": {

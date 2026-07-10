@@ -93,6 +93,9 @@
     "fallbackTitle": "Magi AI Framework"
   },
   "shell": {
+    "onboardingStatusErrorTitle": "暂时无法确认初始化状态",
+    "onboardingStatusErrorDescription": "你的设置没有被改动。为避免误入初始化引导，请检查服务是否正常后重试。",
+    "retryOnboardingStatus": "重新检查",
     "headerTitle": "AI 对话工作台",
     "desktopMode": "桌面模式",
     "clientMode": "Client Mode",

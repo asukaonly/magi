@@ -2,14 +2,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { localStorageMock } = vi.hoisted(() => {
+const { localStorageMock, navigateMock } = vi.hoisted(() => {
   const mock = {
     getItem: vi.fn((_key: string): string | null => null),
     setItem: vi.fn((_key: string, _value: string) => undefined),
     removeItem: vi.fn((_key: string) => undefined),
   };
   vi.stubGlobal('localStorage', mock);
-  return { localStorageMock: mock };
+  return { localStorageMock: mock, navigateMock: vi.fn() };
 });
 
 import { apiClient } from '@/api/client';
@@ -37,7 +37,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('react-router-dom', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigateMock,
 }));
 
 // Mock the streaming preview so persona chat does not hit the network.
@@ -115,6 +115,16 @@ describe('OnboardingFlow (linear 5-step)', () => {
       message: 'ok',
       data: DEFAULT_SYSTEM_CONFIG,
     } as any);
+    vi.spyOn(configApi, 'updateOnboardingDraft').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+    vi.spyOn(configApi, 'getOnboardingStatus').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { completed: false },
+    } as any);
     vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({
       success: true,
       data: stubSeedPreviews(),
@@ -180,6 +190,7 @@ describe('OnboardingFlow (linear 5-step)', () => {
     localStorageMock.getItem.mockReturnValue(null);
     localStorageMock.setItem.mockClear();
     localStorageMock.removeItem.mockClear();
+    navigateMock.mockReset();
     usePluginInstallPanelStore.getState().closePanel();
   });
 
@@ -227,10 +238,12 @@ describe('OnboardingFlow (linear 5-step)', () => {
     await user.click(screen.getByRole('button', { name: /Ember/i }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
 
-    await waitFor(() => expect(configApi.update).toHaveBeenCalledTimes(1));
-    const earlyPayload = vi.mocked(configApi.update).mock.calls[0][0] as any;
-    expect(earlyPayload.preferences.onboarding_completed).toBe(false);
+    await waitFor(() => expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1));
+    const earlyPayload = vi.mocked(configApi.updateOnboardingDraft).mock.calls[0][0] as any;
+    expect(Object.keys(earlyPayload).sort()).toEqual(['language', 'llm']);
+    expect(earlyPayload.language).toBe('zh');
     expect(earlyPayload.llm.providers.openai.enabled).toBe(true);
+    expect(configApi.update).not.toHaveBeenCalled();
 
     // Step 3: First context — this is a real step now, not a footer on completion.
     expect(await screen.findByText('firstContext.title')).toBeInTheDocument();
@@ -246,13 +259,43 @@ describe('OnboardingFlow (linear 5-step)', () => {
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     const payload = completeOnboarding.mock.calls[0][0] as any;
-    expect(payload.preferences.onboarding_completed).toBe(true);
-    expect(payload.preferences.product_tour_completed).toBe(true);
+    expect(Object.keys(payload).sort()).toEqual(['language', 'llm']);
+    expect(payload.language).toBe('zh');
     expect(payload.llm.providers.openai.enabled).toBe(true);
     expect(payload.llm.providers.openai.api_key).toBe('sk-test');
 
     // No mode references anywhere across the rendered flow.
     expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+  });
+
+  it('enters the app when completion was saved but the response was lost', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(configApi, 'completeOnboarding').mockRejectedValue(new Error('response lost'));
+    vi.mocked(configApi.getOnboardingStatus).mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { completed: true },
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('firstContext.title');
+    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/'));
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith('magi_onboarding_state');
   });
 
   it('keeps the first-context step open after a selected source finishes connecting', async () => {

@@ -505,6 +505,40 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/config/onboarding-draft": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        /** Update Onboarding Draft */
+        readonly put: operations["update_onboarding_draft_api_config_onboarding_draft_put"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/config/onboarding-status": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /** Get Onboarding Status */
+        readonly get: operations["get_onboarding_status_api_config_onboarding_status_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/config/onboarding-template": {
         readonly parameters: {
             readonly query?: never;
@@ -6288,6 +6322,30 @@ export interface components {
             /** Title */
             readonly title: string;
         };
+        /** OnboardingConfigUpdateRequest */
+        readonly OnboardingConfigUpdateRequest: {
+            /**
+             * Language
+             * @description Onboarding interface language.
+             * @enum {string}
+             */
+            readonly language: "zh" | "en";
+            /** @description LLM configuration selected during onboarding. */
+            readonly llm: components["schemas"]["LLMConfigModel"];
+        };
+        /** OnboardingStatusDataModel */
+        readonly OnboardingStatusDataModel: {
+            /** Completed */
+            readonly completed: boolean;
+        };
+        /** OnboardingStatusResponse */
+        readonly OnboardingStatusResponse: {
+            readonly data: components["schemas"]["OnboardingStatusDataModel"];
+            /** Message */
+            readonly message: string;
+            /** Success */
+            readonly success: boolean;
+        };
         /** OnboardingTemplateDataModel */
         readonly OnboardingTemplateDataModel: {
             readonly config: components["schemas"]["SystemConfigModel-Output"];
@@ -9238,7 +9296,7 @@ export interface operations {
         };
         readonly requestBody: {
             readonly content: {
-                readonly "application/json": components["schemas"]["SystemConfigModel-Input"];
+                readonly "application/json": components["schemas"]["OnboardingConfigUpdateRequest"];
             };
         };
         readonly responses: {
@@ -9258,6 +9316,59 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly update_onboarding_draft_api_config_onboarding_draft_put: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["OnboardingConfigUpdateRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_onboarding_status_api_config_onboarding_status_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["OnboardingStatusResponse"];
                 };
             };
         };

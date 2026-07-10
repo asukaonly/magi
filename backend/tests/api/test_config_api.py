@@ -1083,10 +1083,13 @@ def test_onboarding_template_includes_model_capability_defaults():
     assert template.llm.selections["core"].limits.max_output_tokens is None
 
 
-def test_onboarding_template_endpoint_returns_config_only():
+def test_onboarding_template_endpoint_returns_config_only(
+    monkeypatch: pytest.MonkeyPatch,
+):
     app = FastAPI()
     app.include_router(config_router, prefix="/config")
     client = TestClient(app)
+    monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
 
     response = client.get("/config/onboarding-template")
 
@@ -1630,8 +1633,12 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
         _fake_enqueue_runtime_llm_refresh_command,
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
+    monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
 
-    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+    response = client.post(
+        "/config/onboarding-complete",
+        json={"language": "zh", "llm": payload.llm.model_dump(mode="json")},
+    )
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
@@ -1658,7 +1665,10 @@ def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
     def _require_agent_runtime():
         raise RuntimeError("Runtime is not initialized")
 
-    monkeypatch.setattr("magi.api.routers.config._build_update_paths", lambda _: {})
+    monkeypatch.setattr(
+        "magi.api.routers.config._build_onboarding_update_paths",
+        lambda _, complete: {},
+    )
     monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
     monkeypatch.setattr(
@@ -1674,102 +1684,15 @@ def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(
         _slow_initialize_agent_runtime,
     )
     monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", _require_agent_runtime)
+    monkeypatch.setattr("magi.api.routers.config._read_onboarding_completed", lambda: False)
 
-    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
+    response = client.post(
+        "/config/onboarding-complete",
+        json={"language": "zh", "llm": payload.llm.model_dump(mode="json")},
+    )
 
     assert response.status_code == 200
     assert started is True
-
-
-def test_complete_onboarding_quick_mode_uses_locale_seed_personality(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
-
-    payload = SystemConfigModel()
-    payload.preferences.user_mode = "quick"
-    payload.preferences.language = "zh"
-    payload.personality.name = "Custom Persona"
-
-    captured: dict[str, str] = {}
-
-    def _capture_update_paths(config: SystemConfigModel) -> dict:
-        captured["name"] = config.personality.name
-        return {}
-
-    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
-    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
-
-    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
-
-    assert response.status_code == 200
-    assert captured["name"] == "Echo-01"
-
-
-def test_complete_onboarding_quick_mode_uses_english_seed_without_zh_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
-
-    payload = SystemConfigModel()
-    payload.preferences.user_mode = "quick"
-    payload.preferences.language = "en"
-    payload.personality.name = "Custom Persona"
-
-    captured: dict[str, str] = {}
-
-    def _capture_update_paths(config: SystemConfigModel) -> dict:
-        captured["name"] = config.personality.name
-        return {}
-
-    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
-    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
-
-    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
-
-    assert response.status_code == 200
-    assert captured["name"] == "Nova"
-
-
-def test_complete_onboarding_quick_mode_uses_scenario_seed_personality(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    app = FastAPI()
-    app.include_router(config_router, prefix="/config")
-    client = TestClient(app)
-
-    payload = SystemConfigModel()
-    payload.preferences.user_mode = "quick"
-    payload.preferences.language = "en"
-    payload.preferences.scenario = "knowledge_partner"
-    payload.personality.name = "Custom Persona"
-
-    captured: dict[str, str] = {}
-
-    def _capture_update_paths(config: SystemConfigModel) -> dict:
-        captured["name"] = config.personality.name
-        return {}
-
-    monkeypatch.setattr("magi.api.routers.config._build_update_paths", _capture_update_paths)
-    monkeypatch.setattr("magi.api.routers.config.save_config", lambda _: True)
-    monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
-    monkeypatch.setattr("magi.api.routers.config.refresh_runtime_llm_config", lambda _: None)
-    monkeypatch.setattr("magi.core.runtime_bindings.require_agent_runtime", lambda: object())
-
-    response = client.post("/config/onboarding-complete", json=payload.model_dump(mode="json"))
-
-    assert response.status_code == 200
-    assert captured["name"] == "Halberd"
 
 
 def test_user_preferences_has_product_tour_completed_default_false():

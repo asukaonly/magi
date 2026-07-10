@@ -23,6 +23,7 @@ from ..services.config_onboarding import (
     quick_mode_personality_locale_candidates,
     quick_mode_personality_seed_slug,
     quick_mode_personality_sort_key,
+    read_onboarding_completed,
     resolve_personality_language_code,
 )
 from ..services.config_secrets import (
@@ -32,6 +33,7 @@ from ..services.config_secrets import (
 from ..services.llm_testing_service import get_llm_provider_registry as _load_llm_provider_registry
 from .config_update_paths import (
     build_full_update_paths as _build_full_update_paths,
+    build_onboarding_update_paths as _build_onboarding_update_paths,
     normalize_masked_config_secrets as _normalize_masked_config_secrets,
 )
 from .config_response_builders import (
@@ -46,6 +48,9 @@ from .config_schemas import (
     ConfigResponse,
     FullPersonalityConfigModel,
     NetworkProxyConfigModel,
+    OnboardingConfigUpdateRequest,
+    OnboardingStatusDataModel,
+    OnboardingStatusResponse,
     OnboardingTemplateDataModel,
     OnboardingTemplateResponse,
     PersonalitySettingsModel,
@@ -60,6 +65,7 @@ logger = get_logger(__name__)
 config_router = APIRouter()
 ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS = 8.0
 ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS = 3.0
+_ONBOARDING_WRITE_LOCK = asyncio.Lock()
 
 
 def _read_raw_yaml() -> Dict[str, Any]:
@@ -72,6 +78,37 @@ def _read_raw_yaml() -> Dict[str, Any]:
     except Exception:
         logger.exception("Failed to read raw config file")
         return {}
+
+
+def _read_onboarding_completed() -> bool:
+    return read_onboarding_completed(get_config_file_path())
+
+
+def _get_onboarding_completed_or_error(request: Request) -> bool:
+    try:
+        return _read_onboarding_completed()
+    except Exception as exc:
+        logger.exception("Failed to read persisted onboarding status")
+        raise HTTPException(
+            status_code=500,
+            detail=_t(
+                request,
+                "config.onboarding.status_read_failed",
+                "Failed to read onboarding status",
+            ),
+        ) from exc
+
+
+def _ensure_onboarding_incomplete(request: Request) -> None:
+    if _get_onboarding_completed_or_error(request):
+        raise HTTPException(
+            status_code=409,
+            detail=_t(
+                request,
+                "config.onboarding.already_completed",
+                "Onboarding has already been completed",
+            ),
+        )
 
 
 def _request_language(request: Request) -> str | None:
@@ -291,14 +328,16 @@ async def get_config_endpoint(request: Request):
 @config_router.put("/", response_model=ConfigResponse)
 async def update_config(request: Request, config: SystemConfigModel):
     try:
-        with core_i18n.language_context(_request_language(request)):
-            updates = _build_update_paths(config)
-        if not save_config(updates):
-            raise HTTPException(
-                status_code=500,
-                detail=_t(request, "config.errors.save_failed", "Failed to save config"),
-            )
-        refreshed_config = reload_config()
+        async with _ONBOARDING_WRITE_LOCK:
+            config.preferences.onboarding_completed = _get_onboarding_completed_or_error(request)
+            with core_i18n.language_context(_request_language(request)):
+                updates = _build_update_paths(config)
+            if not save_config(updates):
+                raise HTTPException(
+                    status_code=500,
+                    detail=_t(request, "config.errors.save_failed", "Failed to save config"),
+                )
+            refreshed_config = reload_config()
         await _refresh_or_initialize_runtime_after_config_update(
             refreshed_config,
             reason="config_updated",
@@ -377,6 +416,7 @@ async def test_config(request: Request, config: SystemConfigModel):
 
 @config_router.get("/onboarding-template", response_model=OnboardingTemplateResponse)
 async def get_onboarding_template(request: Request):
+    _ensure_onboarding_incomplete(request)
     return OnboardingTemplateResponse(
         success=True,
         message=_t(request, "config.onboarding.template_loaded", "Onboarding template loaded"),
@@ -384,6 +424,57 @@ async def get_onboarding_template(request: Request):
             config=_build_onboarding_template(),
         ),
     )
+
+
+@config_router.get("/onboarding-status", response_model=OnboardingStatusResponse)
+async def get_onboarding_status(request: Request):
+    completed = _get_onboarding_completed_or_error(request)
+    return OnboardingStatusResponse(
+        success=True,
+        message=_t(request, "config.onboarding.status_loaded", "Onboarding status loaded"),
+        data=OnboardingStatusDataModel(completed=completed),
+    )
+
+
+@config_router.put("/onboarding-draft", response_model=ConfigResponse)
+async def update_onboarding_draft(
+    request: Request,
+    payload: OnboardingConfigUpdateRequest,
+):
+    try:
+        draft = SystemConfigModel(llm=payload.llm)
+        draft.preferences.language = payload.language
+        with core_i18n.language_context(_request_language(request)):
+            normalized = _normalize_masked_secrets(draft)
+            updates = _build_onboarding_update_paths(normalized, complete=False)
+
+        async with _ONBOARDING_WRITE_LOCK:
+            _ensure_onboarding_incomplete(request)
+            if not save_config(updates):
+                raise HTTPException(
+                    status_code=500,
+                    detail=_t(
+                        request,
+                        "config.onboarding.save_failed",
+                        "Failed to save onboarding configuration",
+                    ),
+                )
+            refreshed_config = reload_config()
+
+        await _refresh_or_initialize_runtime_after_config_update(
+            refreshed_config,
+            reason="onboarding_draft_updated",
+        )
+        return ConfigResponse(
+            success=True,
+            message=_t(request, "config.onboarding.draft_saved", "Onboarding draft saved"),
+            data=_build_system_config(),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to update onboarding draft")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @config_router.post("/channels/telegram/test", response_model=TestTelegramConnectionResponse)
@@ -446,34 +537,29 @@ async def test_telegram_connection(request: Request, payload: TestTelegramConnec
 
 
 @config_router.post("/onboarding-complete", response_model=ConfigResponse)
-async def complete_onboarding(request: Request, config: SystemConfigModel):
+async def complete_onboarding(
+    request: Request,
+    payload: OnboardingConfigUpdateRequest,
+):
     try:
-        if config.preferences.user_mode == "quick":
-            quick_mode_personality = _load_quick_mode_personality(
-                config.preferences.language,
-                config.preferences.scenario,
-            )
-            if quick_mode_personality is not None:
-                config.personality = quick_mode_personality
-            else:
-                logger.warning(
-                    "No quick mode personality preset was found for language '%s'; using submitted personality payload",
-                    config.preferences.language,
-                )
-
-        config.preferences.onboarding_completed = True
+        config = SystemConfigModel(llm=payload.llm)
+        config.preferences.language = payload.language
         with core_i18n.language_context(_request_language(request)):
-            updates = _build_update_paths(config)
-        if not save_config(updates):
-            raise HTTPException(
-                status_code=500,
-                detail=_t(
-                    request,
-                    "config.onboarding.save_failed",
-                    "Failed to save onboarding configuration",
-                ),
-            )
-        refreshed_config = reload_config()
+            normalized = _normalize_masked_secrets(config)
+            updates = _build_onboarding_update_paths(normalized, complete=True)
+
+        async with _ONBOARDING_WRITE_LOCK:
+            _ensure_onboarding_incomplete(request)
+            if not save_config(updates):
+                raise HTTPException(
+                    status_code=500,
+                    detail=_t(
+                        request,
+                        "config.onboarding.save_failed",
+                        "Failed to save onboarding configuration",
+                    ),
+                )
+            refreshed_config = reload_config()
 
         await _refresh_or_initialize_runtime_after_config_update(
             refreshed_config,

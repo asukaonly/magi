@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...config.models import (
     LLMCapabilitiesSettings,
@@ -247,6 +247,13 @@ class UserPreferencesModel(BaseModel):
     allow_ask_in_background: bool = Field(default=False)
 
 
+class OnboardingConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    language: Literal["zh", "en"] = Field(description="Onboarding interface language.")
+    llm: LLMConfigModel = Field(description="LLM configuration selected during onboarding.")
+
+
 class NetworkProxyConfigModel(BaseModel):
     enabled: bool = Field(default=False)
     proxy_type: str = Field(default="http")
@@ -363,6 +370,16 @@ class OnboardingTemplateResponse(BaseModel):
     success: bool
     message: str
     data: Optional[OnboardingTemplateDataModel] = None
+
+
+class OnboardingStatusDataModel(BaseModel):
+    completed: bool
+
+
+class OnboardingStatusResponse(BaseModel):
+    success: bool
+    message: str
+    data: OnboardingStatusDataModel
 
 
 class TestTelegramConnectionRequest(BaseModel):

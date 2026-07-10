@@ -5,6 +5,7 @@ import React from 'react';
 import { createBrowserRouter, Navigate, RouterProvider, useRouteError } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import MainLayout from '../components/layout/MainLayout';
+import OnboardingLoadError from '../components/onboarding/OnboardingLoadError';
 import { configApi } from '../api/modules/config';
 import { LoadingSpinner } from '../components/ui/loading-spinner';
 
@@ -86,29 +87,60 @@ const LoadingFallbackInner = () => {
   );
 };
 
-const OnboardingGuard: React.FC<{ children: React.ReactElement }> = ({ children }) => {
-  const [loading, setLoading] = React.useState(true);
-  const [completed, setCompleted] = React.useState(false);
+type OnboardingStatusState = 'loading' | 'complete' | 'incomplete' | 'error';
 
-  React.useEffect(() => {
-    const check = async () => {
-      try {
-        const response = await configApi.get();
-        setCompleted(!!response.data?.preferences?.onboarding_completed);
-      } catch {
-        setCompleted(false);
-      } finally {
-        setLoading(false);
+const OnboardingGuard: React.FC<{
+  children: React.ReactElement;
+  requireCompleted: boolean;
+}> = ({ children, requireCompleted }) => {
+  const { t } = useTranslation('app');
+  const [status, setStatus] = React.useState<OnboardingStatusState>('loading');
+  const requestIdRef = React.useRef(0);
+
+  const check = React.useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setStatus('loading');
+    try {
+      const response = await configApi.getOnboardingStatus();
+      const completed = response.data?.completed;
+      if (typeof completed !== 'boolean') {
+        throw new Error('Onboarding status response is missing completion state');
       }
-    };
-    void check();
+      if (requestId === requestIdRef.current) {
+        setStatus(completed ? 'complete' : 'incomplete');
+      }
+    } catch {
+      if (requestId === requestIdRef.current) {
+        setStatus('error');
+      }
+    }
   }, []);
 
-  if (loading) {
+  React.useEffect(() => {
+    void check();
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [check]);
+
+  if (status === 'loading') {
     return <LoadingFallback />;
   }
-  if (!completed) {
+  if (status === 'error') {
+    return (
+      <OnboardingLoadError
+        title={t('shell.onboardingStatusErrorTitle')}
+        description={t('shell.onboardingStatusErrorDescription')}
+        retryLabel={t('shell.retryOnboardingStatus')}
+        onRetry={() => void check()}
+      />
+    );
+  }
+  if (requireCompleted && status === 'incomplete') {
     return <Navigate to="/onboarding" replace />;
+  }
+  if (!requireCompleted && status === 'complete') {
+    return <Navigate to="/" replace />;
   }
   return children;
 };
@@ -137,16 +169,18 @@ const router = createBrowserRouter([
     path: '/onboarding',
     errorElement: <RouteErrorFallback />,
     element: (
-      <React.Suspense fallback={<LoadingFallback />}>
-        <OnboardingPage />
-      </React.Suspense>
+      <OnboardingGuard requireCompleted={false}>
+        <React.Suspense fallback={<LoadingFallback />}>
+          <OnboardingPage />
+        </React.Suspense>
+      </OnboardingGuard>
     ),
   },
   {
     path: '/',
     errorElement: <RouteErrorFallback />,
     element: (
-      <OnboardingGuard>
+      <OnboardingGuard requireCompleted>
         <MainLayout />
       </OnboardingGuard>
     ),

@@ -1,7 +1,9 @@
 {
   "page": {
     "title": "首次使用引导",
-    "loadConfigFailed": "加载配置失败",
+    "loadConfigFailed": "加载初始化配置失败",
+    "loadConfigFailedDescription": "为避免覆盖已有设置，Magi 已停止继续。请检查服务是否正常后重试。",
+    "retryLoadConfig": "重试",
     "badge": "约 2 分钟完成配置"
   },
   "steps": {
