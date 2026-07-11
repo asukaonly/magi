@@ -1,6 +1,10 @@
 import { GitMerge, Layers } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import type { L2EpisodeEventPreview, L2EpisodeWithSummary } from '@/api/modules/memory';
+import type {
+  ExperienceDraftChapter,
+  L2EpisodeEventPreview,
+  L2EpisodeWithSummary,
+} from '@/api/modules/memory';
 import { formatEpisodeTimeRange } from '../episodes/EpisodeRow';
 import {
   formatEventTime,
@@ -12,11 +16,41 @@ import {
 export function SourceEpisodeList({
   episodes,
   eventsByEpisode,
+  chapters = [],
 }: {
   episodes: L2EpisodeWithSummary[];
   eventsByEpisode: Map<string, L2EpisodeEventPreview[]>;
+  chapters?: ExperienceDraftChapter[];
 }) {
   const { t, i18n } = useTranslation('app');
+  if (chapters.length > 0) {
+    return (
+      <section data-testid="episode-event-stream">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
+          <Layers className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+          {t('memory.episodes.sections.sourceEpisodes')}
+        </h3>
+        <div data-testid="experience-source-episodes" className="mt-3 grid gap-3">
+          {chapters.map((chapter) => {
+            const chapterEvents = chapter.episode_ids.flatMap((episodeId) => eventsByEpisode.get(episodeId) ?? []);
+            const range = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
+            return (
+              <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.74)] px-5 py-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h4 className="break-words text-base font-semibold leading-6 text-[hsl(var(--memory-title))]">{chapter.title}</h4>
+                    {chapter.summary ? <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{chapter.summary}</p> : null}
+                  </div>
+                  <div className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{range}</div>
+                </div>
+                <SourceEpisodeEventTrail events={chapterEvents} />
+              </article>
+            );
+          })}
+        </div>
+      </section>
+    );
+  }
   return (
     <section data-testid="episode-event-stream">
       <h3 className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">

@@ -499,6 +499,17 @@ Experience promotion is a second-stage process over active episodes:
   endpoint and the periodic L2 consolidation job, so the review page can refresh
   from the same evidence pipeline instead of relying on frontend-only filters.
 
+User-guided creation follows the same evidence boundary without exposing the
+episode substrate as a flat picker. The user starts with a natural-language
+description and optional time range. The first retrieval pass uses that request
+unchanged against L1, resolves matching events to active episode evidence, and
+lets a validated selector include, exclude, or leave candidate evidence as
+possibly related. The result is saved as a resumable draft, not an active
+experience. Draft titles, recap text, time bounds, and chapter organization are
+editable and autosaved. Only explicit user confirmation creates the active L2
+experience and its durable chapter structure; generated text cannot introduce
+evidence identifiers that were not retrieved from L1/L2.
+
 **Semantic Memory** stores durable entities, relations, and preferences:
 
 - Knowledge graph edges carry `fact_kind` (`explicit_fact`, `public_topology`, `interaction_evidence`, `stable_preference`) for admission policy enforcement

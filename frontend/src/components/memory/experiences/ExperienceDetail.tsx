@@ -73,6 +73,7 @@ export function ExperienceDetail({
   const detail = experience as L2ExperienceReviewDetail;
   const events = Array.isArray(detail.events) ? detail.events : [];
   const sourceEpisodes = Array.isArray(detail.source_episodes) ? detail.source_episodes : [];
+  const chapters = Array.isArray(detail.chapters) ? detail.chapters : [];
   const description = getExperienceDescription(experience);
   const range = formatEpisodeTimeRange(experience.time_start, experience.time_end, i18n.language);
   const tags = [
@@ -333,7 +334,7 @@ export function ExperienceDetail({
           />
         ) : null}
         {detailLoading ? <div className={DETAIL_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
-        <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} />
+        <SourceEpisodeList episodes={sourceEpisodes} eventsByEpisode={eventsByEpisode} chapters={chapters} />
       </main>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>

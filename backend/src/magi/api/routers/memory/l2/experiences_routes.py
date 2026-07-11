@@ -18,6 +18,8 @@ from magi.api.services.l2_episode_review_read_model import (
     serialize_episode_event_previews,
 )
 from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
+from magi.memory.l2.experiences.draft_organizer import organize_experience_draft
 from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
 from magi.memory.l3.episode_backwrite import backwrite_experience_review
 
@@ -25,7 +27,12 @@ from ..asset_uploads import store_uploaded_image_asset
 from ..dependencies import _resolve_manual_entry_asset_store, _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
-from ..schemas import ExperienceAnnotationRequest, ExperienceSeedCreateRequest
+from ..schemas import (
+    ExperienceAnnotationRequest,
+    ExperienceDraftOrganizeRequest,
+    ExperienceDraftUpdateRequest,
+    ExperienceSeedCreateRequest,
+)
 
 
 def _clean_text(value: Any) -> str:
@@ -395,6 +402,94 @@ async def _build_promoted_experience_response(
         experience=experience,
         members=members,
     )
+
+
+@memory_router.post("/l2/experience-drafts/organize")
+async def organize_experience_draft_route(
+    body: ExperienceDraftOrganizeRequest,
+) -> dict[str, Any]:
+    """Organize a natural-language request into a persisted draft."""
+    unified_memory = _require_l2_memory()
+    if not unified_memory.l1:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.l1_store_uninitialized", "L1 store not initialized"),
+        )
+    return await organize_experience_draft(
+        unified_memory,
+        query_text=body.query_text,
+        time_start=body.time_start,
+        time_end=body.time_end,
+    )
+
+
+@memory_router.get("/l2/experience-drafts")
+async def list_experience_drafts_route(
+    draft_status: str = Query(default="editing", alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> dict[str, Any]:
+    """List resumable experience drafts."""
+    unified_memory = _require_l2_memory()
+    items = await unified_memory.l2.list_experience_drafts(
+        status=draft_status,
+        limit=limit,
+        offset=offset,
+    )
+    return {"items": items, "total": len(items), "limit": limit, "offset": offset}
+
+
+async def _get_experience_draft_or_404(unified_memory: Any, draft_id: str) -> dict[str, Any]:
+    draft = await unified_memory.l2.get_experience_draft(draft_id=draft_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_draft_not_found", "Experience draft not found"),
+        )
+    return draft
+
+
+@memory_router.get("/l2/experience-drafts/{draft_id}")
+async def get_experience_draft_route(draft_id: str) -> dict[str, Any]:
+    """Return one experience draft."""
+    return await _get_experience_draft_or_404(_require_l2_memory(), draft_id)
+
+
+@memory_router.patch("/l2/experience-drafts/{draft_id}")
+async def update_experience_draft_route(
+    draft_id: str,
+    body: ExperienceDraftUpdateRequest,
+) -> dict[str, Any]:
+    """Autosave user edits to an experience draft."""
+    unified_memory = _require_l2_memory()
+    await _get_experience_draft_or_404(unified_memory, draft_id)
+    updates = body.model_dump(exclude_unset=True)
+    if updates:
+        await unified_memory.l2.update_experience_draft(draft_id=draft_id, **updates)
+    return await _get_experience_draft_or_404(unified_memory, draft_id)
+
+
+@memory_router.post("/l2/experience-drafts/{draft_id}/create")
+async def create_experience_from_draft_route(draft_id: str) -> dict[str, Any]:
+    """Create an active experience from the user-approved draft."""
+    unified_memory = _require_l2_memory()
+    await _get_experience_draft_or_404(unified_memory, draft_id)
+    try:
+        experience_id = await create_experience_from_draft(
+            unified_memory.l2,
+            draft_id=draft_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    experience = await unified_memory.l2.get_experience(experience_id=experience_id)
+    return {
+        "draft_id": draft_id,
+        "experience_id": experience_id,
+        "experience": experience,
+    }
 
 
 @memory_router.post("/l2/experience-seeds")

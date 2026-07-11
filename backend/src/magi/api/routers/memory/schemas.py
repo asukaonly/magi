@@ -188,6 +188,22 @@ class ExperienceSeedCreateRequest(BaseModel):
         return normalized
 
 
+class ExperienceDraftOrganizeRequest(BaseModel):
+    query_text: str = Field(..., min_length=2, max_length=1000)
+    time_start: Optional[float] = None
+    time_end: Optional[float] = None
+
+
+class ExperienceDraftUpdateRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    one_sentence_review: Optional[str] = Field(default=None, max_length=2000)
+    time_start: Optional[float] = None
+    time_end: Optional[float] = None
+    chapters: Optional[List[Dict[str, Any]]] = None
+    possible_evidence: Optional[List[Dict[str, Any]]] = None
+    excluded_evidence: Optional[List[Dict[str, Any]]] = None
+
+
 class EpisodeEventIdsRequest(BaseModel):
     event_ids: List[str] = Field(..., min_length=1, max_length=100)
 

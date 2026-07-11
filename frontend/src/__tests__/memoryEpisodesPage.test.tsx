@@ -3,7 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-import { MemoryEpisodesPage, MemoryExperienceDetailPage } from '@/pages/memory-pages/MemoryEpisodesPage';
+import {
+  MemoryEpisodesPage,
+  MemoryExperienceDetailPage,
+  MemoryExperienceDraftPage,
+} from '@/pages/memory-pages/MemoryEpisodesPage';
 import { memoryApi } from '@/api/modules/memory';
 import type { L2ExperienceReviewDetail, L2ExperienceSeed, L2ExperienceWithReview } from '@/api/modules/memory';
 
@@ -35,13 +39,25 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.pending.actions.promote': 'Make experience',
     'memory.episodes.pending.actions.reject': 'Not one',
     'memory.episodes.create.title': 'New experience',
-    'memory.episodes.create.description': 'Choose source chapters to save as one experience.',
-    'memory.episodes.create.loading': 'Loading source chapters...',
-    'memory.episodes.create.empty': 'No source chapters available.',
+    'memory.episodes.create.description': 'Describe the experience you want Magi to help organize.',
+    'memory.episodes.create.promptLabel': 'What experience do you want to organize?',
+    'memory.episodes.create.promptPlaceholder': 'For example: May 1 to May 10, 2026 · Japan trip',
+    'memory.episodes.create.organizing': 'Finding the memories that belong together...',
+    'memory.episodes.create.organize': 'Help me organize',
     'memory.episodes.create.error': 'Could not create the experience.',
     'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
     'memory.episodes.create.sourceCount': '{{count}} source chapters',
     'memory.episodes.create.selectedCount': '{{count}} selected',
+    'memory.episodes.draft.title': 'Experience draft',
+    'memory.episodes.draft.autosaved': 'Saved',
+    'memory.episodes.draft.back': 'Back to experiences',
+    'memory.episodes.draft.recap': 'One-sentence recap',
+    'memory.episodes.draft.chapters': 'Chapters',
+    'memory.episodes.draft.possible': 'Possibly related',
+    'memory.episodes.draft.create': 'Create experience',
+    'memory.episodes.draft.chapterTitle': 'Chapter title',
+    'memory.episodes.draft.chapterSummary': 'Chapter summary',
+    'memory.episodes.draft.removeChapter': 'Remove chapter',
     'memory.episodes.searchLabel': 'Search experiences',
     'memory.episodes.searchPlaceholder': 'Search experiences, places, topics',
     'memory.episodes.filterPinned': 'Filter',
@@ -124,6 +140,11 @@ vi.mock('@/api/modules/memory', () => ({
     promoteExperienceSeed: vi.fn(),
     rejectExperienceSeed: vi.fn(),
     createExperienceSeed: vi.fn(),
+    listExperienceDrafts: vi.fn(),
+    organizeExperienceDraft: vi.fn(),
+    getExperienceDraft: vi.fn(),
+    updateExperienceDraft: vi.fn(),
+    createExperienceFromDraft: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
     uploadExperienceCover: vi.fn(),
@@ -366,6 +387,7 @@ const renderPage = () =>
     <MemoryRouter initialEntries={['/memory/episodes']}>
       <Routes>
         <Route path="/memory/episodes" element={<MemoryEpisodesPage />} />
+        <Route path="/memory/episode-drafts/:draftId" element={<MemoryExperienceDraftPage />} />
         <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
       </Routes>
     </MemoryRouter>
@@ -376,6 +398,16 @@ const renderDetailPage = (experienceId = 'exp-1') =>
     <MemoryRouter initialEntries={[`/memory/episodes/${experienceId}`]}>
       <Routes>
         <Route path="/memory/episodes" element={<MemoryEpisodesPage />} />
+        <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
+const renderDraftPage = (draftId = 'draft-japan') =>
+  render(
+    <MemoryRouter initialEntries={[`/memory/episode-drafts/${draftId}`]}>
+      <Routes>
+        <Route path="/memory/episode-drafts/:draftId" element={<MemoryExperienceDraftPage />} />
         <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
       </Routes>
     </MemoryRouter>
@@ -414,6 +446,40 @@ beforeEach(() => {
     seed_id: 'seed-manual',
     promoted_experience_id: 'exp-manual',
     experience: null,
+  } as never);
+  vi.mocked(memoryApi.listExperienceDrafts).mockResolvedValue({
+    items: [], total: 0, limit: 20, offset: 0,
+  } as never);
+  const draft = {
+    draft_id: 'draft-japan',
+    status: 'editing',
+    query_text: '2026年5月1日到10日 日本旅行',
+    title: '2026年5月 日本旅行',
+    one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
+    time_start: 1777564800,
+    time_end: 1778428799,
+    chapters: [{
+      chapter_id: 'chapter-1',
+      title: '出发前，把路线定下来',
+      summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+      time_start: 1777564800,
+      time_end: 1777651200,
+      episode_ids: ['ep-create-1'],
+      event_ids: [],
+    }],
+    possible_evidence: [],
+    excluded_evidence: [],
+    created_experience_id: null,
+    created_at: 1778500000,
+    updated_at: 1778500000,
+  };
+  vi.mocked(memoryApi.organizeExperienceDraft).mockResolvedValue({
+    status: 'draft', draft, choices: [], message: null,
+  } as never);
+  vi.mocked(memoryApi.getExperienceDraft).mockResolvedValue(draft as never);
+  vi.mocked(memoryApi.updateExperienceDraft).mockResolvedValue(draft as never);
+  vi.mocked(memoryApi.createExperienceFromDraft).mockResolvedValue({
+    draft_id: 'draft-japan', experience_id: 'exp-manual', experience: null,
   } as never);
   let currentExperienceDetail = experienceDetail;
   vi.mocked(memoryApi.getExperience).mockImplementation(async () => currentExperienceDetail);
@@ -613,28 +679,66 @@ describe('MemoryEpisodesPage', () => {
     expect(memoryApi.listExperiences).toHaveBeenCalledTimes(2);
   });
 
-  it('creates a manual experience from selected source chapters', async () => {
+  it('organizes a natural-language request into a resumable draft page', async () => {
     const user = userEvent.setup();
     renderPage();
 
     await screen.findByText('Launch week');
     await user.click(screen.getByRole('button', { name: 'New experience' }));
-    expect(await screen.findByText('Planning thread')).toBeInTheDocument();
+    await user.type(
+      screen.getByLabelText('What experience do you want to organize?'),
+      '2026年5月1日到10日 日本旅行',
+    );
+    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
 
-    await user.click(screen.getByRole('checkbox', { name: /Planning thread/ }));
-    await user.type(screen.getByLabelText('Title'), 'Japan trip');
+    await waitFor(() => {
+      expect(memoryApi.organizeExperienceDraft).toHaveBeenCalledWith({
+        query_text: '2026年5月1日到10日 日本旅行',
+      });
+    });
+    expect(await screen.findByText('Experience draft')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('2026年5月 日本旅行')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('出发前，把路线定下来')).toBeInTheDocument();
+  });
+
+  it('saves draft edits before creating the experience', async () => {
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const title = await screen.findByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, '十天日本旅行');
+    const chapterSummary = screen.getByLabelText('Chapter summary');
+    await user.clear(chapterSummary);
+    await user.type(chapterSummary, '先安排交通和住宿，再按城市回顾旅程。');
     await user.click(screen.getByRole('button', { name: 'Create experience' }));
 
     await waitFor(() => {
-      expect(memoryApi.createExperienceSeed).toHaveBeenCalledWith({
-        episode_ids: ['ep-create-1'],
-        title_hint: 'Japan trip',
-        promote_now: true,
-      });
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          title: '十天日本旅行',
+          chapters: [expect.objectContaining({
+            summary: '先安排交通和住宿，再按城市回顾旅程。',
+          })],
+        }),
+      );
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
     });
+  });
+
+  it('keeps local draft edits after autosave returns', async () => {
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const title = await screen.findByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, '十天日本旅行');
+
     await waitFor(() => {
-      expect(memoryApi.getExperience).toHaveBeenCalledWith('exp-manual');
-    });
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalled();
+    }, { timeout: 1500 });
+    expect(title).toHaveValue('十天日本旅行');
   });
 
   it('dismisses a pending signal from the home page', async () => {

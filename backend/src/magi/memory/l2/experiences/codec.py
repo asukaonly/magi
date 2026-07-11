@@ -114,5 +114,37 @@ class L2ExperienceStoreBaseMixin:
             "created_at": float(row["created_at"]),
         }
 
+    def _experience_draft_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
+        return {
+            "draft_id": str(row["draft_id"]),
+            "status": str(row["status"]),
+            "query_text": str(row["query_text"]),
+            "title": str(row["title"]),
+            "one_sentence_review": str(row["one_sentence_review"]),
+            "time_start": float(row["time_start"]),
+            "time_end": float(row["time_end"]),
+            "chapters": json.loads(row["chapters_json"] or "[]"),
+            "possible_evidence": json.loads(row["possible_evidence_json"] or "[]"),
+            "excluded_evidence": json.loads(row["excluded_evidence_json"] or "[]"),
+            "created_experience_id": (
+                str(row["created_experience_id"])
+                if row["created_experience_id"]
+                else None
+            ),
+            "created_at": float(row["created_at"]),
+            "updated_at": float(row["updated_at"]),
+        }
+
+    def _experience_chapter_row_to_dict(self, row: aiosqlite.Row) -> dict[str, Any]:
+        return {
+            "chapter_id": str(row["chapter_id"]),
+            "title": str(row["title"]),
+            "summary": str(row["summary"]),
+            "time_start": float(row["time_start"]) if row["time_start"] is not None else None,
+            "time_end": float(row["time_end"]) if row["time_end"] is not None else None,
+            "episode_ids": json.loads(row["episode_ids_json"] or "[]"),
+            "event_ids": json.loads(row["event_ids_json"] or "[]"),
+        }
+
 
 __all__ = ["L2ExperienceStoreBaseMixin"]

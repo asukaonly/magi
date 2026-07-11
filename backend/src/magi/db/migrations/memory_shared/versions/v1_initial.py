@@ -664,6 +664,37 @@ CREATE TABLE IF NOT EXISTS experience_seed_evidence (
             PRIMARY KEY (seed_id, ref_type, ref_id, role)
         );
 
+CREATE TABLE IF NOT EXISTS experience_drafts (
+    draft_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'editing',
+    query_text TEXT NOT NULL,
+    title TEXT NOT NULL,
+    one_sentence_review TEXT NOT NULL,
+    time_start REAL NOT NULL,
+    time_end REAL NOT NULL,
+    chapters_json TEXT NOT NULL DEFAULT '[]',
+    possible_evidence_json TEXT NOT NULL DEFAULT '[]',
+    excluded_evidence_json TEXT NOT NULL DEFAULT '[]',
+    created_experience_id TEXT,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS experience_chapters (
+    experience_id TEXT NOT NULL,
+    chapter_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    time_start REAL,
+    time_end REAL,
+    episode_ids_json TEXT NOT NULL DEFAULT '[]',
+    event_ids_json TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (experience_id, chapter_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_portrait_projection (
     user_id TEXT PRIMARY KEY,
     entity_id TEXT NOT NULL,
@@ -823,6 +854,12 @@ CREATE INDEX IF NOT EXISTS idx_experience_seeds_source_ref
 CREATE INDEX IF NOT EXISTS idx_experience_seed_evidence_ref
             ON experience_seed_evidence(ref_type, ref_id);
 
+CREATE INDEX IF NOT EXISTS idx_experience_drafts_status_updated
+    ON experience_drafts(status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_experience_chapters_experience_position
+    ON experience_chapters(experience_id, position);
+
 CREATE INDEX IF NOT EXISTS idx_user_portrait_projection_entity
     ON user_portrait_projection(entity_id, entity_type);
 
@@ -930,6 +967,10 @@ DROP INDEX IF EXISTS idx_entity_facets_name_value;
 DROP TABLE IF EXISTS user_portrait_projection;
 
 DROP TABLE IF EXISTS experience_seed_evidence;
+
+DROP TABLE IF EXISTS experience_chapters;
+
+DROP TABLE IF EXISTS experience_drafts;
 
 DROP TABLE IF EXISTS experience_seeds;
 

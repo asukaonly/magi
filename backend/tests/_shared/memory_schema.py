@@ -21,6 +21,7 @@ _MIGRATIONS_DIR = (
 
 MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v1_initial.py",
+    "v2_experience_drafts.py",
 )
 
 

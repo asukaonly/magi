@@ -47,6 +47,113 @@ def test_experience_routes_are_publicly_allowlisted():
     assert ("/l2/experience-seeds", ("POST",)) in routes
     assert ("/l2/experience-seeds/{seed_id}/promote", ("POST",)) in routes
     assert ("/l2/experience-seeds/{seed_id}/reject", ("POST",)) in routes
+    assert ("/l2/experience-drafts/organize", ("POST",)) in routes
+    assert ("/l2/experience-drafts", ("GET",)) in routes
+    assert ("/l2/experience-drafts/{draft_id}", ("GET",)) in routes
+    assert ("/l2/experience-drafts/{draft_id}", ("PATCH",)) in routes
+    assert ("/l2/experience-drafts/{draft_id}/create", ("POST",)) in routes
+
+
+def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    unified = MagicMock()
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.organize_experience_draft",
+            new=AsyncMock(return_value={
+                "status": "draft",
+                "draft": {
+                    "draft_id": "draft-japan",
+                    "status": "editing",
+                    "query_text": "2026年5月1日到10日 日本旅行",
+                    "title": "日本旅行",
+                    "one_sentence_review": "从东京到京都的一段旅行。",
+                    "time_start": 100.0,
+                    "time_end": 500.0,
+                    "chapters": [],
+                    "possible_evidence": [],
+                    "excluded_evidence": [],
+                    "created_experience_id": None,
+                    "created_at": 1.0,
+                    "updated_at": 1.0,
+                },
+                "choices": [],
+                "message": None,
+            }),
+        ) as organize,
+    ):
+        response = TestClient(app).post(
+            "/api/memory/l2/experience-drafts/organize",
+            json={"query_text": "2026年5月1日到10日 日本旅行"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["draft"]["draft_id"] == "draft-japan"
+    organize.assert_awaited_once_with(
+        unified,
+        query_text="2026年5月1日到10日 日本旅行",
+        time_start=None,
+        time_end=None,
+    )
+
+
+def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(side_effect=[
+        {"draft_id": "draft-japan", "status": "editing", "title": "日本旅行"},
+        {"draft_id": "draft-japan", "status": "editing", "title": "十天日本旅行"},
+    ])
+    l2.update_experience_draft = AsyncMock(return_value=True)
+    unified = MagicMock()
+    unified.l2 = l2
+
+    with build_patcher(unified):
+        response = TestClient(app).patch(
+            "/api/memory/l2/experience-drafts/draft-japan",
+            json={"title": "十天日本旅行"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "十天日本旅行"
+    l2.update_experience_draft.assert_awaited_once_with(
+        draft_id="draft-japan",
+        title="十天日本旅行",
+    )
+
+
+def test_create_experience_from_draft_returns_created_experience(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value={
+        "draft_id": "draft-japan",
+        "status": "editing",
+        "title": "日本旅行",
+    })
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp-japan",
+        "status": "active",
+        "title": "日本旅行",
+    })
+    unified = MagicMock()
+    unified.l2 = l2
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.create_experience_from_draft",
+            new=AsyncMock(return_value="exp-japan"),
+        ) as create,
+    ):
+        response = TestClient(app).post(
+            "/api/memory/l2/experience-drafts/draft-japan/create",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["experience_id"] == "exp-japan"
+    create.assert_awaited_once_with(l2, draft_id="draft-japan")
 
 
 def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_mock_memory):

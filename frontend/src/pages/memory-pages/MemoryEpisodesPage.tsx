@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
   memoryApi,
-  type L2EpisodeWithSummary,
+  type ExperienceDraft,
+  type ExperienceDraftChoice,
   type L2ExperienceSeed,
   type L2ExperienceWithReview,
 } from '@/api/modules/memory';
@@ -18,50 +19,41 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
 import { ExperienceTimeline } from './episodes/ExperienceTimeline';
 import { PendingExperienceShelf } from './episodes/PendingExperienceShelf';
 import { groupExperiencesByMonth, sortExperiencesForReview } from './episodes/experienceIndexModel';
-import { formatEpisodeTimeRange, getEpisodeDisplayTitle } from '@/components/memory/episodes/EpisodeRow';
 
 export { sortExperiencesForReview } from './episodes/experienceIndexModel';
 export { MemoryExperienceDetailPage } from './episodes/MemoryExperienceDetailPage';
-
-const getEpisodeCandidateDescription = (episode: L2EpisodeWithSummary): string => (
-  String(
-    episode.display_description ||
-    episode.episode_summary?.content ||
-    episode.summary ||
-    episode.slice_narrative ||
-    ''
-  ).trim()
-);
+export { MemoryExperienceDraftPage } from './episodes/MemoryExperienceDraftPage';
 
 export const MemoryEpisodesPage = () => {
   const { t, i18n } = useTranslation('app');
   const navigate = useNavigate();
   const [experiences, setExperiences] = useState<L2ExperienceWithReview[]>([]);
   const [experienceSeeds, setExperienceSeeds] = useState<L2ExperienceSeed[]>([]);
+  const [experienceDrafts, setExperienceDrafts] = useState<ExperienceDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [seedActionId, setSeedActionId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [createCandidates, setCreateCandidates] = useState<L2EpisodeWithSummary[]>([]);
-  const [selectedEpisodeIds, setSelectedEpisodeIds] = useState<Set<string>>(new Set());
-  const [createTitleDraft, setCreateTitleDraft] = useState('');
-  const [createLoading, setCreateLoading] = useState(false);
+  const [createPrompt, setCreatePrompt] = useState('');
+  const [organizeChoices, setOrganizeChoices] = useState<ExperienceDraftChoice[]>([]);
   const [createSaving, setCreateSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [experiencePayload, seedPayload] = await Promise.all([
+      const [experiencePayload, seedPayload, draftPayload] = await Promise.all([
         memoryApi.listExperiences({ status: 'active', limit: 100, offset: 0 }),
         memoryApi.listExperienceSeeds({ status: 'candidate', limit: 6, offset: 0 }),
+        memoryApi.listExperienceDrafts({ status: 'editing', limit: 20, offset: 0 }),
       ]);
       setExperiences(experiencePayload.items);
       setExperienceSeeds(seedPayload.items);
+      setExperienceDrafts(draftPayload.items);
     } finally {
       setLoading(false);
     }
@@ -81,53 +73,32 @@ export const MemoryEpisodesPage = () => {
     navigate(`/memory/episodes/${experienceId}`);
   };
 
-  const openCreateExperience = async () => {
+  const openCreateExperience = () => {
     setCreateOpen(true);
     setCreateError(null);
-    setSelectedEpisodeIds(new Set());
-    setCreateTitleDraft('');
-    setCreateLoading(true);
-    try {
-      const payload = await memoryApi.listEpisodes({ status: 'active', limit: 50, offset: 0 });
-      setCreateCandidates(payload.items || []);
-    } finally {
-      setCreateLoading(false);
-    }
+    setCreatePrompt('');
+    setOrganizeChoices([]);
   };
 
-  const toggleCreateCandidate = (episodeId: string) => {
-    setSelectedEpisodeIds((current) => {
-      const next = new Set(current);
-      if (next.has(episodeId)) {
-        next.delete(episodeId);
-      } else {
-        next.add(episodeId);
-      }
-      return next;
-    });
-  };
-
-  const createExperience = async () => {
-    const episodeIds = Array.from(selectedEpisodeIds);
-    if (episodeIds.length === 0) {
-      return;
-    }
+  const organizeExperience = async (choice?: ExperienceDraftChoice) => {
+    if (!createPrompt.trim()) return;
     setCreateSaving(true);
     setCreateError(null);
     try {
-      const response = await memoryApi.createExperienceSeed({
-        episode_ids: episodeIds,
-        title_hint: createTitleDraft.trim() || undefined,
-        promote_now: true,
+      const response = await memoryApi.organizeExperienceDraft({
+        query_text: createPrompt.trim(),
+        ...(choice ? { time_start: choice.time_start, time_end: choice.time_end } : {}),
       });
-      if (!response.promoted_experience_id) {
-        setCreateError(t('memory.episodes.create.noPromotion'));
-        await refresh();
+      if (response.status === 'ambiguous') {
+        setOrganizeChoices(response.choices || []);
+        return;
+      }
+      if (response.status !== 'draft' || !response.draft) {
+        setCreateError(response.message || t('memory.episodes.create.insufficient'));
         return;
       }
       setCreateOpen(false);
-      await refresh();
-      navigate(`/memory/episodes/${response.promoted_experience_id}`);
+      navigate(`/memory/episode-drafts/${response.draft.draft_id}`);
     } catch {
       setCreateError(t('memory.episodes.create.error'));
     } finally {
@@ -172,12 +143,27 @@ export const MemoryEpisodesPage = () => {
               type="button"
               size="sm"
               className="h-8 rounded-md px-3 text-xs"
-              onClick={() => { void openCreateExperience(); }}
+              onClick={openCreateExperience}
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
               {t('memory.episodes.actions.createExperience')}
             </Button>
           </div>
+          {experienceDrafts.length > 0 ? (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-4 rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-4 py-3 text-left hover:bg-[hsl(var(--memory-panel-subtle)/0.6)]"
+              onClick={() => navigate(`/memory/episode-drafts/${experienceDrafts[0].draft_id}`)}
+            >
+              <span className="min-w-0">
+                <span className="block text-xs text-[hsl(var(--memory-muted))]">{t('memory.episodes.draft.continue')}</span>
+                <span className="mt-1 block truncate text-sm font-semibold text-[hsl(var(--memory-title))]">
+                  {experienceDrafts[0].title}
+                </span>
+              </span>
+              <span className="shrink-0 text-xs text-[hsl(var(--memory-accent))]">{t('memory.episodes.draft.open')}</span>
+            </button>
+          ) : null}
           {experienceSeeds.length > 0 ? (
             <PendingExperienceShelf
               seeds={experienceSeeds}
@@ -216,66 +202,51 @@ export const MemoryEpisodesPage = () => {
           )}
 
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogContent className="max-w-3xl">
+            <DialogContent className="max-w-xl">
               <DialogHeader>
                 <DialogTitle>{t('memory.episodes.create.title')}</DialogTitle>
                 <DialogDescription>{t('memory.episodes.create.description')}</DialogDescription>
               </DialogHeader>
               <div className="space-y-4 px-6 pb-2">
                 <label className="block space-y-2">
-                  <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
-                  <Input
-                    aria-label={t('memory.episodes.fields.title')}
-                    value={createTitleDraft}
-                    onChange={(event) => setCreateTitleDraft(event.target.value)}
-                    className="border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))]"
+                  <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.create.promptLabel')}</span>
+                  <Textarea
+                    aria-label={t('memory.episodes.create.promptLabel')}
+                    placeholder={t('memory.episodes.create.promptPlaceholder')}
+                    value={createPrompt}
+                    onChange={(event) => {
+                      setCreatePrompt(event.target.value);
+                      setOrganizeChoices([]);
+                      setCreateError(null);
+                    }}
+                    className="min-h-28 resize-none border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] text-base leading-7"
                   />
                 </label>
-
-                <div className="flex items-center justify-between gap-2 text-xs text-[hsl(var(--memory-muted))]">
-                  <span>{t('memory.episodes.create.sourceCount', { count: createCandidates.length })}</span>
-                  <span>{t('memory.episodes.create.selectedCount', { count: selectedEpisodeIds.size })}</span>
-                </div>
-
-                {createLoading ? (
+                {createSaving ? (
                   <div className={MEMORY_INFO_PANEL_CLASS}>
                     <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden="true" />
-                    {t('memory.episodes.create.loading')}
+                    {t('memory.episodes.create.organizing')}
                   </div>
-                ) : createCandidates.length === 0 ? (
-                  <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.create.empty')}</div>
-                ) : (
-                  <div className="max-h-[22rem] space-y-2 overflow-y-auto pr-1">
-                    {createCandidates.map((episode, index) => {
-                      const title = getEpisodeDisplayTitle(episode, t('memory.episodes.sourceEpisodeFallback', { index: index + 1 }));
-                      const description = getEpisodeCandidateDescription(episode);
-                      const checked = selectedEpisodeIds.has(episode.episode_id);
-                      const range = formatEpisodeTimeRange(episode.time_start, episode.time_end, i18n.language);
-                      return (
-                        <label
-                          key={episode.episode_id}
-                          className="flex cursor-pointer gap-3 rounded-lg border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-elevated)/0.62)] px-3 py-3 transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.5)]"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleCreateCandidate(episode.episode_id)}
-                            className="mt-1 h-4 w-4 rounded border-[hsl(var(--memory-input-border))]"
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block break-words text-sm font-medium text-[hsl(var(--memory-title))]">{title}</span>
-                            {description ? (
-                              <span className="mt-1 line-clamp-2 block text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</span>
-                            ) : null}
-                            <span className="mt-1 block text-xs text-[hsl(var(--memory-muted))]">
-                              {[range, t('memory.episodes.eventCount', { count: episode.source_event_count ?? 0 })].filter(Boolean).join(' · ')}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })}
+                ) : null}
+                {organizeChoices.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">{t('memory.episodes.create.choosePeriod')}</div>
+                    {organizeChoices.map((choice) => (
+                      <button
+                        key={choice.choice_id}
+                        type="button"
+                        className="block w-full rounded-md border border-[hsl(var(--memory-border)/0.52)] px-3 py-2 text-left hover:bg-[hsl(var(--memory-panel-subtle)/0.6)]"
+                        onClick={() => { void organizeExperience(choice); }}
+                      >
+                        <span className="block text-sm font-medium">{choice.preview}</span>
+                        <span className="mt-1 block text-xs text-[hsl(var(--memory-muted))]">
+                          {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(choice.time_start * 1000))}
+                          {' · '}{t('memory.episodes.eventCount', { count: choice.event_count })}
+                        </span>
+                      </button>
+                    ))}
                   </div>
-                )}
+                ) : null}
                 {createError ? (
                   <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
                     {createError}
@@ -286,8 +257,8 @@ export const MemoryEpisodesPage = () => {
                 <Button variant="ghost" onClick={() => setCreateOpen(false)} disabled={createSaving}>
                   {t('common.cancel')}
                 </Button>
-                <Button onClick={() => { void createExperience(); }} disabled={createSaving || selectedEpisodeIds.size === 0}>
-                  {createSaving ? t('common.saving') : t('memory.episodes.actions.createExperienceSubmit')}
+                <Button onClick={() => { void organizeExperience(); }} disabled={createSaving || createPrompt.trim().length < 2}>
+                  {createSaving ? t('common.saving') : t('memory.episodes.create.organize')}
                 </Button>
               </DialogFooter>
             </DialogContent>

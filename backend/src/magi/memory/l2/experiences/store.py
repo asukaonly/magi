@@ -100,6 +100,12 @@ _SEED_TYPES = {"manual", "project", "repeated_goal"}
 _SEED_STATUSES = {"candidate", "accepted", "rejected", "promoted", "stale"}
 _SEED_EVIDENCE_REF_TYPES = {"episode", "event", "entity", "summary"}
 _SEED_EVIDENCE_ROLES = {"trigger", "support", "candidate", "included", "excluded", "boundary"}
+_DRAFT_STATUSES = {"editing", "completed", "discarded"}
+_DRAFT_JSON_FIELDS = {
+    "chapters": "chapters_json",
+    "possible_evidence": "possible_evidence_json",
+    "excluded_evidence": "excluded_evidence_json",
+}
 
 
 def _json_list(values: list[str] | None) -> str:
@@ -139,6 +145,181 @@ def _seed_evidence_value(
 
 class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
     """Create, update, list, and curate L2 experiences."""
+
+    async def create_experience_draft(
+        self,
+        *,
+        draft_id: str,
+        query_text: str,
+        title: str,
+        one_sentence_review: str,
+        time_start: float,
+        time_end: float,
+        chapters: list[dict[str, Any]],
+        possible_evidence: list[dict[str, Any]],
+        excluded_evidence: list[dict[str, Any]] | None = None,
+        status: str = "editing",
+    ) -> str:
+        """Persist one user-editable experience draft."""
+        if status not in _DRAFT_STATUSES:
+            raise ValueError(f"Unsupported experience draft status: {status}")
+        if not draft_id.strip() or not query_text.strip() or not title.strip():
+            raise ValueError("Experience draft id, query, and title are required")
+        now = time.time()
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO experience_drafts(
+                    draft_id, status, query_text, title, one_sentence_review,
+                    time_start, time_end, chapters_json, possible_evidence_json,
+                    excluded_evidence_json, created_experience_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                """,
+                (
+                    draft_id,
+                    status,
+                    query_text.strip(),
+                    title.strip(),
+                    one_sentence_review.strip(),
+                    float(time_start),
+                    float(time_end),
+                    json.dumps(chapters, ensure_ascii=False),
+                    json.dumps(possible_evidence, ensure_ascii=False),
+                    json.dumps(excluded_evidence or [], ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+        return draft_id
+
+    async def get_experience_draft(self, *, draft_id: str) -> dict[str, Any] | None:
+        """Return one experience draft."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM experience_drafts WHERE draft_id = ?",
+                (draft_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return self._experience_draft_row_to_dict(row) if row else None
+
+    async def list_experience_drafts(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """List experience drafts ordered by latest edit."""
+        await self.initialize()
+        query = "SELECT * FROM experience_drafts WHERE 1=1"
+        args: list[Any] = []
+        if status:
+            if status not in _DRAFT_STATUSES:
+                raise ValueError(f"Unsupported experience draft status: {status}")
+            query += " AND status = ?"
+            args.append(status)
+        query += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        args.extend([limit, offset])
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._experience_draft_row_to_dict(row) for row in rows]
+
+    async def update_experience_draft(self, *, draft_id: str, **updates: Any) -> bool:
+        """Update editable draft fields."""
+        allowed = {
+            "status", "query_text", "title", "one_sentence_review", "time_start",
+            "time_end", "chapters", "possible_evidence", "excluded_evidence",
+            "created_experience_id",
+        }
+        invalid = set(updates) - allowed
+        if invalid:
+            raise ValueError(f"Unsupported experience draft fields: {sorted(invalid)}")
+        if "status" in updates and updates["status"] not in _DRAFT_STATUSES:
+            raise ValueError(f"Unsupported experience draft status: {updates['status']}")
+        if not updates:
+            return False
+        columns: list[str] = []
+        values: list[Any] = []
+        for key, value in updates.items():
+            columns.append(f"{_DRAFT_JSON_FIELDS.get(key, key)} = ?")
+            values.append(
+                json.dumps(value, ensure_ascii=False)
+                if key in _DRAFT_JSON_FIELDS
+                else value
+            )
+        columns.append("updated_at = ?")
+        values.extend([time.time(), draft_id])
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                f"UPDATE experience_drafts SET {', '.join(columns)} WHERE draft_id = ?",
+                tuple(values),
+            )
+            await db.commit()
+        return cursor.rowcount > 0
+
+    async def replace_experience_chapters(
+        self,
+        *,
+        experience_id: str,
+        chapters: list[dict[str, Any]],
+    ) -> None:
+        """Replace the user-facing chapter structure for an experience."""
+        now = time.time()
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM experience_chapters WHERE experience_id = ?",
+                (experience_id,),
+            )
+            await db.executemany(
+                """
+                INSERT INTO experience_chapters(
+                    experience_id, chapter_id, position, title, summary,
+                    time_start, time_end, episode_ids_json, event_ids_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        experience_id,
+                        str(chapter.get("chapter_id") or f"chapter-{index + 1}"),
+                        index,
+                        str(chapter.get("title") or "").strip(),
+                        str(chapter.get("summary") or "").strip(),
+                        chapter.get("time_start"),
+                        chapter.get("time_end"),
+                        json.dumps(chapter.get("episode_ids") or [], ensure_ascii=False),
+                        json.dumps(chapter.get("event_ids") or [], ensure_ascii=False),
+                        now,
+                        now,
+                    )
+                    for index, chapter in enumerate(chapters)
+                ],
+            )
+            await db.commit()
+
+    async def list_experience_chapters(self, *, experience_id: str) -> list[dict[str, Any]]:
+        """List the durable chapter structure for an experience."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT * FROM experience_chapters
+                WHERE experience_id = ?
+                ORDER BY position ASC
+                """,
+                (experience_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        return [self._experience_chapter_row_to_dict(row) for row in rows]
 
     async def create_experience_seed(
         self,
@@ -402,7 +583,13 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 (experience_id,),
             ) as cursor:
                 row = await cursor.fetchone()
-        return self._experience_row_to_dict(row) if row else None
+        if row is None:
+            return None
+        experience = self._experience_row_to_dict(row)
+        experience["chapters"] = await self.list_experience_chapters(
+            experience_id=experience_id
+        )
+        return experience
 
     async def list_experiences(
         self,

@@ -1863,6 +1863,90 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/experience-drafts": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * List Experience Drafts Route
+         * @description List resumable experience drafts.
+         */
+        readonly get: operations["list_experience_drafts_route_api_memory_l2_experience_drafts_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-drafts/organize": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Organize Experience Draft Route
+         * @description Organize a natural-language request into a persisted draft.
+         */
+        readonly post: operations["organize_experience_draft_route_api_memory_l2_experience_drafts_organize_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-drafts/{draft_id}": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get Experience Draft Route
+         * @description Return one experience draft.
+         */
+        readonly get: operations["get_experience_draft_route_api_memory_l2_experience_drafts__draft_id__get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        /**
+         * Update Experience Draft Route
+         * @description Autosave user edits to an experience draft.
+         */
+        readonly patch: operations["update_experience_draft_route_api_memory_l2_experience_drafts__draft_id__patch"];
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/experience-drafts/{draft_id}/create": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Create Experience From Draft Route
+         * @description Create an active experience from the user-approved draft.
+         */
+        readonly post: operations["create_experience_from_draft_route_api_memory_l2_experience_drafts__draft_id__create_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/experience-seeds": {
         readonly parameters: {
             readonly query?: never;
@@ -4723,6 +4807,38 @@ export interface components {
             readonly user_note?: string | null;
             /** User Pinned */
             readonly user_pinned?: boolean | null;
+        };
+        /** ExperienceDraftOrganizeRequest */
+        readonly ExperienceDraftOrganizeRequest: {
+            /** Query Text */
+            readonly query_text: string;
+            /** Time End */
+            readonly time_end?: number | null;
+            /** Time Start */
+            readonly time_start?: number | null;
+        };
+        /** ExperienceDraftUpdateRequest */
+        readonly ExperienceDraftUpdateRequest: {
+            /** Chapters */
+            readonly chapters?: readonly {
+                readonly [key: string]: unknown;
+            }[] | null;
+            /** Excluded Evidence */
+            readonly excluded_evidence?: readonly {
+                readonly [key: string]: unknown;
+            }[] | null;
+            /** One Sentence Review */
+            readonly one_sentence_review?: string | null;
+            /** Possible Evidence */
+            readonly possible_evidence?: readonly {
+                readonly [key: string]: unknown;
+            }[] | null;
+            /** Time End */
+            readonly time_end?: number | null;
+            /** Time Start */
+            readonly time_start?: number | null;
+            /** Title */
+            readonly title?: string | null;
         };
         /** ExperienceSeedCreateRequest */
         readonly ExperienceSeedCreateRequest: {
@@ -11710,6 +11826,179 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly list_experience_drafts_route_api_memory_l2_experience_drafts_get: {
+        readonly parameters: {
+            readonly query?: {
+                readonly status?: string;
+                readonly limit?: number;
+                readonly offset?: number;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly organize_experience_draft_route_api_memory_l2_experience_drafts_organize_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ExperienceDraftOrganizeRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_experience_draft_route_api_memory_l2_experience_drafts__draft_id__get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly draft_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly update_experience_draft_route_api_memory_l2_experience_drafts__draft_id__patch: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly draft_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["ExperienceDraftUpdateRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly create_experience_from_draft_route_api_memory_l2_experience_drafts__draft_id__create_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly draft_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

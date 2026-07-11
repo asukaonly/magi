@@ -329,6 +329,7 @@ export interface L2Experience {
   created_at?: number | null;
   updated_at?: number | null;
   last_recomputed_at?: number | null;
+  chapters?: ExperienceDraftChapter[] | null;
 }
 
 export interface L2ExperienceWithReview extends L2Experience {
@@ -372,6 +373,67 @@ export interface ExperienceSeedCreatePayload {
   event_ids?: string[];
   title_hint?: string | null;
   promote_now?: boolean;
+}
+
+export interface ExperienceDraftEvidence {
+  ref_type: 'episode' | 'event' | string;
+  ref_id: string;
+  title: string;
+  summary: string;
+  time_start?: number | null;
+  time_end?: number | null;
+  reason?: string | null;
+}
+
+export interface ExperienceDraftChapter {
+  chapter_id: string;
+  title: string;
+  summary: string;
+  time_start?: number | null;
+  time_end?: number | null;
+  episode_ids: string[];
+  event_ids: string[];
+}
+
+export interface ExperienceDraft {
+  draft_id: string;
+  status: 'editing' | 'completed' | 'discarded' | string;
+  query_text: string;
+  title: string;
+  one_sentence_review: string;
+  time_start: number;
+  time_end: number;
+  chapters: ExperienceDraftChapter[];
+  possible_evidence: ExperienceDraftEvidence[];
+  excluded_evidence: ExperienceDraftEvidence[];
+  created_experience_id?: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ExperienceDraftChoice {
+  choice_id: string;
+  time_start: number;
+  time_end: number;
+  event_count: number;
+  preview: string;
+}
+
+export interface ExperienceDraftOrganizeResponse {
+  status: 'draft' | 'ambiguous' | 'insufficient';
+  draft?: ExperienceDraft | null;
+  choices: ExperienceDraftChoice[];
+  message?: string | null;
+}
+
+export interface ExperienceDraftUpdatePayload {
+  title?: string;
+  one_sentence_review?: string;
+  time_start?: number;
+  time_end?: number;
+  chapters?: ExperienceDraftChapter[];
+  possible_evidence?: ExperienceDraftEvidence[];
+  excluded_evidence?: ExperienceDraftEvidence[];
 }
 
 export interface L2ExperienceSourceEpisode extends L2EpisodeWithSummary {
@@ -824,6 +886,23 @@ export const memoryApi = {
       title_hint: payload.title_hint ?? null,
       promote_now: payload.promote_now ?? false,
     })),
+  listExperienceDrafts: async (params?: PaginationParams & { status?: string }): Promise<PaginatedResponse<ExperienceDraft>> =>
+    unwrapMemoryResponse(await api.get<PaginatedResponse<ExperienceDraft>>('/memory/l2/experience-drafts', { params })),
+  organizeExperienceDraft: async (payload: {
+    query_text: string;
+    time_start?: number;
+    time_end?: number;
+  }): Promise<ExperienceDraftOrganizeResponse> =>
+    unwrapMemoryResponse(await api.post<ExperienceDraftOrganizeResponse>('/memory/l2/experience-drafts/organize', payload)),
+  getExperienceDraft: async (draftId: string): Promise<ExperienceDraft> =>
+    unwrapMemoryResponse(await api.get<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`)),
+  updateExperienceDraft: async (draftId: string, payload: ExperienceDraftUpdatePayload): Promise<ExperienceDraft> =>
+    unwrapMemoryResponse(await api.patch<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`, payload)),
+  createExperienceFromDraft: async (draftId: string): Promise<{
+    draft_id: string;
+    experience_id: string;
+    experience?: L2ExperienceReviewDetail | null;
+  }> => unwrapMemoryResponse(await api.post(`/memory/l2/experience-drafts/${draftId}/create`)),
   promoteExperienceSeed: async (seedId: string): Promise<ExperienceSeedPromotionResponse> =>
     unwrapMemoryResponse(await api.post<ExperienceSeedPromotionResponse>(`/memory/l2/experience-seeds/${seedId}/promote`)),
   rejectExperienceSeed: async (seedId: string): Promise<{ seed_id: string; seed?: L2ExperienceSeed | null }> =>
