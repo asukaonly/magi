@@ -275,6 +275,43 @@ def test_scenario_llm_pool_maps_custom_provider_to_runtime_api_format():
     ]
 
 
+def test_scenario_llm_pool_builds_keyless_custom_openai_provider():
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    created: list[dict[str, object]] = []
+    config = _build_test_config()
+    config.llm.providers["custom_openai"] = _custom_provider(
+        config.llm.providers["openai"],
+        display_name="Local Gateway",
+        base_url="http://127.0.0.1:11434/v1",
+        api_key="",
+        models=["local-model"],
+    )
+    config.llm.selections["core"].provider_id = "custom_openai"
+    config.llm.selections["core"].model = "local-model"
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    core_llm = pool.get(LLMScenario.CORE)
+
+    assert core_llm.provider_name == "custom"
+    assert created == [
+        {
+            "provider_type": "custom",
+            "api_key": "",
+            "model": "local-model",
+            "base_url": "http://127.0.0.1:11434/v1",
+            "timeout": 60,
+            "embedding_dimension": None,
+            "proxy_url": None,
+        }
+    ]
+
+
 def test_scenario_llm_pool_keeps_custom_label_for_glm_compatible_gateway() -> None:
     """A custom gateway hosting GLM models still surfaces ``custom`` as the
     adapter provider name. The GLM dialect comes through later via the

@@ -90,19 +90,24 @@ class ScenarioLLMPool:
             raise ValueError(
                 f"LLM provider '{selection.provider_id}' has {service_label} service disabled for scenario '{scenario.value}'"
             )
-        api_key = service.api_key or provider.api_key
-        if not api_key:
+        provider_type = self._resolve_runtime_provider_type(provider, selection.model)
+        api_key = str(service.api_key or provider.api_key or "").strip()
+        base_url = str(service.base_url or provider.base_url or "").strip()
+        if not api_key and provider_type != LLMProvider.CUSTOM.value:
             raise ValueError(
                 f"LLM provider '{selection.provider_id}' is missing an API key for scenario '{scenario.value}'"
             )
+        if provider_type == LLMProvider.CUSTOM.value and not base_url:
+            raise ValueError(
+                f"LLM provider '{selection.provider_id}' is missing a base URL for scenario '{scenario.value}'"
+            )
 
-        provider_type = self._resolve_runtime_provider_type(provider, selection.model)
         proxy_url = self._config.network.proxy_url() if hasattr(self._config, "network") else None
         adapter_kwargs = {
             "provider_type": provider_type,
             "api_key": api_key,
             "model": selection.model,
-            "base_url": service.base_url or provider.base_url,
+            "base_url": base_url,
             "timeout": self._config.llm.timeout,
             "embedding_dimension": (
                 selection.embedding_dimension if scenario == LLMScenario.EMBEDDING else None

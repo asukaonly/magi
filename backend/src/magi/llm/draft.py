@@ -27,8 +27,10 @@ def _resolve_runtime_provider_type(provider: LLMProviderSettings) -> str:
         return provider_type
 
     api_format = (provider.api_format or "openai").strip().lower()
-    if api_format in {"openai", "anthropic"}:
-        return api_format
+    if api_format == "openai":
+        return LLMProvider.CUSTOM.value
+    if api_format == "anthropic":
+        return LLMProvider.ANTHROPIC.value
     raise ValueError(f"Unsupported custom provider api_format: {provider.api_format}")
 
 
@@ -58,9 +60,13 @@ def build_adapter_from_provider(
     chat_service = provider.services.chat
     if not chat_service.enabled:
         raise ValueError("LLM provider chat service must be enabled before use")
+    runtime_provider_type = _resolve_runtime_provider_type(provider)
     api_key = (chat_service.api_key or provider.api_key or "").strip()
-    if not api_key:
+    base_url = (chat_service.base_url or provider.base_url or "").strip()
+    if not api_key and runtime_provider_type != LLMProvider.CUSTOM.value:
         raise ValueError("LLM provider API key is required")
+    if runtime_provider_type == LLMProvider.CUSTOM.value and not base_url:
+        raise ValueError("Custom LLM provider base URL is required")
     if not (model or "").strip():
         raise ValueError("LLM model is required")
 
@@ -69,12 +75,10 @@ def build_adapter_from_provider(
         proxy_url = config.network.proxy_url() if hasattr(config, "network") else None
 
     adapter_kwargs = {
-        "provider_type": _resolve_runtime_provider_type(provider),
+        "provider_type": runtime_provider_type,
         "api_key": api_key,
         "model": model.strip(),
-        "base_url": (chat_service.base_url or provider.base_url or "").strip()
-        or _resolve_default_base_url(provider, default_base_url)
-        or None,
+        "base_url": base_url or _resolve_default_base_url(provider, default_base_url) or None,
         "timeout": timeout,
         "proxy_url": proxy_url,
     }

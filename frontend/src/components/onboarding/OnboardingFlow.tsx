@@ -10,17 +10,18 @@ import { configApi } from '../../api/modules/config';
 import type {
   LLMConfig,
   SystemConfig,
+  TestLLMProviderConnectionRequest,
 } from '../../api/modules/config';
 import { personasApi } from '../../api/modules/personas';
 import type { SeedPreview } from '../../api/modules/personas';
 import { listInstallable, type InstallableItem } from '../../api/modules/systemSuggestions';
-import { cloneLLMConfig } from '../config-forms/llm-form-state';
+import { cloneLLMConfig, cloneProvider } from '../config-forms/llm-form-state';
 import GuidedConfigFrame from '../config-forms/GuidedConfigFrame';
 import WelcomeScreen from './WelcomeScreen';
 import StepIndicator from './StepIndicator';
 import CompletionScreen from './CompletionScreen';
 import FirstContextStep from './FirstContextStep';
-import LLMSetupStep from './LLMSetupStep';
+import LLMSetupStep, { type LLMConnectionTestState } from './LLMSetupStep';
 import { PersonaPreviewChat, type CustomPersonaDraft } from './PersonaPreviewChat';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
@@ -44,6 +45,51 @@ interface RuntimeReadyResponse {
     runtime_status: string;
     startup_state?: string;
     deferred_reason?: string | null;
+  };
+}
+
+interface LlmConnectionTestTarget {
+  fingerprint: string;
+  request: TestLLMProviderConnectionRequest;
+}
+
+const EMPTY_LLM_CONNECTION_TEST_STATE: LLMConnectionTestState = {
+  loading: false,
+  error: null,
+  result: null,
+};
+
+function buildLlmConnectionTestTarget(value: LLMConfig): LlmConnectionTestTarget | null {
+  const providerId = String(value.selections?.core?.provider_id || '').trim();
+  const model = String(value.selections?.core?.model || '').trim();
+  const sourceProvider = providerId ? value.providers?.[providerId] : undefined;
+  if (!providerId || !model || !sourceProvider) {
+    return null;
+  }
+
+  const provider = cloneProvider(sourceProvider);
+  const apiKey = provider.services.chat.api_key || provider.api_key || '';
+  const baseUrl = provider.services.chat.base_url || provider.base_url || '';
+  provider.api_key = provider.api_key || apiKey;
+  provider.base_url = provider.base_url || baseUrl;
+  provider.services.chat.api_key = apiKey;
+  provider.services.chat.base_url = baseUrl;
+
+  return {
+    fingerprint: JSON.stringify([
+      providerId,
+      provider.provider_type,
+      provider.provider_plan || '',
+      provider.api_format,
+      model,
+      apiKey,
+      baseUrl,
+    ]),
+    request: {
+      provider_id: providerId,
+      provider,
+      model,
+    },
   };
 }
 
@@ -124,6 +170,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [llmValue, setLlmValue] = useState<LLMConfig>(() =>
     cloneLLMConfig(initialConfig.llm)
   );
+  const [llmConnectionTestState, setLlmConnectionTestState] =
+    useState<LLMConnectionTestState>(EMPTY_LLM_CONNECTION_TEST_STATE);
+  const [validatedLlmFingerprint, setValidatedLlmFingerprint] = useState<string | null>(null);
+  const [llmConnectionConfigPending, setLlmConnectionConfigPending] = useState(false);
+  const llmConnectionTestRequestIdRef = useRef(0);
   const [seedSlug, setSeedSlug] = useState<string | null>(null);
   // Onboarding-generated (unsaved) personas; persisted on completion.
   const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
@@ -134,6 +185,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>([]);
   const installablePreloadStartedRef = useRef(false);
   const mountedRef = useRef(true);
+  const llmConnectionTestTarget = useMemo(
+    () => buildLlmConnectionTestTarget(llmValue),
+    [llmValue],
+  );
+  const currentLlmFingerprint = llmConnectionTestTarget?.fingerprint || '';
+  const currentLlmFingerprintRef = useRef(currentLlmFingerprint);
+  currentLlmFingerprintRef.current = currentLlmFingerprint;
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
@@ -213,7 +271,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         firstContextPluginIds?: string[];
       };
       if (typeof parsed.current === 'number') {
-        setCurrent(parsed.current);
+        const recoveredStep = Math.max(0, Math.min(COMPLETE_STEP, parsed.current));
+        setCurrent(recoveredStep > LLM_SETUP_STEP ? LLM_SETUP_STEP : recoveredStep);
       }
       if (parsed.seedSlug) {
         setSeedSlug(parsed.seedSlug);
@@ -338,9 +397,65 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   }, [i18n]);
 
   const handleLlmChange = (next: LLMConfig) => {
+    const nextFingerprint = buildLlmConnectionTestTarget(next)?.fingerprint || '';
+    if (nextFingerprint !== currentLlmFingerprint) {
+      llmConnectionTestRequestIdRef.current += 1;
+      setValidatedLlmFingerprint(null);
+      setLlmConnectionTestState(EMPTY_LLM_CONNECTION_TEST_STATE);
+    }
     setLlmValue(next);
     form.setFieldValue(['llm'], next);
     saveProgress(form.getFieldsValue(true));
+  };
+
+  const testLlmConnection = async (force = false): Promise<boolean> => {
+    const target = buildLlmConnectionTestTarget(llmValue);
+    if (!target) {
+      setValidatedLlmFingerprint(null);
+      setLlmConnectionTestState({
+        loading: false,
+        error: t('llm.providerConfiguration.testModelRequired'),
+        result: null,
+      });
+      return false;
+    }
+
+    if (
+      !force &&
+      validatedLlmFingerprint === target.fingerprint &&
+      llmConnectionTestState.result
+    ) {
+      return true;
+    }
+
+    const requestId = ++llmConnectionTestRequestIdRef.current;
+    setValidatedLlmFingerprint(null);
+    setLlmConnectionTestState({ loading: true, error: null, result: null });
+    try {
+      const result = await configApi.testLLMProviderConnection(target.request);
+      if (
+        requestId !== llmConnectionTestRequestIdRef.current ||
+        currentLlmFingerprintRef.current !== target.fingerprint
+      ) {
+        return false;
+      }
+      setValidatedLlmFingerprint(target.fingerprint);
+      setLlmConnectionTestState({ loading: false, error: null, result });
+      return true;
+    } catch (testError: any) {
+      if (
+        requestId !== llmConnectionTestRequestIdRef.current ||
+        currentLlmFingerprintRef.current !== target.fingerprint
+      ) {
+        return false;
+      }
+      setLlmConnectionTestState({
+        loading: false,
+        error: testError?.message || t('llm.providerConfiguration.testFailed'),
+        result: null,
+      });
+      return false;
+    }
   };
 
   const persistPersonaSelection = async (locale: string) => {
@@ -527,9 +642,14 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   };
 
   const handleNext = async () => {
-    if (current === LLM_SETUP_STEP && !llmValid) {
-      toast.warning(t('llm.completeSelections'));
-      return;
+    if (current === LLM_SETUP_STEP) {
+      if (!llmValid) {
+        toast.warning(t('llm.completeSelections'));
+        return;
+      }
+      if (!(await testLlmConnection())) {
+        return;
+      }
     }
 
     if (current === PERSONA_STEP) {
@@ -580,6 +700,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           value={llmValue}
           onChange={handleLlmChange}
           onValid={setLlmValid}
+          connectionTestState={llmConnectionTestState}
+          onTestConnection={testLlmConnection}
+          onConnectionConfigPendingChange={setLlmConnectionConfigPending}
         />
       );
     }
@@ -673,7 +796,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
               <Button
                 variant="outline"
                 onClick={handlePrev}
-                disabled={saving || (current === PERSONA_STEP && personaGenerating)}
+                disabled={
+                  saving ||
+                  llmConnectionConfigPending ||
+                  (current === PERSONA_STEP && personaGenerating)
+                }
               >
                 {t('actions.previous')}
               </Button>
@@ -681,11 +808,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
                 onClick={handleNext}
                 disabled={
                   saving ||
+                  llmConnectionConfigPending ||
+                  llmConnectionTestState.loading ||
                   (current === LLM_SETUP_STEP && !llmValid) ||
                   (current === PERSONA_STEP && personaGenerating)
                 }
               >
-                {saving
+                {current === LLM_SETUP_STEP && llmConnectionTestState.loading
+                  ? t('llm.actions.testingConnection')
+                  : saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
                   : nextLabel}
               </Button>

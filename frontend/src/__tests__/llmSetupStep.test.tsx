@@ -3,7 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { configApi, DEFAULT_SYSTEM_CONFIG, type LLMConfig } from '@/api/modules/config';
-import { LLMSetupStep } from '@/components/onboarding/LLMSetupStep';
+import {
+  LLMSetupStep,
+  type LLMConnectionTestState,
+} from '@/components/onboarding/LLMSetupStep';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -238,16 +241,22 @@ function Harness({
   initial = emptyValue(),
   onValid,
   onChangeSpy,
+  connectionTestState = { loading: false, error: null, result: null },
+  onTestConnection = async () => true,
 }: {
   initial?: LLMConfig;
   onValid?: (valid: boolean) => void;
   onChangeSpy?: (value: LLMConfig) => void;
+  connectionTestState?: LLMConnectionTestState;
+  onTestConnection?: (force?: boolean) => Promise<boolean>;
 }) {
   const [value, setValue] = useState(initial);
   return (
     <LLMSetupStep
       value={value}
       onValid={onValid}
+      connectionTestState={connectionTestState}
+      onTestConnection={onTestConnection}
       onChange={(next) => {
         onChangeSpy?.(next);
         setValue(next);
@@ -314,30 +323,29 @@ describe('LLMSetupStep', () => {
 
   it('tests the selected provider from onboarding before continuing', async () => {
     const user = userEvent.setup();
-    render(<Harness />);
+    const onTestConnection = vi.fn().mockResolvedValue(true);
+    render(<Harness onTestConnection={onTestConnection} />);
 
     await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
     await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
 
-    await waitFor(() => {
-      expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
-        expect.objectContaining({
-          provider_id: 'openai',
-          model: 'gpt-4o',
-          provider: expect.objectContaining({
-            api_key: 'sk-test',
-            base_url: 'https://api.openai.com/v1',
-            services: expect.objectContaining({
-              chat: expect.objectContaining({
-                api_key: 'sk-test',
-                base_url: 'https://api.openai.com/v1',
-              }),
-            }),
-          }),
-        })
-      );
-    });
+    await waitFor(() => expect(onTestConnection).toHaveBeenCalledWith(true));
+  });
+
+  it('renders a successful connection result owned by the onboarding flow', async () => {
+    const user = userEvent.setup();
+    render(
+      <Harness
+        connectionTestState={{
+          loading: false,
+          error: null,
+          result: { model: 'gpt-4o', latency_ms: 42, preview: 'hello' },
+        }}
+      />,
+    );
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
   });
 
@@ -358,6 +366,29 @@ describe('LLMSetupStep', () => {
     expect(latest.providers.custom.base_url).toBe('http://localhost:3000/v1');
     expect(latest.providers.custom.custom_models).toContain('gpt-4o-mini');
     expect(latest.selections.core.model).toBe('gpt-4o-mini');
+  });
+
+  it('requires an API key when a custom provider uses the Anthropic format', async () => {
+    const user = userEvent.setup();
+    const onValid = vi.fn();
+    render(<Harness onValid={onValid} />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-custom'));
+    await user.type(screen.getByTestId('llm-setup-base-url'), 'https://anthropic-relay.example.com');
+    await user.type(screen.getByTestId('llm-setup-custom-model'), 'claude-local');
+    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
+    await user.selectOptions(screen.getByTestId('llm-setup-api-format'), 'anthropic');
+
+    await waitFor(() => {
+      expect(onValid).toHaveBeenLastCalledWith(false);
+    });
+    expect(screen.getByText('llmSetup.apiKeyLabel')).toBeInTheDocument();
+    expect(screen.queryByText('llmSetup.apiKeyOptionalLabel')).not.toBeInTheDocument();
+
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'relay-key');
+    await waitFor(() => {
+      expect(onValid).toHaveBeenLastCalledWith(true);
+    });
   });
 
   it('reveals optional model routing fields from the advanced toggle', async () => {

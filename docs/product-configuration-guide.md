@@ -92,6 +92,7 @@ Safety and configuration ownership rules:
 - onboarding eligibility must come from a successfully loaded persisted status; a read failure is a recoverable error and must never be interpreted as incomplete onboarding
 - completed installations must not render onboarding through direct navigation, refresh, or stale browser history, and onboarding-specific writes must be rejected after completion
 - a failed or invalid onboarding template response must stop the flow and offer retry; the client must not substitute a fresh default configuration
+- recovered progress cannot resume beyond model setup without a connection result from the current app session; saved persona and first-context choices may be retained, but the flow must return to model setup for verification
 - onboarding writes own only the selected language, LLM configuration, and completion flags; agent, memory, network, personality, tool, timeline, and unrelated preference settings must remain unchanged
 - onboarding completion is server-owned state; ordinary settings saves must preserve it and cannot move a completed installation back into onboarding
 
@@ -102,7 +103,8 @@ available in Settings after onboarding.
 It focuses on:
 
 - language selection through the welcome screen
-- a first-run LLM setup surface that asks for one provider, one API key, and only the minimal endpoint/model fields needed for OpenAI-compatible relays
+- a first-run LLM setup surface that asks for one provider, an API key when the provider requires one, and only the minimal endpoint/model fields needed for OpenAI-compatible relays; local or private OpenAI-compatible custom endpoints may be configured without authentication
+- model setup must verify the selected chat model before advancing; a successful manual verification is reused while the provider, API key, endpoint, billing plan, API format, and primary model remain unchanged, and any change to those connection settings requires verification again
 - AI persona selection or lightweight persona creation
 - a dedicated first-context step that offers optional user-approved data source cards so Magi can build its first useful context before the first chat
 - a final completion handoff whose only job is to enter the main app

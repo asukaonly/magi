@@ -43,8 +43,10 @@ def create_llm_adapter(
     """Create an adapter from explicit provider settings."""
     provider = provider_type.lower().strip()
 
-    if not api_key:
+    if not api_key and provider != LLMProvider.CUSTOM.value:
         raise ValueError("LLM API key not configured")
+    if provider == LLMProvider.CUSTOM.value and not str(base_url or "").strip():
+        raise ValueError("Custom LLM base URL not configured")
 
     if provider in _ANTHROPIC_ADAPTER_PROVIDERS:
         return AnthropicAdapter(

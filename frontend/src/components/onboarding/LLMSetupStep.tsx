@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, AlertCircle, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -33,6 +33,15 @@ export interface LLMSetupStepProps {
   value: LLMConfig;
   onChange: (next: LLMConfig) => void;
   onValid?: (valid: boolean) => void;
+  connectionTestState: LLMConnectionTestState;
+  onTestConnection: (force?: boolean) => Promise<boolean>;
+  onConnectionConfigPendingChange?: (pending: boolean) => void;
+}
+
+export interface LLMConnectionTestState {
+  loading: boolean;
+  error: string | null;
+  result: TestLLMProviderConnectionResponse | null;
 }
 
 type QuickProviderCard = {
@@ -61,6 +70,10 @@ const fieldClassName =
 const secretFieldButtonClassName =
   'absolute inset-y-0 right-2 inline-flex items-center justify-center text-muted-foreground transition hover:text-foreground';
 
+function providerRequiresApiKey(provider: LLMProviderConfig): boolean {
+  return provider.provider_type !== 'custom' || (provider.api_format || 'openai') !== 'openai';
+}
+
 function isValidConfig(value: LLMConfig): boolean {
   const coreProviderId = value.selections?.core?.provider_id || '';
   const provider = value.providers?.[coreProviderId];
@@ -75,7 +88,9 @@ function isValidConfig(value: LLMConfig): boolean {
   }
 
   if (provider.provider_type === 'custom') {
-    return Boolean((provider.base_url || provider.services.chat.base_url || '').trim());
+    const hasBaseUrl = Boolean((provider.base_url || provider.services.chat.base_url || '').trim());
+    const hasApiKey = Boolean((provider.api_key || provider.services.chat.api_key || '').trim());
+    return hasBaseUrl && (!providerRequiresApiKey(provider) || hasApiKey);
   }
 
   return Boolean((provider.api_key || provider.services.chat.api_key || '').trim());
@@ -314,7 +329,14 @@ function getActiveProviderId(value: LLMConfig): string {
   return value.selections?.core?.provider_id || Object.keys(value.providers || {})[0] || '';
 }
 
-export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): JSX.Element {
+export function LLMSetupStep({
+  value,
+  onChange,
+  onValid,
+  connectionTestState,
+  onTestConnection,
+  onConnectionConfigPendingChange,
+}: LLMSetupStepProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   const [registry, setRegistry] = useState<LLMProviderRegistry | null>(null);
   const [customTemplate, setCustomTemplate] = useState<LLMCustomProviderTemplateData | null>(null);
@@ -322,12 +344,9 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   const [error, setError] = useState<string | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [connectionTestState, setConnectionTestState] = useState<{
-    loading: boolean;
-    error: string | null;
-    result: TestLLMProviderConnectionResponse | null;
-  }>({ loading: false, error: null, result: null });
-
+  const [catalogResolutionPending, setCatalogResolutionPending] = useState(false);
+  const [catalogResolutionError, setCatalogResolutionError] = useState(false);
+  const catalogResolutionRequestIdRef = useRef(0);
   const activeProviderId = getActiveProviderId(value);
   const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
   const activeProviderMeta = activeProvider?.provider_type === 'custom'
@@ -341,22 +360,16 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     : activeProvider?.provider_type || '';
   const currentCoreModel = value.selections?.core?.model || '';
   const currentContextModel = value.selections?.context_decider?.model || '';
-  const connectionSignature = [
-    activeProviderId,
-    currentCoreModel,
-    activeProvider?.api_key || '',
-    activeProvider?.base_url || '',
-    activeProvider?.services?.chat?.api_key || '',
-    activeProvider?.services?.chat?.base_url || '',
-  ].join('\n');
+  useEffect(() => {
+    return () => {
+      catalogResolutionRequestIdRef.current += 1;
+      onConnectionConfigPendingChange?.(false);
+    };
+  }, [onConnectionConfigPendingChange]);
 
   useEffect(() => {
-    onValid?.(isValidConfig(value));
-  }, [value, onValid]);
-
-  useEffect(() => {
-    setConnectionTestState({ loading: false, error: null, result: null });
-  }, [connectionSignature]);
+    onValid?.(isValidConfig(value) && !catalogResolutionPending);
+  }, [catalogResolutionPending, value, onValid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -436,6 +449,10 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     if (!registry) {
       return;
     }
+    catalogResolutionRequestIdRef.current += 1;
+    setCatalogResolutionPending(false);
+    onConnectionConfigPendingChange?.(false);
+    setCatalogResolutionError(false);
     onChange(buildNextConfig(value, registry, providerId, provider, overrides));
   };
 
@@ -444,17 +461,36 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     provider: LLMProviderConfig,
     overrides?: Partial<Record<'core' | 'context_decider' | 'embedding', string>>
   ) => {
-    if (!customTemplate) {
-      commitProvider(providerId, provider, overrides);
+    if (!registry) {
       return;
     }
+
+    const requestId = ++catalogResolutionRequestIdRef.current;
+    setCatalogResolutionError(false);
+    if (!customTemplate) {
+      onChange(buildNextConfig(value, registry, providerId, provider, overrides));
+      return;
+    }
+
+    setCatalogResolutionPending(true);
+    onConnectionConfigPendingChange?.(true);
     try {
       const catalog = await configApi.resolveLLMProviderCatalog({ providers: { [providerId]: provider } });
+      if (requestId !== catalogResolutionRequestIdRef.current) {
+        return;
+      }
       const nextRegistry = buildRegistryFromCatalog(catalog, customTemplate);
       setRegistry(nextRegistry);
       onChange(buildNextConfig(value, nextRegistry, providerId, provider, overrides));
     } catch {
-      commitProvider(providerId, provider, overrides);
+      if (requestId === catalogResolutionRequestIdRef.current) {
+        setCatalogResolutionError(true);
+      }
+    } finally {
+      if (requestId === catalogResolutionRequestIdRef.current) {
+        setCatalogResolutionPending(false);
+        onConnectionConfigPendingChange?.(false);
+      }
     }
   };
 
@@ -542,54 +578,6 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
     });
   };
 
-  const handleTestActiveProviderConnection = async () => {
-    if (!activeProviderId || !activeProvider) {
-      return;
-    }
-
-    const model = currentCoreModel.trim();
-    if (!model) {
-      setConnectionTestState({
-        loading: false,
-        error: t('llm.providerConfiguration.testModelRequired'),
-        result: null,
-      });
-      return;
-    }
-
-    const provider = cloneProvider(activeProvider);
-    const apiKey = provider.services.chat.api_key || provider.api_key || '';
-    const baseUrl =
-      provider.services.chat.base_url ||
-      provider.base_url ||
-      activeProviderMeta?.default_base_url ||
-      '';
-    provider.api_key = provider.api_key || apiKey;
-    provider.base_url = provider.base_url || baseUrl;
-    provider.services.chat.api_key = apiKey;
-    provider.services.chat.base_url = baseUrl;
-
-    setConnectionTestState({ loading: true, error: null, result: null });
-    try {
-      const result = await configApi.testLLMProviderConnection({
-        provider_id: activeProviderId,
-        provider,
-        model,
-      });
-      setConnectionTestState({
-        loading: false,
-        error: null,
-        result: result || null,
-      });
-    } catch (testError: any) {
-      setConnectionTestState({
-        loading: false,
-        error: testError?.message || t('llm.providerConfiguration.testFailed'),
-        result: null,
-      });
-    }
-  };
-
   const memoryModelStatus = getMemoryModelStatus(value);
   const memoryModelMissingTitleKey = activeProvider?.provider_plan
     ? 'llmSetup.memoryModelPlanMissingTitle'
@@ -648,7 +636,15 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
   }
 
   return (
-    <div className="flex flex-col gap-6" data-testid="llm-setup-simple">
+    <fieldset
+      disabled={catalogResolutionPending}
+      aria-busy={catalogResolutionPending}
+      className={cn(
+        'm-0 flex min-w-0 flex-col gap-6 border-0 p-0',
+        catalogResolutionPending && 'pointer-events-none opacity-60',
+      )}
+      data-testid="llm-setup-simple"
+    >
       <div className="space-y-2">
         <h3 className="text-base font-semibold text-foreground">{t('llmSetup.providerTitle')}</h3>
         <p className="text-sm leading-6 text-muted-foreground">{t('llmSetup.providerDesc')}</p>
@@ -739,6 +735,15 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
             </label>
           ) : null}
 
+          {catalogResolutionError ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-sm text-destructive"
+            >
+              {t('llmSetup.planLoadFailed')}
+            </div>
+          ) : null}
+
           <div className="grid gap-4 md:grid-cols-2">
             {activeProvider.provider_type === 'custom' ? (
               <label className="space-y-2">
@@ -760,7 +765,7 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
 
             <div className="space-y-2">
               <span className="text-sm font-medium">
-                {activeProvider.provider_type === 'custom'
+                {!providerRequiresApiKey(activeProvider)
                   ? t('llmSetup.apiKeyOptionalLabel')
                   : t('llmSetup.apiKeyLabel')}
               </span>
@@ -770,7 +775,7 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
                   type="button"
                   className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-border/70 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={connectionTestState.loading}
-                  onClick={() => void handleTestActiveProviderConnection()}
+                  onClick={() => void onTestConnection(true)}
                 >
                   {connectionTestState.loading ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -928,8 +933,7 @@ export function LLMSetupStep({ value, onChange, onValid }: LLMSetupStepProps): J
           {t('llmSetup.pickProviderHint')}
         </div>
       )}
-
-    </div>
+    </fieldset>
   );
 }
 
