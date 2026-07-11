@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from ....agent.message_utils import append_latest_user_message
+from ....context.window_budget import build_context_window_budget, estimate_context_tokens
 from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
@@ -127,21 +128,29 @@ class DirectLLMHandler(BaseExecutionHandler):
             persona_id=getattr(request.context, "active_persona_id", None),
             persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
         )
+        effective_system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
+            system_prompt=prompt_package.system_prompt,
+            reply_context=getattr(request.context, "reply_context", None),
+            recent_tool_state=getattr(request.context, "recent_tool_state", None),
+        )
+        context_budget = build_context_window_budget(self._deps.model_context_provider())
+        history_budget = max(
+            1,
+            context_budget.compaction_trigger_tokens
+            - estimate_context_tokens(effective_system_prompt),
+        )
         return DirectLLMRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
-            system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
-                system_prompt=prompt_package.system_prompt,
-                reply_context=getattr(request.context, "reply_context", None),
-                recent_tool_state=getattr(request.context, "recent_tool_state", None),
-            ),
+            system_prompt=effective_system_prompt,
             messages=append_latest_user_message(
                 request.context.history,
                 turn,
                 resolver=self._attachment_resolver,
+                history_token_budget=history_budget,
                 session_summary=getattr(request.context, "session_summary", None),
                 session_origin=getattr(request.context, "session_origin", None),
                 reply_context=getattr(request.context, "reply_context", None),

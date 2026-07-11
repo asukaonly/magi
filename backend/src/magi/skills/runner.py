@@ -42,6 +42,8 @@ class SkillRunner:
         tool_registry: ToolRegistryPort | None = None,
         orchestrator_factory: Callable[..., Any] | None = None,
         engine_run_input_factory: Callable[..., Any] | None = None,
+        active_model_provider: Callable[..., Any] | None = None,
+        scenario_llm_pool: Any | None = None,
     ):
         """
         Initialize the skill runner.
@@ -64,6 +66,8 @@ class SkillRunner:
         self._tool_registry = tool_registry
         self._orchestrator_factory = orchestrator_factory
         self._engine_run_input_factory = engine_run_input_factory
+        self._active_model_provider = active_model_provider
+        self._scenario_llm_pool = scenario_llm_pool
 
     async def execute(
         self,
@@ -273,6 +277,8 @@ class SkillRunner:
             tool_registry=self._tool_registry,
             orchestrator_factory=self._orchestrator_factory,
             engine_run_input_factory=self._engine_run_input_factory,
+            active_model_provider=self._active_model_provider,
+            scenario_llm_pool=self._scenario_llm_pool,
         )
         user_message = context.get("user_message", "")
 

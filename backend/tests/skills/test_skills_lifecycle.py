@@ -22,6 +22,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     def _fake_build_skills_runtime(
         llm_adapter=None,
         permission_gateway_provider=None,
+        active_model_provider=None,
+        scenario_llm_pool=None,
         *,
         tool_registry,
         orchestrator_factory=None,
@@ -29,6 +31,8 @@ async def test_skills_module_populates_shared_runtime(monkeypatch: pytest.Monkey
     ):
         captured["llm_adapter"] = llm_adapter
         captured["permission_gateway_provider"] = permission_gateway_provider
+        captured["active_model_provider"] = active_model_provider
+        captured["scenario_llm_pool"] = scenario_llm_pool
         captured["tool_registry"] = tool_registry
         captured["orchestrator_factory"] = orchestrator_factory
         captured["engine_run_input_factory"] = engine_run_input_factory

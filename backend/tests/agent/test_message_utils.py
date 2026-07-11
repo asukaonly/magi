@@ -99,6 +99,7 @@ def test_append_latest_user_message_keeps_legacy_limit_when_explicit() -> None:
     messages = append_latest_user_message(
         history,
         _turn("message 3"),
+        history_token_budget=None,
         history_limit=1,
         resolver=_NULL_RESOLVER,
     )

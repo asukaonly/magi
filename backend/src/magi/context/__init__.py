@@ -6,6 +6,11 @@ from .policy import ContextPolicy
 from .retrieval import ContextRetrievalService
 from .service import ContextAssemblyService
 from .user_profile_service import UserProfileService
+from .window_budget import (
+    ContextWindowBudget,
+    build_context_window_budget,
+    estimate_context_tokens,
+)
 from .scenarios import Scenario
 from .schema import (
     IdentityConstraintContext,
@@ -22,6 +27,7 @@ __all__ = [
     "ContextPolicy",
     "ContextPolicyDecision",
     "ContextRetrievalService",
+    "ContextWindowBudget",
     "IdentityConstraintContext",
     "ProfileMemoryContext",
     "PromptPackage",
@@ -34,4 +40,6 @@ __all__ = [
     "SelfMemoryContext",
     "ToolCatalogContext",
     "UserProfileService",
+    "build_context_window_budget",
+    "estimate_context_tokens",
 ]

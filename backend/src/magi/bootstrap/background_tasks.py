@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable
+from magi.config.models import LLMScenario
 
 from ..agent.background import (
     BackgroundDispatcher,
@@ -60,7 +61,7 @@ def build_background_task_wiring(
     orchestrator = FunctionCallingOrchestrator(
         tool_registry=tool_registry,
         llm_adapter=llm_adapter,
-        llm_pool=llm_pool,
+        active_model_provider=lambda: llm_pool.resolve(LLMScenario.CORE),
         skill_runner=skill_runner,
         runtime_trace_store=runtime_trace_store,
         scenario_llm_pool=llm_pool,

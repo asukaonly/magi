@@ -12,17 +12,21 @@ from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.provider_bridge import LLMProviderBridge
-from magi.agent.message_utils import DEFAULT_HISTORY_TOKEN_BUDGET
+from magi.context.window_budget import build_context_window_budget
+from magi.llm.model_context import (
+    ModelContextProfile,
+    ResolvedModel,
+    unknown_model_context,
+)
 from magi.agent.trace import now_wall_ms
 
 logger = get_logger(__name__)
 
 SUMMARY_KIND_TOKEN_BUDGET = "token_budget"
-DEFAULT_SUMMARY_TRIGGER_TOKENS = int(DEFAULT_HISTORY_TOKEN_BUDGET * 0.75)
-DEFAULT_SUMMARY_TAIL_TOKENS = int(DEFAULT_HISTORY_TOKEN_BUDGET * 0.25)
 DEFAULT_MIN_MESSAGES_FOR_SUMMARY = 16
 SUMMARY_OUTPUT_RESERVE = 8_192
 _CHARS_PER_TOKEN_ESTIMATE = 4
+_SUMMARY_INPUT_RATIO = 0.60
 _PROMPT_MESSAGE_KINDS = {"user_text", "assistant_final", "assistant_rhythm_segment"}
 
 
@@ -86,17 +90,21 @@ class ChatTranscriptSummarizer:
         chat_store: ChatStore | None,
         scenario_llm_pool: Any | None = None,
         llm_adapter: Any | None = None,
+        model_context_provider: Callable[[], ModelContextProfile] | None = None,
         summary_generator: SummaryGenerator | None = None,
-        token_threshold: int = DEFAULT_SUMMARY_TRIGGER_TOKENS,
-        tail_token_budget: int = DEFAULT_SUMMARY_TAIL_TOKENS,
+        token_threshold: int | None = None,
+        tail_token_budget: int | None = None,
         min_messages: int = DEFAULT_MIN_MESSAGES_FOR_SUMMARY,
     ) -> None:
         self._chat_store = chat_store
         self._scenario_llm_pool = scenario_llm_pool
         self._llm_adapter = llm_adapter
+        self._model_context_provider = model_context_provider
         self._summary_generator = summary_generator
-        self._token_threshold = max(1, token_threshold)
-        self._tail_token_budget = max(1, tail_token_budget)
+        self._token_threshold = max(1, token_threshold) if token_threshold is not None else None
+        self._tail_token_budget = (
+            max(1, tail_token_budget) if tail_token_budget is not None else None
+        )
         self._min_messages = max(2, min_messages)
         self._session_locks: dict[str, Any] = {}
 
@@ -154,30 +162,38 @@ class ChatTranscriptSummarizer:
         active_summary: ChatContextSummaryRecord | None,
         transcript_messages: list[TranscriptMessageForSummary],
     ) -> _TranscriptSummaryPlan | TranscriptSummaryResult:
-        if len(transcript_messages) < self._min_messages:
-            return TranscriptSummaryResult(created=False, reason="too_few_messages")
-
         range_start_index = self._find_message_index(
             transcript_messages,
             active_summary.first_kept_message_id if active_summary is not None else None,
         )
         if range_start_index is None:
             range_start_index = 0
-        tail_start_index = self._select_tail_start_index(transcript_messages)
-        if tail_start_index <= range_start_index:
-            return TranscriptSummaryResult(created=False, reason="tail_within_budget")
-
+        budget = self._current_budget()
+        token_threshold = self._token_threshold or budget.compaction_trigger_tokens
+        tail_token_budget = self._tail_token_budget or budget.recent_tail_tokens
         candidate_messages = transcript_messages[range_start_index:]
         current_token_count = self._estimate_current_prompt_tokens(
             active_summary_text=active_summary.summary_text if active_summary is not None else None,
             messages=candidate_messages,
         )
-        if current_token_count < self._token_threshold:
+        if current_token_count < token_threshold:
+            reason = (
+                "too_few_messages"
+                if len(transcript_messages) < self._min_messages
+                else "below_threshold"
+            )
             return TranscriptSummaryResult(
                 created=False,
-                reason="below_threshold",
+                reason=reason,
                 token_count_before=current_token_count,
             )
+
+        tail_start_index = self._select_tail_start_index(
+            transcript_messages,
+            tail_token_budget=tail_token_budget,
+        )
+        if tail_start_index <= range_start_index:
+            return TranscriptSummaryResult(created=False, reason="tail_within_budget")
 
         messages_to_summarize = transcript_messages[range_start_index:tail_start_index]
         if not messages_to_summarize:
@@ -290,51 +306,94 @@ class ChatTranscriptSummarizer:
             if inspect.isawaitable(generated):
                 generated = await generated
             return str(generated or "").strip()
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        resolved = self._resolve_summary_model()
+        if resolved is None:
             return ""
-        bridge = LLMProviderBridge(adapter)
-        response = await bridge.chat(
-            system_prompt=self._build_system_prompt(),
-            messages=[{"role": "user", "content": self._build_user_prompt(summary_input)}],
-            max_tokens=SUMMARY_OUTPUT_RESERVE,
-            temperature=0.2,
-            thinking_depth=ThinkingDepth.NONE,
-            event_context={
-                "request_kind": "memory:chat_transcript_summary",
-                "agent_id": "chat_transcript_summarizer",
-                "session_id": summary_input.session_id,
-            },
+        budget = build_context_window_budget(resolved.context)
+        max_chars = max(
+            4_000,
+            int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _CHARS_PER_TOKEN_ESTIMATE,
         )
-        return str(response.content or "").strip()
-
-    def _resolve_summary_adapter(self) -> Any | None:
-        if self._scenario_llm_pool is not None:
-            try:
-                return self._scenario_llm_pool.get(LLMScenario.CONTEXT_COMPACT)
-            except (ValueError, KeyError):
-                logger.info(
-                    "CONTEXT_COMPACT scenario not configured, falling back to CORE for chat transcript summary"
+        chunks = self._split_text(
+            self._build_user_prompt(summary_input),
+            max_chars=max_chars,
+        )
+        bridge = LLMProviderBridge(resolved.adapter)
+        cumulative_summary = ""
+        for index, chunk in enumerate(chunks):
+            prompt = chunk
+            if cumulative_summary:
+                prompt = (
+                    "Merge the previous partial summary with the next transcript chunk. "
+                    "Return one cumulative active summary only.\n\n"
+                    f"# Previous Partial Summary\n{cumulative_summary}\n\n"
+                    f"# Next Transcript Chunk\n{chunk}"
                 )
+            response = await bridge.chat(
+                system_prompt=self._build_system_prompt(),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=min(SUMMARY_OUTPUT_RESERVE, budget.output_reserve),
+                temperature=0.2,
+                thinking_depth=ThinkingDepth.NONE,
+                event_context={
+                    "request_kind": "memory:chat_transcript_summary",
+                    "agent_id": "chat_transcript_summarizer",
+                    "session_id": summary_input.session_id,
+                    "chunk_index": index,
+                    "chunk_count": len(chunks),
+                },
+            )
+            cumulative_summary = str(response.content or "").strip()
+            if not cumulative_summary:
+                return ""
+        return cumulative_summary
+
+    @staticmethod
+    def _split_text(text: str, *, max_chars: int) -> list[str]:
+        if len(text) <= max_chars:
+            return [text]
+        return [text[start : start + max_chars] for start in range(0, len(text), max_chars)]
+
+    def _resolve_summary_model(self) -> ResolvedModel | None:
+        if self._scenario_llm_pool is not None:
+            resolver = getattr(self._scenario_llm_pool, "resolve", None)
+            getter = getattr(self._scenario_llm_pool, "get", None)
+            for scenario in (LLMScenario.CONTEXT_COMPACT, LLMScenario.CORE):
                 try:
-                    return self._scenario_llm_pool.get(LLMScenario.CORE)
+                    if callable(resolver):
+                        return resolver(scenario)
+                    if callable(getter):
+                        adapter = getter(scenario)
+                        return ResolvedModel(
+                            adapter=adapter,
+                            context=unknown_model_context(adapter),
+                        )
                 except (ValueError, KeyError):
+                    if scenario == LLMScenario.CONTEXT_COMPACT:
+                        logger.info(
+                            "CONTEXT_COMPACT scenario not configured, falling back to CORE for chat transcript summary"
+                        )
+                        continue
                     return None
-        return self._llm_adapter
+            return None
+        if self._llm_adapter is None:
+            return None
+        return ResolvedModel(
+            adapter=self._llm_adapter,
+            context=unknown_model_context(self._llm_adapter),
+        )
 
     def _resolve_model_provider(self) -> str | None:
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        resolved = self._resolve_summary_model()
+        if resolved is None:
             return "test" if self._summary_generator is not None else None
-        provider = getattr(adapter, "provider", None) or getattr(adapter, "provider_name", None)
-        return str(provider) if provider is not None else None
+        return resolved.context.provider_id
 
     def _resolve_model_id(self) -> str | None:
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        resolved = self._resolve_summary_model()
+        if resolved is None:
             return "summary_generator" if self._summary_generator is not None else None
-        model_id = getattr(adapter, "model_id", None) or getattr(adapter, "model_name", None)
-        return str(model_id) if model_id is not None else None
+        return resolved.context.model_id
 
     @staticmethod
     def _prompt_messages_from_records(
@@ -363,16 +422,34 @@ class ChatTranscriptSummarizer:
             )
         return messages
 
-    def _select_tail_start_index(self, messages: list[TranscriptMessageForSummary]) -> int:
+    def _current_budget(self):
+        profile = (
+            self._model_context_provider()
+            if self._model_context_provider is not None
+            else ModelContextProfile(
+                provider_id="unknown",
+                model_id="unknown",
+                context_window=None,
+                max_output_tokens=None,
+            )
+        )
+        return build_context_window_budget(profile)
+
+    def _select_tail_start_index(
+        self,
+        messages: list[TranscriptMessageForSummary],
+        *,
+        tail_token_budget: int,
+    ) -> int:
         total_tokens = 0
         selected_count = 0
         for message in reversed(messages):
             message_tokens = self._estimate_prompt_messages_tokens([message.to_prompt_message()])
-            if selected_count and total_tokens + message_tokens > self._tail_token_budget:
+            if selected_count and total_tokens + message_tokens > tail_token_budget:
                 break
             total_tokens += message_tokens
             selected_count += 1
-            if total_tokens >= self._tail_token_budget:
+            if total_tokens >= tail_token_budget:
                 break
         return max(0, len(messages) - max(1, selected_count))
 

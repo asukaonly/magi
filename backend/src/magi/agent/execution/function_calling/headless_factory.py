@@ -21,6 +21,8 @@ def build_function_calling_orchestrator(
     skill_runner: Any,
     tool_result_callback: Any,
     permission_gateway_provider: Any = None,
+    active_model_provider: Any = None,
+    scenario_llm_pool: Any = None,
 ) -> FunctionCallingOrchestrator:
     """Construct a :class:`FunctionCallingOrchestrator` for a headless run."""
     return FunctionCallingOrchestrator(
@@ -29,6 +31,8 @@ def build_function_calling_orchestrator(
         skill_runner=skill_runner,
         tool_result_callback=tool_result_callback,
         permission_gateway_provider=permission_gateway_provider,
+        active_model_provider=active_model_provider,
+        scenario_llm_pool=scenario_llm_pool,
     )
 
 

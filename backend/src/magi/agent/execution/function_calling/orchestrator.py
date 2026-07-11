@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING, cast
 
-from ....config.models import LLMScenario, ThinkingDepth
+from ....config.models import ThinkingDepth
 from ....llm.base import LLMAdapter
 from ....llm.provider_bridge import LLMProviderBridge
 from ....runtime_trace import RuntimeTraceStore
 from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
+from ....context.window_budget import build_context_window_budget
+from ....llm.model_context import ResolvedModel, unknown_model_context
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
 from magi.control.run_control import (
@@ -115,13 +117,12 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self,
         tool_registry: "ToolRegistry",
         llm_adapter: Optional[LLMAdapter] = None,
-        llm_pool=None,
+        active_model_provider: Callable[[], ResolvedModel] | None = None,
         skill_runner=None,
         tool_result_callback=None,
         loop_event_callback=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         scenario_llm_pool=None,
-        context_window: int | None = None,
         permission_gateway: Any = None,
         permission_gateway_provider: Callable[[], Any] | None = None,
         attachment_resolver: AttachmentResolverPort | None = None,
@@ -134,10 +135,11 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             tool_registry: Tool registry.
             skill_runner: Optional skill runner for skill-based tools.
             scenario_llm_pool: ScenarioLLMPool for context compaction summariser.
-            context_window: Context window size of the active model.
+            active_model_provider: Resolves the adapter and limits for this run.
         """
         self.llm = llm_adapter
-        self._llm_pool = llm_pool
+        self._active_model_provider = active_model_provider
+        self._active_model_context = unknown_model_context(llm_adapter)
         self.provider_bridge = LLMProviderBridge(llm_adapter) if llm_adapter else None
         self.postprocessor = FunctionCallingPostprocessor()
         self.tool_registry = tool_registry
@@ -158,7 +160,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         self._current_messages: List[Dict[str, Any]] = []
         self._context_compactor = ContextCompactor(
             scenario_llm_pool=scenario_llm_pool,
-            context_window=context_window or self._resolve_context_window(scenario_llm_pool),
+            budget_provider=lambda: build_context_window_budget(self._active_model_context),
             on_event=loop_event_callback,
         )
 
@@ -170,19 +172,6 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             except AttributeError:
                 pass
         raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
-
-    @staticmethod
-    def _resolve_context_window(scenario_llm_pool: Any | None) -> int | None:
-        if scenario_llm_pool is None:
-            return None
-        resolver = getattr(scenario_llm_pool, "context_window_for", None)
-        if not callable(resolver):
-            return None
-        try:
-            value = resolver(LLMScenario.CORE)
-        except Exception:
-            return None
-        return value if isinstance(value, int) and value > 0 else None
 
     def build_step_state(
         self,
@@ -198,11 +187,14 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         ephemeral_context: str | None = None,
     ) -> FunctionCallingStepState:
         """Build the initial loop state for step-wise function calling."""
+        self._resolve_llm()
+        self._context_compactor.begin_run()
         normalized_selected_tools = list(dict.fromkeys(selected_tools))
         messages = append_latest_user_message(
             conversation_history,
             turn,
             resolver=self._attachment_resolver,
+            history_token_budget=self._context_compactor.history_token_budget,
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
@@ -282,13 +274,16 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                     session_id=session_id,
                 ),
                 resolver=self._attachment_resolver,
+                history_token_budget=None,
                 history_limit=max(len(messages), 1) + 1,
             ),
         )
 
     def _resolve_llm(self) -> LLMAdapter:
-        if self._llm_pool is not None:
-            llm = self._llm_pool.get(LLMScenario.CORE)
+        if self._active_model_provider is not None:
+            resolved = self._active_model_provider()
+            llm = resolved.adapter
+            self._active_model_context = resolved.context
             if llm is not self.llm:
                 self.llm = llm
                 self.provider_bridge = LLMProviderBridge(llm)
@@ -439,12 +434,20 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     async def _try_compact(
         self,
         state: FunctionCallingStepState,
-        system_prompt: str,
     ) -> None:
         """Check token usage and compact the message history if needed."""
-        if not self._context_compactor.should_compact(state.messages):
+        if not self._context_compactor.should_compact(
+            state.messages,
+            prompt_overhead={
+                "system_prompt": state.effective_system_prompt,
+                "tools": state.tools,
+            },
+        ):
             return
-        result = await self._context_compactor.compact(state.messages, system_prompt)
+        result = await self._context_compactor.compact(
+            state.messages,
+            state.effective_system_prompt,
+        )
         if result.compacted:
             state.messages[:] = result.messages
 

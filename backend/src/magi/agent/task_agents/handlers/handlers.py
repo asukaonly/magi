@@ -41,6 +41,7 @@ from .attachment_context import resolve_effective_turn_attachments
 from .tool_exposure_policy import default_tool_exposure_policy
 from .turn_route_resolver import TurnRouteResolver
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
+from ....llm.model_context import ModelContextProfile
 from ...task_orchestrator import TaskOrchestrator
 
 logger = get_logger(__name__)
@@ -65,6 +66,7 @@ class ChatHandlerDependencies:
     context_assembler: HistoryServiceProtocol
     agent_id: str
     get_task_agent_manager: callable
+    model_context_provider: Callable[[], ModelContextProfile]
     # Resolves managed attachment payloads for a turn. Chat wires a
     # chat-backed resolver; defaults to a null resolver so tests / non-chat
     # callers can build dependencies without a chat read service.

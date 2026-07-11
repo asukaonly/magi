@@ -721,6 +721,49 @@ def test_postprocessor_uses_registered_tool_context_formatter() -> None:
     assert payload["data"] == {"custom": 42}
 
 
+def test_postprocessor_bounds_unregistered_tool_payloads() -> None:
+    postprocessor = FunctionCallingPostprocessor(max_items=2, max_text_chars=20)
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="third_party_search",
+        result=ToolCallResult(
+            tool_call_id="external-1",
+            tool_name="third_party_search",
+            success=True,
+            data={
+                "text": "x" * 100,
+                "items": [
+                    {"title": "first", "body": "a" * 100},
+                    {"title": "second", "body": "b" * 100},
+                    {"title": "third", "body": "c" * 100},
+                ],
+            },
+            error=None,
+        ),
+    )
+
+    assert payload["data"]["text"].endswith("...[truncated]")
+    assert len(payload["data"]["items"]) == 2
+    assert payload["data"]["__context_truncated__"] is True
+
+
+def test_postprocessor_bounds_unregistered_scalar_payloads() -> None:
+    postprocessor = FunctionCallingPostprocessor(max_text_chars=20)
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="third_party_shell",
+        result=ToolCallResult(
+            tool_call_id="external-2",
+            tool_name="third_party_shell",
+            success=True,
+            data="x" * 100,
+            error=None,
+        ),
+    )
+
+    assert payload["data"].endswith("...[truncated]")
+
+
 def test_postprocessor_compacts_image_generation_tool_data_for_display() -> None:
     postprocessor = FunctionCallingPostprocessor()
 

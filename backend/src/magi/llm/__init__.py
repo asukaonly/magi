@@ -14,6 +14,7 @@ from .concurrency_limiter import (
 from .provider_bridge import LLMProviderBridge, ProviderResponse, ProviderToolCall, ProviderUsage
 from .factory import create_llm_adapter
 from .scenario_pool import ScenarioLLMPool
+from .model_context import ModelContextProfile, ResolvedModel
 from .usage_store import LLMUsageStore, get_llm_usage_store
 from ..config.models import LLMScenario
 
@@ -23,6 +24,7 @@ __all__ = [
     "AnthropicAdapter",
     "LLMConcurrencyLimiter",
     "LLMRequestPriority",
+    "ModelContextProfile",
     "get_llm_concurrency_limiter",
     "LLMProviderBridge",
     "ProviderResponse",
@@ -31,6 +33,7 @@ __all__ = [
     "create_llm_adapter",
     "LLMScenario",
     "ScenarioLLMPool",
+    "ResolvedModel",
     "LLMUsageStore",
     "get_llm_usage_store",
 ]

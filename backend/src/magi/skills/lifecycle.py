@@ -11,6 +11,7 @@ from ..core.logger import get_logger
 from ..control.permission.provider import get_permission_gateway
 from .service_access import build_skills_runtime
 from .tool_registry_port import ToolRegistryPort
+from ..config.models import LLMScenario
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,10 @@ class SkillsModule(LifecycleModule):
         llm_adapter = require_initialized(self._context.llm.llm_adapter, "llm adapter")
         bindings = build_skills_runtime(
             llm_adapter,
+            active_model_provider=lambda: self._context.llm.scenario_llm_pool.resolve(
+                LLMScenario.CORE
+            ),
+            scenario_llm_pool=self._context.llm.scenario_llm_pool,
             permission_gateway_provider=get_permission_gateway,
             tool_registry=self._tool_registry,
             orchestrator_factory=self._orchestrator_factory,

@@ -10,8 +10,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import pytest
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall
-from magi.config.models import LLMScenario
 from magi.llm.base import LLMAdapter
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.skills.schema import SkillResult
 from magi.tools.schema import ToolResult
 
@@ -86,11 +86,19 @@ class _DummyToolRegistry:
 class _RecordingLLMPool:
     def __init__(self, adapter: LLMAdapter) -> None:
         self._adapter = adapter
-        self.requested: list[LLMScenario] = []
+        self.requested = 0
 
-    def get(self, scenario: LLMScenario) -> LLMAdapter:
-        self.requested.append(scenario)
-        return self._adapter
+    def resolve(self) -> ResolvedModel:
+        self.requested += 1
+        return ResolvedModel(
+            adapter=self._adapter,
+            context=ModelContextProfile(
+                provider_id="openai",
+                model_id="dummy-model",
+                context_window=200_000,
+                max_output_tokens=8_000,
+            ),
+        )
 
 
 def _executor() -> FunctionCallingOrchestrator:
@@ -120,10 +128,10 @@ class _RecordingSkillRunner:
         return SkillResult(success=True, content="ok", metadata={})
 
 
-async def test_function_calling_orchestrator_uses_core_scenario_from_pool() -> None:
+async def test_function_calling_orchestrator_uses_injected_active_model() -> None:
     pool = _RecordingLLMPool(_DummyLLMAdapter())
     executor = FunctionCallingOrchestrator(
-        llm_pool=pool,
+        active_model_provider=pool.resolve,
         tool_registry=_DummyToolRegistry(),  # type: ignore[arg-type]
     )
 
@@ -133,7 +141,8 @@ async def test_function_calling_orchestrator_uses_core_scenario_from_pool() -> N
     )
 
     assert result["content"] == ""
-    assert pool.requested == [LLMScenario.CORE]
+    assert pool.requested == 1
+    assert executor._context_compactor.effective_window == 200_000
 
 
 def test_explore_guardrail_rewrites_broad_glob_to_safe_scan() -> None:

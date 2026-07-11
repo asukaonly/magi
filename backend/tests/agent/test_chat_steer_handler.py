@@ -36,6 +36,7 @@ from magi.agent.task_agents.handlers.handlers import (
 )
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.chat.task_agent.session_run_decisions import TurnSupersession
+from magi.llm.model_context import unknown_model_context
 from magi.agent.task_agents.common import (
     ExecutionMode,
     FunctionCallingRequest,
@@ -189,6 +190,7 @@ def _make_handler(
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
         context_assembler=SimpleNamespace(),
+        model_context_provider=lambda: unknown_model_context(None),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=coordinator,
@@ -359,6 +361,7 @@ async def test_no_steer_drain_when_coordinator_is_absent() -> None:
         ),
         task_orchestrator=SimpleNamespace(),
         context_assembler=SimpleNamespace(),
+        model_context_provider=lambda: unknown_model_context(None),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,

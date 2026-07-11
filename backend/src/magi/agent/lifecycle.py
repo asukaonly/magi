@@ -20,6 +20,7 @@ from ..utils.runtime import get_runtime_paths
 from .runtime import AgentRuntime, RouterAgent, TaskAgentManager
 from .scheduled_agent_task import UserAgentTaskScheduleContributor
 from .task_agents.factory import create_default_agent_factory
+from ..config.models import LLMScenario
 
 if TYPE_CHECKING:
     from .runtime import TaskAgent
@@ -221,6 +222,7 @@ class AgentRuntimeModule(LifecycleModule):
                 message_bus=deps.message_bus,
                 runtime_trace_store=deps.runtime_trace_store,
                 scenario_llm_pool=deps.llm_pool,
+                active_model_provider=lambda: deps.llm_pool.resolve(LLMScenario.CORE),
                 permission_gateway_provider=get_permission_gateway,
             )
 

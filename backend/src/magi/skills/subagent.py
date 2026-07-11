@@ -76,6 +76,8 @@ class SkillSubagent:
         tool_registry: ToolRegistryPort | None = None,
         orchestrator_factory: Callable[..., Any] | None = None,
         engine_run_input_factory: Callable[..., Any] | None = None,
+        active_model_provider: Callable[..., Any] | None = None,
+        scenario_llm_pool: Any | None = None,
     ):
         """
         Initialize the skill subagent.
@@ -101,6 +103,8 @@ class SkillSubagent:
         self._tool_registry = tool_registry
         self._orchestrator_factory = orchestrator_factory
         self._engine_run_input_factory = engine_run_input_factory
+        self._active_model_provider = active_model_provider
+        self._scenario_llm_pool = scenario_llm_pool
         self.subagent_id = f"skill-{skill.name}-{uuid.uuid4().hex[:8]}"
 
         # Create restricted tool registry view
@@ -304,6 +308,8 @@ class SkillSubagent:
                 skill_runner=None,
                 tool_result_callback=None,
                 permission_gateway_provider=self.permission_gateway_provider,
+                active_model_provider=self._active_model_provider,
+                scenario_llm_pool=self._scenario_llm_pool,
             )
 
         # Build system prompt with tool restrictions notice
@@ -435,6 +441,8 @@ def create_skill_subagent(
     tool_registry: ToolRegistryPort | None = None,
     orchestrator_factory: Callable[..., Any] | None = None,
     engine_run_input_factory: Callable[..., Any] | None = None,
+    active_model_provider: Callable[..., Any] | None = None,
+    scenario_llm_pool: Any | None = None,
 ) -> SkillSubagent:
     """
     Factory function to create a SkillSubagent.
@@ -460,6 +468,8 @@ def create_skill_subagent(
         tool_registry=tool_registry,
         orchestrator_factory=orchestrator_factory,
         engine_run_input_factory=engine_run_input_factory,
+        active_model_provider=active_model_provider,
+        scenario_llm_pool=scenario_llm_pool,
     )
 
 

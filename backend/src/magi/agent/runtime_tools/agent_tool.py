@@ -85,6 +85,7 @@ class AgentTool(Tool):
         message_bus=None,
         runtime_trace_store=None,
         scenario_llm_pool=None,
+        active_model_provider=None,
         permission_gateway_provider: Callable[[], Any] | None = None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
@@ -95,6 +96,7 @@ class AgentTool(Tool):
             message_bus=message_bus,
             runtime_trace_store=runtime_trace_store,
             scenario_llm_pool=scenario_llm_pool,
+            active_model_provider=active_model_provider,
             permission_gateway_provider=permission_gateway_provider,
         )
 

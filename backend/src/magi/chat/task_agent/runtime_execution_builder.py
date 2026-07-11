@@ -15,6 +15,7 @@ from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
 from magi.chat.task_agent.run_store import SessionRunStore
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.chat.task_agent.transcript_summarizer import ChatTranscriptSummarizer
+from magi.config.models import LLMScenario
 from magi.tools.registry import tool_registry
 
 from .runtime_context_builder import ChatContextRuntimeParts
@@ -61,7 +62,7 @@ def build_chat_execution_runtime_parts(
         context_parts=context_parts,
         planning_service=planning_service,
     )
-    transcript_summarizer = _build_transcript_summarizer(config)
+    transcript_summarizer = _build_transcript_summarizer(config, context_parts=context_parts)
     postprocess_service = _build_postprocess_service(
         config,
         callbacks,
@@ -149,11 +150,18 @@ def _build_task_orchestrator(
 
 def _build_transcript_summarizer(
     config: ChatTaskAgentRuntimeConfig,
+    *,
+    context_parts: ChatContextRuntimeParts,
 ) -> ChatTranscriptSummarizer:
     return ChatTranscriptSummarizer(
         chat_store=config.chat_store,
         scenario_llm_pool=config.llm_pool,
         llm_adapter=config.llm_adapter,
+        model_context_provider=(
+            lambda: config.llm_pool.resolve(LLMScenario.CORE).context
+            if config.llm_pool is not None
+            else context_parts.model_context_provider()
+        ),
     )
 
 
@@ -219,7 +227,11 @@ def _build_function_calling_orchestrator(
 ) -> FunctionCallingOrchestrator:
     return FunctionCallingOrchestrator(
         llm_adapter=config.llm_adapter,
-        llm_pool=config.llm_pool,
+        active_model_provider=(
+            (lambda: config.llm_pool.resolve(LLMScenario.CORE))
+            if config.llm_pool is not None
+            else None
+        ),
         tool_registry=tool_registry,
         skill_runner=config.skill_runner,
         tool_result_callback=postprocess_service.record_tool_interaction,

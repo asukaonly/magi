@@ -25,6 +25,7 @@ def test_mcp_resource_emits_text_block():
             ],
         ),
         resolver=_NULL_RESOLVER,
+        history_token_budget=None,
     )
     assert len(messages) == 1
     content = messages[0]["content"]
@@ -51,6 +52,7 @@ def test_mcp_resource_without_resolved_text_is_silent():
             ],
         ),
         resolver=_NULL_RESOLVER,
+        history_token_budget=None,
     )
     # User text only — no resolved_text means no extra block.
     assert messages[0]["content"] == "hi"
@@ -67,6 +69,7 @@ def test_image_path_still_works():
             ],
         ),
         resolver=_NULL_RESOLVER,
+        history_token_budget=None,
     )
     # Missing image is silently skipped; user text returned as plain string.
     assert messages[0]["content"] == "look"

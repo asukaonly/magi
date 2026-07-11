@@ -12,10 +12,8 @@ from .turn_input import UserTurnInput
 from ..utils.message_text import (
     _extract_text_content,
     _is_matching_user_message,
-    trim_latest_user_message,
 )
 
-DEFAULT_HISTORY_TOKEN_BUDGET = 96_000
 _CHARS_PER_TOKEN_ESTIMATE = 4
 _SESSION_CONTEXT_ROLE = "user"
 
@@ -25,8 +23,8 @@ def append_latest_user_message(
     turn: UserTurnInput,
     *,
     resolver: AttachmentResolverPort,
+    history_token_budget: int | None,
     history_limit: int | None = None,
-    history_token_budget: int | None = DEFAULT_HISTORY_TOKEN_BUDGET,
     session_summary: str | None = None,
     session_origin: str | None = None,
     reply_context: Any | None = None,

@@ -7,6 +7,7 @@ from typing import Callable
 from ..config import AppConfig
 from ..config.models import LLMProvider
 from ..config.models import LLMScenario
+from .model_context import ModelContextProfile, ResolvedModel
 
 AdapterFactory = Callable[..., object]
 
@@ -30,15 +31,31 @@ class ScenarioLLMPool:
             self._cache[scenario] = self._build_adapter(scenario)
         return self._cache[scenario]
 
-    def context_window_for(self, scenario: LLMScenario) -> int | None:
+    def resolve(self, scenario: LLMScenario) -> ResolvedModel:
+        """Resolve an adapter together with the limits of its selected model."""
         selection = self._selection_for_scenario(scenario)
         if selection is None:
-            return None
+            raise ValueError(f"Missing LLM selection for scenario '{scenario.value}'")
         limits = getattr(selection, "limits", None)
         context_window = getattr(limits, "context_window", None)
-        if isinstance(context_window, int) and context_window > 0:
-            return context_window
-        return None
+        max_output_tokens = getattr(limits, "max_output_tokens", None)
+        return ResolvedModel(
+            adapter=self.get(scenario),
+            context=ModelContextProfile(
+                provider_id=str(getattr(selection, "provider_id", "") or ""),
+                model_id=str(getattr(selection, "model", "") or ""),
+                context_window=(
+                    context_window
+                    if isinstance(context_window, int) and context_window > 0
+                    else None
+                ),
+                max_output_tokens=(
+                    max_output_tokens
+                    if isinstance(max_output_tokens, int) and max_output_tokens > 0
+                    else None
+                ),
+            ),
+        )
 
     def refresh(self, config: AppConfig) -> None:
         self._config = config

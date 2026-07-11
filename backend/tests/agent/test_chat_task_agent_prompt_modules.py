@@ -11,11 +11,11 @@ from magi.agent.task_agents.handlers import (
     GenericFactPayload,
     IncomingFactKind,
     IntentDecision,
-    OrchestrationPlan,
     ToolSelection,
 )
 from magi.chat.task_agent.chat_task_agent import ChatTaskAgent
 from magi.config.models import LLMScenario
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.personality.models import EmotionalState, TaskBehaviorProfile
 from magi.personality.loader import PersonalityConfig
 
@@ -72,6 +72,17 @@ class _RecordingLLMPool:
     def get(self, scenario: LLMScenario):
         self.requested.append(scenario)
         return self._adapter
+
+    def resolve(self, scenario: LLMScenario) -> ResolvedModel:
+        return ResolvedModel(
+            adapter=self.get(scenario),
+            context=ModelContextProfile(
+                provider_id="openai",
+                model_id="fake-model",
+                context_window=128_000,
+                max_output_tokens=8_192,
+            ),
+        )
 
 
 class _FakeHybridRetrievalService:

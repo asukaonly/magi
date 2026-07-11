@@ -8,18 +8,13 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from magi.context.window_budget import build_context_window_budget
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.agent.execution.context_compactor import (
-    CompactionResult,
     ContextCompactor,
     _CHARS_PER_TOKEN_ESTIMATE,
-    _KEEP_RECENT_ROUNDS,
-    _LLM_COMPACT_MIN_WINDOW,
     _MAX_CONSECUTIVE_FAILURES,
-    _OUTPUT_RESERVE,
     _RULE_KEEP_RECENT_MESSAGES,
-    _SAFETY_BUFFER_TOKENS,
-    _SUMMARY_OUTPUT_RESERVE,
-    _compute_compact_threshold,
     _estimate_message_tokens,
     _group_messages_by_round,
 )
@@ -116,21 +111,6 @@ class TestEstimateMessageTokens:
 
 
 # ---------------------------------------------------------------------------
-# _compute_compact_threshold
-# ---------------------------------------------------------------------------
-
-
-class TestComputeCompactThreshold:
-    def test_standard_window(self) -> None:
-        window = 128_000
-        expected = window - _OUTPUT_RESERVE - _SUMMARY_OUTPUT_RESERVE - _SAFETY_BUFFER_TOKENS
-        assert _compute_compact_threshold(window) == expected
-
-    def test_tiny_window_no_negative(self) -> None:
-        assert _compute_compact_threshold(100) == 0
-
-
-# ---------------------------------------------------------------------------
 # ContextCompactor unit tests
 # ---------------------------------------------------------------------------
 
@@ -154,9 +134,34 @@ class TestContextCompactorProperties:
         c.update_context_window(0)
         assert c.effective_window == 100_000
 
+    def test_budget_provider_observes_active_model_changes(self) -> None:
+        profile = ModelContextProfile(
+            provider_id="provider-a",
+            model_id="large-model",
+            context_window=1_000_000,
+            max_output_tokens=64_000,
+        )
+        current = {"profile": profile}
+        c = ContextCompactor(
+            budget_provider=lambda: build_context_window_budget(current["profile"])
+        )
+
+        assert c.effective_window == 1_000_000
+        assert c.compact_threshold == 468_000
+
+        current["profile"] = ModelContextProfile(
+            provider_id="provider-b",
+            model_id="small-model",
+            context_window=200_000,
+            max_output_tokens=8_000,
+        )
+
+        assert c.effective_window == 200_000
+        assert c.compact_threshold == 144_000
+
 
 class TestOrchestratorContextWindow:
-    def test_uses_core_context_window_from_scenario_pool(self) -> None:
+    def test_summary_pool_does_not_define_active_model_capacity(self) -> None:
         class _Pool:
             def __init__(self) -> None:
                 self.requested: list[str] = []
@@ -172,8 +177,32 @@ class TestOrchestratorContextWindow:
             scenario_llm_pool=pool,
         )
 
-        assert orchestrator._context_compactor.effective_window == 65_536
-        assert pool.requested == ["core"]
+        assert orchestrator._context_compactor.effective_window == 128_000
+        assert pool.requested == []
+
+    def test_uses_the_injected_active_model_instead_of_core(self) -> None:
+        resolved = ResolvedModel(
+            adapter=SimpleNamespace(provider_name="custom", model_name="worker-model"),
+            context=ModelContextProfile(
+                provider_id="custom",
+                model_id="worker-model",
+                context_window=200_000,
+                max_output_tokens=8_000,
+            ),
+        )
+        orchestrator = FunctionCallingOrchestrator(
+            tool_registry=SimpleNamespace(),
+            active_model_provider=lambda: resolved,
+        )
+
+        orchestrator.build_step_state(
+            turn=SimpleNamespace(text="hello", attachments=[], user_id="u", session_id="s"),
+            system_prompt="system",
+            selected_tools=[],
+        )
+
+        assert orchestrator._context_compactor.effective_window == 200_000
+        assert orchestrator._context_compactor.compact_threshold == 144_000
 
 
 class TestRecordInputTokens:
@@ -185,6 +214,14 @@ class TestRecordInputTokens:
     def test_record_zero_ignored(self) -> None:
         c = ContextCompactor(context_window=128_000)
         c.record_input_tokens(0)
+        assert c._last_input_tokens is None
+
+    def test_begin_run_clears_previous_request_usage(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        c.record_input_tokens(50_000)
+
+        c.begin_run()
+
         assert c._last_input_tokens is None
 
     def test_provider_preferred_over_estimate(self) -> None:
@@ -222,11 +259,37 @@ class TestShouldCompact:
         c.record_input_tokens(c.compact_threshold + 1)
         assert c.should_compact([{"role": "user", "content": "hi"}]) is True
 
-    def test_circuit_breaker_blocks(self) -> None:
+    def test_counts_system_prompt_and_tool_schemas(self) -> None:
+        c = ContextCompactor(context_window=128_000)
+        overhead = {
+            "system_prompt": "s" * (c.compact_threshold * 4),
+            "tools": [{"name": "large_tool", "description": "d" * 8_000}],
+        }
+
+        assert c.should_compact(
+            [{"role": "user", "content": "hi"}],
+            prompt_overhead=overhead,
+        ) is True
+
+    def test_circuit_breaker_keeps_detecting_pressure(self) -> None:
         c = ContextCompactor(context_window=128_000)
         c._consecutive_failures = _MAX_CONSECUTIVE_FAILURES
         c.record_input_tokens(c.compact_threshold + 1)
-        assert c.should_compact([]) is False
+        assert c.should_compact([]) is True
+
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_uses_rule_fallback(self) -> None:
+        pool = SimpleNamespace(
+            get=lambda scenario: (_ for _ in ()).throw(AssertionError("must not call model"))
+        )
+        c = ContextCompactor(context_window=128_000, scenario_llm_pool=pool)
+        c._consecutive_failures = _MAX_CONSECUTIVE_FAILURES
+        messages = _make_messages(30)
+
+        result = await c.compact(messages)
+
+        assert result.compacted is True
+        assert "[context truncated]" in result.messages[0]["content"]
 
 
 # ---------------------------------------------------------------------------
@@ -251,8 +314,8 @@ class TestRuleBasedCompact:
         assert result.compacted is True
         assert result.messages[0]["role"] == "system"
         assert "[context truncated]" in result.messages[0]["content"]
-        # boundary + _RULE_KEEP_RECENT_MESSAGES
-        assert len(result.messages) == _RULE_KEEP_RECENT_MESSAGES + 1
+        # Complete rounds may keep slightly fewer than the message-count cap.
+        assert 2 <= len(result.messages) <= _RULE_KEEP_RECENT_MESSAGES + 1
 
     @pytest.mark.asyncio
     async def test_no_pool_falls_back_to_rule_based(self) -> None:
@@ -261,6 +324,45 @@ class TestRuleBasedCompact:
         result = await c.compact(msgs)
         assert result.compacted is True
         assert "[context truncated]" in result.messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_rule_fallback_does_not_orphan_tool_results(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        messages = [
+            {"role": "user", "content": "start"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "call-1", "name": "demo"}],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+            *[
+                {"role": "user", "content": f"follow-up {index}"}
+                for index in range(9)
+            ],
+        ]
+
+        result = await compactor.compact(messages)
+
+        assert result.compacted is True
+        assert result.messages[1]["role"] != "tool"
+
+    @pytest.mark.asyncio
+    async def test_rule_fallback_truncates_few_oversized_messages(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        compactor.record_input_tokens(30_000)
+        messages = [
+            {"role": "user", "content": "begin " + "x" * 120_000 + " end"},
+            {"role": "assistant", "content": "answer"},
+        ]
+
+        result = await compactor.compact(messages)
+
+        assert result.compacted is True
+        assert len(str(result.messages[1]["content"])) < 120_000
+        assert "[truncated]" in str(result.messages[1]["content"])
+        assert result.messages[-1]["role"] == "assistant"
+        assert compactor._last_input_tokens is None
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +406,88 @@ class TestLLMCompact:
         assert result.compacted is True
         assert "[context truncated]" in result.messages[0]["content"]
         assert c._consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_summary_request_is_chunked_for_summary_model_capacity(self) -> None:
+        fake_adapter = SimpleNamespace()
+        fake_pool = SimpleNamespace(
+            resolve=lambda scenario: ResolvedModel(
+                adapter=fake_adapter,
+                context=ModelContextProfile(
+                    provider_id="summary-provider",
+                    model_id="small-summary-model",
+                    context_window=32_000,
+                    max_output_tokens=4_000,
+                ),
+            )
+        )
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(
+            side_effect=[
+                SimpleNamespace(content="partial summary"),
+                SimpleNamespace(content="final cumulative summary"),
+            ]
+        )
+        compactor = ContextCompactor(
+            context_window=200_000,
+            scenario_llm_pool=fake_pool,
+        )
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            summary = await compactor._call_summariser("x" * 100_000)
+
+        assert summary == "final cumulative summary"
+        assert mock_bridge.chat.await_count == 2
+        second_prompt = mock_bridge.chat.await_args_list[1].kwargs["messages"][0]["content"]
+        assert "partial summary" in second_prompt
+
+    @pytest.mark.asyncio
+    async def test_empty_summary_never_replaces_history(self) -> None:
+        fake_adapter = SimpleNamespace()
+        fake_pool = SimpleNamespace(get=lambda scenario: fake_adapter)
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="   "))
+        compactor = ContextCompactor(
+            context_window=200_000,
+            scenario_llm_pool=fake_pool,
+        )
+        messages = _make_round_messages(rounds=6)
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages)
+
+        assert not result.compacted or "[context compacted]" not in result.messages[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_few_large_rounds_are_compacted_under_token_pressure(self) -> None:
+        fake_adapter = SimpleNamespace()
+        fake_pool = SimpleNamespace(get=lambda scenario: fake_adapter)
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        compactor = ContextCompactor(
+            context_window=128_000,
+            scenario_llm_pool=fake_pool,
+        )
+        messages = [
+            {"role": "user", "content": "x" * 380_000},
+            {"role": "assistant", "content": "answer"},
+        ]
+        assert compactor.should_compact(messages)
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages)
+
+        assert result.compacted is True
+        assert result.messages[-1] == messages[-1]
 
     @pytest.mark.asyncio
     async def test_too_few_rounds_not_compacted(self) -> None:
@@ -415,7 +599,7 @@ class TestGetUsage:
         assert usage is not None
         assert usage["used_tokens"] == 50_000
         assert usage["window_size"] == 128_000
-        assert usage["threshold"] == _compute_compact_threshold(128_000)
+        assert usage["threshold"] == c.compact_threshold
 
     def test_updates_on_subsequent_calls(self) -> None:
         c = ContextCompactor(context_window=64_000)

@@ -34,6 +34,7 @@ class FunctionCallingLoopRunner:
             boundary_outcome = await self._poll_control_boundary(state, control)
             if boundary_outcome is not None:
                 return boundary_outcome
+            await self._host._try_compact(state)
             step_outcome = await self._execute_step(
                 state=state,
                 run_input=run_input,
@@ -43,7 +44,6 @@ class FunctionCallingLoopRunner:
             loop_outcome = await self._handle_step_outcome(
                 state=state,
                 step_outcome=step_outcome,
-                system_prompt=run_input.system_prompt,
             )
             if loop_outcome is not None:
                 return loop_outcome
@@ -135,7 +135,6 @@ class FunctionCallingLoopRunner:
         *,
         state: FunctionCallingStepState,
         step_outcome: FunctionCallingStepOutcome,
-        system_prompt: str,
     ) -> ExecutionOutcome | None:
         if step_outcome.status == "aborted":
             return None
@@ -143,7 +142,6 @@ class FunctionCallingLoopRunner:
             if get_stream_sink() is not None:
                 await emit_stream_event(LLMStreamEvent(kind="text_flush"))
             await self._host._drop_ephemeral_context(state)
-            await self._host._try_compact(state, system_prompt)
             return None
         if step_outcome.status == "completed":
             return _build_completed_outcome(state, step_outcome)
@@ -159,6 +157,7 @@ class FunctionCallingLoopRunner:
         thinking_depth: ThinkingDepth,
         control: RunControl,
     ) -> ExecutionOutcome:
+        await self._host._try_compact(state)
         return cast(
             ExecutionOutcome,
             await self._host._execute_fallback_final_response(

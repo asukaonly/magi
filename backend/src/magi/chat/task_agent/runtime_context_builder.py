@@ -18,6 +18,8 @@ from magi.context import (
     PromptContextAssembler,
     PromptContextRenderer,
 )
+from magi.config.models import LLMScenario
+from magi.llm.model_context import ModelContextProfile, unknown_model_context
 from magi.context.user_profile_service import UserProfileService
 from magi.tools.context_decider import ContextDecider
 from magi.tools.registry import tool_registry
@@ -44,6 +46,7 @@ class ChatContextRuntimeParts:
     fact_classifier: ChatFactClassifier
     prompt_service: ChatPromptService
     interruption_classifier: InterruptionClassifier
+    model_context_provider: Callable[[], ModelContextProfile]
 
 
 def build_chat_context_runtime_parts(
@@ -62,6 +65,7 @@ def build_chat_context_runtime_parts(
         retrieval_service=config.hybrid_retrieval_service,
     )
 
+    model_context_provider = _build_model_context_provider(config)
     return ChatContextRuntimeParts(
         chat_read_service_factory=chat_read_service_factory,
         context_decider=_build_context_decider(config),
@@ -87,7 +91,16 @@ def build_chat_context_runtime_parts(
             llm_adapter=config.llm_adapter,
             llm_pool=config.llm_pool,
         ),
+        model_context_provider=model_context_provider,
     )
+
+
+def _build_model_context_provider(
+    config: ChatTaskAgentRuntimeConfig,
+) -> Callable[[], ModelContextProfile]:
+    if config.llm_pool is not None:
+        return lambda: config.llm_pool.resolve(LLMScenario.CORE).context
+    return lambda: unknown_model_context(config.llm_adapter)
 
 
 def _build_context_decider(config: ChatTaskAgentRuntimeConfig) -> ContextDecider:

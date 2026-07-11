@@ -92,6 +92,7 @@ class WorkerAgentManager(
     def __init__(self) -> None:
         self._llm_adapter = None
         self._scenario_llm_pool = None
+        self._active_model_provider = None
         self._tool_registry: ToolRegistry = tool_registry
         self._task_agent_manager = None
         self._message_bus = None
@@ -110,6 +111,7 @@ class WorkerAgentManager(
         message_bus=None,
         runtime_trace_store: RuntimeTraceStore | None = None,
         scenario_llm_pool=None,
+        active_model_provider=None,
         permission_gateway_provider: Callable[[], Any] | None = None,
     ) -> None:
         """Inject runtime dependencies after bootstrap."""
@@ -124,6 +126,8 @@ class WorkerAgentManager(
             self._runtime_trace_store = runtime_trace_store
         if scenario_llm_pool is not None:
             self._scenario_llm_pool = scenario_llm_pool
+        if active_model_provider is not None:
+            self._active_model_provider = active_model_provider
         if permission_gateway_provider is not None:
             self._permission_gateway_provider = permission_gateway_provider
 

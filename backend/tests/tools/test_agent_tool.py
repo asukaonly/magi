@@ -81,6 +81,7 @@ class _FakeFunctionCallingOrchestrator:
         loop_event_callback=None,
         runtime_trace_store=None,
         scenario_llm_pool=None,
+        active_model_provider=None,
         permission_gateway_provider=None,
     ):
         _ = (
@@ -88,6 +89,7 @@ class _FakeFunctionCallingOrchestrator:
             tool_registry,
             skill_runner,
             scenario_llm_pool,
+            active_model_provider,
             permission_gateway_provider,
         )
         self._tool_result_callback = tool_result_callback

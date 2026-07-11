@@ -28,6 +28,7 @@ class _WorkerExecutionHostProtocol(Protocol):
     _tool_registry: Any
     _runtime_trace_store: Any
     _scenario_llm_pool: Any
+    _active_model_provider: Any
     _permission_gateway_provider: Any
     _orchestration_store: Any
 
@@ -130,6 +131,7 @@ class WorkerExecutionMixin:
         host = cast(_WorkerExecutionHostProtocol, self)
         return FunctionCallingOrchestrator(
             llm_adapter=host._llm_adapter,
+            active_model_provider=host._active_model_provider,
             tool_registry=host._tool_registry,
             skill_runner=None,
             tool_result_callback=lambda payload: host._handle_tool_result(run_state, payload),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import time
 from types import SimpleNamespace
 
@@ -11,6 +10,7 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, Intent
 from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, _start_explore_task_agent
 from magi.chat.task_agent.planning_service import ChatPlanningService
 from magi.chat.task_agent.prompt_service import ChatPromptService
+from magi.llm.model_context import unknown_model_context
 from magi.agent.task_agents.common import (
     ExecutionMode,
     ExecutionRequest,
@@ -26,7 +26,6 @@ from magi.agent.task_agents.explore.contracts import ExploreRuntimeContext
 from magi.agent.task_agents.explore.postprocess_service import ExplorePostProcessService
 from magi.agent.task_orchestrator import TaskOrchestrator
 from magi.agent.runtime.contracts import FactRecord
-from magi.agent.orchestration import PlannedSubtask, SubtaskPlan
 from magi.agent.workers.worker_manager import WORKER_AGENT_COMPLETED, WorkerAgentManager, WorkerRunState
 from magi.tools.builtin.file_read_tool import FileReadTool
 from magi.tools.builtin.glob_tool import GlobTool
@@ -617,6 +616,7 @@ async def test_start_explore_task_agent_routes_upstream_to_chat_session() -> Non
         function_calling_orchestrator=SimpleNamespace(),
         task_orchestrator=SimpleNamespace(),
         context_assembler=_FakeContextAssembler(),
+        model_context_provider=lambda: unknown_model_context(None),
         agent_id="chat:user-1",
         get_task_agent_manager=lambda: manager,
     )

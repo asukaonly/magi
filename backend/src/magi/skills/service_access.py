@@ -69,6 +69,8 @@ def register_enabled_skills_with_indexer(
 def build_skills_runtime(
     llm_adapter=None,
     permission_gateway_provider=None,
+    active_model_provider=None,
+    scenario_llm_pool=None,
     *,
     tool_registry: ToolRegistryPort,
     orchestrator_factory=None,
@@ -94,6 +96,8 @@ def build_skills_runtime(
         tool_registry=tool_registry,
         orchestrator_factory=orchestrator_factory,
         engine_run_input_factory=engine_run_input_factory,
+        active_model_provider=active_model_provider,
+        scenario_llm_pool=scenario_llm_pool,
     )
 
     skills = skill_indexer.scan_all()

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from magi.chat.task_agent.transcript_summarizer import (
     ChatTranscriptSummarizer,
+    TranscriptMessageForSummary,
     TranscriptSummaryInput,
 )
 from magi.chat import ChatMessageRecord, ChatStore
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
 
 
 async def _append_assistant_message(
@@ -128,3 +131,123 @@ async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(ru
         assert await store.get_history_version("session-1") == 8
     finally:
         await store.shutdown()
+
+
+def test_transcript_summarizer_recomputes_threshold_for_active_model() -> None:
+    current = {
+        "profile": ModelContextProfile(
+            provider_id="provider-a",
+            model_id="large-model",
+            context_window=1_000_000,
+            max_output_tokens=64_000,
+        )
+    }
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        model_context_provider=lambda: current["profile"],
+        min_messages=4,
+    )
+    messages = [
+        TranscriptMessageForSummary(
+            message_id=f"message-{index}",
+            role="user" if index % 2 == 0 else "assistant",
+            content="x" * 100_000,
+            sequence_no=index,
+            created_at_ms=index,
+        )
+        for index in range(4)
+    ]
+
+    large_plan = summarizer._build_summary_plan(
+        active_summary=None,
+        transcript_messages=messages,
+    )
+    assert large_plan.reason == "below_threshold"
+
+    current["profile"] = ModelContextProfile(
+        provider_id="provider-b",
+        model_id="small-model",
+        context_window=128_000,
+        max_output_tokens=8_000,
+    )
+    small_plan = summarizer._build_summary_plan(
+        active_summary=None,
+        transcript_messages=messages,
+    )
+    assert not hasattr(small_plan, "reason")
+
+
+def test_transcript_summarizer_ignores_message_count_gate_under_token_pressure() -> None:
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        model_context_provider=lambda: ModelContextProfile(
+            provider_id="provider-a",
+            model_id="small-model",
+            context_window=128_000,
+            max_output_tokens=8_000,
+        ),
+    )
+    messages = [
+        TranscriptMessageForSummary(
+            message_id=f"message-{index}",
+            role="user" if index == 0 else "assistant",
+            content="x" * 240_000,
+            sequence_no=index,
+            created_at_ms=index,
+        )
+        for index in range(2)
+    ]
+
+    plan = summarizer._build_summary_plan(
+        active_summary=None,
+        transcript_messages=messages,
+    )
+
+    assert not hasattr(plan, "reason")
+    assert len(plan.messages_to_summarize) == 1
+
+
+@pytest.mark.asyncio
+async def test_transcript_summary_request_uses_summary_model_capacity() -> None:
+    fake_adapter = SimpleNamespace()
+    fake_pool = SimpleNamespace(
+        resolve=lambda scenario: ResolvedModel(
+            adapter=fake_adapter,
+            context=ModelContextProfile(
+                provider_id="summary-provider",
+                model_id="small-summary-model",
+                context_window=4_000,
+                max_output_tokens=1_000,
+            ),
+        )
+    )
+    bridge = AsyncMock()
+    bridge.chat = AsyncMock(return_value=SimpleNamespace(content="cumulative summary"))
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        scenario_llm_pool=fake_pool,
+    )
+    summary_input = TranscriptSummaryInput(
+        session_id="session-1",
+        previous_summary=None,
+        session_origin="origin",
+        messages=[
+            TranscriptMessageForSummary(
+                message_id=f"message-{index}",
+                role="user" if index % 2 == 0 else "assistant",
+                content="x" * 4_000,
+                sequence_no=index,
+                created_at_ms=index,
+            )
+            for index in range(6)
+        ],
+    )
+
+    with patch(
+        "magi.chat.task_agent.transcript_summarizer.LLMProviderBridge",
+        return_value=bridge,
+    ):
+        summary = await summarizer._generate_summary(summary_input)
+
+    assert summary == "cumulative summary"
+    assert bridge.chat.await_count > 1

@@ -319,7 +319,9 @@ Durable rolling summaries live with chat truth in `chat.db`, not in long-term me
 
 Workbench Memory may expose the active `token_budget` summary and the latest context-budget usage snapshot for the selected session. This is a session-continuation inspection surface: it helps users understand what was compressed and how full the recent prompt context was, without promoting the summary into long-term memory layers.
 
-Function-calling loops have a separate per-turn compaction guard inside the agent execution layer. That guard uses the configured `core` scenario context window when available, compacts only the mutable tool-loop message list, and does not own durable session summaries.
+Function-calling loops have a separate per-turn compaction guard inside the agent execution layer. The model resolver passes the selected adapter and its model limits together, so each chat, background, worker, or skill-subagent run uses the capacity of the model that will actually receive that request. The guard checks the complete provider-facing input before every model call, including the stable system prompt and active tool schemas, but compacts only the mutable tool-loop message list and does not own durable session summaries.
+
+Context-budget policy is shared by direct chat history, durable rolling summaries, and per-turn tool-loop compaction. The input capacity is the configured context window minus the configured maximum output. Models below 512k trigger compaction at 75% of that input capacity; models at or above 512k trigger at 50%, and the retained recent tail targets 20% of the trigger. If model limits are absent, runtime uses a conservative 128k context window with an 8k output reserve. The model used to generate a summary controls only whether that summary request itself fits; it never determines when the source conversation needs compaction.
 
 Persona switches add a second prompt-history boundary. When a session tail contains messages from an older active persona followed by the current persona's segment, `ChatHistoryService` condenses the older segment into an active `persona_boundary` summary scoped by the current persona ID. Prompt assembly then receives the neutral boundary summary plus only the raw tail for the current persona segment, so continuity survives without carrying another persona's assistant voice into the active persona prompt.
 
@@ -569,7 +571,10 @@ change the outcome:
 Tool-message context stays compact. Large listing-style tools, including
 `glob` and `file_list`, plus web-search result and failure payloads, expose
 bounded summaries to the LLM while leaving exact execution details in
-`runtime_trace.db`.
+`runtime_trace.db`. Unregistered skill and MCP tools receive the same generic
+depth, item-count, and text-length bounds before their results return to the
+model, while tool-specific formatters may preserve a richer purpose-built
+projection.
 
 Worker failures preserve a compact diagnostic chain for final aggregation:
 function-calling execution records failed tool name, error code, short error

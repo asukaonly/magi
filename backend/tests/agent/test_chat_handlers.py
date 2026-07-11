@@ -12,6 +12,7 @@ from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.handlers.tool_exposure_policy import ToolExposurePolicy
 from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, ToolSelection, UserMessagePayload
 from magi.i18n import language_context
+from magi.llm.model_context import ModelContextProfile
 from magi.tools.context_routing import RouteDecision
 
 
@@ -87,6 +88,15 @@ class _FakeFunctionCallingOrchestrator:
         self.tool_registry = _FakeToolRegistry(tools)
 
 
+def _model_context_provider() -> ModelContextProfile:
+    return ModelContextProfile(
+        provider_id="test",
+        model_id="test-model",
+        context_window=128_000,
+        max_output_tokens=8_000,
+    )
+
+
 @pytest.mark.asyncio
 async def test_direct_llm_handler_carries_llm_trace_into_execution_result() -> None:
     prompt_service = _FakePromptService()
@@ -152,6 +162,7 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
         SimpleNamespace(
             context_service=context_service,
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -203,6 +214,7 @@ async def test_direct_llm_handler_passes_stored_persona_id_into_context_service(
         SimpleNamespace(
             context_service=context_service,
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -257,6 +269,7 @@ async def test_direct_llm_handler_passes_uploaded_attachments_into_context_servi
         SimpleNamespace(
             context_service=context_service,
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -310,6 +323,7 @@ async def test_direct_llm_handler_passes_turn_workspace_into_context_service() -
         SimpleNamespace(
             context_service=context_service,
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -445,6 +459,7 @@ async def test_function_calling_handler_reuses_recent_tool_superset() -> None:
         SimpleNamespace(
             context_service=_FakeContextService(),
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
             function_calling_orchestrator=_FakeFunctionCallingOrchestrator(
                 ["weather", "web-search", "find-relevant-tools"]
             ),
@@ -680,6 +695,7 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
         SimpleNamespace(
             context_service=_FakeContextService(),
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -748,6 +764,7 @@ async def test_direct_llm_handler_returns_clear_message_when_image_model_lacks_v
         SimpleNamespace(
             context_service=_FakeContextService(),
             prompt_service=prompt_service,
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(
@@ -816,6 +833,7 @@ async def test_direct_llm_handler_localizes_image_model_lacks_vision_message(
         SimpleNamespace(
             context_service=_FakeContextService(),
             prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
         )
     )
     context = ChatRuntimeContext(

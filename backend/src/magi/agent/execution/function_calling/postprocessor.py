@@ -53,14 +53,50 @@ class FunctionCallingPostprocessor:
 
     def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:
         """Trim large tool payloads before injecting back into model context."""
-        if not isinstance(data, dict):
-            return data
+        if isinstance(data, dict):
+            compactor = self._formatter_registry.get(tool_name)
+            if compactor is not None:
+                return self._sanitize_structured_tool_data(compactor(data))
+            data = self._sanitize_structured_tool_data(data)
 
-        compactor = self._formatter_registry.get(tool_name)
-        if compactor is not None:
-            return self._sanitize_structured_tool_data(compactor(data))
+        compacted, _ = self._compact_generic_value(data)
+        return compacted
 
-        return self._sanitize_structured_tool_data(data)
+    def _compact_generic_value(self, value: Any, *, depth: int = 0) -> tuple[Any, bool]:
+        """Bound unregistered tool output without relying on tool-specific schemas."""
+        if depth >= 8:
+            return "...[truncated]", True
+        if isinstance(value, str):
+            if len(value) <= self.max_text_chars:
+                return value, False
+            return value[: self.max_text_chars].rstrip() + "...[truncated]", True
+        if isinstance(value, list):
+            selected = value[: self.max_items]
+            compacted_items: list[Any] = []
+            truncated = len(selected) < len(value)
+            for item in selected:
+                compacted, item_truncated = self._compact_generic_value(
+                    item,
+                    depth=depth + 1,
+                )
+                compacted_items.append(compacted)
+                truncated = truncated or item_truncated
+            return compacted_items, truncated
+        if isinstance(value, dict):
+            selected_items = list(value.items())[: self.max_items]
+            compacted_dict: dict[str, Any] = {}
+            truncated = len(selected_items) < len(value)
+            for key, item in selected_items:
+                compacted, item_truncated = self._compact_generic_value(
+                    item,
+                    depth=depth + 1,
+                )
+                compacted_dict[str(key)] = compacted
+                truncated = truncated or item_truncated
+            if truncated:
+                compacted_dict["__context_truncated__"] = True
+            return compacted_dict, truncated
+        return value, False
 
     def _sanitize_structured_tool_data(self, data: Any) -> Any:
         if not isinstance(data, dict):

@@ -12,7 +12,8 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, Intent
 from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
-from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest, IncomingFactKind, OrchestrationPlan, ToolSelection, UserMessagePayload
+from magi.llm.model_context import unknown_model_context
+from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest, IncomingFactKind, ToolSelection, UserMessagePayload
 
 
 class _FakeOrchestrator:
@@ -126,6 +127,7 @@ def _make_handler(orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordi
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
         context_assembler=SimpleNamespace(),
+        model_context_provider=lambda: unknown_model_context(None),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=coordinator,
@@ -332,6 +334,7 @@ async def test_function_calling_handler_passes_prompt_workspace_to_execute_with_
         function_calling_orchestrator=orchestrator,
         task_orchestrator=SimpleNamespace(),
         context_assembler=SimpleNamespace(),
+        model_context_provider=lambda: unknown_model_context(None),
         agent_id="s-chat",
         get_task_agent_manager=lambda: None,
         session_run_coordinator=None,
