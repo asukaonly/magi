@@ -23,7 +23,7 @@ from ...ontology import (
     is_valid_open_predicate,
     validate_graph_candidate,
 )
-from ...storage.utils import normalize_event_ids
+from .evidence import validate_supporting_event_ids
 
 
 @dataclass(frozen=True)
@@ -62,10 +62,17 @@ class L2Phase2GraphValidationMixin:
         corroborate_targets: list[dict[str, Any]] = []
         rejected_count = 0
         for edge in phase2_edges:
+            supporting_event_ids = validate_supporting_event_ids(
+                edge.supporting_event_ids,
+                evidence_event_ids,
+            )
+            if not supporting_event_ids:
+                rejected_count += 1
+                continue
             corroborate_target = self._build_phase2_corroborate_target(
                 event=event,
                 edge=edge,
-                evidence_event_ids=evidence_event_ids,
+                supporting_event_ids=supporting_event_ids,
             )
             if corroborate_target is not None:
                 corroborate_targets.append(corroborate_target)
@@ -75,7 +82,7 @@ class L2Phase2GraphValidationMixin:
                 event=event,
                 profile=profile,
                 resolved_mentions=resolved_mentions,
-                evidence_event_ids=evidence_event_ids,
+                supporting_event_ids=supporting_event_ids,
                 edge=edge,
                 profile_signal_object_refs=profile_signal_object_refs,
                 catalog_name_index=catalog_name_index,
@@ -98,15 +105,13 @@ class L2Phase2GraphValidationMixin:
         *,
         event: MemoryEvent,
         edge: L2Phase2GraphEdge,
-        evidence_event_ids: list[str],
+        supporting_event_ids: list[str],
     ) -> dict[str, Any] | None:
         if edge.relationship_to_existing != "corroborates" or not edge.related_existing_triple_id:
             return None
         return {
             "triple_id": edge.related_existing_triple_id,
-            "evidence_event_ids": normalize_event_ids(
-                edge.supporting_event_ids or evidence_event_ids
-            ),
+            "evidence_event_ids": supporting_event_ids,
             "new_confidence": edge.confidence,
             "observed_at": event.timestamp,
             "evidence_text": edge.evidence_text or "",
@@ -118,7 +123,7 @@ class L2Phase2GraphValidationMixin:
         event: MemoryEvent,
         profile: ExtractionProfile,
         resolved_mentions: list[ResolvedEntityMention],
-        evidence_event_ids: list[str],
+        supporting_event_ids: list[str],
         edge: L2Phase2GraphEdge,
         profile_signal_object_refs: set[str] | None,
         catalog_name_index: dict[str, str] | None,
@@ -156,7 +161,7 @@ class L2Phase2GraphValidationMixin:
             edge=edge,
             shape=shape,
             endpoints=endpoints,
-            evidence_event_ids=evidence_event_ids,
+            supporting_event_ids=supporting_event_ids,
             classification=classification,
         )
 
@@ -242,7 +247,7 @@ class L2Phase2GraphValidationMixin:
         edge: L2Phase2GraphEdge,
         shape: _Phase2GraphEdgeShape,
         endpoints: _Phase2GraphEndpoints,
-        evidence_event_ids: list[str],
+        supporting_event_ids: list[str],
         classification: EvidenceClassification | None,
     ) -> dict[str, Any]:
         return {
@@ -252,9 +257,7 @@ class L2Phase2GraphValidationMixin:
             "object_id": endpoints.object_id,
             "object_type": shape.object_type,
             "fact_kind": self._non_empty_text(edge.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-            "evidence_event_ids": normalize_event_ids(
-                edge.supporting_event_ids or evidence_event_ids
-            ),
+            "evidence_event_ids": supporting_event_ids,
             "confidence": (
                 edge.confidence * OPEN_PREDICATE_CONFIDENCE_PENALTY
                 if shape.predicate not in PREDICATE_REGISTRY

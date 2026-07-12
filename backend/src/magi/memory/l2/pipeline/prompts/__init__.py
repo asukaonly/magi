@@ -57,6 +57,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 11. Addressing instructions such as "叫我子涵" or "call me Zihan" are communication-profile signals. Emit one fact claim with `predicate = "PREFERRED_FORM_OF_ADDRESS"`, `object_ref` set to the requested name, and `object_type = "concept"`. Do NOT turn the requested name into a LIKES, DISLIKES, INTERESTED_IN, KNOWS, or other graph relationship.
 12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
 13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. Do not emit orphan fact claims whose object cannot later be resolved to an entity.
+14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Never cite Recent Context or History Context as new claim evidence. If no current message directly supports the claim, omit it.
 
 ## Output Format
 Return JSON only:
@@ -411,6 +412,7 @@ def _append_phase1_fact_claims(
         return
     parts.append("### Fact Claims")
     for i, claim in enumerate(fact_claims, 1):
+        claim_id = claim.get("claim_id", "")
         subj = claim.get("subject_ref", "?")
         pred = claim.get("predicate", "?")
         obj = claim.get("object_ref", "?")
@@ -423,8 +425,9 @@ def _append_phase1_fact_claims(
             entities=entities,
         )
         hint_text = f", entity_id: {object_id_hint}" if object_id_hint else ""
+        claim_label = f" [{claim_id}]" if claim_id else ""
         parts.append(
-            f"{i}. {subj} → {pred} → {obj} "
+            f"{i}.{claim_label} {subj} → {pred} → {obj} "
             f"[{obj_type}, {specificity}{hint_text}] (confidence: {conf})"
         )
         _append_fact_claim_evidence(parts, claim)

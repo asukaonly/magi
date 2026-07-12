@@ -447,7 +447,12 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 event_id = str(getattr(evidence_event, "event_id", "") or "").strip()
                 if event_id:
                     matched_event_ids.append(event_id)
-        return normalize_event_ids(matched_event_ids or fallback_event_ids)
+        if matched_event_ids:
+            return normalize_event_ids(matched_event_ids)
+        normalized_fallback_ids = normalize_event_ids(fallback_event_ids)
+        if len(evidence_events or []) == 1 and len(normalized_fallback_ids) == 1:
+            return normalized_fallback_ids
+        return []
 
     async def _resolve_mentions(
         self,

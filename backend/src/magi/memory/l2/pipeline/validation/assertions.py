@@ -14,7 +14,7 @@ from ...assertion_family_policy import get_assertion_family_policy
 from ...assertions.settings import momentary_ttl_seconds
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
 from ...ontology_aliases import canonicalize_predicate
-from ...storage.utils import normalize_event_ids
+from .evidence import validate_supporting_event_ids
 
 _TOPOLOGY_ONLY_TRAIT_FAMILIES = {"public_sentiment", "group_atmosphere", "relationship_shift"}
 _SEMANTIC_TEMPORAL_SCOPES = {"persistent", "stable", ""}
@@ -151,11 +151,18 @@ class L2AssertionValidationMixin:
             return None
         if not self._phase2_profile_signal_present(trait_name, context):
             return None
+        supporting_event_ids = validate_supporting_event_ids(
+            getattr(assertion, "supporting_event_ids", None),
+            context.default_event_ids,
+        )
+        if not supporting_event_ids:
+            return None
         return self._normalize_phase2_assertion(
             assertion,
             context=context,
             trait_family=trait_family,
             trait_name=trait_name,
+            supporting_event_ids=supporting_event_ids,
         )
 
     def _phase2_assertion_allowed(
@@ -192,6 +199,7 @@ class L2AssertionValidationMixin:
         context: Phase2AssertionValidationContext,
         trait_family: str,
         trait_name: str,
+        supporting_event_ids: list[str],
     ) -> dict[str, Any]:
         event = context.event
         self_entity_id = context.host._resolve_self_entity_id(event)
@@ -210,9 +218,7 @@ class L2AssertionValidationMixin:
             "trait_name": trait_name,
             "trait_value": self._phase2_trait_value(assertion, trait_name, context),
             "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
-            "evidence_events": normalize_event_ids(
-                getattr(assertion, "supporting_event_ids", None) or context.default_event_ids
-            ),
+            "evidence_events": supporting_event_ids,
             "volatility_index": float(getattr(assertion, "volatility_index", 0.5) or 0.5),
             "source_domain": event.memory_domain.label,
             "inference_depth": (
@@ -306,12 +312,19 @@ class L2AssertionValidationMixin:
             if is_leaf_fact_duplicate(duplicate_check_candidates, raw_candidate.to_dict()):
                 rejected_count += 1
                 continue
+            supporting_event_ids = validate_supporting_event_ids(
+                raw_candidate.supporting_event_ids,
+                default_event_ids,
+            )
+            if not supporting_event_ids:
+                rejected_count += 1
+                continue
             prepared.append(
                 self._normalize_assertion_candidate(
                     event,
                     raw_candidate,
                     resolved_context_refs,
-                    default_event_ids=default_event_ids,
+                    supporting_event_ids=supporting_event_ids,
                 )
             )
         return prepared, rejected_count
@@ -322,7 +335,7 @@ class L2AssertionValidationMixin:
         candidate: L2AssertionCandidate,
         resolved_context_refs: list[ResolvedContextRef],
         *,
-        default_event_ids: list[str] | None = None,
+        supporting_event_ids: list[str],
     ) -> dict[str, Any]:
         host = self._assertion_host()
         trait_value = candidate.trait_value
@@ -351,9 +364,7 @@ class L2AssertionValidationMixin:
             "trait_name": candidate.trait_name,
             "trait_value": trait_value,
             "confidence_score": candidate.confidence,
-            "evidence_events": normalize_event_ids(
-                candidate.supporting_event_ids or default_event_ids or [event.event_id]
-            ),
+            "evidence_events": supporting_event_ids,
             "volatility_index": candidate.volatility_index,
             "source_domain": event.memory_domain.label,
             "inference_depth": candidate.inference_depth or event.tom_depth.label,

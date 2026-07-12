@@ -5212,6 +5212,7 @@ class TestEntityTypeFiltering:
                     object_ref="app",
                     object_type="software",
                     confidence=0.9,
+                    supporting_event_ids=["evt-open-predicate"],
                 ),
                 L2Phase2GraphEdge(
                     subject_ref="user:local_user",
@@ -5219,6 +5220,7 @@ class TestEntityTypeFiltering:
                     object_ref="Magi",
                     object_type="product",
                     confidence=0.9,
+                    supporting_event_ids=["evt-open-predicate"],
                 ),
             ],
             profile_signal_object_refs=set(),
@@ -5267,6 +5269,7 @@ class TestEntityTypeFiltering:
                     trait_name="communication.address.preferred",
                     trait_value="haji_mi_or_zi_han",
                     confidence=0.3,
+                    supporting_event_ids=["evt-profile-value"],
                 )
             ],
             phase1_result=phase1_result,
@@ -5411,6 +5414,7 @@ class TestEntityTypeFiltering:
                     trait_name="preference.music",
                     trait_value="Track A",
                     confidence=0.7,
+                    supporting_event_ids=["evt-trait-allowlist"],
                 ),
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5418,6 +5422,7 @@ class TestEntityTypeFiltering:
                     trait_name="preference.movie",
                     trait_value="Movie B",
                     confidence=0.7,
+                    supporting_event_ids=["evt-trait-allowlist"],
                 ),
             ],
         )
@@ -5450,6 +5455,7 @@ class TestEntityTypeFiltering:
                     trait_name="preference.music",
                     trait_value="Track A",
                     confidence=0.7,
+                    supporting_event_ids=["evt-trait-wildcard"],
                 ),
             ],
         )
@@ -5485,6 +5491,7 @@ class TestEntityTypeFiltering:
                     trait_name="preference.music",
                     trait_value="Track A",
                     confidence=0.7,
+                    supporting_event_ids=["evt-assertion-scope"],
                 ),
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
@@ -5492,6 +5499,7 @@ class TestEntityTypeFiltering:
                     trait_name="sentiment.magi",
                     trait_value="positive",
                     confidence=0.7,
+                    supporting_event_ids=["evt-assertion-scope"],
                 ),
             ],
         )

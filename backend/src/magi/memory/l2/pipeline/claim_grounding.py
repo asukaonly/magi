@@ -1,0 +1,108 @@
+"""Deterministic evidence grounding for Phase 1 fact claims."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import unicodedata
+
+from ..models import L2BatchEvent, L2EventWindow, L2Phase1FactClaim, L2Phase1Result
+
+
+def ground_phase1_fact_claims(
+    phase1_result: L2Phase1Result,
+    event_window: L2EventWindow,
+) -> dict[str, int]:
+    """Keep only claims grounded in exact current-window evidence."""
+    eligible_events = [event for event in event_window.events if _is_evidence_event(event)]
+    event_ids = {event.event_id for event in eligible_events}
+    grounded_claims: list[L2Phase1FactClaim] = []
+    rejected_count = 0
+    rebound_count = 0
+
+    for claim in phase1_result.fact_claims:
+        original_event_ids = _unique_event_ids(claim.supporting_event_ids)
+        valid_original_ids = [event_id for event_id in original_event_ids if event_id in event_ids]
+        grounded_event_ids = _grounded_event_ids(
+            claim=claim,
+            eligible_events=eligible_events,
+            valid_original_ids=valid_original_ids,
+        )
+        if not grounded_event_ids:
+            rejected_count += 1
+            continue
+        if grounded_event_ids != valid_original_ids and original_event_ids:
+            rebound_count += 1
+        claim.supporting_event_ids = grounded_event_ids
+        claim.claim_id = _claim_id(claim)
+        grounded_claims.append(claim)
+
+    phase1_result.fact_claims = grounded_claims
+    return {
+        "kept": len(grounded_claims),
+        "rejected": rejected_count,
+        "rebound": rebound_count,
+    }
+
+
+def _grounded_event_ids(
+    *,
+    claim: L2Phase1FactClaim,
+    eligible_events: list[L2BatchEvent],
+    valid_original_ids: list[str],
+) -> list[str]:
+    evidence_text = _normalize_evidence_text(claim.evidence_text)
+    if evidence_text:
+        return [
+            event.event_id
+            for event in eligible_events
+            if evidence_text in _normalize_evidence_text(event.content)
+        ]
+    if len(eligible_events) != 1:
+        return []
+    only_event_id = eligible_events[0].event_id
+    if valid_original_ids and valid_original_ids != [only_event_id]:
+        return []
+    return [only_event_id]
+
+
+def _is_evidence_event(event: L2BatchEvent) -> bool:
+    return str(event.author_type or "").strip().casefold() != "assistant"
+
+
+def _normalize_evidence_text(value: object) -> str:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _unique_event_ids(values: list[str]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        event_id = str(value or "").strip()
+        if not event_id or event_id in seen:
+            continue
+        seen.add(event_id)
+        unique.append(event_id)
+    return unique
+
+
+def _claim_id(claim: L2Phase1FactClaim) -> str:
+    payload = {
+        "subject_ref": claim.subject_ref,
+        "subject_type": claim.subject_type,
+        "predicate": claim.predicate,
+        "object_ref": claim.object_ref,
+        "object_type": claim.object_type,
+        "fact_kind": claim.fact_kind,
+        "polarity": claim.polarity,
+        "specificity": claim.specificity,
+        "supporting_event_ids": claim.supporting_event_ids,
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+    return f"claim:{digest}"
+
+
+__all__ = ["ground_phase1_fact_claims"]

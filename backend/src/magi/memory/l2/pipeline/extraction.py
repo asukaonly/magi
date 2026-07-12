@@ -27,6 +27,7 @@ from .extraction_contracts import (
     _PreparedExtractionBatch,
 )
 from .external_dialogue_grounding import ground_phase1_external_dialogue_refs
+from .claim_grounding import ground_phase1_fact_claims
 from .phase2_flow import L2Phase2FlowMixin
 
 logger = get_logger("magi.memory.l2.pipeline")
@@ -618,6 +619,16 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
                 "L2 Phase 1 profile signal claims filtered by user evidence",
                 event_id=batch.stored_event.event_id,
                 rejected_profile_signal_claim_count=rejected_count,
+            )
+        claim_grounding_stats = ground_phase1_fact_claims(
+            phase1_result,
+            batch.event_window,
+        )
+        if claim_grounding_stats["rejected"] or claim_grounding_stats["rebound"]:
+            logger.info(
+                "L2 Phase 1 claim evidence grounding applied",
+                event_id=batch.stored_event.event_id,
+                **claim_grounding_stats,
             )
 
     async def _resolve_phase1_mentions(

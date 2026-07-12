@@ -115,13 +115,14 @@ def test_validate_phase2_graph_edges_includes_evidence_class():
         resolved_mentions=[],
         evidence_event_ids=["evt-p2"],
         phase2_edges=[
-            L2Phase2GraphEdge(
+                L2Phase2GraphEdge(
                 subject_ref="user:local_user",
                 predicate="MAINTAINS",
-                object_ref="Magi",
-                object_type="product",
-                confidence=0.9,
-            ),
+                    object_ref="Magi",
+                    object_type="product",
+                    confidence=0.9,
+                    supporting_event_ids=["evt-p2"],
+                ),
         ],
         profile_signal_object_refs=set(),
         catalog_name_index={},

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from magi.memory.event_contracts import MemoryDomain, TomDepth
 from magi.memory.l2.extraction_profiles import ExtractionProfile
 from magi.memory.l2.models import (
     L2Phase1Entity,
@@ -39,6 +40,17 @@ class _FastTrackHarness(L2GraphFastTrackMixin):
             }:
                 return mention.resolved_entity_id
         return raw_text if ":" in raw_text else None
+
+    def _resolve_phase2_subject_id(self, *, event: object, subject_ref: object) -> str | None:
+        _ = event
+        return str(subject_ref or "").strip() or None
+
+    def _should_reject_preference_graph_candidate(self, **kwargs: object) -> bool:
+        _ = kwargs
+        return False
+
+    def _non_empty_text(self, value: object) -> str | None:
+        return str(value or "").strip() or None
 
 
 def test_graph_fast_track_uses_effective_assertion_permission() -> None:
@@ -123,3 +135,44 @@ def test_graph_fast_track_blocks_when_assertions_are_effectively_allowed() -> No
         profile=profile,
         policy=policy,
     ) is False
+
+
+def test_graph_fast_track_rejects_claim_without_grounded_event_ids() -> None:
+    event = SimpleNamespace(
+        event_id="evt-current",
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+    profile = ExtractionProfile(
+        profile_id="chat.user_message",
+        allowed_entity_types=frozenset({"group"}),
+        allowed_predicates=frozenset({"LIKES"}),
+        structured_allowed_entity_types=frozenset({"group"}),
+        structured_allowed_predicates=frozenset({"LIKES"}),
+        allow_graph=True,
+        allow_assertion=False,
+    )
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                subject_ref="user:u1",
+                predicate="LIKES",
+                object_ref="group:diiv",
+                object_type="group",
+                evidence_text="我喜欢 DIIV",
+            )
+        ]
+    )
+
+    candidates = _FastTrackHarness()._fast_track_claims_to_candidates(
+        phase1_result=phase1_result,
+        event=event,
+        evidence_event_ids=["evt-current"],
+        resolved_mentions=[],
+        profile=profile,
+    )
+
+    assert candidates == []

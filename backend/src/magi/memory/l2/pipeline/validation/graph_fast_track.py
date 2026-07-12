@@ -9,7 +9,7 @@ from ....evidence import EvidenceClassification
 from ...extraction_profiles import ExtractionProfile
 from ...models import L2Phase1Result, ResolvedEntityMention
 from ...ontology import PREDICATE_REGISTRY, validate_graph_candidate
-from ...storage.utils import normalize_event_ids
+from .evidence import validate_supporting_event_ids
 
 
 class L2GraphFastTrackMixin:
@@ -73,6 +73,12 @@ class L2GraphFastTrackMixin:
         """Convert Phase 1 fact claims directly to graph candidates (no Phase 2)."""
         candidates: list[dict[str, Any]] = []
         for claim in phase1_result.fact_claims:
+            supporting_event_ids = validate_supporting_event_ids(
+                claim.supporting_event_ids,
+                evidence_event_ids,
+            )
+            if not supporting_event_ids:
+                continue
             predicate = self._normalize_predicate(claim.predicate)  # type: ignore[attr-defined]
             object_type = self._normalize_entity_type(claim.object_type)  # type: ignore[attr-defined]
             if object_type not in profile.effective_structured_allowed_entity_types:
@@ -112,9 +118,7 @@ class L2GraphFastTrackMixin:
                     "object_id": object_id,
                     "object_type": object_type,
                     "fact_kind": self._non_empty_text(claim.fact_kind) or "explicit_fact",  # type: ignore[attr-defined]
-                    "evidence_event_ids": normalize_event_ids(
-                        claim.supporting_event_ids or evidence_event_ids
-                    ),
+                    "evidence_event_ids": supporting_event_ids,
                     "confidence": claim.confidence,
                     "observed_at": event.timestamp,
                     "source_type": event.source,

@@ -52,6 +52,7 @@ class L2Phase1Entity:
 class L2Phase1FactClaim:
     """Fact claim extracted during Phase 1."""
 
+    claim_id: str = ""
     subject_ref: str = ""
     subject_type: str = "user"
     predicate: str = ""
@@ -67,6 +68,7 @@ class L2Phase1FactClaim:
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2Phase1FactClaim":
         return cls(
+            claim_id="",
             subject_ref=payload.get("subject_ref", ""),
             subject_type=payload.get("subject_type", "user"),
             predicate=payload.get("predicate", ""),
@@ -81,6 +83,7 @@ class L2Phase1FactClaim:
         )
 
     def __post_init__(self) -> None:
+        self.claim_id = _optional_text(self.claim_id) or ""
         self.subject_ref = _optional_text(self.subject_ref) or ""
         self.subject_type = _optional_text(self.subject_type) or "user"
         self.predicate = _optional_text(self.predicate) or ""
