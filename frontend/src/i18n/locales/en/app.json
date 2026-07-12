@@ -2846,7 +2846,7 @@
         "organize": "Help me organize",
         "organizing": "Finding the memories that belong together...",
         "choosePeriod": "These memories appear in different periods. Choose the one you mean.",
-        "insufficient": "There is not enough reliable evidence yet. Add a time, place, or what happened.",
+        "insufficient": "No closely related records were found. Try adding an approximate date or what happened.",
         "loading": "Loading source chapters...",
         "empty": "No source chapters available.",
         "error": "Could not create the experience.",

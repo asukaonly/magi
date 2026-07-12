@@ -51,7 +51,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.create.promptPlaceholder': 'For example: May 1 to May 10, 2026 · Japan trip',
     'memory.episodes.create.organizing': 'Finding the memories that belong together...',
     'memory.episodes.create.organize': 'Help me organize',
-    'memory.episodes.create.insufficient': 'There is not enough reliable evidence yet. Add a time, place, or what happened.',
+    'memory.episodes.create.insufficient': 'No closely related records were found. Try adding an approximate date or what happened.',
     'memory.episodes.create.error': 'Could not create the experience.',
     'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
     'memory.episodes.create.sourceCount': '{{count}} source chapters',
@@ -1300,8 +1300,30 @@ describe('MemoryEpisodesPage', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Help me organize' }));
 
-    expect(await screen.findByText('There is not enough reliable evidence yet. Add a time, place, or what happened.')).toBeInTheDocument();
+    const notice = await screen.findByRole('status');
+    expect(notice).toHaveTextContent('No closely related records were found. Try adding an approximate date or what happened.');
+    expect(notice).not.toHaveClass('text-destructive');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(internalReason)).not.toBeInTheDocument();
+  });
+
+  it('keeps a real organize failure distinct from an insufficient-evidence notice', async () => {
+    vi.mocked(memoryApi.organizeExperienceDraft).mockRejectedValueOnce(new Error('network detail'));
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Launch week');
+    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    await user.type(
+      screen.getByLabelText('What experience do you want to organize?'),
+      '2026年7月台风',
+    );
+    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not create the experience.');
+    expect(alert).toHaveClass('text-destructive');
+    expect(screen.queryByText('network detail')).not.toBeInTheDocument();
   });
 
   it('round-trips a multi-source chapter in place and moves keyboard focus with an announcement', async () => {

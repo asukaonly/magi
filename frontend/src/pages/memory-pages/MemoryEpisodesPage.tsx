@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, SearchX } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -41,6 +41,7 @@ export const MemoryEpisodesPage = () => {
   const [createPrompt, setCreatePrompt] = useState('');
   const [organizeChoices, setOrganizeChoices] = useState<ExperienceDraftChoice[]>([]);
   const [createSaving, setCreateSaving] = useState(false);
+  const [createNotice, setCreateNotice] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -75,6 +76,7 @@ export const MemoryEpisodesPage = () => {
 
   const openCreateExperience = () => {
     setCreateOpen(true);
+    setCreateNotice(null);
     setCreateError(null);
     setCreatePrompt('');
     setOrganizeChoices([]);
@@ -83,6 +85,7 @@ export const MemoryEpisodesPage = () => {
   const organizeExperience = async (choice?: ExperienceDraftChoice) => {
     if (!createPrompt.trim()) return;
     setCreateSaving(true);
+    setCreateNotice(null);
     setCreateError(null);
     try {
       const response = await memoryApi.organizeExperienceDraft({
@@ -94,7 +97,7 @@ export const MemoryEpisodesPage = () => {
         return;
       }
       if (response.status !== 'draft' || !response.draft) {
-        setCreateError(t('memory.episodes.create.insufficient'));
+        setCreateNotice(t('memory.episodes.create.insufficient'));
         return;
       }
       setCreateOpen(false);
@@ -217,6 +220,7 @@ export const MemoryEpisodesPage = () => {
                     onChange={(event) => {
                       setCreatePrompt(event.target.value);
                       setOrganizeChoices([]);
+                      setCreateNotice(null);
                       setCreateError(null);
                     }}
                     className="min-h-28 resize-none border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] text-base leading-7"
@@ -247,8 +251,20 @@ export const MemoryEpisodesPage = () => {
                     ))}
                   </div>
                 ) : null}
+                {createNotice ? (
+                  <div
+                    role="status"
+                    className="flex items-start gap-2 text-sm leading-6 text-[hsl(var(--memory-muted))]"
+                  >
+                    <SearchX className="mt-1 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>{createNotice}</span>
+                  </div>
+                ) : null}
                 {createError ? (
-                  <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  <div
+                    role="alert"
+                    className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                  >
                     {createError}
                   </div>
                 ) : null}
