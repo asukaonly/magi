@@ -379,15 +379,11 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
             context_messages=context_messages,
             history_contexts=history_contexts,
         )
-        existing_entities = await self._load_batch_existing_entities(event)
+        existing_entities = await self._load_batch_existing_entities(eligible_events)
         catalog_name_index = await self._build_catalog_name_index()
         direct_write_candidates, direct_write_count = await self._prepare_direct_graph_writes(
-            event=event,
-            extraction_profile=extraction_profile,
-            policy=policy,
-            batch_event_ids=batch_event_ids,
+            eligible_events=eligible_events,
             catalog_name_index=catalog_name_index,
-            classification=primary_decision.classification,
         )
         return _prepared_extraction_batch(
             event=event,
@@ -499,35 +495,41 @@ class L2PipelineExtractionMixin(L2Phase2FlowMixin):
 
     async def _load_batch_existing_entities(
         self: Any,
-        event: MemoryEvent,
+        eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
     ) -> list[dict[str, Any]]:
         existing_entities: list[dict[str, Any]] = []
         if self._entity_catalog is not None:
-            await self._upsert_structured_hint_entities(event)
+            for event, _classification, _policy in eligible_events:
+                await self._upsert_structured_hint_entities(event)
             existing_entities = await self._entity_catalog.list_entities(limit=30)
-        self._inject_structured_entity_hints(event, existing_entities)
+        for event, _classification, _policy in eligible_events:
+            self._inject_structured_entity_hints(event, existing_entities)
         return existing_entities
 
     async def _prepare_direct_graph_writes(
         self: Any,
         *,
-        event: MemoryEvent,
-        extraction_profile: Any,
-        policy: PolicyDecision,
-        batch_event_ids: list[str],
+        eligible_events: list[tuple[MemoryEvent, EvidenceClassification, PolicyDecision]],
         catalog_name_index: dict[str, Any],
-        classification: EvidenceClassification,
     ) -> tuple[list[dict[str, Any]], int]:
-        candidates, _direct_rejected = self._build_structured_graph_candidates(
-            event=event,
-            profile=extraction_profile,
-            policy=policy,
-            evidence_event_ids=batch_event_ids,
-            catalog_name_index=catalog_name_index,
-            classification=classification,
-        )
-        count = await self._direct_write_graph_candidates(event=event, candidates=candidates)
-        return candidates, count
+        all_candidates: list[dict[str, Any]] = []
+        direct_write_count = 0
+        for event, classification, policy in eligible_events:
+            profile = self._resolve_batch_extraction_profile(event)
+            candidates, _direct_rejected = self._build_structured_graph_candidates(
+                event=event,
+                profile=profile,
+                policy=policy,
+                evidence_event_ids=[event.event_id],
+                catalog_name_index=catalog_name_index,
+                classification=classification,
+            )
+            direct_write_count += await self._direct_write_graph_candidates(
+                event=event,
+                candidates=candidates,
+            )
+            all_candidates.extend(candidates)
+        return all_candidates, direct_write_count
 
     async def _maybe_structured_only(
         self: Any,

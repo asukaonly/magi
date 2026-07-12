@@ -444,6 +444,11 @@ class L2BatchPolicy:
 
 These values are advisory. L2 remains the final owner of batching decisions: it decides when a bucket is ready, how much work to claim under backpressure, and when a forced flush may bypass waiting.
 
+Conversation events with a session are grouped by session. Events without a session are grouped by
+normalized source, optional plugin owner, and user together. A plugin owner therefore refines a
+source batch; it never replaces source or user isolation. Every event in a flushed batch keeps its
+own evidence policy and structured hints, even when multiple events share one owner bucket.
+
 The ingestion gateway propagates these hints into `MemoryEvent.metadata_json` as `l2_batch_owner`, `l2_batch_max_events`, `l2_batch_max_estimated_tokens`, and `l2_batch_max_wait_seconds`. The L2 pipeline reads them back to create appropriately scoped `L2PendingBatchBucket` instances.
 
 ### Extraction Profiles

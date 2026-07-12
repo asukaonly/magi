@@ -60,6 +60,7 @@ class L2PipelineStagingMixin(L2PipelineProjectionMixin):
         bucket_key = build_l2_batch_bucket_key(
             session_id=event.session_id,
             user_id=event.user_id,
+            source_type=event.source,
             owner_key=str(owner_key) if owner_key is not None else None,
         )
         if bucket_key is None:
@@ -83,6 +84,7 @@ class L2PipelineStagingMixin(L2PipelineProjectionMixin):
                 bucket = L2PendingBatchBucket.for_owner(
                     session_id=event.session_id,
                     user_id=event.user_id,
+                    source_type=event.source,
                     owner_key=str(owner_key) if owner_key is not None else None,
                     max_events=max_events,
                     max_estimated_tokens=max_estimated_tokens,

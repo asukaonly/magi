@@ -175,6 +175,16 @@ class L2Phase2FlowMixin:
             batch.stored_event,
             phase1_flow.resolved_mentions,
         )
+        merged_history_contexts = await self._augment_event_window_with_entity_history(
+            anchor_event=batch.stored_event,
+            event_window=batch.event_window,
+            focal_entities=focal_entities,
+            exclude_event_ids=batch.batch_event_ids,
+        )
+        batch.history_contexts = [
+            item.to_dict() if hasattr(item, "to_dict") else dict(item)
+            for item in merged_history_contexts
+        ]
         await self._emit_active_entities(event=batch.stored_event, focal_entities=focal_entities)
         existing_graph_edges: list[dict[str, Any]] = []
         existing_assertions: list[dict[str, Any]] = []

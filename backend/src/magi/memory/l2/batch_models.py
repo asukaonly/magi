@@ -24,17 +24,31 @@ def build_l2_batch_bucket_key(
     *,
     session_id: str | None,
     user_id: str | None,
+    source_type: str | None = None,
     owner_key: str | None = None,
 ) -> str | None:
     normalized_session_id = _optional_text(session_id)
     if normalized_session_id is not None:
         return f"session:{normalized_session_id}"
+    normalized_source_type = _optional_text(source_type)
+    normalized_owner_key = _optional_text(owner_key)
     normalized_user_id = _optional_text(user_id)
+    if normalized_source_type is not None and (
+        normalized_owner_key is not None or normalized_user_id is not None
+    ):
+        parts = [f"source:{normalized_source_type}"]
+        if normalized_owner_key is not None:
+            parts.append(f"owner:{normalized_owner_key}")
+        if normalized_user_id is not None:
+            parts.append(f"user:{normalized_user_id}")
+        return "|".join(parts)
+    if normalized_owner_key is not None:
+        parts = [f"owner:{normalized_owner_key}"]
+        if normalized_user_id is not None:
+            parts.append(f"user:{normalized_user_id}")
+        return "|".join(parts)
     if normalized_user_id is not None:
         return f"user:{normalized_user_id}"
-    normalized_owner_key = _optional_text(owner_key)
-    if normalized_owner_key is not None:
-        return f"owner:{normalized_owner_key}"
     return None
 
 
@@ -294,6 +308,7 @@ class L2PendingBatchBucket:
         *,
         session_id: str | None = None,
         user_id: str | None = None,
+        source_type: str | None = None,
         owner_key: str | None = None,
         max_events: int | None = None,
         max_estimated_tokens: int | None = None,
@@ -301,6 +316,7 @@ class L2PendingBatchBucket:
         bucket_key = build_l2_batch_bucket_key(
             session_id=session_id,
             user_id=user_id,
+            source_type=source_type,
             owner_key=owner_key,
         )
         if bucket_key is None:

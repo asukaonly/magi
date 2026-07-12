@@ -312,6 +312,36 @@ def test_microbatch_bucket_keys_normalize_session_and_user_owners(
     assert build_l2_batch_bucket_key(session_id=session_id, user_id=user_id) == expected
 
 
+def test_microbatch_bucket_key_scopes_source_owner_to_user():
+    from magi.memory.l2.models import build_l2_batch_bucket_key
+
+    assert build_l2_batch_bucket_key(
+        session_id=None,
+        user_id="u1",
+        source_type="chrome_history",
+        owner_key="Default:github.com",
+    ) == "source:chrome_history|owner:Default:github.com|user:u1"
+
+
+def test_microbatch_bucket_key_separates_sources_for_same_user():
+    from magi.memory.l2.models import build_l2_batch_bucket_key
+
+    chrome_key = build_l2_batch_bucket_key(
+        session_id=None,
+        user_id="u1",
+        source_type="chrome_history",
+    )
+    music_key = build_l2_batch_bucket_key(
+        session_id=None,
+        user_id="u1",
+        source_type="netease_music",
+    )
+
+    assert chrome_key == "source:chrome_history|user:u1"
+    assert music_key == "source:netease_music|user:u1"
+    assert chrome_key != music_key
+
+
 @pytest.mark.parametrize(
     ("text", "user_id"),
     [
@@ -700,7 +730,7 @@ async def test_enqueue_event_falls_back_to_user_bucket_without_session():
         try:
             await pipeline.enqueue_event(_make_memory_event(event_id="evt-stage-3", session_id=None, user_id="u-bucket"))
 
-            assert "user:u-bucket" in pipeline._staging_buckets
+            assert "source:chat|user:u-bucket" in pipeline._staging_buckets
             assert pipeline._extract_queue.qsize() == 0
         finally:
             await pipeline.shutdown()
@@ -736,11 +766,40 @@ async def test_enqueue_event_uses_explicit_l2_batch_owner_without_session_or_use
 
             await pipeline.enqueue_event(event)
 
-            assert "owner:chrome_history:Default" in pipeline._staging_buckets
+            assert "source:chat|owner:chrome_history:Default" in pipeline._staging_buckets
             assert pipeline._extract_queue.qsize() == 0
             stats = pipeline.get_statistics()
             assert stats["extract_enqueued"] == 0
             assert stats["pending_staged_event_count"] == 1
+        finally:
+            await pipeline.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_event_separates_sensor_sources_for_same_user():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
+        try:
+            chrome = _make_memory_event(
+                event_id="evt-source-chrome",
+                session_id=None,
+                user_id="u-source",
+            )
+            chrome.source = "chrome_history"
+            music = _make_memory_event(
+                event_id="evt-source-music",
+                session_id=None,
+                user_id="u-source",
+            )
+            music.source = "netease_music"
+
+            await pipeline.enqueue_event(chrome)
+            await pipeline.enqueue_event(music)
+
+            assert set(pipeline._staging_buckets) == {
+                "source:chrome_history|user:u-source",
+                "source:netease_music|user:u-source",
+            }
         finally:
             await pipeline.shutdown()
 
@@ -764,12 +823,13 @@ async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
             }
 
             await pipeline.enqueue_event(first)
-            assert "owner:chrome_history:Default:github.com" in pipeline._staging_buckets
+            bucket_key = "source:chat|owner:chrome_history:Default:github.com"
+            assert bucket_key in pipeline._staging_buckets
             assert pipeline._extract_queue.qsize() == 0
 
             await pipeline.enqueue_event(second)
 
-            assert "owner:chrome_history:Default:github.com" not in pipeline._staging_buckets
+            assert bucket_key not in pipeline._staging_buckets
             assert pipeline._extract_queue.qsize() == 1
             job = pipeline._extract_queue.get_nowait()
             assert job is not None
@@ -1767,6 +1827,155 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
             assert len(unified_prompts) == 1
             prompt = unified_prompts[0]
             assert prompt.index("I called Shanghai Modu years ago.") < prompt.index("I still call Shanghai Modu now.")
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
+    from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
+
+    adapter = _FakeAdapter(
+        [
+            json.dumps(
+                {
+                    "entities": [
+                        {
+                            "surface": "DIIV",
+                            "normalized_name": "DIIV",
+                            "entity_type": "group",
+                            "specificity": "concrete",
+                            "resolved_id": "group:diiv",
+                            "is_new": False,
+                        }
+                    ],
+                    "fact_claims": [
+                        {
+                            "subject_ref": "user:self",
+                            "predicate": "ATTENDED",
+                            "object_ref": "DIIV",
+                            "object_type": "group",
+                            "specificity": "concrete",
+                            "confidence": 0.9,
+                            "evidence_text": "That band was great last night.",
+                            "supporting_event_ids": ["evt-current-band"],
+                        }
+                    ],
+                    "resolved_refs": [],
+                    "diagnostics": {"entity_status": "found"},
+                }
+            ),
+            json.dumps({"graph_edges": [], "assertion_candidates": [], "contradiction_hints": []}),
+        ]
+    )
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+            scenario_llm_pool=_FakeScenarioPool(adapter),
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2_entity_catalog is not None
+            await store.l2_entity_catalog.upsert_entity(
+                canonical_name="DIIV",
+                entity_type="group",
+                entity_id="group:diiv",
+            )
+            await store.l1.store(
+                _make_memory_event(
+                    event_id="evt-linked-history",
+                    session_id="s-old",
+                    user_id="u1",
+                    timestamp=100.0,
+                    content="The concert replay made me revisit that night.",
+                )
+            )
+            await store.l1.write_event_entities(
+                [("evt-linked-history", "group:diiv", "group", 0.95)]
+            )
+
+            await store.ingest_event(
+                {
+                    "id": "evt-current-band",
+                    "type": EventTypes.USER_MESSAGE,
+                    "timestamp": 300.0,
+                    "source": "chat",
+                    "level": EventLevel.INFO.value,
+                    "data": {
+                        "user_id": "u1",
+                        "session_id": "s-new",
+                        "content": "That band was great last night.",
+                    },
+                }
+            )
+            for _ in range(50):
+                if store.get_l2_pipeline_stats()["extract_completed"] >= 1:
+                    break
+                await asyncio.sleep(0.01)
+
+            phase2_prompts = [
+                str(call["prompt"])
+                for call in adapter.calls
+                if call.get("system_prompt") == PHASE2_INTEGRATE_SYSTEM_PROMPT
+            ]
+
+            assert len(phase2_prompts) == 1
+            assert "The concert replay made me revisit that night." in phase2_prompts[0]
+            assert "History Matches" in phase2_prompts[0]
+        finally:
+            await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sensor_events_without_session_do_not_use_user_recent_context():
+    with tempfile.TemporaryDirectory() as temp_dir:
+        base = Path(temp_dir)
+        store = UnifiedMemoryStore(
+            l1_db_path=str(base / "l1_events.db"),
+            memory_db_path=str(base / "memory.db"),
+            persist_dir=str(base / "memories"),
+            l2_batch_flush_interval_seconds=0,
+        )
+        await store.initialize()
+        try:
+            assert store.l1 is not None
+            assert store.l2_pipeline is not None
+            await store.l1.store(
+                _make_memory_event(
+                    event_id="evt-chat-context",
+                    session_id="s-chat",
+                    user_id="u1",
+                    timestamp=100.0,
+                    content="This chat sentence must not leak into sensor context.",
+                )
+            )
+            sensor_event = normalize_runtime_event(
+                Event(
+                    type="SENSOR_EVENT",
+                    data={
+                        "user_id": "u1",
+                        "session_id": None,
+                        "content": "Visited a page about DIIV",
+                        "author_type": "sensor",
+                        "content_type": "text",
+                    },
+                    source="chrome_history",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-sensor-no-session",
+                    timestamp=300.0,
+                    event_id="evt-sensor-no-session",
+                )
+            )
+
+            messages = await store.l2_pipeline._load_context_messages(sensor_event)
+
+            assert messages == []
         finally:
             await store.shutdown()
 
@@ -3768,6 +3977,66 @@ async def test_upsert_structured_graph_hints_uses_normalized_entity_id_for_alias
 
         assert resolved["decision"] == "match"
         assert resolved["entity_id"] == "software:google.com"
+
+
+@pytest.mark.asyncio
+async def test_prepare_direct_graph_writes_processes_every_batch_event():
+    from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
+    from magi.memory.event_contracts import MemoryDomain
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        pipeline = await _build_pipeline(temp_dir=temp_dir)
+        try:
+            events = []
+            for event_id, object_id in (
+                ("evt-structured-batch-1", "software:github"),
+                ("evt-structured-batch-2", "software:docker"),
+            ):
+                event = _make_memory_event(
+                    event_id=event_id,
+                    session_id=None,
+                    user_id="u-structured",
+                )
+                event.source = "chrome_history"
+                event.author_type = "external"
+                event.memory_domain = MemoryDomain.EXTERNAL_ACTIVITY
+                event.metadata_json = {
+                    "structured_graph_hints": [
+                        {
+                            "subject_ref": "user:self",
+                            "subject_type": "user",
+                            "predicate": "USES",
+                            "object_ref": object_id,
+                            "object_type": "software",
+                            "fact_kind": "interaction_evidence",
+                            "origin_mode": "source_structured",
+                            "confidence": 0.8,
+                        }
+                    ]
+                }
+                classification = classify_event_evidence(event)
+                events.append((event, classification, resolve_l2_policy(classification)))
+
+            await pipeline._load_batch_existing_entities(events)
+            candidates, count = await pipeline._prepare_direct_graph_writes(
+                eligible_events=events,
+                catalog_name_index=await pipeline._build_catalog_name_index(),
+            )
+
+            assert count == 2
+            assert {candidate["object_id"] for candidate in candidates} == {
+                "software:github",
+                "software:docker",
+            }
+            assert {
+                tuple(candidate["evidence_event_ids"])
+                for candidate in candidates
+            } == {
+                ("evt-structured-batch-1",),
+                ("evt-structured-batch-2",),
+            }
+        finally:
+            await pipeline.shutdown()
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ from ...l1.event_store import L1EventStore
 from ..context_bundle import ContextBundle, ResolvedContextRef
 from ..context_collector import collect_context_bundle
 from ..entities.catalog import L2EntityCatalog
+from ..entities.catalog.lookup import get_canonical_names
 from ..models import L2BatchJob, L2FocalEntityRef, L2HistoryContext
 from ..store import L2CognitionStore
 
@@ -100,7 +101,7 @@ class L2PipelineContextMixin:
         }
         if event.session_id:
             query_args["session_id"] = event.session_id
-        elif event.user_id:
+        elif event.user_id and _allows_user_context_fallback(event):
             query_args["user_id"] = event.user_id
         else:
             return []
@@ -131,7 +132,7 @@ class L2PipelineContextMixin:
         }
         if event.session_id:
             query_args["session_id"] = event.session_id
-        elif event.user_id:
+        elif event.user_id and _allows_user_context_fallback(event):
             query_args["user_id"] = event.user_id
         else:
             return []
@@ -289,6 +290,96 @@ class L2PipelineContextMixin:
             _keep_newer_history_context(matches_by_event_id, history_context)
             seen_event_ids.add(history_context.event_id)
 
+    async def _augment_event_window_with_entity_history(
+        self,
+        *,
+        anchor_event: MemoryEvent,
+        event_window: Any,
+        focal_entities: list[L2FocalEntityRef],
+        exclude_event_ids: list[str] | None = None,
+    ) -> list[L2HistoryContext]:
+        """Add L1 entity-linked history after Phase 1 has resolved entities."""
+        linked_contexts = await self._load_entity_linked_history_contexts(
+            anchor_event=anchor_event,
+            focal_entities=focal_entities,
+            exclude_event_ids=exclude_event_ids,
+            existing_contexts=list(event_window.history_contexts or []),
+        )
+        if not linked_contexts:
+            return list(event_window.history_contexts or [])
+
+        merged_contexts = _merge_history_contexts(
+            list(event_window.history_contexts or []) + linked_contexts
+        )
+        event_window.history_contexts = merged_contexts
+        event_window.summary.history_context_count = len(merged_contexts)
+        return merged_contexts
+
+    async def _load_entity_linked_history_contexts(
+        self,
+        *,
+        anchor_event: MemoryEvent,
+        focal_entities: list[L2FocalEntityRef],
+        exclude_event_ids: list[str] | None = None,
+        existing_contexts: list[L2HistoryContext] | None = None,
+    ) -> list[L2HistoryContext]:
+        host = self._context_host()
+        if host._l1_store is None or host._entity_catalog is None or not anchor_event.user_id:
+            return []
+
+        entity_ids = _history_entity_ids(focal_entities)
+        if not entity_ids:
+            return []
+
+        excluded_event_ids = set(exclude_event_ids or [])
+        excluded_event_ids.update(ctx.event_id for ctx in existing_contexts or [])
+        linked_event_ids = await self._find_entity_linked_event_ids(
+            entity_ids=entity_ids,
+            exclude_event_ids=sorted(excluded_event_ids),
+        )
+        if not linked_event_ids:
+            return []
+
+        events = await host._l1_store.fetch_events(linked_event_ids, user_id=anchor_event.user_id)
+        if not events:
+            return []
+
+        event_entities = await host._l1_store.get_event_entity_ids(
+            [str(item.get("event_id") or "") for item in events]
+        )
+        canonical_names = await get_canonical_names(host._entity_catalog.db_path, entity_ids)
+        return _entity_history_contexts_from_events(
+            events=events,
+            event_entities=event_entities,
+            entity_ids=set(entity_ids),
+            canonical_names=canonical_names,
+            anchor_event=anchor_event,
+            seen_event_ids=excluded_event_ids,
+        )
+
+    async def _find_entity_linked_event_ids(
+        self,
+        *,
+        entity_ids: list[str],
+        exclude_event_ids: list[str],
+    ) -> list[str]:
+        host = self._context_host()
+        if host._l1_store is None:
+            return []
+        limit = min(
+            12,
+            max(
+                DEFAULT_L2_HISTORY_CONTEXT_LIMIT,
+                len(entity_ids) * DEFAULT_L2_HISTORY_SEARCH_LIMIT,
+            ),
+        )
+        rows = await host._l1_store.find_events_by_entities(
+            entity_ids,
+            exclude_event_ids=exclude_event_ids,
+            limit=limit,
+        )
+        return [event_id for event_id, _shared_count in rows]
+
     async def _collect_context_bundle(
         self,
         event: MemoryEvent,
@@ -358,6 +449,23 @@ def _history_match_terms(match: dict[str, Any], host: _L2PipelineContextHostProt
     return [term for term in candidate_terms if term is not None]
 
 
+def _allows_user_context_fallback(event: MemoryEvent) -> bool:
+    return event.memory_domain in {MemoryDomain.USER_AUTHORED, MemoryDomain.INTERACTION}
+
+
+def _history_entity_ids(focal_entities: list[L2FocalEntityRef]) -> list[str]:
+    entity_ids: list[str] = []
+    seen: set[str] = set()
+    for entity in focal_entities:
+        entity_id = str(getattr(entity, "entity_id", "") or "").strip()
+        entity_type = str(getattr(entity, "entity_type", "") or "").strip().casefold()
+        if not entity_id or entity_type == "user" or entity_id in seen:
+            continue
+        seen.add(entity_id)
+        entity_ids.append(entity_id)
+    return entity_ids
+
+
 def _already_seen_history_term(term: str, seen_terms: set[str]) -> bool:
     normalized_term = term.casefold()
     if normalized_term in seen_terms:
@@ -395,10 +503,61 @@ def _history_context_from_row(
     )
 
 
+def _entity_history_contexts_from_events(
+    *,
+    events: list[dict[str, Any]],
+    event_entities: dict[str, list[str]],
+    entity_ids: set[str],
+    canonical_names: dict[str, str],
+    anchor_event: MemoryEvent,
+    seen_event_ids: set[str],
+) -> list[L2HistoryContext]:
+    contexts: list[L2HistoryContext] = []
+    for row in events:
+        event_id = str(row.get("event_id") or "").strip()
+        content = str(row.get("content") or "").strip()
+        if not event_id or not content or event_id in seen_event_ids:
+            continue
+        if not bool(row.get("cognition_eligible", True)):
+            continue
+        if _same_session_as_anchor(row, anchor_event):
+            continue
+        matched_entity_id = _first_matching_entity_id(event_entities.get(event_id, []), entity_ids)
+        if matched_entity_id is None:
+            continue
+        contexts.append(
+            L2HistoryContext(
+                event_id=event_id,
+                session_id=str(row.get("session_id") or "").strip() or None,
+                timestamp=float(row.get("timestamp", 0.0) or 0.0),
+                content=content,
+                matched_entity_id=matched_entity_id,
+                matched_text=canonical_names.get(matched_entity_id, matched_entity_id),
+                canonical_name=canonical_names.get(matched_entity_id),
+                match_source="l1_event_entities",
+            )
+        )
+    return contexts
+
+
+def _first_matching_entity_id(event_entity_ids: list[str], entity_ids: set[str]) -> str | None:
+    for entity_id in event_entity_ids:
+        if entity_id in entity_ids:
+            return entity_id
+    return None
+
+
 def _same_session_as_anchor(row: dict[str, Any], anchor_event: MemoryEvent) -> bool:
     return bool(
         anchor_event.session_id and str(row.get("session_id") or "") == anchor_event.session_id
     )
+
+
+def _merge_history_contexts(contexts: Iterable[L2HistoryContext]) -> list[L2HistoryContext]:
+    merged: dict[str, L2HistoryContext] = {}
+    for context in contexts:
+        _keep_newer_history_context(merged, context)
+    return _select_history_contexts(merged.values())
 
 
 def _keep_newer_history_context(
@@ -415,7 +574,11 @@ def _select_history_contexts(
 ) -> list[L2HistoryContext]:
     ranked_contexts = sorted(
         contexts,
-        key=lambda item: (float(item.timestamp), str(item.event_id)),
+        key=lambda item: (
+            1 if item.match_source == "l1_event_entities" else 0,
+            float(item.timestamp),
+            str(item.event_id),
+        ),
         reverse=True,
     )
     selected_contexts = ranked_contexts[:DEFAULT_L2_HISTORY_CONTEXT_LIMIT]

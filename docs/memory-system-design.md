@@ -556,8 +556,10 @@ Batch policy:
 
 Extraction flow:
 
+- L2 microbatches are profile-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors.
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step.
+- Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
 - Phase 2 integrates the current batch plus that deterministic packet into graph writes, contradiction hints, and eligible assertion candidates under the active extraction profile.
 - Passive, single-source observations remain evidence. They should not become stable user-profile assertions unless source policy and graph-derived rules provide enough accumulated support.
 
