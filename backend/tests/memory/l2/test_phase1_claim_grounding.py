@@ -49,6 +49,25 @@ def test_ground_phase1_claim_binds_quote_to_exact_event() -> None:
     assert result.fact_claims[0].claim_id.startswith("claim:")
 
 
+def test_ground_phase1_claim_uses_frozen_window_text() -> None:
+    result = L2Phase1Result(
+        fact_claims=[
+            _claim(
+                evidence_text="I have been really stressed about work lately.",
+            )
+        ]
+    )
+    window = L2EventWindow(
+        events=[L2BatchEvent(event_id="evt-a", content="")],
+        texts=["I have been really stressed about work lately."],
+    )
+
+    stats = ground_phase1_fact_claims(result, window)
+
+    assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
+    assert result.fact_claims[0].supporting_event_ids == ["evt-a"]
+
+
 def test_ground_phase1_claim_rejects_ungrounded_multi_event_claim() -> None:
     result = L2Phase1Result(
         fact_claims=[

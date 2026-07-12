@@ -182,7 +182,7 @@ class L2EventWindow:
                 for item in normalized_events
                 if str(item.event_id).strip()
             ]
-        normalized_texts = [str(item) for item in self.texts if str(item).strip()]
+        normalized_texts = [str(item) for item in self.texts]
         if not normalized_texts:
             normalized_texts = [
                 str(item.content).strip() for item in normalized_events if str(item.content).strip()

@@ -45,22 +45,18 @@ _STRESS_PHASE1 = json.dumps({
 })
 
 _STRESS_PHASE2 = json.dumps({
-    "graph_edges": [],
-    "refinements": [],
+    "claim_assessments": [],
     "assertion_candidates": [
         {
             "entity_ref": "user:u1",
             "entity_type": "user",
+            "trait_family": "stress",
             "trait_name": "stress_level",
             "trait_value": "high",
-            "trait_family": "stress",
-            "confidence": 0.85,
-            "evidence_text": "I have been really stressed about work lately.",
-            "inference_depth": "explicit",
-            "volatility_index": 0.7,
+            "natural_summary": "Work has recently felt stressful.",
+            "supporting_claim_ids": ["claim:1"],
         }
     ],
-    "contradiction_hints": [],
 })
 
 _PLACE_PHASE1 = json.dumps({
@@ -95,25 +91,8 @@ _PLACE_PHASE1 = json.dumps({
 })
 
 _PLACE_PHASE2 = json.dumps({
-    "graph_edges": [
-        {
-            "subject_ref": "user:u1",
-            "subject_type": "user",
-            "predicate": "LIKES",
-            "object_ref": "place:shanghai",
-            "object_type": "place",
-            "fact_kind": "stable_preference",
-            "polarity": "positive",
-            "confidence": 0.96,
-            "evidence_text": "我好喜欢魔都",
-            "supporting_event_ids": ["evt-place-1"],
-            "relationship_to_existing": "new",
-            "related_existing_triple_id": None,
-        }
-    ],
-    "refinements": [],
+    "claim_assessments": [],
     "assertion_candidates": [],
-    "contradiction_hints": [],
 })
 
 
@@ -136,8 +115,8 @@ class _FakeAdapter:
         messages = kwargs.get("messages") or []
         if isinstance(messages, list) and messages and isinstance(messages[0], dict):
             system_prompt = str(messages[0].get("content") or "")
-        # Detect Phase 2 by system prompt content
-        text = self._phase2 if "memory integration engine" in system_prompt else self._phase1
+        # Detect Phase 2 by its narrow inference contract.
+        text = self._phase2 if "claim_assessments" in system_prompt else self._phase1
         message = SimpleNamespace(content=text, tool_calls=[], role="assistant")
         return SimpleNamespace(
             choices=[SimpleNamespace(message=message, finish_reason="stop")],
@@ -1317,7 +1296,11 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         await self.bus.publish(
             Event(
                 type=EventTypes.USER_MESSAGE,
-                data={"user_id": "u1", "session_id": "s1", "content": "I feel stressed at work."},
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "I have been really stressed about work lately.",
+                },
                 source="chat",
                 level=EventLevel.INFO,
                 correlation_id="corr-1",
