@@ -4,17 +4,24 @@ import { useTranslation } from 'react-i18next';
 import {
   memoryApi,
   type ExperienceDraftChapter,
-  type L2EpisodeEventPreview,
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 type ContentState = 'idle' | 'loading' | 'loaded' | 'failed';
 
+interface ReadableDraftEvent {
+  event_id: string;
+  content_preview?: string | null;
+  source?: string | null;
+  timestamp?: number | null;
+}
+
 interface EpisodeContentSnapshot {
-  episodeIdsKey: string;
+  evidenceKey: string;
   state: ContentState;
-  events: L2EpisodeEventPreview[];
+  events: ReadableDraftEvent[];
 }
 
 interface ExperienceDraftSegmentCardProps {
@@ -33,7 +40,7 @@ const formatEventTime = (timestamp: number | null | undefined, locale: string): 
   }).format(new Date(timestamp * 1000));
 };
 
-const dedupeEpisodeEvents = (events: L2EpisodeEventPreview[]): L2EpisodeEventPreview[] => {
+const dedupeEpisodeEvents = (events: ReadableDraftEvent[]): ReadableDraftEvent[] => {
   const seen = new Set<string>();
   return events.filter((event) => {
     if (seen.has(event.event_id)) return false;
@@ -50,16 +57,19 @@ export function ExperienceDraftSegmentCard({
   const { t, i18n } = useTranslation('app');
   const [contentOpen, setContentOpen] = useState(false);
   const episodeIdsKey = chapter.episode_ids.join('\u0000');
+  const eventIdsKey = chapter.event_ids.join('\u0000');
+  const evidenceKey = `${episodeIdsKey}\u0001${eventIdsKey}`;
+  const hasContentRefs = Boolean(episodeIdsKey || eventIdsKey);
   const requestGenerationRef = useRef(0);
   const [content, setContent] = useState<EpisodeContentSnapshot>({
-    episodeIdsKey,
+    evidenceKey,
     state: 'idle',
     events: [],
   });
-  const contentState = content.episodeIdsKey === episodeIdsKey
+  const contentState = content.evidenceKey === evidenceKey
     ? content.state
     : 'idle';
-  const events = content.episodeIdsKey === episodeIdsKey ? content.events : [];
+  const events = content.evidenceKey === evidenceKey ? content.events : [];
   const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
   const readableEvents = useMemo(
     () => events.filter((event) => String(event.content_preview || '').trim()),
@@ -72,32 +82,44 @@ export function ExperienceDraftSegmentCard({
     : new Set(chapter.event_ids).size;
 
   const loadContent = useCallback(async () => {
-    if (!episodeIdsKey) return;
-    const episodeIds = episodeIdsKey.split('\u0000');
+    if (!hasContentRefs) return;
+    const episodeIds = episodeIdsKey ? episodeIdsKey.split('\u0000') : [];
+    const eventIds = eventIdsKey ? eventIdsKey.split('\u0000') : [];
     const requestGeneration = requestGenerationRef.current + 1;
     requestGenerationRef.current = requestGeneration;
-    setContent({ episodeIdsKey, state: 'loading', events: [] });
+    setContent({ evidenceKey, state: 'loading', events: [] });
     try {
-      const episodes = await Promise.all(episodeIds.map((episodeId) => memoryApi.getEpisode(episodeId)));
+      const [episodes, directEventResponses] = await Promise.all([
+        Promise.all(episodeIds.map((episodeId) => memoryApi.getEpisode(episodeId))),
+        Promise.all(eventIds.map((eventId) => memoryApi.getL1Events({ event_id: eventId, limit: 1 }))),
+      ]);
       if (requestGenerationRef.current !== requestGeneration) return;
       setContent({
-        episodeIdsKey,
+        evidenceKey,
         state: 'loaded',
-        events: dedupeEpisodeEvents(episodes.flatMap((episode) => episode.events ?? [])),
+        events: dedupeEpisodeEvents([
+          ...episodes.flatMap((episode) => episode.events ?? []),
+          ...directEventResponses.flatMap((response) => response.items.map((event) => ({
+            event_id: event.event_id,
+            content_preview: event.content,
+            source: event.source,
+            timestamp: event.timestamp,
+          }))),
+        ]),
       });
     } catch {
       if (requestGenerationRef.current !== requestGeneration) return;
-      setContent({ episodeIdsKey, state: 'failed', events: [] });
+      setContent({ evidenceKey, state: 'failed', events: [] });
     }
-  }, [episodeIdsKey]);
+  }, [episodeIdsKey, eventIdsKey, evidenceKey, hasContentRefs]);
 
   useEffect(() => {
     setContentOpen(false);
-    setContent({ episodeIdsKey, state: 'idle', events: [] });
+    setContent({ evidenceKey, state: 'idle', events: [] });
     return () => {
       requestGenerationRef.current += 1;
     };
-  }, [episodeIdsKey]);
+  }, [evidenceKey]);
 
   const toggleContent = () => {
     if (!contentOpen && contentState === 'idle') void loadContent();
@@ -134,7 +156,7 @@ export function ExperienceDraftSegmentCard({
             ) : null}
           </div>
         </div>
-        {chapter.episode_ids.length > 0 ? (
+        {hasContentRefs ? (
           <Button
             type="button"
             variant="ghost"
@@ -171,11 +193,15 @@ export function ExperienceDraftSegmentCard({
               {readableEvents.map((event, index) => {
                 const eventTime = formatEventTime(event.timestamp, i18n.language);
                 return (
-                  <li key={`${event.event_id}-${index}`} className="border-l-2 border-[hsl(var(--memory-divider)/0.72)] pl-3">
-                    <p className="text-sm leading-6 text-[hsl(var(--memory-body))]">{event.content_preview}</p>
+                  <li key={`${event.event_id}-${index}`} className="min-w-0 border-l-2 border-[hsl(var(--memory-divider)/0.72)] pl-3">
+                    <p className="break-words text-sm leading-6 text-[hsl(var(--memory-body))] [overflow-wrap:anywhere]">{event.content_preview}</p>
                     {event.source || eventTime ? (
-                      <div className="mt-1 flex flex-wrap gap-x-2 text-xs text-[hsl(var(--memory-muted))]">
-                        {event.source ? <span>{event.source}</span> : null}
+                      <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 text-xs text-[hsl(var(--memory-muted))]">
+                        {event.source ? (
+                          <span className="max-w-full break-words [overflow-wrap:anywhere]">
+                            {getMemorySourceLabel(t, event.source)}
+                          </span>
+                        ) : null}
                         {eventTime ? <time dateTime={new Date((event.timestamp ?? 0) * 1000).toISOString()}>{eventTime}</time> : null}
                       </div>
                     ) : null}

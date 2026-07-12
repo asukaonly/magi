@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -99,24 +101,25 @@ def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_
     )
 
 
-def test_get_experience_draft_hydrates_missing_distinct_event_counts(public_app_with_mock_memory):
+def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
+    public_app_with_mock_memory,
+):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()
-    l2.get_experience_draft = AsyncMock(return_value={
+    stored_draft = {
         "draft_id": "draft-japan",
         "status": "editing",
         "title": "日本旅行",
         "chapters": [
             {
                 "chapter_id": "chapter-route",
-                "episode_ids": ["ep-train", "ep-lodging"],
+                "episode_ids": ["ep-shared", "ep-train"],
                 "event_ids": ["evt-direct", "evt-shared"],
             },
             {
-                "chapter_id": "chapter-counted",
-                "episode_ids": ["ep-counted"],
+                "chapter_id": "chapter-lodging",
+                "episode_ids": ["ep-shared", "ep-lodging"],
                 "event_ids": [],
-                "event_count": 9,
             },
         ],
         "possible_evidence": [{
@@ -131,17 +134,37 @@ def test_get_experience_draft_hydrates_missing_distinct_event_counts(public_app_
             "title": "已排除事件",
             "summary": "不属于这段经历。",
         }],
-    })
+    }
+    l2.get_experience_draft = AsyncMock(side_effect=lambda **_: copy.deepcopy(stored_draft))
+
+    async def update_experience_draft(**updates):
+        stored_draft.update(copy.deepcopy({
+            key: value
+            for key, value in updates.items()
+            if key != "draft_id"
+        }))
+        return True
+
+    l2.update_experience_draft = AsyncMock(side_effect=update_experience_draft)
+    active_fetches = 0
+    max_active_fetches = 0
 
     async def list_episode_events(*, episode_id: str, limit: int):
+        nonlocal active_fetches, max_active_fetches
         assert limit == 10_000
+        active_fetches += 1
+        max_active_fetches = max(max_active_fetches, active_fetches)
+        await asyncio.sleep(0.01)
+        active_fetches -= 1
         memberships = {
-            "ep-train": [
+            "ep-shared": [
                 {"event_id": "evt-shared"},
+                {"event_id": "evt-shared"},
+            ],
+            "ep-train": [
                 {"event_id": "evt-train"},
             ],
             "ep-lodging": [
-                {"event_id": "evt-shared"},
                 {"event_id": "evt-lodging"},
             ],
             "ep-possible": [
@@ -155,21 +178,36 @@ def test_get_experience_draft_hydrates_missing_distinct_event_counts(public_app_
     unified = MagicMock(l2=l2)
 
     with build_patcher(unified):
-        response = TestClient(app).get(
+        first_response = TestClient(app).get(
+            "/api/memory/l2/experience-drafts/draft-japan",
+        )
+        second_response = TestClient(app).get(
             "/api/memory/l2/experience-drafts/draft-japan",
         )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["chapters"][0]["event_count"] == 4
-    assert payload["chapters"][1]["event_count"] == 9
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    payload = first_response.json()
+    assert payload["chapters"][0]["event_count"] == 3
+    assert payload["chapters"][1]["event_count"] == 2
     assert payload["possible_evidence"][0]["event_count"] == 1
     assert payload["excluded_evidence"][0]["event_count"] == 1
-    assert [call.kwargs["episode_id"] for call in l2.list_episode_events.await_args_list] == [
-        "ep-train",
-        "ep-lodging",
-        "ep-possible",
+    assert second_response.json() == payload
+    assert max_active_fetches > 1
+    fetched_episode_ids = [
+        call.kwargs["episode_id"]
+        for call in l2.list_episode_events.await_args_list
     ]
+    assert sorted(fetched_episode_ids) == sorted([
+        "ep-shared", "ep-train", "ep-lodging", "ep-possible",
+    ])
+    assert len(fetched_episode_ids) == len(set(fetched_episode_ids))
+    l2.update_experience_draft.assert_awaited_once_with(
+        draft_id="draft-japan",
+        chapters=payload["chapters"],
+        possible_evidence=payload["possible_evidence"],
+        excluded_evidence=payload["excluded_evidence"],
+    )
 
 
 def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
 
 import {
   MemoryEpisodesPage,
@@ -58,6 +58,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.create.selectedCount': '{{count}} selected',
     'memory.episodes.draft.title': 'Organize experience',
     'memory.episodes.draft.autosaved': 'Saved',
+    'memory.episodes.draft.createFailed': 'Could not create this experience. Try again.',
     'memory.episodes.draft.back': 'Back to experiences',
     'memory.episodes.draft.queryContext': 'Based on your description: {{query}}',
     'memory.episodes.draft.previewEyebrow': 'Experience preview',
@@ -140,6 +141,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.dialogs.hideDescription': 'It will leave the main experience shelf but keep the underlying memories.',
     'memory.episodes.filters.activity': 'Activity',
     'memory.episodes.eventRole.member': 'Member',
+    'memory.sources.chat': 'Chat',
     'common.save': 'Save',
     'common.cancel': 'Cancel',
     'common.loading': 'Loading...',
@@ -174,6 +176,7 @@ vi.mock('@/api/modules/memory', () => ({
     updateExperienceDraft: vi.fn(),
     createExperienceFromDraft: vi.fn(),
     getEpisode: vi.fn(),
+    getL1Events: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
     uploadExperienceCover: vi.fn(),
@@ -442,6 +445,26 @@ const renderDraftPage = (draftId = 'draft-japan') =>
     </MemoryRouter>
   );
 
+const DraftSwitchControl = () => {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate('/memory/episode-drafts/draft-new')}>
+      Open new draft
+    </button>
+  );
+};
+
+const renderSwitchableDraftPage = () =>
+  render(
+    <MemoryRouter initialEntries={['/memory/episode-drafts/draft-old']}>
+      <DraftSwitchControl />
+      <Routes>
+        <Route path="/memory/episode-drafts/:draftId" element={<MemoryExperienceDraftPage />} />
+        <Route path="/memory/episodes/:experienceId" element={<MemoryExperienceDetailPage />} />
+      </Routes>
+    </MemoryRouter>
+  );
+
 const defaultDraftChapter: ExperienceDraftChapter = {
   chapter_id: 'chapter-1',
   draft_order: 0,
@@ -566,6 +589,9 @@ beforeEach(() => {
         content_preview: 'Saved the route that leaves enough time for Nara.',
       },
     ],
+  } as never);
+  vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+    items: [], total: 0, limit: 1, offset: 0,
   } as never);
   let currentExperienceDetail = experienceDetail;
   vi.mocked(memoryApi.getExperience).mockImplementation(async () => currentExperienceDetail);
@@ -828,6 +854,182 @@ describe('MemoryEpisodesPage', () => {
     expect(memoryApi.getEpisode).not.toHaveBeenCalled();
   });
 
+  it('clears a stale count after shared-source dedupe and merges the hydrated count only', async () => {
+    const chapterA: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-a',
+      title: 'Shared source owner',
+      episode_ids: ['ep-shared'],
+      event_count: 2,
+    };
+    const chapterB: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-b',
+      draft_order: 1,
+      title: 'Filtered segment',
+      episode_ids: ['ep-shared', 'ep-unique'],
+      event_count: 5,
+    };
+    const saveResponse = createDeferred<ExperienceDraft>();
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [chapterA, chapterB],
+    }) as never);
+    vi.mocked(memoryApi.updateExperienceDraft).mockReturnValueOnce(saveResponse.promise);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    const firstPayload = vi.mocked(memoryApi.updateExperienceDraft).mock.calls[0][1];
+    const filteredChapter = firstPayload.chapters?.find((chapter) => chapter.chapter_id === 'chapter-b');
+    expect(filteredChapter?.episode_ids).toEqual(['ep-unique']);
+    expect(filteredChapter).not.toHaveProperty('event_count');
+
+    await openDraftEditor(user);
+    const titleInput = screen.getByLabelText('Title');
+    await user.type(titleInput, ' updated');
+    const editedTitle = (titleInput as HTMLInputElement).value;
+    await act(async () => {
+      saveResponse.resolve(makeExperienceDraft({
+        title: 'stale server title',
+        chapters: (firstPayload.chapters ?? []).map((chapter) => (
+          chapter.chapter_id === 'chapter-b' ? { ...chapter, event_count: 1 } : chapter
+        )),
+        possible_evidence: firstPayload.possible_evidence ?? [],
+        excluded_evidence: firstPayload.excluded_evidence ?? [],
+      }));
+      await saveResponse.promise;
+    });
+
+    const filteredCard = screen.getByText('Filtered segment').closest('article');
+    expect(filteredCard).not.toBeNull();
+    expect(await within(filteredCard as HTMLElement).findByText('Events: 1')).toBeInTheDocument();
+    expect(titleInput).toHaveValue(editedTitle);
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2), { timeout: 1500 });
+    const latestPayload = vi.mocked(memoryApi.updateExperienceDraft).mock.calls[1][1];
+    expect(latestPayload.title).toBe(editedTitle);
+    expect(latestPayload.chapters?.find((chapter) => chapter.chapter_id === 'chapter-b')?.event_count).toBe(1);
+  });
+
+  it('invalidates the original count when only part of a segment can be restored', async () => {
+    const restoreChapter = {
+      chapter_id: 'chapter-partial',
+      chapter_order: 10,
+      episode_ids: ['ep-shared', 'ep-free'],
+      event_ids: [],
+      event_count: 5,
+    };
+    const possibleEvidence: ExperienceDraftEvidence[] = restoreChapter.episode_ids.map((refId) => ({
+      ref_type: 'episode',
+      ref_id: refId,
+      title: 'Partially restorable segment',
+      summary: 'Only one source remains available.',
+      event_count: 5,
+      restore_chapter: restoreChapter,
+    }));
+    const initialDraft = makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        chapter_id: 'chapter-owner',
+        title: 'Already selected',
+        episode_ids: ['ep-shared'],
+      }],
+      possible_evidence: possibleEvidence,
+    });
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(initialDraft as never);
+    vi.mocked(memoryApi.updateExperienceDraft).mockImplementation(async (_draftId, payload) => ({
+      ...initialDraft,
+      ...payload,
+      chapters: (payload.chapters ?? []).map((chapter) => (
+        chapter.chapter_id === 'chapter-partial' ? { ...chapter, event_count: 1 } : chapter
+      )),
+    }) as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByText(/Possibly related \(/));
+    await user.click(screen.getByRole('checkbox', { name: 'Partially restorable segment' }));
+
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalled(), { timeout: 1500 });
+    const updateCalls = vi.mocked(memoryApi.updateExperienceDraft).mock.calls;
+    const payload = updateCalls[updateCalls.length - 1]?.[1];
+    const restored = payload?.chapters?.find((chapter) => chapter.chapter_id === 'chapter-partial');
+    expect(restored?.episode_ids).toEqual(['ep-free']);
+    expect(restored).not.toHaveProperty('event_count');
+    const restoredCard = screen.getByText('Partially restorable segment').closest('article');
+    expect(restoredCard).not.toBeNull();
+    expect(await within(restoredCard as HTMLElement).findByText('Events: 1')).toBeInTheDocument();
+  });
+
+  it('loads and wraps a direct-event-only segment on demand with a friendly source label', async () => {
+    const longContent = `Direct event ${'x'.repeat(180)}`;
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        episode_ids: [],
+        event_ids: ['evt-direct'],
+        event_count: 1,
+      }],
+    }) as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValueOnce({
+      items: [{
+        event_id: 'evt-direct',
+        event_type: 'UserMessage',
+        source: 'chat',
+        timestamp: 1777566600,
+        content: longContent,
+      }],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    } as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const viewButton = await screen.findByRole('button', { name: 'View content' });
+    expect(memoryApi.getEpisode).not.toHaveBeenCalled();
+    expect(memoryApi.getL1Events).not.toHaveBeenCalled();
+    await user.click(viewButton);
+
+    expect(memoryApi.getL1Events).toHaveBeenCalledWith({ event_id: 'evt-direct', limit: 1 });
+    expect(memoryApi.getEpisode).not.toHaveBeenCalled();
+    expect(await screen.findByText(longContent)).toHaveClass('break-words');
+    expect(screen.getByText('Chat')).toHaveClass('break-words');
+    expect(screen.getByText('Events: 1')).toBeInTheDocument();
+  });
+
+  it('merges direct and episode events without showing duplicates', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        event_ids: ['evt-route-search', 'evt-direct'],
+        event_count: 3,
+      }],
+    }) as never);
+    vi.mocked(memoryApi.getL1Events).mockImplementation(async ({ event_id } = {}) => ({
+      items: event_id ? [{
+        event_id,
+        event_type: 'BrowserEvent',
+        source: 'chat',
+        timestamp: 1777566600,
+        content: event_id === 'evt-direct'
+          ? 'A direct note outside the episode.'
+          : 'Compared Shinkansen routes and Kyoto lodging.',
+      }] : [],
+      total: event_id ? 1 : 0,
+      limit: 1,
+      offset: 0,
+    }) as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByRole('button', { name: 'View content' }));
+
+    expect(await screen.findByText('A direct note outside the episode.')).toBeInTheDocument();
+    expect(screen.getAllByText('Compared Shinkansen routes and Kyoto lodging.')).toHaveLength(1);
+    expect(screen.getByRole('list').querySelectorAll('li')).toHaveLength(3);
+    expect(screen.getByText('Events: 3')).toBeInTheDocument();
+  });
+
   it('loads readable episode content once after the selected segment opens', async () => {
     const contentRequest = createDeferred<Awaited<ReturnType<typeof memoryApi.getEpisode>>>();
     vi.mocked(memoryApi.getEpisode).mockReturnValueOnce(contentRequest.promise);
@@ -907,6 +1109,77 @@ describe('MemoryEpisodesPage', () => {
     expect(memoryApi.getEpisode).toHaveBeenCalledTimes(2);
     expect(screen.queryByText('ep-empty')).not.toBeInTheDocument();
     expect(screen.queryByText('ep-failed')).not.toBeInTheDocument();
+  });
+
+  it('isolates late saves when switching to another draft', async () => {
+    const newDraftLoad = createDeferred<ExperienceDraft>();
+    const oldSave = createDeferred<ExperienceDraft>();
+    const oldDraft = makeExperienceDraft({ draft_id: 'draft-old', title: 'Old draft' });
+    const newDraft = makeExperienceDraft({ draft_id: 'draft-new', title: 'New draft' });
+    vi.mocked(memoryApi.getExperienceDraft).mockImplementation(async (draftId) => {
+      if (draftId === 'draft-old') return oldDraft;
+      return newDraftLoad.promise;
+    });
+    vi.mocked(memoryApi.updateExperienceDraft).mockImplementation(async (draftId, payload) => {
+      if (draftId === 'draft-old') return oldSave.promise;
+      return { ...newDraft, ...payload } as ExperienceDraft;
+    });
+    const user = userEvent.setup();
+    renderSwitchableDraftPage();
+
+    await openDraftEditor(user);
+    await user.type(screen.getByLabelText('Title'), ' stale save');
+    await waitFor(() => {
+      expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls.filter(([id]) => id === 'draft-old')).toHaveLength(1);
+    }, { timeout: 1500 });
+
+    await user.click(screen.getByRole('button', { name: 'Open new draft' }));
+    expect(screen.queryByDisplayValue(/Old draft/)).not.toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
+
+    await act(async () => {
+      newDraftLoad.resolve(newDraft);
+      await newDraftLoad.promise;
+    });
+    await openDraftEditor(user);
+    const newTitleInput = screen.getByLabelText('Title');
+    await user.type(newTitleInput, '!');
+    await waitFor(() => {
+      expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls.filter(([id]) => id === 'draft-new')).toHaveLength(1);
+    }, { timeout: 1500 });
+
+    await act(async () => {
+      oldSave.resolve({ ...oldDraft, title: 'Late old response' });
+      await oldSave.promise;
+    });
+    expect(newTitleInput).toHaveValue('New draft!');
+
+    await user.type(newTitleInput, '?');
+    await waitFor(() => {
+      expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls.filter(([id]) => id === 'draft-new')).toHaveLength(2);
+    }, { timeout: 1500 });
+    expect(newTitleInput).toHaveValue('New draft!?');
+  });
+
+  it('shows friendly create failure feedback and allows retry', async () => {
+    vi.mocked(memoryApi.createExperienceFromDraft)
+      .mockRejectedValueOnce(new Error('internal database detail'))
+      .mockResolvedValueOnce({
+        draft_id: 'draft-japan', experience_id: 'exp-manual', experience: null,
+      } as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByRole('button', { name: 'Create experience' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Could not create this experience. Try again.');
+    expect(screen.queryByText('internal database detail')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Create experience' })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Create experience' }));
+    await waitFor(() => expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('does not expose internal model reasoning when evidence is insufficient', async () => {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from typing import Any
 
@@ -457,52 +458,76 @@ async def _hydrate_experience_draft_event_counts(
     unified_memory: Any,
     draft: dict[str, Any],
 ) -> dict[str, Any]:
+    l2_store = get_unified_layer(unified_memory, "l2")
     list_episode_events = get_configured_or_real_method(
-        get_unified_layer(unified_memory, "l2"),
+        l2_store,
         "list_episode_events",
     )
-    episode_event_ids: dict[str, set[str]] = {}
+    update_experience_draft = get_configured_or_real_method(
+        l2_store,
+        "update_experience_draft",
+    )
 
-    async def membership_event_ids(episode_id: str) -> set[str]:
-        if episode_id in episode_event_ids:
-            return episode_event_ids[episode_id]
-        memberships = (
-            await list_episode_events(
-                episode_id=episode_id,
-                limit=_DRAFT_EVENT_MEMBERSHIP_LIMIT,
-            )
-            if list_episode_events is not None
-            else []
+    missing_episode_ids: set[str] = set()
+    for chapter in draft.get("chapters") or []:
+        if isinstance(chapter, Mapping) and _coerce_draft_event_count(chapter.get("event_count")) is None:
+            missing_episode_ids.update(ordered_non_empty_strings(chapter.get("episode_ids")))
+    for key in ("possible_evidence", "excluded_evidence"):
+        for evidence in draft.get(key) or []:
+            if not isinstance(evidence, Mapping):
+                continue
+            event_count = _coerce_draft_event_count(evidence.get("event_count"))
+            restore_chapter = evidence.get("restore_chapter")
+            if isinstance(restore_chapter, Mapping):
+                restored_count = _coerce_draft_event_count(restore_chapter.get("event_count"))
+                if event_count is None and restored_count is None:
+                    missing_episode_ids.update(
+                        ordered_non_empty_strings(restore_chapter.get("episode_ids")),
+                    )
+            elif event_count is None and evidence.get("ref_type") == "episode":
+                ref_id = _clean_text(evidence.get("ref_id"))
+                if ref_id:
+                    missing_episode_ids.add(ref_id)
+
+    async def load_membership_event_ids(episode_id: str) -> tuple[str, set[str]]:
+        memberships = await list_episode_events(
+            episode_id=episode_id,
+            limit=_DRAFT_EVENT_MEMBERSHIP_LIMIT,
         )
-        event_ids = {
+        return episode_id, {
             event_id
             for membership in memberships
             if isinstance(membership, Mapping)
             for event_id in ordered_non_empty_strings([membership.get("event_id")])
         }
-        episode_event_ids[episode_id] = event_ids
-        return event_ids
 
-    async def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int:
+    episode_event_ids = dict(
+        await asyncio.gather(*(
+            load_membership_event_ids(episode_id)
+            for episode_id in sorted(missing_episode_ids)
+        ))
+    ) if list_episode_events is not None else {}
+
+    def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int:
         distinct_ids = set(ordered_non_empty_strings(direct_event_ids))
         for episode_id in ordered_non_empty_strings(episode_ids):
-            distinct_ids.update(await membership_event_ids(episode_id))
+            distinct_ids.update(episode_event_ids.get(episode_id, set()))
         return len(distinct_ids)
 
-    async def hydrate_chapter(chapter: Any) -> Any:
+    def hydrate_chapter(chapter: Any) -> Any:
         if not isinstance(chapter, Mapping):
             return chapter
         hydrated = dict(chapter)
         event_count = _coerce_draft_event_count(hydrated.get("event_count"))
         if event_count is None:
-            event_count = await count_evidence(
+            event_count = count_evidence(
                 hydrated.get("episode_ids"),
                 hydrated.get("event_ids"),
             )
         hydrated["event_count"] = event_count
         return hydrated
 
-    async def hydrate_evidence(evidence: Any) -> Any:
+    def hydrate_evidence(evidence: Any) -> Any:
         if not isinstance(evidence, Mapping):
             return evidence
         hydrated = dict(evidence)
@@ -514,7 +539,7 @@ async def _hydrate_experience_draft_event_counts(
             if restored_count is None:
                 restored_count = event_count
             if restored_count is None:
-                restored_count = await count_evidence(
+                restored_count = count_evidence(
                     restored.get("episode_ids"),
                     restored.get("event_ids"),
                 )
@@ -525,7 +550,7 @@ async def _hydrate_experience_draft_event_counts(
         if event_count is None:
             ref_id = _clean_text(hydrated.get("ref_id"))
             if hydrated.get("ref_type") == "episode" and ref_id:
-                event_count = await count_evidence([ref_id], [])
+                event_count = count_evidence([ref_id], [])
             elif hydrated.get("ref_type") == "event" and ref_id:
                 event_count = 1
             else:
@@ -534,15 +559,25 @@ async def _hydrate_experience_draft_event_counts(
         return hydrated
 
     hydrated_draft = dict(draft)
-    hydrated_draft["chapters"] = [
-        await hydrate_chapter(chapter)
-        for chapter in draft.get("chapters") or []
-    ]
+    changed_fields: dict[str, Any] = {}
+    if "chapters" in draft:
+        chapters = [hydrate_chapter(chapter) for chapter in draft.get("chapters") or []]
+        hydrated_draft["chapters"] = chapters
+        if chapters != draft.get("chapters"):
+            changed_fields["chapters"] = chapters
     for key in ("possible_evidence", "excluded_evidence"):
-        hydrated_draft[key] = [
-            await hydrate_evidence(evidence)
+        if key not in draft:
+            continue
+        evidence_items = [
+            hydrate_evidence(evidence)
             for evidence in draft.get(key) or []
         ]
+        hydrated_draft[key] = evidence_items
+        if evidence_items != draft.get(key):
+            changed_fields[key] = evidence_items
+    draft_id = _clean_text(draft.get("draft_id"))
+    if changed_fields and draft_id and update_experience_draft is not None:
+        await update_experience_draft(draft_id=draft_id, **changed_fields)
     return hydrated_draft
 
 

@@ -77,7 +77,9 @@ const normalizeChapters = (chapters: ExperienceDraftChapter[]): ExperienceDraftC
     if (episodeIds.length === chapter.episode_ids.length && eventIds.length === chapter.event_ids.length) {
       return chapter;
     }
-    return { ...chapter, episode_ids: episodeIds, event_ids: eventIds };
+    const filteredChapter = { ...chapter, episode_ids: episodeIds, event_ids: eventIds };
+    delete filteredChapter.event_count;
+    return filteredChapter;
   }).filter((chapter): chapter is ExperienceDraftChapter => chapter !== null);
 };
 
@@ -138,6 +140,42 @@ const toUpdatePayload = (draft: ExperienceDraft): ExperienceDraftUpdatePayload =
   excluded_evidence: draft.excluded_evidence,
 });
 
+const sameChapterRefs = (
+  left: ExperienceDraftChapter,
+  right: ExperienceDraftChapter,
+): boolean => {
+  const leftRefs = new Set(chapterRefKeys(left));
+  const rightRefs = new Set(chapterRefKeys(right));
+  return leftRefs.size === rightRefs.size
+    && [...leftRefs].every((ref) => rightRefs.has(ref));
+};
+
+const mergeHydratedChapterCounts = (
+  current: ExperienceDraft,
+  saved: ExperienceDraft,
+  snapshot: ExperienceDraft,
+): ExperienceDraft => {
+  const savedById = new Map(saved.chapters.map((chapter) => [chapter.chapter_id, chapter]));
+  const snapshotById = new Map(snapshot.chapters.map((chapter) => [chapter.chapter_id, chapter]));
+  let changed = false;
+  const chapters = current.chapters.map((chapter) => {
+    const savedChapter = savedById.get(chapter.chapter_id);
+    const snapshotChapter = snapshotById.get(chapter.chapter_id);
+    if (!savedChapter || !snapshotChapter) return chapter;
+    if (typeof snapshotChapter.event_count === 'number') return chapter;
+    if (!sameChapterRefs(chapter, snapshotChapter) || !sameChapterRefs(chapter, savedChapter)) {
+      return chapter;
+    }
+    if (typeof savedChapter.event_count !== 'number' || !Number.isFinite(savedChapter.event_count)) {
+      return chapter;
+    }
+    if (chapter.event_count === savedChapter.event_count) return chapter;
+    changed = true;
+    return { ...chapter, event_count: savedChapter.event_count };
+  });
+  return changed ? { ...current, chapters } : current;
+};
+
 interface PossibleSegment {
   key: string;
   evidence: ExperienceDraftEvidence;
@@ -160,6 +198,16 @@ interface PendingFocus {
   announcement: string;
 }
 
+interface DraftSaveContext {
+  draftId: string;
+  draft: ExperienceDraft | null;
+  revision: number;
+  savedRevision: number;
+  queuedRevision: number;
+  saveQueue: Promise<void>;
+  pendingSaveCount: number;
+}
+
 export const MemoryExperienceDraftPage = () => {
   const { t, i18n } = useTranslation('app');
   const { draftId } = useParams<{ draftId: string }>();
@@ -169,21 +217,40 @@ export const MemoryExperienceDraftPage = () => {
   const [saving, setSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createFailed, setCreateFailed] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [possibleOpen, setPossibleOpen] = useState(false);
   const [editingPreview, setEditingPreview] = useState(false);
   const [announcement, setAnnouncement] = useState('');
-  const draftRef = useRef<ExperienceDraft | null>(null);
-  const revisionRef = useRef(0);
-  const savedRevisionRef = useRef(0);
-  const queuedRevisionRef = useRef(0);
-  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
-  const pendingSaveCountRef = useRef(0);
+  const saveContextRef = useRef<DraftSaveContext | null>(null);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const chapterCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
   const possibleCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
 
   useEffect(() => {
+    const context: DraftSaveContext = {
+      draftId: draftId ?? '',
+      draft: null,
+      revision: 0,
+      savedRevision: 0,
+      queuedRevision: 0,
+      saveQueue: Promise.resolve(),
+      pendingSaveCount: 0,
+    };
+    saveContextRef.current = context;
+    setDraft(null);
+    setLoading(true);
+    setSaving(false);
+    setSaveFailed(false);
+    setCreating(false);
+    setCreateFailed(false);
+    setNotFound(false);
+    setPossibleOpen(false);
+    setEditingPreview(false);
+    setAnnouncement('');
+    pendingFocusRef.current = null;
+    chapterCheckboxRefs.current.clear();
+    possibleCheckboxRefs.current.clear();
     if (!draftId) {
       setNotFound(true);
       setLoading(false);
@@ -192,72 +259,86 @@ export const MemoryExperienceDraftPage = () => {
     let cancelled = false;
     void memoryApi.getExperienceDraft(draftId)
       .then((payload) => {
-        if (!cancelled) {
+        if (!cancelled && saveContextRef.current === context) {
           const normalized = normalizeDraftEvidence(payload);
-          draftRef.current = normalized.draft;
-          revisionRef.current = normalized.changed ? 1 : 0;
-          savedRevisionRef.current = 0;
-          queuedRevisionRef.current = 0;
-          saveQueueRef.current = Promise.resolve();
-          pendingSaveCountRef.current = 0;
-          setPossibleOpen(false);
-          setEditingPreview(false);
+          context.draft = normalized.draft;
+          context.revision = normalized.changed ? 1 : 0;
           setDraft(normalized.draft);
         }
       })
       .catch(() => {
-        if (!cancelled) setNotFound(true);
+        if (!cancelled && saveContextRef.current === context) setNotFound(true);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && saveContextRef.current === context) setLoading(false);
       });
     return () => { cancelled = true; };
   }, [draftId]);
 
-  const enqueueSave = useCallback((snapshot: ExperienceDraft, revision: number): Promise<void> => {
-    if (!draftId) return Promise.resolve();
-    if (revision <= queuedRevisionRef.current) return saveQueueRef.current;
+  const enqueueSave = useCallback((
+    context: DraftSaveContext,
+    snapshot: ExperienceDraft,
+    revision: number,
+  ): Promise<void> => {
+    if (revision <= context.queuedRevision) return context.saveQueue;
 
-    queuedRevisionRef.current = revision;
-    pendingSaveCountRef.current += 1;
-    setSaving(true);
-    const priorSave = saveQueueRef.current.catch(() => undefined);
+    context.queuedRevision = revision;
+    context.pendingSaveCount += 1;
+    if (saveContextRef.current === context) setSaving(true);
+    const priorSave = context.saveQueue.catch(() => undefined);
     const nextSave = priorSave.then(async () => {
-      setSaveFailed(false);
+      if (saveContextRef.current === context) setSaveFailed(false);
       try {
-        await memoryApi.updateExperienceDraft(draftId, toUpdatePayload(snapshot));
-        savedRevisionRef.current = Math.max(savedRevisionRef.current, revision);
-      } catch (error) {
-        if (queuedRevisionRef.current === revision) {
-          queuedRevisionRef.current = savedRevisionRef.current;
+        const savedDraft = await memoryApi.updateExperienceDraft(
+          context.draftId,
+          toUpdatePayload(snapshot),
+        );
+        context.savedRevision = Math.max(context.savedRevision, revision);
+        if (saveContextRef.current === context && context.draft) {
+          const merged = mergeHydratedChapterCounts(context.draft, savedDraft, snapshot);
+          context.draft = merged;
+          setDraft((current) => {
+            if (saveContextRef.current !== context || current?.draft_id !== context.draftId) {
+              return current;
+            }
+            return mergeHydratedChapterCounts(current, savedDraft, snapshot);
+          });
         }
-        setSaveFailed(true);
+      } catch (error) {
+        if (context.queuedRevision === revision) {
+          context.queuedRevision = context.savedRevision;
+        }
+        if (saveContextRef.current === context) setSaveFailed(true);
         throw error;
       } finally {
-        pendingSaveCountRef.current -= 1;
-        if (pendingSaveCountRef.current === 0) setSaving(false);
+        context.pendingSaveCount -= 1;
+        if (saveContextRef.current === context && context.pendingSaveCount === 0) {
+          setSaving(false);
+        }
       }
     });
-    saveQueueRef.current = nextSave;
+    context.saveQueue = nextSave;
     return nextSave;
-  }, [draftId]);
+  }, []);
 
   useEffect(() => {
-    if (!draftId || !draft) return;
-    const revision = revisionRef.current;
-    if (revision <= savedRevisionRef.current || revision <= queuedRevisionRef.current) return;
+    const context = saveContextRef.current;
+    if (!draftId || !draft || !context || context.draftId !== draftId) return;
+    const revision = context.revision;
+    if (revision <= context.savedRevision || revision <= context.queuedRevision) return;
     const timer = window.setTimeout(() => {
-      void enqueueSave(draft, revision).catch(() => undefined);
+      void enqueueSave(context, draft, revision).catch(() => undefined);
     }, 500);
     return () => window.clearTimeout(timer);
   }, [draft, draftId, enqueueSave]);
 
   const changeDraft = useCallback((mutate: (current: ExperienceDraft) => ExperienceDraft) => {
     setDraft((current) => {
-      if (!current) return current;
+      const context = saveContextRef.current;
+      if (!current || !context || current.draft_id !== context.draftId) return current;
       const normalized = normalizeDraftEvidence(mutate(current)).draft;
-      revisionRef.current += 1;
-      draftRef.current = normalized;
+      context.revision += 1;
+      context.draft = normalized;
       return normalized;
     });
   }, []);
@@ -343,21 +424,39 @@ export const MemoryExperienceDraftPage = () => {
         )),
         ownedKeys,
       );
-      const chapter: ExperienceDraftChapter = {
+      const episodeIds = availableEvidence
+        .filter((item) => item.ref_type === 'episode')
+        .map((item) => item.ref_id);
+      const eventIds = availableEvidence
+        .filter((item) => item.ref_type === 'event')
+        .map((item) => item.ref_id);
+      const availableKeys = new Set([
+        ...episodeIds.map((refId) => evidenceRefKey('episode', refId)),
+        ...eventIds.map((refId) => evidenceRefKey('event', refId)),
+      ]);
+      const restoreKeys = new Set([
+        ...(restoreChapter?.episode_ids ?? []).map((refId) => evidenceRefKey('episode', refId)),
+        ...(restoreChapter?.event_ids ?? []).map((refId) => evidenceRefKey('event', refId)),
+      ]);
+      const completeRestore = Boolean(restoreChapter)
+        && availableKeys.size === restoreKeys.size
+        && [...availableKeys].every((key) => restoreKeys.has(key));
+      const restoredEventCount = completeRestore
+        ? restoreChapter?.event_count ?? evidence.event_count
+        : undefined;
+      const chapterWithoutCount: ExperienceDraftChapter = {
         chapter_id: chapterId,
         draft_order: restoreChapter?.chapter_order ?? nextChapterOrder(current),
         title: evidence.title,
         summary: evidence.summary,
         time_start: evidence.time_start,
         time_end: evidence.time_end,
-        episode_ids: availableEvidence
-          .filter((item) => item.ref_type === 'episode')
-          .map((item) => item.ref_id),
-        event_ids: availableEvidence
-          .filter((item) => item.ref_type === 'event')
-          .map((item) => item.ref_id),
-        event_count: restoreChapter?.event_count ?? evidence.event_count,
+        episode_ids: episodeIds,
+        event_ids: eventIds,
       };
+      const chapter = restoredEventCount === undefined
+        ? chapterWithoutCount
+        : { ...chapterWithoutCount, event_count: restoredEventCount };
       return {
         ...current,
         chapters: [...current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id), chapter],
@@ -370,29 +469,40 @@ export const MemoryExperienceDraftPage = () => {
     });
   };
 
-  const flushLatestDraft = useCallback(async () => {
-    while (savedRevisionRef.current < revisionRef.current) {
-      const latestDraft = draftRef.current;
+  const flushLatestDraft = useCallback(async (context: DraftSaveContext) => {
+    while (context.savedRevision < context.revision) {
+      const latestDraft = context.draft;
       if (!latestDraft) return;
-      await enqueueSave(latestDraft, revisionRef.current);
+      await enqueueSave(context, latestDraft, context.revision);
     }
   }, [enqueueSave]);
 
   const createExperience = async () => {
-    if (!draftId || !draftRef.current) return;
+    const context = saveContextRef.current;
+    if (!draftId || !context?.draft || context.draftId !== draftId) return;
+    setCreateFailed(false);
     setCreating(true);
     try {
-      await flushLatestDraft();
+      await flushLatestDraft(context);
+      if (saveContextRef.current !== context) return;
       const result = await memoryApi.createExperienceFromDraft(draftId);
-      navigate(`/memory/episodes/${result.experience_id}`);
+      if (saveContextRef.current === context) {
+        navigate(`/memory/episodes/${result.experience_id}`);
+      }
+    } catch {
+      if (saveContextRef.current === context) setCreateFailed(true);
     } finally {
-      setCreating(false);
+      if (saveContextRef.current === context) setCreating(false);
     }
   };
 
-  const possibleSegments = draft ? getPossibleSegments(draft.possible_evidence) : [];
-  const draftDateRange = draft
-    ? formatDraftDateRange(draft.time_start, draft.time_end, i18n.language)
+  const visibleDraft = draft?.draft_id === draftId ? draft : null;
+  const visibleLoading = loading || (!visibleDraft && !notFound);
+  const activeSaving = saveContextRef.current?.draftId === draftId && saving;
+  const activeSaveFailed = saveContextRef.current?.draftId === draftId && saveFailed;
+  const possibleSegments = visibleDraft ? getPossibleSegments(visibleDraft.possible_evidence) : [];
+  const draftDateRange = visibleDraft
+    ? formatDraftDateRange(visibleDraft.time_start, visibleDraft.time_end, i18n.language)
     : '';
 
   return (
@@ -419,13 +529,13 @@ export const MemoryExperienceDraftPage = () => {
         <span
           aria-live="polite"
           className={`inline-flex min-w-0 items-center gap-1.5 justify-self-end truncate text-xs ${
-            saveFailed ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--memory-muted))]'
+            activeSaveFailed ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--memory-muted))]'
           }`}
         >
-          {!saving && !saveFailed ? <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" /> : null}
-          {saving
+          {!activeSaving && !activeSaveFailed ? <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" /> : null}
+          {activeSaving
             ? t('common.saving')
-            : saveFailed
+            : activeSaveFailed
               ? t('memory.episodes.draft.saveFailed')
               : t('memory.episodes.draft.autosaved')}
         </span>
@@ -434,11 +544,11 @@ export const MemoryExperienceDraftPage = () => {
         {announcement}
       </div>
 
-      {loading ? <div className={`m-6 ${MEMORY_INFO_PANEL_CLASS}`}>{t('common.loading')}</div> : null}
-      {!loading && (notFound || !draft) ? (
+      {visibleLoading ? <div className={`m-6 ${MEMORY_INFO_PANEL_CLASS}`}>{t('common.loading')}</div> : null}
+      {!visibleLoading && (notFound || !visibleDraft) ? (
         <div className={`m-6 ${MEMORY_EMPTY_PANEL_CLASS}`}>{t('memory.episodes.draft.notFound')}</div>
       ) : null}
-      {draft ? (
+      {visibleDraft ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <main className="mx-auto w-full max-w-[900px] flex-1 space-y-8 px-4 py-7 sm:px-8 sm:py-8">
             <section className="border-b border-[hsl(var(--memory-border)/0.48)] pb-7">
@@ -446,7 +556,7 @@ export const MemoryExperienceDraftPage = () => {
                 <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--memory-accent-soft)/0.56)] text-[hsl(var(--memory-accent))]">
                   <Sparkles className="h-3 w-3" aria-hidden="true" />
                 </span>
-                <span>{t('memory.episodes.draft.queryContext', { query: draft.query_text })}</span>
+                <span>{t('memory.episodes.draft.queryContext', { query: visibleDraft.query_text })}</span>
               </p>
 
               <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -457,14 +567,14 @@ export const MemoryExperienceDraftPage = () => {
                   {!editingPreview ? (
                     <>
                       <h2 className="mt-2 break-words text-2xl font-semibold leading-tight text-[hsl(var(--memory-title))] sm:text-[1.75rem]">
-                        {draft.title}
+                        {visibleDraft.title}
                       </h2>
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[hsl(var(--memory-muted))]">
                         <span>{draftDateRange}</span>
-                        <span>{t('memory.episodes.draft.segmentCount', { count: draft.chapters.length })}</span>
+                        <span>{t('memory.episodes.draft.segmentCount', { count: visibleDraft.chapters.length })}</span>
                       </div>
                       <p className="mt-4 max-w-[760px] text-base leading-7 text-[hsl(var(--memory-body))]">
-                        {draft.one_sentence_review}
+                        {visibleDraft.one_sentence_review}
                       </p>
                     </>
                   ) : (
@@ -473,7 +583,7 @@ export const MemoryExperienceDraftPage = () => {
                         <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
                         <Input
                           aria-label={t('memory.episodes.fields.title')}
-                          value={draft.title}
+                          value={visibleDraft.title}
                           onChange={(event) => changeDraft((current) => ({ ...current, title: event.target.value }))}
                           className="h-10"
                         />
@@ -484,7 +594,7 @@ export const MemoryExperienceDraftPage = () => {
                           <Input
                             type="date"
                             aria-label={t('memory.episodes.draft.startDate')}
-                            value={toDateValue(draft.time_start)}
+                            value={toDateValue(visibleDraft.time_start)}
                             onChange={(event) => changeDraft((current) => ({
                               ...current,
                               time_start: fromDateValue(event.target.value, 'start') ?? current.time_start,
@@ -497,7 +607,7 @@ export const MemoryExperienceDraftPage = () => {
                           <Input
                             type="date"
                             aria-label={t('memory.episodes.draft.endDate')}
-                            value={toDateValue(draft.time_end)}
+                            value={toDateValue(visibleDraft.time_end)}
                             onChange={(event) => changeDraft((current) => ({
                               ...current,
                               time_end: fromDateValue(event.target.value, 'end') ?? current.time_end,
@@ -510,7 +620,7 @@ export const MemoryExperienceDraftPage = () => {
                         <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.recap')}</span>
                         <Textarea
                           aria-label={t('memory.episodes.draft.recap')}
-                          value={draft.one_sentence_review}
+                          value={visibleDraft.one_sentence_review}
                           onChange={(event) => changeDraft((current) => ({
                             ...current,
                             one_sentence_review: event.target.value,
@@ -545,12 +655,12 @@ export const MemoryExperienceDraftPage = () => {
                   </p>
                 </div>
                 <span className="shrink-0 text-sm font-medium text-[hsl(var(--memory-accent))]">
-                  {t('memory.episodes.draft.selectedCount', { count: draft.chapters.length })}
+                  {t('memory.episodes.draft.selectedCount', { count: visibleDraft.chapters.length })}
                 </span>
               </div>
 
               <div className="mt-4 space-y-3">
-                {draft.chapters.map((chapter) => (
+                {visibleDraft.chapters.map((chapter) => (
                   <ExperienceDraftSegmentCard
                     key={chapter.chapter_id}
                     chapter={chapter}
@@ -561,7 +671,7 @@ export const MemoryExperienceDraftPage = () => {
                     onRemove={() => removeChapter(chapter)}
                   />
                 ))}
-                {draft.chapters.length === 0 ? (
+                {visibleDraft.chapters.length === 0 ? (
                   <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.draft.noSegmentsSelected')}</div>
                 ) : null}
               </div>
@@ -625,17 +735,24 @@ export const MemoryExperienceDraftPage = () => {
           </main>
 
           <div className="sticky bottom-0 z-20 border-t border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated)/0.97)] px-4 py-4 sm:px-8">
-            <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-[hsl(var(--memory-body))]">
-                {t('memory.episodes.draft.createSummary', { count: draft.chapters.length })}
-              </p>
-              <Button
-                onClick={() => { void createExperience(); }}
-                disabled={creating || !draft.title.trim() || draft.chapters.length === 0}
-                className="h-10 px-5 sm:self-auto"
-              >
-                {creating ? t('common.saving') : t('memory.episodes.draft.create')}
-              </Button>
+            <div className="mx-auto w-full max-w-[900px]">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-[hsl(var(--memory-body))]">
+                  {t('memory.episodes.draft.createSummary', { count: visibleDraft.chapters.length })}
+                </p>
+                <Button
+                  onClick={() => { void createExperience(); }}
+                  disabled={creating || !visibleDraft.title.trim() || visibleDraft.chapters.length === 0}
+                  className="h-10 px-5 sm:self-auto"
+                >
+                  {creating ? t('common.saving') : t('memory.episodes.draft.create')}
+                </Button>
+              </div>
+              {createFailed ? (
+                <p role="alert" className="mt-2 text-sm text-[hsl(var(--destructive))]">
+                  {t('memory.episodes.draft.createFailed')}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

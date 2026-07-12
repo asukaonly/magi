@@ -2858,6 +2858,7 @@
         "back": "返回经历",
         "autosaved": "已保存",
         "saveFailed": "暂时没保存成功，你的修改还在。",
+        "createFailed": "暂时没能创建这段经历，请重试。",
         "notFound": "没有找到这份经历草稿。",
         "continue": "继续整理",
         "open": "打开草稿",
