@@ -165,6 +165,18 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
         episode_id="ep-train",
         event_ids=["evt-ticket", "evt-route"],
     )
+    await store.create_episode(
+        episode_id="ep-flight",
+        status="active",
+        label="Book the return flight",
+        time_start=300.0,
+        time_end=500.0,
+        source_event_count=2,
+    )
+    await store.add_episode_events(
+        episode_id="ep-flight",
+        event_ids=["evt-flight", "evt-boarding"],
+    )
     await store.create_experience_draft(
         draft_id="draft-retry",
         query_text="Japan trip",
@@ -206,6 +218,24 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
     draft_after_failure = await store.get_experience_draft(draft_id="draft-retry")
     assert draft_after_failure is not None
     assert draft_after_failure["status"] == "editing"
+    await store.update_experience_draft(
+        draft_id="draft-retry",
+        title="Revised Japan trip",
+        one_sentence_review="A shorter trip centered on the return journey.",
+        time_start=300.0,
+        time_end=500.0,
+        chapters=[
+            {
+                "chapter_id": "chapter-2",
+                "title": "Return journey",
+                "summary": "Book the flight and hotel.",
+                "time_start": 300.0,
+                "time_end": 500.0,
+                "episode_ids": ["ep-flight"],
+                "event_ids": ["evt-hotel"],
+            }
+        ],
+    )
 
     retry_experience_id = await create_experience_from_draft(
         store,
@@ -217,15 +247,20 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
     assert [item["experience_id"] for item in experiences_after_retry] == [stable_experience_id]
     experience = await store.get_experience(experience_id=stable_experience_id)
     assert experience is not None
+    assert experience["title"] == "Revised Japan trip"
+    assert experience["time_start"] == 300.0
+    assert experience["time_end"] == 500.0
+    assert experience["intent"] == "Revised Japan trip"
+    assert experience["magi_interpretation"] == ("A shorter trip centered on the return journey.")
     assert experience["source_episode_count"] == 1
-    assert experience["source_event_count"] == 2
-    assert [chapter["chapter_id"] for chapter in experience["chapters"]] == ["chapter-1"]
+    assert experience["source_event_count"] == 3
+    assert [chapter["chapter_id"] for chapter in experience["chapters"]] == ["chapter-2"]
     members = await store.list_experience_members(
         experience_id=stable_experience_id,
     )
     assert [(item["member_type"], item["member_id"]) for item in members] == [
-        ("episode", "ep-train"),
-        ("event", "evt-ticket"),
+        ("episode", "ep-flight"),
+        ("event", "evt-hotel"),
     ]
     completed_draft = await store.get_experience_draft(draft_id="draft-retry")
     assert completed_draft is not None

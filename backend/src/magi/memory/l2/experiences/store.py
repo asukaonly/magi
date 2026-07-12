@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 import aiosqlite
 
-from ....core.sqlite import sqlite_connection_async
+from ....core.sqlite import sqlite_connection_async, sqlite_transaction_async
 from .codec import L2ExperienceStoreBaseMixin
 from .models import ExperienceMemberWrite, ExperienceSeedEvidenceWrite
 
@@ -131,6 +131,42 @@ def _member_value(member: ExperienceMemberWrite | dict[str, Any], key: str, defa
     if isinstance(member, ExperienceMemberWrite):
         return getattr(member, key, default)
     return member.get(key, default)
+
+
+def _experience_member_insert_values(
+    members: Iterable[ExperienceMemberWrite | dict[str, Any]],
+    *,
+    experience_id: str,
+    added_at: float,
+) -> list[tuple[str, str, str, str, float, float]]:
+    values: list[tuple[str, str, str, str, float, float]] = []
+    seen: set[tuple[str, str]] = set()
+    for member in members:
+        member_type = str(_member_value(member, "member_type", "") or "").strip()
+        member_id = str(_member_value(member, "member_id", "") or "").strip()
+        role = str(_member_value(member, "role", "core") or "core").strip()
+        confidence = float(_member_value(member, "confidence", 0.5) or 0.0)
+        if member_type not in _MEMBER_TYPES:
+            raise ValueError(f"Unsupported experience member_type: {member_type}")
+        if role not in _MEMBER_ROLES:
+            raise ValueError(f"Unsupported experience member role: {role}")
+        if not member_id:
+            raise ValueError("Experience member_id is required")
+        member_key = (member_type, member_id)
+        if member_key in seen:
+            continue
+        seen.add(member_key)
+        values.append(
+            (
+                experience_id,
+                member_type,
+                member_id,
+                role,
+                confidence,
+                added_at + len(values) * 0.000001,
+            )
+        )
+    return values
 
 
 def _seed_evidence_value(
@@ -693,6 +729,34 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 added += int(cursor.rowcount > 0)
             await db.commit()
         return added
+
+    async def replace_experience_members(
+        self,
+        *,
+        experience_id: str,
+        members: Iterable[ExperienceMemberWrite | dict[str, Any]],
+    ) -> int:
+        """Replace all source memberships in one transaction."""
+        await self.initialize()
+        values = _experience_member_insert_values(
+            members,
+            experience_id=experience_id,
+            added_at=time.time(),
+        )
+        async with sqlite_transaction_async(self.db_path) as db:
+            await db.execute(
+                "DELETE FROM experience_members WHERE experience_id = ?",
+                (experience_id,),
+            )
+            await db.executemany(
+                """
+                INSERT INTO experience_members(
+                    experience_id, member_type, member_id, role, confidence, added_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        return len(values)
 
     async def list_experience_members(
         self, *, experience_id: str, limit: int = 500

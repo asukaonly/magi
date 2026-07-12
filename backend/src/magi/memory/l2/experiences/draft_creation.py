@@ -55,6 +55,16 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
             source_episode_count=len(episode_ids),
             source_event_count=len(event_ids),
         )
+    else:
+        await store.update_experience(
+            experience_id=experience_id,
+            status="active",
+            title=str(draft["title"]),
+            time_start=float(draft["time_start"]),
+            time_end=float(draft["time_end"]),
+            intent=str(draft["title"]),
+            magi_interpretation=str(draft["one_sentence_review"]),
+        )
     members = [
         {
             "member_type": "episode",
@@ -73,7 +83,7 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
         }
         for event_id in event_ids
     )
-    await store.add_experience_members(experience_id=experience_id, members=members)
+    await store.replace_experience_members(experience_id=experience_id, members=members)
     await store.replace_experience_chapters(
         experience_id=experience_id,
         chapters=chapters,
