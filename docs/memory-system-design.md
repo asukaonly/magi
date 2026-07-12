@@ -505,10 +505,13 @@ description and optional time range. The first retrieval pass uses that request
 unchanged against L1, resolves matching events to active episode evidence, and
 lets a validated selector include, exclude, or leave candidate evidence as
 possibly related. The result is saved as a resumable draft, not an active
-experience. Draft titles, recap text, time bounds, and chapter organization are
-editable and autosaved. Only explicit user confirmation creates the active L2
-experience and its durable chapter structure; generated text cannot introduce
-evidence identifiers that were not retrieved from L1/L2.
+experience. The default draft surface is selection-first: it previews the
+proposed title and recap, lets the user include or exclude evidence-backed
+memory segments, and reveals their event evidence on demand. Editing generated
+prose and time bounds is a secondary action rather than the primary review
+surface. Draft changes are autosaved. Only explicit user confirmation creates
+the active L2 experience and its durable chapter structure; generated text
+cannot introduce evidence identifiers that were not retrieved from L1/L2.
 
 **Semantic Memory** stores durable entities, relations, and preferences:
 
