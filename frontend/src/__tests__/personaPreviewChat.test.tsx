@@ -48,17 +48,25 @@ const previews: SeedPreview[] = [
 
 type ControlledPersonaPreviewProps = Omit<
   ComponentProps<typeof PersonaPreviewChat>,
-  'activeSeed' | 'onActiveSeedChange' | 'previewsLoading'
+  | 'activeSeed'
+  | 'onActiveSeedChange'
+  | 'previewsLoading'
+  | 'disabled'
+  | 'confirmationError'
 > & {
   initialActiveSeed?: string | null;
   onActiveSeedChange?: (seedSlug: string | null) => void;
   previewsLoading?: boolean;
+  disabled?: boolean;
+  confirmationError?: string | null;
 };
 
 function ControlledPersonaPreview({
   initialActiveSeed = 'nova',
   onActiveSeedChange,
   previewsLoading = false,
+  disabled = false,
+  confirmationError = null,
   ...props
 }: ControlledPersonaPreviewProps): JSX.Element {
   const [activeSeed, setActiveSeed] = useState<string | null>(initialActiveSeed);
@@ -68,6 +76,8 @@ function ControlledPersonaPreview({
       {...props}
       activeSeed={activeSeed}
       previewsLoading={previewsLoading}
+      disabled={disabled}
+      confirmationError={confirmationError}
       onActiveSeedChange={(seedSlug) => {
         setActiveSeed(seedSlug);
         onActiveSeedChange?.(seedSlug);
@@ -112,6 +122,8 @@ describe('PersonaPreviewChat', () => {
         previews={[]}
         previewsLoading
         activeSeed="ember"
+        disabled={false}
+        confirmationError={null}
         onActiveSeedChange={onActiveSeedChange}
       />,
     );
@@ -123,6 +135,8 @@ describe('PersonaPreviewChat', () => {
         previews={previews}
         previewsLoading={false}
         activeSeed="ember"
+        disabled={false}
+        confirmationError={null}
         onActiveSeedChange={onActiveSeedChange}
       />,
     );
@@ -141,6 +155,8 @@ describe('PersonaPreviewChat', () => {
         previews={[]}
         previewsLoading
         activeSeed="missing"
+        disabled={false}
+        confirmationError={null}
         onActiveSeedChange={onActiveSeedChange}
       />,
     );
@@ -152,6 +168,8 @@ describe('PersonaPreviewChat', () => {
         previews={previews}
         previewsLoading={false}
         activeSeed="missing"
+        disabled={false}
+        confirmationError={null}
         onActiveSeedChange={onActiveSeedChange}
       />,
     );
@@ -269,6 +287,7 @@ describe('PersonaPreviewChat', () => {
   it('does not replace a restored builtin persona while its previews are loading', async () => {
     const onActiveSeedChange = vi.fn();
     const customDraft: CustomPersonaDraft = {
+      personaId: '11111111-1111-4111-8111-111111111111',
       slug: 'custom-1',
       name: 'Sage',
       description: 'wise mentor',
@@ -280,6 +299,8 @@ describe('PersonaPreviewChat', () => {
         previews={[]}
         previewsLoading
         activeSeed="ember"
+        disabled={false}
+        confirmationError={null}
         initialCustomPersonas={[customDraft]}
         onActiveSeedChange={onActiveSeedChange}
       />,
@@ -290,6 +311,8 @@ describe('PersonaPreviewChat', () => {
   });
 
   it('generates a custom persona and chats with it via persona_override', async () => {
+    const personaId = '11111111-1111-4111-8111-111111111111';
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(personaId);
     const generated = makeGeneratedConfig();
     const genSpy = vi
       .spyOn(personasApi, 'generateWithProgress')
@@ -315,7 +338,12 @@ describe('PersonaPreviewChat', () => {
     const lastDrafts = calls[calls.length - 1][0];
     expect(lastDrafts).toHaveLength(1);
     expect(lastDrafts[0]).toEqual(
-      expect.objectContaining({ name: 'Sage', config: generated }),
+      expect.objectContaining({
+        personaId,
+        slug: `onboarding-custom-${personaId}`,
+        name: 'Sage',
+        config: generated,
+      }),
     );
 
     // The new persona is auto-selected; sending a message uses persona_override.
@@ -335,6 +363,22 @@ describe('PersonaPreviewChat', () => {
         }),
       );
     });
+  });
+
+  it('disables every persona control and keeps confirmation errors visible', () => {
+    renderPersonaPreview({
+      previews,
+      ...({
+        disabled: true,
+        confirmationError: 'messages.personaActivationFailed',
+      } as any),
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('messages.personaActivationFailed');
+    expect(screen.getByRole('button', { name: /Nova/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Ember/i })).toBeDisabled();
+    expect(screen.getByTestId('persona-create-custom')).toBeDisabled();
+    expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
   });
 
   it('shows a generation progress indicator while the persona is being built', async () => {

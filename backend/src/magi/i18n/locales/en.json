@@ -259,6 +259,7 @@
       "errors": {
         "not_found": "Persona not found",
         "invalid_config_json": "Invalid config_json",
+        "activation_failed": "Failed to activate persona",
         "cannot_delete_active": "Cannot delete the currently active persona"
       }
     },

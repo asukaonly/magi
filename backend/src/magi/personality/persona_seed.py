@@ -45,7 +45,6 @@ async def seed_builtin_personas(
     for preset_file in sorted(seed_root.glob("*.json")):
         seed_slug = preset_file.stem
 
-        existing = await repo.get_by_seed_slug(seed_slug)
         try:
             raw = preset_file.read_text(encoding="utf-8")
             # Validate JSON.
@@ -54,23 +53,13 @@ async def seed_builtin_personas(
             logger.warning("Invalid seed preset, skipping: %s", preset_file)
             continue
 
-        if existing is not None:
-            await repo.update(
-                existing.persona_id,
-                config_json=raw,
-                slug=seed_slug,
-            )
-            logger.debug("Synchronized builtin persona '%s' from seed", seed_slug)
-            continue
-
-        persona_id = await repo.create(
+        persona_id, created = await repo.upsert_builtin(
             config_json=raw,
             locale=locale,
-            slug=seed_slug,
-            is_builtin=True,
             seed_slug=seed_slug,
         )
-        created_ids.append(persona_id)
+        if created:
+            created_ids.append(persona_id)
 
     logger.info(
         "Seeded %d new builtin personas for locale '%s'",

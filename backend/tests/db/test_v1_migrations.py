@@ -1,4 +1,4 @@
-"""Release baseline migration tests."""
+"""Release migration-chain tests."""
 
 from __future__ import annotations
 
@@ -56,7 +56,10 @@ def _revision_files(target_name: str) -> list[Path]:
 
 
 def _load_revision(path: Path, target_name: str) -> ModuleType:
-    spec = importlib.util.spec_from_file_location(f"migration_{target_name}_v1", path)
+    spec = importlib.util.spec_from_file_location(
+        f"migration_{target_name}_{path.stem}",
+        path,
+    )
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -75,17 +78,44 @@ def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def test_each_target_has_one_v1_initial_revision() -> None:
+def _latest_revision(target_name: str) -> str:
+    modules = [_load_revision(path, target_name) for path in _revision_files(target_name)]
+    by_revision = {module.revision: module for module in modules}
+    assert len(by_revision) == len(modules)
+    assert "v1" in by_revision
+    assert by_revision["v1"].down_revision is None
+
+    children: dict[str, list[str]] = {revision: [] for revision in by_revision}
+    for revision, module in by_revision.items():
+        if revision == "v1":
+            continue
+        assert isinstance(module.down_revision, str)
+        assert module.down_revision in by_revision
+        children[module.down_revision].append(revision)
+
+    assert all(len(next_revisions) <= 1 for next_revisions in children.values())
+    heads = [revision for revision, next_revisions in children.items() if not next_revisions]
+    assert len(heads) == 1
+
+    visited = {"v1"}
+    current = "v1"
+    while children[current]:
+        current = children[current][0]
+        assert current not in visited
+        visited.add(current)
+    assert visited == set(by_revision)
+    return heads[0]
+
+
+def test_each_target_has_linear_migration_chain_starting_at_v1() -> None:
     for target in MIGRATION_TARGETS:
         files = _revision_files(target.name)
 
-        assert [file.name for file in files] == ["v1_initial.py"]
-        module = _load_revision(files[0], target.name)
-        assert module.revision == "v1"
-        assert module.down_revision is None
+        assert files
+        assert _latest_revision(target.name)
 
 
-def test_v1_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) -> None:
+def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) -> None:
     runtime_paths = RuntimePaths(base_dir=tmp_path)
 
     run_upgrade_head(runtime_paths)
@@ -97,7 +127,9 @@ def test_v1_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path)
         with sqlite3.connect(db_path) as conn:
             tables = _table_names(conn)
             assert EXPECTED_TABLES[target.name] <= tables
-            assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("v1",)
+            assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == (
+                _latest_revision(target.name),
+            )
 
     memory_db_path = next(t for t in MIGRATION_TARGETS if t.name == "memory_shared").db_path(runtime_paths)
     with sqlite3.connect(memory_db_path) as conn:
@@ -114,3 +146,19 @@ def test_v1_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path)
             """
         ).fetchone()[0]
         assert "shadow" in index_sql
+
+    persona_db_path = next(
+        target for target in MIGRATION_TARGETS if target.name == "persona_registry"
+    ).db_path(runtime_paths)
+    with sqlite3.connect(persona_db_path) as conn:
+        builtin_seed_index = conn.execute(
+            """
+            SELECT sql
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name = 'uq_personas_active_builtin_seed'
+            """
+        ).fetchone()
+        assert builtin_seed_index is not None
+        assert "WHERE is_builtin = 1" in builtin_seed_index[0]
+        assert "deleted_at IS NULL" in builtin_seed_index[0]

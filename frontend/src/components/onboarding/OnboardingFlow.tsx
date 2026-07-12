@@ -109,6 +109,22 @@ class OnboardingTimeoutError extends Error {
 }
 
 
+class PersonaConfirmationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PersonaConfirmationError';
+  }
+}
+
+
+class PersonaConfirmationCancelledError extends Error {
+  constructor() {
+    super('Persona confirmation was superseded');
+    this.name = 'PersonaConfirmationCancelledError';
+  }
+}
+
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -178,10 +194,19 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [llmConnectionConfigPending, setLlmConnectionConfigPending] = useState(false);
   const llmConnectionTestRequestIdRef = useRef(0);
   const [seedSlug, setSeedSlug] = useState<string | null>(null);
-  // Onboarding-generated (unsaved) personas; persisted on completion.
+  const seedSlugRef = useRef<string | null>(null);
+  // Onboarding-generated personas carry their final registry IDs before creation.
   const [customPersonas, setCustomPersonas] = useState<CustomPersonaDraft[]>([]);
+  const customPersonasRef = useRef<CustomPersonaDraft[]>([]);
   // True while a custom persona is being generated on the persona step.
   const [personaGenerating, setPersonaGenerating] = useState(false);
+  const [personaConfirming, setPersonaConfirming] = useState(false);
+  const [personaConfirmationError, setPersonaConfirmationError] = useState<string | null>(null);
+  const [confirmedPersonaFingerprint, setConfirmedPersonaFingerprint] = useState<string | null>(
+    null,
+  );
+  const personaConfirmationRequestIdRef = useRef(0);
+  const personaConfirmationInFlightRef = useRef(false);
   const [installableItems, setInstallableItems] = useState<InstallableItem[]>([]);
   const [installableLoading, setInstallableLoading] = useState(true);
   const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>([]);
@@ -194,6 +219,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const currentLlmFingerprint = llmConnectionTestTarget?.fingerprint || '';
   const currentLlmFingerprintRef = useRef(currentLlmFingerprint);
   currentLlmFingerprintRef.current = currentLlmFingerprint;
+  seedSlugRef.current = seedSlug;
+  customPersonasRef.current = customPersonas;
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
@@ -205,6 +232,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      personaConfirmationRequestIdRef.current += 1;
+      personaConfirmationInFlightRef.current = false;
     };
   }, []);
 
@@ -248,6 +277,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   // which preset folder the preview chat resolves a seed_slug against — they
   // must agree, or the backend can't find the seed.
   const seedLocale = onboardingLanguage;
+  const selectedCustomPersona = useMemo(
+    () => customPersonas.find((draft) => draft.slug === seedSlug) ?? null,
+    [customPersonas, seedSlug],
+  );
+  const personaConfirmationFingerprint = useMemo(
+    () => seedSlug
+      ? JSON.stringify([
+          seedLocale,
+          seedSlug,
+          selectedCustomPersona?.personaId ?? null,
+          selectedCustomPersona?.config ?? null,
+        ])
+      : null,
+    [seedLocale, seedSlug, selectedCustomPersona],
+  );
+  const currentPersonaFingerprintRef = useRef<string | null>(personaConfirmationFingerprint);
+  currentPersonaFingerprintRef.current = personaConfirmationFingerprint;
 
   // Load persona seed previews for the current locale once on mount and when
   // language changes. This keeps the avatar rail in sync with i18n.
@@ -355,8 +401,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   const saveProgress = (
     values: SystemConfig,
-    nextSeedSlug: string | null = seedSlug,
-    nextCustomPersonas: CustomPersonaDraft[] = customPersonas,
+    nextSeedSlug: string | null = seedSlugRef.current,
+    nextCustomPersonas: CustomPersonaDraft[] = customPersonasRef.current,
     nextCurrent: number = current,
     nextFirstContextPluginIds: string[] = firstContextPluginIds,
   ) => {
@@ -475,39 +521,122 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
   };
 
-  const persistPersonaSelection = async (locale: string) => {
-    await personasApi.seed(locale);
+  const invalidatePersonaConfirmation = () => {
+    personaConfirmationRequestIdRef.current += 1;
+    personaConfirmationInFlightRef.current = false;
+    setPersonaConfirming(false);
+    setPersonaConfirmationError(null);
+    setConfirmedPersonaFingerprint(null);
+  };
 
-    // Remember the client slug to assigned persona id mapping for activation.
-    const customIdBySlug: Record<string, string> = {};
-    for (const draft of customPersonas) {
-      try {
-        const created = await personasApi.create({
-          config_json: JSON.stringify(draft.config),
-          locale,
-        });
-        const createdId = created?.data?.persona_id;
-        if (createdId) customIdBySlug[draft.slug] = createdId;
-      } catch {
-        // Best-effort: a failed custom-persona create shouldn't block
-        // onboarding completion.
+  const confirmPersonaSelection = async (): Promise<boolean> => {
+    const fingerprint = personaConfirmationFingerprint;
+    const selectedSlug = seedSlug;
+    const customDraft = selectedCustomPersona;
+
+    if (!fingerprint || !selectedSlug) {
+      personaConfirmationRequestIdRef.current += 1;
+      personaConfirmationInFlightRef.current = false;
+      setPersonaConfirming(false);
+      setConfirmedPersonaFingerprint(null);
+      setPersonaConfirmationError(t('messages.personaSelectionRequired'));
+      return false;
+    }
+    if (confirmedPersonaFingerprint === fingerprint) {
+      return true;
+    }
+    if (personaConfirmationInFlightRef.current) {
+      return false;
+    }
+
+    const requestId = ++personaConfirmationRequestIdRef.current;
+    personaConfirmationInFlightRef.current = true;
+    setPersonaConfirming(true);
+    setPersonaConfirmationError(null);
+    setConfirmedPersonaFingerprint(null);
+
+    const assertCurrentRequest = () => {
+      if (
+        requestId !== personaConfirmationRequestIdRef.current ||
+        currentPersonaFingerprintRef.current !== fingerprint
+      ) {
+        throw new PersonaConfirmationCancelledError();
       }
-    }
+    };
 
-    const listResult = await personasApi.list();
-    const personas = listResult.data || [];
-    let activatedPersonaId: string | undefined;
-    if (seedSlug && customIdBySlug[seedSlug]) {
-      activatedPersonaId = customIdBySlug[seedSlug];
-    } else if (seedSlug) {
-      const match = personas.find((p) => p.slug === seedSlug);
-      if (match) activatedPersonaId = match.persona_id;
-    }
-    if (!activatedPersonaId && personas.length > 0) {
-      activatedPersonaId = personas[0].persona_id;
-    }
-    if (activatedPersonaId) {
-      await personasApi.setActive(activatedPersonaId);
+    const runConfirmation = async () => {
+      let personaId: string;
+
+      if (customDraft) {
+        // Persist the final ID and config before any create request can leave the client.
+        saveProgress(
+          form.getFieldsValue(true),
+          selectedSlug,
+          customPersonasRef.current,
+        );
+        const created = await personasApi.create({
+          persona_id: customDraft.personaId,
+          slug: customDraft.slug,
+          config_json: JSON.stringify(customDraft.config),
+          locale: seedLocale,
+        });
+        assertCurrentRequest();
+        if (created?.data?.persona_id !== customDraft.personaId) {
+          throw new PersonaConfirmationError(t('messages.personaActivationFailed'));
+        }
+        personaId = customDraft.personaId;
+      } else {
+        await personasApi.seed(seedLocale);
+        assertCurrentRequest();
+        const listResult = await personasApi.list();
+        assertCurrentRequest();
+        const builtin = (listResult.data || []).find(
+          (persona) => persona.is_builtin === true && persona.seed_slug === selectedSlug,
+        );
+        if (!builtin) {
+          throw new PersonaConfirmationError(t('messages.personaUnavailable'));
+        }
+        personaId = builtin.persona_id;
+      }
+
+      const activated = await personasApi.setActive(personaId);
+      assertCurrentRequest();
+      if (activated.persona_id !== personaId) {
+        throw new PersonaConfirmationError(t('messages.personaActivationFailed'));
+      }
+    };
+
+    try {
+      await withTimeout(
+        runConfirmation(),
+        PERSONA_SETUP_TIMEOUT_MS,
+        t('messages.personaSetupTimedOut'),
+      );
+      assertCurrentRequest();
+      personaConfirmationInFlightRef.current = false;
+      setPersonaConfirming(false);
+      setPersonaConfirmationError(null);
+      setConfirmedPersonaFingerprint(fingerprint);
+      return true;
+    } catch (error: unknown) {
+      if (
+        error instanceof PersonaConfirmationCancelledError ||
+        requestId !== personaConfirmationRequestIdRef.current ||
+        currentPersonaFingerprintRef.current !== fingerprint
+      ) {
+        return false;
+      }
+
+      personaConfirmationRequestIdRef.current += 1;
+      personaConfirmationInFlightRef.current = false;
+      setPersonaConfirming(false);
+      setConfirmedPersonaFingerprint(null);
+      if (error instanceof OnboardingTimeoutError || error instanceof PersonaConfirmationError) {
+        setPersonaConfirmationError(error.message);
+      } else {
+        setPersonaConfirmationError(t('messages.personaActivationFailed'));
+      }
+      return false;
     }
   };
 
@@ -613,21 +742,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         t('messages.saveTimedOut'),
       );
 
-      const locale = (values.preferences?.language || 'en').startsWith('zh') ? 'zh' : 'en';
-      try {
-        await withTimeout(
-          persistPersonaSelection(locale),
-          PERSONA_SETUP_TIMEOUT_MS,
-          t('messages.personaSetupTimedOut'),
-        );
-      } catch (error: any) {
-        if (error instanceof OnboardingTimeoutError) {
-          toast.warning(error.message);
-        }
-        // Persona registry is best-effort during onboarding;
-        // the backend lifecycle fallback handles missing registry state.
-      }
-
       setFinishingRuntime(true);
       const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
       setFinishingRuntime(false);
@@ -671,6 +785,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
 
     if (current === PERSONA_STEP) {
+      if (!(await confirmPersonaSelection())) {
+        return;
+      }
       const persisted = await persistRuntimeConfigBeforeFirstContext();
       if (!persisted) {
         return;
@@ -731,16 +848,25 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           previews={seedPreviews}
           previewsLoading={seedPreviewsLoading}
           activeSeed={seedSlug}
+          disabled={personaConfirming || saving}
+          confirmationError={personaConfirmationError}
           locale={seedLocale}
           llmConfig={llmValue}
           initialCustomPersonas={customPersonas}
           onActiveSeedChange={(slug) => {
+            if (slug === seedSlugRef.current) {
+              return;
+            }
+            invalidatePersonaConfirmation();
+            seedSlugRef.current = slug;
             setSeedSlug(slug);
-            saveProgress(form.getFieldsValue(true), slug);
+            saveProgress(form.getFieldsValue(true), slug, customPersonasRef.current);
           }}
           onCustomPersonasChange={(drafts) => {
+            invalidatePersonaConfirmation();
+            customPersonasRef.current = drafts;
             setCustomPersonas(drafts);
-            saveProgress(form.getFieldsValue(true), seedSlug, drafts);
+            saveProgress(form.getFieldsValue(true), seedSlugRef.current, drafts);
           }}
           onGeneratingChange={setPersonaGenerating}
         />
@@ -819,7 +945,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
                 disabled={
                   saving ||
                   llmConnectionConfigPending ||
-                  (current === PERSONA_STEP && personaGenerating)
+                  (current === PERSONA_STEP && (personaGenerating || personaConfirming))
                 }
               >
                 {t('actions.previous')}
@@ -831,11 +957,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
                   llmConnectionConfigPending ||
                   llmConnectionTestState.loading ||
                   (current === LLM_SETUP_STEP && !llmValid) ||
-                  (current === PERSONA_STEP && personaGenerating)
+                  (current === PERSONA_STEP && (personaGenerating || personaConfirming))
                 }
               >
                 {current === LLM_SETUP_STEP && llmConnectionTestState.loading
                   ? t('llm.actions.testingConnection')
+                  : current === PERSONA_STEP && personaConfirming
+                  ? t('actions.activatingPersona')
                   : saving
                   ? (finishingRuntime ? t('actions.startingRuntime') : t('actions.saving'))
                   : nextLabel}

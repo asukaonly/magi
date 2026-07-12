@@ -162,6 +162,45 @@ const stubSeedPreviews = () => [
   },
 ];
 
+const CUSTOM_PERSONA_ID = '11111111-1111-4111-8111-111111111111';
+
+const generatedPersonaConfig = () => ({
+  name: 'Sage',
+  avatar: '',
+  description: 'wise mentor',
+  appearance_prompt: '',
+  identity_core: {
+    identity_statement: 'a patient mentor',
+    values_loved: [],
+    values_rejected: [],
+    attention_biases: [],
+  },
+  idiolect: {
+    sentence_style: 'measured and kind',
+    vocab_available: [],
+    vocab_avoided: [],
+    structural_quirks: [],
+  },
+  registers: {},
+  quiet_hours: [],
+  signature_triggers: [],
+  persona_layers: [],
+  dynamic_state_rules: {},
+  milestone_conditions: {},
+  interim_lines: {},
+  bootstrap: null,
+});
+
+async function enterPersonaStep(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+  await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+  await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+  const nextButton = screen.getByRole('button', { name: 'actions.next' });
+  await waitFor(() => expect(nextButton).toBeEnabled());
+  await user.click(nextButton);
+  await screen.findByRole('button', { name: /Ember/i });
+}
+
 describe('OnboardingFlow (linear 5-step)', () => {
   beforeEach(() => {
     streamChatPreviewMock.mockReset();
@@ -224,6 +263,7 @@ describe('OnboardingFlow (linear 5-step)', () => {
           group_name: 'general',
           sort_order: 0,
           is_builtin: true,
+          seed_slug: 'nova',
           description: '',
         },
         {
@@ -235,14 +275,15 @@ describe('OnboardingFlow (linear 5-step)', () => {
           group_name: 'general',
           sort_order: 1,
           is_builtin: true,
+          seed_slug: 'ember',
           description: '',
         },
       ],
     } as any);
-    vi.spyOn(personasApi, 'setActive').mockResolvedValue({
+    vi.spyOn(personasApi, 'setActive').mockImplementation(async (personaId) => ({
       success: true,
-      persona_id: 'uuid-ember',
-    } as any);
+      persona_id: personaId,
+    }));
     vi.spyOn(apiClient, 'get').mockResolvedValue({
       data: {
         success: true,
@@ -401,6 +442,9 @@ describe('OnboardingFlow (linear 5-step)', () => {
       'aria-pressed',
       'false',
     );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('firstContext.title');
+    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
   });
 
   it('uses the welcome language for persona previews and final persona setup', async () => {
@@ -810,10 +854,10 @@ describe('OnboardingFlow (linear 5-step)', () => {
     expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
   });
 
-  it('activates the chosen persona slug after onboarding completes', async () => {
+  it('activates the chosen persona before entering first context', async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
       success: true,
       message: 'ok',
       data: DEFAULT_SYSTEM_CONFIG,
@@ -831,49 +875,166 @@ describe('OnboardingFlow (linear 5-step)', () => {
     await screen.findByRole('button', { name: /Ember/i });
     await user.click(screen.getByRole('button', { name: /Ember/i }));
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
-    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
-    await user.click(enterApp);
 
-    await waitFor(() =>
-      expect(personasApi.setActive).toHaveBeenCalledWith('uuid-ember'),
+    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-ember'));
+    await screen.findByText('firstContext.title');
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(personasApi.setActive).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(configApi.updateOnboardingDraft).mock.invocationCallOrder[0],
     );
+    expect(completeOnboarding).not.toHaveBeenCalled();
   });
 
-  it('creates and activates a custom generated persona on completion', async () => {
+  it('keeps persona activation failures on the persona step and retries successfully', async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
       success: true,
       message: 'ok',
       data: DEFAULT_SYSTEM_CONFIG,
     } as any);
-    const generated = {
-      name: 'Sage',
-      avatar: '',
-      description: 'wise mentor',
-      appearance_prompt: '',
-      identity_core: {
-        identity_statement: 'a patient mentor',
-        values_loved: [],
-        values_rejected: [],
-        attention_biases: [],
-      },
-      idiolect: {
-        sentence_style: 'measured and kind',
-        vocab_available: [],
-        vocab_avoided: [],
-        structural_quirks: [],
-      },
-      registers: {},
-      quiet_hours: [],
-      signature_triggers: [],
-      persona_layers: [],
-      dynamic_state_rules: {},
-      milestone_conditions: {},
-      interim_lines: {},
-      bootstrap: null,
-    };
+    vi.mocked(personasApi.setActive)
+      .mockRejectedValueOnce(new Error('activation unavailable'))
+      .mockResolvedValueOnce({ success: true, persona_id: 'uuid-ember' });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'messages.personaActivationFailed',
+    );
+    expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
+    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+    expect(completeOnboarding).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('firstContext.title');
+    expect(personasApi.setActive).toHaveBeenCalledTimes(2);
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not activate a custom persona that only shares the selected builtin slug', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(personasApi.list).mockResolvedValueOnce({
+      success: true,
+      data: [
+        {
+          persona_id: 'uuid-custom-ember',
+          name: 'Ember copy',
+          slug: 'ember',
+          locale: 'zh',
+          avatar_path: '',
+          group_name: 'custom',
+          sort_order: 0,
+          is_builtin: false,
+          seed_slug: null,
+          description: '',
+        },
+      ],
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('messages.personaUnavailable');
+    expect(personasApi.setActive).not.toHaveBeenCalled();
+    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+  });
+
+  it('blocks progress when the active-persona response names a different persona', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(personasApi.setActive).mockResolvedValueOnce({
+      success: true,
+      persona_id: 'uuid-nova',
+    });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'messages.personaActivationFailed',
+    );
+    expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
+  });
+
+  it('disables persona controls and navigation while activation is pending', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    let resolveActivation: ((value: { success: boolean; persona_id: string }) => void) | undefined;
+    vi.mocked(personasApi.setActive).mockImplementationOnce(
+      () => new Promise((resolve) => { resolveActivation = resolve; }),
+    );
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalled());
+
+    expect(screen.getByRole('button', { name: /Ember/i })).toBeDisabled();
+    expect(screen.getByTestId('persona-create-custom')).toBeDisabled();
+    expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'actions.previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'actions.activatingPersona' })).toBeDisabled();
+
+    resolveActivation?.({ success: true, persona_id: 'uuid-ember' });
+    await screen.findByText('firstContext.title');
+  });
+
+  it('prevents a timed-out seed request from activating an obsolete selection later', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const originalSetTimeout = window.setTimeout.bind(window);
+    vi.spyOn(window, 'setTimeout').mockImplementation((handler, timeout, ...args) =>
+      originalSetTimeout(handler, timeout === 15_000 ? 0 : timeout, ...args),
+    );
+    let resolveOldSeed: ((value: unknown) => void) | undefined;
+    vi.mocked(personasApi.seed)
+      .mockImplementationOnce(
+        () => new Promise((resolve) => { resolveOldSeed = resolve; }) as any,
+      )
+      .mockResolvedValueOnce({ success: true, data: { created_ids: [] } } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('messages.personaSetupTimedOut');
+    await user.click(screen.getByRole('button', { name: /Nova/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('firstContext.title');
+    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
+    expect(personasApi.setActive).toHaveBeenCalledWith('uuid-nova');
+    expect(personasApi.list).toHaveBeenCalledTimes(1);
+
+    resolveOldSeed?.({ success: true, data: { created_ids: [] } });
+    await waitFor(() => expect(personasApi.seed).toHaveBeenCalledTimes(2));
+    expect(personasApi.list).toHaveBeenCalledTimes(1);
+    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates and activates a custom generated persona before leaving the persona step', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(CUSTOM_PERSONA_ID);
+    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+    const generated = generatedPersonaConfig();
     vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
       success: true,
       message: 'ok',
@@ -882,7 +1043,11 @@ describe('OnboardingFlow (linear 5-step)', () => {
     } as any);
     const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
       success: true,
-      data: { persona_id: 'uuid-custom', name: 'Sage', slug: 'custom-1' },
+      data: {
+        persona_id: CUSTOM_PERSONA_ID,
+        name: 'Sage',
+        slug: `onboarding-custom-${CUSTOM_PERSONA_ID}`,
+      },
     } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
@@ -903,17 +1068,123 @@ describe('OnboardingFlow (linear 5-step)', () => {
       expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
     );
     await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
-
-    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
-    await user.click(enterApp);
 
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
-    const createArg = createSpy.mock.calls[0][0] as { config_json: string };
+    const createArg = createSpy.mock.calls[0][0] as {
+      persona_id: string;
+      slug: string;
+      locale: string;
+      config_json: string;
+    };
+    expect(createArg.persona_id).toBe(CUSTOM_PERSONA_ID);
+    expect(createArg.slug).toBe(`onboarding-custom-${CUSTOM_PERSONA_ID}`);
+    expect(createArg.locale).toBe('zh');
     expect(JSON.parse(createArg.config_json).name).toBe('Sage');
-    await waitFor(() =>
-      expect(personasApi.setActive).toHaveBeenCalledWith('uuid-custom'),
+    expect(personasApi.setActive).toHaveBeenCalledWith(CUSTOM_PERSONA_ID);
+    await screen.findByText('firstContext.title');
+    expect(completeOnboarding).not.toHaveBeenCalled();
+
+    const persistedDraftCall = localStorageMock.setItem.mock.calls.findIndex(
+      ([key, value]) => key === 'magi_onboarding_state' && value.includes(CUSTOM_PERSONA_ID),
     );
+    expect(persistedDraftCall).toBeGreaterThanOrEqual(0);
+    expect(localStorageMock.setItem.mock.invocationCallOrder[persistedDraftCall]).toBeLessThan(
+      createSpy.mock.invocationCallOrder[0],
+    );
+
+    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses one custom persona id when activation fails and the user retries', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(CUSTOM_PERSONA_ID);
+    const generated = generatedPersonaConfig();
+    vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: generated,
+      stages: [],
+    } as any);
+    const slug = `onboarding-custom-${CUSTOM_PERSONA_ID}`;
+    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+      success: true,
+      data: { persona_id: CUSTOM_PERSONA_ID, name: 'Sage', slug },
+    } as any);
+    vi.mocked(personasApi.setActive)
+      .mockRejectedValueOnce(new Error('activation unavailable'))
+      .mockResolvedValueOnce({ success: true, persona_id: CUSTOM_PERSONA_ID });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterPersonaStep(user);
+    await user.click(screen.getByTestId('persona-create-custom'));
+    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
+    await user.click(screen.getByTestId('persona-custom-generate'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
+
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'messages.personaActivationFailed',
+    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByText('firstContext.title');
+
+    expect(createSpy).toHaveBeenCalledTimes(2);
+    expect(createSpy.mock.calls.map(([payload]) => payload.persona_id)).toEqual([
+      CUSTOM_PERSONA_ID,
+      CUSTOM_PERSONA_ID,
+    ]);
+    expect(createSpy.mock.calls.map(([payload]) => payload.slug)).toEqual([slug, slug]);
+    expect(personasApi.setActive).toHaveBeenCalledTimes(2);
+    expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses the saved persona id when submitting a restored custom draft', async () => {
+    const user = userEvent.setup();
+    const slug = `onboarding-custom-${CUSTOM_PERSONA_ID}`;
+    const restoredConfig = generatedPersonaConfig();
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key !== 'magi_onboarding_state') return null;
+      return JSON.stringify({
+        current: 2,
+        values: DEFAULT_SYSTEM_CONFIG,
+        seedSlug: slug,
+        customPersonas: [
+          {
+            personaId: CUSTOM_PERSONA_ID,
+            slug,
+            name: 'Sage',
+            description: 'wise mentor',
+            config: restoredConfig,
+          },
+        ],
+      });
+    });
+    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+      success: true,
+      data: { persona_id: CUSTOM_PERSONA_ID, name: 'Sage', slug },
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    expect(await screen.findByRole('button', { name: /Sage/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ persona_id: CUSTOM_PERSONA_ID, slug }),
+    );
+    expect(personasApi.setActive).toHaveBeenCalledWith(CUSTOM_PERSONA_ID);
+    await screen.findByText('firstContext.title');
   });
 
   it('disables the footer Next button while a custom persona is generating', async () => {

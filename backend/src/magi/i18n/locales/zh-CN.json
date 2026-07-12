@@ -259,6 +259,7 @@
       "errors": {
         "not_found": "未找到人格",
         "invalid_config_json": "人格配置 JSON 无效",
+        "activation_failed": "人格启用失败",
         "cannot_delete_active": "不能删除当前启用的人格"
       }
     },

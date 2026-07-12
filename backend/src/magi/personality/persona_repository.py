@@ -42,6 +42,10 @@ CREATE TABLE IF NOT EXISTS persona_active (
     id            INTEGER PRIMARY KEY CHECK (id = 1),
     persona_id    TEXT NOT NULL REFERENCES personas(persona_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_personas_active_builtin_seed
+ON personas(seed_slug)
+WHERE is_builtin = 1 AND seed_slug IS NOT NULL AND deleted_at IS NULL;
 """
 
 
@@ -116,6 +120,7 @@ class PersonaRepository:
         slug: str | None = None,
         is_builtin: bool = False,
         seed_slug: str | None = None,
+        persona_id: str | None = None,
     ) -> str:
         """Insert a new persona and return its persona_id."""
         data = json.loads(config_json)
@@ -125,12 +130,25 @@ class PersonaRepository:
         group = data.get("meta", {}).get("group", "general")
         order = data.get("meta", {}).get("order", 0)
 
-        persona_id = _new_id()
+        resolved_persona_id = persona_id or _new_id()
         final_slug = slug or _slugify(display_name)
         now = time.time()
 
         # Ensure slug uniqueness by appending a short suffix on conflict.
         async with sqlite_connection_async(self._db_path) as db:
+            if persona_id is not None:
+                await db.execute("BEGIN IMMEDIATE")
+                existing = await db.execute_fetchall(
+                    "SELECT deleted_at FROM personas WHERE persona_id = ?",
+                    (persona_id,),
+                )
+                if existing:
+                    if existing[0]["deleted_at"] is None:
+                        await db.commit()
+                        return persona_id
+                    await db.rollback()
+                    raise ValueError(f"Persona ID belongs to a deleted persona: {persona_id}")
+
             base_slug = final_slug
             attempt = 0
             while True:
@@ -149,15 +167,109 @@ class PersonaRepository:
                     created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    persona_id, display_name, final_slug, locale, config_json,
+                    resolved_persona_id, display_name, final_slug, locale, config_json,
                     avatar, group, order, int(is_builtin), seed_slug, description,
                     now, now,
                 ),
             )
             await db.commit()
 
-        logger.info("Created persona %s (slug=%s, builtin=%s)", persona_id, final_slug, is_builtin)
-        return persona_id
+        logger.info(
+            "Created persona %s (slug=%s, builtin=%s)",
+            resolved_persona_id,
+            final_slug,
+            is_builtin,
+        )
+        return resolved_persona_id
+
+    async def upsert_builtin(
+        self,
+        config_json: str,
+        *,
+        locale: str,
+        seed_slug: str,
+    ) -> tuple[str, bool]:
+        """Atomically synchronize one builtin seed and report whether it was created."""
+        data = json.loads(config_json)
+        display_name = data.get("name", "") or "Unnamed"
+        avatar = data.get("avatar", "")
+        description = data.get("description", "")
+        group = data.get("meta", {}).get("group", "general")
+        order = data.get("meta", {}).get("order", 0)
+        now = time.time()
+
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            rows = await db.execute_fetchall(
+                """SELECT persona_id FROM personas
+                   WHERE is_builtin = 1 AND seed_slug = ? AND deleted_at IS NULL""",
+                (seed_slug,),
+            )
+            if rows:
+                persona_id = rows[0]["persona_id"]
+                await db.execute(
+                    """UPDATE personas
+                       SET name = ?, locale = ?, config_json = ?, avatar_path = ?,
+                           group_name = ?, sort_order = ?, description = ?, updated_at = ?
+                       WHERE persona_id = ?""",
+                    (
+                        display_name,
+                        locale,
+                        config_json,
+                        avatar,
+                        group,
+                        order,
+                        description,
+                        now,
+                        persona_id,
+                    ),
+                )
+                await db.commit()
+                logger.debug("Synchronized builtin persona '%s' from seed", seed_slug)
+                return persona_id, False
+
+            final_slug = seed_slug
+            attempt = 0
+            while True:
+                slug_rows = await db.execute_fetchall(
+                    "SELECT 1 FROM personas WHERE slug = ?",
+                    (final_slug,),
+                )
+                if not slug_rows:
+                    break
+                attempt += 1
+                final_slug = f"{seed_slug}_{attempt}"
+
+            persona_id = _new_id()
+            await db.execute(
+                """INSERT INTO personas
+                   (persona_id, name, slug, locale, config_json, avatar_path,
+                    group_name, sort_order, is_builtin, seed_slug, description,
+                    created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)""",
+                (
+                    persona_id,
+                    display_name,
+                    final_slug,
+                    locale,
+                    config_json,
+                    avatar,
+                    group,
+                    order,
+                    seed_slug,
+                    description,
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+        logger.info(
+            "Created builtin persona %s (seed_slug=%s)",
+            persona_id,
+            seed_slug,
+        )
+        return persona_id, True
 
     # ---- read ----
 
@@ -332,6 +444,14 @@ class PersonaRepository:
             await db.commit()
 
         logger.info("Active persona set to %s", persona_id)
+
+    async def clear_active(self) -> None:
+        """Clear the active persona selection."""
+        async with sqlite_connection_async(self._db_path) as db:
+            await db.execute("DELETE FROM persona_active WHERE id = 1")
+            await db.commit()
+
+        logger.info("Cleared active persona")
 
     # ---- count ----
 

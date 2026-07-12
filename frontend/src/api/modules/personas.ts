@@ -315,7 +315,12 @@ export const personasApi = {
   ),
 
   /** Create a new custom persona. Returns detail including assigned persona_id. */
-  create: (payload: { config_json: string; locale?: string; slug?: string }) =>
+  create: (payload: {
+    persona_id?: string;
+    config_json: string;
+    locale?: string;
+    slug?: string;
+  }) =>
     api.post<PersonaDetail>('/personas/', payload),
 
   /** Update mutable fields of an existing persona. */

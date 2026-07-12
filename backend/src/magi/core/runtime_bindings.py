@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .container import get_container
 
 
@@ -47,6 +49,18 @@ def require_runtime_command_queue():
 def require_agent_runtime():
     """Return the active agent runtime binding."""
     return _require_binding("agent_runtime")
+
+
+def get_optional_agent_runtime() -> Any | None:
+    """Return the active agent runtime binding, or ``None`` before startup."""
+    container = get_container()
+    provider = container.agent_runtime
+    instance = provider()
+    if instance is None:
+        return None
+    if type(instance).__name__ == "object" and not provider.overridden:
+        return None
+    return instance
 
 
 def require_scheduler_service():

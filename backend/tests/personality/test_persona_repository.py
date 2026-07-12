@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
+import uuid
 
 import pytest
 import pytest_asyncio
@@ -63,6 +65,38 @@ class TestPersonaRepository:
         pid2 = await repo.create(_SAMPLE_CONFIG, slug="dup")
         record2 = await repo.get(pid2)
         assert record2.slug == "dup_1"
+
+    @pytest.mark.asyncio
+    async def test_create_with_same_persona_id_is_idempotent_under_concurrency(
+        self,
+        repo: PersonaRepository,
+    ) -> None:
+        persona_id = str(uuid.uuid4())
+
+        first_id, second_id = await asyncio.gather(
+            repo.create(
+                _SAMPLE_CONFIG,
+                locale="en",
+                slug="stable-custom",
+                persona_id=persona_id,
+            ),
+            repo.create(
+                _SAMPLE_CONFIG,
+                locale="en",
+                slug="stable-custom",
+                persona_id=persona_id,
+            ),
+        )
+        repeated_id = await repo.create(
+            _SAMPLE_CONFIG,
+            locale="en",
+            slug="stable-custom",
+            persona_id=persona_id,
+        )
+
+        assert first_id == second_id == repeated_id == persona_id
+        assert await repo.count() == 1
+        assert (await repo.get(persona_id)).slug == "stable-custom"
 
     @pytest.mark.asyncio
     async def test_list_all(self, repo: PersonaRepository) -> None:
@@ -266,3 +300,55 @@ async def test_seed_builtin_personas_syncs_existing_seed_config(
     assert record.group_name == "general"
     assert record.sort_order == 7
     assert record.config.identity_core.identity_statement == "新设定。"
+
+
+@pytest.mark.asyncio
+async def test_seed_builtin_personas_is_idempotent_under_concurrency(
+    repo: PersonaRepository,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_dir = tmp_path / "en"
+    seed_dir.mkdir()
+    (seed_dir / "nova_assistant.json").write_text(
+        json.dumps(
+            {
+                "meta": {"group": "general", "order": 1},
+                "name": "Nova",
+                "description": "Concurrent seed",
+                "avatar": "nova.png",
+                "identity_core": {"identity_statement": "Nova test persona."},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(persona_seed, "_seed_dir", lambda _locale: seed_dir)
+
+    original_get = repo.get_by_seed_slug
+    both_lookups_finished = asyncio.Event()
+    missing_lookup_count = 0
+
+    async def synchronized_get(seed_slug: str, *, include_deleted: bool = False):
+        nonlocal missing_lookup_count
+        existing = await original_get(seed_slug, include_deleted=include_deleted)
+        if existing is None:
+            missing_lookup_count += 1
+            if missing_lookup_count == 2:
+                both_lookups_finished.set()
+            await both_lookups_finished.wait()
+        return existing
+
+    monkeypatch.setattr(repo, "get_by_seed_slug", synchronized_get)
+
+    first_result, second_result = await asyncio.gather(
+        persona_seed.seed_builtin_personas(repo, "en"),
+        persona_seed.seed_builtin_personas(repo, "en"),
+    )
+
+    records = [
+        item
+        for item in await repo.list_all()
+        if item.is_builtin and item.seed_slug == "nova_assistant"
+    ]
+    assert len(records) == 1
+    assert len(first_result) + len(second_result) == 1

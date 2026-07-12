@@ -101,23 +101,32 @@ class SelfMemory:
     ):
         """Switch the active persona name and optionally swap in a preloaded config."""
         old_personality_name = self.personality_name
+        old_personality_config = self._personality_config
 
-        if new_personality_name:
-            self.personality_name = new_personality_name
+        try:
+            if new_personality_name:
+                self.personality_name = new_personality_name
 
-        # Use the explicitly passed config, or clear so _load_personality
-        # re-resolves from cache / registry.
-        self._personality_config = personality_config
+            # Use the explicitly passed config, or clear so _load_personality
+            # re-resolves from cache / registry.
+            self._personality_config = personality_config
 
-        await self._load_personality()
+            await self._load_personality()
+        except Exception:
+            self.personality_name = old_personality_name
+            self._personality_config = old_personality_config
+            raise
 
         if self.enable_evolution and self._growth_engine and self._personality_config:
             from .growth_memory import MilestoneType
-            await self._growth_engine.record_milestone(
-                milestone_type=MilestoneType.FIRST_USE,
-                title=f"Personality switched to {self._personality_config.name}",
-                description=f"Reloaded personality configuration: {self.personality_name}"
-            )
+            try:
+                await self._growth_engine.record_milestone(
+                    milestone_type=MilestoneType.FIRST_USE,
+                    title=f"Personality switched to {self._personality_config.name}",
+                    description=f"Reloaded personality configuration: {self.personality_name}"
+                )
+            except Exception as exc:
+                logger.warning("Failed to record personality switch milestone: %s", exc)
 
         name = self._personality_config.name if self._personality_config else "Unknown"
         logger.info(f"Personality reloaded: {old_personality_name} -> {self.personality_name} ({name})")

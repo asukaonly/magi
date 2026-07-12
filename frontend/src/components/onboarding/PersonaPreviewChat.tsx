@@ -16,11 +16,11 @@ import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 const MAX_USER_TURNS_PER_PERSONA = 5;
 
 /**
- * An onboarding-generated (unsaved) persona. Lives in onboarding state until
- * the user finishes onboarding, at which point the parent persists it via
- * `personasApi.create`. The `slug` is a client-only id (e.g. `custom-1`).
+ * An onboarding-generated persona draft with its final stable registry ID.
+ * The parent persists the draft before attempting registry creation.
  */
 export interface CustomPersonaDraft {
+  personaId: string;
   slug: string;
   name: string;
   description: string;
@@ -46,6 +46,10 @@ export interface PersonaPreviewChatProps {
   llmConfig?: LLMConfig;
   /** Requests a selection change from the parent onboarding flow. */
   onActiveSeedChange: (seedSlug: string | null) => void;
+  /** Disables all persona interactions while the selection is being confirmed. */
+  disabled: boolean;
+  /** Persistent confirmation failure shown until retry or selection change. */
+  confirmationError: string | null;
   /** Custom drafts to re-hydrate (e.g. after an onboarding reload). */
   initialCustomPersonas?: CustomPersonaDraft[];
   /** Fires whenever the set of custom drafts changes, so the parent can persist them. */
@@ -145,6 +149,8 @@ export function PersonaPreviewChat({
   locale,
   llmConfig,
   onActiveSeedChange,
+  disabled,
+  confirmationError,
   initialCustomPersonas,
   onCustomPersonasChange,
   onGeneratingChange,
@@ -159,7 +165,6 @@ export function PersonaPreviewChat({
   const [customDrafts, setCustomDrafts] = useState<CustomPersonaDraft[]>(
     () => initialCustomPersonas ?? [],
   );
-  const customCounterRef = useRef((initialCustomPersonas ?? []).length);
 
   const railItems = useMemo<RailItem[]>(
     () => [
@@ -199,18 +204,13 @@ export function PersonaPreviewChat({
   useEffect(() => {
     if (
       !previewsLoading &&
+      !disabled &&
       railItems.length > 0 &&
       !railItems.some((item) => item.slug === activeSeed)
     ) {
       onActiveSeedChange(railItems[0].slug);
     }
-  }, [activeSeed, onActiveSeedChange, previewsLoading, railItems]);
-
-  const onCustomPersonasChangeRef = useRef(onCustomPersonasChange);
-  onCustomPersonasChangeRef.current = onCustomPersonasChange;
-  useEffect(() => {
-    onCustomPersonasChangeRef.current?.(customDrafts);
-  }, [customDrafts]);
+  }, [activeSeed, disabled, onActiveSeedChange, previewsLoading, railItems]);
 
   const onGeneratingChangeRef = useRef(onGeneratingChange);
   onGeneratingChangeRef.current = onGeneratingChange;
@@ -257,7 +257,7 @@ export function PersonaPreviewChat({
   );
 
   const send = useCallback(async () => {
-    if (!activeSeed || !draft.trim() || busy || capReached) return;
+    if (disabled || !activeSeed || !draft.trim() || busy || capReached) return;
     const userTurn: PreviewTurn = { role: 'user', content: draft.trim() };
     const seed = activeSeed;
     const snapshotHistory = transcripts[seed] ?? [];
@@ -293,6 +293,7 @@ export function PersonaPreviewChat({
   }, [
     activeSeed,
     activeItem,
+    disabled,
     draft,
     busy,
     capReached,
@@ -309,7 +310,7 @@ export function PersonaPreviewChat({
 
   const handleGenerate = useCallback(async () => {
     const description = customDescription.trim();
-    if (!description || generating) return;
+    if (disabled || !description || generating) return;
     setGenerating(true);
     setGenError(null);
     setGenStages([]);
@@ -323,15 +324,18 @@ export function PersonaPreviewChat({
       if (!config) {
         throw new Error('generation returned no config');
       }
-      customCounterRef.current += 1;
-      const slug = `custom-${customCounterRef.current}`;
+      const personaId = crypto.randomUUID();
+      const slug = `onboarding-custom-${personaId}`;
       const newDraft: CustomPersonaDraft = {
+        personaId,
         slug,
         name: config.name || description,
         description: config.description || description,
         config,
       };
-      setCustomDrafts((prev) => [...prev, newDraft]);
+      const nextDrafts = [...customDrafts, newDraft];
+      setCustomDrafts(nextDrafts);
+      onCustomPersonasChange?.(nextDrafts);
       onActiveSeedChange(slug);
       setCustomDescription('');
       setMode('chat');
@@ -345,10 +349,33 @@ export function PersonaPreviewChat({
     } finally {
       setGenerating(false);
     }
-  }, [customDescription, generating, i18n.language, llmConfig, onActiveSeedChange, t]);
+  }, [
+    customDescription,
+    customDrafts,
+    disabled,
+    generating,
+    i18n.language,
+    llmConfig,
+    onActiveSeedChange,
+    onCustomPersonasChange,
+    t,
+  ]);
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-[200px_1fr] gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {confirmationError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/35 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          {confirmationError}
+        </div>
+      )}
+      <fieldset
+        disabled={disabled}
+        className="m-0 grid min-h-0 min-w-0 flex-1 grid-cols-[200px_1fr] gap-4 border-0 p-0"
+      >
+        <legend className="sr-only">{t('steps.personaPreview')}</legend>
       {/* Left: avatar rail — clicking selects the persona (the active one is
           confirmed by the footer "Next" button). */}
       <div className="flex flex-col gap-2 overflow-y-auto border-r border-border/55 pr-2">
@@ -562,6 +589,7 @@ export function PersonaPreviewChat({
           )}
         </div>
       )}
+      </fieldset>
     </div>
   );
 }

@@ -6500,6 +6500,8 @@ export interface components {
              * @default en
              */
             readonly locale: string;
+            /** Persona Id */
+            readonly persona_id?: string | null;
             /** Slug */
             readonly slug?: string | null;
         };
