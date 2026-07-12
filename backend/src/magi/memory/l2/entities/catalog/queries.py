@@ -416,15 +416,18 @@ class L2EntityCatalogQueryMixin:
 
     @staticmethod
     def _entity_search_clause(query: str | None) -> tuple[str, list[Any]]:
-        return build_like_search_clause(
-            [
-                "ec.entity_id",
-                "ec.canonical_name",
-                "ec.entity_type",
-                "(SELECT GROUP_CONCAT(ea.alias_text, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
-                "(SELECT GROUP_CONCAT(ea.normalized_alias, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
-            ],
-            query,
+        return cast(
+            tuple[str, list[Any]],
+            build_like_search_clause(
+                [
+                    "ec.entity_id",
+                    "ec.canonical_name",
+                    "ec.entity_type",
+                    "(SELECT GROUP_CONCAT(ea.alias_text, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+                    "(SELECT GROUP_CONCAT(ea.normalized_alias, ' ') FROM entity_aliases ea WHERE ea.entity_id = ec.entity_id)",
+                ],
+                query,
+            ),
         )
 
     def _query_host(self) -> _EntityCatalogQueryHostProtocol:
