@@ -94,7 +94,7 @@ export const MemoryEpisodesPage = () => {
         return;
       }
       if (response.status !== 'draft' || !response.draft) {
-        setCreateError(response.message || t('memory.episodes.create.insufficient'));
+        setCreateError(t('memory.episodes.create.insufficient'));
         return;
       }
       setCreateOpen(false);

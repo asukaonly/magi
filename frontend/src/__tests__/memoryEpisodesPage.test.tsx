@@ -44,6 +44,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.create.promptPlaceholder': 'For example: May 1 to May 10, 2026 · Japan trip',
     'memory.episodes.create.organizing': 'Finding the memories that belong together...',
     'memory.episodes.create.organize': 'Help me organize',
+    'memory.episodes.create.insufficient': 'There is not enough reliable evidence yet. Add a time, place, or what happened.',
     'memory.episodes.create.error': 'Could not create the experience.',
     'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
     'memory.episodes.create.sourceCount': '{{count}} source chapters',
@@ -699,6 +700,29 @@ describe('MemoryEpisodesPage', () => {
     expect(await screen.findByText('Experience draft')).toBeInTheDocument();
     expect(screen.getByDisplayValue('2026年5月 日本旅行')).toBeInTheDocument();
     expect(screen.getByDisplayValue('出发前，把路线定下来')).toBeInTheDocument();
+  });
+
+  it('does not expose internal model reasoning when evidence is insufficient', async () => {
+    const internalReason = "The seed title '2026年7月台风' is not supported by the evidence.";
+    vi.mocked(memoryApi.organizeExperienceDraft).mockResolvedValueOnce({
+      status: 'insufficient',
+      draft: null,
+      choices: [],
+      message: internalReason,
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    await screen.findByText('Launch week');
+    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    await user.type(
+      screen.getByLabelText('What experience do you want to organize?'),
+      '2026年7月台风',
+    );
+    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
+
+    expect(await screen.findByText('There is not enough reliable evidence yet. Add a time, place, or what happened.')).toBeInTheDocument();
+    expect(screen.queryByText(internalReason)).not.toBeInTheDocument();
   });
 
   it('saves draft edits before creating the experience', async () => {
