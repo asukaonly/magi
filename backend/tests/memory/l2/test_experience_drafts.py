@@ -143,3 +143,91 @@ async def test_create_experience_from_draft_preserves_chapters(l2_store_with_sch
         draft_id="draft-japan",
     )
     assert retry_experience_id == experience_id
+
+
+@pytest.mark.asyncio
+async def test_create_experience_from_draft_retries_after_completion_update_failure(
+    l2_store_with_schema,
+    monkeypatch,
+):
+    from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
+
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-train",
+        status="active",
+        label="Prepare train tickets",
+        time_start=100.0,
+        time_end=200.0,
+        source_event_count=2,
+    )
+    await store.add_episode_events(
+        episode_id="ep-train",
+        event_ids=["evt-ticket", "evt-route"],
+    )
+    await store.create_experience_draft(
+        draft_id="draft-retry",
+        query_text="Japan trip",
+        title="First Japan trip",
+        one_sentence_review="A trip from Tokyo to Kyoto.",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[
+            {
+                "chapter_id": "chapter-1",
+                "title": "Departure planning",
+                "summary": "Finalize the route and tickets.",
+                "time_start": 100.0,
+                "time_end": 200.0,
+                "episode_ids": ["ep-train"],
+                "event_ids": ["evt-ticket"],
+            }
+        ],
+        possible_evidence=[],
+    )
+    update_draft = store.update_experience_draft
+    should_fail_completion = True
+
+    async def fail_first_completion_update(*, draft_id: str, **fields):
+        nonlocal should_fail_completion
+        if fields.get("status") == "completed" and should_fail_completion:
+            should_fail_completion = False
+            raise RuntimeError("Simulated draft completion failure")
+        return await update_draft(draft_id=draft_id, **fields)
+
+    monkeypatch.setattr(store, "update_experience_draft", fail_first_completion_update)
+
+    with pytest.raises(RuntimeError, match="Simulated draft completion failure"):
+        await create_experience_from_draft(store, draft_id="draft-retry")
+
+    experiences_after_failure = await store.list_experiences()
+    assert len(experiences_after_failure) == 1
+    stable_experience_id = experiences_after_failure[0]["experience_id"]
+    draft_after_failure = await store.get_experience_draft(draft_id="draft-retry")
+    assert draft_after_failure is not None
+    assert draft_after_failure["status"] == "editing"
+
+    retry_experience_id = await create_experience_from_draft(
+        store,
+        draft_id="draft-retry",
+    )
+
+    assert retry_experience_id == stable_experience_id
+    experiences_after_retry = await store.list_experiences()
+    assert [item["experience_id"] for item in experiences_after_retry] == [stable_experience_id]
+    experience = await store.get_experience(experience_id=stable_experience_id)
+    assert experience is not None
+    assert experience["source_episode_count"] == 1
+    assert experience["source_event_count"] == 2
+    assert [chapter["chapter_id"] for chapter in experience["chapters"]] == ["chapter-1"]
+    members = await store.list_experience_members(
+        experience_id=stable_experience_id,
+    )
+    assert [(item["member_type"], item["member_id"]) for item in members] == [
+        ("episode", "ep-train"),
+        ("event", "evt-ticket"),
+    ]
+    completed_draft = await store.get_experience_draft(draft_id="draft-retry")
+    assert completed_draft is not None
+    assert completed_draft["status"] == "completed"
+    assert completed_draft["created_experience_id"] == stable_experience_id
