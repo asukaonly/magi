@@ -81,6 +81,7 @@ from ..timeline.lifecycle import (
 )
 from ..tools import tool_registry
 from ..tools.lifecycle import ToolsModule
+from ..user_profile.portrait_projection_scheduler import register_l2_portrait_projection_refresh
 
 
 RuntimeWorkerPhaseBuilder = Callable[[RuntimeBootstrapContext], list[LifecycleModule]]
@@ -209,7 +210,11 @@ def _build_infrastructure_modules(context: RuntimeBootstrapContext) -> list[Life
 def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[LifecycleModule]:
     """Build the stateful services and shared runtime stores phase."""
     return [
-        MemoryStoreModule(context, start_memory_integration=True),
+        MemoryStoreModule(
+            context,
+            start_memory_integration=True,
+            portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
+        ),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
         LocationModule(context),  # owns location pipeline; reads memory.db path directly
         ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction

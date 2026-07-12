@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
@@ -29,6 +30,7 @@ class MemoryStoreModule(LifecycleModule):
         *,
         start_memory_integration: bool = True,
         enable_embedding: bool = True,
+        portrait_projection_refresh_registrar: Callable[[Any], None] | None = None,
     ):
         dependencies = [
             "runtime_llm",
@@ -45,6 +47,7 @@ class MemoryStoreModule(LifecycleModule):
         self._context = context
         self.start_memory_integration = start_memory_integration
         self._enable_embedding = enable_embedding
+        self._portrait_projection_refresh_registrar = portrait_projection_refresh_registrar
 
     async def init(self) -> None:
         config = require_initialized(self._context.core.config, "runtime config")
@@ -69,6 +72,8 @@ class MemoryStoreModule(LifecycleModule):
             plugin_projection_service=plugin_projection_service,
             memory_config=memory_config,
         )
+        if self._portrait_projection_refresh_registrar is not None:
+            self._portrait_projection_refresh_registrar(self._context.memory.unified_memory)
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
 

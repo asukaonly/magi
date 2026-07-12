@@ -62,6 +62,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     usage_store = _FakeUsageStore()
     fake_pool = _FakeScenarioPool()
     captured: dict[str, object] = {}
+    registered_stores: list[object] = []
 
     def fake_unified_memory_store(**kwargs):  # type: ignore[no-untyped-def]
         captured.update(kwargs)
@@ -123,7 +124,11 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
         iter_extraction_profiles=lambda: [],
     )
 
-    module = MemoryStoreModule(context, start_memory_integration=False)
+    module = MemoryStoreModule(
+        context,
+        start_memory_integration=False,
+        portrait_projection_refresh_registrar=registered_stores.append,
+    )
 
     await module.init()
 
@@ -132,6 +137,7 @@ async def test_memory_store_module_passes_l2_batch_flush_interval(monkeypatch: p
     # Advanced tuning knobs are bundled into MemoryStoreTuning.
     assert captured["tuning"].enable_l2_conflict_arbitration is True
     assert captured["tuning"].l2_conflict_arbitration_min_confidence == 0.85
+    assert registered_stores == [context.memory.unified_memory]
     assert usage_store.started is False
     assert usage_store.message_bus is None
 
