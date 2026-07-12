@@ -53,22 +53,23 @@ export function ExperienceDraftSegmentCard({
   const requestGenerationRef = useRef(0);
   const [content, setContent] = useState<EpisodeContentSnapshot>({
     episodeIdsKey,
-    state: episodeIdsKey ? 'loading' : 'idle',
+    state: 'idle',
     events: [],
   });
   const contentState = content.episodeIdsKey === episodeIdsKey
     ? content.state
-    : episodeIdsKey ? 'loading' : 'idle';
+    : 'idle';
   const events = content.episodeIdsKey === episodeIdsKey ? content.events : [];
   const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
   const readableEvents = useMemo(
     () => events.filter((event) => String(event.content_preview || '').trim()),
     [events],
   );
-  const eventCount = new Set([
-    ...chapter.event_ids,
-    ...events.map((event) => event.event_id),
-  ]).size;
+  const eventCount = typeof chapter.event_count === 'number'
+    && Number.isFinite(chapter.event_count)
+    && chapter.event_count >= 0
+    ? Math.floor(chapter.event_count)
+    : new Set(chapter.event_ids).size;
 
   const loadContent = useCallback(async () => {
     if (!episodeIdsKey) return;
@@ -91,13 +92,15 @@ export function ExperienceDraftSegmentCard({
   }, [episodeIdsKey]);
 
   useEffect(() => {
-    if (episodeIdsKey) void loadContent();
+    setContentOpen(false);
+    setContent({ episodeIdsKey, state: 'idle', events: [] });
     return () => {
       requestGenerationRef.current += 1;
     };
-  }, [episodeIdsKey, loadContent]);
+  }, [episodeIdsKey]);
 
   const toggleContent = () => {
+    if (!contentOpen && contentState === 'idle') void loadContent();
     setContentOpen((open) => !open);
   };
 

@@ -8,29 +8,34 @@ import json
 import pytest
 
 
-def test_draft_chapter_uses_readable_fields_from_structured_episode_summary():
-    from magi.memory.l2.experiences.draft_organizer import _chapter_from_episode
-
-    chapter = _chapter_from_episode(
-        {
-            "episode_id": "ep-umi",
-            "label": "software:gemini.",
-            "summary": json.dumps(
-                {
-                    "label": "查询海胆日文与 Umi",
-                    "content": "在 Google 和 Gemini 间搜索海胆的日文写法。",
-                    "key_topics": ["海胆"],
-                },
-                ensure_ascii=False,
-            ),
-            "time_start": 100.0,
-            "time_end": 200.0,
-        },
-        position=0,
+def test_draft_chapter_and_preview_include_source_event_count():
+    from magi.memory.l2.experiences.draft_organizer import (
+        _chapter_from_episode,
+        _episode_preview,
     )
+
+    episode = {
+        "episode_id": "ep-umi",
+        "label": "software:gemini.",
+        "summary": json.dumps(
+            {
+                "label": "查询海胆日文与 Umi",
+                "content": "在 Google 和 Gemini 间搜索海胆的日文写法。",
+                "key_topics": ["海胆"],
+            },
+            ensure_ascii=False,
+        ),
+        "time_start": 100.0,
+        "time_end": 200.0,
+        "source_event_count": 7,
+    }
+    chapter = _chapter_from_episode(episode, position=0)
+    preview = _episode_preview(episode)
 
     assert chapter["title"] == "查询海胆日文与 Umi"
     assert chapter["summary"] == "在 Google 和 Gemini 间搜索海胆的日文写法。"
+    assert chapter["event_count"] == 7
+    assert preview["event_count"] == 7
     assert "key_topics" not in chapter["summary"]
 
 
@@ -77,6 +82,7 @@ async def test_organizer_uses_original_query_and_persists_validated_selection():
         "summary": "比较新干线车票并确定东京到京都的路线。",
         "time_start": 100.0,
         "time_end": 180.0,
+        "source_event_count": 5,
         "primary_entity_ids": ["place:japan"],
         "primary_place_ids": ["place:tokyo", "place:kyoto"],
         "primary_topic_keys": ["travel"],
@@ -90,6 +96,7 @@ async def test_organizer_uses_original_query_and_persists_validated_selection():
             "summary": "观看 Minecraft 红石矿车教程。",
             "time_start": 130.0,
             "time_end": 150.0,
+            "source_event_count": 3,
             "primary_entity_ids": ["game:minecraft"],
             "primary_place_ids": [],
             "primary_topic_keys": ["minecraft"],
@@ -146,8 +153,10 @@ async def test_organizer_uses_original_query_and_persists_validated_selection():
     )
     create_kwargs = l2.create_experience_draft.await_args.kwargs
     assert create_kwargs["chapters"][0]["episode_ids"] == ["ep-train"]
+    assert create_kwargs["chapters"][0]["event_count"] == 5
     assert create_kwargs["possible_evidence"] == []
     assert create_kwargs["excluded_evidence"][0]["ref_id"] == "ep-minecraft"
+    assert create_kwargs["excluded_evidence"][0]["event_count"] == 3
 
 
 @pytest.mark.asyncio

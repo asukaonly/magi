@@ -109,6 +109,7 @@ def _episode_preview(episode: Mapping[str, Any]) -> dict[str, Any]:
         "summary": summary,
         "time_start": episode.get("time_start"),
         "time_end": episode.get("time_end"),
+        "event_count": max(0, int(episode.get("source_event_count") or 0)),
     }
 
 
@@ -122,6 +123,7 @@ def _chapter_from_episode(episode: Mapping[str, Any], *, position: int) -> dict[
         "time_end": episode.get("time_end"),
         "episode_ids": [str(episode["episode_id"])],
         "event_ids": [],
+        "event_count": max(0, int(episode.get("source_event_count") or 0)),
     }
 
 

@@ -99,6 +99,79 @@ def test_organize_experience_draft_returns_persisted_draft(public_app_with_mock_
     )
 
 
+def test_get_experience_draft_hydrates_missing_distinct_event_counts(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value={
+        "draft_id": "draft-japan",
+        "status": "editing",
+        "title": "日本旅行",
+        "chapters": [
+            {
+                "chapter_id": "chapter-route",
+                "episode_ids": ["ep-train", "ep-lodging"],
+                "event_ids": ["evt-direct", "evt-shared"],
+            },
+            {
+                "chapter_id": "chapter-counted",
+                "episode_ids": ["ep-counted"],
+                "event_ids": [],
+                "event_count": 9,
+            },
+        ],
+        "possible_evidence": [{
+            "ref_type": "episode",
+            "ref_id": "ep-possible",
+            "title": "可能相关",
+            "summary": "另一段来源片段。",
+        }],
+        "excluded_evidence": [{
+            "ref_type": "event",
+            "ref_id": "evt-excluded",
+            "title": "已排除事件",
+            "summary": "不属于这段经历。",
+        }],
+    })
+
+    async def list_episode_events(*, episode_id: str, limit: int):
+        assert limit == 10_000
+        memberships = {
+            "ep-train": [
+                {"event_id": "evt-shared"},
+                {"event_id": "evt-train"},
+            ],
+            "ep-lodging": [
+                {"event_id": "evt-shared"},
+                {"event_id": "evt-lodging"},
+            ],
+            "ep-possible": [
+                {"event_id": "evt-possible"},
+                {"event_id": "evt-possible"},
+            ],
+        }
+        return memberships[episode_id]
+
+    l2.list_episode_events = AsyncMock(side_effect=list_episode_events)
+    unified = MagicMock(l2=l2)
+
+    with build_patcher(unified):
+        response = TestClient(app).get(
+            "/api/memory/l2/experience-drafts/draft-japan",
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["chapters"][0]["event_count"] == 4
+    assert payload["chapters"][1]["event_count"] == 9
+    assert payload["possible_evidence"][0]["event_count"] == 1
+    assert payload["excluded_evidence"][0]["event_count"] == 1
+    assert [call.kwargs["episode_id"] for call in l2.list_episode_events.await_args_list] == [
+        "ep-train",
+        "ep-lodging",
+        "ep-possible",
+    ]
+
+
 def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):
     app, build_patcher = public_app_with_mock_memory
     l2 = MagicMock()

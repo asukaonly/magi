@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException, Query, UploadFile, status
@@ -33,6 +34,9 @@ from ..schemas import (
     ExperienceDraftUpdateRequest,
     ExperienceSeedCreateRequest,
 )
+
+
+_DRAFT_EVENT_MEMBERSHIP_LIMIT = 10_000
 
 
 def _clean_text(value: Any) -> str:
@@ -439,20 +443,134 @@ async def list_experience_drafts_route(
     return {"items": items, "total": len(items), "limit": limit, "offset": offset}
 
 
-async def _get_experience_draft_or_404(unified_memory: Any, draft_id: str) -> dict[str, Any]:
+def _coerce_draft_event_count(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 0 else None
+
+
+async def _hydrate_experience_draft_event_counts(
+    unified_memory: Any,
+    draft: dict[str, Any],
+) -> dict[str, Any]:
+    list_episode_events = get_configured_or_real_method(
+        get_unified_layer(unified_memory, "l2"),
+        "list_episode_events",
+    )
+    episode_event_ids: dict[str, set[str]] = {}
+
+    async def membership_event_ids(episode_id: str) -> set[str]:
+        if episode_id in episode_event_ids:
+            return episode_event_ids[episode_id]
+        memberships = (
+            await list_episode_events(
+                episode_id=episode_id,
+                limit=_DRAFT_EVENT_MEMBERSHIP_LIMIT,
+            )
+            if list_episode_events is not None
+            else []
+        )
+        event_ids = {
+            event_id
+            for membership in memberships
+            if isinstance(membership, Mapping)
+            for event_id in ordered_non_empty_strings([membership.get("event_id")])
+        }
+        episode_event_ids[episode_id] = event_ids
+        return event_ids
+
+    async def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int:
+        distinct_ids = set(ordered_non_empty_strings(direct_event_ids))
+        for episode_id in ordered_non_empty_strings(episode_ids):
+            distinct_ids.update(await membership_event_ids(episode_id))
+        return len(distinct_ids)
+
+    async def hydrate_chapter(chapter: Any) -> Any:
+        if not isinstance(chapter, Mapping):
+            return chapter
+        hydrated = dict(chapter)
+        event_count = _coerce_draft_event_count(hydrated.get("event_count"))
+        if event_count is None:
+            event_count = await count_evidence(
+                hydrated.get("episode_ids"),
+                hydrated.get("event_ids"),
+            )
+        hydrated["event_count"] = event_count
+        return hydrated
+
+    async def hydrate_evidence(evidence: Any) -> Any:
+        if not isinstance(evidence, Mapping):
+            return evidence
+        hydrated = dict(evidence)
+        event_count = _coerce_draft_event_count(hydrated.get("event_count"))
+        restore_chapter = hydrated.get("restore_chapter")
+        if isinstance(restore_chapter, Mapping):
+            restored = dict(restore_chapter)
+            restored_count = _coerce_draft_event_count(restored.get("event_count"))
+            if restored_count is None:
+                restored_count = event_count
+            if restored_count is None:
+                restored_count = await count_evidence(
+                    restored.get("episode_ids"),
+                    restored.get("event_ids"),
+                )
+            restored["event_count"] = restored_count
+            hydrated["restore_chapter"] = restored
+            if event_count is None:
+                event_count = restored_count
+        if event_count is None:
+            ref_id = _clean_text(hydrated.get("ref_id"))
+            if hydrated.get("ref_type") == "episode" and ref_id:
+                event_count = await count_evidence([ref_id], [])
+            elif hydrated.get("ref_type") == "event" and ref_id:
+                event_count = 1
+            else:
+                event_count = 0
+        hydrated["event_count"] = event_count
+        return hydrated
+
+    hydrated_draft = dict(draft)
+    hydrated_draft["chapters"] = [
+        await hydrate_chapter(chapter)
+        for chapter in draft.get("chapters") or []
+    ]
+    for key in ("possible_evidence", "excluded_evidence"):
+        hydrated_draft[key] = [
+            await hydrate_evidence(evidence)
+            for evidence in draft.get(key) or []
+        ]
+    return hydrated_draft
+
+
+async def _get_experience_draft_or_404(
+    unified_memory: Any,
+    draft_id: str,
+    *,
+    hydrate_event_counts: bool = False,
+) -> dict[str, Any]:
     draft = await unified_memory.l2.get_experience_draft(draft_id=draft_id)
     if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.experience_draft_not_found", "Experience draft not found"),
         )
+    if hydrate_event_counts:
+        return await _hydrate_experience_draft_event_counts(unified_memory, draft)
     return draft
 
 
 @memory_router.get("/l2/experience-drafts/{draft_id}")
 async def get_experience_draft_route(draft_id: str) -> dict[str, Any]:
     """Return one experience draft."""
-    return await _get_experience_draft_or_404(_require_l2_memory(), draft_id)
+    return await _get_experience_draft_or_404(
+        _require_l2_memory(),
+        draft_id,
+        hydrate_event_counts=True,
+    )
 
 
 @memory_router.patch("/l2/experience-drafts/{draft_id}")
@@ -466,7 +584,11 @@ async def update_experience_draft_route(
     updates = body.model_dump(exclude_unset=True)
     if updates:
         await unified_memory.l2.update_experience_draft(draft_id=draft_id, **updates)
-    return await _get_experience_draft_or_404(unified_memory, draft_id)
+    return await _get_experience_draft_or_404(
+        unified_memory,
+        draft_id,
+        hydrate_event_counts=True,
+    )
 
 
 @memory_router.post("/l2/experience-drafts/{draft_id}/create")

@@ -382,12 +382,14 @@ export interface ExperienceDraftEvidence {
   summary: string;
   time_start?: number | null;
   time_end?: number | null;
+  event_count?: number;
   reason?: string | null;
   restore_chapter?: {
     chapter_id: string;
     chapter_order: number;
     episode_ids: string[];
     event_ids: string[];
+    event_count?: number;
   } | null;
 }
 
@@ -400,6 +402,7 @@ export interface ExperienceDraftChapter {
   time_end?: number | null;
   episode_ids: string[];
   event_ids: string[];
+  event_count?: number;
 }
 
 export interface ExperienceDraft {

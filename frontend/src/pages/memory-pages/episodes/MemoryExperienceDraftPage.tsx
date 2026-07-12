@@ -281,6 +281,7 @@ export const MemoryExperienceDraftPage = () => {
       chapter_order: chapter.draft_order,
       episode_ids: chapter.episode_ids,
       event_ids: chapter.event_ids,
+      event_count: chapter.event_count,
     };
     const possibleEvidence: ExperienceDraftEvidence[] = [
       ...chapter.episode_ids.map((refId) => ({
@@ -290,6 +291,7 @@ export const MemoryExperienceDraftPage = () => {
         summary: chapter.summary,
         time_start: chapter.time_start,
         time_end: chapter.time_end,
+        event_count: chapter.event_count,
         restore_chapter: restoreChapter,
       })),
       ...chapter.event_ids.map((refId) => ({
@@ -299,6 +301,7 @@ export const MemoryExperienceDraftPage = () => {
         summary: chapter.summary,
         time_start: chapter.time_start,
         time_end: chapter.time_end,
+        event_count: chapter.event_count,
         restore_chapter: restoreChapter,
       })),
     ];
@@ -353,6 +356,7 @@ export const MemoryExperienceDraftPage = () => {
         event_ids: availableEvidence
           .filter((item) => item.ref_type === 'event')
           .map((item) => item.ref_id),
+        event_count: restoreChapter?.event_count ?? evidence.event_count,
       };
       return {
         ...current,
