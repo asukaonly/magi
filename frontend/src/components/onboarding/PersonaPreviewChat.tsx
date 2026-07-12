@@ -29,6 +29,10 @@ export interface CustomPersonaDraft {
 
 export interface PersonaPreviewChatProps {
   previews: SeedPreview[];
+  /** Whether builtin seed previews are still loading. */
+  previewsLoading: boolean;
+  /** The persona slug selected by the parent onboarding flow. */
+  activeSeed: string | null;
   /**
    * Seed locale ("zh" / "en") the previews were loaded with — forwarded to the
    * preview endpoint so a seed_slug resolves against the right preset folder.
@@ -40,12 +44,8 @@ export interface PersonaPreviewChatProps {
    * the user has persisted their selections / started the LLM runtime.
    */
   llmConfig?: LLMConfig;
-  /**
-   * Fires whenever the active persona changes (including the initial default).
-   * The active persona in the rail *is* the selection — the parent's footer
-   * "Next" button confirms it and advances.
-   */
-  onActiveSeedChange?: (seedSlug: string | null) => void;
+  /** Requests a selection change from the parent onboarding flow. */
+  onActiveSeedChange: (seedSlug: string | null) => void;
   /** Custom drafts to re-hydrate (e.g. after an onboarding reload). */
   initialCustomPersonas?: CustomPersonaDraft[];
   /** Fires whenever the set of custom drafts changes, so the parent can persist them. */
@@ -140,6 +140,8 @@ function TypingDots({
 
 export function PersonaPreviewChat({
   previews,
+  previewsLoading,
+  activeSeed,
   locale,
   llmConfig,
   onActiveSeedChange,
@@ -180,9 +182,6 @@ export function PersonaPreviewChat({
     [sortedPreviews, customDrafts],
   );
 
-  const [activeSeed, setActiveSeed] = useState<string | null>(
-    railItems[0]?.slug ?? null,
-  );
   const [transcripts, setTranscripts] = useState<TranscriptMap>({});
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
@@ -194,21 +193,18 @@ export function PersonaPreviewChat({
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
   const [genError, setGenError] = useState<string | null>(null);
 
-  // If the rail is empty on first render (async load), adopt the first item as
-  // the default selection once items arrive.
+  // An empty rail can be a temporary async loading state, so it must not clear
+  // or replace the parent's selection. Once a non-empty rail arrives, request
+  // a fallback only when the saved selection is no longer available.
   useEffect(() => {
-    if (activeSeed === null && railItems.length > 0) {
-      setActiveSeed(railItems[0].slug);
+    if (
+      !previewsLoading &&
+      railItems.length > 0 &&
+      !railItems.some((item) => item.slug === activeSeed)
+    ) {
+      onActiveSeedChange(railItems[0].slug);
     }
-  }, [activeSeed, railItems]);
-
-  // Notify the parent of the current selection / drafts without depending on
-  // the (unstable) callback identity — fire only when the value changes.
-  const onActiveSeedChangeRef = useRef(onActiveSeedChange);
-  onActiveSeedChangeRef.current = onActiveSeedChange;
-  useEffect(() => {
-    onActiveSeedChangeRef.current?.(activeSeed);
-  }, [activeSeed]);
+  }, [activeSeed, onActiveSeedChange, previewsLoading, railItems]);
 
   const onCustomPersonasChangeRef = useRef(onCustomPersonasChange);
   onCustomPersonasChangeRef.current = onCustomPersonasChange;
@@ -336,7 +332,7 @@ export function PersonaPreviewChat({
         config,
       };
       setCustomDrafts((prev) => [...prev, newDraft]);
-      setActiveSeed(slug);
+      onActiveSeedChange(slug);
       setCustomDescription('');
       setMode('chat');
     } catch (err) {
@@ -349,7 +345,7 @@ export function PersonaPreviewChat({
     } finally {
       setGenerating(false);
     }
-  }, [customDescription, generating, i18n.language, llmConfig, t]);
+  }, [customDescription, generating, i18n.language, llmConfig, onActiveSeedChange, t]);
 
   return (
     <div className="grid h-full min-h-0 grid-cols-[200px_1fr] gap-4">
@@ -361,7 +357,7 @@ export function PersonaPreviewChat({
             key={p.slug}
             type="button"
             onClick={() => {
-              setActiveSeed(p.slug);
+              onActiveSeedChange(p.slug);
               setMode('chat');
             }}
             aria-pressed={activeSeed === p.slug && mode === 'chat'}

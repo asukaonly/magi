@@ -165,7 +165,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const [saving, setSaving] = useState(false);
   const [finishingRuntime, setFinishingRuntime] = useState(false);
   const finishInFlightRef = useRef(false);
-  const [renderLanguage, setRenderLanguage] = useState(i18n.resolvedLanguage || i18n.language);
+  const [renderLanguage, setRenderLanguage] = useState(() =>
+    toI18nLanguage(initialConfig.preferences?.language || 'zh'),
+  );
   const [llmValid, setLlmValid] = useState(false);
   const [llmValue, setLlmValue] = useState<LLMConfig>(() =>
     cloneLLMConfig(initialConfig.llm)
@@ -195,6 +197,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
+  const [seedPreviewsLoading, setSeedPreviewsLoading] = useState(true);
 
   const activeLanguage = i18n.resolvedLanguage || i18n.language;
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
@@ -210,7 +213,6 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     const configuredLanguage = toI18nLanguage(formLanguage);
 
     document.documentElement.lang = configuredLanguage;
-    setRenderLanguage(configuredLanguage);
 
     if ((i18n.resolvedLanguage || i18n.language) !== configuredLanguage) {
       void i18n.changeLanguage(configuredLanguage);
@@ -230,19 +232,30 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   );
 
   const isLastStep = current === steps.length - 1;
+  const onboardingLanguage = renderLanguage.startsWith('zh') ? 'zh' : 'en';
+  const onboardingInitialValues = useMemo<SystemConfig>(
+    () => ({
+      ...initialConfig,
+      preferences: {
+        ...initialConfig.preferences,
+        language: onboardingLanguage,
+      },
+    }),
+    [initialConfig, onboardingLanguage],
+  );
 
   // Seed locale folder ("zh" / "en"). Drives both which previews we load and
   // which preset folder the preview chat resolves a seed_slug against — they
   // must agree, or the backend can't find the seed.
-  const seedLocale = (initialConfig.preferences?.language || 'en').startsWith('zh')
-    ? 'zh'
-    : 'en';
+  const seedLocale = onboardingLanguage;
 
   // Load persona seed previews for the current locale once on mount and when
   // language changes. This keeps the avatar rail in sync with i18n.
   useEffect(() => {
     let cancelled = false;
     const locale = seedLocale;
+    setSeedPreviewsLoading(true);
+    setSeedPreviews([]);
     void (async () => {
       try {
         const resp = await personasApi.seedPreviews(locale);
@@ -251,12 +264,16 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
         setSeedPreviews(Array.isArray(data) ? data : []);
       } catch {
         // Persona preview is best-effort; chat preview server may be offline.
+      } finally {
+        if (!cancelled) {
+          setSeedPreviewsLoading(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [initialConfig.preferences?.language]);
+  }, [seedLocale]);
 
   // Restore saved progress
   useEffect(() => {
@@ -388,7 +405,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
 
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
-      setRenderLanguage(lng);
+      setRenderLanguage(toI18nLanguage(lng));
     };
     i18n.on('languageChanged', handleLanguageChanged);
     return () => {
@@ -638,6 +655,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     localStorage.setItem('magi_language', lang);
     const mapped = toI18nLanguage(lang);
     document.documentElement.lang = mapped;
+    setRenderLanguage(mapped);
     void i18n.changeLanguage(mapped);
   };
 
@@ -711,6 +729,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       return (
         <PersonaPreviewChat
           previews={seedPreviews}
+          previewsLoading={seedPreviewsLoading}
+          activeSeed={seedSlug}
           locale={seedLocale}
           llmConfig={llmValue}
           initialCustomPersonas={customPersonas}
@@ -761,7 +781,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
       <Form
         form={form}
         layout="vertical"
-        initialValues={initialConfig}
+        initialValues={onboardingInitialValues}
         onValuesChange={onValuesChange}
       >
         <WelcomeScreen
@@ -826,7 +846,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           <Form
             form={form}
             layout="vertical"
-            initialValues={initialConfig}
+            initialValues={onboardingInitialValues}
             onValuesChange={onValuesChange}
           >
             <AnimatePresence mode="wait">

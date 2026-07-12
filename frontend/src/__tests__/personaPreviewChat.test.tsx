@@ -1,7 +1,11 @@
+import { useState, type ComponentProps } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { PersonaPreviewChat } from '../components/onboarding/PersonaPreviewChat';
+import {
+  PersonaPreviewChat,
+  type CustomPersonaDraft,
+} from '../components/onboarding/PersonaPreviewChat';
 import { personasApi, type SeedPreview, type PersonalityConfig } from '../api/modules/personas';
 
 vi.mock('react-i18next', () => ({
@@ -42,6 +46,40 @@ const previews: SeedPreview[] = [
   },
 ];
 
+type ControlledPersonaPreviewProps = Omit<
+  ComponentProps<typeof PersonaPreviewChat>,
+  'activeSeed' | 'onActiveSeedChange' | 'previewsLoading'
+> & {
+  initialActiveSeed?: string | null;
+  onActiveSeedChange?: (seedSlug: string | null) => void;
+  previewsLoading?: boolean;
+};
+
+function ControlledPersonaPreview({
+  initialActiveSeed = 'nova',
+  onActiveSeedChange,
+  previewsLoading = false,
+  ...props
+}: ControlledPersonaPreviewProps): JSX.Element {
+  const [activeSeed, setActiveSeed] = useState<string | null>(initialActiveSeed);
+
+  return (
+    <PersonaPreviewChat
+      {...props}
+      activeSeed={activeSeed}
+      previewsLoading={previewsLoading}
+      onActiveSeedChange={(seedSlug) => {
+        setActiveSeed(seedSlug);
+        onActiveSeedChange?.(seedSlug);
+      }}
+    />
+  );
+}
+
+function renderPersonaPreview(props: ControlledPersonaPreviewProps) {
+  return render(<ControlledPersonaPreview {...props} />);
+}
+
 describe('PersonaPreviewChat', () => {
   beforeEach(() => {
     mockStream.mockReset();
@@ -49,14 +87,82 @@ describe('PersonaPreviewChat', () => {
   });
 
   it('renders a rail entry for every seed preview', () => {
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     expect(screen.getByRole('button', { name: /Nova/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
   });
 
+  it('keeps the parent-selected persona active', () => {
+    renderPersonaPreview({ previews, initialActiveSeed: 'ember' });
+
+    expect(screen.getByRole('button', { name: /Ember/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /Nova/i })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('preserves a parent selection while previews are temporarily empty and after it loads', async () => {
+    const onActiveSeedChange = vi.fn();
+    const { rerender } = render(
+      <PersonaPreviewChat
+        previews={[]}
+        previewsLoading
+        activeSeed="ember"
+        onActiveSeedChange={onActiveSeedChange}
+      />,
+    );
+
+    await waitFor(() => expect(onActiveSeedChange).not.toHaveBeenCalled());
+
+    rerender(
+      <PersonaPreviewChat
+        previews={previews}
+        previewsLoading={false}
+        activeSeed="ember"
+        onActiveSeedChange={onActiveSeedChange}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Ember/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(onActiveSeedChange).not.toHaveBeenCalled();
+  });
+
+  it('requests the first persona only after a non-empty list confirms the selection is missing', async () => {
+    const onActiveSeedChange = vi.fn();
+    const { rerender } = render(
+      <PersonaPreviewChat
+        previews={[]}
+        previewsLoading
+        activeSeed="missing"
+        onActiveSeedChange={onActiveSeedChange}
+      />,
+    );
+
+    await waitFor(() => expect(onActiveSeedChange).not.toHaveBeenCalled());
+
+    rerender(
+      <PersonaPreviewChat
+        previews={previews}
+        previewsLoading={false}
+        activeSeed="missing"
+        onActiveSeedChange={onActiveSeedChange}
+      />,
+    );
+
+    await waitFor(() => expect(onActiveSeedChange).toHaveBeenCalledTimes(1));
+    expect(onActiveSeedChange).toHaveBeenCalledWith('nova');
+  });
+
   it('streams the persona reply and forwards the locale + llm_override', async () => {
     const llmConfig = { providers: {}, selections: {} } as any;
-    render(<PersonaPreviewChat previews={previews} locale="zh" llmConfig={llmConfig} />);
+    renderPersonaPreview({ previews, locale: 'zh', llmConfig });
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     const input = screen.getByPlaceholderText(/composerPlaceholder/i);
     await userEvent.type(input, 'hi');
@@ -87,7 +193,7 @@ describe('PersonaPreviewChat', () => {
       })(),
     );
 
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     await userEvent.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'hi');
     await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
@@ -103,7 +209,7 @@ describe('PersonaPreviewChat', () => {
   });
 
   it('preserves each persona transcript when switching back and forth', async () => {
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     // Send a message to Nova
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     await userEvent.type(
@@ -120,19 +226,11 @@ describe('PersonaPreviewChat', () => {
     expect(screen.getByText('nova-msg')).toBeInTheDocument();
   });
 
-  it('reports the active persona slug via onActiveSeedChange', async () => {
+  it('reports a persona slug when the user changes the selection', async () => {
     const onActiveSeedChange = vi.fn();
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        onActiveSeedChange={onActiveSeedChange}
-      />,
-    );
-    // Fires with the default (first) selection on mount.
-    await waitFor(() =>
-      expect(onActiveSeedChange).toHaveBeenCalledWith('nova'),
-    );
-    // Fires again when the user picks a different persona.
+    renderPersonaPreview({ previews, onActiveSeedChange });
+
+    expect(onActiveSeedChange).not.toHaveBeenCalled();
     await userEvent.click(screen.getByRole('button', { name: /Ember/i }));
     await waitFor(() =>
       expect(onActiveSeedChange).toHaveBeenLastCalledWith('ember'),
@@ -168,6 +266,29 @@ describe('PersonaPreviewChat', () => {
     };
   }
 
+  it('does not replace a restored builtin persona while its previews are loading', async () => {
+    const onActiveSeedChange = vi.fn();
+    const customDraft: CustomPersonaDraft = {
+      slug: 'custom-1',
+      name: 'Sage',
+      description: 'wise mentor',
+      config: makeGeneratedConfig(),
+    };
+
+    render(
+      <PersonaPreviewChat
+        previews={[]}
+        previewsLoading
+        activeSeed="ember"
+        initialCustomPersonas={[customDraft]}
+        onActiveSeedChange={onActiveSeedChange}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: /Sage/i })).toBeInTheDocument();
+    await waitFor(() => expect(onActiveSeedChange).not.toHaveBeenCalled());
+  });
+
   it('generates a custom persona and chats with it via persona_override', async () => {
     const generated = makeGeneratedConfig();
     const genSpy = vi
@@ -176,13 +297,7 @@ describe('PersonaPreviewChat', () => {
     const onCustomPersonasChange = vi.fn();
     const llmConfig = { providers: {}, selections: {} } as any;
 
-    render(
-      <PersonaPreviewChat
-        previews={previews}
-        llmConfig={llmConfig}
-        onCustomPersonasChange={onCustomPersonasChange}
-      />,
-    );
+    renderPersonaPreview({ previews, llmConfig, onCustomPersonasChange });
 
     // Open the custom composer, describe, and generate.
     await userEvent.click(screen.getByTestId('persona-create-custom'));
@@ -228,7 +343,7 @@ describe('PersonaPreviewChat', () => {
       () => new Promise((resolve) => { resolveGen = resolve; }),
     );
 
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -261,7 +376,7 @@ describe('PersonaPreviewChat', () => {
       },
     );
 
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -289,7 +404,7 @@ describe('PersonaPreviewChat', () => {
       },
     );
 
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -308,9 +423,7 @@ describe('PersonaPreviewChat', () => {
     );
     const onGeneratingChange = vi.fn();
 
-    render(
-      <PersonaPreviewChat previews={previews} onGeneratingChange={onGeneratingChange} />,
-    );
+    renderPersonaPreview({ previews, onGeneratingChange });
     await userEvent.click(screen.getByTestId('persona-create-custom'));
     await userEvent.type(screen.getByTestId('persona-custom-description'), 'x');
     await userEvent.click(screen.getByTestId('persona-custom-generate'));
@@ -322,7 +435,7 @@ describe('PersonaPreviewChat', () => {
   });
 
   it('disables input once the 5-turn cap is hit for the active persona', async () => {
-    render(<PersonaPreviewChat previews={previews} />);
+    renderPersonaPreview({ previews });
     await userEvent.click(screen.getByRole('button', { name: /Nova/i }));
     for (let i = 0; i < 5; i++) {
       await userEvent.type(

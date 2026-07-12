@@ -2,14 +2,18 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { localStorageMock, navigateMock } = vi.hoisted(() => {
+const { localStorageMock, navigateMock, streamChatPreviewMock } = vi.hoisted(() => {
   const mock = {
     getItem: vi.fn((_key: string): string | null => null),
     setItem: vi.fn((_key: string, _value: string) => undefined),
     removeItem: vi.fn((_key: string) => undefined),
   };
   vi.stubGlobal('localStorage', mock);
-  return { localStorageMock: mock, navigateMock: vi.fn() };
+  return {
+    localStorageMock: mock,
+    navigateMock: vi.fn(),
+    streamChatPreviewMock: vi.fn(),
+  };
 });
 
 import { apiClient } from '@/api/client';
@@ -42,11 +46,7 @@ vi.mock('react-router-dom', () => ({
 
 // Mock the streaming preview so persona chat does not hit the network.
 vi.mock('@/api/modules/chatPreview', () => ({
-  streamChatPreview: vi.fn(() =>
-    (async function* () {
-      yield 'hi';
-    })(),
-  ),
+  streamChatPreview: (...args: unknown[]) => streamChatPreviewMock(...args),
 }));
 
 const stubChatModel = (id: string) => ({
@@ -164,6 +164,12 @@ const stubSeedPreviews = () => [
 
 describe('OnboardingFlow (linear 5-step)', () => {
   beforeEach(() => {
+    streamChatPreviewMock.mockReset();
+    streamChatPreviewMock.mockImplementation(() =>
+      (async function* () {
+        yield 'hi';
+      })(),
+    );
     vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(
       stubCatalog() as any,
     );
@@ -366,6 +372,73 @@ describe('OnboardingFlow (linear 5-step)', () => {
 
     // No mode references anywhere across the rendered flow.
     expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+  });
+
+  it('preserves the chosen persona after moving forward and back', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    const ember = await screen.findByRole('button', { name: /Ember/i });
+    await user.click(ember);
+    expect(ember).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await screen.findByText('firstContext.title');
+    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
+
+    expect(await screen.findByRole('button', { name: /Ember/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: /Nova/i })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('uses the welcome language for persona previews and final persona setup', async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const completeOnboarding = vi
+      .spyOn(configApi, 'completeOnboarding')
+      .mockResolvedValue({ success: true, message: 'ok', data: DEFAULT_SYSTEM_CONFIG } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await waitFor(() => expect(personasApi.seedPreviews).toHaveBeenCalledWith('zh'));
+    await user.click(screen.getByRole('button', { name: 'EN' }));
+    await waitFor(() => expect(personasApi.seedPreviews).toHaveBeenCalledWith('en'));
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    await user.click(await screen.findByRole('button', { name: /Ember/i }));
+    await user.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'hello');
+    await user.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+    await waitFor(() =>
+      expect(streamChatPreviewMock).toHaveBeenCalledWith(
+        expect.objectContaining({ seed_slug: 'ember', locale: 'en' }),
+      ),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
+    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
+
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
+    expect(completeOnboarding).toHaveBeenCalledWith(
+      expect.objectContaining({ language: 'en' }),
+    );
+    expect(personasApi.seed).toHaveBeenCalledWith('en');
   });
 
   it('automatically validates a keyless custom OpenAI-compatible endpoint', async () => {
