@@ -234,6 +234,7 @@ def test_phase2_prompt_includes_deterministic_evidence_packet():
         ],
         "fact_claims": [
             {
+                "claim_id": "claim:deepseek",
                 "subject_ref": "user:local_user",
                 "predicate": "VIEWED",
                 "object_ref": "DeepSeek",
@@ -279,9 +280,6 @@ def test_phase2_prompt_includes_deterministic_evidence_packet():
 
     prompt = render_phase2_integrate_prompt(
         phase1_result=phase1_payload,
-        existing_graph_edges=existing_edges,
-        existing_assertions=existing_assertions,
-        event_window=event_window,
         focal_subject={"entity_ref": "user:local_user", "entity_type": "user"},
         evidence_packet=evidence_packet,
     )
@@ -391,10 +389,8 @@ def test_integrate_phase2_passes_source_integration_instructions():
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "graph_edges": [],
-                "refinements": [],
+                "claim_assessments": [],
                 "assertion_candidates": [],
-                "contradiction_hints": [],
             }
         )
     )
@@ -429,10 +425,8 @@ def test_chat_source_l2_extraction_uses_medium_priority_limiter(
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "graph_edges": [],
-                "refinements": [],
+                "claim_assessments": [],
                 "assertion_candidates": [],
-                "contradiction_hints": [],
             }
         )
     )
@@ -471,10 +465,8 @@ def test_non_chat_source_l2_extraction_keeps_low_priority_limiter(
     adapter = _FakeAdapter(
         json.dumps(
             {
-                "graph_edges": [],
-                "refinements": [],
+                "claim_assessments": [],
                 "assertion_candidates": [],
-                "contradiction_hints": [],
             }
         )
     )

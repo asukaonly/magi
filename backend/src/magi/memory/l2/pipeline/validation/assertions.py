@@ -9,7 +9,7 @@ from typing import Any, Optional, Protocol
 from ....event_contracts import MemoryEvent
 from ...context_bundle import ResolvedContextRef
 from ...extraction_profiles import ExtractionProfile
-from ...models import L2AssertionCandidate, L2Phase1Result
+from ...models import L2AssertionCandidate, L2Phase1FactClaim, L2Phase1Result
 from ...assertion_family_policy import get_assertion_family_policy
 from ...assertions.settings import momentary_ttl_seconds
 from ...ontology import is_leaf_fact_duplicate, validate_assertion_candidate
@@ -53,6 +53,70 @@ def _profile_values_by_trait(phase1_result: L2Phase1Result | None) -> dict[str, 
     return values
 
 
+def _claims_by_id(phase1_result: L2Phase1Result | None) -> dict[str, L2Phase1FactClaim]:
+    if phase1_result is None:
+        return {}
+    return {
+        claim.claim_id: claim
+        for claim in phase1_result.fact_claims
+        if str(claim.claim_id or "").strip()
+    }
+
+
+def _resolve_supporting_claims(
+    assertion: Any,
+    claims_by_id: dict[str, L2Phase1FactClaim],
+) -> list[L2Phase1FactClaim]:
+    claim_ids = [
+        str(value or "").strip()
+        for value in getattr(assertion, "supporting_claim_ids", [])
+        if str(value or "").strip()
+    ]
+    if not claim_ids or len(set(claim_ids)) != len(claim_ids):
+        return []
+    if any(claim_id not in claims_by_id for claim_id in claim_ids):
+        return []
+    return [claims_by_id[claim_id] for claim_id in claim_ids]
+
+
+def _supporting_event_ids(claims: list[L2Phase1FactClaim]) -> list[str]:
+    event_ids: list[str] = []
+    seen: set[str] = set()
+    for claim in claims:
+        for event_id in claim.supporting_event_ids:
+            if event_id in seen:
+                continue
+            seen.add(event_id)
+            event_ids.append(event_id)
+    return event_ids
+
+
+def _supporting_claim_subject(claims: list[L2Phase1FactClaim]) -> str | None:
+    subjects = {
+        str(claim.subject_ref or "").strip()
+        for claim in claims
+        if str(claim.subject_ref or "").strip()
+    }
+    if len(subjects) != 1:
+        return None
+    return next(iter(subjects))
+
+
+def _supporting_claim_confidence(claims: list[L2Phase1FactClaim]) -> float:
+    if not claims:
+        return 0.0
+    return min(max(0.0, min(1.0, float(claim.confidence or 0.0))) for claim in claims)
+
+
+def _volatility_for_temporal_scope(temporal_scope: str) -> float:
+    normalized = str(temporal_scope or "").strip().casefold()
+    if normalized == "momentary":
+        return 0.9
+    if normalized in {"temporary", "recent"}:
+        return 0.7
+    return 0.2
+
+
 def _profile_accepts_phase2_assertions(profile: ExtractionProfile) -> bool:
     mode = str(getattr(profile, "assertion_mode", "phase2_candidate") or "").strip().casefold()
     return mode in {"", "phase2_candidate"}
@@ -91,6 +155,7 @@ class Phase2AssertionValidationContext:
     duplicate_check_candidates: list[dict[str, Any]]
     default_event_ids: list[str]
     profile_values_by_trait: dict[str, str]
+    claims_by_id: dict[str, L2Phase1FactClaim]
 
 
 class L2AssertionValidationMixin:
@@ -129,6 +194,7 @@ class L2AssertionValidationMixin:
             ],
             default_event_ids=default_event_ids,
             profile_values_by_trait=_profile_values_by_trait(phase1_result),
+            claims_by_id=_claims_by_id(phase1_result),
         )
         prepared: list[dict[str, Any]] = []
         rejected_count = max(0, len(raw_assertions) - len(scoped_assertions))
@@ -151,8 +217,11 @@ class L2AssertionValidationMixin:
             return None
         if not self._phase2_profile_signal_present(trait_name, context):
             return None
+        supporting_claims = _resolve_supporting_claims(assertion, context.claims_by_id)
+        if not supporting_claims:
+            return None
         supporting_event_ids = validate_supporting_event_ids(
-            getattr(assertion, "supporting_event_ids", None),
+            _supporting_event_ids(supporting_claims),
             context.default_event_ids,
         )
         if not supporting_event_ids:
@@ -163,6 +232,7 @@ class L2AssertionValidationMixin:
             trait_family=trait_family,
             trait_name=trait_name,
             supporting_event_ids=supporting_event_ids,
+            supporting_claims=supporting_claims,
         )
 
     def _phase2_assertion_allowed(
@@ -200,10 +270,13 @@ class L2AssertionValidationMixin:
         trait_family: str,
         trait_name: str,
         supporting_event_ids: list[str],
+        supporting_claims: list[L2Phase1FactClaim],
     ) -> dict[str, Any]:
         event = context.event
         self_entity_id = context.host._resolve_self_entity_id(event)
-        entity_ref = context.host._non_empty_text(assertion.entity_ref)
+        entity_ref = _supporting_claim_subject(supporting_claims) or context.host._non_empty_text(
+            assertion.entity_ref
+        )
         if entity_ref and entity_ref.startswith("user:") and self_entity_id:
             entity_ref = self_entity_id
         temporal_scope, decay_policy, expires_at = self._derive_assertion_decay_from_family(
@@ -217,14 +290,11 @@ class L2AssertionValidationMixin:
             "trait_family": trait_family,
             "trait_name": trait_name,
             "trait_value": self._phase2_trait_value(assertion, trait_name, context),
-            "confidence_score": float(getattr(assertion, "confidence", 0.0) or 0.0),
+            "confidence_score": _supporting_claim_confidence(supporting_claims),
             "evidence_events": supporting_event_ids,
-            "volatility_index": float(getattr(assertion, "volatility_index", 0.5) or 0.5),
+            "volatility_index": _volatility_for_temporal_scope(temporal_scope),
             "source_domain": event.memory_domain.label,
-            "inference_depth": (
-                context.host._non_empty_text(getattr(assertion, "inference_depth", ""))
-                or event.tom_depth.label
-            ),
+            "inference_depth": event.tom_depth.label,
             "validation_state": "tentative",
             "first_inferred_at": event.timestamp,
             "last_validated_at": event.timestamp,

@@ -14,8 +14,7 @@ from .phase1_models import (
 )
 from .phase2_models import (
     L2Phase2AssertionCandidate,
-    L2Phase2ContradictionHint,
-    L2Phase2GraphEdge,
+    L2Phase2ClaimAssessment,
     L2Phase2Result,
 )
 from .phase_aux_models import (
@@ -33,8 +32,7 @@ __all__ = [
     "L2Phase1ResolvedRef",
     "L2Phase1Result",
     "L2Phase2AssertionCandidate",
-    "L2Phase2ContradictionHint",
-    "L2Phase2GraphEdge",
+    "L2Phase2ClaimAssessment",
     "L2Phase2Result",
     "ReconciledTraitOutcome",
     "StructuredEntityHint",

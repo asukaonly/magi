@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from .graph_candidates import L2GraphCandidateValidationMixin
-from .graph_fast_track import L2GraphFastTrackMixin
-from .graph_phase2 import L2Phase2GraphValidationMixin
 from .graph_resolution import L2GraphEndpointResolutionMixin
+from .phase1_graph import L2Phase1GraphProjectionMixin
 
 
 class L2GraphValidationMixin(
-    L2Phase2GraphValidationMixin,
-    L2GraphFastTrackMixin,
+    L2Phase1GraphProjectionMixin,
     L2GraphCandidateValidationMixin,
     L2GraphEndpointResolutionMixin,
 ):
@@ -19,8 +17,7 @@ class L2GraphValidationMixin(
 
 __all__ = [
     "L2GraphValidationMixin",
-    "L2Phase2GraphValidationMixin",
-    "L2GraphFastTrackMixin",
     "L2GraphCandidateValidationMixin",
     "L2GraphEndpointResolutionMixin",
+    "L2Phase1GraphProjectionMixin",
 ]

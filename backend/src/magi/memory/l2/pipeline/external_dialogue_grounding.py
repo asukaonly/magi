@@ -10,7 +10,6 @@ from ..models import (
     L2EventWindow,
     L2Phase1Entity,
     L2Phase1Result,
-    L2Phase2Result,
 )
 
 
@@ -83,67 +82,6 @@ def ground_phase1_external_dialogue_refs(
         resolved_ref.resolved_ref = speaker.entity_id
         resolved_ref.resolved_kind = "person"
         stats["rewritten_resolved_refs"] += 1
-
-    return stats
-
-
-def ground_phase2_external_dialogue_refs(
-    phase2_result: L2Phase2Result,
-    event_window: L2EventWindow,
-) -> dict[str, int]:
-    """Rewrite external-dialogue ``user:*`` Phase 2 outputs to speakers."""
-    speaker_by_event_id = _build_speaker_index(event_window)
-    stats = {
-        "rewritten_graph_edges": 0,
-        "dropped_graph_edges": 0,
-        "rewritten_assertions": 0,
-        "dropped_assertions": 0,
-    }
-    if not speaker_by_event_id:
-        return stats
-
-    grounded_edges = []
-    for edge in phase2_result.graph_edges:
-        if not _is_user_ref(getattr(edge, "subject_ref", None), getattr(edge, "subject_type", None)):
-            grounded_edges.append(edge)
-            continue
-        speaker = _resolve_item_speaker(
-            event_window=event_window,
-            speaker_by_event_id=speaker_by_event_id,
-            supporting_event_ids=getattr(edge, "supporting_event_ids", None),
-            evidence_texts=[getattr(edge, "evidence_text", "")],
-        )
-        if speaker is None:
-            stats["dropped_graph_edges"] += 1
-            continue
-        edge.subject_ref = speaker.entity_id
-        edge.subject_type = "person"
-        grounded_edges.append(edge)
-        stats["rewritten_graph_edges"] += 1
-    phase2_result.graph_edges = grounded_edges
-
-    grounded_assertions = []
-    for assertion in phase2_result.assertion_candidates:
-        if not _is_user_ref(
-            getattr(assertion, "entity_ref", None),
-            getattr(assertion, "entity_type", None),
-        ):
-            grounded_assertions.append(assertion)
-            continue
-        speaker = _resolve_item_speaker(
-            event_window=event_window,
-            speaker_by_event_id=speaker_by_event_id,
-            supporting_event_ids=getattr(assertion, "supporting_event_ids", None),
-            evidence_texts=list(getattr(assertion, "evidence_texts", []) or []),
-        )
-        if speaker is None:
-            stats["dropped_assertions"] += 1
-            continue
-        assertion.entity_ref = speaker.entity_id
-        assertion.entity_type = "person"
-        grounded_assertions.append(assertion)
-        stats["rewritten_assertions"] += 1
-    phase2_result.assertion_candidates = grounded_assertions
 
     return stats
 
@@ -363,5 +301,4 @@ __all__ = [
     "dialogue_speaker_entity_id",
     "extract_dialogue_speaker",
     "ground_phase1_external_dialogue_refs",
-    "ground_phase2_external_dialogue_refs",
 ]

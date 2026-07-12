@@ -489,7 +489,7 @@ Key fields:
 - `allowed_assertion_traits`: optional exact or namespace allowlist (`music.*`) for assertion trait names.
 - `source_types`: normalized event sources routed to this profile.
 - `phase1_instructions` / `extraction_instructions`: free-text instructions injected into the LLM Phase 1 prompt under a `## Source-Specific Instructions` section.
-- `phase2_instructions`: source-specific integration instructions injected into the Phase 2 prompt.
+- `phase2_instructions`: source-specific semantic guidance injected into the Phase 2 prompt. It may guide higher-order assertion meaning, but cannot alter graph writes, evidence binding, confidence, lifecycle, expiry, or conflict actions.
 - `derived_assertion_specs`: plugin-declared graph-derived assertion specs. The host compiles these into validated rules and runs them in the L2 derive schedule; plugins never bypass assertion lifecycle, source-tier, or conflict protection.
 
 Assertion families and assertion trait/schema identifiers are assertion-only. They must not be emitted as graph predicates, graph object refs, or concept nodes; graph admission validates this boundary before persistence. `preference_profile` covers durable interests, affinities, tastes, and preferences; `routine_profile` covers repeated behavior rhythms and habits. Family policy is host-owned and determines Phase 2 guidance, default lifecycle/decay, snapshot placement, and value-localization expectations. Trust and conflict decisions remain source-tier governed, so plugin-derived inference cannot overwrite user-authored assertions.

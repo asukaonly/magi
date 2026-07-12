@@ -60,19 +60,18 @@ class L2PipelinePersistenceMixin:
             count += 1
         return count
 
-    async def _persist_phase2_outputs(
+    async def _persist_extraction_outputs(
         self,
         *,
         graph_candidates: list[dict[str, Any]],
         direct_write_candidates: list[dict[str, Any]],
-        corroborate_targets: list[dict[str, Any]],
         facet_candidates: list[dict[str, Any]],
         assertion_candidates: list[dict[str, Any]],
         contradiction_hints: list[Any],
-    ) -> tuple[int, int, int, int]:
+    ) -> tuple[int, int, int]:
         host = self._persistence_host()
         if host._cognition_store is None:
-            return (0, 0, 0, 0)
+            return (0, 0, 0)
 
         persist_entity_ids = sorted(
             {
@@ -94,13 +93,6 @@ class L2PipelinePersistenceMixin:
         entity_locks = await host._acquire_entity_locks(persist_entity_ids)
         try:
             relation_count = await self._upsert_knowledge_edges(graph_candidates)
-
-            corroborate_count = 0
-            for target in corroborate_targets:
-                updated = await host._cognition_store.corroborate_edge(**target)
-                if updated:
-                    corroborate_count += 1
-
             facet_count = await self._upsert_entity_facets(facet_candidates)
 
             assertion_count = 0
@@ -114,7 +106,7 @@ class L2PipelinePersistenceMixin:
             for lock in entity_locks:
                 lock.release()
 
-        return (relation_count, corroborate_count, facet_count, assertion_count)
+        return (relation_count, facet_count, assertion_count)
 
     def _persistence_host(self) -> _L2PipelinePersistenceHostProtocol:
         return cast(_L2PipelinePersistenceHostProtocol, self)

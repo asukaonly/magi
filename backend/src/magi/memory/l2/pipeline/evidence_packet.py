@@ -61,11 +61,12 @@ def _candidate_refs(phase1_payload: dict[str, Any]) -> list[dict[str, str]]:
         predicate = _text(claim.get("predicate"))
         object_ref = _text(claim.get("object_ref"))
         object_type = _text(claim.get("object_type"))
+        claim_id = _text(claim.get("claim_id"))
         if predicate and object_ref:
             refs.append(
                 {
                     "kind": "claim_object",
-                    "id": object_ref,
+                    "id": claim_id or object_ref,
                     "label": object_ref,
                     "type": object_type,
                     "predicate": predicate,

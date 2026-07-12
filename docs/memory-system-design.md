@@ -287,7 +287,8 @@ Communication preferences use `communication_profile` assertions such as
 Phase 1 extraction may use profile-signal predicates such as `REAL_NAME`,
 `BIRTH_DATE`, `BIRTH_YEAR`, `STATED_AGE`, `PREFERRED_FORM_OF_ADDRESS`,
 `DISALLOWED_FORM_OF_ADDRESS`, and
-`PREFERRED_COMMUNICATION_STYLE` to keep those facts explicit for Phase 2, but
+`PREFERRED_COMMUNICATION_STYLE` to keep those facts explicit for higher-order
+assertion inference, but
 these predicates are not graph relations and must never be persisted as knowledge
 graph edges.
 Profile-signal claims must be grounded in current user-authored text before they
@@ -316,19 +317,22 @@ pronouns and vague placeholders such as “那个”, “他”, generic “app�
 unless they resolve to a concrete named entity or asset.
 
 Knowledge graph endpoints must resolve through the entity catalog before they are
-persisted. The L2 pipeline may ask an LLM to compare or integrate facts, but the
-LLM is not an authority for inventing `entity_id` values. Phase 2 graph edges
-must reference catalog IDs produced by Phase 1 entity resolution, existing graph
-context, or source-owned structured hints that have first been registered in the
-catalog. Non-Latin entity names keep their original script in catalog names and
-aliases; ASCII slugs are storage identifiers only and must not replace the
-source-language name in user-facing evidence.
+persisted. The LLM is not an authority for inventing `entity_id` values. Grounded
+Phase 1 claims are projected into graph candidates only after their endpoints
+resolve to catalog IDs produced by Phase 1 entity resolution or source-owned
+structured hints that have first been registered in the catalog. Phase 2 does not
+emit graph edges. Non-Latin entity names keep their original script in catalog
+names and aliases; ASCII slugs are storage identifiers only and must not replace
+the source-language name in user-facing evidence.
 
-The extraction runtime keeps Phase 1 admission, batch preparation, and entity
-resolution separate from Phase 2 integration, candidate validation, conflict
-handling, and persistence. Shared handoff data lives in a small extraction
-contract module so either phase can evolve without importing implementation
-details from the other.
+The extraction runtime keeps Phase 1 admission, batch preparation, entity
+resolution, evidence grounding, and deterministic graph projection separate from
+optional Phase 2 inference. Phase 2 proposes only higher-order assertions and
+non-obvious relationships between a current grounded claim and an exact existing
+record. Host validation, conflict handling, lifecycle derivation, and persistence
+remain outside both model contracts. Shared handoff data lives in a small
+extraction contract module so either phase can evolve without importing
+implementation details from the other.
 
 `user_profile_projection` in `memory.db` is the product-facing read model for the
 local user profile. It is rebuilt from current L2 profile assertions, records
@@ -558,9 +562,10 @@ Extraction flow:
 
 - L2 microbatches are profile-isolated. Session events stay session-scoped; events without a session are separated by source, optional plugin batch owner, and user. Structured hints are admitted and written per event under that event's evidence policy rather than inheriting the last event's batch context.
 - Phase 1 extracts current-batch entities, facts, and candidate observations from admitted events, using source-owned hints and extraction-profile instructions as anchors. The host then assigns each retained fact a deterministic claim reference and verifies its quoted evidence against the exact current events. Missing, out-of-batch, or unmatchable support is rejected; it is never expanded to the whole batch.
+- Grounded Phase 1 claims are projected deterministically into graph candidates. The graph store owns merge, corroboration, exclusivity, and opposite-predicate handling; Phase 2 never restates those facts as graph writes.
 - Before Phase 2, the pipeline may build a deterministic evidence packet from current Phase 1 output, bounded L1 history contexts, existing L2 graph edges, and existing assertion state. This retrieval step must not call an LLM; it is a cost-controlled recall step that gives Phase 2 corroboration, conflict, and prior-state context. The packet also reports how many prior history contexts support each current candidate, so Phase 2 can distinguish a one-off mention from a recurring signal without adding another LLM recall step.
 - Phase 1 resolved entities may be used to fetch directly linked L1 event text through the event-entity index; this is preferred over asking the model to rediscover history. External sensor events without a session must not fall back to arbitrary same-user recent chat context.
-- Phase 2 integrates the current batch plus that deterministic packet into graph writes, contradiction hints, and eligible assertion candidates under the active extraction profile. Every accepted graph or assertion candidate must preserve explicit, validated support from its source claim; candidate validation never substitutes all current event IDs for missing evidence.
+- Phase 2 runs only when the active profile permits direct higher-order assertion inference. Its output may reference deterministic Phase 1 claim IDs and exact existing record IDs, but it may not provide event IDs, confidence, lifecycle fields, expiry, or persistence actions. Assertions without valid supporting claim references and record assessments without an exact existing target are rejected. The host derives evidence, confidence, volatility, lifecycle, and safe conflict actions from validated inputs.
 - Passive, single-source observations remain evidence. They should not become stable user-profile assertions unless source policy and graph-derived rules provide enough accumulated support.
 
 A rare set of runtime-only events without `L1` durable anchors can use the in-process dispatch path, but they are not considered regular inputs to `L2` durable projection.
@@ -631,7 +636,7 @@ Tags, categories, and weak co-occurrence are not fact evidence. They may help se
 
 **Graph-derived assertions** convert accumulated graph evidence into inferred profile assertions only through host-owned rules. Built-in interest aggregation and plugin-contributed `derived_assertion_specs` both compile into validated `GraphDerivedAssertionRule` instances. These rules consume admitted graph edges, write inferred assertions through the normal assertion lifecycle, and preserve source-tier conflict protection so user-authored assertions are never overwritten by behavioral inference. Rules may constrain allowed graph object types so broad passive objects such as individual web pages, generic software names, or implementation artifacts do not become user-profile traits unless the source explicitly marks them as suitable profile evidence. Host-owned quality gates also reject low-level object labels such as raw URLs, domains, file paths, coordinates, and hash-like identifiers before they can become profile assertions; those details may remain graph evidence but should not appear as portrait traits. The host fallback interest rule is intentionally conservative: repeated same-day activity and generic software objects remain graph evidence unless a source-specific rule upgrades them with stronger semantics. Source-specific rules are appropriate for repeated behavioral domains such as repository work, GitHub project activity, terminal tool usage, foreground app usage, music listening, game play, and browser content interests; single observations from those sources remain graph evidence.
 
-Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 integration instructions, and graph-derived assertion specs. They do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
+Plugins may strengthen assertion quality by declaring structured hints, graph relation candidates, extraction profiles, source-specific Phase 1 instructions, source-specific Phase 2 semantic guidance, and graph-derived assertion specs. Phase 2 guidance may explain which durable conclusions are meaningful for that source, but it cannot change the output schema, evidence binding, confidence, lifecycle, or conflict actions. Plugins do not own the final assertion ontology or bypass source-tier conflict governance. Direct Phase 2 assertion candidates are accepted only for profiles that explicitly opt into `assertion_mode="phase2_candidate"` and pass the host family, trait, source policy, and validation gates.
 
 **Ontology** distinguishes LLM-facing coarse types from system-facing internal types:
 

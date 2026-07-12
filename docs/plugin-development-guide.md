@@ -574,7 +574,7 @@ Each event source is mapped to an `ExtractionProfile` that controls L2 cognition
 - `phase2_instructions`: source-specific integration guidance injected into the Phase 2 prompt
 - `derived_assertion_specs`: host-validated graph-derived assertion specs for accumulated source evidence
 
-Phase 1 instructions guide entity/fact extraction. Phase 2 instructions guide how the host should integrate those facts into graph edges, contradiction hints, and assertion candidates. Plugins can also declare derived assertion specs when they know source-specific evidence patterns better than the host, but the host still validates assertion families, traits, lifecycle, and source-tier conflict rules.
+Phase 1 instructions guide entity and fact extraction. Phase 2 instructions explain which higher-order assertions are meaningful for the source and how to interpret domain evidence. Phase 2 cannot emit graph edges or choose evidence IDs, confidence, lifecycle, expiry, or persistence actions; it can only reference host-assigned Phase 1 claim IDs and exact existing record IDs. Plugins can also declare derived assertion specs when they know source-specific evidence patterns better than the host, but the host still validates assertion families, traits, lifecycle, and source-tier conflict rules.
 
 Phase 2 also receives a host-built deterministic evidence packet when related context is available. The packet can include current candidate anchors, bounded L1 history matches, related graph evidence, and existing assertion state. This recall step is intentionally non-LLM; plugins influence it through source metadata, batch ownership, graph facts, and derived assertion specs rather than by running their own model pass.
 

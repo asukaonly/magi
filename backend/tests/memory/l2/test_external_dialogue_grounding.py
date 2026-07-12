@@ -7,13 +7,9 @@ from magi.memory.l2.models import (
     L2EventWindowSummary,
     L2Phase1FactClaim,
     L2Phase1Result,
-    L2Phase2AssertionCandidate,
-    L2Phase2GraphEdge,
-    L2Phase2Result,
 )
 from magi.memory.l2.pipeline.external_dialogue_grounding import (
     ground_phase1_external_dialogue_refs,
-    ground_phase2_external_dialogue_refs,
 )
 
 
@@ -187,119 +183,3 @@ def test_phase1_leaves_non_dialogue_external_sensor_events_unchanged() -> None:
     assert stats["rewritten_fact_claims"] == 0
     assert stats["dropped_fact_claims"] == 0
     assert phase1.fact_claims[0].subject_ref == "user:self"
-
-
-def test_phase2_rewrites_edges_and_assertions_to_external_dialogue_speaker() -> None:
-    phase2 = L2Phase2Result(
-        graph_edges=[
-            L2Phase2GraphEdge(
-                subject_ref="user:self",
-                subject_type="user",
-                predicate="career_interest",
-                object_ref="counseling",
-                supporting_event_ids=["evt-caroline"],
-            )
-        ],
-        assertion_candidates=[
-            L2Phase2AssertionCandidate(
-                entity_ref="user:self",
-                entity_type="user",
-                trait_family="identity",
-                trait_name="career_interest",
-                trait_value="counseling",
-                natural_summary="Caroline is interested in counseling work.",
-                supporting_event_ids=["evt-caroline"],
-            )
-        ],
-    )
-
-    stats = ground_phase2_external_dialogue_refs(
-        phase2,
-        _window(_event("evt-caroline", "Caroline", "I want to work in counseling.")),
-    )
-
-    assert stats["rewritten_graph_edges"] == 1
-    assert stats["rewritten_assertions"] == 1
-    assert phase2.graph_edges[0].subject_ref == "person:caroline"
-    assert phase2.graph_edges[0].subject_type == "person"
-    assert phase2.assertion_candidates[0].entity_ref == "person:caroline"
-    assert phase2.assertion_candidates[0].entity_type == "person"
-
-
-def test_phase2_resolves_speaker_from_evidence_text_when_supporting_ids_missing() -> None:
-    phase2 = L2Phase2Result(
-        graph_edges=[
-            L2Phase2GraphEdge(
-                subject_ref="user:self",
-                subject_type="user",
-                predicate="owns",
-                object_ref="running shoes",
-                object_type="object",
-                evidence_text="I bought new running shoes and love them.",
-                supporting_event_ids=[],
-            )
-        ],
-        assertion_candidates=[
-            L2Phase2AssertionCandidate(
-                entity_ref="user:self",
-                entity_type="user",
-                trait_family="activity",
-                trait_name="running",
-                trait_value="uses running shoes",
-                evidence_texts=["I bought new running shoes and love them."],
-                supporting_event_ids=[],
-            )
-        ],
-    )
-
-    stats = ground_phase2_external_dialogue_refs(
-        phase2,
-        _window(
-            _event("evt-caroline", "Caroline", "I joined a support group."),
-            _event("evt-melanie", "Melanie", "I bought new running shoes and love them."),
-        ),
-    )
-
-    assert stats["rewritten_graph_edges"] == 1
-    assert stats["rewritten_assertions"] == 1
-    assert stats["dropped_graph_edges"] == 0
-    assert stats["dropped_assertions"] == 0
-    assert phase2.graph_edges[0].subject_ref == "person:melanie"
-    assert phase2.assertion_candidates[0].entity_ref == "person:melanie"
-
-
-def test_phase2_drops_ambiguous_external_dialogue_user_refs_in_mixed_batch() -> None:
-    phase2 = L2Phase2Result(
-        graph_edges=[
-            L2Phase2GraphEdge(
-                subject_ref="user:self",
-                subject_type="user",
-                predicate="owns",
-                object_ref="painting",
-                supporting_event_ids=[],
-            )
-        ],
-        assertion_candidates=[
-            L2Phase2AssertionCandidate(
-                entity_ref="user:self",
-                entity_type="user",
-                trait_family="interest",
-                trait_name="painting",
-                trait_value="art",
-                supporting_event_ids=[],
-            )
-        ],
-    )
-
-    stats = ground_phase2_external_dialogue_refs(
-        phase2,
-        _window(
-            _event("evt-caroline", "Caroline", "I painted an abstract piece."),
-            _event("evt-melanie", "Melanie", "I painted a watercolor piece."),
-        ),
-    )
-
-    assert stats["dropped_graph_edges"] == 1
-    assert stats["dropped_assertions"] == 1
-    assert phase2.graph_edges == []
-    assert phase2.assertion_candidates == []

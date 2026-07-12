@@ -54,28 +54,8 @@ def _external_interest_phase1() -> str:
 def _external_interest_phase2() -> str:
     return json.dumps(
         {
-            "graph_edges": [
-                {
-                    "subject_ref": "user:self",
-                    "subject_type": "user",
-                    "predicate": "INTERESTED_IN",
-                    "object_ref": "rock climbing",
-                    "object_type": "activity",
-                    "fact_kind": "stable_preference",
-                    "polarity": "positive",
-                    "confidence": 0.7,
-                    "evidence_text": "browsed rock climbing gear reviews",
-                    "supporting_event_ids": [
-                        "evt-ext-interest-1",
-                        "evt-ext-interest-2",
-                    ],
-                    "relationship_to_existing": "new",
-                    "related_existing_triple_id": None,
-                }
-            ],
-            "refinements": [],
+            "claim_assessments": [],
             "assertion_candidates": [],
-            "contradiction_hints": [],
         }
     )
 

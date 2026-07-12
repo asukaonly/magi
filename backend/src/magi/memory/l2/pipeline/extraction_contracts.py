@@ -70,12 +70,13 @@ class _Phase2Context:
 @dataclass(slots=True)
 class _Phase2CandidateSet:
     graph_candidates: list[dict[str, Any]]
-    corroborate_targets: list[dict[str, Any]]
     facet_candidates: list[dict[str, Any]]
     assertion_candidates: list[dict[str, Any]]
     contradiction_hints: list[Any]
     rejected_graph_candidate_count: int
     rejected_assertion_candidate_count: int
+    claim_assessment_count: int
+    rejected_claim_assessment_count: int
 
 
 __all__ = [

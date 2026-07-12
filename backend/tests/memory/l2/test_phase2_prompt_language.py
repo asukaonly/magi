@@ -36,7 +36,6 @@ def test_phase2_contract_does_not_request_unused_refinements():
 def test_phase2_result_ignores_unused_refinements_payload():
     result = L2Phase2Result.from_dict(
         {
-            "graph_edges": [],
             "refinements": [
                 {
                     "existing_triple_id": "triple-1",
@@ -44,8 +43,8 @@ def test_phase2_result_ignores_unused_refinements_payload():
                     "explanation": "unused",
                 }
             ],
+            "claim_assessments": [],
             "assertion_candidates": [],
-            "contradiction_hints": [],
         }
     )
 

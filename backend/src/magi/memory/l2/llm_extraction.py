@@ -101,7 +101,7 @@ class L2LLMExtractionMixin:
         focal_subject: dict[str, Any],
         phase2_instructions: str | None = None,
     ) -> L2Phase2Result:
-        """Phase 2: integrate facts with existing graph, produce edges/assertions/contradictions."""
+        """Phase 2: infer higher-order assertions and assess non-obvious conflicts."""
         started_at = time.perf_counter()
         event_ids = list(event_window.event_ids)
         session_id = self._non_empty_text(event_window.summary.session_id)
@@ -136,7 +136,6 @@ class L2LLMExtractionMixin:
             priority=l2_llm_priority_for_event_window(event_window),
         )
         result = L2Phase2Result.from_dict(payload)
-        _cap_single_event_assertions(result, event_window)
         _log_phase2_completed(
             started_at=started_at,
             event_ids=event_ids,
@@ -187,9 +186,6 @@ def _phase2_prompt(
     )
     return render_phase2_integrate_prompt(
         phase1_result=phase1_result.to_dict(),
-        existing_graph_edges=existing_graph_edges,
-        existing_assertions=existing_assertions,
-        event_window=event_window,
         focal_subject=focal_subject,
         source_integration_instructions=phase2_instructions,
         evidence_packet=evidence_packet,
@@ -213,14 +209,6 @@ def _phase2_log_context(
     }
 
 
-def _cap_single_event_assertions(result: L2Phase2Result, event_window: L2EventWindow) -> None:
-    if len(event_window.event_ids) > 1:
-        return
-    cap = single_event_confidence_cap()
-    for assertion in result.assertion_candidates:
-        assertion.confidence = min(assertion.confidence, cap)
-
-
 def _log_phase2_completed(
     *,
     started_at: float,
@@ -229,17 +217,16 @@ def _log_phase2_completed(
 ) -> None:
     duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
     logger.info(
-        "L2 Phase 2 integration completed",
+        "L2 Phase 2 inference completed",
         duration_ms=duration_ms,
         event_ids=event_ids,
-        graph_edge_count=len(result.graph_edges),
+        claim_assessment_count=len(result.claim_assessments),
         assertion_count=len(result.assertion_candidates),
-        contradiction_hint_count=len(result.contradiction_hints),
     )
     logger.info(
         "L2 Phase 2 candidate summary",
         event_ids=event_ids,
-        graph_edges=_summarize_phase2_graph_edges(result),
+        claim_assessments=_summarize_phase2_claim_assessments(result),
         assertion_candidates=_summarize_phase2_assertions(result),
     )
 
@@ -261,6 +248,7 @@ def _summarize_phase1_fact_claims(result: L2Phase1Result) -> list[dict[str, Any]
     return [
         {
             "subject_ref": claim.subject_ref,
+            "claim_id": claim.claim_id,
             "predicate": claim.predicate,
             "object_ref": claim.object_ref,
             "object_type": claim.object_type,
@@ -272,18 +260,14 @@ def _summarize_phase1_fact_claims(result: L2Phase1Result) -> list[dict[str, Any]
     ]
 
 
-def _summarize_phase2_graph_edges(result: L2Phase2Result) -> list[dict[str, Any]]:
+def _summarize_phase2_claim_assessments(result: L2Phase2Result) -> list[dict[str, Any]]:
     return [
         {
-            "subject_ref": edge.subject_ref,
-            "predicate": edge.predicate,
-            "object_ref": edge.object_ref,
-            "object_type": edge.object_type,
-            "relationship_to_existing": edge.relationship_to_existing,
-            "evidence_text": edge.evidence_text,
-            "confidence": edge.confidence,
+            "claim_id": assessment.claim_id,
+            "relationship": assessment.relationship,
+            "related_record_id": assessment.related_record_id,
         }
-        for edge in result.graph_edges[:20]
+        for assessment in result.claim_assessments[:20]
     ]
 
 
@@ -295,7 +279,7 @@ def _summarize_phase2_assertions(result: L2Phase2Result) -> list[dict[str, Any]]
             "trait_name": assertion.trait_name,
             "trait_value": assertion.trait_value,
             "natural_summary": assertion.natural_summary,
-            "confidence": assertion.confidence,
+            "supporting_claim_ids": assertion.supporting_claim_ids,
         }
         for assertion in result.assertion_candidates[:20]
     ]

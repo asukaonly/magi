@@ -45,8 +45,8 @@ def _classification(label: str) -> SimpleNamespace:
     return SimpleNamespace(evidence_class=label)
 
 
-def test_fast_track_claims_to_candidates_includes_evidence_class():
-    """`_fast_track_claims_to_candidates` must stamp `evidence_class` on every edge dict."""
+def test_phase1_graph_projection_includes_evidence_class():
+    """Grounded Phase 1 graph candidates must retain their evidence class."""
     from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
     from magi.memory.l2.pipeline import L2Pipeline
 
@@ -58,6 +58,7 @@ def test_fast_track_claims_to_candidates_includes_evidence_class():
         entities=[],
         fact_claims=[
             L2Phase1FactClaim(
+                claim_id="claim:1",
                 subject_ref="user:u1",
                 subject_type="user",
                 predicate="LIKES",
@@ -77,7 +78,7 @@ def test_fast_track_claims_to_candidates_includes_evidence_class():
         effective_structured_allowed_predicates=frozenset({"LIKES"}),
     )
 
-    candidates = pipeline._fast_track_claims_to_candidates(
+    candidates, rejected_count = pipeline._project_phase1_graph_candidates(
         phase1_result=phase1_result,
         event=event,
         evidence_event_ids=["evt-ft"],
@@ -87,51 +88,9 @@ def test_fast_track_claims_to_candidates_includes_evidence_class():
         classification=classification,
     )
 
+    assert rejected_count == 0
     assert len(candidates) == 1
     assert candidates[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
-
-
-def test_validate_phase2_graph_edges_includes_evidence_class():
-    """`_validate_phase2_graph_edges` must stamp `evidence_class` on prepared edges."""
-    from magi.memory.l2.models import L2Phase2GraphEdge
-    from magi.memory.l2.ontology import PREDICATE_REGISTRY
-    from magi.memory.l2.pipeline import L2Pipeline
-
-    pipeline = L2Pipeline.__new__(L2Pipeline)
-    event = _make_user_event(event_id="evt-p2", content="Magi 维护 core-tools 插件")
-    classification = _classification(EvidenceClass.USER_SELF_REPORT.label)
-
-    profile = SimpleNamespace(
-        allow_graph=True,
-        effective_structured_allowed_entity_types=frozenset({"product"}),
-        effective_structured_allowed_predicates=PREDICATE_REGISTRY,
-    )
-    policy = SimpleNamespace(allow_graph_write=True, graph_scope="full")
-
-    prepared, _corroborate, rejected_count = pipeline._validate_phase2_graph_edges(
-        event=event,
-        profile=profile,
-        policy=policy,
-        resolved_mentions=[],
-        evidence_event_ids=["evt-p2"],
-        phase2_edges=[
-                L2Phase2GraphEdge(
-                subject_ref="user:local_user",
-                predicate="MAINTAINS",
-                    object_ref="Magi",
-                    object_type="product",
-                    confidence=0.9,
-                    supporting_event_ids=["evt-p2"],
-                ),
-        ],
-        profile_signal_object_refs=set(),
-        catalog_name_index={},
-        classification=classification,
-    )
-
-    assert rejected_count == 0
-    assert len(prepared) == 1
-    assert prepared[0]["evidence_class"] == EvidenceClass.USER_SELF_REPORT.label
 
 
 def test_structured_graph_candidates_include_evidence_class():

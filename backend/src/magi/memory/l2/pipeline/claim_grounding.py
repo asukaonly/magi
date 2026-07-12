@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 import unicodedata
 
@@ -21,7 +19,7 @@ def ground_phase1_fact_claims(
     rejected_count = 0
     rebound_count = 0
 
-    for claim in phase1_result.fact_claims:
+    for claim_index, claim in enumerate(phase1_result.fact_claims, start=1):
         original_event_ids = _unique_event_ids(claim.supporting_event_ids)
         valid_original_ids = [event_id for event_id in original_event_ids if event_id in event_ids]
         grounded_event_ids = _grounded_event_ids(
@@ -35,7 +33,7 @@ def ground_phase1_fact_claims(
         if grounded_event_ids != valid_original_ids and original_event_ids:
             rebound_count += 1
         claim.supporting_event_ids = grounded_event_ids
-        claim.claim_id = _claim_id(claim)
+        claim.claim_id = f"claim:{claim_index}"
         grounded_claims.append(claim)
 
     phase1_result.fact_claims = grounded_claims
@@ -86,23 +84,6 @@ def _unique_event_ids(values: list[str]) -> list[str]:
         seen.add(event_id)
         unique.append(event_id)
     return unique
-
-
-def _claim_id(claim: L2Phase1FactClaim) -> str:
-    payload = {
-        "subject_ref": claim.subject_ref,
-        "subject_type": claim.subject_type,
-        "predicate": claim.predicate,
-        "object_ref": claim.object_ref,
-        "object_type": claim.object_type,
-        "fact_kind": claim.fact_kind,
-        "polarity": claim.polarity,
-        "specificity": claim.specificity,
-        "supporting_event_ids": claim.supporting_event_ids,
-    }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
-    return f"claim:{digest}"
 
 
 __all__ = ["ground_phase1_fact_claims"]

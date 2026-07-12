@@ -117,9 +117,9 @@ Reason: This is a recall question, not a preference statement.
 """
 
 
-PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are a memory integration engine for a personal AI assistant.
+PHASE2_INTEGRATE_SYSTEM_PROMPT = """You are the inference stage of a personal memory system.
 
-Given Phase 1 extracted facts and the user's existing knowledge graph, produce final graph edges, ToM (Theory of Mind) assertions, and identify contradictions.
+Phase 1 has already extracted facts, resolved entities, and verified exact event evidence. Your task is limited to higher-order interpretation. Do not recreate graph edges, facts, entities, confidence scores, evidence quotes, event IDs, decay rules, or conflict actions.
 
 ## Allowed Assertion Families
 @@ASSERTION_FAMILY_LIST@@
@@ -127,16 +127,11 @@ Given Phase 1 extracted facts and the user's existing knowledge graph, produce f
 @@ASSERTION_FAMILY_SEMANTICS@@
 
 ## Rules
-1. Compare each new fact claim against the Existing Graph. Determine the relationship:
-   - **new**: No related existing edge. Produce a new graph edge.
-   - **corroborates**: Matches an existing edge. Note for confidence boost.
-   - **refines**: A new concrete fact clarifies an existing underspecified one (e.g., "rainy weather" refines "杭州天气"). Produce the new edge and mark `relationship_to_existing` as `refines`.
-   - **contradicts**: Directly conflicts with an existing edge (e.g., LIKES vs DISLIKES same object). Produce a contradiction hint.
-   - **evolves**: A temporal state change (e.g., moved from city A to city B). Produce the new edge and mark the old one as evolved.
-2. Only generate ToM assertions when psychological state evidence is clear and directly from user's own words. Do not infer mood or stress from assistant responses.
-3. For single-event evidence, cap assertion confidence at 0.3.
-4. Respect evidence accumulation: if an existing edge has high observation_count and the new evidence is a single event, do not override.
-5. When the user explicitly states profile facts, prefer `identity_profile` or `communication_profile` assertions instead of graph edges.
+1. Every output item must cite one or more `claim_id` values shown in Phase 1. Never cite raw event IDs or invent a claim ID.
+2. Emit a claim assessment only for a non-obvious relationship to a listed existing record: `refines`, `contradicts`, or `evolves`. Exact new facts and exact corroboration are handled deterministically by the host and must be omitted.
+3. `related_record_id` must exactly match a listed triple ID or assertion ID. If no listed record applies, omit the assessment.
+4. Generate an assertion only when the cited claims support a reusable higher-order understanding. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state.
+5. When the user explicitly states profile facts, prefer `identity_profile` or `communication_profile` assertions.
   - Phase 1 `REAL_NAME` -> `trait_family = "identity_profile"`, `trait_name = "identity.real_name"`
   - Phase 1 `BIRTH_DATE` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_date"`
   - Phase 1 `BIRTH_YEAR` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_year"`
@@ -150,36 +145,22 @@ Given Phase 1 extracted facts and the user's existing knowledge graph, produce f
       Do NOT translate, romanize, slugify, or convert it to snake_case IDs
       (for example, keep `哈基米或者子涵`, never `haji_mi_or_zi_han`).
     - These internal trait names may appear ONLY in `assertion_candidates.trait_name`.
-      Never use assertion families, trait names, output field names, or schema keys as
-      `graph_edges.predicate` or `graph_edges.object_ref`.
-    - Do not emit any `graph_edges` item whose object is the requested form of address.
     - Emit these profile assertions only when Phase 1 contains the matching
       profile-signal fact claim grounded in current [USER] text. Do not infer
       identity or communication profile values from assistant/persona text,
       history context, or a one-off task request.
-6. Custom graph predicates are allowed only for stable, reusable facts not covered by the core predicate list. Do NOT emit dialogue/query predicates such as ASKED_ABOUT, QUESTIONED_ABOUT, MENTIONED, TALKED_ABOUT, REFERRED_TO, LOOKED_AT, WANTS_TO_KNOW, or NEEDS_HELP_WITH.
-7. Do NOT emit graph edges whose object is an unresolved pronoun or vague placeholder such as "他", "她", "它", "这个", "那个", generic "app", generic "PDF", "file", "document", or "image". Resolve them to a concrete existing entity/asset first, or omit the graph edge.
-8. For `graph_edges.object_ref`, use ONLY concrete entity IDs shown in `### Entities Found` or `## Existing Knowledge Graph`. If Phase 1 gives a surface text plus an entity_id hint, copy the entity_id exactly. Do NOT invent entity IDs.
-9. Preserve original language/script in evidence and user-facing values. Do NOT translate, romanize, transliterate, slugify, or combine non-Latin names into ASCII IDs such as pinyin or romaji.
+6. Preserve original language and script in user-facing values. Do not translate, romanize, transliterate, slugify, or replace them with internal identifiers.
+7. The host owns confidence, volatility, inference depth, lifecycle, and conflict actions. Do not return those fields.
 
 ## Output Format
 Return JSON only:
 ```json
 {
-  "graph_edges": [
+  "claim_assessments": [
     {
-      "subject_ref": "entity ID",
-      "subject_type": "user|person|...",
-      "predicate": "enum",
-      "object_ref": "entity ID",
-      "object_type": "enum",
-      "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
-      "polarity": "positive|negative",
-      "confidence": 0.0,
-      "evidence_text": "supporting quote",
-      "supporting_event_ids": ["event IDs"],
-      "relationship_to_existing": "new|corroborates|refines|contradicts|evolves",
-      "related_existing_triple_id": "triple ID or null"
+      "claim_id": "exact Phase 1 claim ID",
+      "relationship": "refines|contradicts|evolves",
+      "related_record_id": "exact listed triple or assertion ID"
     }
   ],
   "assertion_candidates": [
@@ -190,21 +171,7 @@ Return JSON only:
       "trait_name": "string",
       "trait_value": "profile assertions: original user-facing text; state assertions: short controlled value, max 40 chars",
       "natural_summary": "free-form description in user's language, max 500 chars",
-      "inference_depth": "topology_only|defensive_psychology",
-      "volatility_index": 0.0,
-      "confidence": 0.0,
-      "evidence_texts": ["string"],
-      "supporting_event_ids": ["event IDs"]
-    }
-  ],
-  "contradiction_hints": [
-    {
-      "target_record_id": "triple or assertion ID",
-      "target_record_type": "knowledge_graph|tom_trait_assertion",
-      "contradiction_kind": "direct_negation|state_reversal|temporal_expiration|exclusive_role_conflict|preference_reversal|weak_tension",
-      "confidence": 0.0,
-      "evidence_text": "string",
-      "recommended_action": "downgrade_confidence|mark_conflicted|mark_deprecated|revalidate_only"
+      "supporting_claim_ids": ["exact Phase 1 claim IDs"]
     }
   ]
 }
@@ -223,7 +190,7 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
     is suffixed with a binding instruction: every ``natural_summary`` and every
     user-facing ``trait_value`` for state assertions must be written in that
     language. Profile-fact ``trait_value`` (real_name, address preference, etc.)
-    still follows rule 5/9 and preserves the original script.
+    still follows rule 5 and preserves the original script.
 
     When ``user_language`` is None, returns the baseline prompt unchanged so
     the LLM falls back to inferring language from evidence text.
@@ -237,7 +204,7 @@ def build_phase2_integrate_system_prompt(user_language: str | None = None) -> st
         "`trait_value` (mood, stress, engagement, sleep, energy, focus), also "
         "use that language unless the evidence text supplies an explicit foreign "
         "term the user chose. Profile-fact `trait_value` (real_name, addressing "
-        "preference, etc.) still preserves the source script per rule 5/9."
+        "preference, etc.) still preserves the source script per rule 5."
     )
 
 
@@ -335,9 +302,6 @@ def render_phase1_extract_prompt(
 def render_phase2_integrate_prompt(
     *,
     phase1_result: dict[str, Any],
-    existing_graph_edges: list[dict[str, Any]] | None = None,
-    existing_assertions: list[dict[str, Any]] | None = None,
-    event_window: L2EventWindow,
     focal_subject: dict[str, Any],
     source_integration_instructions: str | None = None,
     evidence_packet: dict[str, Any] | None = None,
@@ -348,10 +312,7 @@ def render_phase2_integrate_prompt(
     _append_source_integration_instructions(parts, source_integration_instructions)
     _append_phase1_results(parts, phase1_result)
     _append_evidence_packet(parts, evidence_packet)
-    _append_existing_graph_edges(parts, existing_graph_edges)
-    _append_existing_assertions(parts, existing_assertions)
     _append_phase2_focal_subject(parts, focal_subject)
-    _append_original_messages(parts, event_window)
 
     return "\n".join(parts)
 
@@ -545,12 +506,16 @@ def _append_packet_assertion_state(
         return
     parts.append("### Existing Assertion State")
     for assertion in packet_assertions[:8]:
+        assertion_id = assertion.get("assertion_id", "?")
         trait = assertion.get("trait_name", "?")
         value = assertion.get("trait_value", "?")
         family = assertion.get("trait_family", "?")
         state = assertion.get("validation_state", "?")
         source = assertion.get("source_domain", "?")
-        parts.append(f"- {family}/{trait} = {value} (state={state}, source={source})")
+        parts.append(
+            f"- [{assertion_id}] {family}/{trait} = {value} "
+            f"(state={state}, source={source})"
+        )
     parts.append("")
 
 
@@ -563,59 +528,9 @@ def _append_packet_guardrails(parts: list[str], guardrails: list[str]) -> None:
     parts.append("")
 
 
-def _append_existing_graph_edges(
-    parts: list[str],
-    existing_graph_edges: list[dict[str, Any]] | None,
-) -> None:
-    if not existing_graph_edges:
-        return
-    parts.append("## Existing Knowledge Graph (relevant subgraph)")
-    for edge in existing_graph_edges[:30]:
-        subj = edge.get("subject_id", "?")
-        pred = edge.get("predicate", "?")
-        obj = edge.get("object_id", "?")
-        obj_type = edge.get("object_type", "?")
-        status = edge.get("status", "active")
-        conf = edge.get("confidence", 0.0)
-        obs_count = edge.get("observation_count", 1)
-        triple_id = edge.get("triple_id", "")
-        first_obs = _format_ts(float(edge.get("first_observed_at", 0)))
-        parts.append(
-            f"- [{triple_id}] {subj} {pred} {obj} [{obj_type}] "
-            f"(status={status}, confidence={conf}, observed={obs_count}x, since={first_obs})"
-        )
-    parts.append("")
-
-
-def _append_existing_assertions(
-    parts: list[str],
-    existing_assertions: list[dict[str, Any]] | None,
-) -> None:
-    if not existing_assertions:
-        return
-    parts.append("## Existing Assertions")
-    for assertion in existing_assertions[:20]:
-        trait = assertion.get("trait_name", "?")
-        value = assertion.get("trait_value", "?")
-        family = assertion.get("trait_family", "?")
-        state = assertion.get("validation_state", "?")
-        conf = assertion.get("confidence_score", 0.0)
-        aid = assertion.get("assertion_id", "")
-        parts.append(f"- [{aid}] {family}/{trait} = {value} (state={state}, confidence={conf})")
-    parts.append("")
-
-
 def _append_phase2_focal_subject(parts: list[str], focal_subject: dict[str, Any]) -> None:
     focal_ref = focal_subject.get("entity_ref") or "user:self"
     parts.append(f"## Focal Subject: {focal_ref}")
-    parts.append("")
-
-
-def _append_original_messages(parts: list[str], event_window: L2EventWindow) -> None:
-    parts.append("## Original Messages (for evidence verification)")
-    for event in event_window.events:
-        role = str(event.author_type or "user").upper()
-        parts.append(f"- [{role}] [#{event.event_id}] {str(event.content).strip()}")
     parts.append("")
 
 
