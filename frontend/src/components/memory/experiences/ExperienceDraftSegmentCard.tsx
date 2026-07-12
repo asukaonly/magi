@@ -10,6 +10,7 @@ import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow'
 import { getMemorySourceLabel } from '@/utils/memory-source-copy';
 
 type ContentState = 'idle' | 'loading' | 'loaded' | 'failed';
+const DIRECT_EVENT_REQUEST_CONCURRENCY = 6;
 
 interface ReadableDraftEvent {
   event_id: string;
@@ -40,13 +41,24 @@ const formatEventTime = (timestamp: number | null | undefined, locale: string): 
   }).format(new Date(timestamp * 1000));
 };
 
-const dedupeEpisodeEvents = (events: ReadableDraftEvent[]): ReadableDraftEvent[] => {
-  const seen = new Set<string>();
-  return events.filter((event) => {
-    if (seen.has(event.event_id)) return false;
-    seen.add(event.event_id);
-    return true;
+const mergeEpisodeEvents = (events: ReadableDraftEvent[]): ReadableDraftEvent[] => {
+  const merged = new Map<string, ReadableDraftEvent>();
+  events.forEach((event) => {
+    const current = merged.get(event.event_id);
+    if (!current) {
+      merged.set(event.event_id, event);
+      return;
+    }
+    merged.set(event.event_id, {
+      ...current,
+      content_preview: String(current.content_preview || '').trim()
+        ? current.content_preview
+        : event.content_preview,
+      source: String(current.source || '').trim() ? current.source : event.source,
+      timestamp: current.timestamp ?? event.timestamp,
+    });
   });
+  return [...merged.values()];
 };
 
 export function ExperienceDraftSegmentCard({
@@ -79,7 +91,9 @@ export function ExperienceDraftSegmentCard({
     && Number.isFinite(chapter.event_count)
     && chapter.event_count >= 0
     ? Math.floor(chapter.event_count)
-    : new Set(chapter.event_ids).size;
+    : chapter.episode_ids.length === 0
+      ? new Set(chapter.event_ids).size
+      : null;
 
   const loadContent = useCallback(async () => {
     if (!hasContentRefs) return;
@@ -89,15 +103,25 @@ export function ExperienceDraftSegmentCard({
     requestGenerationRef.current = requestGeneration;
     setContent({ evidenceKey, state: 'loading', events: [] });
     try {
+      const loadDirectEventResponses = async () => {
+        const responses: Awaited<ReturnType<typeof memoryApi.getL1Events>>[] = [];
+        for (let index = 0; index < eventIds.length; index += DIRECT_EVENT_REQUEST_CONCURRENCY) {
+          const chunk = eventIds.slice(index, index + DIRECT_EVENT_REQUEST_CONCURRENCY);
+          responses.push(...await Promise.all(
+            chunk.map((eventId) => memoryApi.getL1Events({ event_id: eventId, limit: 1 })),
+          ));
+        }
+        return responses;
+      };
       const [episodes, directEventResponses] = await Promise.all([
         Promise.all(episodeIds.map((episodeId) => memoryApi.getEpisode(episodeId))),
-        Promise.all(eventIds.map((eventId) => memoryApi.getL1Events({ event_id: eventId, limit: 1 }))),
+        loadDirectEventResponses(),
       ]);
       if (requestGenerationRef.current !== requestGeneration) return;
       setContent({
         evidenceKey,
         state: 'loaded',
-        events: dedupeEpisodeEvents([
+        events: mergeEpisodeEvents([
           ...episodes.flatMap((episode) => episode.events ?? []),
           ...directEventResponses.flatMap((response) => response.items.map((event) => ({
             event_id: event.event_id,
@@ -151,7 +175,7 @@ export function ExperienceDraftSegmentCard({
             {chapter.episode_ids.length > 0 ? (
               <span>{t('memory.episodes.draft.sourceCount', { count: chapter.episode_ids.length })}</span>
             ) : null}
-            {eventCount > 0 ? (
+            {eventCount !== null && eventCount > 0 ? (
               <span>{t('memory.episodes.draft.eventCount', { count: eventCount })}</span>
             ) : null}
           </div>

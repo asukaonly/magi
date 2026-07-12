@@ -230,8 +230,14 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
                 rows = await cursor.fetchall()
         return [self._experience_draft_row_to_dict(row) for row in rows]
 
-    async def update_experience_draft(self, *, draft_id: str, **updates: Any) -> bool:
-        """Update editable draft fields."""
+    async def update_experience_draft(
+        self,
+        *,
+        draft_id: str,
+        expected_updated_at: float | None = None,
+        **updates: Any,
+    ) -> bool:
+        """Update editable draft fields, optionally guarded by its timestamp."""
         allowed = {
             "status", "query_text", "title", "one_sentence_review", "time_start",
             "time_end", "chapters", "possible_evidence", "excluded_evidence",
@@ -255,10 +261,14 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
             )
         columns.append("updated_at = ?")
         values.extend([time.time(), draft_id])
+        where_clause = "draft_id = ?"
+        if expected_updated_at is not None:
+            where_clause += " AND updated_at = ?"
+            values.append(float(expected_updated_at))
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
-                f"UPDATE experience_drafts SET {', '.join(columns)} WHERE draft_id = ?",
+                f"UPDATE experience_drafts SET {', '.join(columns)} WHERE {where_clause}",
                 tuple(values),
             )
             await db.commit()

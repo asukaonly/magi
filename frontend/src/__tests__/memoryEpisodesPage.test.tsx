@@ -854,6 +854,22 @@ describe('MemoryEpisodesPage', () => {
     expect(memoryApi.getEpisode).not.toHaveBeenCalled();
   });
 
+  it('does not present a partial direct count as the total when episode membership is unknown', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        episode_ids: ['ep-unknown'],
+        event_ids: ['evt-direct'],
+        event_count: undefined,
+      }],
+    }) as never);
+
+    renderDraftPage();
+
+    expect(await screen.findByText('Sources: 1')).toBeInTheDocument();
+    expect(screen.queryByText('Events: 1')).not.toBeInTheDocument();
+  });
+
   it('clears a stale count after shared-source dedupe and merges the hydrated count only', async () => {
     const chapterA: ExperienceDraftChapter = {
       ...defaultDraftChapter,
@@ -1028,6 +1044,89 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getAllByText('Compared Shinkansen routes and Kyoto lodging.')).toHaveLength(1);
     expect(screen.getByRole('list').querySelectorAll('li')).toHaveLength(3);
     expect(screen.getByText('Events: 3')).toBeInTheDocument();
+  });
+
+  it('merges duplicate event fields and keeps the readable direct copy', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        event_ids: ['evt-merge'],
+        event_count: 1,
+      }],
+    }) as never);
+    vi.mocked(memoryApi.getEpisode).mockResolvedValueOnce({
+      events: [{
+        episode_id: 'ep-create-1',
+        event_id: 'evt-merge',
+        membership_role: 'member',
+        membership_confidence: 0.9,
+        added_at: 1777566600,
+        timestamp: null,
+        source: null,
+        content_preview: '',
+      }],
+    } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValueOnce({
+      items: [{
+        event_id: 'evt-merge',
+        event_type: 'UserMessage',
+        source: 'chat',
+        timestamp: 1777566600,
+        content: 'Complete direct event content.',
+      }],
+      total: 1,
+      limit: 1,
+      offset: 0,
+    } as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByRole('button', { name: 'View content' }));
+
+    expect(await screen.findByText('Complete direct event content.')).toBeInTheDocument();
+    expect(screen.getByText('Chat')).toBeInTheDocument();
+    expect(screen.getByRole('list').querySelectorAll('li')).toHaveLength(1);
+  });
+
+  it('bounds concurrent direct-event detail requests for a large segment', async () => {
+    const eventIds = Array.from({ length: 24 }, (_, index) => `evt-large-${index}`);
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        episode_ids: [],
+        event_ids: eventIds,
+        event_count: eventIds.length,
+      }],
+    }) as never);
+    let activeRequests = 0;
+    let maxActiveRequests = 0;
+    vi.mocked(memoryApi.getL1Events).mockImplementation(async ({ event_id } = {}) => {
+      activeRequests += 1;
+      maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+      await new Promise((resolve) => window.setTimeout(resolve, 10));
+      activeRequests -= 1;
+      return {
+        items: event_id ? [{
+          event_id,
+          event_type: 'UserMessage',
+          source: 'chat',
+          timestamp: 1777566600,
+          content: `Large direct content ${event_id}`,
+        }] : [],
+        total: event_id ? 1 : 0,
+        limit: 1,
+        offset: 0,
+      } as never;
+    });
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByRole('button', { name: 'View content' }));
+
+    expect(await screen.findByText('Large direct content evt-large-23')).toBeInTheDocument();
+    expect(memoryApi.getL1Events).toHaveBeenCalledTimes(eventIds.length);
+    expect(maxActiveRequests).toBeGreaterThan(1);
+    expect(maxActiveRequests).toBeLessThanOrEqual(6);
   });
 
   it('loads readable episode content once after the selected segment opens', async () => {

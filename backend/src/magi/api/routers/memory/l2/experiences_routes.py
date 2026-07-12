@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import HTTPException, Query, UploadFile, status
 
+from magi.core.logger import get_logger
 from magi.api.services.l2_episode_review_helpers import (
     build_episode_display_fields,
     serialize_episodic_summary,
@@ -38,6 +39,8 @@ from ..schemas import (
 
 
 _DRAFT_EVENT_MEMBERSHIP_LIMIT = 10_000
+_DRAFT_EVENT_MEMBERSHIP_CONCURRENCY = 8
+logger = get_logger(__name__)
 
 
 def _clean_text(value: Any) -> str:
@@ -467,6 +470,11 @@ async def _hydrate_experience_draft_event_counts(
         l2_store,
         "update_experience_draft",
     )
+    get_experience_draft = get_configured_or_real_method(
+        l2_store,
+        "get_experience_draft",
+    )
+    draft_id = _clean_text(draft.get("draft_id"))
 
     missing_episode_ids: set[str] = set()
     for chapter in draft.get("chapters") or []:
@@ -489,11 +497,25 @@ async def _hydrate_experience_draft_event_counts(
                 if ref_id:
                     missing_episode_ids.add(ref_id)
 
-    async def load_membership_event_ids(episode_id: str) -> tuple[str, set[str]]:
-        memberships = await list_episode_events(
-            episode_id=episode_id,
-            limit=_DRAFT_EVENT_MEMBERSHIP_LIMIT,
-        )
+    membership_semaphore = asyncio.Semaphore(_DRAFT_EVENT_MEMBERSHIP_CONCURRENCY)
+
+    async def load_membership_event_ids(
+        episode_id: str,
+    ) -> tuple[str, set[str] | None]:
+        try:
+            async with membership_semaphore:
+                memberships = await list_episode_events(
+                    episode_id=episode_id,
+                    limit=_DRAFT_EVENT_MEMBERSHIP_LIMIT,
+                )
+        except Exception as exc:
+            logger.warning(
+                "experience_draft_membership_read_failed",
+                draft_id=draft_id,
+                episode_id=episode_id,
+                error=str(exc),
+            )
+            return episode_id, None
         return episode_id, {
             event_id
             for membership in memberships
@@ -508,10 +530,16 @@ async def _hydrate_experience_draft_event_counts(
         ))
     ) if list_episode_events is not None else {}
 
-    def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int:
+    def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int | None:
+        normalized_episode_ids = ordered_non_empty_strings(episode_ids)
         distinct_ids = set(ordered_non_empty_strings(direct_event_ids))
-        for episode_id in ordered_non_empty_strings(episode_ids):
-            distinct_ids.update(episode_event_ids.get(episode_id, set()))
+        if normalized_episode_ids and list_episode_events is None:
+            return None
+        for episode_id in normalized_episode_ids:
+            membership_ids = episode_event_ids.get(episode_id)
+            if membership_ids is None:
+                return None
+            distinct_ids.update(membership_ids)
         return len(distinct_ids)
 
     def hydrate_chapter(chapter: Any) -> Any:
@@ -524,7 +552,10 @@ async def _hydrate_experience_draft_event_counts(
                 hydrated.get("episode_ids"),
                 hydrated.get("event_ids"),
             )
-        hydrated["event_count"] = event_count
+        if event_count is None:
+            hydrated.pop("event_count", None)
+        else:
+            hydrated["event_count"] = event_count
         return hydrated
 
     def hydrate_evidence(evidence: Any) -> Any:
@@ -543,7 +574,10 @@ async def _hydrate_experience_draft_event_counts(
                     restored.get("episode_ids"),
                     restored.get("event_ids"),
                 )
-            restored["event_count"] = restored_count
+            if restored_count is None:
+                restored.pop("event_count", None)
+            else:
+                restored["event_count"] = restored_count
             hydrated["restore_chapter"] = restored
             if event_count is None:
                 event_count = restored_count
@@ -553,9 +587,10 @@ async def _hydrate_experience_draft_event_counts(
                 event_count = count_evidence([ref_id], [])
             elif hydrated.get("ref_type") == "event" and ref_id:
                 event_count = 1
-            else:
-                event_count = 0
-        hydrated["event_count"] = event_count
+        if event_count is None:
+            hydrated.pop("event_count", None)
+        else:
+            hydrated["event_count"] = event_count
         return hydrated
 
     hydrated_draft = dict(draft)
@@ -575,9 +610,31 @@ async def _hydrate_experience_draft_event_counts(
         hydrated_draft[key] = evidence_items
         if evidence_items != draft.get(key):
             changed_fields[key] = evidence_items
-    draft_id = _clean_text(draft.get("draft_id"))
-    if changed_fields and draft_id and update_experience_draft is not None:
-        await update_experience_draft(draft_id=draft_id, **changed_fields)
+    initial_updated_at = draft.get("updated_at")
+    if (
+        changed_fields
+        and draft_id
+        and initial_updated_at is not None
+        and get_experience_draft is not None
+        and update_experience_draft is not None
+    ):
+        try:
+            latest_draft = await get_experience_draft(draft_id=draft_id)
+            if (
+                latest_draft is not None
+                and latest_draft.get("updated_at") == initial_updated_at
+            ):
+                await update_experience_draft(
+                    draft_id=draft_id,
+                    expected_updated_at=float(initial_updated_at),
+                    **changed_fields,
+                )
+        except Exception as exc:
+            logger.warning(
+                "experience_draft_count_backfill_failed",
+                draft_id=draft_id,
+                error=str(exc),
+            )
     return hydrated_draft
 
 

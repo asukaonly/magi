@@ -110,6 +110,7 @@ def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
         "draft_id": "draft-japan",
         "status": "editing",
         "title": "日本旅行",
+        "updated_at": 10.0,
         "chapters": [
             {
                 "chapter_id": "chapter-route",
@@ -138,10 +139,11 @@ def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
     l2.get_experience_draft = AsyncMock(side_effect=lambda **_: copy.deepcopy(stored_draft))
 
     async def update_experience_draft(**updates):
+        assert updates["expected_updated_at"] == 10.0
         stored_draft.update(copy.deepcopy({
             key: value
             for key, value in updates.items()
-            if key != "draft_id"
+            if key not in {"draft_id", "expected_updated_at"}
         }))
         return True
 
@@ -204,10 +206,177 @@ def test_get_experience_draft_batches_distinct_counts_and_persists_them_once(
     assert len(fetched_episode_ids) == len(set(fetched_episode_ids))
     l2.update_experience_draft.assert_awaited_once_with(
         draft_id="draft-japan",
+        expected_updated_at=10.0,
         chapters=payload["chapters"],
         possible_evidence=payload["possible_evidence"],
         excluded_evidence=payload["excluded_evidence"],
     )
+
+
+def test_get_experience_draft_keeps_episode_counts_unknown_without_membership_capability(
+    public_app_with_mock_memory,
+):
+    app, build_patcher = public_app_with_mock_memory
+    draft = {
+        "draft_id": "draft-unknown",
+        "status": "editing",
+        "title": "Unknown membership",
+        "updated_at": 3.0,
+        "chapters": [{
+            "chapter_id": "chapter-episode",
+            "episode_ids": ["ep-unknown"],
+            "event_ids": ["evt-direct"],
+        }],
+        "possible_evidence": [{
+            "ref_type": "event",
+            "ref_id": "evt-possible",
+            "title": "Direct event",
+            "summary": "Explicit evidence.",
+        }],
+        "excluded_evidence": [{
+            "ref_type": "unsupported",
+            "ref_id": "unknown-ref",
+            "title": "Unknown evidence",
+            "summary": "No count capability exists.",
+        }],
+    }
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value=copy.deepcopy(draft))
+    l2.update_experience_draft = AsyncMock(return_value=True)
+
+    with build_patcher(MagicMock(l2=l2)):
+        response = TestClient(app).get(
+            "/api/memory/l2/experience-drafts/draft-unknown",
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "event_count" not in payload["chapters"][0]
+    assert payload["possible_evidence"][0]["event_count"] == 1
+    assert "event_count" not in payload["excluded_evidence"][0]
+    persisted = l2.update_experience_draft.await_args.kwargs
+    assert "chapters" not in persisted
+    assert persisted["possible_evidence"][0]["event_count"] == 1
+
+
+def test_get_experience_draft_returns_hydrated_counts_when_persistence_fails(
+    public_app_with_mock_memory,
+):
+    from magi.api.routers.memory.l2 import experiences_routes
+
+    app, build_patcher = public_app_with_mock_memory
+    draft = {
+        "draft_id": "draft-write-fails",
+        "status": "editing",
+        "title": "Readable draft",
+        "updated_at": 4.0,
+        "chapters": [{
+            "chapter_id": "chapter-1",
+            "episode_ids": ["ep-1"],
+            "event_ids": [],
+        }],
+        "possible_evidence": [],
+        "excluded_evidence": [],
+    }
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value=copy.deepcopy(draft))
+    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "evt-1"}])
+    l2.update_experience_draft = AsyncMock(side_effect=RuntimeError("disk unavailable"))
+
+    with (
+        build_patcher(MagicMock(l2=l2)),
+        patch.object(experiences_routes, "logger", create=True) as logger,
+    ):
+        response = TestClient(app, raise_server_exceptions=False).get(
+            "/api/memory/l2/experience-drafts/draft-write-fails",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["chapters"][0]["event_count"] == 1
+    warning = logger.warning
+    warning.assert_called_once()
+    assert warning.call_args.args[0] == "experience_draft_count_backfill_failed"
+    assert warning.call_args.kwargs["draft_id"] == "draft-write-fails"
+
+
+def test_get_experience_draft_skips_count_persistence_after_concurrent_update(
+    public_app_with_mock_memory,
+):
+    app, build_patcher = public_app_with_mock_memory
+    initial = {
+        "draft_id": "draft-concurrent",
+        "status": "editing",
+        "title": "Initial title",
+        "updated_at": 5.0,
+        "chapters": [{
+            "chapter_id": "chapter-1",
+            "episode_ids": ["ep-1"],
+            "event_ids": [],
+        }],
+        "possible_evidence": [],
+        "excluded_evidence": [],
+    }
+    concurrent = {**initial, "title": "Newer title", "updated_at": 6.0}
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(side_effect=[
+        copy.deepcopy(initial),
+        copy.deepcopy(concurrent),
+    ])
+    l2.list_episode_events = AsyncMock(return_value=[{"event_id": "evt-1"}])
+    l2.update_experience_draft = AsyncMock(return_value=True)
+
+    with build_patcher(MagicMock(l2=l2)):
+        response = TestClient(app).get(
+            "/api/memory/l2/experience-drafts/draft-concurrent",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["chapters"][0]["event_count"] == 1
+    l2.update_experience_draft.assert_not_awaited()
+
+
+def test_get_experience_draft_bounds_membership_read_concurrency(
+    public_app_with_mock_memory,
+):
+    app, build_patcher = public_app_with_mock_memory
+    episode_ids = [f"ep-{index}" for index in range(30)]
+    draft = {
+        "draft_id": "draft-large",
+        "status": "editing",
+        "title": "Large draft",
+        "updated_at": 7.0,
+        "chapters": [{
+            "chapter_id": "chapter-large",
+            "episode_ids": episode_ids,
+            "event_ids": [],
+        }],
+        "possible_evidence": [],
+        "excluded_evidence": [],
+    }
+    active_reads = 0
+    max_active_reads = 0
+
+    async def list_episode_events(*, episode_id: str, limit: int):
+        nonlocal active_reads, max_active_reads
+        active_reads += 1
+        max_active_reads = max(max_active_reads, active_reads)
+        await asyncio.sleep(0.01)
+        active_reads -= 1
+        return [{"event_id": f"evt-{episode_id}"}]
+
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value=copy.deepcopy(draft))
+    l2.list_episode_events = AsyncMock(side_effect=list_episode_events)
+    l2.update_experience_draft = AsyncMock(return_value=True)
+
+    with build_patcher(MagicMock(l2=l2)):
+        response = TestClient(app).get(
+            "/api/memory/l2/experience-drafts/draft-large",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["chapters"][0]["event_count"] == 30
+    assert 1 < max_active_reads <= 8
 
 
 def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_memory):
@@ -265,6 +434,33 @@ def test_create_experience_from_draft_returns_created_experience(public_app_with
     assert response.status_code == 200
     assert response.json()["experience_id"] == "exp-japan"
     create.assert_awaited_once_with(l2, draft_id="draft-japan")
+
+
+def test_create_experience_from_completed_draft_returns_existing_experience(
+    public_app_with_mock_memory,
+):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(return_value={
+        "draft_id": "draft-japan",
+        "status": "completed",
+        "created_experience_id": "exp-japan",
+    })
+    l2.get_experience = AsyncMock(return_value={
+        "experience_id": "exp-japan",
+        "status": "active",
+        "title": "日本旅行",
+    })
+
+    with build_patcher(MagicMock(l2=l2)):
+        response = TestClient(app).post(
+            "/api/memory/l2/experience-drafts/draft-japan/create",
+        )
+
+    assert response.status_code == 200
+    assert response.json()["experience_id"] == "exp-japan"
+    assert response.json()["experience"]["experience_id"] == "exp-japan"
+    l2.get_experience.assert_awaited_once_with(experience_id="exp-japan")
 
 
 def test_create_experience_seed_from_episode_ids_can_promote(public_app_with_mock_memory):

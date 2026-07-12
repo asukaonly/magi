@@ -22,6 +22,9 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
     draft = await store.get_experience_draft(draft_id=draft_id)
     if draft is None:
         raise ValueError(f"Experience draft not found: {draft_id}")
+    created_experience_id = str(draft.get("created_experience_id") or "").strip()
+    if draft.get("status") == "completed" and created_experience_id:
+        return created_experience_id
     if draft["status"] != "editing":
         raise ValueError(f"Experience draft is not editable: {draft_id}")
     chapters = list(draft.get("chapters") or [])

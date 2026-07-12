@@ -57,6 +57,38 @@ async def test_experience_draft_round_trip_and_update(l2_store_with_schema):
 
 
 @pytest.mark.asyncio
+async def test_experience_draft_update_rejects_stale_expected_timestamp(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_experience_draft(
+        draft_id="draft-versioned",
+        query_text="Versioned draft",
+        title="Initial title",
+        one_sentence_review="Initial recap",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[],
+        possible_evidence=[],
+    )
+    initial = await store.get_experience_draft(draft_id="draft-versioned")
+    assert initial is not None
+    await store.update_experience_draft(
+        draft_id="draft-versioned",
+        title="Concurrent title",
+    )
+
+    updated = await store.update_experience_draft(
+        draft_id="draft-versioned",
+        expected_updated_at=initial["updated_at"],
+        title="Stale title",
+    )
+
+    assert updated is False
+    current = await store.get_experience_draft(draft_id="draft-versioned")
+    assert current is not None
+    assert current["title"] == "Concurrent title"
+
+
+@pytest.mark.asyncio
 async def test_create_experience_from_draft_preserves_chapters(l2_store_with_schema):
     from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
 
@@ -105,3 +137,9 @@ async def test_create_experience_from_draft_preserves_chapters(l2_store_with_sch
     assert draft is not None
     assert draft["status"] == "completed"
     assert draft["created_experience_id"] == experience_id
+
+    retry_experience_id = await create_experience_from_draft(
+        store,
+        draft_id="draft-japan",
+    )
+    assert retry_experience_id == experience_id
