@@ -52,6 +52,7 @@ class L2LLMConflictMixin:
             scenario=LLMScenario.CORE,
             disable_thinking=False,
             priority=l2_llm_priority_for_event_window(new_event_window),
+            required_fields={"decision": str},
         )
         decision = str(payload.get("decision") or "").strip()
         if decision not in {"keep_new", "keep_existing", "mark_evolution"}:

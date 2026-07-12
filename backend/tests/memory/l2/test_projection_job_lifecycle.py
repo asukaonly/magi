@@ -125,3 +125,41 @@ async def test_extract_worker_skips_stale_batch_when_no_rows_transitioned():
     assert cognition_store.completed_calls == []
     assert cognition_store.failed_calls == []
     assert pipeline._stats.extract_skipped == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_worker_fails_invalid_model_output_instead_of_looping():
+    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
+
+    cognition_store = _RecordingCognitionStore()
+    pipeline = L2Pipeline(
+        cognition_store=cognition_store,
+        l1_store=SimpleNamespace(),
+        entity_catalog=SimpleNamespace(),
+        llm_service=SimpleNamespace(),
+    )
+
+    async def _fake_extract_and_persist(job: L2BatchJob):  # type: ignore[no-untyped-def]
+        _ = job
+        raise L2InvalidJsonResponseError("invalid model response")
+
+    pipeline._extract_and_persist = _fake_extract_and_persist  # type: ignore[method-assign]
+    job = L2BatchJob(
+        job_id="projection:invalid-json",
+        bucket_key="owner:test",
+        events=[{"event_id": "evt-invalid-json", "content": "hello", "timestamp": 1.0}],
+        flush_reason="projection_ready",
+        estimated_tokens=2,
+        session_id=None,
+        user_id=None,
+    )
+
+    await pipeline._extract_queue.put(job)
+    await pipeline._extract_queue.put(None)
+    await pipeline._run_extract_worker()
+
+    assert cognition_store.completed_calls == []
+    assert cognition_store.failed_calls == [
+        (["evt-invalid-json"], "invalid model response", False)
+    ]
+    assert pipeline._stats.extract_failed == 1

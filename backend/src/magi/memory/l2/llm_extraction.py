@@ -66,6 +66,11 @@ class L2LLMExtractionMixin:
                 "context_message_count": len(context_messages) if context_messages else 0,
             },
             priority=l2_llm_priority_for_event_window(event_window),
+            required_fields={
+                "entities": list,
+                "fact_claims": list,
+                "resolved_refs": list,
+            },
         )
         result = L2Phase1Result.from_dict(payload)
         is_single_event = len(event_window.event_ids) <= 1
@@ -134,6 +139,10 @@ class L2LLMExtractionMixin:
                 event_window=event_window,
             ),
             priority=l2_llm_priority_for_event_window(event_window),
+            required_fields={
+                "claim_assessments": list,
+                "assertion_candidates": list,
+            },
         )
         result = L2Phase2Result.from_dict(payload)
         _log_phase2_completed(

@@ -35,6 +35,7 @@ class L2LLMEntityResolutionMixin:
             ),
             request_kind="memory:l2_entity_resolution",
             priority=l2_llm_priority_for_source(source),
+            required_fields={"resolution": dict},
         )
         resolution = payload.get("resolution")
         if not isinstance(resolution, dict):
@@ -85,6 +86,7 @@ class L2LLMEntityResolutionMixin:
             prompt=render_batch_entity_resolution_prompt(items=items),
             request_kind="memory:l2_entity_resolution",
             priority=l2_llm_priority_for_source(source),
+            required_fields={"resolutions": list},
         )
         raw_resolutions = payload.get("resolutions")
         if not isinstance(raw_resolutions, list):

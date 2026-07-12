@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional, Protocol, cast
 
 from ...core.logger import get_logger
@@ -20,6 +20,27 @@ from ...llm.error_classifier import is_rate_limit_exception
 
 logger = get_logger("magi.memory.l2.llm_service")
 _RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0)
+_JSON_FORMAT_RETRY_SUFFIX = """
+
+## Output correction
+Your previous response was not a valid JSON object. Return exactly one valid JSON object that matches the requested schema. Do not use Markdown fences, prose, comments, or trailing text.
+"""
+
+
+class L2LLMJsonError(RuntimeError):
+    """Base error for L2 JSON-mode model calls."""
+
+
+class L2LLMUnavailableError(L2LLMJsonError):
+    """Raised when an L2 model call has no configured adapter."""
+
+
+class L2LLMCallError(L2LLMJsonError):
+    """Raised when the provider call fails after transport retries."""
+
+
+class L2InvalidJsonResponseError(L2LLMJsonError):
+    """Raised when the provider repeatedly returns an invalid JSON object."""
 
 
 @dataclass(slots=True)
@@ -59,6 +80,7 @@ class L2LLMJsonClientMixin:
         scenario: LLMScenario = LLMScenario.CONTEXT_DECIDER,
         disable_thinking: bool = True,
         priority: LLMRequestPriority | str | int | None = None,
+        required_fields: dict[str, type] | None = None,
     ) -> dict[str, Any]:
         call = _L2JsonCall(
             system_prompt=system_prompt,
@@ -76,7 +98,9 @@ class L2LLMJsonClientMixin:
         )
         target = self._get_json_target(call)
         if target is None:
-            return {}
+            raise L2LLMUnavailableError(
+                f"No L2 LLM adapter is available for {call.request_kind}"
+            )
         context = self._json_log_context(call, target=target, log_context=log_context)
         started_at = time.perf_counter()
         response = await self._call_json_with_retries(
@@ -85,11 +109,44 @@ class L2LLMJsonClientMixin:
             context=context,
             started_at=started_at,
         )
-        if response is None:
-            return {}
-
         completion_context = self._log_json_completion(context, response, started_at)
-        return self._parse_json_response(response.content, completion_context)
+        try:
+            return self._parse_json_response(
+                response.content,
+                completion_context,
+                required_fields=required_fields,
+            )
+        except L2InvalidJsonResponseError:
+            logger.info("L2 LLM JSON format retry scheduled", **completion_context)
+
+        retry_call = replace(
+            call,
+            system_prompt=f"{call.system_prompt}{_JSON_FORMAT_RETRY_SUFFIX}",
+        )
+        retry_context = dict(context)
+        retry_context.update(
+            {
+                "json_format_retry": True,
+                "system_prompt_char_count": len(retry_call.system_prompt),
+            }
+        )
+        retry_started_at = time.perf_counter()
+        retry_response = await self._call_json_with_retries(
+            call=retry_call,
+            target=target,
+            context=retry_context,
+            started_at=retry_started_at,
+        )
+        retry_completion_context = self._log_json_completion(
+            retry_context,
+            retry_response,
+            retry_started_at,
+        )
+        return self._parse_json_response(
+            retry_response.content,
+            retry_completion_context,
+            required_fields=required_fields,
+        )
 
     def _get_json_target(self, call: _L2JsonCall) -> _L2JsonTarget | None:
         llm_target = self._get_llm_target(scenario=call.scenario)
@@ -133,7 +190,7 @@ class L2LLMJsonClientMixin:
         target: _L2JsonTarget,
         context: dict[str, Any],
         started_at: float,
-    ) -> ProviderResponse | None:
+    ) -> ProviderResponse:
         max_output_tokens = self._resolve_max_output_tokens(scenario=call.scenario)
         for attempt_index in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
             try:
@@ -150,8 +207,10 @@ class L2LLMJsonClientMixin:
                     started_at=started_at,
                 ):
                     continue
-                return None
-        return None
+                raise L2LLMCallError(
+                    f"L2 LLM call failed for {call.request_kind}"
+                ) from exc
+        raise L2LLMCallError(f"L2 LLM call failed for {call.request_kind}")
 
     async def _call_json_once(
         self,
@@ -236,15 +295,51 @@ class L2LLMJsonClientMixin:
         self,
         raw: str,
         completion_context: dict[str, Any],
+        *,
+        required_fields: dict[str, type] | None = None,
     ) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
-        except Exception:
+        except (TypeError, json.JSONDecodeError) as exc:
             invalid_context = dict(completion_context)
             invalid_context["response_char_count"] = len(raw or "")
             logger.warning("L2 LLM returned invalid JSON", **invalid_context)
-            return {}
-        return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+            raise L2InvalidJsonResponseError("L2 LLM response is not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            invalid_context = dict(completion_context)
+            invalid_context["response_char_count"] = len(raw or "")
+            invalid_context["response_json_type"] = type(parsed).__name__
+            logger.warning("L2 LLM returned non-object JSON", **invalid_context)
+            raise L2InvalidJsonResponseError("L2 LLM response is not a JSON object")
+        self._validate_json_contract(
+            parsed,
+            completion_context=completion_context,
+            required_fields=required_fields,
+        )
+        return cast(dict[str, Any], parsed)
+
+    @staticmethod
+    def _validate_json_contract(
+        parsed: dict[str, Any],
+        *,
+        completion_context: dict[str, Any],
+        required_fields: dict[str, type] | None,
+    ) -> None:
+        if not required_fields:
+            return
+        missing_fields = [field for field in required_fields if field not in parsed]
+        invalid_fields = [
+            field
+            for field, expected_type in required_fields.items()
+            if field in parsed and not isinstance(parsed[field], expected_type)
+        ]
+        if not missing_fields and not invalid_fields:
+            return
+        invalid_context = dict(completion_context)
+        invalid_context["missing_fields"] = missing_fields
+        invalid_context["invalid_field_types"] = invalid_fields
+        logger.warning("L2 LLM returned invalid JSON contract", **invalid_context)
+        raise L2InvalidJsonResponseError("L2 LLM response does not match the JSON contract")
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         return bool(is_rate_limit_exception(exc))
@@ -319,4 +414,10 @@ class L2LLMJsonClientMixin:
         return cast(_L2LLMJsonClientHostProtocol, self)
 
 
-__all__ = ["L2LLMJsonClientMixin"]
+__all__ = [
+    "L2InvalidJsonResponseError",
+    "L2LLMCallError",
+    "L2LLMJsonClientMixin",
+    "L2LLMJsonError",
+    "L2LLMUnavailableError",
+]

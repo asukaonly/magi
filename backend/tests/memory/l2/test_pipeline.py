@@ -1151,13 +1151,20 @@ async def test_batch_entity_resolution_fills_missing_keys():
                 mention=L2EntityResolutionMention(mention_text="X", entity_type="person"),
                 candidate_entities=[L2EntityCandidate(entity_id="person:x", canonical_name="X", entity_type="person")],
             ),
+            L2BatchEntityResolutionItem(
+                mention_key="1",
+                mention=L2EntityResolutionMention(mention_text="Y", entity_type="person"),
+                candidate_entities=[L2EntityCandidate(entity_id="person:y", canonical_name="Y", entity_type="person")],
+            ),
         ],
     )
     assert results["0"].decision == "unresolved"
+    assert results["1"].decision == "unresolved"
 
 
 @pytest.mark.asyncio
 async def test_invalid_json_from_reconcile_llm_fails_closed():
+    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
     from magi.memory.l2.llm_service import L2LLMService
     from magi.memory.l2.models import (
         L2ReconcileEntity,
@@ -1165,14 +1172,13 @@ async def test_invalid_json_from_reconcile_llm_fails_closed():
 
     service = L2LLMService(_FakeScenarioPool(_FakeAdapter("not-json")))
 
-    outcomes = await service.reconcile_entity_state(
-        entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
-        graph_facts=[],
-        assertions=[],
-        recent_events=[],
-    )
-
-    assert outcomes == []
+    with pytest.raises(L2InvalidJsonResponseError):
+        await service.reconcile_entity_state(
+            entity=L2ReconcileEntity(entity_id="user:u1", entity_type="user"),
+            graph_facts=[],
+            assertions=[],
+            recent_events=[],
+        )
 
 
 @pytest.mark.asyncio
@@ -1557,17 +1563,17 @@ async def test_extract_worker_uses_recent_session_context_in_mention_prompt():
         [
             json.dumps(
                 {
-                    "mentions": [],
-                    "graph_candidates": [],
-                    "assertion_candidates": [],
+                    "entities": [],
+                    "fact_claims": [],
+                    "resolved_refs": [],
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
             json.dumps(
                 {
-                    "mentions": [],
-                    "graph_candidates": [],
-                    "assertion_candidates": [],
+                    "entities": [],
+                    "fact_claims": [],
+                    "resolved_refs": [],
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
@@ -1645,9 +1651,9 @@ async def test_extract_worker_uses_related_cross_session_history_in_unified_prom
         [
             json.dumps(
                 {
-                    "mentions": [],
-                    "graph_candidates": [],
-                    "assertion_candidates": [],
+                    "entities": [],
+                    "fact_claims": [],
+                    "resolved_refs": [],
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
@@ -1723,9 +1729,9 @@ async def test_extract_worker_orders_history_contexts_chronologically_in_prompt(
         [
             json.dumps(
                 {
-                    "mentions": [],
-                    "graph_candidates": [],
-                    "assertion_candidates": [],
+                    "entities": [],
+                    "fact_claims": [],
+                    "resolved_refs": [],
                     "diagnostics": {"entity_status": "none"},
                 }
             ),
@@ -2545,7 +2551,9 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
 
 @pytest.mark.asyncio
 async def test_chat_response_action_runtime_event_does_not_enter_l2_pipeline():
-    adapter = _FakeAdapter(json.dumps({"mentions": [], "graph_candidates": [], "assertion_candidates": []}))
+    adapter = _FakeAdapter(
+        json.dumps({"entities": [], "fact_claims": [], "resolved_refs": []})
+    )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)

@@ -541,6 +541,7 @@ The default execution model:
 5. `L2Pipeline` in the `runtime_worker` claims ready jobs and marks them `queued`
 6. Claimed events are batched by batch owner / session / user; the worker marks jobs `running` before extraction
 7. Successful extraction marks jobs `completed`; failures mark them `failed` or requeue to `pending`
+8. Model output must be a JSON object matching the stage's required top-level fields and field types. Invalid output receives one stricter format retry; repeated invalid output, an unavailable model, or a provider failure after transport retries marks the projection job `failed` rather than completing it as an empty extraction or immediately looping. Non-model infrastructure failures may still requeue to `pending`.
 
 Batch policy:
 

@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Protocol
 from ....core.logger import get_logger
 from ...event_contracts import MemoryEvent
 from ..episode_formation import assign_events_to_episode, episode_type_for_event
+from ..llm_json_client import L2LLMJsonError
 from ..models import (
     EpisodeCandidateJob,
     L2BatchJob,
@@ -220,7 +221,7 @@ class L2PipelineWorkerMixin:
             await host._cognition_store.fail_projection_jobs(
                 job.event_ids,
                 error_text=str(exc),
-                requeue=True,
+                requeue=not isinstance(exc, L2LLMJsonError),
             )
         host._stats.extract_failed += 1
         logger.exception(

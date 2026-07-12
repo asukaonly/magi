@@ -33,6 +33,7 @@ class L2LLMReconcileMixin:
             ),
             request_kind="memory:l2_entity_reconcile",
             turn_id=entity.entity_id,
+            required_fields={"reconciled_traits": list},
         )
         outcomes = payload.get("reconciled_traits")
         if not isinstance(outcomes, list):
