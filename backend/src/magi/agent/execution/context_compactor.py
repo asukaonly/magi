@@ -50,6 +50,7 @@ _CHARS_PER_TOKEN_ESTIMATE = 4
 
 # Maximum consecutive compaction failures before the circuit breaker trips.
 _MAX_CONSECUTIVE_FAILURES = 3
+_CONTEXT_BOUNDARY_ROLE = "user"
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +327,7 @@ class ContextCompactor:
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
         boundary_message: Dict[str, Any] = {
-            "role": "system",
+            "role": _CONTEXT_BOUNDARY_ROLE,
             "content": (
                 "[context compacted] The earlier conversation has been summarised. "
                 "Details below reflect the key context from the prior exchange.\n\n"
@@ -457,7 +458,7 @@ class ContextCompactor:
             kept = _flatten_groups(list(reversed(selected_groups)))
         kept = self._truncate_messages_to_tail_budget(kept)
         boundary: Dict[str, Any] = {
-            "role": "system",
+            "role": _CONTEXT_BOUNDARY_ROLE,
             "content": (
                 "[context truncated] Older messages have been removed to stay "
                 "within the context window. The most recent exchanges follow."

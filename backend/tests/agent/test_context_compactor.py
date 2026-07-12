@@ -312,7 +312,7 @@ class TestRuleBasedCompact:
         msgs = _make_messages(30)
         result = await c.compact(msgs)
         assert result.compacted is True
-        assert result.messages[0]["role"] == "system"
+        assert result.messages[0]["role"] == "user"
         assert "[context truncated]" in result.messages[0]["content"]
         # Complete rounds may keep slightly fewer than the message-count cap.
         assert 2 <= len(result.messages) <= _RULE_KEEP_RECENT_MESSAGES + 1
@@ -387,7 +387,7 @@ class TestLLMCompact:
             result = await c.compact(msgs, system_prompt="sys")
 
         assert result.compacted is True
-        assert result.messages[0]["role"] == "system"
+        assert result.messages[0]["role"] == "user"
         assert "[context compacted]" in result.messages[0]["content"]
         assert "summary" in result.summary_text
         assert c._consecutive_failures == 0

@@ -283,6 +283,30 @@ async def test_anthropic_path_converts_tool_result_messages():
 
 
 @pytest.mark.asyncio
+async def test_anthropic_path_accepts_compacted_history_boundary():
+    response = SimpleNamespace(content=[SimpleNamespace(type="text", text="done")])
+    messages_client = DummyAnthropicMessagesClient(response=response)
+    llm = DummyLLMAdapter(
+        provider="anthropic",
+        client=SimpleNamespace(messages=messages_client),
+    )
+    bridge = LLMProviderBridge(llm)
+    bridge.is_anthropic = lambda: True
+
+    await bridge.chat_with_tools(
+        system_prompt="sys",
+        messages=[
+            {"role": "user", "content": "[context compacted] summary"},
+            {"role": "assistant", "content": "continue"},
+        ],
+        tools=[],
+    )
+
+    sent_roles = {message["role"] for message in messages_client.kwargs["messages"]}
+    assert sent_roles <= {"user", "assistant"}
+
+
+@pytest.mark.asyncio
 async def test_anthropic_chat_response_converts_generic_image_blocks() -> None:
     text_block = SimpleNamespace(type="text", text="done")
     response = SimpleNamespace(
