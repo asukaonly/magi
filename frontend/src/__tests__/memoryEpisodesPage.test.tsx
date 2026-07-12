@@ -922,6 +922,52 @@ describe('MemoryEpisodesPage', () => {
     }, { timeout: 1500 });
   });
 
+  it('drops a later chapter emptied by deduplication before creation while preserving direct event evidence', async () => {
+    const ownerChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-owner',
+      title: '保留的章节',
+      episode_ids: ['shared-episode'],
+      event_ids: ['shared-event'],
+      draft_order: 10,
+    };
+    const emptyDuplicateChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-empty-duplicate',
+      title: '完全重复的章节',
+      episode_ids: ['shared-episode'],
+      event_ids: ['shared-event'],
+      draft_order: 20,
+    };
+    const directEventChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-direct-event',
+      title: '独立事件章节',
+      episode_ids: [],
+      event_ids: ['direct-event'],
+      draft_order: 30,
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [ownerChapter, emptyDuplicateChapter, directEventChapter],
+    }) as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await screen.findByRole('checkbox', { name: '保留的章节' });
+    expect(screen.queryByRole('checkbox', { name: '完全重复的章节' })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '独立事件章节' })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'Create experience' }));
+
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({ chapters: [ownerChapter, directEventChapter] }),
+      );
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
+    }, { timeout: 1500 });
+  });
+
   it('restores a grouped chapter only from currently available unowned evidence rows', async () => {
     const ownerChapter = {
       ...defaultDraftChapter,

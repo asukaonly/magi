@@ -48,6 +48,7 @@ const normalizeChapters = (chapters: ExperienceDraftChapter[]): ExperienceDraftC
     .sort(compareChapterOrder);
   const seen = new Set<string>();
   return ordered.map((chapter) => {
+    const hadEvidence = chapter.episode_ids.length > 0 || chapter.event_ids.length > 0;
     const episodeIds = chapter.episode_ids.filter((refId) => {
       const key = evidenceRefKey('episode', refId);
       if (seen.has(key)) return false;
@@ -60,11 +61,12 @@ const normalizeChapters = (chapters: ExperienceDraftChapter[]): ExperienceDraftC
       seen.add(key);
       return true;
     });
+    if (hadEvidence && episodeIds.length === 0 && eventIds.length === 0) return null;
     if (episodeIds.length === chapter.episode_ids.length && eventIds.length === chapter.event_ids.length) {
       return chapter;
     }
     return { ...chapter, episode_ids: episodeIds, event_ids: eventIds };
-  });
+  }).filter((chapter): chapter is ExperienceDraftChapter => chapter !== null);
 };
 
 const dedupeEvidence = (
