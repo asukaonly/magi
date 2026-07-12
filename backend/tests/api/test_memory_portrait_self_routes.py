@@ -286,11 +286,10 @@ def test_self_portrait_returns_backend_grouped_page_model():
         "projects",
         "preferences",
         "work_style",
-        "invariants",
     ]
     assert [item["text"] for item in world_groups["identity"]] == ["希望称呼为「Asuka」"]
     assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统"]
-    assert [item["text"] for item in world_groups["work_style"]] == ["本地插件仓库", "直接给结论"]
+    assert [item["text"] for item in world_groups["work_style"]] == ["直接给结论"]
 
     review_items = view["review"]["items"]
     assert [item["text"] for item in review_items] == ["画像页面"]
@@ -302,10 +301,10 @@ def test_self_portrait_returns_backend_grouped_page_model():
         "最近在验证关于你页面",
         "检查 L2 结果",
     ]
-    assert view["world"]["total_count"] == 4
+    assert view["world"]["total_count"] == 3
 
 
-def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals():
+def test_self_view_keeps_inventory_assertions_out_of_world():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -350,9 +349,12 @@ def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals(
         for group in resp.json()["self_view"]["world"]["groups"]
     }["work_style"]
 
-    assert [item["text"] for item in work_style_items] == ["Codex", "Docker"]
-    assert work_style_items[0]["source_key"] == "user_authored"
-    assert work_style_items[1]["assertion_id"] == "assert-dup"
+    assert work_style_items == []
+    observations_text = "\n".join(
+        item["text"] for item in resp.json()["observations"]
+    )
+    assert "Codex" not in observations_text
+    assert "Docker" not in observations_text
 
 
 def test_self_view_skips_non_world_ready_passive_assertions():
@@ -446,7 +448,7 @@ def test_self_view_applies_assertion_limit_after_signal_filtering():
     assert [item["text"] for item in world_groups["preferences"]] == ["RAG"]
 
 
-def test_self_view_includes_safe_graph_relationship_signals():
+def test_self_view_keeps_inventory_graph_relationships_out_of_world():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -487,14 +489,11 @@ def test_self_view_includes_safe_graph_relationship_signals():
     body = resp.json()
     world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
 
-    assert [item["text"] for item in world_groups["invariants"]] == ["东京"]
-    assert world_groups["invariants"][0]["source"] == ""
-    assert world_groups["invariants"][0]["source_key"] is None
-    assert [item["text"] for item in world_groups["work_style"]] == ["Sony A7C"]
-    assert "一次性地点" not in " ".join(item["text"] for group in world_groups.values() for item in group)
+    assert all(not items for items in world_groups.values())
+    assert body["self_view"]["recent"]["items"] == []
 
 
-def test_self_view_skips_coordinate_only_photo_places():
+def test_self_view_skips_photo_place_inventory_signals():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -524,8 +523,10 @@ def test_self_view_skips_coordinate_only_photo_places():
         resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
 
     assert resp.status_code == 200
-    world_groups = {group["id"]: group["items"] for group in resp.json()["self_view"]["world"]["groups"]}
-    assert [item["text"] for item in world_groups["invariants"]] == ["杭州"]
+    self_view = resp.json()["self_view"]
+    world_groups = {group["id"]: group["items"] for group in self_view["world"]["groups"]}
+    assert all(not items for items in world_groups.values())
+    assert self_view["recent"]["items"] == []
 
 
 def test_self_view_fallback_uses_converged_portrait_projection_with_profile_input():
@@ -584,13 +585,12 @@ def test_self_view_fallback_uses_converged_portrait_projection_with_profile_inpu
         "projects",
         "preferences",
         "work_style",
-        "invariants",
     ]
     assert "子涵" in world_groups["identity"]["summary"]
+    assert "杭州" in world_groups["identity"]["summary"]
     assert "Magi 记忆系统" in world_groups["projects"]["summary"]
     assert "插件生态" in world_groups["preferences"]["summary"]
     assert "先讲结论" in world_groups["work_style"]["summary"]
-    assert "杭州" in world_groups["invariants"]["summary"]
     assert body["prompt_summary"]
     assert "external_activity" not in "\n".join(body["prompt_summary"])
 
@@ -710,8 +710,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
         "identity": [],
         "projects": [],
         "preferences": ["Magi 记忆系统"],
-        "work_style": ["先讲结论", "本地插件仓库"],
-        "invariants": [],
+        "work_style": ["先讲结论"],
     }
     assert sorted(item["text"] for item in fallback["review"]["items"]) == ["一次性页面"]
     assert sorted(item["text"] for item in fallback["recent"]["items"]) == ["验证画像"]
@@ -734,9 +733,8 @@ class _ConsistencyGraphL2:
         return [dict(edge) for edge in self._relationships]
 
 
-def test_materialized_and_fallback_portrait_include_graph_clues_identically():
-    """Visited places / owned-used tools must land in the same world groups in
-    both the materialized projection and the API fallback path."""
+def test_materialized_and_fallback_portrait_include_recent_graph_clues_identically():
+    """Qualified graph clues must remain recent on both projection paths."""
     assertions = [
         {
             "assertion_id": "a-routine",
@@ -750,27 +748,20 @@ def test_materialized_and_fallback_portrait_include_graph_clues_identically():
     ]
     relationships = [
         {
-            "triple_id": "t-place",
-            "predicate": "VISITED",
-            "object_id": "place:东京",
-            "object_type": "place",
-            "source_type": "photo_library_apple_photos",
+            "triple_id": "t-topic",
+            "predicate": "INTERESTED_IN",
+            "object_id": "topic:机器学习",
+            "object_type": "topic",
+            "source_type": "browser_history",
             "observation_count": 3,
         },
         {
             "triple_id": "t-tool",
-            "predicate": "USES",
+            "predicate": "WORKS_WITH",
             "object_id": "software:Chrome",
             "object_type": "software",
             "source_type": "chrome_history",
             "observation_count": 5,
-        },
-        {
-            "triple_id": "t-single",
-            "predicate": "VISITED",
-            "object_id": "place:一次性地点",
-            "object_type": "place",
-            "observation_count": 1,
         },
     ]
     l2 = _ConsistencyGraphL2(assertions, relationships)
@@ -792,9 +783,12 @@ def test_materialized_and_fallback_portrait_include_graph_clues_identically():
         "identity": [],
         "projects": [],
         "preferences": [],
-        "work_style": ["Chrome", "本地插件仓库"],
-        "invariants": ["东京"],
+        "work_style": [],
     }
+    assert sorted(item["text"] for item in fallback["recent"]["items"]) == [
+        "Chrome",
+        "机器学习",
+    ]
 
 
 class _ConsistencySnapshotL2:
