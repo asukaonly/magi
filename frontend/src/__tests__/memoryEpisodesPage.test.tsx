@@ -811,17 +811,49 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getByLabelText('One-sentence recap')).toHaveValue('从东京走到京都、奈良和大阪的一段旅行。');
   });
 
-  it('loads readable episode content only when a selected segment is opened and can collapse it', async () => {
+  it('shows the deduplicated real event count before a selected segment is expanded', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{
+        ...defaultDraftChapter,
+        episode_ids: ['ep-create-1', 'ep-create-2'],
+        event_ids: ['evt-direct', 'evt-shared'],
+      }],
+    }) as never);
+    vi.mocked(memoryApi.getEpisode)
+      .mockResolvedValueOnce({
+        events: [
+          { event_id: 'evt-shared', content_preview: 'Shared event content.' },
+          { event_id: 'evt-route-search', content_preview: 'Compared route options.' },
+        ],
+      } as never)
+      .mockResolvedValueOnce({
+        events: [
+          { event_id: 'evt-shared', content_preview: 'Shared event content.' },
+          { event_id: 'evt-lodging', content_preview: 'Compared lodging options.' },
+        ],
+      } as never);
+
+    renderDraftPage();
+
+    expect(await screen.findByText('Events: 4')).toBeInTheDocument();
+    expect(memoryApi.getEpisode).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Shared event content.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Compared route options.')).not.toBeInTheDocument();
+  });
+
+  it('prefetches readable episode content and reuses it when the selected segment opens', async () => {
     const contentRequest = createDeferred<Awaited<ReturnType<typeof memoryApi.getEpisode>>>();
     vi.mocked(memoryApi.getEpisode).mockReturnValueOnce(contentRequest.promise);
     const user = userEvent.setup();
     renderDraftPage();
 
     const viewButton = await screen.findByRole('button', { name: 'View content' });
-    expect(memoryApi.getEpisode).not.toHaveBeenCalled();
+    expect(memoryApi.getEpisode).toHaveBeenCalledWith('ep-create-1');
+    expect(memoryApi.getEpisode).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Loading segment content...')).not.toBeInTheDocument();
     await user.click(viewButton);
 
-    expect(memoryApi.getEpisode).toHaveBeenCalledWith('ep-create-1');
+    expect(memoryApi.getEpisode).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Loading segment content...')).toBeInTheDocument();
     await act(async () => {
       contentRequest.resolve({
@@ -853,6 +885,7 @@ describe('MemoryEpisodesPage', () => {
     expect(await screen.findByText('Compared Shinkansen routes and Kyoto lodging.')).toBeInTheDocument();
     expect(screen.getByText('chrome')).toBeInTheDocument();
     expect(screen.queryByText('ep-create-1')).not.toBeInTheDocument();
+    expect(memoryApi.getEpisode).toHaveBeenCalledTimes(1);
 
     await user.click(screen.getByRole('button', { name: 'Hide content' }));
     expect(screen.queryByText('Compared Shinkansen routes and Kyoto lodging.')).not.toBeInTheDocument();
@@ -872,6 +905,9 @@ describe('MemoryEpisodesPage', () => {
     renderDraftPage();
 
     const viewButtons = await screen.findAllByRole('button', { name: 'View content' });
+    await waitFor(() => expect(memoryApi.getEpisode).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('No readable event content is available for this segment.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Could not load this segment. Try again.')).not.toBeInTheDocument();
     await user.click(viewButtons[0]);
     expect(await screen.findByText('No readable event content is available for this segment.')).toBeInTheDocument();
 

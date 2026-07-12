@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -10,6 +10,12 @@ import { Button } from '@/components/ui/button';
 import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
 
 type ContentState = 'idle' | 'loading' | 'loaded' | 'failed';
+
+interface EpisodeContentSnapshot {
+  episodeIdsKey: string;
+  state: ContentState;
+  events: L2EpisodeEventPreview[];
+}
 
 interface ExperienceDraftSegmentCardProps {
   chapter: ExperienceDraftChapter;
@@ -27,6 +33,15 @@ const formatEventTime = (timestamp: number | null | undefined, locale: string): 
   }).format(new Date(timestamp * 1000));
 };
 
+const dedupeEpisodeEvents = (events: L2EpisodeEventPreview[]): L2EpisodeEventPreview[] => {
+  const seen = new Set<string>();
+  return events.filter((event) => {
+    if (seen.has(event.event_id)) return false;
+    seen.add(event.event_id);
+    return true;
+  });
+};
+
 export function ExperienceDraftSegmentCard({
   chapter,
   checkboxRef,
@@ -34,8 +49,17 @@ export function ExperienceDraftSegmentCard({
 }: ExperienceDraftSegmentCardProps) {
   const { t, i18n } = useTranslation('app');
   const [contentOpen, setContentOpen] = useState(false);
-  const [contentState, setContentState] = useState<ContentState>('idle');
-  const [events, setEvents] = useState<L2EpisodeEventPreview[]>([]);
+  const episodeIdsKey = chapter.episode_ids.join('\u0000');
+  const requestGenerationRef = useRef(0);
+  const [content, setContent] = useState<EpisodeContentSnapshot>({
+    episodeIdsKey,
+    state: episodeIdsKey ? 'loading' : 'idle',
+    events: [],
+  });
+  const contentState = content.episodeIdsKey === episodeIdsKey
+    ? content.state
+    : episodeIdsKey ? 'loading' : 'idle';
+  const events = content.episodeIdsKey === episodeIdsKey ? content.events : [];
   const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
   const readableEvents = useMemo(
     () => events.filter((event) => String(event.content_preview || '').trim()),
@@ -46,23 +70,35 @@ export function ExperienceDraftSegmentCard({
     ...events.map((event) => event.event_id),
   ]).size;
 
-  const loadContent = async () => {
-    if (chapter.episode_ids.length === 0) return;
-    setContentState('loading');
+  const loadContent = useCallback(async () => {
+    if (!episodeIdsKey) return;
+    const episodeIds = episodeIdsKey.split('\u0000');
+    const requestGeneration = requestGenerationRef.current + 1;
+    requestGenerationRef.current = requestGeneration;
+    setContent({ episodeIdsKey, state: 'loading', events: [] });
     try {
-      const episodes = await Promise.all(chapter.episode_ids.map((episodeId) => memoryApi.getEpisode(episodeId)));
-      setEvents(episodes.flatMap((episode) => episode.events ?? []));
-      setContentState('loaded');
+      const episodes = await Promise.all(episodeIds.map((episodeId) => memoryApi.getEpisode(episodeId)));
+      if (requestGenerationRef.current !== requestGeneration) return;
+      setContent({
+        episodeIdsKey,
+        state: 'loaded',
+        events: dedupeEpisodeEvents(episodes.flatMap((episode) => episode.events ?? [])),
+      });
     } catch {
-      setEvents([]);
-      setContentState('failed');
+      if (requestGenerationRef.current !== requestGeneration) return;
+      setContent({ episodeIdsKey, state: 'failed', events: [] });
     }
-  };
+  }, [episodeIdsKey]);
+
+  useEffect(() => {
+    if (episodeIdsKey) void loadContent();
+    return () => {
+      requestGenerationRef.current += 1;
+    };
+  }, [episodeIdsKey, loadContent]);
 
   const toggleContent = () => {
-    const nextOpen = !contentOpen;
-    setContentOpen(nextOpen);
-    if (nextOpen && contentState === 'idle') void loadContent();
+    setContentOpen((open) => !open);
   };
 
   return (
