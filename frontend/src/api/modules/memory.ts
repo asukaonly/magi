@@ -383,6 +383,12 @@ export interface ExperienceDraftEvidence {
   time_start?: number | null;
   time_end?: number | null;
   reason?: string | null;
+  restore_chapter?: {
+    chapter_id: string;
+    chapter_index: number;
+    episode_ids: string[];
+    event_ids: string[];
+  } | null;
 }
 
 export interface ExperienceDraftChapter {

@@ -7,6 +7,7 @@ import {
   type ExperienceDraft,
   type ExperienceDraftChapter,
   type ExperienceDraftEvidence,
+  type ExperienceDraftUpdatePayload,
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,80 @@ const fromDateValue = (value: string, boundary: 'start' | 'end') => {
   return new Date(`${value}${suffix}`).getTime() / 1000;
 };
 
+const evidenceRefKey = (refType: string, refId: string) => `${refType}\u0000${refId}`;
+
+const chapterRefKeys = (chapter: ExperienceDraftChapter): string[] => [
+  ...chapter.episode_ids.map((refId) => evidenceRefKey('episode', refId)),
+  ...chapter.event_ids.map((refId) => evidenceRefKey('event', refId)),
+];
+
+const dedupeEvidence = (
+  evidence: ExperienceDraftEvidence[],
+  blockedKeys: Set<string>,
+): ExperienceDraftEvidence[] => {
+  const seen = new Set(blockedKeys);
+  return evidence.filter((item) => {
+    const key = evidenceRefKey(item.ref_type, item.ref_id);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const normalizeDraftEvidence = (draft: ExperienceDraft): { draft: ExperienceDraft; changed: boolean } => {
+  const selectedKeys = new Set(draft.chapters.flatMap(chapterRefKeys));
+  const possibleEvidence = dedupeEvidence(draft.possible_evidence, selectedKeys);
+  const possibleKeys = new Set(possibleEvidence.map((item) => evidenceRefKey(item.ref_type, item.ref_id)));
+  const excludedEvidence = dedupeEvidence(
+    draft.excluded_evidence,
+    new Set([...selectedKeys, ...possibleKeys]),
+  );
+  const changed = possibleEvidence.length !== draft.possible_evidence.length
+    || possibleEvidence.some((item, index) => item !== draft.possible_evidence[index])
+    || excludedEvidence.length !== draft.excluded_evidence.length
+    || excludedEvidence.some((item, index) => item !== draft.excluded_evidence[index]);
+  return {
+    draft: changed ? {
+      ...draft,
+      possible_evidence: possibleEvidence,
+      excluded_evidence: excludedEvidence,
+    } : draft,
+    changed,
+  };
+};
+
+const toUpdatePayload = (draft: ExperienceDraft): ExperienceDraftUpdatePayload => ({
+  title: draft.title,
+  one_sentence_review: draft.one_sentence_review,
+  time_start: draft.time_start,
+  time_end: draft.time_end,
+  chapters: draft.chapters,
+  possible_evidence: draft.possible_evidence,
+  excluded_evidence: draft.excluded_evidence,
+});
+
+interface PossibleSegment {
+  key: string;
+  evidence: ExperienceDraftEvidence;
+}
+
+const getPossibleSegments = (evidence: ExperienceDraftEvidence[]): PossibleSegment[] => {
+  const segments = new Map<string, PossibleSegment>();
+  evidence.forEach((item) => {
+    const key = item.restore_chapter
+      ? `chapter:${item.restore_chapter.chapter_id}`
+      : `evidence:${evidenceRefKey(item.ref_type, item.ref_id)}`;
+    if (!segments.has(key)) segments.set(key, { key, evidence: item });
+  });
+  return [...segments.values()];
+};
+
+interface PendingFocus {
+  section: 'included' | 'possible';
+  key: string;
+  announcement: string;
+}
+
 export const MemoryExperienceDraftPage = () => {
   const { t, i18n } = useTranslation('app');
   const { draftId } = useParams<{ draftId: string }>();
@@ -37,7 +112,17 @@ export const MemoryExperienceDraftPage = () => {
   const [saveFailed, setSaveFailed] = useState(false);
   const [creating, setCreating] = useState(false);
   const [notFound, setNotFound] = useState(false);
-  const dirtyRef = useRef(false);
+  const [possibleOpen, setPossibleOpen] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
+  const draftRef = useRef<ExperienceDraft | null>(null);
+  const revisionRef = useRef(0);
+  const savedRevisionRef = useRef(0);
+  const queuedRevisionRef = useRef(0);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSaveCountRef = useRef(0);
+  const pendingFocusRef = useRef<PendingFocus | null>(null);
+  const chapterCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
+  const possibleCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
 
   useEffect(() => {
     if (!draftId) {
@@ -49,8 +134,15 @@ export const MemoryExperienceDraftPage = () => {
     void memoryApi.getExperienceDraft(draftId)
       .then((payload) => {
         if (!cancelled) {
-          dirtyRef.current = false;
-          setDraft(payload);
+          const normalized = normalizeDraftEvidence(payload);
+          draftRef.current = normalized.draft;
+          revisionRef.current = normalized.changed ? 1 : 0;
+          savedRevisionRef.current = 0;
+          queuedRevisionRef.current = 0;
+          saveQueueRef.current = Promise.resolve();
+          pendingSaveCountRef.current = 0;
+          setPossibleOpen(false);
+          setDraft(normalized.draft);
         }
       })
       .catch(() => {
@@ -62,34 +154,73 @@ export const MemoryExperienceDraftPage = () => {
     return () => { cancelled = true; };
   }, [draftId]);
 
-  useEffect(() => {
-    if (!draftId || !draft || !dirtyRef.current) return;
-    const timer = window.setTimeout(() => {
-      setSaving(true);
+  const enqueueSave = useCallback((snapshot: ExperienceDraft, revision: number): Promise<void> => {
+    if (!draftId) return Promise.resolve();
+    if (revision <= queuedRevisionRef.current) return saveQueueRef.current;
+
+    queuedRevisionRef.current = revision;
+    pendingSaveCountRef.current += 1;
+    setSaving(true);
+    const priorSave = saveQueueRef.current.catch(() => undefined);
+    const nextSave = priorSave.then(async () => {
       setSaveFailed(false);
-      dirtyRef.current = false;
-      void memoryApi.updateExperienceDraft(draftId, {
-        title: draft.title,
-        one_sentence_review: draft.one_sentence_review,
-        time_start: draft.time_start,
-        time_end: draft.time_end,
-        chapters: draft.chapters,
-        possible_evidence: draft.possible_evidence,
-        excluded_evidence: draft.excluded_evidence,
-      }).catch(() => {
-        dirtyRef.current = true;
+      try {
+        await memoryApi.updateExperienceDraft(draftId, toUpdatePayload(snapshot));
+        savedRevisionRef.current = Math.max(savedRevisionRef.current, revision);
+      } catch (error) {
+        if (queuedRevisionRef.current === revision) {
+          queuedRevisionRef.current = savedRevisionRef.current;
+        }
         setSaveFailed(true);
-      }).finally(() => setSaving(false));
+        throw error;
+      } finally {
+        pendingSaveCountRef.current -= 1;
+        if (pendingSaveCountRef.current === 0) setSaving(false);
+      }
+    });
+    saveQueueRef.current = nextSave;
+    return nextSave;
+  }, [draftId]);
+
+  useEffect(() => {
+    if (!draftId || !draft) return;
+    const revision = revisionRef.current;
+    if (revision <= savedRevisionRef.current || revision <= queuedRevisionRef.current) return;
+    const timer = window.setTimeout(() => {
+      void enqueueSave(draft, revision).catch(() => undefined);
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [draft, draftId]);
+  }, [draft, draftId, enqueueSave]);
 
   const changeDraft = useCallback((mutate: (current: ExperienceDraft) => ExperienceDraft) => {
-    dirtyRef.current = true;
-    setDraft((current) => current ? mutate(current) : current);
+    setDraft((current) => {
+      if (!current) return current;
+      const normalized = normalizeDraftEvidence(mutate(current)).draft;
+      revisionRef.current += 1;
+      draftRef.current = normalized;
+      return normalized;
+    });
   }, []);
 
-  const removeChapter = (chapter: ExperienceDraftChapter) => {
+  useEffect(() => {
+    const pendingFocus = pendingFocusRef.current;
+    if (!pendingFocus) return;
+    const target = pendingFocus.section === 'included'
+      ? chapterCheckboxRefs.current.get(pendingFocus.key)
+      : possibleCheckboxRefs.current.get(pendingFocus.key);
+    if (!target) return;
+    pendingFocusRef.current = null;
+    target.focus();
+    setAnnouncement(pendingFocus.announcement);
+  }, [draft, possibleOpen]);
+
+  const removeChapter = (chapter: ExperienceDraftChapter, chapterIndex: number) => {
+    const restoreChapter = {
+      chapter_id: chapter.chapter_id,
+      chapter_index: chapterIndex,
+      episode_ids: chapter.episode_ids,
+      event_ids: chapter.event_ids,
+    };
     const possibleEvidence: ExperienceDraftEvidence[] = [
       ...chapter.episode_ids.map((refId) => ({
         ref_type: 'episode',
@@ -98,6 +229,7 @@ export const MemoryExperienceDraftPage = () => {
         summary: chapter.summary,
         time_start: chapter.time_start,
         time_end: chapter.time_end,
+        restore_chapter: restoreChapter,
       })),
       ...chapter.event_ids.map((refId) => ({
         ref_type: 'event',
@@ -106,63 +238,84 @@ export const MemoryExperienceDraftPage = () => {
         summary: chapter.summary,
         time_start: chapter.time_start,
         time_end: chapter.time_end,
+        restore_chapter: restoreChapter,
       })),
     ];
+    const movedKeys = new Set(possibleEvidence.map((item) => evidenceRefKey(item.ref_type, item.ref_id)));
+    pendingFocusRef.current = {
+      section: 'possible',
+      key: `chapter:${chapter.chapter_id}`,
+      announcement: `${t('memory.episodes.draft.possible')}: ${chapter.title}`,
+    };
+    setPossibleOpen(true);
     changeDraft((current) => {
-      const newEvidence = possibleEvidence.filter((candidate) => (
-        !current.possible_evidence.some((existing) => (
-          existing.ref_type === candidate.ref_type && existing.ref_id === candidate.ref_id
-        ))
-      ));
       return {
         ...current,
         chapters: current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id),
-        possible_evidence: [...current.possible_evidence, ...newEvidence],
+        possible_evidence: [
+          ...current.possible_evidence.filter((item) => !movedKeys.has(evidenceRefKey(item.ref_type, item.ref_id))),
+          ...possibleEvidence,
+        ],
       };
     });
   };
 
-  const addPossibleEvidence = (evidence: ExperienceDraftEvidence) => {
+  const addPossibleEvidence = (segment: PossibleSegment) => {
+    const { evidence } = segment;
+    const restoreChapter = evidence.restore_chapter;
     const chapter: ExperienceDraftChapter = {
-      chapter_id: `chapter-${crypto.randomUUID()}`,
+      chapter_id: restoreChapter?.chapter_id ?? `chapter-${crypto.randomUUID()}`,
       title: evidence.title,
       summary: evidence.summary,
       time_start: evidence.time_start,
       time_end: evidence.time_end,
-      episode_ids: evidence.ref_type === 'episode' ? [evidence.ref_id] : [],
-      event_ids: evidence.ref_type === 'event' ? [evidence.ref_id] : [],
+      episode_ids: restoreChapter?.episode_ids ?? (evidence.ref_type === 'episode' ? [evidence.ref_id] : []),
+      event_ids: restoreChapter?.event_ids ?? (evidence.ref_type === 'event' ? [evidence.ref_id] : []),
     };
-    changeDraft((current) => ({
-      ...current,
-      chapters: [...current.chapters, chapter],
-      possible_evidence: current.possible_evidence.filter((item) => (
-        item.ref_type !== evidence.ref_type || item.ref_id !== evidence.ref_id
-      )),
-    }));
+    pendingFocusRef.current = {
+      section: 'included',
+      key: chapter.chapter_id,
+      announcement: `${t('memory.episodes.draft.chapters')}: ${chapter.title}`,
+    };
+    changeDraft((current) => {
+      const chapters = current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id);
+      const chapterIndex = restoreChapter
+        ? Math.min(Math.max(restoreChapter.chapter_index, 0), chapters.length)
+        : chapters.length;
+      chapters.splice(chapterIndex, 0, chapter);
+      return {
+        ...current,
+        chapters,
+        possible_evidence: current.possible_evidence.filter((item) => (
+          restoreChapter
+            ? item.restore_chapter?.chapter_id !== restoreChapter.chapter_id
+            : evidenceRefKey(item.ref_type, item.ref_id) !== evidenceRefKey(evidence.ref_type, evidence.ref_id)
+        )),
+      };
+    });
   };
 
+  const flushLatestDraft = useCallback(async () => {
+    while (savedRevisionRef.current < revisionRef.current) {
+      const latestDraft = draftRef.current;
+      if (!latestDraft) return;
+      await enqueueSave(latestDraft, revisionRef.current);
+    }
+  }, [enqueueSave]);
+
   const createExperience = async () => {
-    if (!draftId || !draft) return;
+    if (!draftId || !draftRef.current) return;
     setCreating(true);
     try {
-      if (dirtyRef.current) {
-        dirtyRef.current = false;
-        await memoryApi.updateExperienceDraft(draftId, {
-          title: draft.title,
-          one_sentence_review: draft.one_sentence_review,
-          time_start: draft.time_start,
-          time_end: draft.time_end,
-          chapters: draft.chapters,
-          possible_evidence: draft.possible_evidence,
-          excluded_evidence: draft.excluded_evidence,
-        });
-      }
+      await flushLatestDraft();
       const result = await memoryApi.createExperienceFromDraft(draftId);
       navigate(`/memory/episodes/${result.experience_id}`);
     } finally {
       setCreating(false);
     }
   };
+
+  const possibleSegments = draft ? getPossibleSegments(draft.possible_evidence) : [];
 
   return (
     <MemoryPageFrame
@@ -184,6 +337,9 @@ export const MemoryExperienceDraftPage = () => {
               ? t('memory.episodes.draft.saveFailed')
               : t('memory.episodes.draft.autosaved')}
         </span>
+      </div>
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {announcement}
       </div>
 
       {loading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
@@ -247,11 +403,15 @@ export const MemoryExperienceDraftPage = () => {
                 <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] p-4">
                   <label className="flex cursor-pointer items-start gap-3">
                     <input
+                      ref={(node) => {
+                        if (node) chapterCheckboxRefs.current.set(chapter.chapter_id, node);
+                        else chapterCheckboxRefs.current.delete(chapter.chapter_id);
+                      }}
                       type="checkbox"
                       checked
                       aria-label={chapter.title}
                       onChange={(event) => {
-                        if (!event.target.checked) removeChapter(chapter);
+                        if (!event.target.checked) removeChapter(chapter, index);
                       }}
                       className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
                     />
@@ -273,22 +433,39 @@ export const MemoryExperienceDraftPage = () => {
             })}
           </section>
 
-          {draft.possible_evidence.length > 0 ? (
-            <details className="border-t border-[hsl(var(--memory-border)/0.45)] pt-4">
-              <summary className="cursor-pointer text-sm font-semibold">
-                {t('memory.episodes.draft.possible')} ({draft.possible_evidence.length})
+          {possibleSegments.length > 0 ? (
+            <details
+              open={possibleOpen}
+              onToggle={(event) => setPossibleOpen(event.currentTarget.open)}
+              className="border-t border-[hsl(var(--memory-border)/0.45)] pt-4"
+            >
+              <summary
+                tabIndex={0}
+                className="cursor-pointer text-sm font-semibold"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                  event.preventDefault();
+                  setPossibleOpen((open) => !open);
+                }}
+              >
+                {t('memory.episodes.draft.possible')} ({possibleSegments.length})
               </summary>
               <div className="mt-3 space-y-2">
-                {draft.possible_evidence.map((evidence) => {
+                {possibleSegments.map((segment) => {
+                  const { evidence } = segment;
                   const timeRange = formatEpisodeTimeRange(evidence.time_start, evidence.time_end, i18n.language);
                   return (
-                    <label key={`${evidence.ref_type}:${evidence.ref_id}`} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                    <label key={segment.key} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
                       <input
+                        ref={(node) => {
+                          if (node) possibleCheckboxRefs.current.set(segment.key, node);
+                          else possibleCheckboxRefs.current.delete(segment.key);
+                        }}
                         type="checkbox"
                         checked={false}
                         aria-label={evidence.title}
                         onChange={(event) => {
-                          if (event.target.checked) addPossibleEvidence(evidence);
+                          if (event.target.checked) addPossibleEvidence(segment);
                         }}
                         className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
                       />

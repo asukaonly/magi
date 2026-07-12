@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
@@ -9,7 +9,14 @@ import {
   MemoryExperienceDraftPage,
 } from '@/pages/memory-pages/MemoryEpisodesPage';
 import { memoryApi } from '@/api/modules/memory';
-import type { L2ExperienceReviewDetail, L2ExperienceSeed, L2ExperienceWithReview } from '@/api/modules/memory';
+import type {
+  ExperienceDraft,
+  ExperienceDraftChapter,
+  ExperienceDraftEvidence,
+  L2ExperienceReviewDetail,
+  L2ExperienceSeed,
+  L2ExperienceWithReview,
+} from '@/api/modules/memory';
 
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
@@ -414,6 +421,43 @@ const renderDraftPage = (draftId = 'draft-japan') =>
     </MemoryRouter>
   );
 
+const defaultDraftChapter: ExperienceDraftChapter = {
+  chapter_id: 'chapter-1',
+  title: '出发前，把路线定下来',
+  summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+  time_start: 1777564800,
+  time_end: 1777651200,
+  episode_ids: ['ep-create-1'],
+  event_ids: [],
+};
+
+const makeExperienceDraft = (overrides: Partial<ExperienceDraft> = {}): ExperienceDraft => ({
+  draft_id: 'draft-japan',
+  status: 'editing',
+  query_text: '2026年5月1日到10日 日本旅行',
+  title: '2026年5月 日本旅行',
+  one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
+  time_start: 1777564800,
+  time_end: 1778428799,
+  chapters: [defaultDraftChapter],
+  possible_evidence: [],
+  excluded_evidence: [],
+  created_experience_id: null,
+  created_at: 1778500000,
+  updated_at: 1778500000,
+  ...overrides,
+});
+
+const createDeferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+};
+
 const openLaunchExperience = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(await screen.findByRole('button', { name: /Open experience: Launch week/ }));
 };
@@ -451,29 +495,7 @@ beforeEach(() => {
   vi.mocked(memoryApi.listExperienceDrafts).mockResolvedValue({
     items: [], total: 0, limit: 20, offset: 0,
   } as never);
-  const draft = {
-    draft_id: 'draft-japan',
-    status: 'editing',
-    query_text: '2026年5月1日到10日 日本旅行',
-    title: '2026年5月 日本旅行',
-    one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
-    time_start: 1777564800,
-    time_end: 1778428799,
-    chapters: [{
-      chapter_id: 'chapter-1',
-      title: '出发前，把路线定下来',
-      summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
-      time_start: 1777564800,
-      time_end: 1777651200,
-      episode_ids: ['ep-create-1'],
-      event_ids: [],
-    }],
-    possible_evidence: [],
-    excluded_evidence: [],
-    created_experience_id: null,
-    created_at: 1778500000,
-    updated_at: 1778500000,
-  };
+  const draft = makeExperienceDraft();
   vi.mocked(memoryApi.organizeExperienceDraft).mockResolvedValue({
     status: 'draft', draft, choices: [], message: null,
   } as never);
@@ -728,75 +750,82 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText(internalReason)).not.toBeInTheDocument();
   });
 
-  it('moves unchecked chapter references to possible evidence and autosaves the selection', async () => {
-    const draftWithEpisodeAndEvent = {
-      draft_id: 'draft-japan',
-      status: 'editing',
-      query_text: '2026年5月1日到10日 日本旅行',
-      title: '2026年5月 日本旅行',
-      one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
-      time_start: 1777564800,
-      time_end: 1778428799,
-      chapters: [{
-        chapter_id: 'chapter-1',
-        title: '出发前，把路线定下来',
-        summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
-        time_start: 1777564800,
-        time_end: 1777651200,
-        episode_ids: ['ep-create-1'],
-        event_ids: ['evt-create-1'],
-      }],
-      possible_evidence: [],
-      excluded_evidence: [],
-      created_experience_id: null,
-      created_at: 1778500000,
-      updated_at: 1778500000,
+  it('round-trips a multi-source chapter in place and moves keyboard focus with an announcement', async () => {
+    const beforeChapter: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-before',
+      title: '抵达东京',
+      episode_ids: ['ep-before'],
     };
-    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(draftWithEpisodeAndEvent as never);
+    const targetChapter: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-target',
+      title: '把路线定下来',
+      episode_ids: ['ep-route-1', 'ep-route-2'],
+      event_ids: ['evt-route-1'],
+    };
+    const afterChapter: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-after',
+      title: '前往京都',
+      episode_ids: ['ep-after'],
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [beforeChapter, targetChapter, afterChapter],
+    }) as never);
     const user = userEvent.setup();
     renderDraftPage();
 
-    await user.click(await screen.findByRole('checkbox', { name: '出发前，把路线定下来' }));
+    const includedCheckbox = await screen.findByRole('checkbox', { name: '把路线定下来' });
+    includedCheckbox.focus();
+    await user.keyboard(' ');
 
-    expect(screen.getByRole('button', { name: 'Create experience' })).toBeDisabled();
+    const possibleSummary = screen.getByText(/Possibly related \(/);
+    expect(possibleSummary.closest('details')).toHaveAttribute('open');
+    const possibleCheckbox = screen.getByRole('checkbox', { name: '把路线定下来' });
+    await waitFor(() => expect(possibleCheckbox).toHaveFocus());
+    expect(possibleCheckbox).not.toBeChecked();
+    expect(screen.getByRole('status')).toHaveTextContent('Possibly related: 把路线定下来');
 
     await waitFor(() => {
       expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
         'draft-japan',
         expect.objectContaining({
-          chapters: [],
-          possible_evidence: [
-            {
+          chapters: [beforeChapter, afterChapter],
+          possible_evidence: expect.arrayContaining([
+            expect.objectContaining({
               ref_type: 'episode',
-              ref_id: 'ep-create-1',
-              title: '出发前，把路线定下来',
-              summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
-              time_start: 1777564800,
-              time_end: 1777651200,
-            },
-            {
-              ref_type: 'event',
-              ref_id: 'evt-create-1',
-              title: '出发前，把路线定下来',
-              summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
-              time_start: 1777564800,
-              time_end: 1777651200,
-            },
-          ],
+              ref_id: 'ep-route-1',
+              restore_chapter: {
+                chapter_id: 'chapter-target',
+                chapter_index: 1,
+                episode_ids: ['ep-route-1', 'ep-route-2'],
+                event_ids: ['evt-route-1'],
+              },
+            }),
+            expect.objectContaining({ ref_type: 'episode', ref_id: 'ep-route-2' }),
+            expect.objectContaining({ ref_type: 'event', ref_id: 'evt-route-1' }),
+          ]),
         }),
       );
     }, { timeout: 1500 });
+
+    await user.keyboard(' ');
+
+    const restoredCheckbox = await screen.findByRole('checkbox', { name: '把路线定下来' });
+    await waitFor(() => expect(restoredCheckbox).toHaveFocus());
+    expect(restoredCheckbox).toBeChecked();
+    expect(screen.getByRole('status')).toHaveTextContent('Chapters: 把路线定下来');
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2), { timeout: 1500 });
+    const calls = vi.mocked(memoryApi.updateExperienceDraft).mock.calls;
+    expect(calls[calls.length - 1][1]).toEqual(expect.objectContaining({
+      chapters: [beforeChapter, targetChapter, afterChapter],
+      possible_evidence: [],
+    }));
   });
 
-  it('restores selected possible evidence as a chapter and autosaves the selection', async () => {
-    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce({
-      draft_id: 'draft-japan',
-      status: 'editing',
-      query_text: '2026年5月1日到10日 日本旅行',
-      title: '2026年5月 日本旅行',
-      one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
-      time_start: 1777564800,
-      time_end: 1778428799,
+  it('restores possible evidence through the disclosure keyboard flow and moves focus to the chapter', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
       chapters: [],
       possible_evidence: [{
         ref_type: 'episode',
@@ -806,21 +835,27 @@ describe('MemoryEpisodesPage', () => {
         time_start: 1777564800,
         time_end: 1777651200,
       }],
-      excluded_evidence: [],
-      created_experience_id: null,
-      created_at: 1778500000,
-      updated_at: 1778500000,
-    } as never);
+    }) as never);
     const user = userEvent.setup();
     renderDraftPage();
 
-    const evidenceCheckbox = await screen.findByRole('checkbox', { name: '出发前，把路线定下来' });
+    const possibleSummary = await screen.findByText(/Possibly related \(/);
+    possibleSummary.focus();
+    await user.keyboard('{Enter}');
+    expect(possibleSummary.closest('details')).toHaveAttribute('open');
+    await user.keyboard('{Tab}');
+
+    const evidenceCheckbox = screen.getByRole('checkbox', { name: '出发前，把路线定下来' });
+    expect(evidenceCheckbox).toHaveFocus();
     expect(evidenceCheckbox).not.toBeChecked();
     expect(screen.getByRole('button', { name: 'Create experience' })).toBeDisabled();
 
-    await user.click(evidenceCheckbox);
+    await user.keyboard(' ');
 
-    expect(screen.getByRole('button', { name: 'Create experience' })).toBeEnabled();
+    const chapterCheckbox = await screen.findByRole('checkbox', { name: '出发前，把路线定下来' });
+    await waitFor(() => expect(chapterCheckbox).toHaveFocus());
+    expect(chapterCheckbox).toBeChecked();
+    expect(screen.getByRole('status')).toHaveTextContent('Chapters: 出发前，把路线定下来');
     await waitFor(() => {
       expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
         'draft-japan',
@@ -838,6 +873,112 @@ describe('MemoryEpisodesPage', () => {
         }),
       );
     }, { timeout: 1500 });
+  });
+
+  it('keeps selected, possible, and excluded references exclusive while preserving reference types', async () => {
+    const possibleEvent: ExperienceDraftEvidence = {
+      ref_type: 'event',
+      ref_id: 'shared-id',
+      title: '同名事件',
+      summary: '事件来源应该保留。',
+    };
+    const possibleEpisode: ExperienceDraftEvidence = {
+      ref_type: 'episode',
+      ref_id: 'possible-only',
+      title: '待选章节',
+      summary: '只应出现在待选集合。',
+    };
+    const excludedEvent: ExperienceDraftEvidence = {
+      ref_type: 'event',
+      ref_id: 'excluded-only',
+      title: '排除事件',
+      summary: '只应出现在排除集合。',
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [{ ...defaultDraftChapter, episode_ids: ['shared-id'] }],
+      possible_evidence: [
+        { ...possibleEvent, ref_type: 'episode', title: '重复章节来源' },
+        possibleEvent,
+        { ...possibleEvent },
+        possibleEpisode,
+      ],
+      excluded_evidence: [
+        { ...possibleEvent, ref_type: 'episode', title: '已选但仍被排除' },
+        { ...possibleEvent },
+        { ...possibleEpisode },
+        excludedEvent,
+        { ...excludedEvent },
+      ],
+    }) as never);
+
+    renderDraftPage();
+
+    await screen.findByRole('checkbox', { name: '出发前，把路线定下来' });
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          possible_evidence: [possibleEvent, possibleEpisode],
+          excluded_evidence: [excludedEvent],
+        }),
+      );
+    }, { timeout: 1500 });
+  });
+
+  it('waits for the in-flight save and the latest save before creating', async () => {
+    const firstSave = createDeferred<ExperienceDraft>();
+    const latestSave = createDeferred<ExperienceDraft>();
+    const laterChapter: ExperienceDraftChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-later',
+      title: '前往京都',
+      episode_ids: ['ep-later'],
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [defaultDraftChapter, laterChapter],
+    }) as never);
+    vi.mocked(memoryApi.updateExperienceDraft)
+      .mockReset()
+      .mockImplementationOnce(() => firstSave.promise)
+      .mockImplementationOnce(() => latestSave.promise);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const title = await screen.findByLabelText('Title');
+    await user.clear(title);
+    await user.type(title, '第一次保存');
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1), { timeout: 1500 });
+
+    await user.click(screen.getByRole('checkbox', { name: '前往京都' }));
+    await user.click(screen.getByRole('button', { name: 'Create experience' }));
+
+    expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1);
+    expect(memoryApi.createExperienceFromDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      firstSave.resolve(makeExperienceDraft());
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(memoryApi.updateExperienceDraft).mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        chapters: [defaultDraftChapter],
+        possible_evidence: [expect.objectContaining({
+          ref_type: 'episode',
+          ref_id: 'ep-later',
+          restore_chapter: expect.objectContaining({ chapter_id: 'chapter-later' }),
+        })],
+      }),
+    );
+    expect(memoryApi.createExperienceFromDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      latestSave.resolve(makeExperienceDraft());
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(memoryApi.createExperienceFromDraft).toHaveBeenCalledWith('draft-japan');
+    });
   });
 
   it('saves draft edits before creating the experience', async () => {
