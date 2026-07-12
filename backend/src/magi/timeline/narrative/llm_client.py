@@ -6,7 +6,7 @@ from typing import Iterable, Optional
 
 from ...config.models import LLMScenario
 from ...llm import ScenarioLLMPool
-from ...memory.l2.llm_json_client import L2LLMJsonClientMixin
+from ...memory.l2.llm_json_client import L2LLMJsonClientMixin, L2LLMJsonError
 from ...core.logger import get_logger
 from .output_schema import DiaryNarrativeOutput
 from .prompts import (
@@ -21,12 +21,8 @@ logger = get_logger("magi.timeline.narrative.llm_client")
 class DiaryNarrativeLLMClient(L2LLMJsonClientMixin):
     """Single-shot diary generator.
 
-    Uses the existing L2LLMJsonClientMixin._generate_json helper, which:
-      - sends a JSON-mode chat completion via ScenarioLLMPool
-      - retries on rate-limit errors (1s/2s/4s backoff)
-      - returns {} on adapter unavailability or invalid JSON
-
-    For Plan 2 we don't add a new retry layer — the mixin's behavior is sufficient.
+    Uses the shared JSON-mode transport, while keeping timeline's explicit
+    empty-output fallback separate from L2 projection failure semantics.
     """
 
     def __init__(self, *, scenario_llm_pool: Optional[ScenarioLLMPool]) -> None:
@@ -62,12 +58,19 @@ class DiaryNarrativeLLMClient(L2LLMJsonClientMixin):
             place_hints=place_hints,
             excerpts_by_episode=excerpts_by_episode,
         )
-        raw = await self._generate_json(
-            system_prompt=DIARY_NARRATIVE_SYSTEM_PROMPT,
-            prompt=prompt,
-            request_kind="timeline_diary_narrative",
-            scenario=LLMScenario.TIMELINE_DIARY_NARRATIVE,
-        )
+        try:
+            raw = await self._generate_json(
+                system_prompt=DIARY_NARRATIVE_SYSTEM_PROMPT,
+                prompt=prompt,
+                request_kind="timeline_diary_narrative",
+                scenario=LLMScenario.TIMELINE_DIARY_NARRATIVE,
+            )
+        except L2LLMJsonError as exc:
+            logger.warning(
+                "Timeline diary generation unavailable",
+                error_type=type(exc).__name__,
+            )
+            return DiaryNarrativeOutput()
         output = DiaryNarrativeOutput.from_raw(raw)
         _restore_slice_episode_ids(output, short_to_full)
         return output
