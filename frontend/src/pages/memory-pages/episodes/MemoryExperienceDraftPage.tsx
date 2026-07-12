@@ -35,6 +35,38 @@ const chapterRefKeys = (chapter: ExperienceDraftChapter): string[] => [
   ...chapter.event_ids.map((refId) => evidenceRefKey('event', refId)),
 ];
 
+const compareChapterOrder = (left: ExperienceDraftChapter, right: ExperienceDraftChapter): number => {
+  const orderDifference = Number(left.draft_order) - Number(right.draft_order);
+  return orderDifference || left.chapter_id.localeCompare(right.chapter_id);
+};
+
+const normalizeChapters = (chapters: ExperienceDraftChapter[]): ExperienceDraftChapter[] => {
+  const ordered = chapters
+    .map((chapter, index) => (
+      Number.isFinite(chapter.draft_order) ? chapter : { ...chapter, draft_order: index }
+    ))
+    .sort(compareChapterOrder);
+  const seen = new Set<string>();
+  return ordered.map((chapter) => {
+    const episodeIds = chapter.episode_ids.filter((refId) => {
+      const key = evidenceRefKey('episode', refId);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const eventIds = chapter.event_ids.filter((refId) => {
+      const key = evidenceRefKey('event', refId);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    if (episodeIds.length === chapter.episode_ids.length && eventIds.length === chapter.event_ids.length) {
+      return chapter;
+    }
+    return { ...chapter, episode_ids: episodeIds, event_ids: eventIds };
+  });
+};
+
 const dedupeEvidence = (
   evidence: ExperienceDraftEvidence[],
   blockedKeys: Set<string>,
@@ -49,25 +81,37 @@ const dedupeEvidence = (
 };
 
 const normalizeDraftEvidence = (draft: ExperienceDraft): { draft: ExperienceDraft; changed: boolean } => {
-  const selectedKeys = new Set(draft.chapters.flatMap(chapterRefKeys));
+  const chapters = normalizeChapters(draft.chapters);
+  const selectedKeys = new Set(chapters.flatMap(chapterRefKeys));
   const possibleEvidence = dedupeEvidence(draft.possible_evidence, selectedKeys);
   const possibleKeys = new Set(possibleEvidence.map((item) => evidenceRefKey(item.ref_type, item.ref_id)));
   const excludedEvidence = dedupeEvidence(
     draft.excluded_evidence,
     new Set([...selectedKeys, ...possibleKeys]),
   );
-  const changed = possibleEvidence.length !== draft.possible_evidence.length
+  const changed = chapters.length !== draft.chapters.length
+    || chapters.some((chapter, index) => chapter !== draft.chapters[index])
+    || possibleEvidence.length !== draft.possible_evidence.length
     || possibleEvidence.some((item, index) => item !== draft.possible_evidence[index])
     || excludedEvidence.length !== draft.excluded_evidence.length
     || excludedEvidence.some((item, index) => item !== draft.excluded_evidence[index]);
   return {
     draft: changed ? {
       ...draft,
+      chapters,
       possible_evidence: possibleEvidence,
       excluded_evidence: excludedEvidence,
     } : draft,
     changed,
   };
+};
+
+const nextChapterOrder = (draft: ExperienceDraft): number => {
+  const orders = [
+    ...draft.chapters.map((chapter) => chapter.draft_order),
+    ...draft.possible_evidence.map((item) => item.restore_chapter?.chapter_order),
+  ].filter((value): value is number => Number.isFinite(value));
+  return orders.length > 0 ? Math.max(...orders) + 1 : 0;
 };
 
 const toUpdatePayload = (draft: ExperienceDraft): ExperienceDraftUpdatePayload => ({
@@ -214,10 +258,11 @@ export const MemoryExperienceDraftPage = () => {
     setAnnouncement(pendingFocus.announcement);
   }, [draft, possibleOpen]);
 
-  const removeChapter = (chapter: ExperienceDraftChapter, chapterIndex: number) => {
+  const removeChapter = (chapter: ExperienceDraftChapter) => {
+    if (typeof chapter.draft_order !== 'number' || !Number.isFinite(chapter.draft_order)) return;
     const restoreChapter = {
       chapter_id: chapter.chapter_id,
-      chapter_index: chapterIndex,
+      chapter_order: chapter.draft_order,
       episode_ids: chapter.episode_ids,
       event_ids: chapter.event_ids,
     };
@@ -263,29 +308,39 @@ export const MemoryExperienceDraftPage = () => {
   const addPossibleEvidence = (segment: PossibleSegment) => {
     const { evidence } = segment;
     const restoreChapter = evidence.restore_chapter;
-    const chapter: ExperienceDraftChapter = {
-      chapter_id: restoreChapter?.chapter_id ?? `chapter-${crypto.randomUUID()}`,
-      title: evidence.title,
-      summary: evidence.summary,
-      time_start: evidence.time_start,
-      time_end: evidence.time_end,
-      episode_ids: restoreChapter?.episode_ids ?? (evidence.ref_type === 'episode' ? [evidence.ref_id] : []),
-      event_ids: restoreChapter?.event_ids ?? (evidence.ref_type === 'event' ? [evidence.ref_id] : []),
-    };
+    const chapterId = restoreChapter?.chapter_id ?? `chapter-${crypto.randomUUID()}`;
     pendingFocusRef.current = {
       section: 'included',
-      key: chapter.chapter_id,
-      announcement: `${t('memory.episodes.draft.chapters')}: ${chapter.title}`,
+      key: chapterId,
+      announcement: `${t('memory.episodes.draft.chapters')}: ${evidence.title}`,
     };
     changeDraft((current) => {
-      const chapters = current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id);
-      const chapterIndex = restoreChapter
-        ? Math.min(Math.max(restoreChapter.chapter_index, 0), chapters.length)
-        : chapters.length;
-      chapters.splice(chapterIndex, 0, chapter);
+      const ownedKeys = new Set(current.chapters.flatMap(chapterRefKeys));
+      const availableEvidence = dedupeEvidence(
+        current.possible_evidence.filter((item) => (
+          restoreChapter
+            ? item.restore_chapter?.chapter_id === restoreChapter.chapter_id
+            : evidenceRefKey(item.ref_type, item.ref_id) === evidenceRefKey(evidence.ref_type, evidence.ref_id)
+        )),
+        ownedKeys,
+      );
+      const chapter: ExperienceDraftChapter = {
+        chapter_id: chapterId,
+        draft_order: restoreChapter?.chapter_order ?? nextChapterOrder(current),
+        title: evidence.title,
+        summary: evidence.summary,
+        time_start: evidence.time_start,
+        time_end: evidence.time_end,
+        episode_ids: availableEvidence
+          .filter((item) => item.ref_type === 'episode')
+          .map((item) => item.ref_id),
+        event_ids: availableEvidence
+          .filter((item) => item.ref_type === 'event')
+          .map((item) => item.ref_id),
+      };
       return {
         ...current,
-        chapters,
+        chapters: [...current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id), chapter],
         possible_evidence: current.possible_evidence.filter((item) => (
           restoreChapter
             ? item.restore_chapter?.chapter_id !== restoreChapter.chapter_id
@@ -411,7 +466,7 @@ export const MemoryExperienceDraftPage = () => {
                       checked
                       aria-label={chapter.title}
                       onChange={(event) => {
-                        if (!event.target.checked) removeChapter(chapter, index);
+                        if (!event.target.checked) removeChapter(chapter);
                       }}
                       className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
                     />

@@ -385,7 +385,7 @@ export interface ExperienceDraftEvidence {
   reason?: string | null;
   restore_chapter?: {
     chapter_id: string;
-    chapter_index: number;
+    chapter_order: number;
     episode_ids: string[];
     event_ids: string[];
   } | null;
@@ -393,6 +393,7 @@ export interface ExperienceDraftEvidence {
 
 export interface ExperienceDraftChapter {
   chapter_id: string;
+  draft_order?: number;
   title: string;
   summary: string;
   time_start?: number | null;

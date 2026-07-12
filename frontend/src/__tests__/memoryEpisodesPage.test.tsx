@@ -423,6 +423,7 @@ const renderDraftPage = (draftId = 'draft-japan') =>
 
 const defaultDraftChapter: ExperienceDraftChapter = {
   chapter_id: 'chapter-1',
+  draft_order: 0,
   title: '出发前，把路线定下来',
   summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
   time_start: 1777564800,
@@ -754,12 +755,14 @@ describe('MemoryEpisodesPage', () => {
     const beforeChapter: ExperienceDraftChapter = {
       ...defaultDraftChapter,
       chapter_id: 'chapter-before',
+      draft_order: 10,
       title: '抵达东京',
       episode_ids: ['ep-before'],
     };
     const targetChapter: ExperienceDraftChapter = {
       ...defaultDraftChapter,
       chapter_id: 'chapter-target',
+      draft_order: 20,
       title: '把路线定下来',
       episode_ids: ['ep-route-1', 'ep-route-2'],
       event_ids: ['evt-route-1'],
@@ -767,6 +770,7 @@ describe('MemoryEpisodesPage', () => {
     const afterChapter: ExperienceDraftChapter = {
       ...defaultDraftChapter,
       chapter_id: 'chapter-after',
+      draft_order: 30,
       title: '前往京都',
       episode_ids: ['ep-after'],
     };
@@ -798,7 +802,7 @@ describe('MemoryEpisodesPage', () => {
               ref_id: 'ep-route-1',
               restore_chapter: {
                 chapter_id: 'chapter-target',
-                chapter_index: 1,
+                chapter_order: 20,
                 episode_ids: ['ep-route-1', 'ep-route-2'],
                 event_ids: ['evt-route-1'],
               },
@@ -822,6 +826,162 @@ describe('MemoryEpisodesPage', () => {
       chapters: [beforeChapter, targetChapter, afterChapter],
       possible_evidence: [],
     }));
+  });
+
+  it('preserves stable chapter order after multiple moves, autosave, reload, and reverse restoration', async () => {
+    const chapterA = { ...defaultDraftChapter, chapter_id: 'chapter-a', title: '第一段', episode_ids: ['ep-a'], draft_order: 10 };
+    const chapterB = { ...defaultDraftChapter, chapter_id: 'chapter-b', title: '第二段', episode_ids: ['ep-b'], draft_order: 20 };
+    const chapterC = { ...defaultDraftChapter, chapter_id: 'chapter-c', title: '第三段', episode_ids: ['ep-c'], draft_order: 30 };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [chapterA, chapterB, chapterC],
+    }) as never);
+    const user = userEvent.setup();
+    const firstRender = renderDraftPage();
+
+    await user.click(await screen.findByRole('checkbox', { name: '第一段' }));
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    await user.click(screen.getByRole('checkbox', { name: '第三段' }));
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2), { timeout: 1500 });
+
+    const firstSessionCalls = vi.mocked(memoryApi.updateExperienceDraft).mock.calls;
+    const persisted = firstSessionCalls[firstSessionCalls.length - 1][1];
+    expect(persisted.chapters).toEqual([chapterB]);
+    expect(persisted.possible_evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        ref_id: 'ep-a',
+        restore_chapter: expect.objectContaining({ chapter_id: 'chapter-a', chapter_order: 10 }),
+      }),
+      expect.objectContaining({
+        ref_id: 'ep-c',
+        restore_chapter: expect.objectContaining({ chapter_id: 'chapter-c', chapter_order: 30 }),
+      }),
+    ]));
+
+    firstRender.unmount();
+    vi.mocked(memoryApi.updateExperienceDraft).mockClear();
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: persisted.chapters ?? [],
+      possible_evidence: persisted.possible_evidence ?? [],
+      excluded_evidence: persisted.excluded_evidence ?? [],
+    }) as never);
+    renderDraftPage();
+
+    await user.click(await screen.findByText(/Possibly related \(/));
+    await user.click(screen.getByRole('checkbox', { name: '第三段' }));
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    await user.click(screen.getByRole('checkbox', { name: '第一段' }));
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2), { timeout: 1500 });
+
+    const secondSessionCalls = vi.mocked(memoryApi.updateExperienceDraft).mock.calls;
+    expect(secondSessionCalls[secondSessionCalls.length - 1][1].chapters).toEqual([
+      chapterA,
+      chapterB,
+      chapterC,
+    ]);
+  });
+
+  it('deduplicates episode and event references across selected chapters on load', async () => {
+    const ownerChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-owner',
+      title: '先出现的章节',
+      episode_ids: ['shared-episode'],
+      event_ids: ['shared-event'],
+      draft_order: 10,
+    };
+    const duplicateChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-duplicate',
+      title: '后出现的章节',
+      episode_ids: ['shared-episode', 'unique-episode'],
+      event_ids: ['shared-event', 'unique-event'],
+      draft_order: 20,
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [ownerChapter, duplicateChapter],
+    }) as never);
+
+    renderDraftPage();
+
+    await screen.findByRole('checkbox', { name: '先出现的章节' });
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          chapters: [
+            ownerChapter,
+            expect.objectContaining({
+              chapter_id: 'chapter-duplicate',
+              episode_ids: ['unique-episode'],
+              event_ids: ['unique-event'],
+              draft_order: 20,
+            }),
+          ],
+        }),
+      );
+    }, { timeout: 1500 });
+  });
+
+  it('restores a grouped chapter only from currently available unowned evidence rows', async () => {
+    const ownerChapter = {
+      ...defaultDraftChapter,
+      chapter_id: 'chapter-owner',
+      title: '已有章节',
+      episode_ids: ['shared-episode'],
+      draft_order: 10,
+    };
+    const restoreChapter = {
+      chapter_id: 'chapter-restored',
+      chapter_order: 20,
+      episode_ids: ['shared-episode', 'free-episode'],
+      event_ids: [],
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [ownerChapter],
+      possible_evidence: [
+        {
+          ref_type: 'episode',
+          ref_id: 'shared-episode',
+          title: '待恢复章节',
+          summary: '包含一个已经被占用的来源。',
+          restore_chapter: restoreChapter,
+        },
+        {
+          ref_type: 'episode',
+          ref_id: 'free-episode',
+          title: '待恢复章节',
+          summary: '包含一个仍可使用的来源。',
+          restore_chapter: restoreChapter,
+        },
+      ] as never,
+    }) as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await screen.findByRole('checkbox', { name: '已有章节' });
+    await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(1), { timeout: 1500 });
+    vi.mocked(memoryApi.updateExperienceDraft).mockClear();
+
+    await user.click(screen.getByText(/Possibly related \(/));
+    await user.click(screen.getByRole('checkbox', { name: '待恢复章节' }));
+
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          chapters: [
+            ownerChapter,
+            expect.objectContaining({
+              chapter_id: 'chapter-restored',
+              episode_ids: ['free-episode'],
+              event_ids: [],
+              draft_order: 20,
+            }),
+          ],
+          possible_evidence: [],
+        }),
+      );
+    }, { timeout: 1500 });
   });
 
   it('restores possible evidence through the disclosure keyboard flow and moves focus to the chapter', async () => {
@@ -862,6 +1022,7 @@ describe('MemoryEpisodesPage', () => {
         expect.objectContaining({
           chapters: [{
             chapter_id: expect.any(String),
+            draft_order: 0,
             title: '出发前，把路线定下来',
             summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
             time_start: 1777564800,
@@ -931,6 +1092,7 @@ describe('MemoryEpisodesPage', () => {
     const laterChapter: ExperienceDraftChapter = {
       ...defaultDraftChapter,
       chapter_id: 'chapter-later',
+      draft_order: 1,
       title: '前往京都',
       episode_ids: ['ep-later'],
     };
