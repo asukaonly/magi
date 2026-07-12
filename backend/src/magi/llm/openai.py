@@ -50,11 +50,7 @@ class OpenAIAdapter(LLMAdapter):
 
         api_endpoint = base_url
         self._base_url = api_endpoint
-        keyless_custom_endpoint = (
-            not api_key
-            and self._provider == "custom"
-            and bool(api_endpoint)
-        )
+        keyless_custom_endpoint = not api_key and self._provider == "custom" and bool(api_endpoint)
 
         async def remove_authorization_header(request: httpx.Request) -> None:
             request.headers.pop("authorization", None)
@@ -64,9 +60,7 @@ class OpenAIAdapter(LLMAdapter):
             proxy=proxy_url,
             trust_env=False,
             event_hooks=(
-                {"request": [remove_authorization_header]}
-                if keyless_custom_endpoint
-                else None
+                {"request": [remove_authorization_header]} if keyless_custom_endpoint else None
             ),
         )
 
