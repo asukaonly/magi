@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, CalendarDays, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, CalendarDays } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from '../MemoryPageFrame';
 
 const toDateValue = (value?: number | null) => {
@@ -27,7 +28,7 @@ const fromDateValue = (value: string, boundary: 'start' | 'end') => {
 };
 
 export const MemoryExperienceDraftPage = () => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const { draftId } = useParams<{ draftId: string }>();
   const navigate = useNavigate();
   const [draft, setDraft] = useState<ExperienceDraft | null>(null);
@@ -88,20 +89,37 @@ export const MemoryExperienceDraftPage = () => {
     setDraft((current) => current ? mutate(current) : current);
   }, []);
 
-  const updateChapter = (chapterId: string, updates: Partial<ExperienceDraftChapter>) => {
-    changeDraft((current) => ({
-      ...current,
-      chapters: current.chapters.map((chapter) => (
-        chapter.chapter_id === chapterId ? { ...chapter, ...updates } : chapter
-      )),
-    }));
-  };
-
-  const removeChapter = (chapterId: string) => {
-    changeDraft((current) => ({
-      ...current,
-      chapters: current.chapters.filter((chapter) => chapter.chapter_id !== chapterId),
-    }));
+  const removeChapter = (chapter: ExperienceDraftChapter) => {
+    const possibleEvidence: ExperienceDraftEvidence[] = [
+      ...chapter.episode_ids.map((refId) => ({
+        ref_type: 'episode',
+        ref_id: refId,
+        title: chapter.title,
+        summary: chapter.summary,
+        time_start: chapter.time_start,
+        time_end: chapter.time_end,
+      })),
+      ...chapter.event_ids.map((refId) => ({
+        ref_type: 'event',
+        ref_id: refId,
+        title: chapter.title,
+        summary: chapter.summary,
+        time_start: chapter.time_start,
+        time_end: chapter.time_end,
+      })),
+    ];
+    changeDraft((current) => {
+      const newEvidence = possibleEvidence.filter((candidate) => (
+        !current.possible_evidence.some((existing) => (
+          existing.ref_type === candidate.ref_type && existing.ref_id === candidate.ref_id
+        ))
+      ));
+      return {
+        ...current,
+        chapters: current.chapters.filter((item) => item.chapter_id !== chapter.chapter_id),
+        possible_evidence: [...current.possible_evidence, ...newEvidence],
+      };
+    });
   };
 
   const addPossibleEvidence = (evidence: ExperienceDraftEvidence) => {
@@ -117,7 +135,9 @@ export const MemoryExperienceDraftPage = () => {
     changeDraft((current) => ({
       ...current,
       chapters: [...current.chapters, chapter],
-      possible_evidence: current.possible_evidence.filter((item) => item.ref_id !== evidence.ref_id),
+      possible_evidence: current.possible_evidence.filter((item) => (
+        item.ref_type !== evidence.ref_type || item.ref_id !== evidence.ref_id
+      )),
     }));
   };
 
@@ -221,36 +241,36 @@ export const MemoryExperienceDraftPage = () => {
               <BookOpen className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
               <h2 className="text-base font-semibold">{t('memory.episodes.draft.chapters')}</h2>
             </div>
-            {draft.chapters.map((chapter, index) => (
-              <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] p-4">
-                <div className="flex items-start gap-3">
-                  <span className="pt-2 text-xs font-semibold text-[hsl(var(--memory-muted))]">{index + 1}</span>
-                  <div className="min-w-0 flex-1 space-y-3">
-                    <Input
-                      aria-label={t('memory.episodes.draft.chapterTitle')}
-                      value={chapter.title}
-                      onChange={(event) => updateChapter(chapter.chapter_id, { title: event.target.value })}
-                      className="font-semibold"
+            {draft.chapters.map((chapter, index) => {
+              const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
+              return (
+                <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] p-4">
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked
+                      aria-label={chapter.title}
+                      onChange={(event) => {
+                        if (!event.target.checked) removeChapter(chapter);
+                      }}
+                      className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
                     />
-                    <Textarea
-                      aria-label={t('memory.episodes.draft.chapterSummary')}
-                      value={chapter.summary}
-                      onChange={(event) => updateChapter(chapter.chapter_id, { summary: event.target.value })}
-                      className="min-h-20 resize-none leading-6"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={t('memory.episodes.draft.removeChapter')}
-                    onClick={() => removeChapter(chapter.chapter_id)}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </div>
-              </article>
-            ))}
+                    <span className="pt-0.5 text-xs font-semibold text-[hsl(var(--memory-muted))]">{index + 1}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                        <h3 className="break-words font-semibold text-[hsl(var(--memory-title))]">{chapter.title}</h3>
+                        {timeRange ? (
+                          <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{timeRange}</span>
+                        ) : null}
+                      </div>
+                      {chapter.summary ? (
+                        <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{chapter.summary}</p>
+                      ) : null}
+                    </div>
+                  </label>
+                </article>
+              );
+            })}
           </section>
 
           {draft.possible_evidence.length > 0 ? (
@@ -259,18 +279,31 @@ export const MemoryExperienceDraftPage = () => {
                 {t('memory.episodes.draft.possible')} ({draft.possible_evidence.length})
               </summary>
               <div className="mt-3 space-y-2">
-                {draft.possible_evidence.map((evidence) => (
-                  <div key={`${evidence.ref_type}:${evidence.ref_id}`} className="flex items-start justify-between gap-4 rounded-md border p-3">
-                    <div className="min-w-0">
-                      <div className="font-medium">{evidence.title}</div>
-                      <p className="mt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">{evidence.summary}</p>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={() => addPossibleEvidence(evidence)}>
-                      <Plus className="h-4 w-4" aria-hidden="true" />
-                      {t('memory.episodes.draft.addChapter')}
-                    </Button>
-                  </div>
-                ))}
+                {draft.possible_evidence.map((evidence) => {
+                  const timeRange = formatEpisodeTimeRange(evidence.time_start, evidence.time_end, i18n.language);
+                  return (
+                    <label key={`${evidence.ref_type}:${evidence.ref_id}`} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                      <input
+                        type="checkbox"
+                        checked={false}
+                        aria-label={evidence.title}
+                        onChange={(event) => {
+                          if (event.target.checked) addPossibleEvidence(evidence);
+                        }}
+                        className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                          <div className="font-medium">{evidence.title}</div>
+                          {timeRange ? (
+                            <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{timeRange}</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">{evidence.summary}</p>
+                      </div>
+                    </label>
+                  );
+                })}
               </div>
             </details>
           ) : null}

@@ -699,7 +699,10 @@ describe('MemoryEpisodesPage', () => {
     });
     expect(await screen.findByText('Experience draft')).toBeInTheDocument();
     expect(screen.getByDisplayValue('2026年5月 日本旅行')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('出发前，把路线定下来')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: '出发前，把路线定下来' })).toBeChecked();
+    expect(screen.getByText('比较新干线车票和住宿，把第一段行程安排清楚。')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Chapter title')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Chapter summary')).not.toBeInTheDocument();
   });
 
   it('does not expose internal model reasoning when evidence is insufficient', async () => {
@@ -725,6 +728,118 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText(internalReason)).not.toBeInTheDocument();
   });
 
+  it('moves unchecked chapter references to possible evidence and autosaves the selection', async () => {
+    const draftWithEpisodeAndEvent = {
+      draft_id: 'draft-japan',
+      status: 'editing',
+      query_text: '2026年5月1日到10日 日本旅行',
+      title: '2026年5月 日本旅行',
+      one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
+      time_start: 1777564800,
+      time_end: 1778428799,
+      chapters: [{
+        chapter_id: 'chapter-1',
+        title: '出发前，把路线定下来',
+        summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+        time_start: 1777564800,
+        time_end: 1777651200,
+        episode_ids: ['ep-create-1'],
+        event_ids: ['evt-create-1'],
+      }],
+      possible_evidence: [],
+      excluded_evidence: [],
+      created_experience_id: null,
+      created_at: 1778500000,
+      updated_at: 1778500000,
+    };
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(draftWithEpisodeAndEvent as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    await user.click(await screen.findByRole('checkbox', { name: '出发前，把路线定下来' }));
+
+    expect(screen.getByRole('button', { name: 'Create experience' })).toBeDisabled();
+
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          chapters: [],
+          possible_evidence: [
+            {
+              ref_type: 'episode',
+              ref_id: 'ep-create-1',
+              title: '出发前，把路线定下来',
+              summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+              time_start: 1777564800,
+              time_end: 1777651200,
+            },
+            {
+              ref_type: 'event',
+              ref_id: 'evt-create-1',
+              title: '出发前，把路线定下来',
+              summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+              time_start: 1777564800,
+              time_end: 1777651200,
+            },
+          ],
+        }),
+      );
+    }, { timeout: 1500 });
+  });
+
+  it('restores selected possible evidence as a chapter and autosaves the selection', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce({
+      draft_id: 'draft-japan',
+      status: 'editing',
+      query_text: '2026年5月1日到10日 日本旅行',
+      title: '2026年5月 日本旅行',
+      one_sentence_review: '从东京走到京都、奈良和大阪的一段旅行。',
+      time_start: 1777564800,
+      time_end: 1778428799,
+      chapters: [],
+      possible_evidence: [{
+        ref_type: 'episode',
+        ref_id: 'ep-create-1',
+        title: '出发前，把路线定下来',
+        summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+        time_start: 1777564800,
+        time_end: 1777651200,
+      }],
+      excluded_evidence: [],
+      created_experience_id: null,
+      created_at: 1778500000,
+      updated_at: 1778500000,
+    } as never);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const evidenceCheckbox = await screen.findByRole('checkbox', { name: '出发前，把路线定下来' });
+    expect(evidenceCheckbox).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Create experience' })).toBeDisabled();
+
+    await user.click(evidenceCheckbox);
+
+    expect(screen.getByRole('button', { name: 'Create experience' })).toBeEnabled();
+    await waitFor(() => {
+      expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
+        'draft-japan',
+        expect.objectContaining({
+          chapters: [{
+            chapter_id: expect.any(String),
+            title: '出发前，把路线定下来',
+            summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
+            time_start: 1777564800,
+            time_end: 1777651200,
+            episode_ids: ['ep-create-1'],
+            event_ids: [],
+          }],
+          possible_evidence: [],
+        }),
+      );
+    }, { timeout: 1500 });
+  });
+
   it('saves draft edits before creating the experience', async () => {
     const user = userEvent.setup();
     renderDraftPage();
@@ -732,9 +847,6 @@ describe('MemoryEpisodesPage', () => {
     const title = await screen.findByLabelText('Title');
     await user.clear(title);
     await user.type(title, '十天日本旅行');
-    const chapterSummary = screen.getByLabelText('Chapter summary');
-    await user.clear(chapterSummary);
-    await user.type(chapterSummary, '先安排交通和住宿，再按城市回顾旅程。');
     await user.click(screen.getByRole('button', { name: 'Create experience' }));
 
     await waitFor(() => {
@@ -743,7 +855,7 @@ describe('MemoryEpisodesPage', () => {
         expect.objectContaining({
           title: '十天日本旅行',
           chapters: [expect.objectContaining({
-            summary: '先安排交通和住宿，再按城市回顾旅程。',
+            summary: '比较新干线车票和住宿，把第一段行程安排清楚。',
           })],
         }),
       );
