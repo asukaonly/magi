@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, CalendarDays } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -10,6 +10,7 @@ import {
   type ExperienceDraftUpdatePayload,
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
+import { ExperienceDraftSegmentCard } from '@/components/memory/experiences/ExperienceDraftSegmentCard';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
@@ -26,6 +27,17 @@ const fromDateValue = (value: string, boundary: 'start' | 'end') => {
   if (!value) return undefined;
   const suffix = boundary === 'start' ? 'T00:00:00' : 'T23:59:59';
   return new Date(`${value}${suffix}`).getTime() / 1000;
+};
+
+const formatDraftDateRange = (start: number, end: number, locale: string): string => {
+  const formatter = new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const startText = formatter.format(new Date(start * 1000));
+  const endText = formatter.format(new Date(end * 1000));
+  return startText === endText ? startText : `${startText} - ${endText}`;
 };
 
 const evidenceRefKey = (refType: string, refId: string) => `${refType}\u0000${refId}`;
@@ -159,6 +171,7 @@ export const MemoryExperienceDraftPage = () => {
   const [creating, setCreating] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [possibleOpen, setPossibleOpen] = useState(false);
+  const [editingPreview, setEditingPreview] = useState(false);
   const [announcement, setAnnouncement] = useState('');
   const draftRef = useRef<ExperienceDraft | null>(null);
   const revisionRef = useRef(0);
@@ -188,6 +201,7 @@ export const MemoryExperienceDraftPage = () => {
           saveQueueRef.current = Promise.resolve();
           pendingSaveCountRef.current = 0;
           setPossibleOpen(false);
+          setEditingPreview(false);
           setDraft(normalized.draft);
         }
       })
@@ -314,7 +328,7 @@ export const MemoryExperienceDraftPage = () => {
     pendingFocusRef.current = {
       section: 'included',
       key: chapterId,
-      announcement: `${t('memory.episodes.draft.chapters')}: ${evidence.title}`,
+      announcement: `${t('memory.episodes.draft.segments')}: ${evidence.title}`,
     };
     changeDraft((current) => {
       const ownedKeys = new Set(current.chapters.flatMap(chapterRefKeys));
@@ -373,21 +387,38 @@ export const MemoryExperienceDraftPage = () => {
   };
 
   const possibleSegments = draft ? getPossibleSegments(draft.possible_evidence) : [];
+  const draftDateRange = draft
+    ? formatDraftDateRange(draft.time_start, draft.time_end, i18n.language)
+    : '';
 
   return (
     <MemoryPageFrame
       title={t('memory.episodes.draft.title')}
       description=""
       hideHeader
-      className="max-w-[1040px] gap-4 px-4 pb-8 pt-4"
+      className="max-w-none gap-0 px-0 py-0"
+      contentClassName="flex min-h-full flex-col pb-0"
     >
-      <div className="grid min-h-8 grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <Button variant="ghost" className="-ml-2 h-8 px-2 text-xs" onClick={() => navigate('/memory/episodes')}>
+      <div className="sticky top-0 z-20 grid min-h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-elevated)/0.96)] px-3 sm:px-6">
+        <Button
+          variant="ghost"
+          aria-label={t('memory.episodes.draft.back')}
+          className="h-8 min-w-0 justify-self-start px-2 text-xs sm:text-sm"
+          onClick={() => navigate('/memory/episodes')}
+        >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {t('memory.episodes.draft.back')}
+          <span className="hidden truncate sm:inline">{t('memory.episodes.draft.back')}</span>
         </Button>
-        <h1 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.title')}</h1>
-        <span className="justify-self-end text-xs text-[hsl(var(--memory-muted))]">
+        <h1 className="whitespace-nowrap text-sm font-semibold text-[hsl(var(--memory-title))]">
+          {t('memory.episodes.draft.title')}
+        </h1>
+        <span
+          aria-live="polite"
+          className={`inline-flex min-w-0 items-center gap-1.5 justify-self-end truncate text-xs ${
+            saveFailed ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--memory-muted))]'
+          }`}
+        >
+          {!saving && !saveFailed ? <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" /> : null}
           {saving
             ? t('common.saving')
             : saveFailed
@@ -399,156 +430,209 @@ export const MemoryExperienceDraftPage = () => {
         {announcement}
       </div>
 
-      {loading ? <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div> : null}
+      {loading ? <div className={`m-6 ${MEMORY_INFO_PANEL_CLASS}`}>{t('common.loading')}</div> : null}
       {!loading && (notFound || !draft) ? (
-        <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.draft.notFound')}</div>
+        <div className={`m-6 ${MEMORY_EMPTY_PANEL_CLASS}`}>{t('memory.episodes.draft.notFound')}</div>
       ) : null}
       {draft ? (
-        <div className="space-y-7">
-          <header className="border-b border-[hsl(var(--memory-border)/0.45)] pb-6">
-            <Input
-              aria-label={t('memory.episodes.fields.title')}
-              value={draft.title}
-              onChange={(event) => changeDraft((current) => ({ ...current, title: event.target.value }))}
-              className="h-auto border-0 bg-transparent px-0 text-3xl font-semibold shadow-none focus-visible:ring-0"
-            />
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-[hsl(var(--memory-muted))]">
-              <CalendarDays className="h-4 w-4" aria-hidden="true" />
-              <Input
-                type="date"
-                aria-label={t('memory.episodes.draft.startDate')}
-                value={toDateValue(draft.time_start)}
-                onChange={(event) => changeDraft((current) => ({
-                  ...current,
-                  time_start: fromDateValue(event.target.value, 'start') ?? current.time_start,
-                }))}
-                className="h-8 w-auto"
-              />
-              <span>-</span>
-              <Input
-                type="date"
-                aria-label={t('memory.episodes.draft.endDate')}
-                value={toDateValue(draft.time_end)}
-                onChange={(event) => changeDraft((current) => ({
-                  ...current,
-                  time_end: fromDateValue(event.target.value, 'end') ?? current.time_end,
-                }))}
-                className="h-8 w-auto"
-              />
-            </div>
-            <label className="mt-5 block space-y-2">
-              <span className="text-sm font-medium">{t('memory.episodes.draft.recap')}</span>
-              <Textarea
-                value={draft.one_sentence_review}
-                onChange={(event) => changeDraft((current) => ({
-                  ...current,
-                  one_sentence_review: event.target.value,
-                }))}
-                className="min-h-20 resize-none text-base leading-7"
-              />
-            </label>
-          </header>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <main className="mx-auto w-full max-w-[900px] flex-1 space-y-8 px-4 py-7 sm:px-8 sm:py-8">
+            <section className="border-b border-[hsl(var(--memory-border)/0.48)] pb-7">
+              <p className="flex items-start gap-2 text-sm leading-6 text-[hsl(var(--memory-muted))]">
+                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--memory-accent-soft)/0.56)] text-[hsl(var(--memory-accent))]">
+                  <Sparkles className="h-3 w-3" aria-hidden="true" />
+                </span>
+                <span>{t('memory.episodes.draft.queryContext', { query: draft.query_text })}</span>
+              </p>
 
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-              <h2 className="text-base font-semibold">{t('memory.episodes.draft.chapters')}</h2>
-            </div>
-            {draft.chapters.map((chapter, index) => {
-              const timeRange = formatEpisodeTimeRange(chapter.time_start, chapter.time_end, i18n.language);
-              return (
-                <article key={chapter.chapter_id} className="rounded-lg border border-[hsl(var(--memory-border)/0.52)] p-4">
-                  <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                      ref={(node) => {
-                        if (node) chapterCheckboxRefs.current.set(chapter.chapter_id, node);
-                        else chapterCheckboxRefs.current.delete(chapter.chapter_id);
-                      }}
-                      type="checkbox"
-                      checked
-                      aria-label={chapter.title}
-                      onChange={(event) => {
-                        if (!event.target.checked) removeChapter(chapter);
-                      }}
-                      className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
-                    />
-                    <span className="pt-0.5 text-xs font-semibold text-[hsl(var(--memory-muted))]">{index + 1}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                        <h3 className="break-words font-semibold text-[hsl(var(--memory-title))]">{chapter.title}</h3>
-                        {timeRange ? (
-                          <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{timeRange}</span>
-                        ) : null}
+              <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-[hsl(var(--memory-accent))]">
+                    {t('memory.episodes.draft.previewEyebrow')}
+                  </p>
+                  {!editingPreview ? (
+                    <>
+                      <h2 className="mt-2 break-words text-2xl font-semibold leading-tight text-[hsl(var(--memory-title))] sm:text-[1.75rem]">
+                        {draft.title}
+                      </h2>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[hsl(var(--memory-muted))]">
+                        <span>{draftDateRange}</span>
+                        <span>{t('memory.episodes.draft.segmentCount', { count: draft.chapters.length })}</span>
                       </div>
-                      {chapter.summary ? (
-                        <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{chapter.summary}</p>
-                      ) : null}
+                      <p className="mt-4 max-w-[760px] text-base leading-7 text-[hsl(var(--memory-body))]">
+                        {draft.one_sentence_review}
+                      </p>
+                    </>
+                  ) : (
+                    <div className="mt-3 space-y-4">
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
+                        <Input
+                          aria-label={t('memory.episodes.fields.title')}
+                          value={draft.title}
+                          onChange={(event) => changeDraft((current) => ({ ...current, title: event.target.value }))}
+                          className="h-10"
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block space-y-1.5">
+                          <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.startDate')}</span>
+                          <Input
+                            type="date"
+                            aria-label={t('memory.episodes.draft.startDate')}
+                            value={toDateValue(draft.time_start)}
+                            onChange={(event) => changeDraft((current) => ({
+                              ...current,
+                              time_start: fromDateValue(event.target.value, 'start') ?? current.time_start,
+                            }))}
+                            className="h-10 w-full"
+                          />
+                        </label>
+                        <label className="block space-y-1.5">
+                          <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.endDate')}</span>
+                          <Input
+                            type="date"
+                            aria-label={t('memory.episodes.draft.endDate')}
+                            value={toDateValue(draft.time_end)}
+                            onChange={(event) => changeDraft((current) => ({
+                              ...current,
+                              time_end: fromDateValue(event.target.value, 'end') ?? current.time_end,
+                            }))}
+                            className="h-10 w-full"
+                          />
+                        </label>
+                      </div>
+                      <label className="block space-y-1.5">
+                        <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.draft.recap')}</span>
+                        <Textarea
+                          aria-label={t('memory.episodes.draft.recap')}
+                          value={draft.one_sentence_review}
+                          onChange={(event) => changeDraft((current) => ({
+                            ...current,
+                            one_sentence_review: event.target.value,
+                          }))}
+                          className="min-h-24 resize-none text-sm leading-6"
+                        />
+                      </label>
                     </div>
-                  </label>
-                </article>
-              );
-            })}
-          </section>
-
-          {possibleSegments.length > 0 ? (
-            <details
-              open={possibleOpen}
-              onToggle={(event) => setPossibleOpen(event.currentTarget.open)}
-              className="border-t border-[hsl(var(--memory-border)/0.45)] pt-4"
-            >
-              <summary
-                tabIndex={0}
-                className="cursor-pointer text-sm font-semibold"
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  setPossibleOpen((open) => !open);
-                }}
-              >
-                {t('memory.episodes.draft.possible')} ({possibleSegments.length})
-              </summary>
-              <div className="mt-3 space-y-2">
-                {possibleSegments.map((segment) => {
-                  const { evidence } = segment;
-                  const timeRange = formatEpisodeTimeRange(evidence.time_start, evidence.time_end, i18n.language);
-                  return (
-                    <label key={segment.key} className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
-                      <input
-                        ref={(node) => {
-                          if (node) possibleCheckboxRefs.current.set(segment.key, node);
-                          else possibleCheckboxRefs.current.delete(segment.key);
-                        }}
-                        type="checkbox"
-                        checked={false}
-                        aria-label={evidence.title}
-                        onChange={(event) => {
-                          if (event.target.checked) addPossibleEvidence(segment);
-                        }}
-                        className="mt-1 h-4 w-4 shrink-0 accent-[hsl(var(--memory-accent))]"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                          <div className="font-medium">{evidence.title}</div>
-                          {timeRange ? (
-                            <span className="shrink-0 text-xs text-[hsl(var(--memory-muted))]">{timeRange}</span>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">{evidence.summary}</p>
-                      </div>
-                    </label>
-                  );
-                })}
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditingPreview((current) => !current)}
+                  className="h-9 self-start border-[hsl(var(--memory-border)/0.62)] bg-transparent px-3 text-xs shadow-none"
+                >
+                  <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
+                  {editingPreview ? t('memory.episodes.draft.finishEditing') : t('memory.episodes.draft.adjustPreview')}
+                </Button>
               </div>
-            </details>
-          ) : null}
+            </section>
 
-          <div className="flex justify-end border-t border-[hsl(var(--memory-border)/0.45)] pt-5">
-            <Button
-              onClick={() => { void createExperience(); }}
-              disabled={creating || !draft.title.trim() || draft.chapters.length === 0}
-            >
-              {creating ? t('common.saving') : t('memory.episodes.draft.create')}
-            </Button>
+            <section aria-labelledby="draft-segments-title">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 id="draft-segments-title" className="text-base font-semibold text-[hsl(var(--memory-title))]">
+                    {t('memory.episodes.draft.segments')}
+                  </h2>
+                  <p className="mt-1 text-sm text-[hsl(var(--memory-muted))]">
+                    {t('memory.episodes.draft.segmentsHint')}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-medium text-[hsl(var(--memory-accent))]">
+                  {t('memory.episodes.draft.selectedCount', { count: draft.chapters.length })}
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {draft.chapters.map((chapter) => (
+                  <ExperienceDraftSegmentCard
+                    key={chapter.chapter_id}
+                    chapter={chapter}
+                    checkboxRef={(node) => {
+                      if (node) chapterCheckboxRefs.current.set(chapter.chapter_id, node);
+                      else chapterCheckboxRefs.current.delete(chapter.chapter_id);
+                    }}
+                    onRemove={() => removeChapter(chapter)}
+                  />
+                ))}
+                {draft.chapters.length === 0 ? (
+                  <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.episodes.draft.noSegmentsSelected')}</div>
+                ) : null}
+              </div>
+            </section>
+
+            {possibleSegments.length > 0 ? (
+              <details
+                open={possibleOpen}
+                onToggle={(event) => setPossibleOpen(event.currentTarget.open)}
+                className="group border-t border-[hsl(var(--memory-border)/0.48)] pt-4"
+              >
+                <summary
+                  tabIndex={0}
+                  className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold text-[hsl(var(--memory-title))] marker:content-none"
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setPossibleOpen((open) => !open);
+                  }}
+                >
+                  <span>{t('memory.episodes.draft.possible')} ({possibleSegments.length})</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-normal text-[hsl(var(--memory-muted))]">
+                    {t('memory.episodes.draft.possibleHint', { count: possibleSegments.length })}
+                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden="true" />
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-2">
+                  {possibleSegments.map((segment) => {
+                    const { evidence } = segment;
+                    const timeRange = formatEpisodeTimeRange(evidence.time_start, evidence.time_end, i18n.language);
+                    return (
+                      <label key={segment.key} className="flex cursor-pointer items-start gap-3 rounded-md border border-[hsl(var(--memory-border)/0.46)] bg-[hsl(var(--memory-panel-subtle)/0.24)] p-4">
+                        <input
+                          ref={(node) => {
+                            if (node) possibleCheckboxRefs.current.set(segment.key, node);
+                            else possibleCheckboxRefs.current.delete(segment.key);
+                          }}
+                          type="checkbox"
+                          checked={false}
+                          aria-label={evidence.title}
+                          onChange={(event) => {
+                            if (event.target.checked) addPossibleEvidence(segment);
+                          }}
+                          className="mt-0.5 h-[18px] w-[18px] shrink-0 accent-[hsl(var(--memory-accent))]"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium text-[hsl(var(--memory-title))]">{evidence.title}</span>
+                          {evidence.summary ? (
+                            <span className="mt-1 block text-sm leading-6 text-[hsl(var(--memory-body))]">{evidence.summary}</span>
+                          ) : null}
+                          {timeRange ? (
+                            <span className="mt-2 block text-xs text-[hsl(var(--memory-muted))]">{timeRange}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </details>
+            ) : null}
+          </main>
+
+          <div className="sticky bottom-0 z-20 border-t border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated)/0.97)] px-4 py-4 sm:px-8">
+            <div className="mx-auto flex w-full max-w-[900px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[hsl(var(--memory-body))]">
+                {t('memory.episodes.draft.createSummary', { count: draft.chapters.length })}
+              </p>
+              <Button
+                onClick={() => { void createExperience(); }}
+                disabled={creating || !draft.title.trim() || draft.chapters.length === 0}
+                className="h-10 px-5 sm:self-auto"
+              >
+                {creating ? t('common.saving') : t('memory.episodes.draft.create')}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}

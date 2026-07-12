@@ -56,12 +56,32 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
     'memory.episodes.create.sourceCount': '{{count}} source chapters',
     'memory.episodes.create.selectedCount': '{{count}} selected',
-    'memory.episodes.draft.title': 'Experience draft',
+    'memory.episodes.draft.title': 'Organize experience',
     'memory.episodes.draft.autosaved': 'Saved',
     'memory.episodes.draft.back': 'Back to experiences',
+    'memory.episodes.draft.queryContext': 'Based on your description: {{query}}',
+    'memory.episodes.draft.previewEyebrow': 'Experience preview',
+    'memory.episodes.draft.adjustPreview': 'Adjust title and recap',
+    'memory.episodes.draft.finishEditing': 'Done editing',
     'memory.episodes.draft.recap': 'One-sentence recap',
-    'memory.episodes.draft.chapters': 'Chapters',
+    'memory.episodes.draft.startDate': 'Start date',
+    'memory.episodes.draft.endDate': 'End date',
+    'memory.episodes.draft.segments': 'Choose what belongs in this experience',
+    'memory.episodes.draft.segmentsHint': 'Uncheck unrelated memories. Open any segment to review what happened.',
+    'memory.episodes.draft.selectedCount': '{{count}} selected',
+    'memory.episodes.draft.segmentCount': 'Memory segments: {{count}}',
+    'memory.episodes.draft.sourceCount': 'Sources: {{count}}',
+    'memory.episodes.draft.eventCount': 'Events: {{count}}',
     'memory.episodes.draft.possible': 'Possibly related',
+    'memory.episodes.draft.possibleHint': '{{count}} more may belong',
+    'memory.episodes.draft.viewContent': 'View content',
+    'memory.episodes.draft.hideContent': 'Hide content',
+    'memory.episodes.draft.contentLoading': 'Loading segment content...',
+    'memory.episodes.draft.contentEmpty': 'No readable event content is available for this segment.',
+    'memory.episodes.draft.contentFailed': 'Could not load this segment. Try again.',
+    'memory.episodes.draft.retryContent': 'Try again',
+    'memory.episodes.draft.noSegmentsSelected': 'No memory segments are selected.',
+    'memory.episodes.draft.createSummary': 'Memory segments to use: {{count}}',
     'memory.episodes.draft.create': 'Create experience',
     'memory.episodes.draft.chapterTitle': 'Chapter title',
     'memory.episodes.draft.chapterSummary': 'Chapter summary',
@@ -153,6 +173,7 @@ vi.mock('@/api/modules/memory', () => ({
     getExperienceDraft: vi.fn(),
     updateExperienceDraft: vi.fn(),
     createExperienceFromDraft: vi.fn(),
+    getEpisode: vi.fn(),
     getExperience: vi.fn(),
     annotateExperience: vi.fn(),
     uploadExperienceCover: vi.fn(),
@@ -463,6 +484,10 @@ const openLaunchExperience = async (user: ReturnType<typeof userEvent.setup>) =>
   await user.click(await screen.findByRole('button', { name: /Open experience: Launch week/ }));
 };
 
+const openDraftEditor = async (user: ReturnType<typeof userEvent.setup>) => {
+  await user.click(await screen.findByRole('button', { name: 'Adjust title and recap' }));
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   URL.createObjectURL = vi.fn(() => 'blob:local-cover');
@@ -504,6 +529,42 @@ beforeEach(() => {
   vi.mocked(memoryApi.updateExperienceDraft).mockResolvedValue(draft as never);
   vi.mocked(memoryApi.createExperienceFromDraft).mockResolvedValue({
     draft_id: 'draft-japan', experience_id: 'exp-manual', experience: null,
+  } as never);
+  vi.mocked(memoryApi.getEpisode).mockResolvedValue({
+    episode_id: 'ep-create-1',
+    episode_type: 'activity',
+    status: 'active',
+    time_start: 1777564800,
+    time_end: 1777651200,
+    source_event_count: 2,
+    primary_entity_ids: [],
+    primary_place_ids: [],
+    primary_topic_keys: [],
+    inferred: [],
+    events: [
+      {
+        episode_id: 'ep-create-1',
+        event_id: 'evt-route-search',
+        membership_role: 'member',
+        membership_confidence: 0.92,
+        added_at: 1777566600,
+        timestamp: 1777566600,
+        event_type: 'BrowserEvent',
+        source: 'chrome',
+        content_preview: 'Compared Shinkansen routes and Kyoto lodging.',
+      },
+      {
+        episode_id: 'ep-create-1',
+        event_id: 'evt-route-note',
+        membership_role: 'member',
+        membership_confidence: 0.88,
+        added_at: 1777570200,
+        timestamp: 1777570200,
+        event_type: 'UserMessage',
+        source: 'chat',
+        content_preview: 'Saved the route that leaves enough time for Nara.',
+      },
+    ],
   } as never);
   let currentExperienceDetail = experienceDetail;
   vi.mocked(memoryApi.getExperience).mockImplementation(async () => currentExperienceDetail);
@@ -720,12 +781,104 @@ describe('MemoryEpisodesPage', () => {
         query_text: '2026年5月1日到10日 日本旅行',
       });
     });
-    expect(await screen.findByText('Experience draft')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('2026年5月 日本旅行')).toBeInTheDocument();
+    expect(await screen.findByText('Organize experience')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2026年5月 日本旅行' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '出发前，把路线定下来' })).toBeChecked();
     expect(screen.getByText('比较新干线车票和住宿，把第一段行程安排清楚。')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Chapter title')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Chapter summary')).not.toBeInTheDocument();
+  });
+
+  it('starts with a read-only preview and reveals editing controls only on request', async () => {
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    expect(await screen.findByText('Based on your description: 2026年5月1日到10日 日本旅行')).toBeInTheDocument();
+    expect(screen.getByText('Experience preview')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2026年5月 日本旅行' })).toBeInTheDocument();
+    expect(screen.getByText('Memory segments: 1')).toBeInTheDocument();
+    expect(screen.getByText('从东京走到京都、奈良和大阪的一段旅行。')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Start date')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('One-sentence recap')).not.toBeInTheDocument();
+
+    await openDraftEditor(user);
+
+    expect(screen.getByLabelText('Title')).toHaveValue('2026年5月 日本旅行');
+    expect(screen.getByLabelText('Start date')).toBeInTheDocument();
+    expect(screen.getByLabelText('End date')).toBeInTheDocument();
+    expect(screen.getByLabelText('One-sentence recap')).toHaveValue('从东京走到京都、奈良和大阪的一段旅行。');
+  });
+
+  it('loads readable episode content only when a selected segment is opened and can collapse it', async () => {
+    const contentRequest = createDeferred<Awaited<ReturnType<typeof memoryApi.getEpisode>>>();
+    vi.mocked(memoryApi.getEpisode).mockReturnValueOnce(contentRequest.promise);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const viewButton = await screen.findByRole('button', { name: 'View content' });
+    expect(memoryApi.getEpisode).not.toHaveBeenCalled();
+    await user.click(viewButton);
+
+    expect(memoryApi.getEpisode).toHaveBeenCalledWith('ep-create-1');
+    expect(screen.getByText('Loading segment content...')).toBeInTheDocument();
+    await act(async () => {
+      contentRequest.resolve({
+        episode_id: 'ep-create-1',
+        episode_type: 'activity',
+        status: 'active',
+        time_start: 1777564800,
+        time_end: 1777651200,
+        source_event_count: 1,
+        primary_entity_ids: [],
+        primary_place_ids: [],
+        primary_topic_keys: [],
+        inferred: [],
+        events: [{
+          episode_id: 'ep-create-1',
+          event_id: 'evt-route-search',
+          membership_role: 'member',
+          membership_confidence: 0.92,
+          added_at: 1777566600,
+          timestamp: 1777566600,
+          event_type: 'BrowserEvent',
+          source: 'chrome',
+          content_preview: 'Compared Shinkansen routes and Kyoto lodging.',
+        }],
+      } as never);
+      await contentRequest.promise;
+    });
+
+    expect(await screen.findByText('Compared Shinkansen routes and Kyoto lodging.')).toBeInTheDocument();
+    expect(screen.getByText('chrome')).toBeInTheDocument();
+    expect(screen.queryByText('ep-create-1')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Hide content' }));
+    expect(screen.queryByText('Compared Shinkansen routes and Kyoto lodging.')).not.toBeInTheDocument();
+  });
+
+  it('shows empty and failure states without exposing evidence identifiers', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      chapters: [
+        { ...defaultDraftChapter, chapter_id: 'empty', title: '空内容', episode_ids: ['ep-empty'] },
+        { ...defaultDraftChapter, chapter_id: 'failed', title: '读取失败', episode_ids: ['ep-failed'], draft_order: 1 },
+      ],
+    }) as never);
+    vi.mocked(memoryApi.getEpisode)
+      .mockResolvedValueOnce({ events: [] } as never)
+      .mockRejectedValueOnce(new Error('network failed'));
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const viewButtons = await screen.findAllByRole('button', { name: 'View content' });
+    await user.click(viewButtons[0]);
+    expect(await screen.findByText('No readable event content is available for this segment.')).toBeInTheDocument();
+
+    await user.click(viewButtons[1]);
+    expect(await screen.findByText('Could not load this segment. Try again.')).toBeInTheDocument();
+    expect(screen.queryByText('ep-empty')).not.toBeInTheDocument();
+    expect(screen.queryByText('ep-failed')).not.toBeInTheDocument();
   });
 
   it('does not expose internal model reasoning when evidence is insufficient', async () => {
@@ -819,7 +972,7 @@ describe('MemoryEpisodesPage', () => {
     const restoredCheckbox = await screen.findByRole('checkbox', { name: '把路线定下来' });
     await waitFor(() => expect(restoredCheckbox).toHaveFocus());
     expect(restoredCheckbox).toBeChecked();
-    expect(screen.getByRole('status')).toHaveTextContent('Chapters: 把路线定下来');
+    expect(screen.getByRole('status')).toHaveTextContent('Choose what belongs in this experience: 把路线定下来');
     await waitFor(() => expect(memoryApi.updateExperienceDraft).toHaveBeenCalledTimes(2), { timeout: 1500 });
     const calls = vi.mocked(memoryApi.updateExperienceDraft).mock.calls;
     expect(calls[calls.length - 1][1]).toEqual(expect.objectContaining({
@@ -1045,10 +1198,12 @@ describe('MemoryEpisodesPage', () => {
     const user = userEvent.setup();
     renderDraftPage();
 
-    const possibleSummary = await screen.findByText(/Possibly related \(/);
-    possibleSummary.focus();
+    const possibleSummaryText = await screen.findByText(/Possibly related \(/);
+    const possibleSummary = possibleSummaryText.closest('summary');
+    expect(possibleSummary).not.toBeNull();
+    possibleSummary?.focus();
     await user.keyboard('{Enter}');
-    expect(possibleSummary.closest('details')).toHaveAttribute('open');
+    expect(possibleSummary?.closest('details')).toHaveAttribute('open');
     await user.keyboard('{Tab}');
 
     const evidenceCheckbox = screen.getByRole('checkbox', { name: '出发前，把路线定下来' });
@@ -1061,7 +1216,7 @@ describe('MemoryEpisodesPage', () => {
     const chapterCheckbox = await screen.findByRole('checkbox', { name: '出发前，把路线定下来' });
     await waitFor(() => expect(chapterCheckbox).toHaveFocus());
     expect(chapterCheckbox).toBeChecked();
-    expect(screen.getByRole('status')).toHaveTextContent('Chapters: 出发前，把路线定下来');
+    expect(screen.getByRole('status')).toHaveTextContent('Choose what belongs in this experience: 出发前，把路线定下来');
     await waitFor(() => {
       expect(memoryApi.updateExperienceDraft).toHaveBeenCalledWith(
         'draft-japan',
@@ -1152,6 +1307,7 @@ describe('MemoryEpisodesPage', () => {
     const user = userEvent.setup();
     renderDraftPage();
 
+    await openDraftEditor(user);
     const title = await screen.findByLabelText('Title');
     await user.clear(title);
     await user.type(title, '第一次保存');
@@ -1193,6 +1349,7 @@ describe('MemoryEpisodesPage', () => {
     const user = userEvent.setup();
     renderDraftPage();
 
+    await openDraftEditor(user);
     const title = await screen.findByLabelText('Title');
     await user.clear(title);
     await user.type(title, '十天日本旅行');
@@ -1216,6 +1373,7 @@ describe('MemoryEpisodesPage', () => {
     const user = userEvent.setup();
     renderDraftPage();
 
+    await openDraftEditor(user);
     const title = await screen.findByLabelText('Title');
     await user.clear(title);
     await user.type(title, '十天日本旅行');
