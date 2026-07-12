@@ -37,15 +37,18 @@ vi.mock('react-i18next', () => {
   };
 });
 
+const PERIOD_START = Date.UTC(2023, 10, 15, 12) / 1000;
+const PERIOD_END = Date.UTC(2023, 10, 16, 12) / 1000;
+
 const baseStory: StoryItem = {
   summary_id: 's1',
   summary_type: 'insight',
   summary_category: 'state_change',
   title: '一段反思',
   content: '你最近开始更频繁地夜间上线',
-  period_start: 1700000000,
-  period_end: 1700100000,
-  updated_at: 1700100000,
+  period_start: PERIOD_START,
+  period_end: PERIOD_END,
+  updated_at: PERIOD_END,
   review_state: 'pending_confirmation',
   insight_key: null,
   insight_metadata: {},
@@ -53,7 +56,7 @@ const baseStory: StoryItem = {
   feed_group: 'memory_update',
   summary_feed_visible: false,
   featured_rank: null,
-  display_timestamp: 1700100000,
+  display_timestamp: PERIOD_END,
   preview_text: '一段反思',
   detail_lead_text: '你最近开始更频繁地夜间上线',
 };
@@ -134,9 +137,9 @@ describe('StoryDetailRail', () => {
         '- 06-30：关注国内大模型动态。',
         '- 07-01：处理项目 CI 通知。',
       ].join('\n'),
-      period_start: 1700000000,
-      period_end: 1700100000,
-      display_timestamp: 1700100000,
+      period_start: PERIOD_START,
+      period_end: PERIOD_END,
+      display_timestamp: PERIOD_END,
     };
 
     render(<StoryDetailRail story={storyWithGeneratedTitle} onClose={() => {}} />);
