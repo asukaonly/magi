@@ -11,24 +11,24 @@ from .models import (
     UserPortraitProjection,
     UserProfileProjection,
 )
-from .portrait_graph_signals import (
-    PortraitGraphSignal,
-    collect_portrait_graph_signals,
-)
 from .portrait_signal_policy import (
     PORTRAIT_WORLD_GROUP_IDS,
-    PORTRAIT_RECENT_FAMILIES,
     PORTRAIT_SOURCE_STRENGTH as SOURCE_STRENGTH,
     PORTRAIT_VALIDATION_STRENGTH as VALIDATION_STRENGTH,
     assertion_portrait_role,
     classify_assertion_portrait,
 )
-from .portrait_values import (
-    display_value as _display_value,
-    snapshot_recent_values,
-)
+from .portrait_values import display_value as _display_value
 
-PORTRAIT_ASSERTION_FAMILIES = (*PROFILE_ASSERTION_FAMILIES, "routine_profile")
+PORTRAIT_ASSERTION_FAMILIES = (
+    *PROFILE_ASSERTION_FAMILIES,
+    "interest_profile",
+    "project_profile",
+    "routine_profile",
+    "mood",
+    "stress",
+    "engagement",
+)
 WORLD_GROUP_IDS = PORTRAIT_WORLD_GROUP_IDS
 _INTERNAL_SOURCE_KEYS = {
     "external_activity",
@@ -73,21 +73,15 @@ class UserPortraitProjectionBuilder:
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserPortraitProjection:
         entity_id = f"user:{user_id}"
         assertions = await self._list_assertions(entity_id)
-        snapshot = await self._latest_snapshot(entity_id)
-        graph_recent = await self._graph_recent_items(entity_id)
-
         profile_world = self._profile_world_items(self._profile_projection)
         world = self._build_world(assertions, profile_world)
         review = self._build_review(assertions)
         recent = self._build_recent(
             assertions=assertions,
-            snapshot=snapshot,
-            graph_recent=graph_recent,
         )
-        evidence_refs = self._evidence_refs(assertions=assertions, snapshot=snapshot)
+        evidence_refs = self._evidence_refs(assertions=assertions)
         source_counts = self._source_counts(assertions)
-        # prompt_summary stays assertion-grounded: passive graph clues may appear
-        # on the page but must not leak into the main-model prompt.
+        # Keep main-model context grounded in governed assertions and explicit profile fields.
         prompt_summary = self._rule_prompt_summary(world=world, recent=recent)
         generated_by = "rule"
 
@@ -134,28 +128,6 @@ class UserPortraitProjectionBuilder:
             )
         except Exception:
             return []
-
-    async def _latest_snapshot(self, entity_id: str) -> dict[str, Any] | None:
-        if self._l2_store is None:
-            return None
-        list_snapshots = getattr(self._l2_store, "list_tom_snapshots", None)
-        if list_snapshots is not None:
-            try:
-                snapshots = await list_snapshots(entity_id=entity_id, entity_type="user", limit=1)
-            except TypeError:
-                snapshots = await list_snapshots(entity_id=entity_id, limit=1)
-            except Exception:
-                snapshots = []
-            if snapshots:
-                return dict(snapshots[0])
-        get_snapshot = getattr(self._l2_store, "get_tom_snapshot", None)
-        if get_snapshot is None:
-            return None
-        try:
-            snapshot = await get_snapshot(entity_id=entity_id, entity_type="user")
-        except Exception:
-            return None
-        return dict(snapshot) if isinstance(snapshot, dict) else None
 
     def _build_world(
         self,
@@ -243,11 +215,6 @@ class UserPortraitProjectionBuilder:
                 add("work_style", f"communication:{key}", text)
         return grouped
 
-    async def _graph_recent_items(self, entity_id: str) -> list[dict[str, Any]]:
-        """Return passive graph relationships as recent clues, not world facts."""
-        signals = await collect_portrait_graph_signals(self._l2_store, entity_id=entity_id)
-        return [_item_from_graph_signal(signal) for signal in signals if signal.role == "recent"]
-
     def _build_review(self, assertions: list[dict[str, Any]]) -> dict[str, Any]:
         items = []
         for assertion in assertions:
@@ -262,37 +229,19 @@ class UserPortraitProjectionBuilder:
         self,
         *,
         assertions: list[dict[str, Any]],
-        snapshot: dict[str, Any] | None,
-        graph_recent: list[dict[str, Any]],
     ) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
-        if snapshot is not None:
-            snapshot_id = snapshot.get("snapshot_id") or "latest"
-            for text in snapshot_recent_values(snapshot):
-                items.append({
-                    "id": f"snapshot-{snapshot_id}-{text}",
-                    "text": text,
-                    "source": "",
-                    "source_key": None,
-                    "assertion_id": None,
-                    "basis_refs": [f"snapshot:{snapshot_id}"],
-                })
-
         for assertion in assertions:
-            family = _text(assertion.get("trait_family"))
-            if family not in PORTRAIT_RECENT_FAMILIES:
-                continue
             if assertion_portrait_role(assertion) != "recent":
                 continue
             item = _item_from_assertion(assertion)
             if item:
                 items.append(item)
-        items.extend(graph_recent)
         return {"items": _dedupe_items_in_order(items)[:6]}
 
     def _rule_prompt_summary(self, *, world: dict[str, Any], recent: dict[str, Any]) -> list[str]:
         groups = {
-            group["id"]: [item for item in group.get("items", []) if not _is_graph_item(item)]
+            group["id"]: list(group.get("items", []))
             for group in world.get("groups", [])
         }
         lines: list[str] = []
@@ -308,11 +257,9 @@ class UserPortraitProjectionBuilder:
         work_style = _item_texts(groups.get("work_style", []))[:4]
         if work_style:
             lines.append(f"用户的工作和沟通方式：{'、'.join(work_style)}。")
-        recent_items = _item_texts([
-            item for item in recent.get("items", []) if not _is_graph_item(item)
-        ])[:2]
+        recent_items = _item_texts(list(recent.get("items", [])))[:2]
         if recent_items and len(lines) < 4:
-            lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长长期结论。")
+            lines.append(f"近期线索：{'、'.join(recent_items)}；不要直接当成长期结论。")
         return lines[:4]
 
     async def _llm_overrides(self, material: dict[str, Any]) -> dict[str, Any]:
@@ -328,17 +275,12 @@ class UserPortraitProjectionBuilder:
     def _evidence_refs(
         *,
         assertions: list[dict[str, Any]],
-        snapshot: dict[str, Any] | None,
     ) -> list[str]:
         refs: list[str] = []
         for assertion in assertions:
             assertion_id = _text(assertion.get("assertion_id"))
             if assertion_id:
                 refs.append(f"assertion:{assertion_id}")
-        if snapshot is not None:
-            snapshot_id = _text(snapshot.get("snapshot_id"))
-            if snapshot_id:
-                refs.append(f"snapshot:{snapshot_id}")
         return list(dict.fromkeys(refs))
 
     @staticmethod
@@ -368,6 +310,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         refs.append(f"status:{state}")
     if raw_source_key:
         refs.append(f"source:{raw_source_key}")
+    decision = classify_assertion_portrait(assertion)
     return {
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
@@ -376,6 +319,7 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
         "assertion_id": assertion_id or None,
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
+        "claim_kind": decision.claim_kind,
     }
 
 
@@ -397,34 +341,6 @@ def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
     if group_id == "work_style":
         return f"工作和沟通方式：{'、'.join(short)}"
     return "、".join(short)
-
-
-def _item_from_graph_signal(signal: PortraitGraphSignal) -> dict[str, Any]:
-    refs = [
-        f"role:{signal.role}",
-        f"claim_kind:{signal.claim_kind}",
-        f"predicate:{signal.predicate}",
-        f"object_type:{signal.object_type}",
-    ]
-    if signal.world_group:
-        refs.append(f"world_group:{signal.world_group}")
-    if signal.source_type:
-        refs.append(f"source:{signal.source_type}")
-    if signal.triple_id:
-        refs.append(f"graph:{signal.triple_id}")
-    return {
-        "id": signal.triple_id or f"{signal.world_group}:{signal.text}",
-        "text": signal.text,
-        "source": "",
-        "source_key": None,
-        "assertion_id": None,
-        "basis_count": signal.observation_count,
-        "basis_refs": refs,
-    }
-
-
-def _is_graph_item(item: dict[str, Any]) -> bool:
-    return any(str(ref).startswith("graph:") for ref in (item.get("basis_refs") or []))
 
 
 def _profile_field_text(profile: UserProfileProjection, field: str) -> str:

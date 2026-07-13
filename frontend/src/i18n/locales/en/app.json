@@ -3049,7 +3049,13 @@
       },
       "recent": {
         "title": "Recent you",
-        "meta": "Recent signals, not long-term conclusions"
+        "meta": "Recent signals, not long-term conclusions",
+        "kinds": {
+          "active_work": "Working on recently: {{value}}",
+          "preference_interest": "Interested in recently: {{value}}",
+          "collaboration_style": "Recent way of working: {{value}}",
+          "recent_context": "Recent state: {{value}}"
+        }
       },
       "source": {
         "default": "Memory signal"

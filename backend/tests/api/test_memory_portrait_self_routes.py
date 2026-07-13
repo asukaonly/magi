@@ -88,13 +88,14 @@ def test_rebuilds_stale_portrait_projection_when_newer_assertion_exists():
     l2.get_relationships = AsyncMock(return_value=[])
     l2.list_tom_assertions = AsyncMock(return_value=[{
         "assertion_id": "assert-new",
-        "trait_family": "preference_profile",
+        "trait_family": "interest_profile",
         "trait_name": "interest.memory_system",
         "trait_value": "新画像",
         "validation_state": "stable",
         "source_domain": "conversation",
         "evidence_count": 3,
         "updated_at": 200.0,
+        "temporal_scope": "stable",
     }])
 
     with override_dependencies_for_test(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2):
@@ -112,7 +113,7 @@ def test_rebuilds_stale_portrait_projection_when_newer_assertion_exists():
     portrait_repo.upsert.assert_awaited_once()
 
 
-def test_returns_observations_from_projection_and_snapshot():
+def test_returns_observations_from_profile_projection_without_snapshot_leakage():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=MagicMock(
         user_id="u1",
@@ -128,8 +129,6 @@ def test_returns_observations_from_projection_and_snapshot():
         refreshed_at=100.0,
     ))
     l2 = MagicMock()
-    # list_tom_snapshots returns a list; we return one snapshot dict
-    # core_traits is a dict in the real schema (JSON-decoded)
     l2.list_tom_snapshots = AsyncMock(return_value=[{
         "snapshot_id": "snap-1",
         "entity_id": "user:u1",
@@ -147,7 +146,7 @@ def test_returns_observations_from_projection_and_snapshot():
     assert body["is_cold_start"] is False
     kinds = [obs["kind"] for obs in body["observations"]]
     assert "assertion" in kinds  # from projection
-    assert "reflection" in kinds  # from tom snapshot
+    assert "reflection" not in kinds
     texts = " ".join(obs["text"] for obs in body["observations"])
     assert "杭州" in texts or "阿明" in texts
 
@@ -166,11 +165,12 @@ def test_assertion_observations_include_grouping_metadata_refs():
     l2.list_tom_snapshots = AsyncMock(return_value=[])
     l2.list_tom_assertions = AsyncMock(return_value=[{
         "assertion_id": "assert-1",
-        "trait_family": "preference_profile",
-        "trait_name": "current_project",
+        "trait_family": "project_profile",
+        "trait_name": "project.magi_portrait",
         "trait_value": "Magi 记忆体验",
         "validation_state": "tentative",
         "source_domain": "conversation",
+        "temporal_scope": "stable",
     }])
     with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
         client = TestClient(_app())
@@ -180,7 +180,7 @@ def test_assertion_observations_include_grouping_metadata_refs():
     body = resp.json()
     refs = body["observations"][0]["basis_refs"]
     assert "assertion:assert-1" in refs
-    assert "family:preference_profile" in refs
+    assert "family:project_profile" in refs
     assert "status:tentative" in refs
     assert "source:conversation" in refs
 
@@ -192,12 +192,13 @@ def test_self_view_hides_internal_external_activity_source():
     l2.list_tom_snapshots = AsyncMock(return_value=[])
     l2.list_tom_assertions = AsyncMock(return_value=[{
         "assertion_id": "assert-external",
-        "trait_family": "preference_profile",
+        "trait_family": "interest_profile",
         "trait_name": "interest.codex",
         "trait_value": "Codex",
         "validation_state": "corroborated",
         "source_domain": "external_activity",
         "evidence_count": 4,
+        "temporal_scope": "stable",
     }])
 
     with override_dependencies_for_test(profile_repo=profile_repo, l2=l2):
@@ -245,30 +246,33 @@ def test_self_portrait_returns_backend_grouped_page_model():
     l2.list_tom_assertions = AsyncMock(return_value=[
         {
             "assertion_id": "assert-routine",
-            "trait_family": "routine_profile",
-            "trait_name": "tool",
-            "trait_value": "本地插件仓库",
+            "trait_family": "project_profile",
+            "trait_name": "project.magi_portrait",
+            "trait_value": "画像页面",
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 2,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "assert-review",
-            "trait_family": "preference_profile",
-            "trait_name": "current_project",
-            "trait_value": "画像页面",
+            "trait_family": "project_profile",
+            "trait_name": "project.memory_dashboard",
+            "trait_value": "记忆总览",
             "validation_state": "tentative",
             "source_domain": "conversation",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "assert-recent",
-            "trait_family": "state_profile",
-            "trait_name": "focus",
+            "trait_family": "interest_profile",
+            "trait_name": "interest.l2_quality",
             "trait_value": "检查 L2 结果",
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 4,
+            "temporal_scope": "recent",
         },
     ])
 
@@ -289,22 +293,20 @@ def test_self_portrait_returns_backend_grouped_page_model():
     ]
     assert [item["text"] for item in world_groups["identity"]] == ["希望称呼为「Asuka」"]
     assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统"]
+    assert [item["text"] for item in world_groups["projects"]] == ["画像页面"]
     assert [item["text"] for item in world_groups["work_style"]] == ["直接给结论"]
 
     review_items = view["review"]["items"]
-    assert [item["text"] for item in review_items] == ["画像页面"]
+    assert [item["text"] for item in review_items] == ["记忆总览"]
     assert review_items[0]["assertion_id"] == "assert-review"
     assert review_items[0]["source_key"] == "conversation"
 
     recent_items = view["recent"]["items"]
-    assert [item["text"] for item in recent_items] == [
-        "最近在验证关于你页面",
-        "检查 L2 结果",
-    ]
-    assert view["world"]["total_count"] == 3
+    assert [item["text"] for item in recent_items] == ["检查 L2 结果"]
+    assert view["world"]["total_count"] == 4
 
 
-def test_self_view_keeps_inventory_assertions_out_of_world():
+def test_self_view_dedupes_world_items_and_prioritizes_stronger_profile_signals():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -313,29 +315,32 @@ def test_self_view_keeps_inventory_assertions_out_of_world():
         {
             "assertion_id": "assert-low",
             "trait_family": "routine_profile",
-            "trait_name": "tool.docker",
+            "trait_name": "routine.workflow.docker",
             "trait_value": "Docker",
             "validation_state": "corroborated",
             "source_domain": "external_activity",
             "evidence_count": 2,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "assert-high",
             "trait_family": "routine_profile",
-            "trait_name": "tool.codex",
+            "trait_name": "routine.workflow.codex",
             "trait_value": "Codex",
             "validation_state": "stable",
             "source_domain": "user_authored",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "assert-dup",
             "trait_family": "routine_profile",
-            "trait_name": "tool.docker.duplicate",
+            "trait_name": "routine.workflow.docker.duplicate",
             "trait_value": "Docker",
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 6,
+            "temporal_scope": "stable",
         },
     ])
 
@@ -349,15 +354,12 @@ def test_self_view_keeps_inventory_assertions_out_of_world():
         for group in resp.json()["self_view"]["world"]["groups"]
     }["work_style"]
 
-    assert work_style_items == []
-    observations_text = "\n".join(
-        item["text"] for item in resp.json()["observations"]
-    )
-    assert "Codex" not in observations_text
-    assert "Docker" not in observations_text
+    assert [item["text"] for item in work_style_items] == ["Codex", "Docker"]
+    assert work_style_items[0]["source_key"] == "user_authored"
+    assert work_style_items[1]["assertion_id"] == "assert-dup"
 
 
-def test_self_view_skips_non_world_ready_passive_assertions():
+def test_self_view_separates_recent_durable_and_mismatched_assertions():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -366,30 +368,33 @@ def test_self_view_skips_non_world_ready_passive_assertions():
     l2.list_tom_assertions = AsyncMock(return_value=[
         {
             "assertion_id": "assert-weak",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "interest.deepseek",
             "trait_value": "DeepSeek",
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 1,
+            "temporal_scope": "recent",
         },
         {
             "assertion_id": "assert-mismatch",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "tool.chrome",
             "trait_value": "Chrome",
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 5,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "assert-rag",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "interest.rag",
             "trait_value": "RAG",
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 3,
+            "temporal_scope": "stable",
         },
     ])
 
@@ -404,7 +409,7 @@ def test_self_view_skips_non_world_ready_passive_assertions():
     observations_text = "\n".join(item["text"] for item in body["observations"])
 
     assert preferences == ["RAG"]
-    assert "DeepSeek" not in observations_text
+    assert "DeepSeek" in observations_text
     assert "Chrome" not in observations_text
 
 
@@ -423,6 +428,7 @@ def test_self_view_applies_assertion_limit_after_signal_filtering():
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         }
         for index in range(20)
     ]
@@ -430,12 +436,13 @@ def test_self_view_applies_assertion_limit_after_signal_filtering():
         *weak_items,
         {
             "assertion_id": "assert-rag",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "interest.rag",
             "trait_value": "RAG",
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 3,
+            "temporal_scope": "stable",
         },
     ])
 
@@ -448,7 +455,7 @@ def test_self_view_applies_assertion_limit_after_signal_filtering():
     assert [item["text"] for item in world_groups["preferences"]] == ["RAG"]
 
 
-def test_self_view_keeps_inventory_graph_relationships_out_of_world():
+def test_self_view_does_not_project_graph_relationships_directly():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -487,13 +494,12 @@ def test_self_view_keeps_inventory_graph_relationships_out_of_world():
 
     assert resp.status_code == 200
     body = resp.json()
-    world_groups = {group["id"]: group["items"] for group in body["self_view"]["world"]["groups"]}
+    assert body["is_cold_start"] is True
+    assert body["observations"] == []
+    assert all(not group["items"] for group in body["self_view"]["world"]["groups"])
 
-    assert all(not items for items in world_groups.values())
-    assert body["self_view"]["recent"]["items"] == []
 
-
-def test_self_view_skips_photo_place_inventory_signals():
+def test_self_view_ignores_photo_places_until_assertion_promotion():
     profile_repo = MagicMock()
     profile_repo.get = AsyncMock(return_value=None)
     l2 = MagicMock()
@@ -523,10 +529,9 @@ def test_self_view_skips_photo_place_inventory_signals():
         resp = client.get("/api/memory/portrait/self", params={"user_id": "u1"})
 
     assert resp.status_code == 200
-    self_view = resp.json()["self_view"]
-    world_groups = {group["id"]: group["items"] for group in self_view["world"]["groups"]}
-    assert all(not items for items in world_groups.values())
-    assert self_view["recent"]["items"] == []
+    body = resp.json()
+    assert body["is_cold_start"] is True
+    assert all(not group["items"] for group in body["self_view"]["world"]["groups"])
 
 
 def test_self_view_fallback_uses_converged_portrait_projection_with_profile_input():
@@ -546,21 +551,23 @@ def test_self_view_fallback_uses_converged_portrait_projection_with_profile_inpu
     l2.list_tom_assertions = AsyncMock(return_value=[
         {
             "assertion_id": "a-project",
-            "trait_family": "routine_profile",
+            "trait_family": "project_profile",
             "trait_name": "project.magi_memory",
             "trait_value": "Magi 记忆系统",
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 3,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "a-interest",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "interest.plugin_ecosystem",
             "trait_value": "插件生态",
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 2,
+            "temporal_scope": "stable",
         },
         {
             "assertion_id": "a-communication",
@@ -570,6 +577,7 @@ def test_self_view_fallback_uses_converged_portrait_projection_with_profile_inpu
             "validation_state": "stable",
             "source_domain": "user_authored",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
     ])
 
@@ -587,10 +595,10 @@ def test_self_view_fallback_uses_converged_portrait_projection_with_profile_inpu
         "work_style",
     ]
     assert "子涵" in world_groups["identity"]["summary"]
-    assert "杭州" in world_groups["identity"]["summary"]
     assert "Magi 记忆系统" in world_groups["projects"]["summary"]
     assert "插件生态" in world_groups["preferences"]["summary"]
     assert "先讲结论" in world_groups["work_style"]["summary"]
+    assert "杭州" in world_groups["identity"]["summary"]
     assert body["prompt_summary"]
     assert "external_activity" not in "\n".join(body["prompt_summary"])
 
@@ -628,21 +636,23 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
     assertions = [
         {  # world / preferences (explicit source)
             "assertion_id": "a-pref",
-            "trait_family": "preference_profile",
+            "trait_family": "interest_profile",
             "trait_name": "interest.magi_memory",
             "trait_value": "Magi 记忆系统",
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 3,
+            "temporal_scope": "stable",
         },
         {  # world / work style
             "assertion_id": "a-routine",
             "trait_family": "routine_profile",
-            "trait_name": "tool",
+            "trait_name": "routine.workflow.local_plugins",
             "trait_value": "本地插件仓库",
             "validation_state": "stable",
             "source_domain": "user_authored",
             "evidence_count": 2,
+            "temporal_scope": "stable",
         },
         {  # world / work style
             "assertion_id": "a-comm",
@@ -652,15 +662,17 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
             "validation_state": "stable",
             "source_domain": "user_authored",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
         {  # review (tentative)
             "assertion_id": "a-review",
-            "trait_family": "preference_profile",
-            "trait_name": "interest.one_off",
+            "trait_family": "project_profile",
+            "trait_name": "project.one_off",
             "trait_value": "一次性页面",
             "validation_state": "tentative",
             "source_domain": "external_activity",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
         {  # recent (state family)
             "assertion_id": "a-recent",
@@ -670,6 +682,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
             "validation_state": "stable",
             "source_domain": "conversation",
             "evidence_count": 4,
+            "temporal_scope": "recent",
         },
         {  # skip: weak passive interest below evidence floor
             "assertion_id": "a-skip",
@@ -679,6 +692,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
             "validation_state": "stable",
             "source_domain": "external_activity",
             "evidence_count": 1,
+            "temporal_scope": "stable",
         },
     ]
     l2 = _ConsistencyL2(assertions)
@@ -710,7 +724,7 @@ def test_materialized_and_fallback_portrait_classify_assertions_identically():
         "identity": [],
         "projects": [],
         "preferences": ["Magi 记忆系统"],
-        "work_style": ["先讲结论"],
+        "work_style": ["先讲结论", "本地插件仓库"],
     }
     assert sorted(item["text"] for item in fallback["review"]["items"]) == ["一次性页面"]
     assert sorted(item["text"] for item in fallback["recent"]["items"]) == ["验证画像"]
@@ -733,35 +747,43 @@ class _ConsistencyGraphL2:
         return [dict(edge) for edge in self._relationships]
 
 
-def test_materialized_and_fallback_portrait_include_recent_graph_clues_identically():
-    """Qualified graph clues must remain recent on both projection paths."""
+def test_materialized_and_fallback_portrait_ignore_graph_clues_identically():
+    """Raw graph relationships must not bypass assertion promotion."""
     assertions = [
         {
             "assertion_id": "a-routine",
             "trait_family": "routine_profile",
-            "trait_name": "tool",
+            "trait_name": "routine.workflow.local_plugins",
             "trait_value": "本地插件仓库",
             "validation_state": "stable",
             "source_domain": "user_authored",
             "evidence_count": 2,
+            "temporal_scope": "stable",
         },
     ]
     relationships = [
         {
-            "triple_id": "t-topic",
-            "predicate": "INTERESTED_IN",
-            "object_id": "topic:机器学习",
-            "object_type": "topic",
-            "source_type": "browser_history",
+            "triple_id": "t-place",
+            "predicate": "VISITED",
+            "object_id": "place:东京",
+            "object_type": "place",
+            "source_type": "photo_library_apple_photos",
             "observation_count": 3,
         },
         {
             "triple_id": "t-tool",
-            "predicate": "WORKS_WITH",
+            "predicate": "USES",
             "object_id": "software:Chrome",
             "object_type": "software",
             "source_type": "chrome_history",
             "observation_count": 5,
+        },
+        {
+            "triple_id": "t-single",
+            "predicate": "VISITED",
+            "object_id": "place:一次性地点",
+            "object_type": "place",
+            "observation_count": 1,
         },
     ]
     l2 = _ConsistencyGraphL2(assertions, relationships)
@@ -783,12 +805,8 @@ def test_materialized_and_fallback_portrait_include_recent_graph_clues_identical
         "identity": [],
         "projects": [],
         "preferences": [],
-        "work_style": [],
+        "work_style": ["本地插件仓库"],
     }
-    assert sorted(item["text"] for item in fallback["recent"]["items"]) == [
-        "Chrome",
-        "机器学习",
-    ]
 
 
 class _ConsistencySnapshotL2:
@@ -804,9 +822,8 @@ class _ConsistencySnapshotL2:
         return [dict(self._snapshot)]
 
 
-def test_materialized_and_fallback_render_multi_trait_snapshot_identically():
-    """A snapshot with multiple core_traits must produce the same per-trait
-    recent items on both paths (previously the fallback concatenated them)."""
+def test_materialized_and_fallback_ignore_snapshot_traits_identically():
+    """Snapshots must not bypass assertion temporal semantics."""
     snapshot = {
         "snapshot_id": "snap-multi",
         "entity_id": "user:u1",
@@ -831,4 +848,4 @@ def test_materialized_and_fallback_render_multi_trait_snapshot_identically():
 
     materialized_recent = sorted(item["text"] for item in materialized.recent["items"])
     fallback_recent = sorted(item["text"] for item in fallback["recent"]["items"])
-    assert materialized_recent == fallback_recent == ["专注", "验证画像"]
+    assert materialized_recent == fallback_recent == []

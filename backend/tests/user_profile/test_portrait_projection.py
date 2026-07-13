@@ -13,7 +13,7 @@ class _FakeL2:
         return [
             {
                 "assertion_id": "a-interest-rag",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.rag",
                 "trait_value": "RAG",
                 "source_domain": "external_activity",
@@ -21,10 +21,11 @@ class _FakeL2:
                 "confidence_score": 0.86,
                 "evidence_events": ["event-1", "event-2", "event-3"],
                 "last_validated_at": 1_700_000_001,
+                "temporal_scope": "recent",
             },
             {
                 "assertion_id": "a-interest-magi",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.magi_memory",
                 "trait_value": "Magi 记忆系统",
                 "source_domain": "conversation",
@@ -32,6 +33,7 @@ class _FakeL2:
                 "confidence_score": 0.93,
                 "evidence_events": ["event-4", "event-5"],
                 "last_validated_at": 1_700_000_002,
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-communication",
@@ -43,10 +45,11 @@ class _FakeL2:
                 "confidence_score": 1.0,
                 "evidence_events": ["event-6"],
                 "last_validated_at": 1_700_000_003,
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-review",
-                "trait_family": "preference_profile",
+                "trait_family": "project_profile",
                 "trait_name": "interest.one_off",
                 "trait_value": "一次性页面标题",
                 "source_domain": "external_activity",
@@ -54,6 +57,7 @@ class _FakeL2:
                 "confidence_score": 0.5,
                 "evidence_events": ["event-7"],
                 "last_validated_at": 1_700_000_004,
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-state",
@@ -65,6 +69,7 @@ class _FakeL2:
                 "confidence_score": 0.9,
                 "evidence_events": ["event-8"],
                 "last_validated_at": 1_700_000_005,
+                "temporal_scope": "recent",
             },
         ]
 
@@ -93,13 +98,14 @@ class _PassiveProfileSignalL2:
         return [
             {
                 "assertion_id": "a-weak-passive",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.deepseek",
                 "trait_value": "DeepSeek",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.82,
                 "evidence_events": ["event-1"],
+                "temporal_scope": "recent",
             },
             {
                 "assertion_id": "a-mismatched-passive",
@@ -110,26 +116,29 @@ class _PassiveProfileSignalL2:
                 "validation_state": "stable",
                 "confidence_score": 0.9,
                 "evidence_events": ["event-2", "event-3", "event-4", "event-5"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-strong-passive",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.rag",
                 "trait_value": "RAG",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
                 "evidence_events": ["event-6", "event-7", "event-8"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-user-authored",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.magi_memory",
                 "trait_value": "Magi 记忆系统",
                 "source_domain": "user_authored",
                 "validation_state": "stable",
                 "confidence_score": 0.95,
                 "evidence_events": ["event-9"],
+                "temporal_scope": "stable",
             },
         ]
 
@@ -142,7 +151,7 @@ class _ConfirmedPassiveSignalL2:
         return [
             {
                 "assertion_id": "a-confirmed-passive",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.deepseek",
                 "trait_value": "DeepSeek",
                 "source_domain": "external_activity",
@@ -150,6 +159,7 @@ class _ConfirmedPassiveSignalL2:
                 "user_feedback": "confirmed",
                 "confidence_score": 0.9,
                 "evidence_events": ["event-1"],
+                "temporal_scope": "stable",
             },
         ]
 
@@ -162,33 +172,36 @@ class _FragmentedProfileSignalL2:
         return [
             {
                 "assertion_id": "a-project",
-                "trait_family": "routine_profile",
+                "trait_family": "project_profile",
                 "trait_name": "project.magi_memory",
                 "trait_value": "Magi 记忆系统",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.92,
                 "evidence_events": ["event-1", "event-2", "event-3"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-interest-plugin",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.plugin_ecosystem",
                 "trait_value": "插件生态",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.9,
                 "evidence_events": ["event-4", "event-5"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-tool-codex",
                 "trait_family": "routine_profile",
-                "trait_name": "tool.codex",
+                "trait_name": "routine.tool.codex",
                 "trait_value": "Codex",
                 "source_domain": "conversation",
                 "validation_state": "stable",
                 "confidence_score": 0.88,
                 "evidence_events": ["event-6", "event-7"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-communication",
@@ -199,16 +212,18 @@ class _FragmentedProfileSignalL2:
                 "validation_state": "stable",
                 "confidence_score": 1.0,
                 "evidence_events": ["event-8"],
+                "temporal_scope": "stable",
             },
             {
                 "assertion_id": "a-weak-passive",
-                "trait_family": "preference_profile",
+                "trait_family": "interest_profile",
                 "trait_name": "interest.one_off_page",
                 "trait_value": "一次性页面",
                 "source_domain": "external_activity",
                 "validation_state": "stable",
                 "confidence_score": 0.8,
                 "evidence_events": ["event-9"],
+                "temporal_scope": "recent",
             },
         ]
 
@@ -266,11 +281,11 @@ async def test_portrait_projection_builder_filters_internal_fields_and_separates
     assert "先讲结论" in prompt_text
 
     world_groups = {group["id"]: group["items"] for group in projection.world["groups"]}
-    assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统", "RAG"]
+    assert [item["text"] for item in world_groups["preferences"]] == ["Magi 记忆系统"]
     assert [item["text"] for item in world_groups["work_style"]] == ["先讲结论，再讲原因"]
     assert [item["text"] for item in projection.review["items"]] == ["一次性页面标题"]
     assert [item["text"] for item in projection.recent["items"]] == [
-        "正在检查画像投影效果",
+        "RAG",
         "验证 L2 断言和画像质量",
     ]
     assert "assertion:a-interest-rag" in projection.evidence_refs
@@ -286,7 +301,8 @@ async def test_portrait_projection_requires_world_ready_profile_assertions():
     assert preference_texts == ["Magi 记忆系统", "RAG"]
     assert "DeepSeek" not in preference_texts
     assert "Chrome" not in preference_texts
-    assert "DeepSeek" not in prompt_text
+    assert "DeepSeek" in [item["text"] for item in projection.recent["items"]]
+    assert "DeepSeek" in prompt_text
     assert "Chrome" not in prompt_text
 
 
@@ -453,7 +469,7 @@ async def test_portrait_projection_keeps_inventory_graph_signals_out_of_world():
     assert "东京" not in prompt_text
 
 
-async def test_portrait_projection_keeps_graph_under_recent_clues():
+async def test_portrait_projection_does_not_project_graph_edges_directly():
     projection = await UserPortraitProjectionBuilder(_RicherGraphSignalL2()).build("local_user")
 
     world_groups = {
@@ -466,9 +482,9 @@ async def test_portrait_projection_keeps_graph_under_recent_clues():
     assert world_groups["preferences"] == []
     assert world_groups["work_style"] == []
     recent_text = str(projection.recent)
-    assert "DIIV" in recent_text
-    assert "coding agent" in recent_text
-    assert "magi" in recent_text
+    assert "DIIV" not in recent_text
+    assert "coding agent" not in recent_text
+    assert "magi" not in recent_text
     assert "one-off-track" not in str(projection.world)
     assert "example.com" not in str(projection.world)
 

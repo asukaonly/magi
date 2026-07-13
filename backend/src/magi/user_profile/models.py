@@ -20,7 +20,7 @@ PROFILE_ASSERTION_FAMILIES = (
     "state_profile",
 )
 PROFILE_ASSERTION_STATES = ("stable", "corroborated", "tentative")
-USER_PORTRAIT_PROJECTION_VERSION = 3
+USER_PORTRAIT_PROJECTION_VERSION = 4
 
 
 class UserProfileProjection(BaseModel):

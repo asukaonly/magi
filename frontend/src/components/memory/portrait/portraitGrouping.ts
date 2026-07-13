@@ -14,6 +14,7 @@ export interface PortraitDisplayItem {
   sourceKey: string | null;
   observation: SelfPortraitObservation;
   assertionId: string | null;
+  claimKind?: string | null;
 }
 
 export interface PortraitWorldGroup {
@@ -120,6 +121,7 @@ const displayItem = (obs: SelfPortraitObservation, index: number): PortraitDispl
     sourceKey: source.key,
     observation: obs,
     assertionId: extractAssertionId(obs),
+    claimKind: refValue(obs, 'claim_kind'),
   };
 };
 
@@ -131,6 +133,7 @@ const displayItemFromSelfView = (item: PortraitSelfViewItem): PortraitDisplayIte
     source: source.label,
     sourceKey: source.key,
     assertionId: item.assertion_id,
+    claimKind: item.claim_kind ?? null,
     observation: {
       kind: 'assertion',
       text: item.text,

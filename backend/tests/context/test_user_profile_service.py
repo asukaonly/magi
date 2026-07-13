@@ -46,11 +46,12 @@ class _FakeL2Store:
             return [
                 {
                     "assertion_id": "a-magi",
-                    "trait_family": "preference_profile",
+                    "trait_family": "interest_profile",
                     "trait_name": "interest.magi",
                     "trait_value": "Magi 记忆系统",
                     "source_domain": "conversation",
                     "validation_state": "stable",
+                    "temporal_scope": "stable",
                     "confidence_score": 0.9,
                     "evidence_events": ["event-1", "event-2"],
                 }

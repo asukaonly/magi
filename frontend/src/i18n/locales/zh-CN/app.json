@@ -3048,7 +3048,13 @@
       },
       "recent": {
         "title": "最近的你",
-        "meta": "近期线索，不直接当成长期结论"
+        "meta": "近期线索，不直接当成长期结论",
+        "kinds": {
+          "active_work": "最近在推进：{{value}}",
+          "preference_interest": "最近在关注：{{value}}",
+          "collaboration_style": "近期形成的方式：{{value}}",
+          "recent_context": "近期状态：{{value}}"
+        }
       },
       "source": {
         "default": "记忆线索"

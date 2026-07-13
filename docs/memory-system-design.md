@@ -345,32 +345,35 @@ to raw L2 assertions only when the projection does not yet exist.
 
 `user_portrait_projection` is the product-facing self-portrait read model for
 the local user. It is not an authority over L2 facts. It packages L2 assertions,
-the current ToM snapshot, and review state into a stable `world/review/recent`
-page model plus a short `prompt_summary` for main-chat context injection. Prompt
-assembly must use that human-readable summary when available and must not dump
+explicit profile fields, and review state into a stable `world/review/recent`
+page model plus a short `prompt_summary` for main-chat context injection. Raw
+graph edges and ToM snapshots do not enter this projection directly because they
+lack the assertion-level retention decision. Prompt assembly must use that
+human-readable summary when available and must not dump
 raw preference dictionaries, internal assertion keys, source tiers, or affinity
 metadata into the main model prompt. Clearing L2 cognition artifacts must also
 clear profile and portrait projections so local re-imports do not keep stale
 user-understanding caches.
 
-Portrait projection is a qualification layer above raw assertions. Explicit
-user-authored, settings-backed, and user-confirmed profile assertions may enter
-the portrait once they are active, but passive source assertions must also pass
-source strength, evidence-count, validation-state, and trait-family alignment
-checks. For example, an external `interest.*` assertion can become a preference
-only after enough evidence accumulates. Tool, device, app, browser, and place
-names are inventory signals by default: they can support a higher-level project,
+Portrait projection is a qualification layer above raw assertions. Assertion
+promotion owns evidence thresholds and retention; portrait projection consumes
+that decision instead of reimplementing source-specific thresholds. Assertions
+with `stable` or `persistent` temporal scope may enter `world` when their family
+and trait semantics match. Assertions with short-lived or `recent` temporal
+scope enter `recent`, while unresolved durable candidates enter `review`. Tool,
+device, app, browser, and place names are inventory signals by default: they can
+support a higher-level project,
 preference, or collaboration-style assertion, but they must not enter the
 portrait world as raw profile items. Assertions that fail this gate can remain
 L2 facts, review material, or recent clues, but they must not enter `world` or
 `prompt_summary`.
 The product-facing portrait world uses four stable groups: identity facts,
-long-running work, preferences/interests, and collaboration style. Passive graph
-relationships can appear as recent clues when useful, but graph edges do not
-directly create world-group items.
+long-running work, preferences/interests, and collaboration style. Graph
+relationships become visible only after graph-to-assertion promotion has produced
+a governed recent or durable assertion.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
-and prompt assembly must rebuild them when newer profile, assertion, snapshot,
-or safe graph inputs exist. User feedback or correction on a user assertion
+and prompt assembly must rebuild them when newer profile or assertion inputs
+exist. User feedback or correction on a user assertion
 should enqueue a debounced portrait projection refresh after the assertion
 update succeeds. The delay is controlled by
 `agent.memory.l2.portrait_projection_refresh_delay_seconds`, and multiple
@@ -793,26 +796,24 @@ visual treatment, but they should not reclassify raw `summary_category` values
 or recompute story-feed statistics from the raw records.
 The About You page presents the user-facing self portrait as an ordered
 world model: first a grouped view of identity, long-running projects,
-preferences, working style, and stable facts; then reviewable items that need
+preferences, and working style; then reviewable items that need
 user judgment; then recent state observations. Personal-profile fields are
 strong inputs to this portrait, not a second visible portrait surface. It should
 translate L2 assertion metadata into readable groups and review actions instead
 of exposing raw assertion/family/status names as primary UI copy.
 `GET /api/memory/portrait/self` returns this as a backend-assembled `self_view`
 with `world`, `review`, and `recent` sections. The legacy flat `observations`
-list may remain as compatibility material, but page classification belongs in
-the backend read model. The frontend may translate section and source labels,
-but it should not infer grouping from keywords, source names, or raw text.
+list is diagnostic support for the endpoint; page classification belongs in the
+backend read model. The frontend may translate section, temporary-signal, and
+source labels, but it should not infer grouping from keywords, source names, or
+raw text.
 When a materialized `user_portrait_projection` exists, the endpoint may return
 that page model directly only when it is fresh; otherwise it must rebuild it
-from current profile, assertion, snapshot, and safe graph inputs. If no
-materialized row exists, it can assemble the same shape from the current
-projection/snapshot/assertion fallback path. The fallback path must use the same
+from current profile and assertion inputs. If no materialized row exists, it
+assembles the same shape from the current profile projection and assertion set.
+The fallback path must use the same
 portrait qualification policy as the materialized projection so weak passive
 assertions do not leak into the page before the cache is refreshed.
-The read model may include safe L2 graph relationships such as visited places
-or owned/used tools as user-visible clues; those clues do not become durable
-profile assertions unless they pass assertion policy separately.
 The chat portrait rail is a separate surface: it may retrieve memory snippets
 and render them in the active persona's voice for the current conversation, but
 that presentation is not the product-facing self portrait and must not own

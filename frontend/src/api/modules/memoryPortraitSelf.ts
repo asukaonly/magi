@@ -28,6 +28,14 @@ export interface PortraitSelfViewItem {
   assertion_id: string | null;
   basis_count: number;
   basis_refs: string[];
+  claim_kind?:
+    | 'identity_fact'
+    | 'active_work'
+    | 'preference_interest'
+    | 'collaboration_style'
+    | 'recent_context'
+    | 'inventory_signal'
+    | null;
 }
 
 export interface PortraitSelfViewWorldGroup {

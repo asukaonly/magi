@@ -15,13 +15,11 @@ async def portrait_projection_is_stale(
     l2_store: Any,
     profile_projection: UserProfileProjection | None = None,
 ) -> bool:
-    """Return true when newer profile, assertion, snapshot, or graph input exists."""
+    """Return true when a newer profile or governed assertion input exists."""
     newest_input_at = _profile_timestamp(profile_projection)
     entity_id = f"user:{user_id}"
     if l2_store is not None:
         newest_input_at = max(newest_input_at, await _latest_assertion_timestamp(l2_store, entity_id))
-        newest_input_at = max(newest_input_at, await _latest_snapshot_timestamp(l2_store, entity_id))
-        newest_input_at = max(newest_input_at, await _latest_relationship_timestamp(l2_store, entity_id))
     projection_at = max(
         _float_value(projection.generated_at),
         _float_value(projection.updated_at),
@@ -44,33 +42,6 @@ async def _latest_assertion_timestamp(l2_store: Any, entity_id: str) -> float:
     except Exception:
         return 0.0
     return _records_timestamp(assertions, ("updated_at", "last_validated_at", "created_at"))
-
-
-async def _latest_snapshot_timestamp(l2_store: Any, entity_id: str) -> float:
-    list_snapshots = getattr(l2_store, "list_tom_snapshots", None)
-    if list_snapshots is None:
-        return 0.0
-    try:
-        snapshots = await list_snapshots(entity_id=entity_id, entity_type="user", limit=1)
-    except TypeError:
-        try:
-            snapshots = await list_snapshots(entity_id=entity_id, limit=1)
-        except Exception:
-            return 0.0
-    except Exception:
-        return 0.0
-    return _records_timestamp(snapshots, ("last_updated_at", "updated_at", "created_at"))
-
-
-async def _latest_relationship_timestamp(l2_store: Any, entity_id: str) -> float:
-    get_relationships = getattr(l2_store, "get_relationships", None)
-    if get_relationships is None:
-        return 0.0
-    try:
-        relationships = await get_relationships(subject_id=entity_id, limit=1)
-    except Exception:
-        return 0.0
-    return _records_timestamp(relationships, ("updated_at", "last_observed_at", "created_at"))
 
 
 def _profile_timestamp(profile: UserProfileProjection | None) -> float:

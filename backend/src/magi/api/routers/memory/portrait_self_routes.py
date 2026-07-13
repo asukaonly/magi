@@ -12,10 +12,6 @@ from fastapi import APIRouter, Query
 
 from ....memory.provider import get_unified_memory
 from ....user_profile.portrait_contracts import UserPortraitObservation, UserPortraitPayload
-from ....user_profile.portrait_graph_signals import (
-    PortraitGraphSignal,
-    collect_portrait_graph_signals,
-)
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ....user_profile.portrait_signal_policy import (
@@ -26,7 +22,6 @@ from ....user_profile.portrait_signal_policy import (
     PORTRAIT_VALIDATION_STRENGTH,
     classify_assertion_portrait,
 )
-from ....user_profile.portrait_values import snapshot_recent_values
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
@@ -217,20 +212,8 @@ async def _collect_fallback_observations(
     if l2 is None:
         return observations
 
-    snapshot = await _load_latest_tom_snapshot(l2, user_id)
-    observations.extend(_observations_from_snapshot(snapshot))
     observations.extend(_observations_from_assertion_items(await _load_tom_assertions(l2, user_id)))
-    observations.extend(await _load_graph_relationship_observations(l2, user_id))
     return observations
-
-
-async def _load_latest_tom_snapshot(l2: Any, user_id: str) -> dict[str, Any] | None:
-    try:
-        snapshots = await l2.list_tom_snapshots(entity_id=f"user:{user_id}", limit=1)
-    except Exception as exc:
-        logger.debug("self portrait: tom snapshot lookup failed: %s", exc)
-        return None
-    return snapshots[0] if snapshots else None
 
 
 async def _load_tom_assertions(l2: Any, user_id: str) -> list[dict[str, Any]]:
@@ -242,17 +225,6 @@ async def _load_tom_assertions(l2: Any, user_id: str) -> list[dict[str, Any]]:
         )
     except Exception as exc:
         logger.debug("self portrait: assertion lookup failed: %s", exc)
-        return []
-
-
-async def _load_graph_relationship_observations(
-    l2: Any,
-    user_id: str,
-) -> list[UserPortraitObservation]:
-    try:
-        return await _observations_from_graph_relationships(l2, entity_id=f"user:{user_id}")
-    except Exception as exc:
-        logger.debug("self portrait: graph relationship lookup failed: %s", exc)
         return []
 
 
@@ -386,24 +358,6 @@ def _observations_from_projection(projection: Any) -> list[UserPortraitObservati
     return observations
 
 
-def _observations_from_snapshot(snapshot: dict[str, Any] | None) -> list[UserPortraitObservation]:
-    values = snapshot_recent_values(snapshot)
-    if not values:
-        return []
-    snapshot_id = str((snapshot or {}).get("snapshot_id") or "tom-latest")
-    basis_count = int((snapshot or {}).get("evidence_count") or 1)
-    return [
-        UserPortraitObservation(
-            kind="reflection",
-            text=text,
-            basis_count=basis_count,
-            basis_summary="L2 ToM snapshot",
-            basis_refs=[snapshot_id],
-        )
-        for text in values
-    ]
-
-
 def _observations_from_assertion_items(
     items: list[dict[str, Any]],
 ) -> list[UserPortraitObservation]:
@@ -446,38 +400,6 @@ def _observations_from_assertion_items(
         if len(obs) >= 20:
             break
     return obs
-
-
-async def _observations_from_graph_relationships(
-    l2: Any,
-    *,
-    entity_id: str,
-) -> list[UserPortraitObservation]:
-    signals = await collect_portrait_graph_signals(l2, entity_id=entity_id)
-    return [_observation_from_graph_signal(signal) for signal in signals]
-
-
-def _observation_from_graph_signal(signal: PortraitGraphSignal) -> UserPortraitObservation:
-    refs = [
-        f"role:{signal.role}",
-        f"claim_kind:{signal.claim_kind}",
-        f"predicate:{signal.predicate}",
-        f"object_type:{signal.object_type}",
-    ]
-    if signal.world_group:
-        refs.append(f"world_group:{signal.world_group}")
-    if signal.source_type:
-        refs.append(f"source:{signal.source_type}")
-    if signal.triple_id:
-        refs.append(f"graph:{signal.triple_id}")
-
-    return UserPortraitObservation(
-        kind="relationship",
-        text=signal.text,
-        basis_count=signal.observation_count,
-        basis_summary=(signal.source_type or "knowledge_graph"),
-        basis_refs=refs,
-    )
 
 
 def _build_self_view(observations: list[UserPortraitObservation]) -> dict[str, Any]:
@@ -533,6 +455,7 @@ def _self_view_item(observation: UserPortraitObservation, index: int) -> dict[st
         "assertion_id": assertion_id,
         "basis_count": observation.basis_count,
         "basis_refs": list(observation.basis_refs),
+        "claim_kind": _ref_value(observation, "claim_kind"),
     }
 
 

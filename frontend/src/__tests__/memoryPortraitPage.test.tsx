@@ -36,6 +36,8 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.review.editLabel': '改成',
     'memory.portrait.recent.title': '最近的你',
     'memory.portrait.recent.meta': '最近的线索，不会直接当成长期人格',
+    'memory.portrait.recent.kinds.active_work': '最近在推进：{{value}}',
+    'memory.portrait.recent.kinds.preference_interest': '最近在关注：{{value}}',
     'memory.portrait.source.default': '记忆线索',
     'memory.portrait.sources.conversation': '对话',
     'memory.portrait.sources.chrome_history': 'Chrome 浏览器历史',
@@ -48,7 +50,10 @@ vi.mock('react-i18next', async () => {
   };
   return {
     useTranslation: () => ({
-      t: (key: string, opts?: { defaultValue?: string }) => labels[key] ?? opts?.defaultValue ?? key,
+      t: (key: string, opts?: { defaultValue?: string; value?: string }) => {
+        const label = labels[key] ?? opts?.defaultValue ?? key;
+        return opts?.value ? label.replace('{{value}}', opts.value) : label;
+      },
       i18n: { language: 'zh-CN' },
     }),
   };
@@ -198,6 +203,45 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('画像页面')).toBeInTheDocument();
     expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
     expect(screen.getByText('基于 {{count}} 条理解')).toBeInTheDocument();
+  });
+
+  it('renders recent interests and projects as readable temporary signals', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
+      observations: [],
+      self_view: {
+        world: {
+          total_count: 2,
+          groups: [
+            { id: 'identity', items: [] },
+            { id: 'projects', items: [] },
+            { id: 'preferences', items: [] },
+            { id: 'work_style', items: [] },
+          ],
+        },
+        review: { items: [] },
+        recent: {
+          items: [
+            {
+              id: 'recent-interest', text: 'DIIV', source: '', source_key: null,
+              assertion_id: 'assert-interest', basis_count: 3, basis_refs: [],
+              claim_kind: 'preference_interest',
+            },
+            {
+              id: 'recent-project', text: 'Magi', source: '', source_key: null,
+              assertion_id: 'assert-project', basis_count: 3, basis_refs: [],
+              claim_kind: 'active_work',
+            },
+          ],
+        },
+      },
+      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+    });
+
+    renderPage();
+
+    expect(await screen.findByText('最近在关注：DIIV')).toBeInTheDocument();
+    expect(screen.getByText('最近在推进：Magi')).toBeInTheDocument();
   });
 
   it('does not render source text for portrait items without a user-facing source', async () => {

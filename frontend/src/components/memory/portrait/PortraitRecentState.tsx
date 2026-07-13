@@ -27,7 +27,14 @@ export const PortraitRecentState = ({ items }: PortraitRecentStateProps) => {
       <div className="mt-3 divide-y divide-[hsl(var(--memory-divider)/0.68)]">
         {items.slice(0, 6).map((item) => (
           <article key={item.id} className="py-3">
-            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+            <p className="text-sm leading-6 text-[hsl(var(--memory-title))]">
+              {item.claimKind
+                ? t(`memory.portrait.recent.kinds.${item.claimKind}`, {
+                    value: item.text,
+                    defaultValue: item.text,
+                  })
+                : item.text}
+            </p>
           </article>
         ))}
       </div>
