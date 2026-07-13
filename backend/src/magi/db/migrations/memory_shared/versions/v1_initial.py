@@ -699,7 +699,6 @@ CREATE TABLE IF NOT EXISTS user_portrait_projection (
     user_id TEXT PRIMARY KEY,
     entity_id TEXT NOT NULL,
     entity_type TEXT NOT NULL DEFAULT 'user',
-    version INTEGER NOT NULL DEFAULT 1,
     world_json TEXT NOT NULL DEFAULT '{}',
     review_json TEXT NOT NULL DEFAULT '{}',
     recent_json TEXT NOT NULL DEFAULT '{}',

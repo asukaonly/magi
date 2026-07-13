@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.memory.l2.store import L2CognitionStore
 from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
@@ -232,7 +234,8 @@ class _FragmentedProfileSignalL2:
 
 
 async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(tmp_path):
-    repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
+    db_path = tmp_path / "memory.db"
+    repo = UserPortraitProjectionRepository(str(db_path))
     projection = UserPortraitProjection(
         user_id="local_user",
         entity_id="user:local_user",
@@ -254,19 +257,12 @@ async def test_portrait_projection_repository_roundtrips_prompt_and_page_model(t
     assert loaded.prompt_summary == ["用户关注 RAG。"]
     assert loaded.evidence_refs == ["assertion:a-interest-rag"]
     assert loaded.source_counts == {"conversation": 1}
-
-
-async def test_portrait_projection_repository_ignores_stale_projection_versions(tmp_path):
-    repo = UserPortraitProjectionRepository(str(tmp_path / "memory.db"))
-    await repo.upsert(UserPortraitProjection(
-        user_id="local_user",
-        entity_id="user:local_user",
-        version=1,
-        world={"groups": [{"id": "preferences", "items": [{"text": "Old weak signal"}]}]},
-        prompt_summary=["旧画像缓存。"],
-    ))
-
-    assert await repo.get("local_user") is None
+    with sqlite3.connect(db_path) as db:
+        columns = {
+            str(row[1])
+            for row in db.execute("PRAGMA table_info(user_portrait_projection)")
+        }
+    assert "version" not in columns
 
 
 async def test_portrait_projection_builder_filters_internal_fields_and_separates_review():

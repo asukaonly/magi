@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import (
-    USER_PORTRAIT_PROJECTION_VERSION,
-    UserPortraitProjection,
-    UserProfileProjection,
-)
+from .models import UserPortraitProjection, UserProfileProjection
 from .portrait_projection_builder import PORTRAIT_ASSERTION_FAMILIES
 
 
@@ -20,8 +16,6 @@ async def portrait_projection_is_stale(
     profile_projection: UserProfileProjection | None = None,
 ) -> bool:
     """Return true when a newer profile or governed assertion input exists."""
-    if projection.version != USER_PORTRAIT_PROJECTION_VERSION:
-        return True
     newest_input_at = _profile_timestamp(profile_projection)
     entity_id = f"user:{user_id}"
     if l2_store is not None:

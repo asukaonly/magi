@@ -20,7 +20,6 @@ PROFILE_ASSERTION_FAMILIES = (
     "state_profile",
 )
 PROFILE_ASSERTION_STATES = ("stable", "corroborated", "tentative")
-USER_PORTRAIT_PROJECTION_VERSION = 4
 
 
 class UserProfileProjection(BaseModel):
@@ -54,7 +53,6 @@ class UserPortraitProjection(BaseModel):
     user_id: str = DEFAULT_USER_ID
     entity_id: str = f"user:{DEFAULT_USER_ID}"
     entity_type: str = PROFILE_ENTITY_TYPE
-    version: int = USER_PORTRAIT_PROJECTION_VERSION
     world: dict[str, Any] = Field(default_factory=dict)
     review: dict[str, Any] = Field(default_factory=dict)
     recent: dict[str, Any] = Field(default_factory=dict)

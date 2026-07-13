@@ -374,6 +374,8 @@ a governed recent or durable assertion.
 The self-portrait API returns this grouped projection directly. It does not
 return a second raw-observation shape, and the frontend must not reclassify
 assertions or graph material with its own policy.
+The materialized portrait has one current shape. It does not carry internal
+schema versions or compatibility readers for older portrait payloads.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
 and prompt assembly must rebuild them when newer profile or assertion inputs
 exist. User feedback or correction on a user assertion

@@ -9,7 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
-from .models import USER_PORTRAIT_PROJECTION_VERSION, UserPortraitProjection
+from .models import UserPortraitProjection
 
 
 class UserPortraitProjectionRepository:
@@ -26,7 +26,6 @@ class UserPortraitProjectionRepository:
                     user_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
                     entity_type TEXT NOT NULL DEFAULT 'user',
-                    version INTEGER NOT NULL DEFAULT 1,
                     world_json TEXT NOT NULL DEFAULT '{}',
                     review_json TEXT NOT NULL DEFAULT '{}',
                     recent_json TEXT NOT NULL DEFAULT '{}',
@@ -57,10 +56,7 @@ class UserPortraitProjectionRepository:
                 row = await cursor.fetchone()
         if row is None:
             return None
-        projection = self._row_to_projection(row)
-        if projection.version < USER_PORTRAIT_PROJECTION_VERSION:
-            return None
-        return projection
+        return self._row_to_projection(row)
 
     async def upsert(self, projection: UserPortraitProjection) -> UserPortraitProjection:
         await self.initialize()
@@ -80,15 +76,14 @@ class UserPortraitProjectionRepository:
             await db.execute(
                 """
                 INSERT INTO user_portrait_projection(
-                    user_id, entity_id, entity_type, version,
+                    user_id, entity_id, entity_type,
                     world_json, review_json, recent_json, prompt_summary_json,
                     evidence_refs_json, source_counts_json, generated_by,
                     generated_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     entity_type = excluded.entity_type,
-                    version = excluded.version,
                     world_json = excluded.world_json,
                     review_json = excluded.review_json,
                     recent_json = excluded.recent_json,
@@ -103,7 +98,6 @@ class UserPortraitProjectionRepository:
                     payload["user_id"],
                     payload["entity_id"],
                     payload["entity_type"],
-                    payload["version"],
                     _dumps(payload["world"]),
                     _dumps(payload["review"]),
                     _dumps(payload["recent"]),
@@ -125,7 +119,6 @@ class UserPortraitProjectionRepository:
             user_id=str(row["user_id"]),
             entity_id=str(row["entity_id"]),
             entity_type=str(row["entity_type"]),
-            version=int(row["version"]),
             world=cls._json_dict(row, "world_json"),
             review=cls._json_dict(row, "review_json"),
             recent=cls._json_dict(row, "recent_json"),

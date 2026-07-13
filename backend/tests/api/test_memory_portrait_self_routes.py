@@ -11,11 +11,7 @@ from magi.api.routers.memory.portrait_self_routes import (
     build_router,
     override_dependencies_for_test,
 )
-from magi.user_profile.models import (
-    USER_PORTRAIT_PROJECTION_VERSION,
-    UserPortraitProjection,
-    UserProfileProjection,
-)
+from magi.user_profile.models import UserPortraitProjection, UserProfileProjection
 
 
 def _app() -> FastAPI:
@@ -44,11 +40,10 @@ def _empty_l2() -> MagicMock:
     return l2
 
 
-def _portrait(*, generated_at: float = 200.0, version: int | None = None) -> UserPortraitProjection:
+def _portrait(*, generated_at: float = 200.0) -> UserPortraitProjection:
     return UserPortraitProjection(
         user_id="u1",
         entity_id="user:u1",
-        version=version or USER_PORTRAIT_PROJECTION_VERSION,
         world={
             "total_count": 1,
             "groups": [
@@ -136,25 +131,6 @@ def test_rebuilds_portrait_when_newer_assertion_exists():
         for group in body["self_view"]["world"]["groups"]
     }
     assert [item["text"] for item in items["preferences"]] == ["新画像"]
-    portrait_repo.upsert.assert_awaited_once()
-
-
-def test_rebuilds_portrait_when_projection_version_is_old():
-    profile_repo = MagicMock()
-    profile_repo.get = AsyncMock(return_value=None)
-    portrait_repo = MagicMock()
-    portrait_repo.get = AsyncMock(
-        return_value=_portrait(version=USER_PORTRAIT_PROJECTION_VERSION - 1)
-    )
-    portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
-
-    body = _get(
-        profile_repo=profile_repo,
-        portrait_repo=portrait_repo,
-        l2=_empty_l2(),
-    )
-
-    assert body["is_cold_start"] is True
     portrait_repo.upsert.assert_awaited_once()
 
 
