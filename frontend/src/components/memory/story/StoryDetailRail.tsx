@@ -12,7 +12,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { MarkdownBlock } from '@/components/ui/markdown-block';
@@ -111,26 +110,32 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
       <DialogContent
         data-testid="story-detail-rail"
         hideClose
-        className="flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
+        className="relative flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
       >
-        <DialogHeader className="shrink-0 flex-row items-start justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.6)] px-6 py-4">
-          <div className="min-w-0 flex-1">
-            <DialogDescription className="text-xs text-[hsl(var(--memory-muted))]">
-              {headerLabel}
-            </DialogDescription>
-            <DialogTitle className="sr-only">
-              {headerLabel}
-            </DialogTitle>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} aria-label={t('memory.stories.detailRail.close')} className="shrink-0">
-            <X className="h-4 w-4" />
-          </Button>
-        </DialogHeader>
+        <DialogTitle className="sr-only">
+          {headerLabel}
+        </DialogTitle>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          aria-label={t('memory.stories.detailRail.close')}
+          className="absolute right-4 top-4 z-10 h-8 w-8"
+        >
+          <X className="h-4 w-4" />
+        </Button>
 
         <div
           data-testid="story-detail-scroll"
-          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]"
+          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-5 text-sm leading-6 text-[hsl(var(--memory-body))]"
         >
+          <DialogDescription
+            data-testid="story-detail-meta"
+            className="w-fit pr-10 text-xs leading-5 text-[hsl(var(--memory-muted))]"
+          >
+            {headerLabel}
+          </DialogDescription>
+
           <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
             {story.content}
           </MarkdownBlock>
