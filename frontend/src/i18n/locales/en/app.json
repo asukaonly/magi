@@ -822,6 +822,10 @@
         "procedure": "Procedure"
       }
     },
+    "contextUsage": {
+      "label": "Context usage: {{usage}} ({{percent}}%)",
+      "unavailableLabel": "Context usage: {{usage}}"
+    },
     "delegation": {
       "title": "Delegated to {{adapter}}",
       "loading": "Loading delegation…",

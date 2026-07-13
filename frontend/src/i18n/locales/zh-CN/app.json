@@ -822,6 +822,10 @@
         "procedure": "程序经验"
       }
     },
+    "contextUsage": {
+      "label": "上下文用量：{{usage}}（{{percent}}%）",
+      "unavailableLabel": "上下文用量：{{usage}}"
+    },
     "delegation": {
       "title": "已委派给 {{adapter}}",
       "loading": "加载委派中…",

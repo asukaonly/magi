@@ -290,7 +290,9 @@ describe('ChatPage', () => {
   it('keeps context usage visible with a zero placeholder before runtime updates arrive', async () => {
     render(<ChatPage />);
 
-    expect(await screen.findByRole('status', { name: '0' })).toBeInTheDocument();
+    expect(await screen.findByRole('status', {
+      name: 'chat.contextUsage.unavailableLabel',
+    })).toHaveTextContent('0');
   });
 
   it('does not show first-conversation starter chips in empty sessions', () => {
