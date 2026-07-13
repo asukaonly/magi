@@ -853,6 +853,7 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByRole('heading', { name: 'Organize experience' })).not.toBeInTheDocument();
     expect(screen.queryByText('Saved')).not.toBeInTheDocument();
     const hero = screen.getByTestId('experience-cover-hero');
+    expect(hero).toContainElement(backButtons[0]);
     expect(hero).toContainElement(screen.getByRole('heading', { name: '2026年5月 日本旅行' }));
     expect(hero.getAttribute('style')).toContain(
       encodeURIComponent('manual-entry-asset://draft-cover.jpg'),

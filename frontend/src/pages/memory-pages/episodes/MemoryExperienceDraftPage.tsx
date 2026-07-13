@@ -563,17 +563,6 @@ export const MemoryExperienceDraftPage = () => {
       className="max-w-none gap-0 px-0 py-0"
       contentClassName="flex min-h-full flex-col pb-0"
     >
-      <div className="mx-auto w-full max-w-[1180px] px-4 pt-3 sm:px-8 sm:pt-4">
-        <Button
-          variant="ghost"
-          aria-label={t('memory.episodes.draft.back')}
-          className="h-8 px-1.5 text-sm text-[hsl(var(--memory-muted))] hover:bg-transparent hover:text-[hsl(var(--memory-title))]"
-          onClick={() => navigate('/memory/episodes')}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          <span>{t('memory.episodes.draft.back')}</span>
-        </Button>
-      </div>
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {[announcement, activeSaving ? t('common.saving') : ''].filter(Boolean).join(' ')}
       </div>
@@ -605,10 +594,22 @@ export const MemoryExperienceDraftPage = () => {
                 titleLevel={1}
                 eyebrow={t('memory.episodes.draft.previewEyebrow')}
                 topContent={(
-                  <span className="flex items-start gap-2 leading-5">
-                    <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-                    <span>{t('memory.episodes.draft.queryContext', { query: visibleDraft.query_text })}</span>
-                  </span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      aria-label={t('memory.episodes.draft.back')}
+                      className="h-7 shrink-0 px-0 text-xs text-[hsl(var(--memory-muted))] hover:bg-transparent hover:text-[hsl(var(--memory-title))]"
+                      onClick={() => navigate('/memory/episodes')}
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>{t('memory.episodes.draft.back')}</span>
+                    </Button>
+                    <span className="flex min-w-0 items-start gap-2 leading-5">
+                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+                      <span>{t('memory.episodes.draft.queryContext', { query: visibleDraft.query_text })}</span>
+                    </span>
+                  </div>
                 )}
                 actions={(
                   <>
