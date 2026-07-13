@@ -52,6 +52,7 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
             time_end=float(draft["time_end"]),
             intent=str(draft["title"]),
             magi_interpretation=str(draft["one_sentence_review"]),
+            user_cover_asset_ref=draft.get("user_cover_asset_ref"),
             source_episode_count=len(episode_ids),
             source_event_count=len(event_ids),
         )
@@ -64,6 +65,7 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
             time_end=float(draft["time_end"]),
             intent=str(draft["title"]),
             magi_interpretation=str(draft["one_sentence_review"]),
+            user_cover_asset_ref=draft.get("user_cover_asset_ref"),
         )
     members = [
         {

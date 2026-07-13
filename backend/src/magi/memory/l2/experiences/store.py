@@ -277,7 +277,7 @@ class L2ExperienceStoreMixin(L2ExperienceStoreBaseMixin):
         allowed = {
             "status", "query_text", "title", "one_sentence_review", "time_start",
             "time_end", "chapters", "possible_evidence", "excluded_evidence",
-            "created_experience_id",
+            "user_cover_asset_ref", "created_experience_id",
         }
         invalid = set(updates) - allowed
         if invalid:

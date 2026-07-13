@@ -126,6 +126,11 @@ class L2ExperienceStoreBaseMixin:
             "chapters": json.loads(row["chapters_json"] or "[]"),
             "possible_evidence": json.loads(row["possible_evidence_json"] or "[]"),
             "excluded_evidence": json.loads(row["excluded_evidence_json"] or "[]"),
+            "user_cover_asset_ref": (
+                str(row["user_cover_asset_ref"])
+                if _row_has(row, "user_cover_asset_ref") and row["user_cover_asset_ref"]
+                else None
+            ),
             "created_experience_id": (
                 str(row["created_experience_id"])
                 if row["created_experience_id"]

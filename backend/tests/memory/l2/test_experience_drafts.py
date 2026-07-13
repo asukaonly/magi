@@ -42,6 +42,7 @@ async def test_experience_draft_round_trip_and_update(l2_store_with_schema):
     draft = await store.get_experience_draft(draft_id=draft_id)
     assert draft is not None
     assert draft["status"] == "editing"
+    assert draft["user_cover_asset_ref"] is None
     assert draft["chapters"][0]["episode_ids"] == ["ep-train"]
     assert draft["possible_evidence"][0]["ref_id"] == "ep-camera"
 
@@ -49,11 +50,13 @@ async def test_experience_draft_round_trip_and_update(l2_store_with_schema):
         draft_id=draft_id,
         title="第一次日本旅行",
         one_sentence_review="一段从出发准备到返程都完整留下来的旅行。",
+        user_cover_asset_ref="manual-entry-asset://draft-cover.jpg",
     )
     assert updated is True
     drafts = await store.list_experience_drafts(status="editing")
     assert [item["draft_id"] for item in drafts] == [draft_id]
     assert drafts[0]["title"] == "第一次日本旅行"
+    assert drafts[0]["user_cover_asset_ref"] == "manual-entry-asset://draft-cover.jpg"
 
 
 @pytest.mark.asyncio
@@ -121,6 +124,10 @@ async def test_create_experience_from_draft_preserves_chapters(l2_store_with_sch
         ],
         possible_evidence=[],
     )
+    await store.update_experience_draft(
+        draft_id="draft-japan",
+        user_cover_asset_ref="manual-entry-asset://japan-cover.jpg",
+    )
 
     experience_id = await create_experience_from_draft(store, draft_id="draft-japan")
 
@@ -128,6 +135,7 @@ async def test_create_experience_from_draft_preserves_chapters(l2_store_with_sch
     assert experience is not None
     assert experience["status"] == "active"
     assert experience["title"] == "第一次日本旅行"
+    assert experience["user_cover_asset_ref"] == "manual-entry-asset://japan-cover.jpg"
     assert experience["chapters"][0]["title"] == "出发准备"
     members = await store.list_experience_members(experience_id=experience_id)
     assert [(item["member_type"], item["member_id"]) for item in members] == [
@@ -224,6 +232,7 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
         one_sentence_review="A shorter trip centered on the return journey.",
         time_start=300.0,
         time_end=500.0,
+        user_cover_asset_ref="manual-entry-asset://revised-cover.jpg",
         chapters=[
             {
                 "chapter_id": "chapter-2",
@@ -252,6 +261,7 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
     assert experience["time_end"] == 500.0
     assert experience["intent"] == "Revised Japan trip"
     assert experience["magi_interpretation"] == ("A shorter trip centered on the return journey.")
+    assert experience["user_cover_asset_ref"] == "manual-entry-asset://revised-cover.jpg"
     assert experience["source_episode_count"] == 1
     assert experience["source_event_count"] == 3
     assert [chapter["chapter_id"] for chapter in experience["chapters"]] == ["chapter-2"]

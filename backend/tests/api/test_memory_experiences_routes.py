@@ -53,6 +53,7 @@ def test_experience_routes_are_publicly_allowlisted():
     assert ("/l2/experience-drafts", ("GET",)) in routes
     assert ("/l2/experience-drafts/{draft_id}", ("GET",)) in routes
     assert ("/l2/experience-drafts/{draft_id}", ("PATCH",)) in routes
+    assert ("/l2/experience-drafts/{draft_id}/cover", ("POST",)) in routes
     assert ("/l2/experience-drafts/{draft_id}/create", ("POST",)) in routes
 
 
@@ -401,6 +402,60 @@ def test_update_experience_draft_autosaves_editable_fields(public_app_with_mock_
     l2.update_experience_draft.assert_awaited_once_with(
         draft_id="draft-japan",
         title="十天日本旅行",
+    )
+
+
+def test_upload_experience_draft_cover_persists_local_asset(public_app_with_mock_memory):
+    app, build_patcher = public_app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_experience_draft = AsyncMock(side_effect=[
+        {
+            "draft_id": "draft-japan",
+            "status": "editing",
+            "title": "日本旅行",
+            "chapters": [],
+            "possible_evidence": [],
+            "excluded_evidence": [],
+        },
+        {
+            "draft_id": "draft-japan",
+            "status": "editing",
+            "title": "日本旅行",
+            "user_cover_asset_ref": "manual-entry-asset://cover.jpg",
+            "chapters": [],
+            "possible_evidence": [],
+            "excluded_evidence": [],
+        },
+    ])
+    l2.update_experience_draft = AsyncMock(return_value=True)
+    unified = MagicMock(l2=l2)
+    asset_store = MagicMock()
+
+    with (
+        build_patcher(unified),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes._resolve_manual_entry_asset_store",
+            return_value=asset_store,
+        ),
+        patch(
+            "magi.api.routers.memory.l2.experiences_routes.store_uploaded_image_asset",
+            new=AsyncMock(return_value={
+                "asset_ref": "manual-entry-asset://cover.jpg",
+                "content_type": "image/jpeg",
+            }),
+        ) as store_asset,
+    ):
+        response = TestClient(app).post(
+            "/api/memory/l2/experience-drafts/draft-japan/cover",
+            files={"file": ("cover.jpg", b"image-bytes", "image/jpeg")},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["user_cover_asset_ref"] == "manual-entry-asset://cover.jpg"
+    store_asset.assert_awaited_once()
+    l2.update_experience_draft.assert_awaited_once_with(
+        draft_id="draft-japan",
+        user_cover_asset_ref="manual-entry-asset://cover.jpg",
     )
 
 

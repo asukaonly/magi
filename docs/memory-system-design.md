@@ -511,7 +511,12 @@ memory segments, and reveals their event evidence on demand. Editing generated
 prose and time bounds is a secondary action rather than the primary review
 surface. Draft changes are autosaved. Only explicit user confirmation creates
 the active L2 experience and its durable chapter structure; generated text
-cannot introduce evidence identifiers that were not retrieved from L1/L2.
+cannot introduce evidence identifiers that were not retrieved from L1/L2. A
+user-selected draft cover is stored in the same local media asset system as an
+active experience cover and is carried into the created experience, including
+retry reconciliation after a partially completed create operation. Draft and
+active review surfaces share the same cover-hero presentation while keeping
+their editing actions and lifecycle behavior separate.
 
 **Semantic Memory** stores durable entities, relations, and preferences:
 

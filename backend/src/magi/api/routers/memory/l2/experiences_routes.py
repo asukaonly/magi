@@ -683,6 +683,35 @@ async def update_experience_draft_route(
     )
 
 
+@memory_router.post("/l2/experience-drafts/{draft_id}/cover")
+async def upload_experience_draft_cover(draft_id: str, file: UploadFile) -> dict[str, Any]:
+    """Upload and persist a user-selected cover image for an experience draft."""
+    unified_memory = _require_l2_memory()
+    asset_store = _resolve_manual_entry_asset_store()
+    if asset_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=memory_t("memory.errors.asset_store_uninitialized", "Asset storage not initialized"),
+        )
+
+    await _get_experience_draft_or_404(unified_memory, draft_id)
+    upload = await store_uploaded_image_asset(file, asset_store)
+    ok = await unified_memory.l2.update_experience_draft(
+        draft_id=draft_id,
+        user_cover_asset_ref=upload["asset_ref"],
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_draft_not_found", "Experience draft not found"),
+        )
+    return await _get_experience_draft_or_404(
+        unified_memory,
+        draft_id,
+        hydrate_event_counts=True,
+    )
+
+
 @memory_router.post("/l2/experience-drafts/{draft_id}/create")
 async def create_experience_from_draft_route(draft_id: str) -> dict[str, Any]:
     """Create an active experience from the user-approved draft."""

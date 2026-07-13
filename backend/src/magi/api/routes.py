@@ -54,6 +54,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/experience-drafts/organize": {"POST"},
         "/l2/experience-drafts": {"GET"},
         "/l2/experience-drafts/{draft_id}": {"GET", "PATCH"},
+        "/l2/experience-drafts/{draft_id}/cover": {"POST"},
         "/l2/experience-drafts/{draft_id}/create": {"POST"},
         "/l2/experiences": {"GET"},
         "/l2/experiences/{experience_id}": {"GET", "PATCH"},
