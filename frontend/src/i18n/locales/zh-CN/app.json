@@ -1801,7 +1801,7 @@
         },
         "reranker_remote_model": {
           "label": "远程模型",
-          "placeholder": "例如 gpt-4o-mini"
+          "placeholder": "例如 gpt-5.6-luna"
         },
         "cross_encoder_enabled": {
           "label": "启用 Cross-Encoder 精排",

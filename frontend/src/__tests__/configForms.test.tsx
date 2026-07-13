@@ -153,6 +153,7 @@ vi.mock('../api/modules/config', async () => {
             default_model: 'glm-5',
             default_classify_model: 'glm-5-code',
             default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+            allowed_scenarios: ['context_compact', 'context_decider', 'core'],
             endpoints: [
               {
                 id: 'china',
@@ -1000,6 +1001,28 @@ describe('config forms', () => {
 
     expect(normalized.selections.core.capabilities.tool_calling).toBe(true);
     expect(normalized.selections.core.capabilities.reasoning).toBe(true);
+  });
+
+  it('keeps chat plans out of background model assignments', async () => {
+    const planValue = structuredClone(llmValue) as LLMConfig;
+    planValue.providers.glm.provider_plan = 'codeplan';
+    planValue.selections.core = {
+      ...structuredClone(planValue.selections.core),
+      provider_id: 'glm',
+      model: 'glm-5',
+    };
+    planValue.selections.memory_summarizer = {
+      ...structuredClone(planValue.selections.memory_summarizer),
+      provider_id: 'glm',
+      model: 'glm-5',
+    };
+    const catalog = await configApi.resolveLLMProviderCatalog({ providers: planValue.providers });
+    const registry = buildRegistryFromCatalog(catalog, null);
+
+    const normalized = normalizeLLMConfig(planValue, registry);
+
+    expect(normalized.selections.core.provider_id).toBe('glm');
+    expect(normalized.selections.memory_summarizer.provider_id).toBe('openai');
   });
 
   it('pins enabled providers above disabled providers in the settings provider list', async () => {
@@ -1889,22 +1912,16 @@ describe('config forms', () => {
     await user.click(within(coreCard).getByRole('button', { name: 'llm.showAdvanced' }));
 
     const maxConcurrencyField = within(coreCard).getByLabelText('llm.fields.maxConcurrency');
-    await user.clear(maxConcurrencyField);
-    await user.type(maxConcurrencyField, '9');
-
-    const expectedOverrides = {
-      'openai::api.openai.com::gpt-5.2::chat': {
-        max_concurrency: 9,
-      },
-    };
+    fireEvent.change(maxConcurrencyField, { target: { value: '9' } });
 
     await waitFor(() => {
-      expect(
-        onChange.mock.calls.some(
-          ([nextValue]) =>
-            JSON.stringify(nextValue?.model_runtime_overrides ?? {}) === JSON.stringify(expectedOverrides)
-        )
-      ).toBe(true);
+      const savedOverrides = onChange.mock.calls.flatMap(([nextValue]) =>
+        Object.entries(nextValue?.model_runtime_overrides ?? {})
+      );
+      expect(savedOverrides).toContainEqual([
+        'openai::openai::api::api.openai.com::gpt-5.2::chat',
+        { max_concurrency: 9 },
+      ]);
     });
   });
 
@@ -2302,6 +2319,7 @@ describe('config forms', () => {
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByText('llm.providerPlans.default'));
     fireEvent.click(await screen.findByRole('button', { name: 'Z.ai CodePlan' }));
+    expect(within(dialog).getByText('llm.providerPlans.backgroundNotice')).toBeInTheDocument();
     expect(within(dialog).getByLabelText('llm.fields.baseUrl')).toHaveValue(
       'https://open.bigmodel.cn/api/coding/paas/v4'
     );

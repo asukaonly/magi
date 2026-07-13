@@ -22,6 +22,7 @@ import {
   cloneLLMConfig,
   cloneProvider,
   cloneSelection,
+  isProviderAllowedForScenario,
   llmSignature,
   normalizeLLMConfig,
   resolveProviderActionBaseUrl,
@@ -124,9 +125,18 @@ const LLMForm: React.FC<LLMFormProps> = ({
   }, [controlled, formCtx?.values?.llm, value]);
   const initialProvidersRef = useRef(currentValue.providers);
   const fillAvailableHeight = view === 'providers';
-  const memorySummarizerUsesCore =
+  const memorySummarizerCanUseCore = Boolean(
+    registry &&
+    isProviderAllowedForScenario(
+      registry,
+      currentValue.providers[currentValue.selections.core?.provider_id],
+      'memory_summarizer'
+    )
+  );
+  const memorySummarizerUsesCore = memorySummarizerCanUseCore && (
     memorySummarizerUsesCoreOverride
-    ?? areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core);
+    ?? areSelectionsEquivalent(currentValue.selections.memory_summarizer, currentValue.selections.core)
+  );
   const validationIssues = useMemo(() => validateLLMCustomProviderReadiness(currentValue), [currentValue]);
 
   const formatValidationIssue = useCallback((issue: LLMValidationIssue): string => {
@@ -400,6 +410,9 @@ const LLMForm: React.FC<LLMFormProps> = ({
   };
 
   const handleMemorySummarizerInheritanceChange = (checked: boolean) => {
+    if (checked && !memorySummarizerCanUseCore) {
+      return;
+    }
     setMemorySummarizerUsesCoreOverride(checked);
     if (!checked) {
       return;
@@ -798,6 +811,7 @@ const LLMForm: React.FC<LLMFormProps> = ({
           onScenarioEmbeddingDimensionChange={handleScenarioEmbeddingDimensionChange}
           onScenarioMaxConcurrencyChange={handleScenarioMaxConcurrencyChange}
           memorySummarizerUsesCore={memorySummarizerUsesCore}
+          memorySummarizerCanUseCore={memorySummarizerCanUseCore}
           onMemorySummarizerInheritanceChange={handleMemorySummarizerInheritanceChange}
           embeddingConfig={embeddingConfig}
           onEmbeddingConfigChange={onEmbeddingConfigChange}

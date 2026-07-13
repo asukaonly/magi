@@ -148,26 +148,6 @@ export function LLMProviderChatModelFields({
           </div>
         </label>
 
-        <label className="space-y-2">
-          <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
-          <input
-            aria-label={t('llm.modelFields.maxConcurrency')}
-            className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-            type="number"
-            min={1}
-            step={1}
-            value={modelOverride?.limits?.max_concurrency ?? model.limits.max_concurrency ?? ''}
-            onChange={(event) =>
-              onModelOverrideChange(model.id, (draft) => {
-                const nextValue = event.target.value.trim();
-                draft.limits = {
-                  ...(draft.limits || {}),
-                  max_concurrency: nextValue ? Number(nextValue) : undefined,
-                };
-              })
-            }
-          />
-        </label>
       </div>
     </>
   );

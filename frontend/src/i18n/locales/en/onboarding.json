@@ -170,8 +170,8 @@
     "embeddingFallbackHint": "This provider has no vector model. Configure one separately later.",
     "memoryModelMissingTitle": "Vector model: set it up later in Settings",
     "memoryModelMissingBody": "This provider still works for chat, but it does not come with a vector model. After initial setup, you can add one separately in Settings. Until then, memory will search by keywords.",
-    "memoryModelPlanMissingTitle": "Vector model: set it up later in Settings",
-    "memoryModelPlanMissingBody": "The billing option you selected still works for chat, but it does not come with a vector model. After initial setup, you can add one separately in Settings. Until then, memory will search by keywords.",
+    "memoryModelPlanMissingTitle": "This plan is for chat only",
+    "memoryModelPlanMissingBody": "Chat and its immediate pre-send analysis can use this plan. Memory organization, Timeline, embeddings, and image generation will not use it. Add a standard API provider later in Settings. Until an embedding model is configured, memory will search by keywords.",
     "providerTitle": "Choose a model provider",
     "providerDesc": "Connect one usable model first. You can still tune advanced model routing later in Settings.",
     "customRelayTitle": "Custom Provider",
@@ -401,9 +401,9 @@
       "searchPlaceholder": "Search models",
       "noSearchResults": "No matching models",
       "noEmbeddingModels": "No embedding models available from enabled providers. Enable a provider with embedding support (e.g., OpenAI).",
-      "maxConcurrencyPlaceholder": "Use model default",
-      "maxConcurrencyHelp": "This concurrency cap is shared by all scenarios that use the same runtime model.",
-      "sharedConcurrencyHint": "Also shared with: {{scenarios}}."
+      "maxConcurrencyPlaceholder": "Use Magi default (4)",
+      "maxConcurrencyHelp": "This is Magi's local parallel request limit, not a provider quota. Accounts, billing modes, endpoints, and models are counted separately.",
+      "sharedConcurrencyHint": "These tasks share this limit: {{scenarios}}."
     },
     "embeddingDimensionConfirm": {
       "title": "Confirm Embedding Dimension Change",
@@ -490,7 +490,8 @@
         "title": "Memory Summarizer",
         "desc": "Used for memory-focused summary generation such as temporal recaps and reflective compression. By default it can inherit the core model settings.",
         "inheritLabel": "Reuse core model settings",
-        "inheritHelp": "When enabled, summary generation follows the core model's provider, model, and runtime behavior. Turn it off only if summaries should use a dedicated model."
+        "inheritHelp": "When enabled, summary generation follows the core model's provider, model, and runtime behavior. Turn it off only if summaries should use a dedicated model.",
+        "inheritUnavailableHelp": "The core model uses a chat subscription and cannot run background memory organization. Choose a standard API provider for summaries."
       },
       "embedding": {
         "title": "Embedding Model",
@@ -510,7 +511,7 @@
     "fields": {
       "provider": "Provider",
       "model": "Model",
-      "maxConcurrency": "Max Concurrency",
+      "maxConcurrency": "Local Parallel Request Limit",
       "embeddingDimension": "Embedding Dimension",
       "defaultModel": "Default Model",
       "modelManualEntry": "Add Model",
@@ -535,7 +536,8 @@
     },
       "providerPlans": {
         "default": "API billing",
-        "customEndpoint": "Custom Base URL"
+        "customEndpoint": "Custom Base URL",
+        "backgroundNotice": "Plans are limited to chat and its immediate preparation. Memory organization, Timeline, embeddings, and image generation require a standard API."
       },
     "modelFields": {
       "modelId": "Model ID",
@@ -550,7 +552,6 @@
       "preferred": "Preferred",
       "contextWindow": "Context Window",
       "maxOutputTokens": "Max Output",
-      "maxConcurrency": "Max Concurrency",
       "vendor": "Model Vendor",
       "vendorHint": {
         "default": "Decides how reasoning / thinking params are sent. Set this explicitly for OneAPI/NewAPI relay models.",
@@ -607,7 +608,7 @@
       "customScenarioModelMissing": "{{scenario}} is using {{model}}, but {{provider}} does not list it as a {{service}} model."
     },
     "modelManualPlaceholder": "Enter a model ID, for example gpt-4.1",
-    "imageGenerationModelPlaceholder": "Enter an image model ID, e.g. gpt-image-1",
+    "imageGenerationModelPlaceholder": "Enter an image model ID, e.g. gpt-image-2",
     "customProviderDefaultName": "Custom Provider",
     "providerLabel": "Model Provider",
     "providerRequired": "Please select a model provider",

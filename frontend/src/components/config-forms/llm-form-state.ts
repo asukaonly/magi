@@ -12,7 +12,6 @@ import {
   type LLMProviderConfig,
   type LLMProviderCatalog,
   type LLMProviderRegistry,
-  type LLMRuntimeLimits,
   type LLMScenario,
   type LLMSelectionConfig,
   resolveProviderModels,
@@ -295,7 +294,7 @@ const cloneProviderFields = (
   );
 };
 
-const cloneRuntimeLimits = (value?: Partial<LLMRuntimeLimits>, fallback?: Partial<LLMRuntimeLimits>): LLMRuntimeLimits => ({
+const cloneRuntimeLimits = (value?: Partial<LLMLimits>, fallback?: Partial<LLMLimits>): LLMLimits => ({
   ...(fallback || {}),
   ...(value || {}),
 });
@@ -362,40 +361,8 @@ const normalizeBaseUrlHost = (value?: string): string | null => {
   }
 };
 
-const detectOpenAICompatibleRuntimeProvider = (
-  provider: LLMProviderConfig | undefined,
-  selectedModel?: string | null
-): string => {
-  const hintValues = [
-    provider?.display_name,
-    provider?.services?.chat?.base_url,
-    provider?.base_url,
-    provider?.custom_default_model,
-    selectedModel,
-  ];
-  const normalizedHints = hintValues
-    .map((value) => String(value || '').trim().toLowerCase())
-    .filter(Boolean)
-    .join(' ');
-
-  const runtimeProviderHints: Array<[string, string[]]> = [
-    ['glm', ['bigmodel.cn', 'z.ai', 'glm-', ' glm']],
-    ['deepseek', ['deepseek']],
-    ['kimi', ['moonshot', 'kimi']],
-    ['minimax', ['minimax']],
-    ['gemini', ['gemini', 'generativelanguage.googleapis.com']],
-  ];
-  for (const [runtimeProvider, markers] of runtimeProviderHints) {
-    if (markers.some((marker) => normalizedHints.includes(marker))) {
-      return runtimeProvider;
-    }
-  }
-  return 'openai';
-};
-
 const resolveRuntimeProviderType = (
-  provider: LLMProviderConfig | undefined,
-  selectedModel?: string | null
+  provider: LLMProviderConfig | undefined
 ): string => {
   const providerType = String(provider?.provider_type || '').trim().toLowerCase();
   if (providerType && providerType !== 'custom') {
@@ -406,7 +373,24 @@ const resolveRuntimeProviderType = (
   if (apiFormat === 'anthropic') {
     return 'anthropic';
   }
-  return detectOpenAICompatibleRuntimeProvider(provider, selectedModel);
+  return 'custom';
+};
+
+export const isProviderAllowedForScenario = (
+  registry: LLMProviderRegistry,
+  provider: LLMProviderConfig | undefined,
+  scenario: LLMScenario
+): boolean => {
+  const planId = String(provider?.provider_plan || '').trim();
+  if (!planId) {
+    return true;
+  }
+  const providerMeta = getProviderTemplateMeta(registry, provider);
+  const plan = providerMeta?.plans?.find((item) => item.id === planId);
+  if (!plan) {
+    return false;
+  }
+  return !plan.allowed_scenarios || plan.allowed_scenarios.includes(scenario);
 };
 
 export const buildRuntimeOverrideKey = ({
@@ -426,11 +410,18 @@ export const buildRuntimeOverrideKey = ({
   if (!providerId || !provider || !normalizedModel) {
     return null;
   }
-  const runtimeProvider = resolveRuntimeProviderType(provider, normalizedModel);
-  const baseUrl = resolveProviderActionBaseUrl(registry, providerId, provider);
+  const runtimeProvider = resolveRuntimeProviderType(provider);
+  const serviceBaseUrl = scenario === 'embedding'
+    ? provider.services?.embedding?.base_url
+    : scenario === 'image_generation'
+      ? provider.services?.image_generation?.base_url
+      : provider.services?.chat?.base_url;
+  const baseUrl = serviceBaseUrl || provider.base_url || resolveProviderActionBaseUrl(registry, providerId, provider);
   const host = normalizeBaseUrlHost(baseUrl) || runtimeProvider;
+  const normalizedProviderId = String(providerId).trim().toLowerCase() || runtimeProvider;
+  const providerPlan = String(provider.provider_plan || '').trim().toLowerCase() || 'api';
   const requestFamily = scenario === 'embedding' ? 'embedding' : scenario === 'image_generation' ? 'image_generation' : 'chat';
-  return `${runtimeProvider}::${host}::${normalizedModel}::${requestFamily}`;
+  return `${runtimeProvider}::${normalizedProviderId}::${providerPlan}::${host}::${normalizedModel}::${requestFamily}`;
 };
 
 export const resolveSelectionDefaultMaxConcurrency = ({
@@ -450,19 +441,7 @@ export const resolveSelectionDefaultMaxConcurrency = ({
     return null;
   }
 
-  const resolvedModels = getResolvedProviderModels(registry, providerId, provider);
-
-  if (scenario === 'embedding') {
-    const embeddingModel = resolvedModels.embedding_models.find((item) => item.id === model);
-    return embeddingModel?.limits?.max_concurrency ?? null;
-  }
-  if (scenario === 'image_generation') {
-    const imageModel = resolvedModels.image_generation_models.find((item) => item.id === model);
-    return imageModel?.limits?.max_concurrency ?? null;
-  }
-
-  const chatModel = resolvedModels.chat_models.find((item) => item.id === model);
-  return chatModel?.limits?.max_concurrency ?? null;
+  return buildRuntimeOverrideKey({ registry, providerId, provider, model, scenario }) ? 4 : null;
 };
 
 export const resolveProviderDefaultModel = (
@@ -472,6 +451,9 @@ export const resolveProviderDefaultModel = (
   scenario: LLMScenario
 ): string => {
   if (!provider) {
+    return '';
+  }
+  if (!isProviderAllowedForScenario(registry, provider, scenario)) {
     return '';
   }
   const providerMeta = getProviderTemplateMeta(registry, provider);
@@ -507,6 +489,12 @@ export const applySelectionDefaults = (
   scenario?: LLMScenario
 ) => {
   if (!provider) {
+    return;
+  }
+  if (scenario && !isProviderAllowedForScenario(registry, provider, scenario)) {
+    selection.provider_id = '';
+    selection.model = '';
+    selection.embedding_dimension = null;
     return;
   }
 
@@ -635,9 +623,12 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
     };
   }
 
-  const firstEnabledProviderId =
+  const firstEnabledChatProviderId = (scenario: LLMScenario) =>
     Object.entries(next.providers).find(
-      ([, provider]) => provider.enabled && Boolean(provider.services?.chat?.enabled)
+      ([, provider]) =>
+        provider.enabled &&
+        Boolean(provider.services?.chat?.enabled) &&
+        isProviderAllowedForScenario(registry, provider, scenario)
     )?.[0] || '';
   const firstEnabledEmbeddingProviderId =
     Object.entries(next.providers).find(([providerId, provider]) => {
@@ -706,14 +697,20 @@ export const normalizeLLMConfig = (value: LLMConfig, registry: LLMProviderRegist
                   next.providers[selection.provider_id]
                 ).image_generation_models.length
               ))
-          : hasEnabledSelection && Boolean(next.providers[selection.provider_id]?.services?.chat?.enabled);
+          : hasEnabledSelection &&
+            Boolean(next.providers[selection.provider_id]?.services?.chat?.enabled) &&
+            isProviderAllowedForScenario(
+              registry,
+              next.providers[selection.provider_id],
+              scenario
+            );
 
     const firstAvailableProviderId =
       scenario === 'embedding'
         ? firstEnabledEmbeddingProviderId
         : scenario === 'image_generation'
           ? firstEnabledImageProviderId
-          : firstEnabledProviderId;
+          : firstEnabledChatProviderId(scenario);
 
     if (!firstAvailableProviderId) {
       selection.provider_id = '';

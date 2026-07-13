@@ -324,6 +324,10 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
     : registry.providers.find((provider) => provider.id === draftProvider?.provider_type);
   const draftProviderPlans = baseDraftProviderMeta?.plans || activeProviderMeta?.plans || [];
   const draftProviderPlan = draftProviderPlans.find((plan) => plan.id === draftProvider?.provider_plan);
+  const draftProviderPlanRestrictsBackground = Boolean(
+    draftProviderPlan?.allowed_scenarios &&
+    !draftProviderPlan.allowed_scenarios.includes('memory_summarizer')
+  );
   const draftProviderPlanEndpoints = draftProviderPlan?.endpoints || [];
   const draftWorkbenchModels = useMemo(
     () => (draftProvider ? buildProviderWorkbenchModels(draftRegistry, resolvedDraftProviderId, draftProvider) : []),
@@ -1171,6 +1175,11 @@ export const LLMProviderConfigurationSection: React.FC<LLMProviderConfigurationS
                           }))}
                           onChange={handleDraftProviderPlanChange}
                         />
+                        {draftProviderPlanRestrictsBackground ? (
+                          <span className="block text-xs leading-5 text-amber-700 dark:text-amber-300">
+                            {t('llm.providerPlans.backgroundNotice')}
+                          </span>
+                        ) : null}
                       </label>
                     ) : null}
                     {draftProvider.provider_type !== 'custom' && draftProviderPlanEndpoints.length > 0 ? (

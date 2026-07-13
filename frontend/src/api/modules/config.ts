@@ -146,10 +146,6 @@ export interface LLMLimits {
   max_output_tokens?: number | null;
 }
 
-export interface LLMRuntimeLimits extends LLMLimits {
-  max_concurrency?: number | null;
-}
-
 export interface LLMCapabilityOverrides {
   vision?: boolean | null;
   image_output?: boolean | null;
@@ -161,7 +157,6 @@ export interface LLMCapabilityOverrides {
 export interface LLMLimitsOverride {
   context_window?: number | null;
   max_output_tokens?: number | null;
-  max_concurrency?: number | null;
 }
 
 export interface LLMModelCost {
@@ -245,6 +240,7 @@ export interface LLMProviderPlanMeta {
   default_model?: string | null;
   default_classify_model?: string | null;
   default_base_url?: string | null;
+  allowed_scenarios?: string[] | null;
   endpoints?: LLMProviderPlanEndpointMeta[];
   chat_models?: LLMChatModelMeta[] | null;
   embedding_models?: LLMEmbeddingModelMeta[] | null;
@@ -268,7 +264,7 @@ export interface LLMCustomProviderMeta {
   icon?: string;
   fields?: Record<string, LLMProviderFieldConfig>;
   capabilities?: LLMCapabilities;
-  limits?: LLMRuntimeLimits;
+  limits?: LLMLimits;
   provider_options_example?: Record<string, any>;
 }
 
@@ -284,7 +280,7 @@ export interface LLMChatModelMeta {
   label?: string;
   vendor?: ModelVendor;
   capabilities: LLMChatCapabilities;
-  limits: LLMRuntimeLimits;
+  limits: LLMLimits;
   cost?: LLMModelCost | null;
   provider_options_example?: Record<string, any>;
 }
@@ -310,7 +306,7 @@ export interface LLMResolvedImageGenerationModelMeta {
   hidden: boolean;
   preferred: boolean;
   capabilities: LLMCapabilities;
-  limits: LLMRuntimeLimits;
+  limits: LLMLimits;
   input_modalities: string[];
   output_modalities: string[];
   provider_options_example?: Record<string, any>;
@@ -328,7 +324,7 @@ export interface LLMEmbeddingModelMeta {
   id: string;
   label?: string;
   dimensions: number[];
-  limits?: LLMRuntimeLimits;
+  limits?: LLMLimits;
   cost?: LLMModelCost | null;
   provider_options_example?: Record<string, any>;
 }

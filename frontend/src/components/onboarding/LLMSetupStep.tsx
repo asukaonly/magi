@@ -23,9 +23,9 @@ import {
   cloneLLMConfig,
   cloneProvider,
   cloneSelection,
+  isProviderAllowedForScenario,
   resolveProviderDefaultModel,
 } from '@/components/config-forms/llm-form-state';
-import { getRecommendedModels } from '@/constants/llm';
 import { cn } from '@/lib/utils';
 import { getMemoryModelStatus } from './memoryModelStatus';
 
@@ -238,19 +238,6 @@ function resolveScenarioModel(
     return explicitModel;
   }
 
-  const recommended = getRecommendedModels(provider.provider_type);
-  if (scenario === 'core') {
-    return recommended?.core || resolveProviderDefaultModel(registry, providerId, provider, scenario);
-  }
-  if (scenario === 'context_decider') {
-    return recommended?.context_decider || resolveProviderDefaultModel(registry, providerId, provider, scenario);
-  }
-  if (scenario === 'embedding') {
-    if (recommended?.embedding === null) {
-      return '';
-    }
-    return recommended?.embedding || resolveProviderDefaultModel(registry, providerId, provider, scenario);
-  }
   return resolveProviderDefaultModel(registry, providerId, provider, scenario);
 }
 
@@ -311,7 +298,13 @@ function buildNextConfig(
     'context_decider',
     contextModel || coreModel
   );
-  next.selections.memory_summarizer = cloneSelection(next.selections.core);
+  next.selections.memory_summarizer = isProviderAllowedForScenario(
+    registry,
+    provider,
+    'memory_summarizer'
+  )
+    ? cloneSelection(next.selections.core)
+    : cloneSelection();
   next.selections.embedding =
     embeddingModel && provider.services.embedding.enabled
       ? buildSelection(registry, providerId, provider, 'embedding', embeddingModel)

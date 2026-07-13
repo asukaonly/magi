@@ -5247,8 +5247,6 @@ export interface components {
         readonly LLMLimitsOverrideSettings: {
             /** Context Window */
             readonly context_window?: number | null;
-            /** Max Concurrency */
-            readonly max_concurrency?: number | null;
             /** Max Output Tokens */
             readonly max_output_tokens?: number | null;
         };
@@ -5259,8 +5257,6 @@ export interface components {
         readonly LLMLimitsSettings: {
             /** Context Window */
             readonly context_window?: number | null;
-            /** Max Concurrency */
-            readonly max_concurrency?: number | null;
             /** Max Output Tokens */
             readonly max_output_tokens?: number | null;
         };
@@ -5553,6 +5549,8 @@ export interface components {
          * @description Optional commercial/runtime plan layered onto a provider.
          */
         readonly LLMProviderPlanModel: {
+            /** Allowed Scenarios */
+            readonly allowed_scenarios?: readonly components["schemas"]["LLMScenario"][] | null;
             /** Audio Generation Models */
             readonly audio_generation_models?: readonly components["schemas"]["LLMAudioGenerationModelMetaModel"][] | null;
             /** Chat Models */
@@ -5828,6 +5826,12 @@ export interface components {
             /** @default generic */
             readonly vendor: components["schemas"]["ModelVendor"];
         };
+        /**
+         * LLMScenario
+         * @description Supported runtime LLM scenarios.
+         * @enum {string}
+         */
+        readonly LLMScenario: "context_compact" | "context_decider" | "core" | "memory_summarizer" | "embedding" | "image_generation" | "timeline_diary_narrative";
         /** LLMSelectionConfigModel */
         readonly LLMSelectionConfigModel: {
             readonly capabilities?: components["schemas"]["LLMCapabilitiesSettings"];

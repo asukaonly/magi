@@ -221,6 +221,8 @@ Current product expectations:
 - each provider instance stores provider-level default `api_key` and `base_url` values plus service-specific overrides under `services.chat`, `services.embedding`, `services.image_generation`, and future service blocks
 - provider instances may select a backend-registry `provider_plan` when the same provider offers alternate commercial/runtime plans; a plan can override the default Base URL, default models, service model availability, provider fields, and registry pricing without becoming a separate provider type
 - built-in `provider_plan` metadata currently covers Z.ai GLM CodePlan, Alibaba Cloud Model Studio Coding Plan, MiniMax Token Plan, and Xiaomi MiMo Token Plan; each plan may expose selectable country/region endpoints such as China, Global, Singapore, and Europe, and changing the endpoint should update the provider-level Base URL while still allowing advanced manual Base URL overrides
+- provider plans must declare their allowed runtime scenarios; the built-in coding/token plans are restricted to interactive chat, context decisions, and direct context compaction, and must not be used for background memory summaries, Timeline narratives, embeddings, or image generation
+- background model work requires a normal API-backed provider instance; Settings and onboarding should prevent plan-only providers from being assigned to those scenarios and explain the boundary before save
 - provider image generation services should remain disabled by default until the user enables them
 - service-specific API credentials and custom Base URLs are optional overrides; blank service fields inherit the provider-level defaults
 - Settings can expose more fields than first-run LLM setup
@@ -228,14 +230,16 @@ Current product expectations:
 - each selected model can expose a capability profile such as vision, reasoning, tool calling, and embedding support
 - model metadata can include provider-published cost values; chat models use input/output token pricing, embedding models use input token pricing, and image generation models use per-image pricing when the provider bills successful generations by count
 - fixed-fee coding plans should not inherit pay-as-you-go token rates unless the provider publishes plan-specific token pricing; usage accounting may retain the plan source metadata while leaving calculated cost empty
+- provider account quotas and rate limits must not be represented as fixed model metadata because they vary by account, tier, region, and live provider policy
+- the configurable concurrency value is a local Magi safety limit, defaults to `4`, and is isolated by provider instance, plan, endpoint host, model, and request family so separate accounts or billing modes do not block each other
 - usage accounting should prefer explicit provider-reported cost when present, then fall back to registry chat model pricing for USD-denominated token usage
 - prompt-cache diagnostics should be lightweight and privacy-safe: they may record provider cache token counters, stable hashes, sizes, selected strategy, and bounded tool names for troubleshooting, but must not persist raw prompts, tool schemas, message bodies, or tool outputs
 - users can review the active model capability profile during onboarding and later in settings
-- first-run LLM setup should show whether the selected provider or provider plan includes a vector model; plan-level gaps should explain that the current billing plan does not include vector search support, while chat still works and memory recall is keyword-only until configured
+- first-run LLM setup should show whether the selected provider or provider plan includes a vector model; plan-level gaps should explain that the plan is for chat only, background memory and Timeline work need a normal API provider, and memory recall remains keyword-only until an embedding model is configured
 - the post-onboarding first-context prompt should surface a one-time vector-model setup reminder before recommending data-source plugins when embeddings are missing
 - users add or edit provider instances from provider templates or a custom-provider template
 - custom providers may define manual chat model IDs and a selectable default model
-- advanced users can override capability flags, model limits, model cost metadata, and provider-specific JSON options for the current model
+- advanced users can override capability flags, context/output limits, model cost metadata, and provider-specific JSON options for the current model; local concurrency belongs to scenario runtime settings instead of model metadata
 - provider and model catalogs should be delivered by dedicated LLM catalog endpoints that already merge saved provider instances, manual chat/embedding model IDs, and metadata overrides on the backend
 - provider catalog entries should expose available provider plans and resolve selected plan metadata before returning default models, default Base URL, service model lists, and pricing-bearing model metadata to the frontend
 - custom-provider creation fields and defaults should be delivered by a dedicated template endpoint rather than piggybacking on generic config responses

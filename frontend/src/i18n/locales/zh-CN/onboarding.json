@@ -171,8 +171,8 @@
     "embeddingFallbackHint": "这个供应商没有向量模型，请之后单独配置一个。",
     "memoryModelMissingTitle": "向量模型：稍后在设置里配置",
     "memoryModelMissingBody": "这个供应商可以继续用于聊天，但没有自带向量模型。完成初始设置后，可在设置页单独添加；未配置前，记忆会先按关键词查找。",
-    "memoryModelPlanMissingTitle": "向量模型：稍后在设置里配置",
-    "memoryModelPlanMissingBody": "你选的这个计费方式可以继续用于聊天，但没有自带向量模型。完成初始设置后，可在设置页单独添加；未配置前，记忆会先按关键词查找。",
+    "memoryModelPlanMissingTitle": "这个套餐只用于聊天",
+    "memoryModelPlanMissingBody": "聊天和发送前的直接分析可以使用这个套餐；记忆整理、时间线、向量和生图不会使用它。完成初始设置后，可在设置页另加一个普通 API 供应商；未配置向量模型前，记忆会先按关键词查找。",
     "providerTitle": "选择模型供应商",
     "providerDesc": "先接通一个可用模型。高级模型分配之后也可以在设置里继续调整。",
     "customRelayTitle": "自定义供应商",
@@ -402,9 +402,9 @@
       "searchPlaceholder": "搜索模型",
       "noSearchResults": "没有匹配的模型",
       "noEmbeddingModels": "当前已启用的供应商没有向量模型，请启用支持向量的供应商（如 OpenAI）。",
-      "maxConcurrencyPlaceholder": "使用模型默认值",
-      "maxConcurrencyHelp": "这个并发上限会被所有使用同一运行时模型的场景共享。",
-      "sharedConcurrencyHint": "同时会影响：{{scenarios}}。"
+      "maxConcurrencyPlaceholder": "使用 Magi 默认值（4）",
+      "maxConcurrencyHelp": "这是 Magi 在本机主动放行的请求数，不是供应商额度；不同账号、计费方式、接口地址和模型会分别计算。",
+      "sharedConcurrencyHint": "这些场景会共同占用这个上限：{{scenarios}}。"
     },
     "embeddingDimensionConfirm": {
       "title": "确认切换向量维度",
@@ -491,7 +491,8 @@
         "title": "摘要模型",
         "desc": "用于时间摘要、回顾压缩等记忆型总结任务。默认可以沿用核心模型设置，只在你需要单独的摘要模型时再拆开配置。",
         "inheritLabel": "沿用核心模型设置",
-        "inheritHelp": "开启后，摘要生成会直接跟随核心模型的供应商、模型和运行时配置。只有希望摘要单独走一套模型时，才需要关闭。"
+        "inheritHelp": "开启后，摘要生成会直接跟随核心模型的供应商、模型和运行时配置。只有希望摘要单独走一套模型时，才需要关闭。",
+        "inheritUnavailableHelp": "核心模型使用的是聊天套餐，不能用于后台记忆整理。请为摘要单独选择普通 API 供应商。"
       },
       "embedding": {
         "title": "向量模型",
@@ -511,7 +512,7 @@
     "fields": {
       "provider": "供应商",
       "model": "模型",
-      "maxConcurrency": "最大并发数",
+      "maxConcurrency": "本机并行请求上限",
       "embeddingDimension": "向量维度",
       "defaultModel": "默认模型",
       "modelManualEntry": "添加模型",
@@ -536,7 +537,8 @@
     },
       "providerPlans": {
         "default": "API 计费",
-        "customEndpoint": "自定义 Base URL"
+        "customEndpoint": "自定义 Base URL",
+        "backgroundNotice": "套餐仅用于聊天及其直接准备步骤；记忆整理、时间线、向量和生图需要普通 API。"
       },
     "modelFields": {
       "modelId": "模型 ID",
@@ -551,7 +553,6 @@
       "preferred": "优先",
       "contextWindow": "上下文窗口",
       "maxOutputTokens": "最大输出",
-      "maxConcurrency": "最大并发",
       "vendor": "模型厂商",
       "vendorHint": {
         "default": "用于决定 reasoning/thinking 等参数怎么发。中转网关（OneAPI/NewAPI）通常需要按实际模型显式指定。",
@@ -608,7 +609,7 @@
       "customScenarioModelMissing": "{{scenario}} 当前使用 {{model}}，但 {{provider}} 没有把它列为{{service}}模型。"
     },
     "modelManualPlaceholder": "输入模型 ID，例如 gpt-4.1",
-    "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-1",
+    "imageGenerationModelPlaceholder": "输入生图模型 ID，例如 gpt-image-2",
     "customProviderDefaultName": "自定义供应商",
     "providerLabel": "模型提供商",
     "providerRequired": "请选择模型提供商",

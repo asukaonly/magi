@@ -1802,7 +1802,7 @@
         },
         "reranker_remote_model": {
           "label": "Remote model",
-          "placeholder": "for example gpt-4o-mini"
+          "placeholder": "for example gpt-5.6-luna"
         },
         "cross_encoder_enabled": {
           "label": "Enable Cross-Encoder Reranking",

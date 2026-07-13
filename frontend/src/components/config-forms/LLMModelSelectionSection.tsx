@@ -14,6 +14,7 @@ import { LLMLocalEmbeddingModelPanel } from './LLMLocalEmbeddingModelPanel';
 import { LLMRemoteEmbeddingModelSelector } from './LLMRemoteEmbeddingModelSelector';
 import { LLMRerankerModelPanel } from './LLMRerankerModelPanel';
 import { LLMScenarioAdvancedSettings } from './LLMScenarioAdvancedSettings';
+import { isProviderAllowedForScenario } from './llm-form-state';
 
 interface LLMModelSelectionSectionProps {
   registry: LLMProviderRegistry;
@@ -41,6 +42,7 @@ interface LLMModelSelectionSectionProps {
   ) => void;
   onScenarioMaxConcurrencyChange: (scenario: LLMScenario, value: number | null) => void;
   memorySummarizerUsesCore: boolean;
+  memorySummarizerCanUseCore: boolean;
   onMemorySummarizerInheritanceChange: (checked: boolean) => void;
   embeddingConfig?: EmbeddingConfig;
   onEmbeddingConfigChange?: (updater: (draft: EmbeddingConfig) => void) => void;
@@ -76,6 +78,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   onScenarioEmbeddingDimensionChange,
   onScenarioMaxConcurrencyChange,
   memorySummarizerUsesCore,
+  memorySummarizerCanUseCore,
   onMemorySummarizerInheritanceChange,
   embeddingConfig,
   onEmbeddingConfigChange,
@@ -312,12 +315,15 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
   const renderChatScenarioContent = (scenario: LLMScenario) => {
     const selection = value.selections[scenario];
     if (!selection) return null;
+    const scenarioProviders = enabledChatProviders.filter(([, provider]) =>
+      isProviderAllowedForScenario(registry, provider, scenario)
+    );
     return (
       <LLMChatScenarioPanel
         scenario={scenario}
         selection={selection}
         provider={value.providers[selection.provider_id]}
-        enabledProviders={enabledChatProviders}
+        enabledProviders={scenarioProviders}
         registry={registry}
         quickMode={quickMode}
         inputClassName={inputClassName}
@@ -341,6 +347,7 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
             type="checkbox"
             className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/60"
             checked={memorySummarizerUsesCore}
+            disabled={!memorySummarizerCanUseCore}
             onChange={(event) => onMemorySummarizerInheritanceChange(event.target.checked)}
             aria-label={t('llm.scenarios.memory_summarizer.inheritLabel')}
           />
@@ -349,7 +356,11 @@ export const LLMModelSelectionSection: React.FC<LLMModelSelectionSectionProps> =
               {t('llm.scenarios.memory_summarizer.inheritLabel')}
             </span>
             <span className="block text-xs leading-5 text-muted-foreground">
-              {t('llm.scenarios.memory_summarizer.inheritHelp')}
+              {t(
+                memorySummarizerCanUseCore
+                  ? 'llm.scenarios.memory_summarizer.inheritHelp'
+                  : 'llm.scenarios.memory_summarizer.inheritUnavailableHelp'
+              )}
             </span>
           </span>
         </label>

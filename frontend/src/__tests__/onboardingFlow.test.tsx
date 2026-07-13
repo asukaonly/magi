@@ -110,6 +110,7 @@ const stubCatalog = () => ({
           default_model: 'glm-5.1',
           default_classify_model: 'glm-4.5-air',
           default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
+          allowed_scenarios: ['context_compact', 'context_decider', 'core'],
           endpoints: [
             {
               id: 'china',
@@ -630,6 +631,8 @@ describe('OnboardingFlow (linear 5-step)', () => {
     const draftPayload = vi.mocked(configApi.updateOnboardingDraft).mock.calls[0][0] as any;
     expect(draftPayload.llm.selections.context_decider.model).toBe('glm-4.5-air');
     expect(draftPayload.llm.selections.context_decider.limits.context_window).toBe(204800);
+    expect(draftPayload.llm.selections.memory_summarizer.provider_id).toBe('');
+    expect(draftPayload.llm.selections.memory_summarizer.model).toBe('');
   });
 
   it('keeps the previous provider settings when plan resolution fails', async () => {

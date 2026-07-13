@@ -12,9 +12,6 @@ interface LLMProviderEmbeddingModelFieldsProps {
   onModelOverrideChange: (modelId: string, updater: (draft: LLMModelMetadataOverride) => void) => void;
 }
 
-const fieldClassName =
-  'h-11 w-full rounded-xl bg-background px-3 text-sm ring-1 ring-inset ring-border/55 shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45';
-
 export function LLMProviderEmbeddingModelFields({
   model,
   modelOverride,
@@ -109,31 +106,6 @@ export function LLMProviderEmbeddingModelFields({
           {t('llm.modelFields.dimensionsChipHint')}
         </span>
       </div>
-
-      <label className="block space-y-2 sm:max-w-xs">
-        <span className="text-sm font-medium">{t('llm.modelFields.maxConcurrency')}</span>
-        <input
-          aria-label={t('llm.modelFields.maxConcurrency')}
-          className={cn(fieldClassName, isSettingsSurface && 'rounded-lg')}
-          type="number"
-          min={1}
-          step={1}
-          value={modelOverride?.limits?.max_concurrency ?? model.limits.max_concurrency ?? ''}
-          onChange={(event) =>
-            onModelOverrideChange(model.id, (draft) => {
-              const nextValue = event.target.value.trim();
-              draft.capabilities = {
-                ...(draft.capabilities || {}),
-                embedding: true,
-              };
-              draft.limits = {
-                ...(draft.limits || {}),
-                max_concurrency: nextValue ? Number(nextValue) : undefined,
-              };
-            })
-          }
-        />
-      </label>
     </div>
   );
 }
