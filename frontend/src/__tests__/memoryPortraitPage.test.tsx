@@ -78,8 +78,13 @@ beforeEach(() => vi.clearAllMocks());
 describe('MemoryPortraitPage', () => {
   it('renders a useful cold-start shell when payload is_cold_start=true', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [], is_cold_start: true, cold_start_line: '还没结论', cold_start_reason: 'no_observations',
+      generated_at: 0,
+      self_view: {
+        world: { total_count: 0, groups: [] },
+        review: { items: [] },
+        recent: { items: [] },
+      },
+      is_cold_start: true, cold_start_line: '还没结论', cold_start_reason: 'no_understanding',
       is_stale: false,
     });
     renderPage();
@@ -112,16 +117,36 @@ describe('MemoryPortraitPage', () => {
 
   it('renders the redesigned world, review, and recent sections without the old page header', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [
-        { kind: 'assertion', text: '偏好：current_project = Magi 记忆系统', basis_count: 2, basis_summary: 'user_profile_projection', basis_refs: ['family:preference_profile', 'claim_kind:active_work', 'world_group:projects', 'preference:current_project'] },
-        { kind: 'assertion', text: '沟通风格：response_style.preferred = 直接深入', basis_count: 3, basis_summary: 'user_profile_projection', basis_refs: ['family:communication_profile', 'claim_kind:collaboration_style', 'world_group:work_style', 'communication:response_style.preferred'] },
-        { kind: 'relationship', text: '常用工具：Chrome', basis_count: 4, basis_summary: 'browser history', basis_refs: ['source:chrome-history'] },
-        { kind: 'assertion', text: 'workflow.review_style: 先看代码再判断', basis_count: 2, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-stable', 'family:routine_profile', 'claim_kind:collaboration_style', 'world_group:work_style', 'status:stable', 'source:conversation'] },
-        { kind: 'assertion', text: 'focus_project: Magi 记忆体验', basis_count: 1, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-1', 'family:preference_profile', 'status:tentative', 'source:conversation'] },
-        { kind: 'assertion', text: '近期状态：focus = 插件导入', basis_count: 5, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-2', 'family:state_profile', 'status:stable', 'source:conversation'] },
-        { kind: 'reflection', text: '最近对话更偏产品设计判断，同时会追问实现链路是否闭环。', basis_count: 4, basis_summary: 'tom', basis_refs: ['tom-1'] },
-      ],
+      generated_at: 0,
+      self_view: {
+        world: {
+          total_count: 3,
+          groups: [
+            { id: 'identity', items: [] },
+            {
+              id: 'projects',
+              items: [{ id: 'project-1', text: 'Magi 记忆系统', source: '', source_key: null, assertion_id: null, basis_count: 2, basis_refs: [] }],
+            },
+            { id: 'preferences', items: [] },
+            {
+              id: 'work_style',
+              items: [
+                { id: 'style-1', text: '直接深入', source: '', source_key: null, assertion_id: null, basis_count: 3, basis_refs: [] },
+                { id: 'style-2', text: '先看代码再判断', source: '', source_key: null, assertion_id: 'assert-stable', basis_count: 2, basis_refs: [] },
+              ],
+            },
+          ],
+        },
+        review: {
+          items: [{ id: 'review-1', text: 'Magi 记忆体验', source: 'conversation', source_key: 'conversation', assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
+        },
+        recent: {
+          items: [
+            { id: 'recent-1', text: '插件导入', source: '', source_key: null, assertion_id: 'assert-2', basis_count: 5, basis_refs: [] },
+            { id: 'recent-2', text: '最近对话更偏产品设计判断，同时会追问实现链路是否闭环。', source: '', source_key: null, assertion_id: null, basis_count: 4, basis_refs: [] },
+          ],
+        },
+      },
       is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
     });
     renderPage();
@@ -167,10 +192,9 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText(/assertion|trait|family|L2/i)).not.toBeInTheDocument();
   });
 
-  it('uses backend grouped self view instead of regrouping observations in the page', async () => {
+  it('renders the backend grouped self view directly', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [],
+      generated_at: 0,
       self_view: {
         world: {
           total_count: 3,
@@ -207,8 +231,7 @@ describe('MemoryPortraitPage', () => {
 
   it('renders recent interests and projects as readable temporary signals', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [],
+      generated_at: 0,
       self_view: {
         world: {
           total_count: 2,
@@ -246,8 +269,7 @@ describe('MemoryPortraitPage', () => {
 
   it('does not render source text for portrait items without a user-facing source', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [],
+      generated_at: 0,
       self_view: {
         world: {
           total_count: 1,
@@ -284,8 +306,7 @@ describe('MemoryPortraitPage', () => {
 
   it('hides source labels from portrait world and recent sections but keeps them in review', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [],
+      generated_at: 0,
       self_view: {
         world: {
           total_count: 4,
@@ -351,10 +372,14 @@ describe('MemoryPortraitPage', () => {
 
   it('routes review queue actions to assertion feedback and correction APIs', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-      observations: [
-        { kind: 'assertion', text: 'focus_project: Magi 记忆体验', basis_count: 1, basis_summary: 'L2 assertion', basis_refs: ['assertion:assert-1', 'family:preference_profile', 'status:tentative'] },
-      ],
+      generated_at: 0,
+      self_view: {
+        world: { total_count: 0, groups: [] },
+        review: {
+          items: [{ id: 'review-1', text: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [] }],
+        },
+        recent: { items: [] },
+      },
       is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
     });
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue({} as any);
@@ -375,8 +400,7 @@ describe('MemoryPortraitPage', () => {
   it('reloads the backend portrait after confirming a review item', async () => {
     vi.mocked(memoryPortraitSelfApi.get)
       .mockResolvedValueOnce({
-        session_id: '', persona_id: '', topic: 'self', generated_at: 0,
-        observations: [],
+        generated_at: 0,
         self_view: {
           world: { total_count: 0, groups: [] },
           review: {
@@ -395,8 +419,7 @@ describe('MemoryPortraitPage', () => {
         is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
       })
       .mockResolvedValueOnce({
-        session_id: '', persona_id: '', topic: 'self', generated_at: 1,
-        observations: [],
+        generated_at: 1,
         self_view: {
           world: {
             total_count: 1,

@@ -371,6 +371,9 @@ The product-facing portrait world uses four stable groups: identity facts,
 long-running work, preferences/interests, and collaboration style. Graph
 relationships become visible only after graph-to-assertion promotion has produced
 a governed recent or durable assertion.
+The self-portrait API returns this grouped projection directly. It does not
+return a second raw-observation shape, and the frontend must not reclassify
+assertions or graph material with its own policy.
 Materialized portrait rows are cacheable, not permanently authoritative: reads
 and prompt assembly must rebuild them when newer profile or assertion inputs
 exist. User feedback or correction on a user assertion

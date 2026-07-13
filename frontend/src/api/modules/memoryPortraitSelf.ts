@@ -1,19 +1,5 @@
 import { api, unwrapGatewayPayload } from '../client';
 
-export type SelfPortraitObservationKind =
-  | 'reflection'
-  | 'assertion'
-  | 'relationship'
-  | 'procedure';
-
-export interface SelfPortraitObservation {
-  kind: SelfPortraitObservationKind;
-  text: string;
-  basis_count: number;
-  basis_summary: string;
-  basis_refs: string[];
-}
-
 export type PortraitSelfViewWorldGroupId =
   | 'identity'
   | 'projects'
@@ -58,12 +44,8 @@ export interface PortraitSelfView {
 }
 
 export interface SelfPortraitPayload {
-  session_id: string;
-  persona_id: string;
-  topic: string;
   generated_at: number;
-  observations: SelfPortraitObservation[];
-  self_view?: PortraitSelfView | null;
+  self_view: PortraitSelfView;
   is_cold_start: boolean;
   cold_start_line: string | null;
   cold_start_reason: string | null;

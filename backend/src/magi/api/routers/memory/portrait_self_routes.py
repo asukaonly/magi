@@ -1,9 +1,8 @@
-"""GET /api/memory/portrait/self — global self-portrait without LLM rendering."""
+"""GET /api/memory/portrait/self for the product-facing self portrait."""
 
 from __future__ import annotations
 
 import logging
-import re
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -11,32 +10,14 @@ from typing import Any
 from fastapi import APIRouter, Query
 
 from ....memory.provider import get_unified_memory
-from ....user_profile.portrait_contracts import UserPortraitObservation, UserPortraitPayload
+from ....user_profile.models import UserPortraitProjection
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_freshness import portrait_projection_is_stale
-from ....user_profile.portrait_signal_policy import (
-    PORTRAIT_WORLD_GROUP_IDS,
-    PORTRAIT_RECENT_FAMILIES,
-    PORTRAIT_REVIEW_STATES,
-    PORTRAIT_SOURCE_STRENGTH,
-    PORTRAIT_VALIDATION_STRENGTH,
-    classify_assertion_portrait,
-)
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
+from ....user_profile.portrait_signal_policy import PORTRAIT_WORLD_GROUP_IDS
 from ....user_profile.projection_repository import UserProfileProjectionRepository
 
 logger = logging.getLogger(__name__)
-
-
-_ASSERTION_REF_MIN_LENGTH = 20
-_WORLD_GROUP_IDS = PORTRAIT_WORLD_GROUP_IDS
-_INTERNAL_SOURCE_KEYS = {
-    "external_activity",
-    "photo_library",
-    "photo_library_apple_photos",
-    "photo_library_directory",
-}
-
 
 _profile_repo_override: Any = None
 _portrait_repo_override: Any = None
@@ -45,8 +26,12 @@ _l2_override: Any = None
 
 @contextmanager
 def override_dependencies_for_test(
-    *, profile_repo: Any = None, portrait_repo: Any = None, l2: Any = None
+    *,
+    profile_repo: Any = None,
+    portrait_repo: Any = None,
+    l2: Any = None,
 ):
+    """Temporarily replace portrait route dependencies in integration tests."""
     global _profile_repo_override, _portrait_repo_override, _l2_override
     _profile_repo_override = profile_repo
     _portrait_repo_override = portrait_repo
@@ -59,43 +44,8 @@ def override_dependencies_for_test(
         _l2_override = None
 
 
-def _resolve_profile_repo() -> Any:
-    if _profile_repo_override is not None:
-        return _profile_repo_override
-    try:
-        unified = get_unified_memory()
-    except Exception:
-        return None
-    db_path = str(getattr(getattr(unified, "l2", None), "db_path", "") or "")
-    if not db_path:
-        return None
-    return UserProfileProjectionRepository(db_path)
-
-
-def _resolve_portrait_repo() -> Any:
-    if _portrait_repo_override is not None:
-        return _portrait_repo_override
-    try:
-        unified = get_unified_memory()
-    except Exception:
-        return None
-    db_path = str(getattr(getattr(unified, "l2", None), "db_path", "") or "")
-    if not db_path:
-        return None
-    return UserPortraitProjectionRepository(db_path)
-
-
-def _resolve_l2() -> Any:
-    if _l2_override is not None:
-        return _l2_override
-    try:
-        unified = get_unified_memory()
-    except Exception:
-        return None
-    return getattr(unified, "l2", None) if unified else None
-
-
 def build_router() -> APIRouter:
+    """Build the product-facing portrait router."""
     router = APIRouter()
 
     @router.get("/portrait/self")
@@ -108,32 +58,50 @@ def build_router() -> APIRouter:
 
 
 async def _get_self_portrait(user_id: str) -> dict[str, Any]:
-    portrait_repo = _resolve_portrait_repo()
     l2 = _resolve_l2()
-    projection = await _load_profile_projection(user_id)
-    cached_payload = await _payload_from_cached_or_rebuilt_portrait(
-        portrait_repo=portrait_repo,
-        l2=l2,
-        projection=projection,
+    profile_projection = await _load_profile_projection(user_id)
+    portrait_projection = await _load_or_build_portrait_projection(
         user_id=user_id,
+        l2=l2,
+        profile_projection=profile_projection,
     )
-    if cached_payload is not None:
-        return cached_payload
+    return _portrait_payload(portrait_projection, user_id=user_id)
 
-    observations = await _collect_fallback_observations(
-        l2=l2,
-        projection=projection,
+
+async def _load_or_build_portrait_projection(
+    *,
+    user_id: str,
+    l2: Any,
+    profile_projection: Any,
+) -> UserPortraitProjection | None:
+    portrait_repo = _resolve_portrait_repo()
+    cached = await _load_portrait_projection(portrait_repo, user_id)
+    if cached is not None:
+        try:
+            is_stale = await portrait_projection_is_stale(
+                cached,
+                user_id=user_id,
+                l2_store=l2,
+                profile_projection=profile_projection,
+            )
+        except Exception as exc:
+            logger.debug("self portrait: freshness check failed: %s", exc)
+            is_stale = False
+        if not is_stale:
+            return cached
+
+    rebuilt = await _build_portrait_projection(
         user_id=user_id,
-    )
-    fallback_projection = await _build_fallback_portrait_projection(
         l2=l2,
-        projection=projection,
-        user_id=user_id,
+        profile_projection=profile_projection,
     )
-    return _payload_from_fallback_projection(
-        observations=observations,
-        fallback_projection=fallback_projection,
-    )
+    if rebuilt is None or portrait_repo is None:
+        return rebuilt
+    try:
+        return await portrait_repo.upsert(rebuilt)
+    except Exception as exc:
+        logger.debug("self portrait: projection persistence failed: %s", exc)
+        return rebuilt
 
 
 async def _load_profile_projection(user_id: str) -> Any:
@@ -147,36 +115,12 @@ async def _load_profile_projection(user_id: str) -> Any:
         return None
 
 
-async def _payload_from_cached_or_rebuilt_portrait(
-    *,
+async def _load_portrait_projection(
     portrait_repo: Any,
-    l2: Any,
-    projection: Any,
     user_id: str,
-) -> dict[str, Any] | None:
+) -> UserPortraitProjection | None:
     if portrait_repo is None:
         return None
-    portrait_projection = await _load_portrait_projection(portrait_repo, user_id)
-    if portrait_projection is None:
-        return None
-    is_stale = await portrait_projection_is_stale(
-        portrait_projection,
-        user_id=user_id,
-        l2_store=l2,
-        profile_projection=projection,
-    )
-    if not is_stale:
-        return _payload_from_portrait_projection(portrait_projection)
-    rebuilt = await _rebuild_portrait_projection(
-        portrait_repo=portrait_repo,
-        l2=l2,
-        projection=projection,
-        user_id=user_id,
-    )
-    return _payload_from_portrait_projection(rebuilt) if rebuilt is not None else None
-
-
-async def _load_portrait_projection(portrait_repo: Any, user_id: str) -> Any:
     try:
         return await portrait_repo.get(user_id)
     except Exception as exc:
@@ -184,451 +128,101 @@ async def _load_portrait_projection(portrait_repo: Any, user_id: str) -> Any:
         return None
 
 
-async def _rebuild_portrait_projection(
+async def _build_portrait_projection(
     *,
-    portrait_repo: Any,
-    l2: Any,
-    projection: Any,
     user_id: str,
-) -> Any:
-    try:
-        rebuilt = await UserPortraitProjectionBuilder(
-            l2,
-            profile_projection=projection,
-        ).build(user_id)
-        return await portrait_repo.upsert(rebuilt)
-    except Exception as exc:
-        logger.debug("self portrait: stale projection rebuild failed: %s", exc)
-        return None
-
-
-async def _collect_fallback_observations(
-    *,
     l2: Any,
-    projection: Any,
-    user_id: str,
-) -> list[UserPortraitObservation]:
-    observations = _observations_from_projection(projection)
-    if l2 is None:
-        return observations
-
-    observations.extend(_observations_from_assertion_items(await _load_tom_assertions(l2, user_id)))
-    return observations
-
-
-async def _load_tom_assertions(l2: Any, user_id: str) -> list[dict[str, Any]]:
-    try:
-        return await l2.list_tom_assertions(
-            entity_id=f"user:{user_id}",
-            limit=50,
-            offset=0,
-        )
-    except Exception as exc:
-        logger.debug("self portrait: assertion lookup failed: %s", exc)
-        return []
-
-
-async def _build_fallback_portrait_projection(
-    *,
-    l2: Any,
-    projection: Any,
-    user_id: str,
-) -> Any:
+    profile_projection: Any,
+) -> UserPortraitProjection | None:
     try:
         return await UserPortraitProjectionBuilder(
             l2,
-            profile_projection=projection,
+            profile_projection=profile_projection,
         ).build(user_id)
     except Exception as exc:
-        logger.debug("self portrait: fallback projection build failed: %s", exc)
+        logger.debug("self portrait: projection build failed: %s", exc)
         return None
 
 
-def _payload_from_fallback_projection(
+def _portrait_payload(
+    projection: UserPortraitProjection | None,
     *,
-    observations: list[UserPortraitObservation],
-    fallback_projection: Any,
+    user_id: str,
 ) -> dict[str, Any]:
-    is_cold_start = (
-        not _projection_has_content(fallback_projection)
-        if fallback_projection is not None
-        else len(observations) == 0
-    )
-    payload = UserPortraitPayload(
-        session_id="",
-        persona_id="",
-        topic="self",
-        generated_at=int(time.time()),
-        observations=observations,
-        is_cold_start=is_cold_start,
-        cold_start_line=None,
-        cold_start_reason=("no_observations" if is_cold_start else None),
-    )
-    data = payload.to_dict()
-    if fallback_projection is None:
-        data["self_view"] = _build_self_view(observations)
-        return data
-    data["self_view"] = {
-        "world": fallback_projection.world or _empty_world(),
-        "review": fallback_projection.review or {"items": []},
-        "recent": fallback_projection.recent or {"items": []},
-    }
-    data["prompt_summary"] = list(fallback_projection.prompt_summary)
-    return data
-
-
-def _payload_from_portrait_projection(portrait_projection: Any) -> dict[str, Any]:
-    payload = UserPortraitPayload(
-        session_id="",
-        persona_id="",
-        topic="self",
-        generated_at=int(time.time()),
-        observations=[],
-        is_cold_start=False,
-        cold_start_line=None,
-        cold_start_reason=None,
-    )
-    data = payload.to_dict()
-    data["self_view"] = {
-        "world": portrait_projection.world or _empty_world(),
-        "review": portrait_projection.review or {"items": []},
-        "recent": portrait_projection.recent or {"items": []},
-    }
-    data["prompt_summary"] = list(portrait_projection.prompt_summary)
-    return data
-
-
-def _observations_from_projection(projection: Any) -> list[UserPortraitObservation]:
     if projection is None:
-        return []
-
-    facts: list[tuple[str, str, str]] = []
-    if projection.real_name:
-        facts.append((f"你叫 {projection.real_name}", "identity_profile", "real_name"))
-    if projection.preferred_form_of_address:
-        facts.append(
-            (
-                f"称呼你「{projection.preferred_form_of_address}」",
-                "identity_profile",
-                "preferred_form_of_address",
-            )
+        projection = UserPortraitProjection(
+            user_id=user_id,
+            entity_id=f"user:{user_id}",
+            world=_empty_world(),
+            review={"items": []},
+            recent={"items": []},
+            generated_at=time.time(),
         )
-    if projection.home_location:
-        facts.append(
-            (
-                f"住在{projection.home_location}",
-                "identity_profile",
-                "identity.location.home|claim_kind:identity_fact|world_group:identity",
-            )
-        )
-    for key, value in (projection.preferences or {}).items():
-        facts.append((
-            f"偏好：{key} = {value}",
-            "preference_profile",
-            f"preference:{key}|claim_kind:preference_interest|world_group:preferences",
-        ))
-    for key, value in (projection.communication or {}).items():
-        facts.append(
-            (
-                f"沟通风格：{key} = {value}",
-                "communication_profile",
-                f"communication:{key}|claim_kind:collaboration_style|world_group:work_style",
-            )
-        )
-    for key, value in (projection.state or {}).items():
-        facts.append((
-            f"近期状态：{key} = {value}",
-            "state_profile",
-            f"state:{key}|claim_kind:recent_context|role:recent",
-        ))
-
-    observations: list[UserPortraitObservation] = []
-    for text, family, ref in facts:
-        basis_refs = [f"family:{family}"]
-        basis_refs.extend(part for part in ref.split("|") if part)
-        observations.append(
-            UserPortraitObservation(
-                kind="assertion",
-                text=text,
-                basis_count=1,
-                basis_summary="user_profile_projection",
-                basis_refs=basis_refs,
-            )
-        )
-    return observations
-
-
-def _observations_from_assertion_items(
-    items: list[dict[str, Any]],
-) -> list[UserPortraitObservation]:
-    if not items:
-        return []
-    obs: list[UserPortraitObservation] = []
-    for item in items:
-        decision = classify_assertion_portrait(item)
-        role = decision.role
-        if role == "skip":
-            continue
-        trait = str(item.get("trait_name") or item.get("predicate") or "")
-        value = str(item.get("value") or item.get("trait_value") or "")
-        if not trait or not value:
-            continue
-        refs: list[str] = [f"role:{role}"]
-        assertion_id = str(item.get("assertion_id") or "").strip()
-        if assertion_id:
-            refs.append(f"assertion:{assertion_id}")
-        refs.append(f"claim_kind:{decision.claim_kind}")
-        if decision.world_group:
-            refs.append(f"world_group:{decision.world_group}")
-        for key, prefix in (
-            ("trait_family", "family"),
-            ("validation_state", "status"),
-            ("source_domain", "source"),
-        ):
-            raw_value = str(item.get(key) or "").strip()
-            if raw_value:
-                refs.append(f"{prefix}:{raw_value}")
-        obs.append(
-            UserPortraitObservation(
-                kind="assertion",
-                text=f"{trait}: {value}",
-                basis_count=int(item.get("evidence_count") or 1),
-                basis_summary="L2 assertion",
-                basis_refs=refs,
-            )
-        )
-        if len(obs) >= 20:
-            break
-    return obs
-
-
-def _build_self_view(observations: list[UserPortraitObservation]) -> dict[str, Any]:
-    world = _empty_world()
-    groups = world["groups"]
-    groups_by_id = {group["id"]: group for group in groups}
-    review_items: list[dict[str, Any]] = []
-    recent_items: list[dict[str, Any]] = []
-
-    for index, observation in enumerate(observations):
-        item = _self_view_item(observation, index)
-        if _is_review_observation(observation):
-            review_items.append(item)
-            continue
-        if _is_recent_observation(observation):
-            recent_items.append(item)
-            continue
-
-        group_id = _world_group_id(observation)
-        if group_id:
-            groups_by_id[group_id]["items"].append(item)
-
-    for group in groups:
-        group["items"] = _dedupe_and_sort_world_items(group["items"])
-        group["summary"] = _group_summary(group["id"], group["items"])
-
+    self_view = {
+        "world": projection.world or _empty_world(),
+        "review": projection.review or {"items": []},
+        "recent": projection.recent or {"items": []},
+    }
+    is_cold_start = not _projection_has_content(projection)
     return {
-        "world": {**world, "total_count": len(observations), "groups": groups},
-        "review": {
-            "items": review_items,
-        },
-        "recent": {
-            "items": recent_items,
-        },
+        "generated_at": projection.generated_at or time.time(),
+        "self_view": self_view,
+        "is_cold_start": is_cold_start,
+        "cold_start_line": None,
+        "cold_start_reason": "no_understanding" if is_cold_start else None,
+        "is_stale": False,
     }
 
 
-def _empty_world() -> dict[str, Any]:
-    return {
-        "total_count": 0,
-        "groups": [{"id": group_id, "items": []} for group_id in _WORLD_GROUP_IDS],
-    }
-
-
-def _self_view_item(observation: UserPortraitObservation, index: int) -> dict[str, Any]:
-    source, source_key = _source_info(observation)
-    assertion_id = _extract_assertion_id(observation)
-    return {
-        "id": f"{observation.kind}-{index}-{assertion_id or observation.text}",
-        "text": _simplify_observation_text(observation.text),
-        "source": source,
-        "source_key": source_key,
-        "assertion_id": assertion_id,
-        "basis_count": observation.basis_count,
-        "basis_refs": list(observation.basis_refs),
-        "claim_kind": _ref_value(observation, "claim_kind"),
-    }
-
-
-def _is_review_observation(observation: UserPortraitObservation) -> bool:
-    role = _ref_value(observation, "role")
-    if role:
-        return role == "review"
-    state = _ref_value(observation, "status")
-    return bool(state) and state in PORTRAIT_REVIEW_STATES
-
-
-def _is_recent_observation(observation: UserPortraitObservation) -> bool:
-    role = _ref_value(observation, "role")
-    if role:
-        return role == "recent"
-    family = _ref_value(observation, "family")
-    if family and family in PORTRAIT_RECENT_FAMILIES:
-        return True
-    return observation.kind == "reflection" or any(
-        ref.startswith("state:") for ref in observation.basis_refs
-    )
-
-
-def _world_group_id(observation: UserPortraitObservation) -> str | None:
-    explicit_group = _ref_value(observation, "world_group")
-    if explicit_group in _WORLD_GROUP_IDS:
-        return explicit_group
-    claim_kind = _ref_value(observation, "claim_kind")
-    if claim_kind == "identity_fact":
-        return "identity"
-    if claim_kind == "active_work":
-        return "projects"
-    if claim_kind == "preference_interest":
-        return "preferences"
-    if claim_kind == "collaboration_style":
-        return "work_style"
-    return None
-
-
-def _projection_has_content(projection: Any) -> bool:
-    if projection is None:
-        return False
-    world = getattr(projection, "world", {}) or {}
-    review = getattr(projection, "review", {}) or {}
-    recent = getattr(projection, "recent", {}) or {}
+def _projection_has_content(projection: UserPortraitProjection) -> bool:
+    world = projection.world or {}
+    review = projection.review or {}
+    recent = projection.recent or {}
     if int(world.get("total_count") or 0) > 0:
         return True
     return bool((review.get("items") or []) or (recent.get("items") or []))
 
 
-def _dedupe_and_sort_world_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    best_by_text: dict[str, dict[str, Any]] = {}
-    for item in items:
-        key = _world_item_key(item)
-        if not key:
-            continue
-        previous = best_by_text.get(key)
-        if previous is None or _world_item_strength(item) > _world_item_strength(previous):
-            best_by_text[key] = item
-    return sorted(
-        best_by_text.values(),
-        key=lambda item: (
-            -_item_source_strength(item),
-            -_item_validation_strength(item),
-            -int(item.get("basis_count", 0) or 0),
-            str(item.get("text") or "").casefold(),
-        ),
-    )
+def _empty_world() -> dict[str, Any]:
+    return {
+        "total_count": 0,
+        "groups": [
+            {"id": group_id, "summary": "", "items": []}
+            for group_id in PORTRAIT_WORLD_GROUP_IDS
+        ],
+    }
 
 
-def _group_summary(group_id: str, items: list[dict[str, Any]]) -> str:
-    texts = [
-        str(item.get("text") or "").strip() for item in items if str(item.get("text") or "").strip()
-    ]
-    if not texts:
+def _resolve_profile_repo() -> Any:
+    if _profile_repo_override is not None:
+        return _profile_repo_override
+    db_path = _memory_db_path()
+    return UserProfileProjectionRepository(db_path) if db_path else None
+
+
+def _resolve_portrait_repo() -> Any:
+    if _portrait_repo_override is not None:
+        return _portrait_repo_override
+    db_path = _memory_db_path()
+    return UserPortraitProjectionRepository(db_path) if db_path else None
+
+
+def _resolve_l2() -> Any:
+    if _l2_override is not None:
+        return _l2_override
+    try:
+        unified = get_unified_memory()
+    except Exception:
+        return None
+    return getattr(unified, "l2", None)
+
+
+def _memory_db_path() -> str:
+    try:
+        unified = get_unified_memory()
+    except Exception:
         return ""
-    short = texts[:4]
-    if group_id == "identity":
-        return "；".join(short)
-    if group_id == "projects":
-        return f"长期推进或反复关注：{'、'.join(short)}"
-    if group_id == "preferences":
-        return f"关注或偏好：{'、'.join(short)}"
-    if group_id == "work_style":
-        return f"工作和沟通方式：{'、'.join(short)}"
-    return "、".join(short)
+    return str(getattr(getattr(unified, "l2", None), "db_path", "") or "")
 
 
-def _world_item_key(item: dict[str, Any]) -> str:
-    return re.sub(r"\s+", " ", str(item.get("text") or "").strip()).casefold()
-
-
-def _world_item_strength(item: dict[str, Any]) -> tuple[int, int, int, str]:
-    return (
-        _item_source_strength(item),
-        _item_validation_strength(item),
-        int(item.get("basis_count", 0) or 0),
-        str(item.get("assertion_id") or ""),
-    )
-
-
-def _item_source_strength(item: dict[str, Any]) -> int:
-    source_key = item.get("source_key")
-    if isinstance(source_key, str) and source_key:
-        return PORTRAIT_SOURCE_STRENGTH.get(source_key, 0)
-    for ref in item.get("basis_refs") or []:
-        if not isinstance(ref, str) or not ref.startswith("source:"):
-            continue
-        source = _normalize_source_key(ref.removeprefix("source:"))
-        return PORTRAIT_SOURCE_STRENGTH.get(source, 0)
-    return 0
-
-
-def _item_validation_strength(item: dict[str, Any]) -> int:
-    for ref in item.get("basis_refs") or []:
-        if not isinstance(ref, str) or not ref.startswith("status:"):
-            continue
-        state = ref.removeprefix("status:").strip().casefold()
-        return PORTRAIT_VALIDATION_STRENGTH.get(state, 0)
-    return 0
-
-
-def _extract_assertion_id(observation: UserPortraitObservation) -> str | None:
-    for ref in observation.basis_refs:
-        if ref.startswith("assertion:"):
-            value = ref.removeprefix("assertion:").strip()
-            return value or None
-        compact = ref.replace("-", "")
-        if len(ref) >= _ASSERTION_REF_MIN_LENGTH and all(
-            c in "0123456789abcdefABCDEF" for c in compact
-        ):
-            return ref
-    return None
-
-
-def _ref_value(observation: UserPortraitObservation, prefix: str) -> str | None:
-    needle = f"{prefix}:"
-    for ref in observation.basis_refs:
-        if ref.startswith(needle):
-            value = ref.removeprefix(needle).strip()
-            return value or None
-    return None
-
-
-def _simplify_observation_text(text: str) -> str:
-    trimmed = text.strip()
-    eq_index = trimmed.rfind(" = ")
-    if eq_index >= 0:
-        return trimmed[eq_index + 3 :].strip()
-    colon_index = trimmed.find(": ")
-    if colon_index >= 0:
-        return trimmed[colon_index + 2 :].strip()
-    for prefix in ("偏好：", "沟通风格：", "近期状态：", "常用工具："):
-        if trimmed.startswith(prefix):
-            return trimmed.removeprefix(prefix).strip()
-    return trimmed
-
-
-def _source_info(observation: UserPortraitObservation) -> tuple[str, str | None]:
-    source = _ref_value(observation, "source")
-    if source:
-        source_key = _normalize_source_key(source)
-        if source_key in _INTERNAL_SOURCE_KEYS:
-            return "", None
-        return source.replace("-", " "), source_key
-
-    basis_summary = observation.basis_summary.strip()
-    if basis_summary and basis_summary.lower() != "l2 assertion":
-        if basis_summary.lower() == "l2 tom snapshot":
-            return "tom", "tom"
-        return basis_summary, _normalize_source_key(basis_summary)
-    return "", None
-
-
-def _normalize_source_key(value: str) -> str:
-    return value.strip().lower().replace("-", "_").replace(" ", "_")
+__all__ = ["build_router", "override_dependencies_for_test"]
