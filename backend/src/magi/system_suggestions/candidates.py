@@ -48,6 +48,9 @@ def partition_for_candidates(
 
     - Plugins whose data source is already **in use** (id in ``active_plugin_ids``)
       are dropped entirely — neither suggested to "connect" nor to "install".
+    - Sibling plugins in the same suggestion category are also dropped. Once a
+      browser-history source is active, for example, another browser is not a
+      useful replacement recommendation.
     - Other installed plugins are kept as connect candidates.
     - Registry entries are kept only when their plugin isn't installed and isn't
       already active.
@@ -62,13 +65,31 @@ def partition_for_candidates(
     ``packages`` are plugin package states (each has ``.manifest``).
     """
     active = active_plugin_ids or set()
-    all_installed_ids = {p.manifest.plugin_id for p in packages}
+    package_list = list(packages)
+    registry_list = list(registry_entries)
+
+    def _category(item: Any) -> str | None:
+        descriptor = getattr(item, "suggestion_descriptor", None)
+        category = getattr(descriptor, "category", None)
+        return str(category) if category else None
+
+    all_descriptors = [p.manifest for p in package_list] + registry_list
+    active_categories = {
+        category
+        for item in all_descriptors
+        if item.plugin_id in active and (category := _category(item)) is not None
+    }
+
+    def _is_active_or_covered(item: Any) -> bool:
+        return item.plugin_id in active or _category(item) in active_categories
+
+    all_installed_ids = {p.manifest.plugin_id for p in package_list}
     connect_manifests = [
-        p.manifest for p in packages if p.manifest.plugin_id not in active
+        p.manifest for p in package_list if not _is_active_or_covered(p.manifest)
     ]
     not_installed_registry = [
         e
-        for e in registry_entries
-        if e.plugin_id not in all_installed_ids and e.plugin_id not in active
+        for e in registry_list
+        if e.plugin_id not in all_installed_ids and not _is_active_or_covered(e)
     ]
     return connect_manifests, not_installed_registry

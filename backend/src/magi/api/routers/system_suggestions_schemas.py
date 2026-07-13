@@ -53,6 +53,8 @@ class InstallableItem(BaseModel):
     category: str
     installed: bool
     rationale: dict[str, str]
+    setup_time_estimate_seconds: int
+    data_locality: Literal["local_only", "uploads"]
 
 
 class ListInstallableResponse(BaseModel):

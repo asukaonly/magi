@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SimpleForm as Form } from './simple-form';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -209,6 +209,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const personaConfirmationInFlightRef = useRef(false);
   const [installableItems, setInstallableItems] = useState<InstallableItem[]>([]);
   const [installableLoading, setInstallableLoading] = useState(true);
+  const [installableError, setInstallableError] = useState<Error | null>(null);
   const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>([]);
   const installablePreloadStartedRef = useRef(false);
   const mountedRef = useRef(true);
@@ -222,6 +223,30 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   seedSlugRef.current = seedSlug;
   customPersonasRef.current = customPersonas;
 
+  const loadInstallableSources = useCallback(async () => {
+    setInstallableLoading(true);
+    setInstallableError(null);
+    try {
+      const items = await listInstallable();
+      if (mountedRef.current) {
+        setInstallableItems(items);
+      }
+    } catch (caught) {
+      if (mountedRef.current) {
+        setInstallableItems([]);
+        setInstallableError(
+          caught instanceof Error
+            ? caught
+            : new Error('Failed to load installable sources'),
+        );
+      }
+    } finally {
+      if (mountedRef.current) {
+        setInstallableLoading(false);
+      }
+    }
+  }, []);
+
   // Persona previews (loaded once on mount for the active locale).
   const [seedPreviews, setSeedPreviews] = useState<SeedPreview[]>([]);
   const [seedPreviewsLoading, setSeedPreviewsLoading] = useState(true);
@@ -230,6 +255,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
   const debugI18n = localStorage.getItem('magi_i18n_debug') === '1';
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       personaConfirmationRequestIdRef.current += 1;
@@ -380,24 +406,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
     }
 
     installablePreloadStartedRef.current = true;
-    setInstallableLoading(true);
-    void listInstallable()
-      .then((items) => {
-        if (mountedRef.current) {
-          setInstallableItems(items);
-        }
-      })
-      .catch(() => {
-        if (mountedRef.current) {
-          setInstallableItems([]);
-        }
-      })
-      .finally(() => {
-        if (mountedRef.current) {
-          setInstallableLoading(false);
-        }
-      });
-  }, [current]);
+    void loadInstallableSources();
+  }, [current, loadInstallableSources]);
 
   const saveProgress = (
     values: SystemConfig,
@@ -879,6 +889,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({ initialConfig })
           llmConfig={llmValue}
           installableItems={installableItems}
           installableLoading={installableLoading}
+          installableError={installableError}
+          onRetryInstallable={loadInstallableSources}
           connectedPluginIds={firstContextPluginIds}
           onConnectDone={handleFirstContextConnectDone}
         />

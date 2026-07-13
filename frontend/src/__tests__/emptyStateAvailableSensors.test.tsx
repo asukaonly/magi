@@ -23,6 +23,8 @@ function item(overrides: Partial<InstallableItem>): InstallableItem {
     category: 'browser_history',
     installed: false,
     rationale: { zh: '', en: '' },
+    setup_time_estimate_seconds: 10,
+    data_locality: 'local_only',
     ...overrides,
   };
 }
@@ -76,6 +78,100 @@ describe('EmptyStateAvailableSensors', () => {
       />,
     );
     expect(screen.getByTestId('empty-state-connect-git-activity')).toBeInTheDocument();
+  });
+
+  it('never uses fallback cards in first-context mode', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        variant="first_context"
+        showBrowseAll={false}
+        fallbackPluginIds={['chrome-history', 'calendar']}
+      />,
+    );
+    expect(screen.queryByTestId(/empty-state-connect-/)).not.toBeInTheDocument();
+    expect(screen.getByText('emptyState.noAvailable')).toBeInTheDocument();
+  });
+
+  it('shows one featured recommendation and at most two distinct-category alternatives', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [
+        item({ plugin_id: 'chrome-history', category: 'browser_history' }),
+        item({ plugin_id: 'safari-history', category: 'browser_history' }),
+        item({ plugin_id: 'calendar', category: 'calendar' }),
+        item({ plugin_id: 'coding_agent_history', category: 'code_activity' }),
+        item({ plugin_id: 'photo-library', category: 'photos' }),
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(<EmptyStateAvailableSensors variant="first_context" showBrowseAll={false} />);
+
+    expect(screen.getByTestId('empty-state-featured-chrome-history')).toBeInTheDocument();
+    expect(
+      screen.getByText('emptyState.plugins.chromeHistory.firstContextValue'),
+    ).toBeInTheDocument();
+    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(3);
+    expect(screen.queryByTestId('empty-state-connect-safari-history')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-connect-photo-library')).not.toBeInTheDocument();
+  });
+
+  it('prefers an installed sibling within a recommendation category', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [
+        item({ plugin_id: 'chrome-history', category: 'browser_history', installed: false }),
+        item({ plugin_id: 'safari-history', category: 'browser_history', installed: true }),
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(<EmptyStateAvailableSensors variant="first_context" showBrowseAll={false} />);
+
+    expect(screen.getByTestId('empty-state-featured-safari-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
+  });
+
+  it('does not refill a restored connected category when the connected source is absent from the API', () => {
+    mockUseInstallableSensors.mockReturnValue({
+      items: [
+        item({ plugin_id: 'safari-history', category: 'browser_history' }),
+        item({ plugin_id: 'calendar', category: 'calendar' }),
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    render(
+      <EmptyStateAvailableSensors
+        variant="first_context"
+        showBrowseAll={false}
+        excludePluginIds={['chrome-history']}
+      />,
+    );
+
+    expect(screen.queryByTestId('empty-state-connect-safari-history')).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-featured-calendar')).toBeInTheDocument();
+  });
+
+  it('shows a retry action when first-context availability fails', async () => {
+    const refresh = vi.fn();
+    mockUseInstallableSensors.mockReturnValue({
+      items: [],
+      loading: false,
+      error: new Error('boom'),
+      refresh,
+    });
+    render(<EmptyStateAvailableSensors variant="first_context" showBrowseAll={false} />);
+
+    await userEvent.click(screen.getByTestId('empty-state-retry'));
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('can fill a sparse preloaded list with first-context fallback cards', () => {

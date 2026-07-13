@@ -10,24 +10,33 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listInstallable, type InstallableItem } from '../api/modules/systemSuggestions';
 
-export function useInstallableSensors() {
+export function useInstallableSensors(enabled = true) {
   const [items, setItems] = useState<InstallableItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<Error | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       setItems(await listInstallable());
-    } catch {
+    } catch (caught) {
       setItems([]);
+      setError(
+        caught instanceof Error
+          ? caught
+          : new Error('Failed to load installable sources'),
+      );
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (enabled) {
+      void refresh();
+    }
+  }, [enabled, refresh]);
 
-  return { items, loading, refresh };
+  return { items, loading, error, refresh };
 }

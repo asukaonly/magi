@@ -156,6 +156,8 @@ def _installable_item(candidate: SuggestionCandidate) -> InstallableItem:
             "zh": candidate.descriptor.rationale.zh,
             "en": candidate.descriptor.rationale.en,
         },
+        setup_time_estimate_seconds=candidate.descriptor.setup_time_estimate_seconds,
+        data_locality=candidate.descriptor.data_locality,
     )
 
 

@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -245,6 +246,16 @@ describe('OnboardingFlow (linear 5-step)', () => {
         category: 'browser_history',
         installed: false,
         rationale: { zh: '', en: '' },
+        setup_time_estimate_seconds: 10,
+        data_locality: 'local_only',
+      },
+      {
+        plugin_id: 'calendar',
+        category: 'calendar',
+        installed: false,
+        rationale: { zh: '', en: '' },
+        setup_time_estimate_seconds: 15,
+        data_locality: 'local_only',
       },
     ]);
     vi.spyOn(personasApi, 'seed').mockResolvedValue({
@@ -413,6 +424,41 @@ describe('OnboardingFlow (linear 5-step)', () => {
 
     // No mode references anywhere across the rendered flow.
     expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+  });
+
+  it('loads and retries first-context sources under StrictMode', async () => {
+    const user = userEvent.setup();
+    vi.mocked(systemSuggestions.listInstallable)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce([
+        {
+          plugin_id: 'chrome-history',
+          category: 'browser_history',
+          installed: false,
+          rationale: { zh: '', en: '' },
+          setup_time_estimate_seconds: 10,
+          data_locality: 'local_only',
+        },
+      ]);
+
+    render(
+      <StrictMode>
+        <OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />
+      </StrictMode>,
+    );
+
+    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByRole('button', { name: /Ember/i });
+    await user.click(screen.getByRole('button', { name: /Ember/i }));
+    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+
+    expect(await screen.findByText('emptyState.loadErrorTitle')).toBeInTheDocument();
+    await user.click(screen.getByTestId('empty-state-retry'));
+    expect(await screen.findByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(systemSuggestions.listInstallable).toHaveBeenCalledTimes(2);
   });
 
   it('preserves the chosen persona after moving forward and back', async () => {

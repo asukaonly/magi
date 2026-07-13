@@ -119,6 +119,8 @@ export interface InstallableItem {
   category: string;
   installed: boolean;
   rationale: { zh: string; en: string };
+  setup_time_estimate_seconds: number;
+  data_locality: 'local_only' | 'uploads';
 }
 
 /**

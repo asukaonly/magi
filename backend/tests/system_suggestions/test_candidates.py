@@ -35,7 +35,7 @@ def _pkg(pid, desc):
     return SimpleNamespace(manifest=_manifest(pid, desc))
 
 
-def test_partition_excludes_source_active_plugins():
+def test_partition_excludes_active_source_categories():
     from magi.system_suggestions.candidates import partition_for_candidates
 
     packages = [
@@ -44,7 +44,7 @@ def test_partition_excludes_source_active_plugins():
     ]
     registry = [
         _entry("chrome-history", _desc("browser_history")),  # active -> NOT re-suggested
-        _entry("edge-history", _desc("browser_history")),    # not installed -> install
+        _entry("edge-history", _desc("browser_history")),    # active sibling category -> drop
     ]
     # chrome-history has an enabled+configured sensor source (in use).
     active = {"chrome-history"}
@@ -53,10 +53,10 @@ def test_partition_excludes_source_active_plugins():
     )
     cands = build_suggestion_candidates(installed_manifests, registry_entries)
     by_id = {c.plugin_id: c for c in cands}
-    # chrome-history's source is in use -> excluded entirely (not connect, not install).
+    # The active browser category is excluded entirely, including sibling browsers.
     assert "chrome-history" not in by_id
     assert by_id["git-activity"].installed is True       # installed but source off -> connect
-    assert by_id["edge-history"].installed is False       # not installed -> install
+    assert "edge-history" not in by_id
 
 
 def test_partition_without_active_set_keeps_all_installed_as_connect():

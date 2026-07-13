@@ -6,19 +6,13 @@ import type { LLMConfig } from '@/api/modules/config';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
 import { getMemoryModelStatus } from './memoryModelStatus';
 
-const FIRST_CONTEXT_FALLBACK_PLUGIN_IDS = [
-  'chrome-history',
-  'coding_agent_history',
-  'calendar',
-  'git-activity',
-  'photo-library',
-];
-
 interface FirstContextStepProps {
   llmConfig: LLMConfig;
   installableItems?: InstallableItem[];
   installableLoading?: boolean;
+  installableError?: Error | null;
   connectedPluginIds?: string[];
+  onRetryInstallable?: () => void;
   onConnectDone: (pluginId: string) => void;
 }
 
@@ -26,7 +20,9 @@ export function FirstContextStep({
   llmConfig,
   installableItems,
   installableLoading,
+  installableError,
   connectedPluginIds = [],
+  onRetryInstallable,
   onConnectDone,
 }: FirstContextStepProps): JSX.Element {
   const { t } = useTranslation('onboarding');
@@ -75,13 +71,14 @@ export function FirstContextStep({
         ) : null}
 
         <EmptyStateAvailableSensors
+          variant="first_context"
           showBrowseAll={false}
-          fallbackPluginIds={FIRST_CONTEXT_FALLBACK_PLUGIN_IDS}
-          fillWithFallback
           panelContext="first_context"
           excludePluginIds={connectedPluginIds}
           installableItems={installableItems}
           installableLoading={installableLoading}
+          installableError={installableError}
+          onRetryInstallable={onRetryInstallable}
           onConnectDone={onConnectDone}
         />
 

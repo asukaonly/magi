@@ -12,12 +12,16 @@ describe('useInstallableSensors', () => {
         category: 'browser_history',
         installed: false,
         rationale: { zh: '', en: '' },
+        setup_time_estimate_seconds: 10,
+        data_locality: 'local_only',
       },
       {
         plugin_id: 'git-activity',
         category: 'code_activity',
         installed: true,
         rationale: { zh: '', en: '' },
+        setup_time_estimate_seconds: 15,
+        data_locality: 'local_only',
       },
     ]);
   });
@@ -34,5 +38,6 @@ describe('useInstallableSensors', () => {
     const { result } = renderHook(() => useInstallableSensors());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual([]);
+    expect(result.current.error).toBeInstanceOf(Error);
   });
 });

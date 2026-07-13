@@ -277,6 +277,8 @@ def app_with_installable_endpoint():
         descriptor=SimpleNamespace(
             category="browser_history",
             rationale=SimpleNamespace(zh="浏览器历史", en="browsing history"),
+            setup_time_estimate_seconds=10,
+            data_locality="local_only",
         ),
         installed=True,
     )
@@ -285,6 +287,8 @@ def app_with_installable_endpoint():
         descriptor=SimpleNamespace(
             category="music_history",
             rationale=SimpleNamespace(zh="音乐历史", en="music history"),
+            setup_time_estimate_seconds=20,
+            data_locality="uploads",
         ),
         installed=False,
     )
@@ -323,6 +327,8 @@ def test_list_installable_returns_only_available(
     assert item["category"] == "browser_history"
     assert item["installed"] is True
     assert item["rationale"] == {"zh": "浏览器历史", "en": "browsing history"}
+    assert item["setup_time_estimate_seconds"] == 10
+    assert item["data_locality"] == "local_only"
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:

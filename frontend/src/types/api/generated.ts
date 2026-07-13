@@ -4993,6 +4993,11 @@ export interface components {
         readonly InstallableItem: {
             /** Category */
             readonly category: string;
+            /**
+             * Data Locality
+             * @enum {string}
+             */
+            readonly data_locality: "local_only" | "uploads";
             /** Installed */
             readonly installed: boolean;
             /** Plugin Id */
@@ -5001,6 +5006,8 @@ export interface components {
             readonly rationale: {
                 readonly [key: string]: string;
             };
+            /** Setup Time Estimate Seconds */
+            readonly setup_time_estimate_seconds: number;
         };
         /** JournalReflectRequest */
         readonly JournalReflectRequest: {

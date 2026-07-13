@@ -21,6 +21,8 @@ function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
     category: 'browser_history',
     installed: false,
     rationale: { zh: '', en: '' },
+    setup_time_estimate_seconds: 10,
+    data_locality: 'local_only',
     ...overrides,
   };
 }

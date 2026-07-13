@@ -245,8 +245,11 @@
     "edge-history": "Edge history",
     "calendar": "Calendar",
     "git-activity": "Git activity",
+    "github-activity": "GitHub activity",
     "photo-library": "Photo library",
     "coding_agent_history": "Agent history",
+    "obsidian-vault": "Obsidian vault",
+    "local-documents": "Local documents",
     "netease-music": "Listening history",
     "terminal-history": "Terminal history",
     "screen-time": "Screen Time",
@@ -256,26 +259,49 @@
   },
   "emptyState": {
     "heading": "Let me see your activity",
+    "firstContextHeading": "Recommended starting point",
     "connect": "Enable",
     "installAndConnect": "Install & enable",
     "installing": "Installing…",
+    "recommended": "Best place to start",
+    "reviewAndConnect": "Review and connect",
+    "view": "Review",
+    "availableReasonInstalled": "Already installed and ready to connect",
+    "availableReason": "Confirmed available on this device",
+    "localOnly": "Processed locally",
+    "uploads": "Requires upload processing",
+    "setupTime": "About {{seconds}} sec",
+    "checking": "Checking which sources can be connected on this device…",
+    "loadErrorTitle": "Couldn’t check available sources",
+    "loadError": "You can retry or skip this step and connect a source later.",
+    "retry": "Retry",
+    "noAvailable": "No source is a good fit to connect right now",
+    "noAvailableHint": "You can skip this step and add sources from Settings later.",
     "browseAll": "Browse all plugins →",
     "plugins": {
       "chromeHistory": {
         "title": "Chrome history",
-        "value": "Lets magi see what you've been reading online"
+        "value": "Lets magi see what you've been reading online",
+        "firstContextValue": "Continue from the topics you have been exploring recently",
+        "scope": "Page titles and timestamps from the last 7 days"
       },
       "safariHistory": {
         "title": "Safari history",
-        "value": "Lets magi see what you've been reading online"
+        "value": "Lets magi see what you've been reading online",
+        "firstContextValue": "Continue from the topics you have been exploring recently",
+        "scope": "Page titles and timestamps from the last 7 days"
       },
       "firefoxHistory": {
         "title": "Firefox history",
-        "value": "Lets magi see what you've been reading online"
+        "value": "Lets magi see what you've been reading online",
+        "firstContextValue": "Continue from the topics you have been exploring recently",
+        "scope": "Page titles and timestamps from the last 7 days"
       },
       "edgeHistory": {
         "title": "Edge history",
-        "value": "Lets magi see what you've been reading online"
+        "value": "Lets magi see what you've been reading online",
+        "firstContextValue": "Continue from the topics you have been exploring recently",
+        "scope": "Page titles and timestamps from the last 7 days"
       },
       "screenshotTimeline": {
         "title": "Screen activity",
@@ -283,19 +309,45 @@
       },
       "calendar": {
         "title": "Calendar",
-        "value": "Lets magi see what's on your schedule"
+        "value": "Lets magi see what's on your schedule",
+        "firstContextValue": "Give the first conversation a sense of your recent plans and rhythm",
+        "scope": "Events and reminders from the last 30 days"
       },
       "gitActivity": {
         "title": "Git activity",
-        "value": "Lets magi see what you've been building"
+        "value": "Lets magi see what you've been building",
+        "firstContextValue": "Understand active projects from recent commits",
+        "scope": "Commits and branch activity from the last 30 days"
       },
       "photoLibrary": {
         "title": "Photo library",
-        "value": "Lets magi see your photos and recent moments"
+        "value": "Lets magi see your photos and recent moments",
+        "firstContextValue": "Recall recent experiences from time and location metadata",
+        "scope": "Photo time, location, and device metadata"
       },
       "codingAgentHistory": {
         "title": "Agent history",
-        "value": "Lets magi see what you're doing in Claude Code / Codex sessions"
+        "value": "Lets magi see what you're doing in Claude Code / Codex sessions",
+        "firstContextValue": "Understand active projects from questions you asked coding agents",
+        "scope": "Your own messages from the last 30 days"
+      },
+      "githubActivity": {
+        "title": "GitHub activity",
+        "value": "Understand project progress and collaboration from repository activity",
+        "firstContextValue": "Understand project progress and collaboration from repository activity",
+        "scope": "Recent activity from repositories you choose"
+      },
+      "obsidianVault": {
+        "title": "Obsidian vault",
+        "value": "Understand what you are organizing and thinking about from your notes",
+        "firstContextValue": "Understand what you are organizing and thinking about from your notes",
+        "scope": "Markdown from the vault you choose"
+      },
+      "localDocuments": {
+        "title": "Local documents",
+        "value": "Add existing context from local notes and documents",
+        "firstContextValue": "Add existing context from local notes and documents",
+        "scope": "Text and Markdown from folders you choose"
       }
     }
   },

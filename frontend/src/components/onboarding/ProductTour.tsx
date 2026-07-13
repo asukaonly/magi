@@ -69,8 +69,8 @@ export function ProductTour({ onComplete }: ProductTourProps): JSX.Element {
 
         <div className="px-7 py-5">
           <EmptyStateAvailableSensors
+            variant="first_context"
             showBrowseAll={false}
-            fallbackPluginIds={['chrome-history', 'git-activity']}
             panelContext="first_context"
             onConnectStart={() => {
               awaitingPluginRef.current = true;
