@@ -174,6 +174,7 @@ export const ChatPage: React.FC = () => {
     aiAvatar,
     assistantPersonas,
     coreModelSupportsVision,
+    coreModelContextWindow,
     allowInterjection,
   } = useChatSessionLifecycle({
     currentSessionId,
@@ -694,6 +695,7 @@ export const ChatPage: React.FC = () => {
         waitingForReply={waitingForReply}
         attachmentMenuOpen={attachmentMenuOpen}
         coreModelSupportsVision={coreModelSupportsVision}
+        coreModelContextWindow={coreModelContextWindow}
         onToggleAttachmentMenu={() => setAttachmentMenuOpen((open) => !open)}
         onPickImage={() => imageInputRef.current?.click()}
         onPickFile={() => fileInputRef.current?.click()}

@@ -75,6 +75,7 @@ export function useChatSessionLifecycle({
   const [aiAvatar, setAiAvatar] = useState('');
   const [assistantPersonas, setAssistantPersonas] = useState<Record<string, ChatPersonaIdentity>>({});
   const [coreModelSupportsVision, setCoreModelSupportsVision] = useState(false);
+  const [coreModelContextWindow, setCoreModelContextWindow] = useState<number | null>(null);
   const [allowInterjection, setAllowInterjection] = useState(true);
   const bootstrappedSessionIdRef = useRef<string | null>(null);
   // Defer the persona's bootstrap opening until the one-time first-run context
@@ -85,11 +86,18 @@ export function useChatSessionLifecycle({
   useEffect(() => {
     let cancelled = false;
 
-    const loadCoreModelCapabilities = async () => {
+    const loadCoreModelConfig = async () => {
       try {
         const response = await configApi.get();
         if (!cancelled) {
-          setCoreModelSupportsVision(Boolean(response.data?.llm?.selections?.core?.capabilities?.vision));
+          const coreSelection = response.data?.llm?.selections?.core;
+          const contextWindow = coreSelection?.limits?.context_window;
+          setCoreModelSupportsVision(Boolean(coreSelection?.capabilities?.vision));
+          setCoreModelContextWindow(
+            typeof contextWindow === 'number' && Number.isFinite(contextWindow) && contextWindow > 0
+              ? contextWindow
+              : null,
+          );
           const prefs = response.data?.preferences;
           if (prefs) {
             setAllowInterjection(prefs.allow_interjection !== false);
@@ -98,11 +106,12 @@ export function useChatSessionLifecycle({
       } catch {
         if (!cancelled) {
           setCoreModelSupportsVision(false);
+          setCoreModelContextWindow(null);
         }
       }
     };
 
-    void loadCoreModelCapabilities();
+    void loadCoreModelConfig();
     return () => {
       cancelled = true;
     };
@@ -250,6 +259,7 @@ export function useChatSessionLifecycle({
     aiAvatar,
     assistantPersonas,
     coreModelSupportsVision,
+    coreModelContextWindow,
     allowInterjection,
   };
 }

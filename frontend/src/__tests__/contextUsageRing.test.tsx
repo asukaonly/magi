@@ -42,6 +42,41 @@ describe('ContextUsageRing', () => {
     expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 256k');
   });
 
+  it('uses the configured context window before runtime usage arrives', () => {
+    render(
+      <ContextUsageRing
+        sessionId="session-1"
+        configuredWindowSize={1_000_000}
+      />,
+    );
+
+    const meter = screen.getByRole('meter', {
+      name: '上下文用量：0 / 1M（0%）',
+    });
+    expect(meter).toHaveAttribute('aria-valuemax', '1000000');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('0 / 1M');
+  });
+
+  it('keeps the current model window when an older runtime snapshot differs', () => {
+    useContextUsageStore.getState().update('session-1', {
+      used_tokens: 10_000,
+      window_size: 256_000,
+      threshold: 192_000,
+    });
+
+    render(
+      <ContextUsageRing
+        sessionId="session-1"
+        configuredWindowSize={1_000_000}
+      />,
+    );
+
+    expect(screen.getByRole('meter', {
+      name: '上下文用量：10k / 1M（1%）',
+    })).toHaveAttribute('aria-valuemax', '1000000');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('10k / 1M');
+  });
+
   it('explains that the total is unavailable before usage arrives', () => {
     render(<ContextUsageRing sessionId="session-1" />);
 

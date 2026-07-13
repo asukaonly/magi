@@ -41,6 +41,7 @@ export type ChatComposerShellProps = {
   waitingForReply: boolean;
   attachmentMenuOpen: boolean;
   coreModelSupportsVision: boolean;
+  coreModelContextWindow: number | null;
   onToggleAttachmentMenu: () => void;
   onPickImage: () => void;
   onPickFile: () => void;
@@ -69,6 +70,7 @@ export const ChatComposerShell = ({
   waitingForReply,
   attachmentMenuOpen,
   coreModelSupportsVision,
+  coreModelContextWindow,
   onToggleAttachmentMenu,
   onPickImage,
   onPickFile,
@@ -132,7 +134,10 @@ export const ChatComposerShell = ({
           <div className="relative">
             <SessionSafetyControl sessionId={sessionId} />
           </div>
-          <ContextUsageRing sessionId={sessionId} />
+          <ContextUsageRing
+            sessionId={sessionId}
+            configuredWindowSize={coreModelContextWindow}
+          />
         </div>
         <div data-testid="chat-composer-primary-action">
           <button

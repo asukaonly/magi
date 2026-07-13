@@ -187,6 +187,10 @@ describe('ChatPage', () => {
               ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections.core.capabilities),
               vision,
             },
+            limits: {
+              ...structuredClone(DEFAULT_SYSTEM_CONFIG.llm.selections.core.limits),
+              context_window: 1_000_000,
+            },
           },
         },
       },
@@ -287,12 +291,12 @@ describe('ChatPage', () => {
     expect(personasApi.list).toHaveBeenCalledWith({ includeDeleted: true });
   });
 
-  it('keeps context usage visible with a zero placeholder before runtime updates arrive', async () => {
+  it('shows the configured context window before runtime updates arrive', async () => {
     render(<ChatPage />);
 
-    expect(await screen.findByRole('status', {
-      name: 'chat.contextUsage.unavailableLabel',
-    })).toHaveTextContent('0');
+    expect(await screen.findByRole('meter', {
+      name: 'chat.contextUsage.label',
+    })).toHaveAttribute('aria-valuemax', '1000000');
   });
 
   it('does not show first-conversation starter chips in empty sessions', () => {

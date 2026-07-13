@@ -49,6 +49,7 @@ function formatTokens(n: number): string {
 
 interface ContextUsageRingProps {
   sessionId: string | null;
+  configuredWindowSize?: number | null;
 }
 
 const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ snapshot }) => {
@@ -159,14 +160,26 @@ const ContextUsageRingInner: React.FC<{ snapshot: ContextUsageSnapshot }> = ({ s
   );
 };
 
-export const ContextUsageRing: React.FC<ContextUsageRingProps> = ({ sessionId }) => {
-  const snapshot = useContextUsageStore((state) =>
+export const ContextUsageRing: React.FC<ContextUsageRingProps> = ({
+  sessionId,
+  configuredWindowSize,
+}) => {
+  const runtimeSnapshot = useContextUsageStore((state) =>
     sessionId ? state.usage[sessionId] : undefined,
   );
-  return <ContextUsageRingInner snapshot={snapshot ?? {
-    usedTokens: 0,
-    windowSize: 0,
-    threshold: 0,
-    updatedAt: 0,
-  }} />;
+  const hasConfiguredWindow = typeof configuredWindowSize === 'number'
+    && Number.isFinite(configuredWindowSize)
+    && configuredWindowSize > 0;
+  return (
+    <ContextUsageRingInner
+      snapshot={{
+        usedTokens: runtimeSnapshot?.usedTokens ?? 0,
+        windowSize: hasConfiguredWindow
+          ? configuredWindowSize
+          : runtimeSnapshot?.windowSize ?? 0,
+        threshold: runtimeSnapshot?.threshold ?? 0,
+        updatedAt: runtimeSnapshot?.updatedAt ?? 0,
+      }}
+    />
+  );
 };
