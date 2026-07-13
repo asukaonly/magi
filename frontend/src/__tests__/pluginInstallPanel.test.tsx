@@ -431,6 +431,7 @@ describe('PluginInstallPanel', () => {
           name_i18n: {},
           version: '0.1.2',
           official: true,
+          icon: 'brand:neteasecloudmusic',
           capabilities: [{ capability: 'network', scope: ['ws.audioscrobbler.com'] }],
         },
       ],
@@ -453,6 +454,7 @@ describe('PluginInstallPanel', () => {
         screen.getByText(/settings\.marketplace\.consent\.title\.install/),
       ).toBeInTheDocument(),
     );
+    expect(screen.getByTestId('plugin-icon-neteasecloudmusic')).toBeInTheDocument();
     expect(installSpy).not.toHaveBeenCalled();
 
     // Confirming consent proceeds to the install.

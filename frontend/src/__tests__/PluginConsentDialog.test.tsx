@@ -31,4 +31,33 @@ describe('PluginConsentDialog', () => {
     expect(screen.getByText('settings.marketplace.consent.ledeEmpty')).toBeTruthy();
     expect(screen.getByText('settings.marketplace.consent.confirm.install')).toBeTruthy();
   });
+
+  it('shows the plugin icon and renders each declared scope on its own line', () => {
+    render(
+      <PluginConsentDialog
+        open
+        mode="install"
+        pluginName="Chrome History"
+        pluginId="chrome-history"
+        pluginIcon="brand:googlechrome"
+        version="1.0.0"
+        capabilities={[{
+          ...cap('filesystem_read'),
+          scope: [
+            '~/Library/Application Support/Google/Chrome',
+            '%LOCALAPPDATA%\\Google\\Chrome',
+          ],
+          reason: 'Read the local Chrome history database',
+        }]}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('plugin-icon-googlechrome')).toBeTruthy();
+    expect(screen.getByText('~/Library/Application Support/Google/Chrome').tagName).toBe('CODE');
+    expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome').tagName).toBe('CODE');
+    expect(screen.getByText('~/Library/Application Support/Google/Chrome')).toHaveClass('block');
+    expect(screen.getByText('%LOCALAPPDATA%\\Google\\Chrome')).toHaveClass('block');
+  });
 });

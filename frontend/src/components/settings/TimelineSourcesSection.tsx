@@ -922,6 +922,8 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             open
             mode="install"
             pluginName={installConsentEntry.entryDisplayName}
+            pluginId={installConsentEntry.pluginId}
+            pluginIcon={installConsentEntry.icon}
             version={installConsentEntry.version}
             official={installConsentEntry.official}
             capabilities={installConsentEntry.capabilities ?? []}

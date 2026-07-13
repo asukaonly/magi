@@ -96,6 +96,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   const [consent, setConsent] = useState<{
     mode: ConsentMode;
     name: string;
+    pluginId?: string;
+    icon?: string | null;
     version: string;
     official?: boolean;
     capabilities: PluginCapability[];
@@ -224,6 +226,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     setConsent({
       mode: 'install',
       name: getMarketplaceItemName(item, language),
+      pluginId: item.id,
+      icon: getMarketplaceItemIcon(item),
       version: item.primary.version,
       official: installableEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(installableEntries),
@@ -263,6 +267,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     setConsent({
       mode: 'install',
       name: getMarketplaceItemName(item, language),
+      pluginId: item.id,
+      icon: getMarketplaceItemIcon(item),
       version: item.primary.version,
       official: selectedEntries.every((entry) => entry.official),
       capabilities: getEntryCapabilities(selectedEntries),
@@ -325,6 +331,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     setConsent({
       mode: 'update',
       name: getMarketplaceItemName(item, language),
+      pluginId: item.id,
+      icon: getMarketplaceItemIcon(item),
       version: item.primary.version,
       official: item.entries.every((entry) => entry.official),
       capabilities: declared,
@@ -366,6 +374,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
     setConsent({
       mode: 'sideload',
       name: manifest.name,
+      pluginId: manifest.plugin_id,
+      icon: manifest.icon,
       version: manifest.version,
       capabilities: manifest.capabilities ?? [],
       proceed: () => runUpload(file),
@@ -833,6 +843,8 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           open
           mode={consent.mode}
           pluginName={consent.name}
+          pluginId={consent.pluginId}
+          pluginIcon={consent.icon}
           version={consent.version}
           official={consent.official}
           capabilities={consent.capabilities}

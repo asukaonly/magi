@@ -84,6 +84,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     capabilities: PluginCapability[];
     version: string;
     official: boolean;
+    icon: string | null;
   } | null>(null);
 
   // In install mode, hold the connect flow until the user accepts the plugin's
@@ -115,10 +116,13 @@ export function PluginInstallPanel(): JSX.Element | null {
           capabilities: e?.capabilities ?? [],
           version: e?.version ?? '',
           official: e?.official ?? false,
+          icon: e?.icon ?? null,
         });
       })
       .catch(() => {
-        if (!cancelled) setEntryMeta({ capabilities: [], version: '', official: false });
+        if (!cancelled) {
+          setEntryMeta({ capabilities: [], version: '', official: false, icon: null });
+        }
       });
     return () => {
       cancelled = true;
@@ -325,6 +329,8 @@ export function PluginInstallPanel(): JSX.Element | null {
         open
         mode="install"
         pluginName={name}
+        pluginId={pluginId ?? undefined}
+        pluginIcon={entryMeta?.icon}
         version={entryMeta?.version ?? ''}
         official={entryMeta?.official}
         capabilities={entryMeta?.capabilities ?? []}

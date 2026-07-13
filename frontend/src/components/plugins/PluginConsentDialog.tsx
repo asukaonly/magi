@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button';
 import type { PluginCapability } from '@/api/modules/plugins';
 import { capabilityMeta, groupCapabilities } from '@/lib/pluginCapabilities';
+import { PluginIcon } from './PluginIcon';
 
 export type ConsentMode = 'install' | 'update' | 'sideload';
 
@@ -14,6 +15,8 @@ interface Props {
   open: boolean;
   mode: ConsentMode;
   pluginName: string;
+  pluginId?: string;
+  pluginIcon?: string | null;
   version: string;
   official?: boolean;
   capabilities: PluginCapability[];
@@ -27,7 +30,17 @@ function localizedReason(c: PluginCapability, lang: string, fallback: string): s
 }
 
 export const PluginConsentDialog: React.FC<Props> = ({
-  open, mode, pluginName, version, official, capabilities, newCapabilities, onConfirm, onCancel,
+  open,
+  mode,
+  pluginName,
+  pluginId,
+  pluginIcon,
+  version,
+  official,
+  capabilities,
+  newCapabilities,
+  onConfirm,
+  onCancel,
 }) => {
   const { t, i18n } = useTranslation('app');
   const lang = i18n.language;
@@ -41,21 +54,33 @@ export const PluginConsentDialog: React.FC<Props> = ({
     const desc = localizedReason(c, lang, t(`${meta.i18nKey}.desc`));
     return (
       <div key={`${c.capability}:${c.scope.join(',')}:${idx}`}
-        className={`flex gap-2 py-1.5 ${highlight ? 'rounded-md bg-orange-50 px-2' : ''}`}>
-        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        className={`grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2.5 py-2 ${highlight ? 'rounded-md bg-orange-50 px-2' : ''}`}>
+        <Icon className="mt-0.5 h-4 w-4 text-muted-foreground" />
         <div className="min-w-0">
-          <div className="text-sm font-medium">
-            {label}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm font-medium leading-5">
+            <span>{label}</span>
             {c.scope.length > 0 && (
-              <code className="ml-1.5 text-xs text-muted-foreground">{c.scope.join(', ')}</code>
+              <span className="sr-only">:</span>
             )}
             {c.optional && (
-              <span className="ml-1.5 inline-flex items-center rounded border border-border/60 px-1 py-px text-[10px] font-normal leading-none text-muted-foreground/90 align-[1px]">
+              <span className="inline-flex items-center rounded border border-border/60 px-1 py-px text-[10px] font-normal leading-none text-muted-foreground/90">
                 {t('settings.marketplace.consent.optionalTag')}
               </span>
             )}
           </div>
-          <div className="text-xs text-muted-foreground">{desc}</div>
+          {c.scope.length > 0 ? (
+            <div className="mt-1 space-y-0.5">
+              {c.scope.map((scope, scopeIndex) => (
+                <code
+                  key={`${scope}:${scopeIndex}`}
+                  className="block max-w-full whitespace-normal break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]"
+                >
+                  {scope}
+                </code>
+              ))}
+            </div>
+          ) : null}
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">{desc}</div>
         </div>
       </div>
     );
@@ -90,15 +115,27 @@ export const PluginConsentDialog: React.FC<Props> = ({
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onCancel(); }}>
       <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>
-            {t(`settings.marketplace.consent.title.${mode}`, { name: pluginName })}
-          </DialogTitle>
-          <DialogDescription className="text-xs text-muted-foreground">
-            v{version} · {t(official
-              ? 'settings.marketplace.badge.official'
-              : 'settings.marketplace.consent.thirdParty')}
-          </DialogDescription>
+        <DialogHeader className="pr-12">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/55 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
+              <PluginIcon
+                iconId={pluginIcon}
+                pluginId={pluginId}
+                sourceName={pluginName}
+                className="h-6 w-6"
+              />
+            </div>
+            <div className="min-w-0 space-y-1.5 pt-0.5">
+              <DialogTitle className="break-words leading-6">
+                {t(`settings.marketplace.consent.title.${mode}`, { name: pluginName })}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                v{version} · {t(official
+                  ? 'settings.marketplace.badge.official'
+                  : 'settings.marketplace.consent.thirdParty')}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="max-h-[60vh] space-y-3 overflow-y-auto px-6 pb-4">
