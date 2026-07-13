@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Iterable
 
 
@@ -32,9 +33,29 @@ def _summary_payload(value: Any) -> dict[str, Any]:
         try:
             decoded = json.loads(text)
         except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
+            return _partial_summary_payload(text)
         return decoded if isinstance(decoded, dict) else {}
     return {}
+
+
+def _partial_summary_payload(text: str) -> dict[str, str]:
+    payload: dict[str, str] = {}
+    for key in ("label", "title", "content", "summary", "description", "recap", "text"):
+        value = _extract_json_string_field(text, key)
+        if value:
+            payload[key] = value
+    return payload
+
+
+def _extract_json_string_field(text: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*("(?:\\.|[^"\\])*")', text)
+    if not match:
+        return ""
+    try:
+        decoded = json.loads(match.group(1))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return ""
+    return decoded if isinstance(decoded, str) else ""
 
 
 def _summary_content_text(value: Any) -> str:
@@ -89,7 +110,7 @@ def serialize_episodic_summary(row: dict[str, Any] | None) -> dict[str, Any] | N
     return {
         "summary_id": row.get("summary_id"),
         "content": _summary_content_text(row.get("content")),
-        "label": _first_text(metadata.get("label"), content_payload.get("label"), content_payload.get("title")),
+        "label": _first_text(content_payload.get("label"), content_payload.get("title"), metadata.get("label")),
         "updated_at": row.get("updated_at"),
         "is_fallback": bool(metadata.get("fallback")),
     }
@@ -101,13 +122,22 @@ def build_episode_display_fields(
 ) -> dict[str, str]:
     """Resolve title and recap fields for the reading-first episode page."""
     summary = episode_summary or {}
+    episode_summary_payload = _summary_payload(episode.get("summary"))
+    slice_narrative_payload = _summary_payload(episode.get("slice_narrative"))
     user_title = _clean_text(episode.get("user_label"))
     user_description = _clean_text(episode.get("user_note"))
-    generated_title = _first_text(summary.get("label"), episode.get("label"))
+    generated_title = _first_text(
+        summary.get("label"),
+        episode_summary_payload.get("label"),
+        episode_summary_payload.get("title"),
+        slice_narrative_payload.get("label"),
+        slice_narrative_payload.get("title"),
+        episode.get("label"),
+    )
     generated_description = _first_text(
         summary.get("content"),
-        episode.get("summary"),
-        episode.get("slice_narrative"),
+        _summary_content_text(episode.get("summary")),
+        _summary_content_text(episode.get("slice_narrative")),
     )
 
     display_title = user_title or generated_title or _fallback_title(episode)
