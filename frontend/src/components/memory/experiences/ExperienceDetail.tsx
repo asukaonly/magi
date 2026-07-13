@@ -5,7 +5,6 @@ import {
   EyeOff,
   ImageIcon,
   Pencil,
-  Quote,
   RefreshCw,
   Star,
 } from 'lucide-react';
@@ -42,6 +41,7 @@ import {
 import { RelatedObjectsPanel } from './ExperienceRelatedObjects';
 import { SourceEpisodeList } from './ExperienceSourceEpisodes';
 import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
+import ExperienceHero from './ExperienceHero';
 
 const DETAIL_INFO_PANEL_CLASS = 'rounded-xl border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-4 py-3 text-sm text-[hsl(var(--memory-muted))]';
 
@@ -262,22 +262,14 @@ export function ExperienceDetail({
         </div>
       </div>
 
-      <header
-        data-testid="experience-cover-hero"
-        style={displayCoverUrl ? { backgroundImage: `url("${displayCoverUrl}")` } : undefined}
-        className={cn(
-          'relative isolate mt-3 min-h-[360px] overflow-hidden rounded-xl bg-[hsl(var(--memory-panel-elevated))] bg-cover bg-center ring-1 ring-inset ring-[hsl(var(--memory-border)/0.22)]',
-          !isInline && 'shadow-[0_14px_42px_hsl(var(--memory-title)/0.055)]'
-        )}
-      >
-        {!displayCoverUrl ? (
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--memory-panel-elevated)),hsl(var(--memory-accent-soft)/0.42))]" />
-        ) : null}
-        <div className="absolute inset-0 bg-[linear-gradient(90deg,hsl(var(--memory-panel-elevated)/0.94)_0%,hsl(var(--memory-panel-elevated)/0.82)_42%,hsl(var(--memory-panel-elevated)/0.18)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-2/3 bg-[linear-gradient(0deg,hsl(var(--memory-panel-elevated)/0.88),transparent)]" />
-
-        <div className="relative z-10 flex min-h-[360px] max-w-3xl flex-col justify-center px-6 py-7 md:px-10 md:py-8">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+      <ExperienceHero
+        coverUrl={displayCoverUrl}
+        title={title}
+        titleLevel={1}
+        variant={variant}
+        className="mt-3"
+        topContent={(
+          <div className="flex flex-wrap items-center gap-2">
             {experience.user_pinned ? (
               <Badge variant="outline" className="rounded-full border-[hsl(var(--memory-accent)/0.26)] bg-[hsl(var(--memory-panel-elevated)/0.74)] text-[hsl(var(--memory-title))]">
                 <Star className="mr-1 h-3.5 w-3.5" aria-hidden="true" />
@@ -296,34 +288,19 @@ export function ExperienceDetail({
               </span>
             ) : null}
           </div>
-
-          <h2 className={cn(
-            'mt-5 max-w-3xl break-words font-semibold leading-tight text-[hsl(var(--memory-title))]',
-            isInline ? 'text-2xl' : 'text-3xl md:text-[2.28rem]'
-          )}>
-            {title}
-          </h2>
-
-          <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[hsl(var(--memory-muted))]">
+        )}
+        metadata={(
+          <>
             <span className="inline-flex items-center gap-1">
               <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
               {t('memory.episodes.episodeCount', { count: experience.source_episode_count ?? 0 })}
             </span>
             <span>{t('memory.episodes.eventCount', { count: experience.source_event_count ?? 0 })}</span>
-          </div>
-
-          <div className="mt-7 max-w-2xl border-l-2 border-[hsl(var(--memory-accent)/0.38)] bg-[hsl(var(--memory-panel-elevated)/0.5)] px-5 py-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
-              <Quote className="h-4 w-4 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
-              {t('memory.episodes.sections.recap')}
-            </div>
-            <p className="mt-3 whitespace-pre-wrap break-words text-base leading-8 text-[hsl(var(--memory-body))]">
-              {readableRecap || t('memory.episodes.noRecap')}
-            </p>
-          </div>
-
-        </div>
-      </header>
+          </>
+        )}
+        recapLabel={t('memory.episodes.sections.recap')}
+        recap={readableRecap || t('memory.episodes.noRecap')}
+      />
 
       <main className="mt-4 min-w-0 space-y-5">
         {hasRelatedObjects ? (

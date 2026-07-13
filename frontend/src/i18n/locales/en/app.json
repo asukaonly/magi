@@ -2862,6 +2862,7 @@
         "back": "Back to experiences",
         "autosaved": "Saved",
         "saveFailed": "Could not save. Your edits are still here.",
+        "coverFailed": "The cover could not be saved. Try again.",
         "createFailed": "Could not create this experience. Try again.",
         "notFound": "This experience draft could not be found.",
         "continue": "Continue organizing",

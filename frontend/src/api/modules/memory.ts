@@ -416,6 +416,7 @@ export interface ExperienceDraft {
   chapters: ExperienceDraftChapter[];
   possible_evidence: ExperienceDraftEvidence[];
   excluded_evidence: ExperienceDraftEvidence[];
+  user_cover_asset_ref?: string | null;
   created_experience_id?: string | null;
   created_at: number;
   updated_at: number;
@@ -908,6 +909,15 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`)),
   updateExperienceDraft: async (draftId: string, payload: ExperienceDraftUpdatePayload): Promise<ExperienceDraft> =>
     unwrapMemoryResponse(await api.patch<ExperienceDraft>(`/memory/l2/experience-drafts/${draftId}`, payload)),
+  uploadExperienceDraftCover: async (draftId: string, file: File): Promise<ExperienceDraft> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return unwrapMemoryResponse(await api.post<ExperienceDraft>(
+      `/memory/l2/experience-drafts/${draftId}/cover`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    ));
+  },
   createExperienceFromDraft: async (draftId: string): Promise<{
     draft_id: string;
     experience_id: string;

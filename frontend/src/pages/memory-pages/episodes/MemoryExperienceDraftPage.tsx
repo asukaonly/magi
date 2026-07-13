@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, PencilLine, Sparkles } from 'lucide-react';
+import { ArrowLeft, ChevronDown, ImageIcon, PencilLine, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -11,9 +11,11 @@ import {
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { ExperienceDraftSegmentCard } from '@/components/memory/experiences/ExperienceDraftSegmentCard';
+import ExperienceHero from '@/components/memory/experiences/ExperienceHero';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatEpisodeTimeRange } from '@/components/memory/episodes/EpisodeRow';
+import { resolveTimelineAssetUrl } from '@/utils/timelineAssetUrl';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from '../MemoryPageFrame';
 
 const toDateValue = (value?: number | null) => {
@@ -221,11 +223,26 @@ export const MemoryExperienceDraftPage = () => {
   const [notFound, setNotFound] = useState(false);
   const [possibleOpen, setPossibleOpen] = useState(false);
   const [editingPreview, setEditingPreview] = useState(false);
+  const [coverSaving, setCoverSaving] = useState(false);
+  const [coverFailed, setCoverFailed] = useState(false);
+  const [localCoverUrl, setLocalCoverUrl] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const saveContextRef = useRef<DraftSaveContext | null>(null);
   const pendingFocusRef = useRef<PendingFocus | null>(null);
   const chapterCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
   const possibleCheckboxRefs = useRef(new Map<string, HTMLInputElement>());
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const localCoverUrlRef = useRef<string | null>(null);
+
+  const replaceLocalCoverUrl = useCallback((nextUrl: string | null) => {
+    if (localCoverUrlRef.current) URL.revokeObjectURL(localCoverUrlRef.current);
+    localCoverUrlRef.current = nextUrl;
+    setLocalCoverUrl(nextUrl);
+  }, []);
+
+  useEffect(() => () => {
+    if (localCoverUrlRef.current) URL.revokeObjectURL(localCoverUrlRef.current);
+  }, []);
 
   useEffect(() => {
     const context: DraftSaveContext = {
@@ -247,6 +264,9 @@ export const MemoryExperienceDraftPage = () => {
     setNotFound(false);
     setPossibleOpen(false);
     setEditingPreview(false);
+    setCoverSaving(false);
+    setCoverFailed(false);
+    replaceLocalCoverUrl(null);
     setAnnouncement('');
     pendingFocusRef.current = null;
     chapterCheckboxRefs.current.clear();
@@ -273,7 +293,7 @@ export const MemoryExperienceDraftPage = () => {
         if (!cancelled && saveContextRef.current === context) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [draftId]);
+  }, [draftId, replaceLocalCoverUrl]);
 
   const enqueueSave = useCallback((
     context: DraftSaveContext,
@@ -496,6 +516,35 @@ export const MemoryExperienceDraftPage = () => {
     }
   };
 
+  const updateCover = async (file: File) => {
+    const context = saveContextRef.current;
+    if (!draftId || !context || context.draftId !== draftId) return;
+    const previewUrl = URL.createObjectURL(file);
+    replaceLocalCoverUrl(previewUrl);
+    setCoverFailed(false);
+    setCoverSaving(true);
+    try {
+      const updatedDraft = await memoryApi.uploadExperienceDraftCover(draftId, file);
+      if (saveContextRef.current !== context) return;
+      context.draft = context.draft
+        ? { ...context.draft, user_cover_asset_ref: updatedDraft.user_cover_asset_ref }
+        : context.draft;
+      setDraft((current) => (
+        current?.draft_id === draftId
+          ? { ...current, user_cover_asset_ref: updatedDraft.user_cover_asset_ref }
+          : current
+      ));
+      replaceLocalCoverUrl(null);
+    } catch {
+      if (saveContextRef.current === context) {
+        replaceLocalCoverUrl(null);
+        setCoverFailed(true);
+      }
+    } finally {
+      if (saveContextRef.current === context) setCoverSaving(false);
+    }
+  };
+
   const visibleDraft = draft?.draft_id === draftId ? draft : null;
   const visibleLoading = loading || (!visibleDraft && !notFound);
   const activeSaving = saveContextRef.current?.draftId === draftId && saving;
@@ -504,6 +553,7 @@ export const MemoryExperienceDraftPage = () => {
   const draftDateRange = visibleDraft
     ? formatDraftDateRange(visibleDraft.time_start, visibleDraft.time_end, i18n.language)
     : '';
+  const displayCoverUrl = localCoverUrl || resolveTimelineAssetUrl(visibleDraft?.user_cover_asset_ref);
 
   return (
     <MemoryPageFrame
@@ -513,35 +563,19 @@ export const MemoryExperienceDraftPage = () => {
       className="max-w-none gap-0 px-0 py-0"
       contentClassName="flex min-h-full flex-col pb-0"
     >
-      <div className="sticky top-0 z-20 grid min-h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-b border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-elevated)/0.96)] px-3 sm:px-6">
+      <div className="mx-auto w-full max-w-[1180px] px-4 pt-3 sm:px-8 sm:pt-4">
         <Button
           variant="ghost"
           aria-label={t('memory.episodes.draft.back')}
-          className="h-8 min-w-0 justify-self-start px-2 text-xs sm:text-sm"
+          className="h-8 px-1.5 text-sm text-[hsl(var(--memory-muted))] hover:bg-transparent hover:text-[hsl(var(--memory-title))]"
           onClick={() => navigate('/memory/episodes')}
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden truncate sm:inline">{t('memory.episodes.draft.back')}</span>
+          <span>{t('memory.episodes.draft.back')}</span>
         </Button>
-        <h1 className="whitespace-nowrap text-sm font-semibold text-[hsl(var(--memory-title))]">
-          {t('memory.episodes.draft.title')}
-        </h1>
-        <span
-          aria-live="polite"
-          className={`inline-flex min-w-0 items-center gap-1.5 justify-self-end truncate text-xs ${
-            activeSaveFailed ? 'text-[hsl(var(--destructive))]' : 'text-[hsl(var(--memory-muted))]'
-          }`}
-        >
-          {!activeSaving && !activeSaveFailed ? <Check className="h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" /> : null}
-          {activeSaving
-            ? t('common.saving')
-            : activeSaveFailed
-              ? t('memory.episodes.draft.saveFailed')
-              : t('memory.episodes.draft.autosaved')}
-        </span>
       </div>
       <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
-        {announcement}
+        {[announcement, activeSaving ? t('common.saving') : ''].filter(Boolean).join(' ')}
       </div>
 
       {visibleLoading ? <div className={`m-6 ${MEMORY_INFO_PANEL_CLASS}`}>{t('common.loading')}</div> : null}
@@ -550,35 +584,81 @@ export const MemoryExperienceDraftPage = () => {
       ) : null}
       {visibleDraft ? (
         <div className="flex min-h-0 flex-1 flex-col">
-          <main className="mx-auto w-full max-w-[900px] flex-1 space-y-8 px-4 py-7 sm:px-8 sm:py-8">
-            <section className="border-b border-[hsl(var(--memory-border)/0.48)] pb-7">
-              <p className="flex items-start gap-2 text-sm leading-6 text-[hsl(var(--memory-muted))]">
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--memory-accent-soft)/0.56)] text-[hsl(var(--memory-accent))]">
-                  <Sparkles className="h-3 w-3" aria-hidden="true" />
-                </span>
-                <span>{t('memory.episodes.draft.queryContext', { query: visibleDraft.query_text })}</span>
-              </p>
+          <main className="w-full flex-1 space-y-8 px-4 pb-8 pt-3 sm:px-8 sm:pb-10">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              aria-label={t('memory.episodes.actions.changeCoverFile')}
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void updateCover(file);
+              }}
+            />
 
-              <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-[hsl(var(--memory-accent))]">
-                    {t('memory.episodes.draft.previewEyebrow')}
-                  </p>
-                  {!editingPreview ? (
-                    <>
-                      <h2 className="mt-2 break-words text-2xl font-semibold leading-tight text-[hsl(var(--memory-title))] sm:text-[1.75rem]">
-                        {visibleDraft.title}
-                      </h2>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[hsl(var(--memory-muted))]">
-                        <span>{draftDateRange}</span>
-                        <span>{t('memory.episodes.draft.segmentCount', { count: visibleDraft.chapters.length })}</span>
-                      </div>
-                      <p className="mt-4 max-w-[760px] text-base leading-7 text-[hsl(var(--memory-body))]">
-                        {visibleDraft.one_sentence_review}
-                      </p>
-                    </>
-                  ) : (
-                    <div className="mt-3 space-y-4">
+            <div className="mx-auto w-full max-w-[1180px]">
+              <ExperienceHero
+                coverUrl={displayCoverUrl}
+                title={visibleDraft.title}
+                titleLevel={1}
+                eyebrow={t('memory.episodes.draft.previewEyebrow')}
+                topContent={(
+                  <span className="flex items-start gap-2 leading-5">
+                    <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[hsl(var(--memory-accent))]" aria-hidden="true" />
+                    <span>{t('memory.episodes.draft.queryContext', { query: visibleDraft.query_text })}</span>
+                  </span>
+                )}
+                actions={(
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={coverSaving}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-9 border-[hsl(var(--memory-border)/0.62)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-3 text-xs shadow-none"
+                    >
+                      <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                      {coverSaving ? t('common.saving') : t('memory.episodes.actions.changeCover')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setEditingPreview((current) => !current)}
+                      className="h-9 border-[hsl(var(--memory-border)/0.62)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-3 text-xs shadow-none"
+                    >
+                      <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
+                      {editingPreview ? t('memory.episodes.draft.finishEditing') : t('memory.episodes.draft.adjustPreview')}
+                    </Button>
+                  </>
+                )}
+                metadata={(
+                  <>
+                    <span>{draftDateRange}</span>
+                    <span>{t('memory.episodes.draft.segmentCount', { count: visibleDraft.chapters.length })}</span>
+                  </>
+                )}
+                recapLabel={t('memory.episodes.draft.recap')}
+                recap={visibleDraft.one_sentence_review}
+              />
+              {activeSaveFailed ? (
+                <p role="alert" className="mt-3 text-sm text-[hsl(var(--destructive))]">
+                  {t('memory.episodes.draft.saveFailed')}
+                </p>
+              ) : null}
+              {coverFailed ? (
+                <p role="alert" className="mt-3 text-sm text-[hsl(var(--destructive))]">
+                  {t('memory.episodes.draft.coverFailed')}
+                </p>
+              ) : null}
+            </div>
+
+            {editingPreview ? (
+              <section className="mx-auto w-full max-w-[900px] rounded-lg border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel-subtle)/0.32)] p-4 sm:p-5">
+                <div className="space-y-4">
                       <label className="block space-y-1.5">
                         <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.fields.title')}</span>
                         <Input
@@ -628,23 +708,11 @@ export const MemoryExperienceDraftPage = () => {
                           className="min-h-24 resize-none text-sm leading-6"
                         />
                       </label>
-                    </div>
-                  )}
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setEditingPreview((current) => !current)}
-                  className="h-9 self-start border-[hsl(var(--memory-border)/0.62)] bg-transparent px-3 text-xs shadow-none"
-                >
-                  <PencilLine className="h-3.5 w-3.5" aria-hidden="true" />
-                  {editingPreview ? t('memory.episodes.draft.finishEditing') : t('memory.episodes.draft.adjustPreview')}
-                </Button>
-              </div>
-            </section>
+              </section>
+            ) : null}
 
-            <section aria-labelledby="draft-segments-title">
+            <section aria-labelledby="draft-segments-title" className="mx-auto w-full max-w-[900px]">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
                   <h2 id="draft-segments-title" className="text-base font-semibold text-[hsl(var(--memory-title))]">
@@ -681,7 +749,7 @@ export const MemoryExperienceDraftPage = () => {
               <details
                 open={possibleOpen}
                 onToggle={(event) => setPossibleOpen(event.currentTarget.open)}
-                className="group border-t border-[hsl(var(--memory-border)/0.48)] pt-4"
+                className="group mx-auto w-full max-w-[900px] border-t border-[hsl(var(--memory-border)/0.48)] pt-4"
               >
                 <summary
                   tabIndex={0}

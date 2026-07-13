@@ -58,6 +58,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.create.selectedCount': '{{count}} selected',
     'memory.episodes.draft.title': 'Organize experience',
     'memory.episodes.draft.autosaved': 'Saved',
+    'memory.episodes.draft.coverFailed': 'The cover could not be saved. Try again.',
     'memory.episodes.draft.createFailed': 'Could not create this experience. Try again.',
     'memory.episodes.draft.back': 'Back to experiences',
     'memory.episodes.draft.queryContext': 'Based on your description: {{query}}',
@@ -174,6 +175,7 @@ vi.mock('@/api/modules/memory', () => ({
     organizeExperienceDraft: vi.fn(),
     getExperienceDraft: vi.fn(),
     updateExperienceDraft: vi.fn(),
+    uploadExperienceDraftCover: vi.fn(),
     createExperienceFromDraft: vi.fn(),
     getEpisode: vi.fn(),
     getL1Events: vi.fn(),
@@ -808,7 +810,8 @@ describe('MemoryEpisodesPage', () => {
         query_text: '2026年5月1日到10日 日本旅行',
       });
     });
-    expect(await screen.findByText('Organize experience')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Back to experiences' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Organize experience' })).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2026年5月 日本旅行' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '出发前，把路线定下来' })).toBeChecked();
     expect(screen.getByText('比较新干线车票和住宿，把第一段行程安排清楚。')).toBeInTheDocument();
@@ -836,6 +839,49 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.getByLabelText('Start date')).toBeInTheDocument();
     expect(screen.getByLabelText('End date')).toBeInTheDocument();
     expect(screen.getByLabelText('One-sentence recap')).toHaveValue('从东京走到京都、奈良和大阪的一段旅行。');
+  });
+
+  it('uses the shared experience hero without a workspace-style draft title bar', async () => {
+    vi.mocked(memoryApi.getExperienceDraft).mockResolvedValueOnce(makeExperienceDraft({
+      user_cover_asset_ref: 'manual-entry-asset://draft-cover.jpg',
+    } as never) as never);
+
+    renderDraftPage();
+
+    const backButtons = await screen.findAllByRole('button', { name: 'Back to experiences' });
+    expect(backButtons).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Organize experience' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    const hero = screen.getByTestId('experience-cover-hero');
+    expect(hero).toContainElement(screen.getByRole('heading', { name: '2026年5月 日本旅行' }));
+    expect(hero.getAttribute('style')).toContain(
+      encodeURIComponent('manual-entry-asset://draft-cover.jpg'),
+    );
+    expect(within(hero).getByRole('button', { name: 'Change cover' })).toBeInTheDocument();
+    expect(within(hero).getByRole('button', { name: 'Adjust title and recap' })).toBeInTheDocument();
+  });
+
+  it('uploads a draft cover and keeps the persisted asset in the shared hero', async () => {
+    const updatedDraft = makeExperienceDraft({
+      user_cover_asset_ref: 'manual-entry-asset://persisted-draft-cover.jpg',
+    } as never);
+    const draftApi = memoryApi as typeof memoryApi & {
+      uploadExperienceDraftCover: ReturnType<typeof vi.fn>;
+    };
+    vi.mocked(draftApi.uploadExperienceDraftCover).mockResolvedValueOnce(updatedDraft);
+    const user = userEvent.setup();
+    renderDraftPage();
+
+    const coverFile = new File(['cover'], 'draft-cover.png', { type: 'image/png' });
+    await user.upload(await screen.findByLabelText('Choose cover file'), coverFile);
+
+    expect(URL.createObjectURL).toHaveBeenCalledWith(coverFile);
+    await waitFor(() => {
+      expect(draftApi.uploadExperienceDraftCover).toHaveBeenCalledWith('draft-japan', coverFile);
+    });
+    expect(screen.getByTestId('experience-cover-hero').getAttribute('style')).toContain(
+      encodeURIComponent('manual-entry-asset://persisted-draft-cover.jpg'),
+    );
   });
 
   it('shows chapter event metadata without loading episode content', async () => {
