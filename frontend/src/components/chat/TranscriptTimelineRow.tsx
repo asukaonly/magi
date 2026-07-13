@@ -164,11 +164,6 @@ export const TranscriptTimelineRow = ({
   const messageAssistant = message.role === 'assistant'
     ? resolveAssistantIdentity(assistant, message.personaId)
     : assistant;
-  const showRecalledMemoriesRow = message.role === 'assistant'
-    && (
-      (Array.isArray(message.recalledMemories) && message.recalledMemories.length > 0)
-      || message.recalledMemorySummary?.canClaimTotal
-    );
   // Only the latest assistant turn signals lifecycle through its avatar so
   // historical bubbles stay visually quiet. The mapping deliberately treats
   // unknown run states as "idle" rather than "static" — a finished but
@@ -305,7 +300,7 @@ export const TranscriptTimelineRow = ({
           )}
           bubbleFooter={(
             <>
-              {showRecalledMemoriesRow ? (
+              {transcript.showRecalledMemories ? (
                 <RecalledMemoriesRow
                   memories={message.recalledMemories ?? []}
                   summary={message.recalledMemorySummary}

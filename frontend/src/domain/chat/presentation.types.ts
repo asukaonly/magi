@@ -31,6 +31,7 @@ export interface ProjectedTraceEntryPresentation {
 export interface ProjectedTranscriptPresentation {
   showHeaderTraceEntry: boolean;
   showExecutionBubbleFooter: boolean;
+  showRecalledMemories: boolean;
   bubbleTop: ProjectedTranscriptBubbleTopPresentation;
   belowBubble: ProjectedTranscriptBelowBubblePresentation;
   actions: ProjectedTranscriptActionPresentation;

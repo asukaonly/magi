@@ -807,14 +807,13 @@
       }
     },
     "recalledMemories": {
-      "summary_one": "展示 {{count}} 条记忆引用",
-      "summary_other": "展示 {{count}} 条记忆引用",
-      "summary": "展示 {{count}} 条记忆引用",
+      "summary_one": "{{count}} 条记忆引用",
+      "summary_other": "{{count}} 条记忆引用",
+      "summary": "{{count}} 条记忆引用",
       "exhaustiveSummary_one": "已完整统计 {{count}} 条相关记录",
       "exhaustiveSummary_other": "已完整统计 {{count}} 条相关记录",
       "exhaustiveSummary": "已完整统计 {{count}} 条相关记录",
-      "close": "收起记忆详情",
-      "confidence": "置信度 {{value}}",
+      "coverageSummary": "共找到 {{total}} 条相关记录，本次引用 {{shown}} 条",
       "kinds": {
         "relationship": "关系",
         "assertion": "事实",

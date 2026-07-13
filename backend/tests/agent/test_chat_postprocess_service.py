@@ -769,7 +769,22 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
                 "size_bytes": 10,
             }
         ],
-        message_payload={"asset_refs": [{"asset_ref_id": "asset-1"}]},
+        message_payload={
+            "asset_refs": [{"asset_ref_id": "asset-1"}],
+            "recalled_memories": [
+                {
+                    "kind": "event",
+                    "source_layer": "L1",
+                    "statement": "Visited example.com",
+                    "topic": "example.com",
+                }
+            ],
+            "recalled_memory_summary": {
+                "coverage_kind": "exhaustive",
+                "can_claim_total": True,
+                "total_count": 12,
+            },
+        },
         started_at_ms=1710000000000,
         completed_at_ms=1710000000200,
     )
@@ -792,6 +807,11 @@ async def test_outcome_writer_persists_segmented_chat_outcome(chat_store: ChatSt
         "source_unit_ids": ["u1"],
     }
     assert second_payload["rhythm"]["segment_index"] == 1
+    assert first_payload["asset_refs"] == [{"asset_ref_id": "asset-1"}]
+    assert "recalled_memories" not in first_payload
+    assert "recalled_memory_summary" not in first_payload
+    assert second_payload["recalled_memories"][0]["topic"] == "example.com"
+    assert second_payload["recalled_memory_summary"]["total_count"] == 12
     assert second_payload["asset_refs"] == [{"asset_ref_id": "asset-1"}]
     assert second_payload["attachments"] == [
         {

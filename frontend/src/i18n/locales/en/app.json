@@ -807,14 +807,13 @@
       }
     },
     "recalledMemories": {
-      "summary_one": "Showing {{count}} memory reference",
-      "summary_other": "Showing {{count}} memory references",
-      "summary": "Showing {{count}} memory references",
+      "summary_one": "{{count}} memory reference",
+      "summary_other": "{{count}} memory references",
+      "summary": "{{count}} memory references",
       "exhaustiveSummary_one": "Fully counted {{count}} related record",
       "exhaustiveSummary_other": "Fully counted {{count}} related records",
       "exhaustiveSummary": "Fully counted {{count}} related records",
-      "close": "Close memory detail",
-      "confidence": "confidence {{value}}",
+      "coverageSummary": "Found {{total}} related records; {{shown}} cited here",
       "kinds": {
         "relationship": "Relation",
         "assertion": "Fact",

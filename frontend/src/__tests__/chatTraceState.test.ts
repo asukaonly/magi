@@ -320,6 +320,42 @@ describe('chat trace state helpers', () => {
     }
   });
 
+  it('shows recalled memories only on the terminal rhythm segment', () => {
+    const recalledMemories = [{
+      kind: 'event',
+      sourceLayer: 'L1',
+      statement: 'Visited example.com',
+      topic: 'example.com',
+    }];
+    const firstSegment = projectChatTimelineMessage({
+      id: 'msg-rhythm-1',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'First segment',
+      timestamp: 1000,
+      messageKind: 'assistant_rhythm_segment',
+      recalledMemories,
+      payload: { rhythm: { segment_index: 0, segment_count: 2 } },
+    });
+    const terminalSegment = projectChatTimelineMessage({
+      id: 'msg-rhythm-2',
+      role: 'assistant',
+      kind: 'assistant',
+      content: 'Second segment',
+      timestamp: 2000,
+      messageKind: 'assistant_rhythm_segment',
+      recalledMemories,
+      payload: { rhythm: { segment_index: 1, segment_count: 2 } },
+    });
+
+    expect(firstSegment.surface).toBe('transcript');
+    expect(terminalSegment.surface).toBe('transcript');
+    if (firstSegment.surface === 'transcript' && terminalSegment.surface === 'transcript') {
+      expect(firstSegment.transcript.showRecalledMemories).toBe(false);
+      expect(terminalSegment.transcript.showRecalledMemories).toBe(true);
+    }
+  });
+
   it('keeps trace entry available on transcript rows when only the stored summary reports trace availability', () => {
     const projected = projectChatTimelineRow({
       id: 'msg-background-ack',

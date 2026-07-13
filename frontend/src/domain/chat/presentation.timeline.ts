@@ -56,9 +56,23 @@ export const projectChatTimelineMessage = (
   const rhythmSegmentIndex = rhythmPayload && typeof rhythmPayload === 'object'
     ? Number((rhythmPayload as Record<string, unknown>).segment_index ?? 0)
     : 0;
+  const rhythmSegmentCount = rhythmPayload && typeof rhythmPayload === 'object'
+    ? Number((rhythmPayload as Record<string, unknown>).segment_count ?? 0)
+    : 0;
   const isSecondaryRhythmSegment = message.role === 'assistant'
     && message.messageKind === 'assistant_rhythm_segment'
     && rhythmSegmentIndex > 0;
+  const isNonTerminalRhythmSegment = message.role === 'assistant'
+    && message.messageKind === 'assistant_rhythm_segment'
+    && Number.isInteger(rhythmSegmentIndex)
+    && Number.isInteger(rhythmSegmentCount)
+    && rhythmSegmentCount > 0
+    && rhythmSegmentIndex < rhythmSegmentCount - 1;
+  const hasRecalledMemories = message.role === 'assistant'
+    && (
+      (Array.isArray(message.recalledMemories) && message.recalledMemories.length > 0)
+      || message.recalledMemorySummary?.canClaimTotal === true
+    );
   const replyPreview = isAskRequest ? null : buildReplyPreviewFromMessage(message);
   const canQuickLabel = !isAskRequest && message.role === 'assistant' && Boolean(String(message.messageId || '').trim());
   const showReactionBadge = message.role === 'user'
@@ -76,6 +90,7 @@ export const projectChatTimelineMessage = (
     transcript: {
       showHeaderTraceEntry: message.role === 'assistant' && !isAskRequest && !isAssistantInterim && !isSecondaryRhythmSegment,
       showExecutionBubbleFooter: isAssistantInterim,
+      showRecalledMemories: hasRecalledMemories && !isNonTerminalRhythmSegment,
       bubbleTop: {
         replyTo: message.replyTo ?? null,
         attachments: message.attachments,

@@ -109,8 +109,12 @@ class ChatAssistantMessageWriter:
             if index > 0:
                 cumulative_delay_ms += max(0, int(segment.delay_ms or 0))
             segment_attachments = attachments if index == total - 1 else None
+            segment_message_payload = dict(message_payload or {})
+            if index < total - 1:
+                segment_message_payload.pop("recalled_memories", None)
+                segment_message_payload.pop("recalled_memory_summary", None)
             segment_payload = build_segment_payload_json(
-                base_payload=message_payload,
+                base_payload=segment_message_payload,
                 segment=segment,
                 total_segments=total,
                 attachments=segment_attachments,

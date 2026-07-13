@@ -136,6 +136,11 @@ The canonical full answer still feeds memory updates, runtime trace, and
 assistant projection. It should not be replaced by concatenating notification
 events on the frontend.
 
+Turn-scoped supporting metadata should appear only once across visible rhythm
+segments. Recalled-memory references belong on the terminal segment so they act
+as a footer for the whole assistant turn instead of repeating inside every
+bubble.
+
 ## Streaming Policy
 
 Initial implementation should not stream segmented text.
