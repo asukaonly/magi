@@ -32,11 +32,15 @@ class DummyLLMAdapter(LLMAdapter):
         provider: str = "openai",
         client: Any = None,
         base_url: Optional[str] = None,
+        provider_instance_id: Optional[str] = None,
+        provider_plan: Optional[str] = None,
     ):
         self._model = model
         self._provider = provider
         self._client = client
         self._base_url = base_url
+        self._provider_instance_id = provider_instance_id
+        self._provider_plan = provider_plan
         self.chat_kwargs: Dict[str, Any] = {}
 
     async def generate(
@@ -94,6 +98,14 @@ class DummyLLMAdapter(LLMAdapter):
     @property
     def base_url(self) -> Optional[str]:
         return self._base_url
+
+    @property
+    def provider_instance_id(self) -> Optional[str]:
+        return self._provider_instance_id
+
+    @property
+    def provider_plan(self) -> Optional[str]:
+        return self._provider_plan
 
 
 class DummyOpenAIClient:
@@ -164,7 +176,9 @@ def _build_test_llm_config(*, override_limit: int | None = None):
         },
     )
     if override_limit is not None:
-        llm_settings.model_runtime_overrides["openai::api.openai.com::gpt-5.2::chat"] = (
+        llm_settings.model_runtime_overrides[
+            "openai::openai::api::api.openai.com::gpt-5.2::chat"
+        ] = (
             LLMConcurrencyOverrideSettings(max_concurrency=override_limit)
         )
     return SimpleNamespace(
@@ -417,6 +431,7 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
         provider="openai",
         client=client,
         base_url="https://api.openai.com/v1",
+        provider_instance_id="openai",
     )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
@@ -430,8 +445,8 @@ async def test_chat_response_uses_shared_concurrency_limiter() -> None:
     assert result.content == "ok"
     assert limiter.calls == [
         {
-            "key": "openai::api.openai.com::gpt-5.2::chat",
-            "limit": 2,
+            "key": "openai::openai::api::api.openai.com::gpt-5.2::chat",
+            "limit": 4,
             "priority": LLMRequestPriority.HIGH,
         }
     ]
@@ -447,6 +462,7 @@ async def test_chat_response_passes_explicit_priority_to_shared_limiter() -> Non
         provider="openai",
         client=client,
         base_url="https://api.openai.com/v1",
+        provider_instance_id="openai",
     )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
@@ -460,8 +476,8 @@ async def test_chat_response_passes_explicit_priority_to_shared_limiter() -> Non
 
     assert result.content == "ok"
     assert limiter.calls[-1] == {
-        "key": "openai::api.openai.com::gpt-5.2::chat",
-        "limit": 2,
+        "key": "openai::openai::api::api.openai.com::gpt-5.2::chat",
+        "limit": 4,
         "priority": LLMRequestPriority.LOW,
     }
 
@@ -473,6 +489,7 @@ async def test_chat_response_stream_uses_shared_concurrency_limiter() -> None:
         provider="openai",
         client=None,
         base_url="https://api.openai.com/v1",
+        provider_instance_id="openai",
     )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
@@ -489,14 +506,14 @@ async def test_chat_response_stream_uses_shared_concurrency_limiter() -> None:
     assert [event.kind for event in events] == ["text_delta", "done"]
     assert events[0].text == "chat-ok"
     assert limiter.calls[-1] == {
-        "key": "openai::api.openai.com::gpt-5.2::chat",
-        "limit": 2,
+        "key": "openai::openai::api::api.openai.com::gpt-5.2::chat",
+        "limit": 4,
         "priority": LLMRequestPriority.LOW,
     }
 
 
 @pytest.mark.asyncio
-async def test_chat_response_passes_shared_override_before_registry_default_before_fallback(
+async def test_chat_response_prefers_shared_override_over_local_fallback(
     monkeypatch,
 ) -> None:
     message = SimpleNamespace(content="ok", tool_calls=[], role="assistant")
@@ -507,6 +524,7 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
         provider="openai",
         client=client,
         base_url="https://api.openai.com/v1",
+        provider_instance_id="openai",
     )
     limiter = RecordingConcurrencyLimiter()
     bridge = LLMProviderBridge(llm, concurrency_limiter=limiter)
@@ -534,7 +552,7 @@ async def test_chat_response_passes_shared_override_before_registry_default_befo
         messages=[{"role": "user", "content": "hi"}],
     )
 
-    assert limiter.calls[-1]["limit"] == 2
+    assert limiter.calls[-1]["limit"] == 4
 
     fallback_client = DummyOpenAIClient(response=response)
     fallback_llm = DummyLLMAdapter(

@@ -33,8 +33,8 @@ def _default_openai_provider_meta() -> LLMProviderMetaModel:
         display_name="OpenAI",
         description="General purpose, strongest ecosystem",
         icon="openai",
-        default_model="gpt-5.2",
-        default_classify_model="gpt-5.2",
+        default_model="gpt-5.6",
+        default_classify_model="gpt-5.6-luna",
         default_base_url="https://api.openai.com/v1",
         chat_models=_default_openai_chat_models(),
         embedding_models=_default_openai_embedding_models(),
@@ -47,8 +47,8 @@ def _default_openai_provider_meta() -> LLMProviderMetaModel:
 def _default_openai_chat_models() -> list[LLMModelMetaModel]:
     return [
         LLMModelMetaModel(
-            id="gpt-5.2",
-            label="GPT-5.2",
+            id="gpt-5.6",
+            label="GPT-5.6 Sol",
             capabilities=LLMChatCapabilitiesModel(
                 vision=True,
                 image_output=False,
@@ -56,9 +56,8 @@ def _default_openai_chat_models() -> list[LLMModelMetaModel]:
                 reasoning=True,
             ),
             limits=LLMLimitsSettings(
-                context_window=400000,
+                context_window=1050000,
                 max_output_tokens=128000,
-                max_concurrency=2,
             ),
         )
     ]
@@ -70,7 +69,6 @@ def _default_openai_embedding_models() -> list[LLMEmbeddingModelMetaModel]:
             id="text-embedding-3-small",
             label="Text Embedding 3 Small",
             dimensions=[1536, 512],
-            limits=LLMLimitsSettings(max_concurrency=6),
         )
     ]
 
@@ -78,8 +76,8 @@ def _default_openai_embedding_models() -> list[LLMEmbeddingModelMetaModel]:
 def _default_openai_image_generation_models() -> list[LLMImageGenerationModelMetaModel]:
     return [
         LLMImageGenerationModelMetaModel(
-            id="gpt-image-1",
-            label="GPT Image 1",
+            id="gpt-image-2",
+            label="GPT Image 2",
             supported_sizes=["1024x1024", "1536x1024", "1024x1536"],
             supported_qualities=["auto", "high", "medium", "low"],
             native_protocol="openai_images",
@@ -88,7 +86,10 @@ def _default_openai_image_generation_models() -> list[LLMImageGenerationModelMet
 
 
 def _default_openai_audio_generation_models() -> list[LLMAudioGenerationModelMetaModel]:
-    return [LLMAudioGenerationModelMetaModel(id="gpt-4o-mini-tts", label="GPT-4o Mini TTS")]
+    return [
+        LLMAudioGenerationModelMetaModel(id="tts-1", label="TTS 1"),
+        LLMAudioGenerationModelMetaModel(id="tts-1-hd", label="TTS 1 HD"),
+    ]
 
 
 def _default_openai_fields() -> dict[str, LLMProviderFieldModel]:

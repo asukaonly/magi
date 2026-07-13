@@ -16,7 +16,6 @@ providers:
         limits:
           context_window: 1050000
           max_output_tokens: 128000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 5.0
@@ -33,7 +32,6 @@ providers:
         limits:
           context_window: 1050000
           max_output_tokens: 128000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 2.5
@@ -50,7 +48,6 @@ providers:
         limits:
           context_window: 1050000
           max_output_tokens: 128000
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 1.0
@@ -67,7 +64,6 @@ providers:
         limits:
           context_window: 1050000
           max_output_tokens: 128000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 5.0
@@ -84,7 +80,6 @@ providers:
         limits:
           context_window: 1050000
           max_output_tokens: 128000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 2.5
@@ -101,7 +96,6 @@ providers:
         limits:
           context_window: 400000
           max_output_tokens: 128000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 1.25
@@ -118,7 +112,6 @@ providers:
         limits:
           context_window: 400000
           max_output_tokens: 128000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 1.75
@@ -135,7 +128,6 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 100000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 2.0
@@ -146,8 +138,6 @@ providers:
       - id: text-embedding-3-small
         label: Text Embedding 3 Small
         dimensions: [1536, 512]
-        limits:
-          max_concurrency: 6
         cost:
           currency: USD
           input_per_million_tokens: 0.02
@@ -155,8 +145,6 @@ providers:
       - id: text-embedding-3-large
         label: Text Embedding 3 Large
         dimensions: [3072, 1024, 256]
-        limits:
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 0.13
@@ -204,7 +192,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 131072
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 3.0
@@ -223,7 +210,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 64000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 3.0
@@ -242,7 +228,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 131072
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 5.0
@@ -261,7 +246,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 131072
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 5.0
@@ -280,7 +264,6 @@ providers:
         limits:
           context_window: 200000
           max_output_tokens: 65536
-          max_concurrency: 5
         cost:
           currency: USD
           input_per_million_tokens: 1.0
@@ -317,7 +300,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 1.4
@@ -337,7 +319,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 1.4
@@ -357,7 +338,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 1.0
@@ -377,7 +357,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 6
         cost:
           currency: USD
           input_per_million_tokens: 1.2
@@ -397,7 +376,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 0.6
@@ -417,7 +395,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 6
         cost:
           currency: USD
           input_per_million_tokens: 0.0
@@ -438,7 +415,6 @@ providers:
         limits:
           context_window: 204800
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 0.6
@@ -452,8 +428,6 @@ providers:
       - id: embedding-3
         label: Embedding-3
         dimensions: [1024, 2048]
-        limits:
-          max_concurrency: 6
     image_generation_models:
       - id: glm-image
         label: GLM Image
@@ -512,7 +486,6 @@ providers:
             limits:
               context_window: 1000000
               max_output_tokens: 131072
-              max_concurrency: 4
             cost:
               currency: USD
               source: https://docs.z.ai/devpack/faq
@@ -530,7 +503,6 @@ providers:
             limits:
               context_window: 204800
               max_output_tokens: 131072
-              max_concurrency: 6
             cost:
               currency: USD
               source: https://docs.z.ai/devpack/faq
@@ -548,7 +520,6 @@ providers:
             limits:
               context_window: 204800
               max_output_tokens: 131072
-              max_concurrency: 4
             cost:
               currency: USD
               source: https://docs.z.ai/devpack/faq
@@ -584,7 +555,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 65536
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 1.5
@@ -601,7 +571,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 65536
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 2.0
@@ -619,7 +588,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 65536
-          max_concurrency: 6
         cost:
           currency: USD
           input_per_million_tokens: 0.25
@@ -629,8 +597,6 @@ providers:
       - id: gemini-embedding-2
         label: Gemini Embedding 2
         dimensions: [3072, 1536, 768]
-        limits:
-          max_concurrency: 4
         cost:
           currency: USD
           input_per_million_tokens: 0.2
@@ -702,7 +668,6 @@ providers:
           reasoning: true
         limits:
           context_window: 500000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 2.0
@@ -718,7 +683,6 @@ providers:
           reasoning: true
         limits:
           context_window: 1000000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 1.25
@@ -734,7 +698,6 @@ providers:
           reasoning: true
         limits:
           context_window: 1000000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 1.25
@@ -750,7 +713,6 @@ providers:
           reasoning: true
         limits:
           context_window: 1000000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 1.25
@@ -766,7 +728,6 @@ providers:
           reasoning: false
         limits:
           context_window: 1000000
-          max_concurrency: 3
         cost:
           currency: USD
           input_per_million_tokens: 1.25
@@ -801,7 +762,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 384000
-          max_concurrency: 6
         cost:
           currency: USD
           input_per_million_tokens: 0.14
@@ -819,7 +779,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 384000
-          max_concurrency: 2
         cost:
           currency: USD
           input_per_million_tokens: 0.435
@@ -854,7 +813,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 2.0
@@ -872,7 +830,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 12.0
@@ -890,7 +847,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 2.0
@@ -908,7 +864,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 1.2
@@ -926,7 +881,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 0.8
@@ -944,7 +898,6 @@ providers:
         limits:
           context_window: 1000000
           max_output_tokens: 64000
-          max_concurrency: 10
         cost:
           currency: CNY
           input_per_million_tokens: 0.2
@@ -956,8 +909,6 @@ providers:
       - id: text-embedding-v4
         label: Text Embedding v4
         dimensions: [2048, 1536, 1024, 768, 512, 256, 128, 64]
-        limits:
-          max_concurrency: 6
         cost:
           currency: CNY
           input_per_million_tokens: 0.5
@@ -965,8 +916,6 @@ providers:
       - id: text-embedding-v3
         label: Text Embedding v3
         dimensions: [1024, 768, 512]
-        limits:
-          max_concurrency: 6
         cost:
           currency: CNY
           input_per_million_tokens: 0.5
@@ -1073,7 +1022,6 @@ providers:
             limits:
               context_window: 1000000
               max_output_tokens: 64000
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1088,7 +1036,6 @@ providers:
             limits:
               context_window: 1000000
               max_output_tokens: 64000
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1103,7 +1050,6 @@ providers:
               reasoning: true
             limits:
               context_window: 262144
-              max_concurrency: 4
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1119,7 +1065,6 @@ providers:
             limits:
               context_window: 202752
               max_output_tokens: 131072
-              max_concurrency: 4
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1137,7 +1082,6 @@ providers:
               reasoning: true
             limits:
               context_window: 196608
-              max_concurrency: 3
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1152,7 +1096,6 @@ providers:
             limits:
               context_window: 1000000
               max_output_tokens: 64000
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1167,7 +1110,6 @@ providers:
             limits:
               context_window: 262144
               max_output_tokens: 65536
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1182,7 +1124,6 @@ providers:
             limits:
               context_window: 262144
               max_output_tokens: 65536
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1197,7 +1138,6 @@ providers:
             limits:
               context_window: 1000000
               max_output_tokens: 65536
-              max_concurrency: 10
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1213,7 +1153,6 @@ providers:
             limits:
               context_window: 202752
               max_output_tokens: 131072
-              max_concurrency: 4
             cost:
               currency: CNY
               source: https://help.aliyun.com/zh/model-studio/coding-plan
@@ -1254,7 +1193,6 @@ providers:
         limits:
           context_window: 262144
           max_output_tokens: 32768
-          max_concurrency: 4
         cost:
           currency: CNY
           input_per_million_tokens: 6.5
@@ -1272,7 +1210,6 @@ providers:
         limits:
           context_window: 262144
           max_output_tokens: 32768
-          max_concurrency: 4
         cost:
           currency: CNY
           input_per_million_tokens: 6.5
@@ -1290,7 +1227,6 @@ providers:
         limits:
           context_window: 262144
           max_output_tokens: 32768
-          max_concurrency: 4
         cost:
           currency: CNY
           input_per_million_tokens: 6.5
@@ -1308,7 +1244,6 @@ providers:
         limits:
           context_window: 128000
           max_output_tokens: 8192
-          max_concurrency: 2
         cost:
           currency: CNY
           input_per_million_tokens: 10.0
@@ -1324,7 +1259,6 @@ providers:
         limits:
           context_window: 32768
           max_output_tokens: 8192
-          max_concurrency: 4
         cost:
           currency: CNY
           input_per_million_tokens: 5.0
@@ -1340,7 +1274,6 @@ providers:
         limits:
           context_window: 8192
           max_output_tokens: 8192
-          max_concurrency: 6
         cost:
           currency: CNY
           input_per_million_tokens: 2.0
@@ -1374,7 +1307,6 @@ providers:
           reasoning: true
         limits:
           context_window: 1048576
-          max_concurrency: 3
         cost:
           currency: CNY
           input_per_million_tokens: 2.1
@@ -1391,7 +1323,6 @@ providers:
           reasoning: true
         limits:
           context_window: 204800
-          max_concurrency: 3
         cost:
           currency: CNY
           input_per_million_tokens: 2.1
@@ -1407,7 +1338,6 @@ providers:
           reasoning: true
         limits:
           context_window: 204800
-          max_concurrency: 5
         cost:
           currency: CNY
           input_per_million_tokens: 4.2
@@ -1460,7 +1390,6 @@ providers:
               reasoning: true
             limits:
               context_window: 204800
-              max_concurrency: 3
             cost:
               currency: CNY
               source: https://platform.minimaxi.com/docs/token-plan/intro
@@ -1474,7 +1403,6 @@ providers:
               reasoning: true
             limits:
               context_window: 204800
-              max_concurrency: 5
             cost:
               currency: CNY
               source: https://platform.minimaxi.com/docs/token-plan/intro
@@ -1516,7 +1444,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 131072
-          max_concurrency: 4
         cost:
           currency: CNY
           input_per_million_tokens: 3.0
@@ -1534,7 +1461,6 @@ providers:
         limits:
           context_window: 1048576
           max_output_tokens: 131072
-          max_concurrency: 6
         cost:
           currency: CNY
           input_per_million_tokens: 1.0
@@ -1579,7 +1505,6 @@ providers:
             limits:
               context_window: 1048576
               max_output_tokens: 131072
-              max_concurrency: 4
             cost:
               currency: CNY
               source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription
@@ -1594,7 +1519,6 @@ providers:
             limits:
               context_window: 1048576
               max_output_tokens: 131072
-              max_concurrency: 6
             cost:
               currency: CNY
               source: https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription

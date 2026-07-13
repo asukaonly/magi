@@ -354,6 +354,8 @@ class ProviderBridgeOptionsMixin:
             str,
             LLMConcurrencyLimiter.build_key(
                 provider_name=self._provider_name(),
+                provider_instance_id=getattr(self.llm, "provider_instance_id", None),
+                provider_plan=self._provider_plan(),
                 model_name=str(getattr(self.llm, "model_name", "unknown")),
                 request_family=request_family,
                 base_url=base_url,
@@ -370,15 +372,6 @@ class ProviderBridgeOptionsMixin:
             override_limit = getattr(override, "max_concurrency", None)
             if override_limit is not None:
                 return int(override_limit)
-
-        model_meta = find_chat_model_meta(
-            _load_provider_registry(),
-            self._provider_name(),
-            str(getattr(self.llm, "model_name", "unknown")),
-            self._provider_plan(),
-        )
-        if model_meta is not None and model_meta.limits.max_concurrency is not None:
-            return int(model_meta.limits.max_concurrency)
 
         return DEFAULT_CHAT_CONCURRENCY_FALLBACK
 

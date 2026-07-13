@@ -79,12 +79,18 @@ class LLMConcurrencyLimiter:
         model_name: str,
         request_family: str,
         base_url: str | None = None,
+        provider_instance_id: str | None = None,
+        provider_plan: str | None = None,
     ) -> str:
         provider = str(provider_name or "").strip().lower() or "unknown"
+        provider_instance = (
+            str(provider_instance_id or "").strip().lower() or provider
+        )
+        plan = str(provider_plan or "").strip().lower() or "api"
         model = str(model_name or "").strip().lower() or "unknown"
         family = str(request_family or "").strip().lower() or "chat"
         host = LLMConcurrencyLimiter._normalize_base_url_host(base_url) or provider
-        return f"{provider}::{host}::{model}::{family}"
+        return f"{provider}::{provider_instance}::{plan}::{host}::{model}::{family}"
 
     @staticmethod
     def _normalize_base_url_host(base_url: str | None) -> str | None:

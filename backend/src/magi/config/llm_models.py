@@ -40,7 +40,6 @@ class LLMLimitsSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
-    max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
 class LLMCapabilityOverridesSettings(BaseModel):
@@ -58,7 +57,6 @@ class LLMLimitsOverrideSettings(BaseModel):
 
     context_window: Optional[int] = Field(default=None, ge=1)
     max_output_tokens: Optional[int] = Field(default=None, ge=1)
-    max_concurrency: Optional[int] = Field(default=None, ge=1)
 
 
 class LLMModelMetadataOverrideSettings(BaseModel):
@@ -183,7 +181,7 @@ class LLMSettings(BaseModel):
     model_runtime_overrides: Dict[str, LLMConcurrencyOverrideSettings] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_builtin_provider_uniqueness(self) -> "LLMSettings":
+    def validate_required_selections(self) -> "LLMSettings":
         required_scenarios = {
             LLMScenario.CONTEXT_DECIDER.value,
             LLMScenario.CORE.value,
@@ -193,14 +191,6 @@ class LLMSettings(BaseModel):
             missing_names = ", ".join(sorted(missing_scenarios))
             raise ValueError(f"Missing required LLM selections: {missing_names}")
 
-        seen_provider_types: set[str] = set()
-        for provider in self.providers.values():
-            provider_type = str(getattr(provider.provider_type, "value", provider.provider_type))
-            if provider_type == LLMProvider.CUSTOM.value:
-                continue
-            if provider_type in seen_provider_types:
-                raise ValueError(f"Duplicate built-in LLM provider type: {provider_type}")
-            seen_provider_types.add(provider_type)
         return self
 
 

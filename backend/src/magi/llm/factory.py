@@ -36,6 +36,7 @@ def create_llm_adapter(
     model: str,
     base_url: str | None = None,
     provider_plan: str | None = None,
+    provider_instance_id: str | None = None,
     timeout: int = 60,
     embedding_dimension: int | None = None,
     proxy_url: str | None = None,
@@ -54,6 +55,7 @@ def create_llm_adapter(
             model=model,
             base_url=base_url,
             provider_plan=provider_plan,
+            provider_instance_id=provider_instance_id,
             timeout=timeout,
             proxy_url=proxy_url,
         )
@@ -65,6 +67,7 @@ def create_llm_adapter(
             provider=provider,
             base_url=base_url,
             provider_plan=provider_plan,
+            provider_instance_id=provider_instance_id,
             timeout=timeout,
             embedding_dimension=embedding_dimension,
             proxy_url=proxy_url,

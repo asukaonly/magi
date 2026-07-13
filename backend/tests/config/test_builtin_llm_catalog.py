@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from magi.config.llm_registry import LLMProviderRegistryModel, load_llm_provider_registry
+from magi.config.models import LLMProviderSettings, LLMSelectionSettings, LLMSettings
 
 
 REGISTRY_PATH = Path(__file__).resolve().parents[2] / "configs" / "llm_providers.yaml"
@@ -95,3 +96,22 @@ def test_builtin_catalog_removes_retired_or_unverified_models() -> None:
 
     assert _provider(registry, "kimi").embedding_models == []
     assert _provider(registry, "minimax").embedding_models == []
+
+
+def test_multiple_accounts_for_the_same_builtin_provider_are_allowed() -> None:
+    settings = LLMSettings(
+        providers={
+            "openai-work": LLMProviderSettings(provider_type="openai"),
+            "openai-personal": LLMProviderSettings(provider_type="openai"),
+        },
+        selections={
+            "context_decider": LLMSelectionSettings(
+                provider_id="openai-work", model="gpt-5.6-luna"
+            ),
+            "core": LLMSelectionSettings(
+                provider_id="openai-personal", model="gpt-5.6"
+            ),
+        },
+    )
+
+    assert set(settings.providers) == {"openai-work", "openai-personal"}

@@ -117,6 +117,11 @@ class LLMAdapter(ABC):
         """Get provider plan id, if one is active."""
         return None
 
+    @property
+    def provider_instance_id(self) -> Optional[str]:
+        """Get the configured provider instance id, if available."""
+        return getattr(self, "_provider_instance_id", None)
+
     async def get_embedding(
         self,
         text: str,

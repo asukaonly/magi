@@ -26,7 +26,39 @@ def test_build_limit_key_normalizes_base_url_host_and_request_family() -> None:
     )
 
     assert first == second
-    assert first == "openai::api.openai.com::gpt-5.2::chat"
+    assert first == "openai::openai::api::api.openai.com::gpt-5.2::chat"
+
+
+def test_build_limit_key_separates_provider_instances_and_plans() -> None:
+    limiter = LLMConcurrencyLimiter()
+
+    first_account = limiter.build_key(
+        provider_name="dashscope",
+        provider_instance_id="dashscope-work",
+        provider_plan="codeplan",
+        model_name="qwen3.7-plus",
+        request_family="chat",
+        base_url="https://coding.dashscope.aliyuncs.com/v1",
+    )
+    second_account = limiter.build_key(
+        provider_name="dashscope",
+        provider_instance_id="dashscope-personal",
+        provider_plan="codeplan",
+        model_name="qwen3.7-plus",
+        request_family="chat",
+        base_url="https://coding.dashscope.aliyuncs.com/v1",
+    )
+    normal_api = limiter.build_key(
+        provider_name="dashscope",
+        provider_instance_id="dashscope-work",
+        provider_plan=None,
+        model_name="qwen3.7-plus",
+        request_family="chat",
+        base_url="https://coding.dashscope.aliyuncs.com/v1",
+    )
+
+    assert first_account != second_account
+    assert first_account != normal_api
 
 
 def test_build_limit_key_separates_embedding_family() -> None:

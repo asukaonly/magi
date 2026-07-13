@@ -115,7 +115,7 @@ def test_resolved_image_generation_models_include_capability_metadata():
     registry = _default_llm_provider_registry()
     resolved = resolve_provider_model_catalog(registry, "openai")
     image_model = next(
-        model for model in resolved.image_generation_models if model.id == "gpt-image-1"
+        model for model in resolved.image_generation_models if model.id == "gpt-image-2"
     )
 
     assert image_model.supported_sizes == ["1024x1024", "1536x1024", "1024x1536"]
@@ -568,8 +568,8 @@ def test_build_update_paths_applies_builtin_provider_defaults_before_save():
     assert updates["llm.providers"]["glm"]["provider_type"] == "glm"
     assert updates["llm.providers"]["glm"]["display_name"] == "Z.ai"
     assert updates["llm.providers"]["glm"]["base_url"] == "https://open.bigmodel.cn/api/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.6"
-    assert updates["llm.selections"]["core"]["model"] == "glm-5.1"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7-flash"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
     assert updates["llm.selections"]["embedding"]["model"] == "embedding-3"
     assert updates["llm.selections"]["embedding"]["embedding_dimension"] == 1024
 
@@ -612,12 +612,12 @@ def test_default_registry_exposes_model_metadata():
     assert registry.providers[0].chat_models[0].limits.max_output_tokens is not None
 
 
-def test_default_registry_exposes_embedding_concurrency_defaults():
+def test_default_registry_does_not_claim_provider_concurrency_limits():
     registry = _default_llm_provider_registry()
 
     assert registry.providers
-    assert registry.providers[0].chat_models[0].limits.max_concurrency is not None
-    assert registry.providers[0].embedding_models[0].limits.max_concurrency is not None
+    assert "max_concurrency" not in registry.providers[0].chat_models[0].limits.model_dump()
+    assert "max_concurrency" not in registry.providers[0].embedding_models[0].limits.model_dump()
 
 
 def test_default_registry_includes_extended_builtin_providers():
@@ -640,7 +640,7 @@ def test_default_registry_includes_extended_builtin_providers():
     assert providers_by_id["deepseek"].default_base_url == "https://api.deepseek.com"
     assert providers_by_id["kimi"].default_base_url == "https://api.moonshot.cn/v1"
     assert providers_by_id["minimax"].default_base_url == "https://api.minimaxi.com/v1"
-    assert providers_by_id["glm"].default_classify_model == "glm-4.6"
+    assert providers_by_id["glm"].default_classify_model == "glm-4.7-flash"
     assert providers_by_id["openai"].embedding_models[0].dimensions[0] == 1536
 
 
@@ -747,13 +747,9 @@ def test_resolve_provider_model_catalog_applies_provider_plan():
     resolved = resolve_provider_model_catalog(registry, "glm", provider)
 
     assert [model.id for model in resolved.chat_models] == [
-        "glm-5.1",
-        "glm-5",
+        "glm-5.2",
         "glm-5-turbo",
         "glm-4.7",
-        "glm-4.6",
-        "glm-4.5",
-        "glm-4.5-air",
     ]
     assert resolved.embedding_models == []
     assert resolved.image_generation_models == []
@@ -775,7 +771,8 @@ def test_build_provider_catalog_exposes_and_applies_provider_plan():
     assert [endpoint.label for endpoint in glm_entry.plans[0].endpoints] == ["China", "Global"]
     assert glm_entry.plans[0].endpoints[1].base_url == "https://api.z.ai/api/coding/paas/v4"
     assert glm_entry.default_base_url == "https://open.bigmodel.cn/api/coding/paas/v4"
-    assert glm_entry.default_classify_model == "glm-4.5-air"
+    assert glm_entry.default_model == "glm-5.2"
+    assert glm_entry.default_classify_model == "glm-4.7"
     assert [model.id for model in glm_entry.resolved_embedding_models] == []
 
 
@@ -852,19 +849,16 @@ def test_resolve_provider_model_catalog_applies_minimax_tokenplan():
     resolved = resolve_provider_model_catalog(registry, "minimax", provider)
 
     assert [model.id for model in resolved.chat_models] == [
-        "MiniMax-M3",
         "MiniMax-M2.7",
-        "MiniMax-M2.5",
-        "MiniMax-M2.5-highspeed",
-        "MiniMax-M2.1",
+        "MiniMax-M2.7-highspeed",
     ]
     assert resolved.embedding_models == []
     assert resolved.image_generation_models == []
 
-    m3 = resolved.chat_models[0]
-    assert m3.vendor == ModelVendor.MINIMAX
-    assert m3.cost is not None
-    assert m3.cost.input_per_million_tokens is None
+    m27 = resolved.chat_models[0]
+    assert m27.vendor == ModelVendor.MINIMAX
+    assert m27.cost is not None
+    assert m27.cost.input_per_million_tokens is None
 
 
 def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
@@ -886,8 +880,8 @@ def test_build_provider_catalog_exposes_and_applies_minimax_tokenplan():
     ]
     assert minimax_entry.plans[0].endpoints[1].base_url == "https://api.minimax.io/v1"
     assert minimax_entry.default_base_url == "https://api.minimaxi.com/v1"
-    assert minimax_entry.default_model == "MiniMax-M3"
-    assert minimax_entry.default_classify_model == "MiniMax-M3"
+    assert minimax_entry.default_model == "MiniMax-M2.7"
+    assert minimax_entry.default_classify_model == "MiniMax-M2.7"
     assert [model.id for model in minimax_entry.resolved_embedding_models] == []
     assert [model.id for model in minimax_entry.resolved_image_generation_models] == []
 
@@ -967,16 +961,16 @@ def test_update_paths_apply_provider_plan_defaults():
     assert persisted_provider["provider_type"] == "glm"
     assert persisted_provider["provider_plan"] == "codeplan"
     assert persisted_provider["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
-    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.5-air"
-    assert updates["llm.selections"]["core"]["model"] == "glm-5.1"
+    assert updates["llm.selections"]["context_decider"]["model"] == "glm-4.7"
+    assert updates["llm.selections"]["core"]["model"] == "glm-5.2"
 
 
-def test_provider_plan_pricing_uses_plan_model_metadata():
+def test_provider_plan_pricing_does_not_inherit_pay_as_you_go_rates():
     registry = _default_llm_provider_registry()
 
     standard_amount, _ = calculate_chat_cost(
         provider="glm",
-        model="glm-4.5-air",
+        model="glm-5.2",
         prompt_tokens=1_000_000,
         completion_tokens=1_000_000,
         registry=registry,
@@ -984,15 +978,15 @@ def test_provider_plan_pricing_uses_plan_model_metadata():
     plan_amount, currency = calculate_chat_cost(
         provider="glm",
         provider_plan="codeplan",
-        model="glm-4.5-air",
+        model="glm-5.2",
         prompt_tokens=1_000_000,
         completion_tokens=1_000_000,
         registry=registry,
     )
 
-    assert standard_amount is None
-    assert plan_amount == pytest.approx(1.3)
-    assert currency == "USD"
+    assert standard_amount == pytest.approx(5.8)
+    assert plan_amount is None
+    assert currency is None
 
 
 def test_dashscope_codeplan_pricing_does_not_apply_pay_as_you_go_rates():

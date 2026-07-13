@@ -26,6 +26,7 @@ class OpenAIAdapter(LLMAdapter):
         provider: str = "openai",
         base_url: Optional[str] = None,
         provider_plan: Optional[str] = None,
+        provider_instance_id: Optional[str] = None,
         timeout: int = 60,
         embedding_dimension: Optional[int] = None,
         proxy_url: Optional[str] = None,
@@ -44,6 +45,7 @@ class OpenAIAdapter(LLMAdapter):
         self._timeout = timeout
         self._provider = provider.lower()
         self._provider_plan = provider_plan
+        self._provider_instance_id = provider_instance_id
         self._embedding_dimension = (
             int(embedding_dimension) if embedding_dimension is not None else None
         )
@@ -239,6 +241,11 @@ class OpenAIAdapter(LLMAdapter):
     def provider_plan(self) -> Optional[str]:
         """Get provider plan id."""
         return self._provider_plan
+
+    @property
+    def provider_instance_id(self) -> Optional[str]:
+        """Get the configured provider instance id."""
+        return self._provider_instance_id
 
     @property
     def base_url(self) -> Optional[str]:

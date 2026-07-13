@@ -6,17 +6,10 @@ import hashlib
 import json
 import logging
 import time
-from functools import lru_cache
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, TypeVar
 
 from ...config import get_config
-from ...config.loader import get_llm_provider_registry_file
-from ...config.llm_registry import (
-    LLMProviderRegistryModel,
-    find_embedding_model_meta,
-    load_llm_provider_registry,
-)
 from ...config.models import EmbeddingMode
 from ...llm import LLMScenario, ScenarioLLMPool, get_llm_concurrency_limiter
 from ...llm.usage_tracing import publish_llm_usage_span
@@ -28,15 +21,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 DEFAULT_EMBEDDING_CONCURRENCY_FALLBACK = 4
-
-
-@lru_cache(maxsize=1)
-def _load_provider_registry() -> LLMProviderRegistryModel:
-    """Load the packaged provider registry once per process."""
-    return load_llm_provider_registry(
-        get_llm_provider_registry_file(),
-        fallback=LLMProviderRegistryModel(),
-    )
 
 
 @dataclass(slots=True)
@@ -407,6 +391,8 @@ class MemoryEmbeddingService:
         limiter = get_llm_concurrency_limiter()
         return limiter.build_key(
             provider_name=str(getattr(adapter, "provider_name", "unknown")),
+            provider_instance_id=getattr(adapter, "provider_instance_id", None),
+            provider_plan=getattr(adapter, "provider_plan", None),
             model_name=str(getattr(adapter, "model_name", "embedding")),
             request_family="embedding",
             base_url=getattr(adapter, "base_url", None),
@@ -423,18 +409,6 @@ class MemoryEmbeddingService:
             override_limit = getattr(override, "max_concurrency", None)
             if override_limit is not None:
                 return int(override_limit)
-
-        provider_name = str(getattr(adapter, "provider_name", "unknown"))
-        provider_plan = str(getattr(adapter, "provider_plan", "") or "").strip() or None
-        model_name = str(getattr(adapter, "model_name", "embedding"))
-        model_meta = find_embedding_model_meta(
-            _load_provider_registry(),
-            provider_name,
-            model_name,
-            provider_plan,
-        )
-        if model_meta is not None and model_meta.limits.max_concurrency is not None:
-            return int(model_meta.limits.max_concurrency)
 
         return DEFAULT_EMBEDDING_CONCURRENCY_FALLBACK
 

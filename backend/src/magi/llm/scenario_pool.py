@@ -135,6 +135,7 @@ class ScenarioLLMPool:
         if provider_plan:
             adapter_kwargs["provider_plan"] = provider_plan
         adapter = self._adapter_factory(**adapter_kwargs)
+        setattr(adapter, "_provider_instance_id", selection.provider_id)
         for configurator in self._adapter_configurators:
             configurator(adapter)
         return adapter

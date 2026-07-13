@@ -23,6 +23,8 @@ class _RecordingLimiter:
 class _BlockingEmbeddingAdapter:
     def __init__(self) -> None:
         self.provider_name = "openai"
+        self.provider_instance_id = "openai"
+        self.provider_plan = None
         self.model_name = "text-embedding-3-small"
         self.base_url = "https://api.openai.com/v1"
         self.supports_embeddings = True
@@ -62,7 +64,6 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
     from types import SimpleNamespace
 
     from magi.llm.concurrency_limiter import LLMConcurrencyLimiter
-    from magi.config.llm_registry import LLMEmbeddingModelMetaModel, LLMProviderMetaModel, LLMProviderRegistryModel
     from magi.memory.embedding.embedding_service import MemoryEmbeddingService
 
     adapter = _BlockingEmbeddingAdapter()
@@ -76,7 +77,11 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
         lambda: SimpleNamespace(
             llm=SimpleNamespace(
                 selections={},
-                model_runtime_overrides={},
+                    model_runtime_overrides={
+                        "openai::openai::api::api.openai.com::text-embedding-3-small::embedding": SimpleNamespace(
+                            max_concurrency=1
+                        )
+                    },
             ),
             agent=SimpleNamespace(
                 memory=SimpleNamespace(
@@ -85,23 +90,6 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
             ),
         ),
     )
-    monkeypatch.setattr(
-        "magi.memory.embedding.embedding_service._load_provider_registry",
-        lambda: LLMProviderRegistryModel(
-            providers=[
-                LLMProviderMetaModel(
-                    id="openai",
-                    embedding_models=[
-                        LLMEmbeddingModelMetaModel(
-                            id="text-embedding-3-small",
-                            limits={"max_concurrency": 1},
-                        )
-                    ],
-                )
-            ]
-        ),
-    )
-
     first_task = asyncio.create_task(service.embed_text("alpha"))
     await asyncio.wait_for(adapter.started.wait(), timeout=1.0)
 
@@ -122,7 +110,6 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
 async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 
-    from magi.config.llm_registry import LLMEmbeddingModelMetaModel, LLMProviderMetaModel, LLMProviderRegistryModel
     from magi.memory.embedding.embedding_service import MemoryEmbeddingService
 
     adapter = _BlockingEmbeddingAdapter()
@@ -138,7 +125,11 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
                 selections={
                     "embedding": SimpleNamespace(provider_id="openai", model="text-embedding-3-small"),
                 },
-                model_runtime_overrides={},
+                model_runtime_overrides={
+                    "openai::openai::api::api.openai.com::text-embedding-3-small::embedding": SimpleNamespace(
+                        max_concurrency=7
+                    )
+                },
             ),
             agent=SimpleNamespace(
                 memory=SimpleNamespace(
@@ -147,23 +138,6 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
             ),
         ),
     )
-    monkeypatch.setattr(
-        "magi.memory.embedding.embedding_service._load_provider_registry",
-        lambda: LLMProviderRegistryModel(
-            providers=[
-                LLMProviderMetaModel(
-                    id="openai",
-                    embedding_models=[
-                        LLMEmbeddingModelMetaModel(
-                            id="text-embedding-3-small",
-                            limits={"max_concurrency": 7},
-                        )
-                    ],
-                )
-            ]
-        ),
-    )
-
     adapter.release.set()
     result = await service.embed_text("alpha")
 
