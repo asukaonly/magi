@@ -300,12 +300,6 @@ export const TranscriptTimelineRow = ({
           )}
           bubbleFooter={(
             <>
-              {transcript.showRecalledMemories ? (
-                <RecalledMemoriesRow
-                  memories={message.recalledMemories ?? []}
-                  summary={message.recalledMemorySummary}
-                />
-              ) : null}
               {transcript.showExecutionBubbleFooter ? (
                 <TimelineExecutionPanel
                   executionProgress={transcript.executionProgress}
@@ -317,6 +311,12 @@ export const TranscriptTimelineRow = ({
           )}
           belowBubble={(
             <>
+              {transcript.showRecalledMemories ? (
+                <RecalledMemoriesRow
+                  memories={message.recalledMemories ?? []}
+                  summary={message.recalledMemorySummary}
+                />
+              ) : null}
               {transcript.belowBubble.showReactionBadge && (
                 <div className="mt-2 flex justify-end">
                   <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background px-2 text-sm shadow-sm">

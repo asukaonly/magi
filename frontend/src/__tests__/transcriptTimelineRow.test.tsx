@@ -101,4 +101,68 @@ describe('TranscriptTimelineRow', () => {
     expect(screen.queryByRole('img', { name: '惣流·明日香·兰格雷' })).not.toBeInTheDocument();
     expect(screen.getByText('惣')).toBeInTheDocument();
   });
+
+  it('renders recalled memories below the assistant bubble', () => {
+    render(
+      <TranscriptTimelineRow
+        projectedMessage={{
+          surface: 'transcript',
+          message: {
+            id: 'msg-memory',
+            role: 'assistant',
+            kind: 'assistant',
+            content: 'Answer with memory',
+            timestamp: 1777729177195,
+            messageId: 'msg-memory',
+            messageKind: 'assistant_final',
+            turnId: 'turn-memory',
+            recalledMemories: [{
+              kind: 'event',
+              sourceLayer: 'L1',
+              statement: 'Visited example.com',
+              topic: 'example.com',
+            }],
+          },
+          transcript: {
+            ...baseTranscript,
+            showRecalledMemories: true,
+          },
+        } as any}
+        assistant={{ name: 'Magi', avatar: '' }}
+        shouldReduceMotion
+        execution={{
+          summaries: {},
+          executionControlByTurnId: {},
+          cancellingTurnIds: [],
+          detachingTurnIds: [],
+          onOpenTraceDrawer: noop,
+          onRequestRunCancel: noop,
+          onRequestRunDetach: noop,
+        }}
+        interactions={{
+          currentSessionId: 'session-1',
+          labelPopoverState: null,
+          labelPopoverDraft: '',
+          labelPopoverRef: { current: null },
+          onSetReplyTarget: noop,
+          onOpenImagePreview: noop,
+          onCloseLabelPopover: noop,
+          onCloseMessageContextMenu: noop,
+          onOpenLabelPopover: noop,
+          onOpenMessageContextMenu: noop,
+          onApplyLabelToMessage: noop,
+          onLabelDraftChange: noop,
+          onLabelDraftCompositionStart: noop,
+          onLabelDraftCompositionEnd: noop,
+        }}
+      />,
+    );
+
+    const bubble = screen.getByText('Answer with memory').closest('div.rounded-xl');
+    const memoryDisclosure = screen.getByRole('button', { name: 'chat.recalledMemories.summary' });
+
+    expect(bubble).not.toBeNull();
+    expect(bubble).not.toContainElement(memoryDisclosure);
+    expect(bubble?.parentElement).toContainElement(memoryDisclosure);
+  });
 });

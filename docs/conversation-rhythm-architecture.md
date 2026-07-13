@@ -139,7 +139,8 @@ events on the frontend.
 Turn-scoped supporting metadata should appear only once across visible rhythm
 segments. Recalled-memory references belong on the terminal segment so they act
 as a footer for the whole assistant turn instead of repeating inside every
-bubble.
+bubble. The compact disclosure sits directly below the terminal bubble rather
+than inside it, so short conversational bubbles keep their natural height.
 
 ## Streaming Policy
 
