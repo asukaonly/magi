@@ -256,7 +256,15 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             self._context.agent_runtime.sensor_scheduler_contrib,
             "sensor scheduler contributor",
         )
-        await sensor_scheduler.queue_manual_sync(sensor_sync.source_name)
+        await sensor_scheduler.queue_manual_sync(
+            sensor_sync.source_name,
+            first_context=sensor_sync.first_context,
+            sync_mode=sensor_sync.sync_mode,
+            backfill_scope=sensor_sync.backfill_scope,
+            backfill_days=sensor_sync.backfill_days,
+            backfill_start_date=sensor_sync.backfill_start_date,
+            backfill_end_date=sensor_sync.backfill_end_date,
+        )
 
     async def _flush_sensor_state(self, command: Any) -> None:
         sensor_flush = command.as_sensor_state_flush()

@@ -36,6 +36,33 @@
       "body": "Suggestions and task updates show up in this bell."
     }
   },
+  "sourceBackfill": {
+    "title": "Backfill history",
+    "description": "Choose the range to backfill for {{source}}.",
+    "rangeLabel": "Time range",
+    "ranges": {
+      "last7Days": "Last 7 days",
+      "last30Days": "Last 30 days",
+      "custom": "Custom",
+      "full": "Full history"
+    },
+    "rangeDescriptions": {
+      "last7Days": "Quickly fill the last few days.",
+      "last30Days": "The default range for recent activity.",
+      "custom": "Choose an exact start and end date.",
+      "full": "Try to backfill the full history. This may take longer."
+    },
+    "custom": {
+      "title": "Choose dates",
+      "start": "Start date",
+      "end": "End date",
+      "errorRequired": "Choose both start and end dates",
+      "errorOrder": "End date cannot be earlier than start date"
+    },
+    "idempotencyNote": "Duplicate records are skipped.",
+    "cancel": "Cancel",
+    "submit": "Start backfill"
+  },
   "bootstrap": {
     "startupFailed": "Backend startup failed",
     "retry": "Retry",
@@ -2224,6 +2251,8 @@
         "entries": "Entries",
         "entriesTitle": "Sync entries",
         "entriesDesc": "Each entry has its own enable switch, schedule, and runtime status.",
+        "availableEntriesTitle": "More entries available",
+        "availableEntriesDesc": "These entries belong to the same sensor group. After installation, they will appear in the entry selector above.",
         "sourceStatusTitle": "Runtime status",
         "sourceStateHint": "{{mode}}",
         "nextRun": "Next run",
@@ -2278,12 +2307,17 @@
         "queued": "Queued",
         "syncing": "Syncing",
         "awaitingSetup": "Awaiting setup",
+        "notInstalled": "Not installed",
         "loading": "Loading source status..."
       },
       "actions": {
         "refresh": "Refresh status",
         "flushStateNow": "Flush state now",
         "syncNow": "Sync now",
+        "backfill": "Backfill history",
+        "installEntry": "Add entry",
+        "installingEntry": "Adding",
+        "browseMarketplace": "Open marketplace",
         "resetActivation": "Reset first sync setup"
       },
       "activation": {
@@ -2291,10 +2325,12 @@
         "resetSuccess": "{{source}} first-sync setup reset"
       },
       "syncQueued": "{{source}} sync queued",
+      "backfillQueued": "{{source}} history backfill queued",
       "stateFlushQueued": "{{source}} state flush queued",
       "errors": {
         "statusLoadFailed": "Failed to load source status: {{message}}",
         "syncFailed": "Failed to queue sync: {{message}}",
+        "backfillFailed": "Failed to queue history backfill: {{message}}",
         "stateFlushFailed": "Failed to queue state flush: {{message}}",
         "authorizationFailed": "Authorization failed: {{message}}",
         "settingsSaveFailed": "Failed to save source settings: {{message}}",
@@ -2628,6 +2664,7 @@
       "actions": {
         "view": "View",
         "sync": "Sync once",
+        "backfill": "Backfill history",
         "settings": "Open settings",
         "pause": "Pause",
         "resume": "Resume",
@@ -2641,6 +2678,7 @@
       "feedback": {
         "pauseSuccess": "{{source}} paused",
         "resumeSuccess": "{{source}} resumed",
+        "backfillQueued": "{{source}} history backfill queued",
         "toggleFailed": "Could not update source status: {{message}}"
       },
       "detail": {

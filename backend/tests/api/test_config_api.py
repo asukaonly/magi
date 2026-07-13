@@ -1466,6 +1466,57 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
+def test_update_language_preference_saves_language_without_runtime_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    captured_updates: dict[str, object] = {}
+    calls: list[str] = []
+
+    def _fake_save_config(updates: dict) -> bool:
+        captured_updates.update(updates)
+        calls.append("save")
+        return True
+
+    def _fake_reload_config():
+        calls.append("reload")
+        return get_config()
+
+    def _unexpected_runtime_refresh(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("language preference update should not refresh runtime")
+
+    returned_config = SystemConfigModel()
+    returned_config.preferences.language = "en"
+
+    monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
+    monkeypatch.setattr("magi.api.routers.config.reload_config", _fake_reload_config)
+    monkeypatch.setattr(
+        "magi.api.routers.config._refresh_or_initialize_runtime_after_config_update",
+        _unexpected_runtime_refresh,
+    )
+    monkeypatch.setattr("magi.api.routers.config._build_system_config", lambda: returned_config)
+
+    response = client.put("/config/preferences/language", json={"language": "en"})
+
+    assert response.status_code == 200
+    assert captured_updates == {"preferences.language": "en"}
+    assert calls == ["save", "reload"]
+    assert response.json()["data"]["preferences"]["language"] == "en"
+
+
+def test_update_language_preference_rejects_unsupported_language():
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+
+    response = client.put("/config/preferences/language", json={"language": "ja"})
+
+    assert response.status_code == 422
+
+
 def test_update_config_initializes_runtime_when_runtime_is_deferred(
     monkeypatch: pytest.MonkeyPatch,
 ):

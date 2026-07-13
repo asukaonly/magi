@@ -7,8 +7,11 @@
  * drives the install-first activation path (install-then-activate for
  * registry-only plugins).
  */
-import { useCallback, useEffect, useState } from 'react';
-import { listInstallable, type InstallableItem } from '../api/modules/systemSuggestions';
+import { useCallback, useEffect, useState } from "react";
+import {
+  listInstallable,
+  type InstallableItem,
+} from "../api/modules/systemSuggestions";
 
 export function useInstallableSensors(enabled = true) {
   const [items, setItems] = useState<InstallableItem[]>([]);
@@ -25,7 +28,7 @@ export function useInstallableSensors(enabled = true) {
       setError(
         caught instanceof Error
           ? caught
-          : new Error('Failed to load installable sources'),
+          : new Error("Failed to load installable sources"),
       );
     } finally {
       setLoading(false);

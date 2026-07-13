@@ -101,6 +101,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
     "config": {
         "/": {"GET", "PUT"},
         "/template": {"GET"},
+        "/preferences/language": {"PUT"},
         "/test": {"POST"},
         "/embedding-preflight": {"POST"},
         "/channels/telegram/test": {"POST"},

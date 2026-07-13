@@ -247,6 +247,10 @@ class UserPreferencesModel(BaseModel):
     allow_ask_in_background: bool = Field(default=False)
 
 
+class LanguagePreferenceUpdateRequest(BaseModel):
+    language: Literal["zh", "en"] = Field(description="Preferred application language.")
+
+
 class OnboardingConfigUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

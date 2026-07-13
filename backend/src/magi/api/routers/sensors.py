@@ -6,11 +6,12 @@ import asyncio
 import inspect
 import logging
 import time
+from dataclasses import dataclass
 from datetime import date, datetime, time as datetime_time
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ...config import get_config
 from ...core.runtime_bindings import require_runtime_command_queue
@@ -36,6 +37,67 @@ class SensorSourceAuthorizationRequest(BaseModel):
     field_values: dict[str, Any] = Field(default_factory=dict)
 
 
+class SensorSourceSyncRequest(BaseModel):
+    first_context: bool = False
+    mode: Literal["latest", "backfill"] = "latest"
+    backfill_scope: Literal["last_7_days", "last_30_days", "full", "custom"] | None = None
+    backfill_start_date: date | None = None
+    backfill_end_date: date | None = None
+
+    @model_validator(mode="after")
+    def _validate_custom_backfill_range(self) -> "SensorSourceSyncRequest":
+        if self.mode != "backfill" or self.backfill_scope != "custom":
+            return self
+        if self.backfill_start_date is None or self.backfill_end_date is None:
+            raise ValueError("custom backfill requires start and end dates")
+        if self.backfill_start_date > self.backfill_end_date:
+            raise ValueError("custom backfill end date cannot be earlier than start date")
+        return self
+
+
+_BACKFILL_SCOPE_DAYS = {
+    "last_7_days": 7,
+    "last_30_days": 30,
+}
+
+
+@dataclass(slots=True, frozen=True)
+class _NormalizedSensorSyncRequest:
+    mode: str
+    backfill_scope: str | None = None
+    backfill_days: int | None = None
+    backfill_start_date: str | None = None
+    backfill_end_date: str | None = None
+
+
+def _normalize_sensor_sync_request(
+    request: SensorSourceSyncRequest | None,
+) -> _NormalizedSensorSyncRequest:
+    if request is None or request.first_context or request.mode != "backfill":
+        return _NormalizedSensorSyncRequest(mode="latest")
+    scope = request.backfill_scope or "last_30_days"
+    if scope == "custom":
+        return _NormalizedSensorSyncRequest(
+            mode="backfill",
+            backfill_scope=scope,
+            backfill_start_date=(
+                request.backfill_start_date.isoformat()
+                if request.backfill_start_date is not None
+                else None
+            ),
+            backfill_end_date=(
+                request.backfill_end_date.isoformat()
+                if request.backfill_end_date is not None
+                else None
+            ),
+        )
+    return _NormalizedSensorSyncRequest(
+        mode="backfill",
+        backfill_scope=scope,
+        backfill_days=_BACKFILL_SCOPE_DAYS.get(scope),
+    )
+
+
 @sensors_router.get("/status")
 async def get_sensor_source_status():
     get_config()
@@ -53,7 +115,10 @@ async def get_sensor_source_status():
 
 
 @sensors_router.post("/{source_name}/sync")
-async def trigger_sensor_source_sync(source_name: str):
+async def trigger_sensor_source_sync(
+    source_name: str,
+    request: SensorSourceSyncRequest | None = None,
+):
     _ = get_config()
     sensor_registry = resolve_sensor_registry()
     resolved = sensor_registry.resolve_source_sensor(source_name)
@@ -83,13 +148,34 @@ async def trigger_sensor_source_sync(source_name: str):
                 "sensors.errors.scheduler_unavailable", fallback="Scheduler unavailable"
             ),
         ) from exc
+    sync_request = _normalize_sensor_sync_request(request)
     command_id = await runtime_command_queue.enqueue_sensor_sync(
         SensorSyncCommand(
             source="api.sensors",
             source_name=source_name,
+            first_context=bool(request and request.first_context),
+            sync_mode=sync_request.mode,
+            backfill_scope=sync_request.backfill_scope,
+            backfill_days=sync_request.backfill_days,
+            backfill_start_date=sync_request.backfill_start_date,
+            backfill_end_date=sync_request.backfill_end_date,
         )
     )
-    return {"queued": True, "source_name": source_name, "command_id": command_id}
+    response = {
+        "queued": True,
+        "source_name": source_name,
+        "command_id": command_id,
+        "mode": sync_request.mode,
+    }
+    if sync_request.backfill_scope is not None:
+        response["backfill_scope"] = sync_request.backfill_scope
+    if sync_request.backfill_days is not None:
+        response["backfill_days"] = sync_request.backfill_days
+    if sync_request.backfill_start_date is not None:
+        response["backfill_start_date"] = sync_request.backfill_start_date
+    if sync_request.backfill_end_date is not None:
+        response["backfill_end_date"] = sync_request.backfill_end_date
+    return response
 
 
 @sensors_router.post("/{source_name}/flush-state")

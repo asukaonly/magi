@@ -7,7 +7,6 @@ import {
 import {
   pluginsApi,
   type ActivationFlowSpec,
-  type ExtensionFieldSpec,
   type PluginInstallJobSnapshot,
 } from '../api/modules/plugins';
 import type { PluginInstallPanelContext } from '../stores/pluginInstallPanel';
@@ -25,8 +24,8 @@ const SYNC_TIMEOUT_MS = 90_000;
 const MEMORY_TIMEOUT_MS = 20_000;
 const MEMORY_POLL_WAIT_MS = 1_500;
 const MEMORY_POLL_PAUSE_MS = 250;
-const FIRST_CONTEXT_CHROME_HISTORY_DAYS = 1;
-const FIRST_CONTEXT_CHROME_HISTORY_LIMIT = 200;
+const MEMORY_BACKGROUND_POLL_MS = 3_000;
+const FIRST_CONTEXT_MAX_ITEMS_PER_SYNC = 200;
 
 const finiteNumberOrNull = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -36,24 +35,92 @@ const readinessInputCount = (readiness: MemoryReadinessResponse | null): number 
   return finiteNumberOrNull(readiness.l1_event_count) ?? finiteNumberOrNull(readiness.l2_total_count);
 };
 
+const memoryReadinessComplete = (
+  readiness: MemoryReadinessResponse | null,
+  panelContext: PluginInstallPanelContext = 'default',
+): boolean => {
+  if (!readiness) return false;
+  const inputCount = readinessInputCount(readiness);
+  if (panelContext === 'first_context') {
+    return inputCount !== null;
+  }
+  return !!readiness.l2_ready || inputCount === 0;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+function getFieldDefaults(flow: ActivationFlowSpec): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {};
+  for (const field of flow.fields ?? []) {
+    if (!field.required && hasOwn(field, 'default')) {
+      defaults[field.key] = field.default;
+    }
+  }
+  return defaults;
+}
+
+function getSensorSettingsPrefix(flow: ActivationFlowSpec): string | null {
+  const enabledKey = typeof flow.enabled_key === 'string' ? flow.enabled_key : '';
+  if (!enabledKey.startsWith('sensors.') || !enabledKey.endsWith('.enabled')) {
+    return null;
+  }
+  return enabledKey.slice(0, -'.enabled'.length);
+}
+
+function getFirstContextHostDefaults(flow: ActivationFlowSpec): Record<string, unknown> {
+  const prefix = getSensorSettingsPrefix(flow);
+  if (!prefix) {
+    return {};
+  }
+  return {
+    [`${prefix}.max_items_per_sync`]: FIRST_CONTEXT_MAX_ITEMS_PER_SYNC,
+  };
+}
+
 function applyFirstContextDefaults(
-  pluginId: string,
   flow: ActivationFlowSpec,
   values: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (pluginId !== 'chrome-history') {
-    return values;
-  }
-  const fieldKeys = new Set((flow.fields ?? []).map((field: ExtensionFieldSpec) => field.key));
+  const overrides = getFirstContextOverrides(flow);
   return {
+    ...getFieldDefaults(flow),
+    ...getFirstContextHostDefaults(flow),
     ...values,
-    ...(fieldKeys.has('sensors.chrome_history.initial_sync_policy')
-      ? { 'sensors.chrome_history.initial_sync_policy': 'lookback_days' }
-      : {}),
-    ...(fieldKeys.has('sensors.chrome_history.initial_sync_lookback_days')
-      ? { 'sensors.chrome_history.initial_sync_lookback_days': FIRST_CONTEXT_CHROME_HISTORY_DAYS }
-      : {}),
-    'sensors.chrome_history.max_items_per_sync': FIRST_CONTEXT_CHROME_HISTORY_LIMIT,
+    ...(overrides ?? {}),
+  };
+}
+
+function getFirstContextOverrides(flow: ActivationFlowSpec): Record<string, unknown> | null {
+  if (!isRecord(flow.first_context)) {
+    return null;
+  }
+  const overrides = flow.first_context.settings_overrides ?? flow.first_context.settings;
+  if (!isRecord(overrides)) {
+    return null;
+  }
+  return overrides;
+}
+
+function visibleFlowForPanelContext(
+  flow: ActivationFlowSpec,
+  panelContext: PluginInstallPanelContext,
+): ActivationFlowSpec {
+  if (panelContext !== 'first_context') {
+    return flow;
+  }
+  const overrides = getFirstContextOverrides(flow);
+  const defaultValues = getFieldDefaults(flow);
+  const hiddenFieldKeys = new Set([
+    ...Object.keys(defaultValues),
+    ...Object.keys(overrides ?? {}),
+  ]);
+  return {
+    ...flow,
+    fields: (flow.fields ?? []).filter((field) => !hiddenFieldKeys.has(field.key)),
   };
 }
 
@@ -96,10 +163,10 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  *   - ③ sync: trigger requestSync, then poll /sensors/status until the source's
  *     last_success advances beyond the baseline; "soft-done" on timeout (work
  *     continues in the background, the bell surfaces it) + backfillNote.
- *   - ④ memory: short bounded getMemoryReadiness polls; l2_ready drives a real
- *     ✓, zero input finishes as an honest no-new-record state, otherwise the
- *     step is soft-done ("整理中") + backfillNote — never a fake ✓ and never an
- *     error. Each poll refreshes the visible memory counts.
+ *   - ④ memory: short bounded getMemoryReadiness polls. Normal plugin panels
+ *     wait for l2_ready; first-context onboarding only needs L1 samples for
+ *     the first chat, so it finishes after the readiness count is available.
+ *     Each poll refreshes the visible counts.
  *
  * A plugin with no activation_flow lands on `unsupported` instead of the
  * previous silent no-op.
@@ -235,13 +302,14 @@ export function usePluginInstallFlow(
         setPhase('unsupported');
         return;
       }
-      setFlow(src.activation_flow);
+      const visibleFlow = visibleFlowForPanelContext(src.activation_flow, panelContext);
+      setFlow(visibleFlow);
       setSourceName(src.source_name);
       setDescription(src.description_translated || src.description || null);
 
       // fields gate
       let values: Record<string, unknown> = {};
-      if ((src.activation_flow.fields?.length ?? 0) > 0) {
+      if ((visibleFlow.fields?.length ?? 0) > 0) {
         setPhase('awaiting_fields');
         values = await new Promise<Record<string, unknown>>((resolve) => {
           fieldsResolveRef.current = resolve;
@@ -249,7 +317,7 @@ export function usePluginInstallFlow(
         if (!isActive()) return;
       }
       if (panelContext === 'first_context') {
-        values = applyFirstContextDefaults(pluginId, src.activation_flow, values);
+        values = applyFirstContextDefaults(src.activation_flow, values);
       }
       setPhase('running');
 
@@ -274,7 +342,10 @@ export function usePluginInstallFlow(
       // ③ sync (trigger + poll status until last_success advances, or timeout)
       setStep('sync', 'running');
       const baseSuccess = src.last_success ?? null;
-      await sensorsApi.requestSync(src.source_name);
+      await sensorsApi.requestSync(
+        src.source_name,
+        panelContext === 'first_context' ? { firstContext: true } : undefined,
+      );
       if (!isActive()) return;
       const deadline = Date.now() + SYNC_TIMEOUT_MS;
       let synced = false;
@@ -305,18 +376,23 @@ export function usePluginInstallFlow(
       // ④ build memory (short polling — backend flushes + reports the source backlog)
       setStep('memory', 'running');
       const memoryDeadline = Date.now() + MEMORY_TIMEOUT_MS;
+      const isFirstContext = panelContext === 'first_context';
       let latestReadiness: MemoryReadinessResponse | null = null;
       let pollingMemory = true;
       while (pollingMemory) {
         const remainingWait = Math.max(0, memoryDeadline - Date.now());
         const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
-          maxWaitMs: Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
+          maxWaitMs: isFirstContext ? 0 : Math.min(MEMORY_POLL_WAIT_MS, remainingWait),
         });
         if (!isActive()) return;
         latestReadiness = readiness;
         applyMemoryReadiness(readiness);
         const inputCount = readinessInputCount(readiness);
-        if (readiness.l2_ready || inputCount === 0 || Date.now() >= memoryDeadline) {
+        if (
+          memoryReadinessComplete(readiness, panelContext) ||
+          inputCount === 0 ||
+          Date.now() >= memoryDeadline
+        ) {
           pollingMemory = false;
         } else {
           await sleep(MEMORY_POLL_PAUSE_MS);
@@ -324,13 +400,35 @@ export function usePluginInstallFlow(
         }
       }
       const latestInputCount = readinessInputCount(latestReadiness);
-      const memoryIsReady = !!latestReadiness?.l2_ready || latestInputCount === 0;
-      if (!latestReadiness?.l2_ready && latestInputCount !== 0) setBackfillNote(true);
+      const memoryIsReady = memoryReadinessComplete(latestReadiness, panelContext);
+      if (!isFirstContext && !latestReadiness?.l2_ready && latestInputCount !== 0) {
+        setBackfillNote(true);
+      }
       // When the bounded wait expires, the source is connected but memory is
       // still being organized by the background worker. Keep the visual step
       // honest instead of rendering a fake 100% completion.
       setStep('memory', memoryIsReady ? 'done' : 'background');
       setPhase('done');
+      while (!memoryIsReady && isActive()) {
+        await sleep(MEMORY_BACKGROUND_POLL_MS);
+        if (!isActive()) return;
+        try {
+          const readiness = await sensorsApi.getMemoryReadiness(src.source_name, {
+            maxWaitMs: MEMORY_POLL_WAIT_MS,
+          });
+          if (!isActive()) return;
+          applyMemoryReadiness(readiness);
+          if (memoryReadinessComplete(readiness)) {
+            setBackfillNote(false);
+            setStep('memory', 'done');
+            return;
+          }
+        } catch {
+          // Keep the completed connect flow usable; the background worker and
+          // notification surfaces can still report final readiness.
+          return;
+        }
+      }
     } catch (e: any) {
       if (!isActive()) return;
       setError(e?.message || String(e));

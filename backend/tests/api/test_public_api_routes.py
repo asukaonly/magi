@@ -23,6 +23,7 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/messages/session/{session_id}/message/{message_id}" in paths
     assert "/api/config/" in paths
     assert "/api/config/embedding-preflight" in paths
+    assert "/api/config/preferences/language" in paths
     assert "/api/config/onboarding-status" in paths
     assert "/api/config/onboarding-draft" in paths
     assert "/api/config/onboarding-complete" in paths

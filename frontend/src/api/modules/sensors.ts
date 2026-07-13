@@ -97,6 +97,28 @@ export interface SensorTodaySummaryResponse {
   sources: SensorTodaySummaryEntry[];
 }
 
+export type SensorSyncMode = 'latest' | 'backfill';
+export type SensorBackfillScope = 'last_7_days' | 'last_30_days' | 'full' | 'custom';
+
+export interface SensorSyncRequestOptions {
+  firstContext?: boolean;
+  mode?: SensorSyncMode;
+  backfillScope?: SensorBackfillScope;
+  backfillStartDate?: string;
+  backfillEndDate?: string;
+}
+
+export interface SensorSyncResponse {
+  queued: boolean;
+  source_name: string;
+  command_id?: number;
+  mode?: SensorSyncMode;
+  backfill_scope?: SensorBackfillScope;
+  backfill_days?: number;
+  backfill_start_date?: string;
+  backfill_end_date?: string;
+}
+
 export const sensorsApi = {
   getStatus: async (): Promise<SensorSourceStatusResponse> => {
     const response = await api.get<SensorSourceStatusResponse>('/sensors/status');
@@ -122,8 +144,28 @@ export const sensorsApi = {
     return unwrapGatewayPayload(response);
   },
 
-  requestSync: async (sourceName: string): Promise<{ queued: boolean; source_name: string }> => {
-    const response = await api.post<{ queued: boolean; source_name: string }>(`/sensors/${sourceName}/sync`, {});
+  requestSync: async (
+    sourceName: string,
+    opts?: SensorSyncRequestOptions,
+  ): Promise<SensorSyncResponse> => {
+    const payload: Record<string, unknown> = {};
+    if (opts?.firstContext) {
+      payload.first_context = true;
+    }
+    if (opts?.mode === 'backfill') {
+      payload.mode = 'backfill';
+      payload.backfill_scope = opts.backfillScope ?? 'last_30_days';
+      if (opts.backfillStartDate) {
+        payload.backfill_start_date = opts.backfillStartDate;
+      }
+      if (opts.backfillEndDate) {
+        payload.backfill_end_date = opts.backfillEndDate;
+      }
+    }
+    const response = await api.post<SensorSyncResponse>(
+      `/sensors/${sourceName}/sync`,
+      payload,
+    );
     return unwrapGatewayPayload(response);
   },
 

@@ -1,33 +1,33 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ProductTour } from '@/components/onboarding/ProductTour';
-import type { InstallableItem } from '@/api/modules/systemSuggestions';
-import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
+import { ProductTour } from "@/components/onboarding/ProductTour";
+import type { InstallableItem } from "@/api/modules/systemSuggestions";
+import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'zh-CN' } }),
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: "zh-CN" } }),
 }));
 
 const mockUseInstallableSensors = vi.fn();
-vi.mock('@/hooks/useInstallableSensors', () => ({
+vi.mock("@/hooks/useInstallableSensors", () => ({
   useInstallableSensors: () => mockUseInstallableSensors(),
 }));
 
 function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
   return {
-    plugin_id: 'chrome-history',
-    category: 'browser_history',
+    plugin_id: "chrome-history",
+    category: "browser_history",
     installed: false,
-    rationale: { zh: '', en: '' },
+    rationale: { zh: "", en: "" },
     setup_time_estimate_seconds: 10,
-    data_locality: 'local_only',
+    data_locality: "local_only",
     ...overrides,
   };
 }
 
-describe('ProductTour', () => {
+describe("ProductTour", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockUseInstallableSensors.mockReset();
@@ -39,55 +39,70 @@ describe('ProductTour', () => {
     usePluginInstallPanelStore.getState().closePanel();
   });
 
-  it('renders the first context setup prompt', async () => {
+  it("renders the first context setup prompt", async () => {
     render(<ProductTour onComplete={vi.fn()} />);
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('productTour.firstContextTitle')).toBeInTheDocument();
-    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(
+      screen.getByText("productTour.firstContextTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("empty-state-connect-chrome-history"),
+    ).toBeInTheDocument();
   });
 
-  it('connect later calls onComplete', async () => {
+  it("connect later calls onComplete", async () => {
     const onComplete = vi.fn();
     render(<ProductTour onComplete={onComplete} />);
-    await screen.findByText('productTour.firstContextTitle');
-    await userEvent.click(screen.getByRole('button', { name: 'productTour.connectLater' }));
+    await screen.findByText("productTour.firstContextTitle");
+    await userEvent.click(
+      screen.getByRole("button", { name: "productTour.connectLater" }),
+    );
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
-  it('ignores accidental outside and escape dismissal', async () => {
+  it("ignores accidental outside and escape dismissal", async () => {
     const onComplete = vi.fn();
     render(<ProductTour onComplete={onComplete} />);
-    await screen.findByText('productTour.firstContextTitle');
+    await screen.findByText("productTour.firstContextTitle");
 
-    expect(screen.queryByRole('button', { name: 'Close' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Close" }),
+    ).not.toBeInTheDocument();
 
-    fireEvent.keyDown(document, { key: 'Escape', code: 'Escape' });
+    fireEvent.keyDown(document, { key: "Escape", code: "Escape" });
     fireEvent.pointerDown(document.body);
     fireEvent.mouseDown(document.body);
     fireEvent.click(document.body);
 
     expect(onComplete).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it('connect opens the install panel and completes only after install succeeds', async () => {
+  it("connect opens the install panel and completes only after install succeeds", async () => {
     const onComplete = vi.fn();
-    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
+    const openPanel = vi.spyOn(
+      usePluginInstallPanelStore.getState(),
+      "openPanel",
+    );
 
     render(<ProductTour onComplete={onComplete} />);
-    await screen.findByText('productTour.firstContextTitle');
-    await userEvent.click(screen.getByTestId('empty-state-connect-chrome-history'));
+    await screen.findByText("productTour.firstContextTitle");
+    await userEvent.click(
+      screen.getByTestId("empty-state-connect-chrome-history"),
+    );
 
-    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
+    expect(openPanel).toHaveBeenCalledWith("chrome-history", {
       install: true,
-      context: 'first_context',
+      context: "first_context",
       onDone: expect.any(Function),
     });
     expect(onComplete).not.toHaveBeenCalled();
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
 
     usePluginInstallPanelStore.getState().closePanel();
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeInTheDocument());
     expect(onComplete).not.toHaveBeenCalled();
 
     const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
@@ -95,11 +110,17 @@ describe('ProductTour', () => {
     await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
   });
 
-  it('does not interrupt with vector-model setup when embeddings are missing', async () => {
+  it("does not interrupt with vector-model setup when embeddings are missing", async () => {
     render(<ProductTour onComplete={vi.fn()} />);
 
-    expect(await screen.findByText('productTour.firstContextTitle')).toBeInTheDocument();
-    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
-    expect(screen.queryByText('productTour.memoryModelTitle')).not.toBeInTheDocument();
+    expect(
+      await screen.findByText("productTour.firstContextTitle"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("empty-state-connect-chrome-history"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("productTour.memoryModelTitle"),
+    ).not.toBeInTheDocument();
   });
 });

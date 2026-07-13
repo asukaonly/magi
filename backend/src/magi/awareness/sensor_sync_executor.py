@@ -158,7 +158,9 @@ class SensorSyncExecutor:
                 finished_at=finished_at,
             )
             continuation_queued = False
-            if self._result_requests_continuation(result):
+            if self._result_requests_continuation(result) and not self._job_disables_continuation(
+                job
+            ):
                 continuation_queued = await self._schedule_sync_continuation(job)
             if not continuation_queued:
                 self._queue_post_sync_maintenance(str(job["source_type"]))
@@ -195,6 +197,13 @@ class SensorSyncExecutor:
                 return True
         return False
 
+    @staticmethod
+    def _job_disables_continuation(job: dict[str, object]) -> bool:
+        payload = job.get("payload")
+        if isinstance(payload, dict) and bool(payload.get("first_context")):
+            return True
+        return bool(job.get("first_context"))
+
     async def _schedule_sync_continuation(self, job: dict[str, object]) -> bool:
         if self._scheduler_service is None:
             return False
@@ -202,6 +211,24 @@ class SensorSyncExecutor:
         source_type = str(job.get("source_type") or "").strip()
         if not plugin_id or not source_type:
             return False
+        parent_payload = job.get("payload")
+        sync_request = None
+        if isinstance(parent_payload, dict) and isinstance(parent_payload.get("sync_request"), dict):
+            sync_request = dict(parent_payload["sync_request"])
+        target_payload = {
+            "plugin_id": plugin_id,
+            "source_type": source_type,
+            "manual": bool(job.get("manual")),
+        }
+        metadata = {
+            "continuation": True,
+            "plugin_id": plugin_id,
+            "source_type": source_type,
+            "parent_job_id": str(job.get("job_id") or ""),
+        }
+        if sync_request is not None:
+            target_payload["sync_request"] = sync_request
+            metadata["sync_request"] = sync_request
         try:
             await self._run_on_owner_loop(
                 self._scheduler_service.schedule_once(  # type: ignore[union-attr]
@@ -212,17 +239,8 @@ class SensorSyncExecutor:
                     target_type=ScheduledTargetType.SENSOR_SYNC,
                     target_key=str(job["target_key"]),
                     run_at=time.time() + 0.2,
-                    target_payload={
-                        "plugin_id": plugin_id,
-                        "source_type": source_type,
-                        "manual": bool(job.get("manual")),
-                    },
-                    metadata={
-                        "continuation": True,
-                        "plugin_id": plugin_id,
-                        "source_type": source_type,
-                        "parent_job_id": str(job.get("job_id") or ""),
-                    },
+                    target_payload=target_payload,
+                    metadata=metadata,
                 )
             )
             return True

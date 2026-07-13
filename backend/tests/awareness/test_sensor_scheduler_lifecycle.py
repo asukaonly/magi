@@ -172,6 +172,20 @@ class _OpaqueCursorSensor(_PullHistorySensor):
         )
 
 
+class _ContextRecordingSensor(_PullHistorySensor):
+    def __init__(self) -> None:
+        self.contexts: list[object] = []
+
+    async def collect_items(self, context):
+        self.contexts.append(context)
+        return SensorSyncResult(
+            items=[],
+            next_cursor=None,
+            watermark_ts=None,
+            stats={"count": 0},
+        )
+
+
 def _build_sensor_registry() -> SensorRegistry:
     sensor_registry = SensorRegistry()
     sensor_registry.register(
@@ -286,6 +300,227 @@ async def test_sensor_schedule_registration_module_supports_manual_sync(tmp_path
     assert context.scheduler.scheduler_service.once_calls[0]["run_at"] <= time.time() + 1.0
 
     await module.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sensor_schedule_registration_module_queues_backfill_with_stable_scope(tmp_path) -> None:
+    from magi.awareness.lifecycle import SensorScheduleRegistrationModule
+
+    context = RuntimeBootstrapContext()
+    context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.plugin_manager = _FakePluginManager()
+    context.timeline.timeline_service = _FakeTimelineService()
+    context.scheduler.scheduler_service = _FakeSchedulerService()
+    context.memory.unified_memory = _FakeUnifiedMemory()
+    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+
+    module = SensorScheduleRegistrationModule(context)
+    await module.init()
+
+    first = await module.queue_manual_sync(
+        "pull_history",
+        sync_mode="backfill",
+        backfill_scope="last_30_days",
+        backfill_days=30,
+    )
+    second = await module.queue_manual_sync(
+        "pull_history",
+        sync_mode="backfill",
+        backfill_scope="last_30_days",
+        backfill_days=30,
+    )
+
+    assert first.schedule_id == "sensor-sync-backfill:pull-plugin:pull_history:last_30_days"
+    assert second.schedule_id == first.schedule_id
+    once_call = context.scheduler.scheduler_service.once_calls[0]
+    assert once_call["target_payload"]["sync_request"] == {
+        "mode": "backfill",
+        "backfill_scope": "last_30_days",
+        "backfill_days": 30,
+    }
+    assert once_call["metadata"]["sync_request"] == {
+        "mode": "backfill",
+        "backfill_scope": "last_30_days",
+        "backfill_days": 30,
+    }
+
+    await module.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sensor_schedule_registration_module_queues_custom_backfill_with_stable_range(tmp_path) -> None:
+    from magi.awareness.lifecycle import SensorScheduleRegistrationModule
+
+    context = RuntimeBootstrapContext()
+    context.core.runtime_paths = RuntimePaths(tmp_path / "runtime")
+    context.plugins.sensor_registry = _build_sensor_registry()
+    context.plugins.plugin_manager = _FakePluginManager()
+    context.timeline.timeline_service = _FakeTimelineService()
+    context.scheduler.scheduler_service = _FakeSchedulerService()
+    context.memory.unified_memory = _FakeUnifiedMemory()
+    context.message_bus.message_bus = MagicMock(publish=AsyncMock())
+
+    module = SensorScheduleRegistrationModule(context)
+    await module.init()
+
+    first = await module.queue_manual_sync(
+        "pull_history",
+        sync_mode="backfill",
+        backfill_scope="custom",
+        backfill_start_date="2026-06-01",
+        backfill_end_date="2026-06-30",
+    )
+    second = await module.queue_manual_sync(
+        "pull_history",
+        sync_mode="backfill",
+        backfill_scope="custom",
+        backfill_start_date="2026-06-01",
+        backfill_end_date="2026-06-30",
+    )
+
+    assert first.schedule_id == "sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30"
+    assert second.schedule_id == first.schedule_id
+    once_call = context.scheduler.scheduler_service.once_calls[0]
+    assert once_call["target_payload"]["sync_request"] == {
+        "mode": "backfill",
+        "backfill_scope": "custom",
+        "backfill_start_date": "2026-06-01",
+        "backfill_end_date": "2026-06-30",
+    }
+    assert once_call["metadata"]["sync_request"] == {
+        "mode": "backfill",
+        "backfill_scope": "custom",
+        "backfill_start_date": "2026-06-01",
+        "backfill_end_date": "2026-06-30",
+    }
+
+    await module.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_backfill_request_uses_initial_history_context(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    sensor = _ContextRecordingSensor()
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    await contrib._run_sensor_sync(
+        schedule_id="sensor-sync-backfill:pull-plugin:pull_history:last_30_days",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=True,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            last_cursor="existing-cursor",
+            last_success_at=1710000000.0,
+        ),
+        sync_payload={
+            "sync_request": {
+                "mode": "backfill",
+                "backfill_scope": "last_30_days",
+                "backfill_days": 30,
+            }
+        },
+    )
+
+    assert len(sensor.contexts) == 1
+    context = sensor.contexts[0]
+    assert context.last_cursor is None
+    source_settings = context.plugin_settings["sensors"]["pull_history"]
+    assert source_settings["initial_sync_policy"] == "lookback_days"
+    assert source_settings["initial_sync_lookback_days"] == 30
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_custom_backfill_request_uses_custom_history_context(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    sensor = _ContextRecordingSensor()
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    await contrib._run_sensor_sync(
+        schedule_id="sensor-sync-backfill:pull-plugin:pull_history:custom:2026-06-01:2026-06-30",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=True,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            last_cursor="existing-cursor",
+            last_success_at=1710000000.0,
+        ),
+        sync_payload={
+            "sync_request": {
+                "mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            }
+        },
+    )
+
+    assert len(sensor.contexts) == 1
+    context = sensor.contexts[0]
+    assert context.last_cursor is None
+    source_settings = context.plugin_settings["sensors"]["pull_history"]
+    assert source_settings["initial_sync_policy"] == "custom_range"
+    assert source_settings["initial_sync_start_date"] == "2026-06-01"
+    assert source_settings["initial_sync_end_date"] == "2026-06-30"
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_backfill_continuation_keeps_backfill_cursor(tmp_path) -> None:
+    scheduler_service = _FakeSchedulerService()
+    ingestion_gateway = _FakeIngestionGateway()
+    sensor = _ContextRecordingSensor()
+    contrib = SensorSchedulerContrib(
+        scheduler_service=scheduler_service,
+        sensor_registry=_build_sensor_registry_with_sensor(sensor),
+        plugin_manager=_FakePluginManager(),
+        runtime_paths=RuntimePaths(tmp_path / "runtime"),
+        get_config=lambda: None,
+        ingestion_gateway=ingestion_gateway,
+    )
+
+    await contrib._run_sensor_sync(
+        schedule_id="sensor-sync-continuation:pull-plugin:pull_history:abc123",
+        target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+        source_type="pull_history",
+        manual=True,
+        target_state=ScheduledTargetState(
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key=build_sensor_target_key("pull-plugin", "pull_history"),
+            last_cursor='{"version":1,"mode":"backfill","capture_before":1718409600}',
+            last_success_at=1710000000.0,
+        ),
+        sync_payload={
+            "sync_request": {
+                "mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            }
+        },
+    )
+
+    assert len(sensor.contexts) == 1
+    assert sensor.contexts[0].last_cursor == '{"version":1,"mode":"backfill","capture_before":1718409600}'
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,12 @@ import { create } from 'zustand';
  */
 export type PluginInstallPanelContext = 'default' | 'first_context';
 
+export interface PluginInstallDoneInfo {
+  pluginId: string;
+  sourceName?: string;
+  firstContextCount?: number | null;
+}
+
 interface PluginInstallPanelState {
   open: boolean;
   pluginId: string | null;
@@ -27,10 +33,14 @@ interface PluginInstallPanelState {
    * NotificationCenter marks its suggestion acted-on only here, so a cancelled or
    * closed panel never drops the item. Cleared on close.
    */
-  onDone: (() => void) | null;
+  onDone: ((info?: PluginInstallDoneInfo) => void) | null;
   openPanel: (
     pluginId: string,
-    opts?: { install?: boolean; onDone?: () => void; context?: PluginInstallPanelContext },
+    opts?: {
+      install?: boolean;
+      onDone?: (info?: PluginInstallDoneInfo) => void;
+      context?: PluginInstallPanelContext;
+    },
   ) => void;
   closePanel: () => void;
 }

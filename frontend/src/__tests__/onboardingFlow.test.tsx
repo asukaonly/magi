@@ -1,52 +1,54 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { StrictMode } from 'react';
-import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { localStorageMock, navigateMock, streamChatPreviewMock } = vi.hoisted(() => {
-  const mock = {
-    getItem: vi.fn((_key: string): string | null => null),
-    setItem: vi.fn((_key: string, _value: string) => undefined),
-    removeItem: vi.fn((_key: string) => undefined),
-  };
-  vi.stubGlobal('localStorage', mock);
-  return {
-    localStorageMock: mock,
-    navigateMock: vi.fn(),
-    streamChatPreviewMock: vi.fn(),
-  };
-});
+const { i18nMock, localStorageMock, navigateMock, streamChatPreviewMock } =
+  vi.hoisted(() => {
+    const mock = {
+      getItem: vi.fn((_key: string): string | null => null),
+      setItem: vi.fn((_key: string, _value: string) => undefined),
+      removeItem: vi.fn((_key: string) => undefined),
+    };
+    vi.stubGlobal("localStorage", mock);
+    return {
+      i18nMock: {
+        resolvedLanguage: "zh-CN",
+        language: "zh-CN",
+        changeLanguage: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
+      },
+      localStorageMock: mock,
+      navigateMock: vi.fn(),
+      streamChatPreviewMock: vi.fn(),
+    };
+  });
 
-import { apiClient } from '@/api/client';
-import { configApi, DEFAULT_SYSTEM_CONFIG } from '@/api/modules/config';
-import { personasApi } from '@/api/modules/personas';
-import * as systemSuggestions from '@/api/modules/systemSuggestions';
-import OnboardingFlow from '@/components/onboarding/OnboardingFlow';
-import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
+import { apiClient } from "@/api/client";
+import { configApi, DEFAULT_SYSTEM_CONFIG } from "@/api/modules/config";
+import { personasApi } from "@/api/modules/personas";
+import * as systemSuggestions from "@/api/modules/systemSuggestions";
+import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
+import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
-vi.mock('react-i18next', () => ({
+vi.mock("react-i18next", () => ({
   initReactI18next: {
-    type: '3rdParty',
+    type: "3rdParty",
     init: vi.fn(),
   },
   useTranslation: () => ({
     t: (key: string) => key,
-    i18n: {
-      resolvedLanguage: 'zh-CN',
-      language: 'zh-CN',
-      changeLanguage: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-    },
+    i18n: i18nMock,
   }),
 }));
 
-vi.mock('react-router-dom', () => ({
+vi.mock("react-router-dom", () => ({
   useNavigate: () => navigateMock,
 }));
 
 // Mock the streaming preview so persona chat does not hit the network.
-vi.mock('@/api/modules/chatPreview', () => ({
+vi.mock("@/api/modules/chatPreview", () => ({
   streamChatPreview: (...args: unknown[]) => streamChatPreviewMock(...args),
 }));
 
@@ -61,67 +63,75 @@ const stubChatModel = (id: string) => ({
   limits: { context_window: 204800, max_output_tokens: 131072 },
   hidden: false,
   preferred: false,
-  source: 'builtin',
-  input_modalities: ['text'],
-  output_modalities: ['text'],
+  source: "builtin",
+  input_modalities: ["text"],
+  output_modalities: ["text"],
 });
 
 const stubCatalog = () => ({
   providers: [
     {
-      id: 'anthropic',
-      provider_type: 'anthropic',
-      source: 'builtin',
-      display_name: 'Anthropic',
-      default_model: 'claude-sonnet-4-5',
-      default_classify_model: 'claude-haiku-4-5',
-      default_base_url: 'https://api.anthropic.com/v1',
-      api_format: 'anthropic',
+      id: "anthropic",
+      provider_type: "anthropic",
+      source: "builtin",
+      display_name: "Anthropic",
+      default_model: "claude-sonnet-4-5",
+      default_classify_model: "claude-haiku-4-5",
+      default_base_url: "https://api.anthropic.com/v1",
+      api_format: "anthropic",
       resolved_chat_models: [],
       resolved_embedding_models: [],
     },
     {
-      id: 'openai',
-      provider_type: 'openai',
-      source: 'builtin',
-      display_name: 'OpenAI',
-      default_model: 'gpt-4o',
-      default_classify_model: 'gpt-4o-mini',
-      default_base_url: 'https://api.openai.com/v1',
-      api_format: 'openai',
+      id: "openai",
+      provider_type: "openai",
+      source: "builtin",
+      display_name: "OpenAI",
+      default_model: "gpt-4o",
+      default_classify_model: "gpt-4o-mini",
+      default_base_url: "https://api.openai.com/v1",
+      api_format: "openai",
       resolved_chat_models: [],
-      resolved_embedding_models: [{ id: 'text-embedding-3-small', dimensions: [1536] }],
+      resolved_embedding_models: [
+        { id: "text-embedding-3-small", dimensions: [1536] },
+      ],
     },
     {
-      id: 'glm',
-      provider_type: 'glm',
-      source: 'builtin',
-      display_name: 'Z.ai',
-      default_model: 'glm-5.1',
-      default_classify_model: 'glm-4.6',
-      default_base_url: 'https://open.bigmodel.cn/api/paas/v4',
-      api_format: 'openai',
-      resolved_chat_models: [stubChatModel('glm-5.1'), stubChatModel('glm-4.6')],
-      resolved_embedding_models: [{ id: 'embedding-3', dimensions: [1024] }],
+      id: "glm",
+      provider_type: "glm",
+      source: "builtin",
+      display_name: "Z.ai",
+      default_model: "glm-5.1",
+      default_classify_model: "glm-4.6",
+      default_base_url: "https://open.bigmodel.cn/api/paas/v4",
+      api_format: "openai",
+      resolved_chat_models: [
+        stubChatModel("glm-5.1"),
+        stubChatModel("glm-4.6"),
+      ],
+      resolved_embedding_models: [{ id: "embedding-3", dimensions: [1024] }],
       plans: [
         {
-          id: 'codeplan',
-          display_name: 'Z.ai CodePlan',
-          default_model: 'glm-5.1',
-          default_classify_model: 'glm-4.5-air',
-          default_base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-          allowed_scenarios: ['context_compact', 'context_decider', 'core'],
+          id: "codeplan",
+          display_name: "Z.ai CodePlan",
+          default_model: "glm-5.1",
+          default_classify_model: "glm-4.5-air",
+          default_base_url: "https://open.bigmodel.cn/api/coding/paas/v4",
+          allowed_scenarios: ["context_compact", "context_decider", "core"],
           endpoints: [
             {
-              id: 'china',
-              label: 'China',
-              base_url: 'https://open.bigmodel.cn/api/coding/paas/v4',
-              api_format: 'openai',
+              id: "china",
+              label: "China",
+              base_url: "https://open.bigmodel.cn/api/coding/paas/v4",
+              api_format: "openai",
             },
           ],
           embedding_models: [],
           image_generation_models: [],
-          resolved_chat_models: [stubChatModel('glm-5.1'), stubChatModel('glm-4.5-air')],
+          resolved_chat_models: [
+            stubChatModel("glm-5.1"),
+            stubChatModel("glm-4.5-air"),
+          ],
           resolved_embedding_models: [],
           resolved_image_generation_models: [],
         },
@@ -132,53 +142,56 @@ const stubCatalog = () => ({
 
 const stubCodePlanCatalog = (): ReturnType<typeof stubCatalog> => {
   const catalog = stubCatalog();
-  const glm = catalog.providers.find((provider) => provider.id === 'glm');
+  const glm = catalog.providers.find((provider) => provider.id === "glm");
   if (glm) {
-    glm.resolved_chat_models = [stubChatModel('glm-5.1'), stubChatModel('glm-4.5-air')];
+    glm.resolved_chat_models = [
+      stubChatModel("glm-5.1"),
+      stubChatModel("glm-4.5-air"),
+    ];
     glm.resolved_embedding_models = [];
   }
   return catalog;
 };
 
 const stubTemplate = () => ({
-  template: { enabled: true, display_name: 'Custom' },
+  template: { enabled: true, display_name: "Custom" },
   defaults: null,
 });
 
 const stubSeedPreviews = () => [
   {
-    seed_slug: 'nova',
-    name: 'Nova',
-    description: 'Polished assistant',
-    avatar: '/avatars/nova.png',
-    group: 'general',
+    seed_slug: "nova",
+    name: "Nova",
+    description: "Polished assistant",
+    avatar: "/avatars/nova.png",
+    group: "general",
     order: 0,
   },
   {
-    seed_slug: 'ember',
-    name: 'Ember',
-    description: 'Deep listener',
-    avatar: '/avatars/ember.png',
-    group: 'general',
+    seed_slug: "ember",
+    name: "Ember",
+    description: "Deep listener",
+    avatar: "/avatars/ember.png",
+    group: "general",
     order: 1,
   },
 ];
 
-const CUSTOM_PERSONA_ID = '11111111-1111-4111-8111-111111111111';
+const CUSTOM_PERSONA_ID = "11111111-1111-4111-8111-111111111111";
 
 const generatedPersonaConfig = () => ({
-  name: 'Sage',
-  avatar: '',
-  description: 'wise mentor',
-  appearance_prompt: '',
+  name: "Sage",
+  avatar: "",
+  description: "wise mentor",
+  appearance_prompt: "",
   identity_core: {
-    identity_statement: 'a patient mentor',
+    identity_statement: "a patient mentor",
     values_loved: [],
     values_rejected: [],
     attention_biases: [],
   },
   idiolect: {
-    sentence_style: 'measured and kind',
+    sentence_style: "measured and kind",
     vocab_available: [],
     vocab_avoided: [],
     structural_quirks: [],
@@ -193,117 +206,124 @@ const generatedPersonaConfig = () => ({
   bootstrap: null,
 });
 
-async function enterPersonaStep(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-  await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-  await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-  const nextButton = screen.getByRole('button', { name: 'actions.next' });
+async function enterPersonaStep(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: /welcome\.getStarted/ }));
+  await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+  await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+  const nextButton = screen.getByRole("button", { name: "actions.next" });
   await waitFor(() => expect(nextButton).toBeEnabled());
   await user.click(nextButton);
-  await screen.findByRole('button', { name: /Ember/i });
+  await screen.findByRole("button", { name: /Ember/i });
 }
 
-describe('OnboardingFlow (linear 5-step)', () => {
+describe("OnboardingFlow (linear 5-step)", () => {
+  let originalUpdateLanguagePreference: unknown;
+  let originalUpdateOnboardingDraft: unknown;
+
   beforeEach(() => {
     streamChatPreviewMock.mockReset();
     streamChatPreviewMock.mockImplementation(() =>
       (async function* () {
-        yield 'hi';
+        yield "hi";
       })(),
     );
-    vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(
+    originalUpdateLanguagePreference = (configApi as any)
+      .updateLanguagePreference;
+    originalUpdateOnboardingDraft = (configApi as any).updateOnboardingDraft;
+    (configApi as any).updateLanguagePreference = vi.fn().mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: DEFAULT_SYSTEM_CONFIG,
+    });
+    (configApi as any).updateOnboardingDraft = vi.fn().mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: DEFAULT_SYSTEM_CONFIG,
+    });
+    vi.spyOn(configApi, "resolveLLMProviderCatalog").mockResolvedValue(
       stubCatalog() as any,
     );
-    vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(
+    vi.spyOn(configApi, "getLLMCustomProviderTemplate").mockResolvedValue(
       stubTemplate() as any,
     );
-    vi.spyOn(configApi, 'update').mockResolvedValue({
+    vi.spyOn(configApi, "update").mockResolvedValue({
       success: true,
-      message: 'ok',
+      message: "ok",
       data: DEFAULT_SYSTEM_CONFIG,
     } as any);
-    vi.spyOn(configApi, 'updateOnboardingDraft').mockResolvedValue({
+    vi.spyOn(configApi, "getOnboardingStatus").mockResolvedValue({
       success: true,
-      message: 'ok',
-      data: DEFAULT_SYSTEM_CONFIG,
-    } as any);
-    vi.spyOn(configApi, 'getOnboardingStatus').mockResolvedValue({
-      success: true,
-      message: 'ok',
+      message: "ok",
       data: { completed: false },
     } as any);
-    vi.spyOn(configApi, 'testLLMProviderConnection').mockResolvedValue({
-      model: 'gpt-4o',
+    vi.spyOn(configApi, "testLLMProviderConnection").mockResolvedValue({
+      model: "gpt-4o",
       latency_ms: 42,
-      preview: 'hello',
+      preview: "hello",
     });
-    vi.spyOn(personasApi, 'seedPreviews').mockResolvedValue({
+    vi.spyOn(personasApi, "seedPreviews").mockResolvedValue({
       success: true,
       data: stubSeedPreviews(),
     } as any);
-    vi.spyOn(systemSuggestions, 'listInstallable').mockResolvedValue([
+    vi.spyOn(systemSuggestions, "listInstallable").mockResolvedValue([
       {
-        plugin_id: 'chrome-history',
-        category: 'browser_history',
+        plugin_id: "chrome-history",
+        category: "browser_history",
         installed: false,
-        rationale: { zh: '', en: '' },
+        rationale: { zh: "", en: "" },
         setup_time_estimate_seconds: 10,
-        data_locality: 'local_only',
-      },
-      {
-        plugin_id: 'calendar',
-        category: 'calendar',
-        installed: false,
-        rationale: { zh: '', en: '' },
-        setup_time_estimate_seconds: 15,
-        data_locality: 'local_only',
+        data_locality: "local_only",
       },
     ]);
-    vi.spyOn(personasApi, 'seed').mockResolvedValue({
+    vi.spyOn(personasApi, "seed").mockResolvedValue({
       success: true,
       data: { created_ids: [] },
     } as any);
-    vi.spyOn(personasApi, 'list').mockResolvedValue({
+    vi.spyOn(personasApi, "list").mockResolvedValue({
       success: true,
       data: [
         {
-          persona_id: 'uuid-nova',
-          name: 'Nova',
-          slug: 'nova',
-          locale: 'en',
-          avatar_path: '',
-          group_name: 'general',
+          persona_id: "uuid-nova",
+          name: "Nova",
+          slug: "nova",
+          locale: "en",
+          avatar_path: "",
+          group_name: "general",
           sort_order: 0,
           is_builtin: true,
-          seed_slug: 'nova',
-          description: '',
+          seed_slug: "nova",
+          description: "",
         },
         {
-          persona_id: 'uuid-ember',
-          name: 'Ember',
-          slug: 'ember',
-          locale: 'en',
-          avatar_path: '',
-          group_name: 'general',
+          persona_id: "uuid-ember",
+          name: "Ember",
+          slug: "ember",
+          locale: "en",
+          avatar_path: "",
+          group_name: "general",
           sort_order: 1,
           is_builtin: true,
-          seed_slug: 'ember',
-          description: '',
+          seed_slug: "ember",
+          description: "",
         },
       ],
     } as any);
-    vi.spyOn(personasApi, 'setActive').mockImplementation(async (personaId) => ({
-      success: true,
-      persona_id: personaId,
-    }));
-    vi.spyOn(apiClient, 'get').mockResolvedValue({
+    vi.spyOn(personasApi, "setActive").mockImplementation(
+      async (personaId) => ({
+        success: true,
+        persona_id: personaId,
+      }),
+    );
+    vi.spyOn(apiClient, "get").mockResolvedValue({
       data: {
         success: true,
         data: {
           ready: true,
-          status: 'ready',
+          status: "ready",
           runtime_ready: true,
-          runtime_status: 'ready',
+          runtime_status: "ready",
         },
       },
     } as any);
@@ -311,6 +331,17 @@ describe('OnboardingFlow (linear 5-step)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    if (originalUpdateLanguagePreference === undefined) {
+      delete (configApi as any).updateLanguagePreference;
+    } else {
+      (configApi as any).updateLanguagePreference =
+        originalUpdateLanguagePreference;
+    }
+    if (originalUpdateOnboardingDraft === undefined) {
+      delete (configApi as any).updateOnboardingDraft;
+    } else {
+      (configApi as any).updateOnboardingDraft = originalUpdateOnboardingDraft;
+    }
     localStorageMock.getItem.mockReturnValue(null);
     localStorageMock.setItem.mockClear();
     localStorageMock.removeItem.mockClear();
@@ -318,73 +349,114 @@ describe('OnboardingFlow (linear 5-step)', () => {
     usePluginInstallPanelStore.getState().closePanel();
   });
 
-  it('renders the welcome entrypoint with no mode cards', () => {
+  it("renders the welcome entrypoint with no mode cards", () => {
     localStorageMock.getItem.mockReturnValue(null);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    expect(screen.getByText('welcome.brand')).toBeInTheDocument();
-    expect(screen.getByText('welcome.title')).toBeInTheDocument();
-    expect(screen.queryByText('welcome.subtitleLine1')).not.toBeInTheDocument();
-    expect(screen.queryByText('welcome.subtitleLine2')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /welcome\.getStarted/ })).toBeInTheDocument();
+    expect(screen.getByText("welcome.brand")).toBeInTheDocument();
+    expect(screen.getByText("welcome.title")).toBeInTheDocument();
+    expect(screen.queryByText("welcome.subtitleLine1")).not.toBeInTheDocument();
+    expect(screen.queryByText("welcome.subtitleLine2")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    ).toBeInTheDocument();
     // Mode cards no longer exist anywhere in the flow.
     expect(screen.queryByText(/welcome\.quickMode/)).not.toBeInTheDocument();
     expect(screen.queryByText(/welcome\.expertMode/)).not.toBeInTheDocument();
     // No quick/expert copy anywhere on Welcome.
-    expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+    expect(
+      screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i),
+    ).toBeNull();
   });
 
-  it('returns legacy recovered progress to model setup before later steps', async () => {
+  it("returns legacy recovered progress to model setup before later steps", async () => {
     localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key !== 'magi_onboarding_state') {
+      if (key !== "magi_onboarding_state") {
         return null;
       }
       return JSON.stringify({
         current: 3,
         values: DEFAULT_SYSTEM_CONFIG,
-        seedSlug: 'ember',
+        seedSlug: "ember",
       });
     });
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    expect(await screen.findByTestId('llm-setup-provider-openai')).toBeInTheDocument();
-    expect(screen.queryByText('firstContext.title')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Ember/i })).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("llm-setup-provider-openai"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("firstContext.title")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Ember/i }),
+    ).not.toBeInTheDocument();
     expect(configApi.testLLMProviderConnection).not.toHaveBeenCalled();
   });
 
-  it('walks through welcome → LLM setup → persona preview → first context → completion and persists seed_slug on save', async () => {
+  it("persists the onboarding language preference as soon as it is selected", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await waitFor(() =>
+      expect((configApi as any).updateLanguagePreference).toHaveBeenCalledWith(
+        "zh",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "EN" }));
+
+    await waitFor(() =>
+      expect((configApi as any).updateLanguagePreference).toHaveBeenCalledWith(
+        "en",
+      ),
+    );
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      "magi_language",
+      "en",
+    );
+  });
+
+  it("walks through welcome → LLM setup → persona preview → first context → completion and persists seed_slug on save", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
-      .spyOn(configApi, 'completeOnboarding')
-      .mockResolvedValue({ success: true, message: 'ok', data: DEFAULT_SYSTEM_CONFIG } as any);
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
     // Step 0: Welcome → Get Started
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
 
     // Step 1: LLM setup — choose a flat provider card and paste the key.
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
     // Until an API key is typed, the LLM step is invalid and Next stays disabled.
     expect(nextBtn).toBeDisabled();
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
-    await waitFor(() => expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1),
+    );
     expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
       expect.objectContaining({
-        provider_id: 'openai',
-        model: 'gpt-4o',
+        provider_id: "openai",
+        model: "gpt-4o",
         provider: expect.objectContaining({
-          api_key: 'sk-test',
+          api_key: "sk-test",
           services: expect.objectContaining({
-            chat: expect.objectContaining({ api_key: 'sk-test' }),
+            chat: expect.objectContaining({ api_key: "sk-test" }),
           }),
         }),
       }),
@@ -392,53 +464,620 @@ describe('OnboardingFlow (linear 5-step)', () => {
 
     // Step 2: Persona preview — pick Ember (the active rail item is the
     // selection) and advance with the standard footer Next button.
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    await waitFor(() => expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1));
-    const earlyPayload = vi.mocked(configApi.updateOnboardingDraft).mock.calls[0][0] as any;
-    expect(Object.keys(earlyPayload).sort()).toEqual(['language', 'llm']);
-    expect(earlyPayload.language).toBe('zh');
+    await waitFor(() =>
+      expect((configApi as any).updateOnboardingDraft).toHaveBeenCalledTimes(1),
+    );
+    const earlyPayload = (configApi as any).updateOnboardingDraft.mock
+      .calls[0][0] as any;
+    expect(Object.keys(earlyPayload).sort()).toEqual(["language", "llm"]);
+    expect(earlyPayload.language).toBe("zh");
     expect(earlyPayload.llm.providers.openai.enabled).toBe(true);
     expect(configApi.update).not.toHaveBeenCalled();
 
     // Step 3: First context — this is a real step now, not a footer on completion.
-    expect(await screen.findByText('firstContext.title')).toBeInTheDocument();
-    expect(screen.getByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
-    expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
-    expect(screen.queryByText('firstContext.kicker')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
+    expect(await screen.findByText("firstContext.title")).toBeInTheDocument();
+    expect(screen.getByTestId("first-context-scope-note")).toHaveTextContent(
+      "firstContext.scopeHint",
+    );
+    expect(
+      screen.getByTestId("empty-state-connect-chrome-history"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("empty-state-connect-calendar"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("firstContext.kicker")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    );
 
     // Step 4: Completion — click Enter App. No source cards are rendered here.
-    const enterApp = await screen.findByRole('button', { name: 'actions.enterApp' });
-    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
+    const enterApp = await screen.findByRole("button", {
+      name: "actions.enterApp",
+    });
+    expect(screen.getByText("messages.completedStepChat")).toBeInTheDocument();
+    expect(
+      screen.getByText("messages.completedStepBackfillNoSources"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("empty-state-connect-chrome-history"),
+    ).not.toBeInTheDocument();
     await user.click(enterApp);
 
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     const payload = completeOnboarding.mock.calls[0][0] as any;
-    expect(Object.keys(payload).sort()).toEqual(['language', 'llm']);
-    expect(payload.language).toBe('zh');
+    expect(Object.keys(payload).sort()).toEqual(["language", "llm"]);
+    expect(payload.language).toBe("zh");
     expect(payload.llm.providers.openai.enabled).toBe(true);
-    expect(payload.llm.providers.openai.api_key).toBe('sk-test');
+    expect(payload.llm.providers.openai.api_key).toBe("sk-test");
     expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
 
     // No mode references anywhere across the rendered flow.
-    expect(screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i)).toBeNull();
+    expect(
+      screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i),
+    ).toBeNull();
   });
 
-  it('loads and retries first-context sources under StrictMode', async () => {
+  it("preserves the chosen persona after moving forward and back", async () => {
     const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    const ember = await screen.findByRole("button", { name: /Ember/i });
+    await user.click(ember);
+    expect(ember).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByText("firstContext.title");
+    await user.click(screen.getByRole("button", { name: "actions.previous" }));
+
+    expect(
+      await screen.findByRole("button", { name: /Ember/i }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Nova/i })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByText("firstContext.title");
+    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses the welcome language for persona previews and final persona setup", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await waitFor(() =>
+      expect(personasApi.seedPreviews).toHaveBeenCalledWith("zh"),
+    );
+    await user.click(screen.getByRole("button", { name: "EN" }));
+    await waitFor(() =>
+      expect(personasApi.seedPreviews).toHaveBeenCalledWith("en"),
+    );
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await user.click(await screen.findByRole("button", { name: /Ember/i }));
+    await user.type(
+      screen.getByPlaceholderText(/composerPlaceholder/i),
+      "hello",
+    );
+    await user.click(
+      screen.getByRole("button", { name: /^(personaPreview\.)?send$/i }),
+    );
+    await waitFor(() =>
+      expect(streamChatPreviewMock).toHaveBeenCalledWith(
+        expect.objectContaining({ seed_slug: "ember", locale: "en" }),
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await user.click(
+      await screen.findByRole("button", { name: "actions.skipContext" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    );
+
+    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
+    expect(completeOnboarding).toHaveBeenCalledWith(
+      expect.objectContaining({ language: "en" }),
+    );
+    expect(personasApi.seed).toHaveBeenCalledWith("en");
+  });
+
+  it("automatically validates a keyless custom OpenAI-compatible endpoint", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-custom"));
+    await user.type(
+      screen.getByTestId("llm-setup-base-url"),
+      "http://127.0.0.1:11434/v1",
+    );
+    await user.type(
+      screen.getByTestId("llm-setup-custom-model"),
+      "local-model",
+    );
+    const nextButton = screen.getByRole("button", { name: "actions.next" });
+    await waitFor(() => expect(nextButton).toBeEnabled());
+    await user.click(nextButton);
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "local-model",
+        provider: expect.objectContaining({
+          provider_type: "custom",
+          api_key: "",
+          base_url: "http://127.0.0.1:11434/v1",
+        }),
+      }),
+    );
+  });
+
+  it("reuses a successful manual model test after returning from persona", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: "actions.previous" }));
+
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates a successful test as soon as the provider plan changes", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-glm"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+
+    let resolvePlanCatalog:
+      ((value: ReturnType<typeof stubCatalog>) => void) | undefined;
+    const pendingPlanCatalog = new Promise<ReturnType<typeof stubCatalog>>(
+      (resolve) => {
+        resolvePlanCatalog = resolve;
+      },
+    );
+    vi.mocked(configApi.resolveLLMProviderCatalog).mockReturnValueOnce(
+      pendingPlanCatalog as any,
+    );
+
+    await user.click(screen.getByText("llm.providerPlans.default"));
+    await user.click(await screen.findByText("Z.ai CodePlan"));
+    expect(
+      screen.getByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    const nextButton = screen.getByRole("button", { name: "actions.next" });
+    const previousButton = screen.getByRole("button", {
+      name: "actions.previous",
+    });
+    expect(nextButton).toBeDisabled();
+    expect(previousButton).toBeDisabled();
+    expect(screen.getByTestId("llm-setup-api-key")).toBeDisabled();
+    resolvePlanCatalog?.(stubCodePlanCatalog());
+    await waitFor(() => expect(nextButton).toBeEnabled());
+    expect(previousButton).toBeEnabled();
+    expect(screen.getByTestId("llm-setup-api-key")).toBeEnabled();
+    expect(
+      screen.queryByText("llm.providerConfiguration.testSuccess"),
+    ).not.toBeInTheDocument();
+    await user.click(nextButton);
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
+    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        model: "glm-5.1",
+        provider: expect.objectContaining({ provider_plan: "codeplan" }),
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await waitFor(() =>
+      expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1),
+    );
+    const draftPayload = vi.mocked(configApi.updateOnboardingDraft).mock
+      .calls[0][0] as any;
+    expect(draftPayload.llm.selections.context_decider.model).toBe(
+      "glm-4.5-air",
+    );
+    expect(
+      draftPayload.llm.selections.context_decider.limits.context_window,
+    ).toBe(204800);
+    expect(draftPayload.llm.selections.memory_summarizer.provider_id).toBe("");
+    expect(draftPayload.llm.selections.memory_summarizer.model).toBe("");
+  });
+
+  it("keeps the previous provider settings when plan resolution fails", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-glm"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+
+    let rejectPlanCatalog: ((reason?: unknown) => void) | undefined;
+    const pendingPlanCatalog = new Promise<ReturnType<typeof stubCatalog>>(
+      (_, reject) => {
+        rejectPlanCatalog = reject;
+      },
+    );
+    vi.mocked(configApi.resolveLLMProviderCatalog).mockReturnValueOnce(
+      pendingPlanCatalog as any,
+    );
+
+    await user.click(screen.getByText("llm.providerPlans.default"));
+    await user.click(await screen.findByText("Z.ai CodePlan"));
+    const nextButton = screen.getByRole("button", { name: "actions.next" });
+    const previousButton = screen.getByRole("button", {
+      name: "actions.previous",
+    });
+    expect(nextButton).toBeDisabled();
+    expect(previousButton).toBeDisabled();
+
+    rejectPlanCatalog?.(new Error("catalog unavailable"));
+    expect(
+      await screen.findByText("llmSetup.planLoadFailed"),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(nextButton).toBeEnabled());
+    expect(previousButton).toBeEnabled();
+    expect(
+      screen.getByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    await user.click(nextButton);
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        model: "glm-5.1",
+        provider: expect.objectContaining({ provider_plan: null }),
+      }),
+    );
+  });
+
+  it("tests again after the API key changes", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    const keyInput = screen.getByTestId("llm-setup-api-key");
+    await user.type(keyInput, "sk-first");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+
+    await user.clear(keyInput);
+    await user.type(keyInput, "sk-second");
+    await waitFor(() =>
+      expect(
+        screen.queryByText("llm.providerConfiguration.testSuccess"),
+      ).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
+  });
+
+  it("tests again after the primary model changes", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("llm-setup-advanced-toggle"));
+    const modelInput = screen.getByTestId("llm-setup-core-model");
+    await user.clear(modelInput);
+    await user.type(modelInput, "gpt-4.1");
+    await waitFor(() =>
+      expect(
+        screen.queryByText("llm.providerConfiguration.testSuccess"),
+      ).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
+    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: "gpt-4.1" }),
+    );
+  });
+
+  it("reuses success after a fast-model change but retests after the endpoint changes", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(
+      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+    );
+    expect(
+      await screen.findByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("llm-setup-advanced-toggle"));
+    const fastModelInput = screen.getByTestId("llm-setup-fast-model");
+    await user.clear(fastModelInput);
+    await user.type(fastModelInput, "gpt-4o-mini-new");
+    expect(
+      screen.getByText("llm.providerConfiguration.testSuccess"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "actions.previous" }));
+
+    await user.click(await screen.findByTestId("llm-setup-advanced-toggle"));
+    const baseUrlInput = await screen.findByTestId("llm-setup-base-url");
+    await user.clear(baseUrlInput);
+    await user.type(baseUrlInput, "https://relay.example.com/v1");
+    await waitFor(() =>
+      expect(
+        screen.queryByText("llm.providerConfiguration.testSuccess"),
+      ).not.toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByRole("button", { name: /Ember/i });
+    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
+    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        provider: expect.objectContaining({
+          base_url: "https://relay.example.com/v1",
+        }),
+      }),
+    );
+  });
+
+  it("stays on model setup when automatic validation fails", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(configApi.testLLMProviderConnection).mockRejectedValueOnce(
+      new Error("invalid credentials"),
+    );
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "bad-key");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    expect(
+      await screen.findByText("llm.providerConfiguration.testFailed"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("llm-setup-api-key")).toHaveValue("bad-key");
+    expect(
+      screen.queryByRole("button", { name: /Ember/i }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("enters the app when completion was saved but the response was lost", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.spyOn(configApi, "completeOnboarding").mockRejectedValue(
+      new Error("response lost"),
+    );
+    vi.mocked(configApi.getOnboardingStatus).mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: { completed: true },
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByText("firstContext.title");
+    await user.click(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    );
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith(
+      "magi_onboarding_state",
+    );
+  });
+
+  it("keeps the first-context step open after a selected source finishes connecting", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const openPanel = vi.spyOn(
+      usePluginInstallPanelStore.getState(),
+      "openPanel",
+    );
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
+    await waitFor(() => expect(nextBtn).toBeEnabled());
+    await user.click(nextBtn);
+
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByText("firstContext.title");
+    await user.click(screen.getByTestId("empty-state-connect-chrome-history"));
+
+    expect(openPanel).toHaveBeenCalledWith("chrome-history", {
+      install: true,
+      context: "first_context",
+      onDone: expect.any(Function),
+    });
+    expect(screen.getByText("firstContext.title")).toBeInTheDocument();
+
+    const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
+    onDone?.({ pluginId: "chrome-history", firstContextCount: 42 });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "actions.finishContext" }),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("firstContext.connectedCount")).toBeInTheDocument();
+    expect(screen.getByText("pluginNames.chrome-history")).toBeInTheDocument();
+    expect(screen.getByText("firstContext.preparedCount")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("empty-state-connect-chrome-history"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("emptyState.noAvailable")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "actions.enterApp" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "actions.finishContext" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("messages.completedStepBackground"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("messages.completedStepBackfillWithSources"),
+    ).toBeInTheDocument();
+  });
+
+  it("offers retry when first-context recommendations fail to load", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
     vi.mocked(systemSuggestions.listInstallable)
-      .mockRejectedValueOnce(new Error('offline'))
+      .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce([
         {
-          plugin_id: 'chrome-history',
-          category: 'browser_history',
+          plugin_id: "chrome-history",
+          category: "browser_history",
           installed: false,
-          rationale: { zh: '', en: '' },
+          rationale: { zh: "", en: "" },
           setup_time_estimate_seconds: 10,
-          data_locality: 'local_only',
+          data_locality: "local_only",
         },
       ]);
 
@@ -448,485 +1087,109 @@ describe('OnboardingFlow (linear 5-step)', () => {
       </StrictMode>,
     );
 
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    expect(await screen.findByText('emptyState.loadErrorTitle')).toBeInTheDocument();
-    await user.click(screen.getByTestId('empty-state-retry'));
-    expect(await screen.findByTestId('empty-state-connect-chrome-history')).toBeInTheDocument();
+    expect(await screen.findByText("emptyState.loadError")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId(/empty-state-connect-/),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("empty-state-retry"));
+    expect(
+      await screen.findByTestId("empty-state-connect-chrome-history"),
+    ).toBeInTheDocument();
     expect(systemSuggestions.listInstallable).toHaveBeenCalledTimes(2);
   });
 
-  it('preserves the chosen persona after moving forward and back', async () => {
+  it("surfaces the embedding-fallback row when an Anthropic-style provider is picked", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    const ember = await screen.findByRole('button', { name: /Ember/i });
-    await user.click(ember);
-    expect(ember).toHaveAttribute('aria-pressed', 'true');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByText('firstContext.title');
-    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
-
-    expect(await screen.findByRole('button', { name: /Ember/i })).toHaveAttribute(
-      'aria-pressed',
-      'true',
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
     );
-    expect(screen.getByRole('button', { name: /Nova/i })).toHaveAttribute(
-      'aria-pressed',
-      'false',
+
+    await user.click(await screen.findByTestId("llm-setup-provider-anthropic"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("llm-setup-embedding-row")).toBeInTheDocument(),
     );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByText('firstContext.title');
-    expect(personasApi.setActive).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the welcome language for persona previews and final persona setup', async () => {
+  it("repeats the missing-vector warning on the first-context step without blocking skip", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-anthropic"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "actions.next" }),
+      ).toBeEnabled(),
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    const warning = await screen.findByTestId("first-context-memory-warning");
+    const title = screen.getByText("firstContext.title");
+    expect(
+      warning.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await user.click(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    );
+    expect(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    ).toBeInTheDocument();
+  });
+
+  it("activates the chosen persona before entering first context", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
-      .spyOn(configApi, 'completeOnboarding')
-      .mockResolvedValue({ success: true, message: 'ok', data: DEFAULT_SYSTEM_CONFIG } as any);
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    await waitFor(() => expect(personasApi.seedPreviews).toHaveBeenCalledWith('zh'));
-    await user.click(screen.getByRole('button', { name: 'EN' }));
-    await waitFor(() => expect(personasApi.seedPreviews).toHaveBeenCalledWith('en'));
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await user.click(await screen.findByRole('button', { name: /Ember/i }));
-    await user.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'hello');
-    await user.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
-    await waitFor(() =>
-      expect(streamChatPreviewMock).toHaveBeenCalledWith(
-        expect.objectContaining({ seed_slug: 'ember', locale: 'en' }),
-      ),
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
     );
-
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.skipContext' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
-
-    await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
-    expect(completeOnboarding).toHaveBeenCalledWith(
-      expect.objectContaining({ language: 'en' }),
-    );
-    expect(personasApi.seed).toHaveBeenCalledWith('en');
-  });
-
-  it('automatically validates a keyless custom OpenAI-compatible endpoint', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-custom'));
-    await user.type(screen.getByTestId('llm-setup-base-url'), 'http://127.0.0.1:11434/v1');
-    await user.type(screen.getByTestId('llm-setup-custom-model'), 'local-model');
-    const nextButton = screen.getByRole('button', { name: 'actions.next' });
-    await waitFor(() => expect(nextButton).toBeEnabled());
-    await user.click(nextButton);
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'local-model',
-        provider: expect.objectContaining({
-          provider_type: 'custom',
-          api_key: '',
-          base_url: 'http://127.0.0.1:11434/v1',
-        }),
-      }),
-    );
-  });
-
-  it('reuses a successful manual model test after returning from persona', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
-
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-  });
-
-  it('invalidates a successful test as soon as the provider plan changes', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-glm'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'glm-key');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-
-    let resolvePlanCatalog: ((value: ReturnType<typeof stubCatalog>) => void) | undefined;
-    const pendingPlanCatalog = new Promise<ReturnType<typeof stubCatalog>>((resolve) => {
-      resolvePlanCatalog = resolve;
-    });
-    vi.mocked(configApi.resolveLLMProviderCatalog).mockReturnValueOnce(pendingPlanCatalog as any);
-
-    await user.click(screen.getByText('llm.providerPlans.default'));
-    await user.click(await screen.findByText('Z.ai CodePlan'));
-    expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    const nextButton = screen.getByRole('button', { name: 'actions.next' });
-    const previousButton = screen.getByRole('button', { name: 'actions.previous' });
-    expect(nextButton).toBeDisabled();
-    expect(previousButton).toBeDisabled();
-    expect(screen.getByTestId('llm-setup-api-key')).toBeDisabled();
-    resolvePlanCatalog?.(stubCodePlanCatalog());
-    await waitFor(() => expect(nextButton).toBeEnabled());
-    expect(previousButton).toBeEnabled();
-    expect(screen.getByTestId('llm-setup-api-key')).toBeEnabled();
-    expect(screen.queryByText('llm.providerConfiguration.testSuccess')).not.toBeInTheDocument();
-    await user.click(nextButton);
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
-    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        model: 'glm-5.1',
-        provider: expect.objectContaining({ provider_plan: 'codeplan' }),
-      }),
-    );
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await waitFor(() => expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1));
-    const draftPayload = vi.mocked(configApi.updateOnboardingDraft).mock.calls[0][0] as any;
-    expect(draftPayload.llm.selections.context_decider.model).toBe('glm-4.5-air');
-    expect(draftPayload.llm.selections.context_decider.limits.context_window).toBe(204800);
-    expect(draftPayload.llm.selections.memory_summarizer.provider_id).toBe('');
-    expect(draftPayload.llm.selections.memory_summarizer.model).toBe('');
-  });
-
-  it('keeps the previous provider settings when plan resolution fails', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-glm'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'glm-key');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-
-    let rejectPlanCatalog: ((reason?: unknown) => void) | undefined;
-    const pendingPlanCatalog = new Promise<ReturnType<typeof stubCatalog>>((_, reject) => {
-      rejectPlanCatalog = reject;
-    });
-    vi.mocked(configApi.resolveLLMProviderCatalog).mockReturnValueOnce(pendingPlanCatalog as any);
-
-    await user.click(screen.getByText('llm.providerPlans.default'));
-    await user.click(await screen.findByText('Z.ai CodePlan'));
-    const nextButton = screen.getByRole('button', { name: 'actions.next' });
-    const previousButton = screen.getByRole('button', { name: 'actions.previous' });
-    expect(nextButton).toBeDisabled();
-    expect(previousButton).toBeDisabled();
-
-    rejectPlanCatalog?.(new Error('catalog unavailable'));
-    expect(await screen.findByText('llmSetup.planLoadFailed')).toBeInTheDocument();
-    await waitFor(() => expect(nextButton).toBeEnabled());
-    expect(previousButton).toBeEnabled();
-    expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    await user.click(nextButton);
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        model: 'glm-5.1',
-        provider: expect.objectContaining({ provider_plan: null }),
-      }),
-    );
-  });
-
-  it('tests again after the API key changes', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    const keyInput = screen.getByTestId('llm-setup-api-key');
-    await user.type(keyInput, 'sk-first');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-
-    await user.clear(keyInput);
-    await user.type(keyInput, 'sk-second');
-    await waitFor(() =>
-      expect(screen.queryByText('llm.providerConfiguration.testSuccess')).not.toBeInTheDocument(),
-    );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
-  });
-
-  it('tests again after the primary model changes', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
-    const modelInput = screen.getByTestId('llm-setup-core-model');
-    await user.clear(modelInput);
-    await user.type(modelInput, 'gpt-4.1');
-    await waitFor(() =>
-      expect(screen.queryByText('llm.providerConfiguration.testSuccess')).not.toBeInTheDocument(),
-    );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
-    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
-      expect.objectContaining({ model: 'gpt-4.1' }),
-    );
-  });
-
-  it('reuses success after a fast-model change but retests after the endpoint changes', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
-    expect(await screen.findByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-
-    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
-    const fastModelInput = screen.getByTestId('llm-setup-fast-model');
-    await user.clear(fastModelInput);
-    await user.type(fastModelInput, 'gpt-4o-mini-new');
-    expect(screen.getByText('llm.providerConfiguration.testSuccess')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole('button', { name: 'actions.previous' }));
-
-    await user.click(await screen.findByTestId('llm-setup-advanced-toggle'));
-    const baseUrlInput = await screen.findByTestId('llm-setup-base-url');
-    await user.clear(baseUrlInput);
-    await user.type(baseUrlInput, 'https://relay.example.com/v1');
-    await waitFor(() =>
-      expect(screen.queryByText('llm.providerConfiguration.testSuccess')).not.toBeInTheDocument(),
-    );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByRole('button', { name: /Ember/i });
-    expect(configApi.testLLMProviderConnection).toHaveBeenCalledTimes(2);
-    expect(configApi.testLLMProviderConnection).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        provider: expect.objectContaining({ base_url: 'https://relay.example.com/v1' }),
-      }),
-    );
-  });
-
-  it('stays on model setup when automatic validation fails', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-    vi.mocked(configApi.testLLMProviderConnection).mockRejectedValueOnce(
-      new Error('invalid credentials'),
-    );
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'bad-key');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    expect(await screen.findByText('llm.providerConfiguration.testFailed')).toBeInTheDocument();
-    expect(screen.getByTestId('llm-setup-api-key')).toHaveValue('bad-key');
-    expect(screen.queryByRole('button', { name: /Ember/i })).not.toBeInTheDocument();
-  });
-
-  it('enters the app when completion was saved but the response was lost', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(configApi, 'completeOnboarding').mockRejectedValue(new Error('response lost'));
-    vi.mocked(configApi.getOnboardingStatus).mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: { completed: true },
-    } as any);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByText('firstContext.title');
-    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
-
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/'));
-    expect(localStorageMock.removeItem).toHaveBeenCalledWith('magi_onboarding_state');
-  });
-
-  it('keeps the first-context step open after a selected source finishes connecting', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-    const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
-    await waitFor(() => expect(nextBtn).toBeEnabled());
-    await user.click(nextBtn);
-
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByText('firstContext.title');
-    await user.click(screen.getByTestId('empty-state-connect-chrome-history'));
-
-    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
-      install: true,
-      context: 'first_context',
-      onDone: expect.any(Function),
-    });
-    expect(screen.getByText('firstContext.title')).toBeInTheDocument();
-
-    const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
-    onDone?.();
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'actions.finishContext' })).toBeInTheDocument(),
+      expect(personasApi.setActive).toHaveBeenCalledWith("uuid-ember"),
     );
-    expect(screen.getByText('firstContext.connectedCount')).toBeInTheDocument();
-    expect(screen.queryByTestId('empty-state-connect-chrome-history')).not.toBeInTheDocument();
-    expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'actions.enterApp' })).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'actions.finishContext' }));
-    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
-  });
-
-  it('surfaces the embedding-fallback row when an Anthropic-style provider is picked', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-
-    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
-
-    await waitFor(() =>
-      expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument(),
-    );
-  });
-
-  it('repeats the missing-vector warning on the first-context step without blocking skip', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
-    );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    const warning = await screen.findByTestId('first-context-memory-warning');
-    const title = screen.getByText('firstContext.title');
-    expect(warning.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
-    expect(await screen.findByRole('button', { name: 'actions.enterApp' })).toBeInTheDocument();
-  });
-
-  it('activates the chosen persona before entering first context', async () => {
-    const user = userEvent.setup();
-    localStorageMock.getItem.mockReturnValue(null);
-    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: DEFAULT_SYSTEM_CONFIG,
-    } as any);
-
-    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
-    await waitFor(() => expect(nextBtn).toBeEnabled());
-    await user.click(nextBtn);
-
-    await screen.findByRole('button', { name: /Ember/i });
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-
-    await waitFor(() => expect(personasApi.setActive).toHaveBeenCalledWith('uuid-ember'));
-    await screen.findByText('firstContext.title');
+    await screen.findByText("firstContext.title");
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
     expect(
       vi.mocked(personasApi.setActive).mock.invocationCallOrder[0],
@@ -936,135 +1199,156 @@ describe('OnboardingFlow (linear 5-step)', () => {
     expect(completeOnboarding).not.toHaveBeenCalled();
   });
 
-  it('keeps persona activation failures on the persona step and retries successfully', async () => {
+  it("keeps persona activation failures on the persona step and retries successfully", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: DEFAULT_SYSTEM_CONFIG,
-    } as any);
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
     vi.mocked(personasApi.setActive)
-      .mockRejectedValueOnce(new Error('activation unavailable'))
-      .mockResolvedValueOnce({ success: true, persona_id: 'uuid-ember' });
+      .mockRejectedValueOnce(new Error("activation unavailable"))
+      .mockResolvedValueOnce({ success: true, persona_id: "uuid-ember" });
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'messages.personaActivationFailed',
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "messages.personaActivationFailed",
     );
-    expect(screen.getByRole('button', { name: /Ember/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Ember/i })).toBeInTheDocument();
     expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
     expect(completeOnboarding).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByText('firstContext.title');
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByText("firstContext.title");
     expect(personasApi.setActive).toHaveBeenCalledTimes(2);
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
-  it('does not activate a custom persona that only shares the selected builtin slug', async () => {
+  it("does not activate a custom persona that only shares the selected builtin slug", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     vi.mocked(personasApi.list).mockResolvedValueOnce({
       success: true,
       data: [
         {
-          persona_id: 'uuid-custom-ember',
-          name: 'Ember copy',
-          slug: 'ember',
-          locale: 'zh',
-          avatar_path: '',
-          group_name: 'custom',
+          persona_id: "uuid-custom-ember",
+          name: "Ember copy",
+          slug: "ember",
+          locale: "zh",
+          avatar_path: "",
+          group_name: "custom",
           sort_order: 0,
           is_builtin: false,
           seed_slug: null,
-          description: '',
+          description: "",
         },
       ],
     } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('messages.personaUnavailable');
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "messages.personaUnavailable",
+    );
     expect(personasApi.setActive).not.toHaveBeenCalled();
     expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
   });
 
-  it('blocks progress when the active-persona response names a different persona', async () => {
+  it("blocks progress when the active-persona response names a different persona", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     vi.mocked(personasApi.setActive).mockResolvedValueOnce({
       success: true,
-      persona_id: 'uuid-nova',
+      persona_id: "uuid-nova",
     });
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'messages.personaActivationFailed',
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "messages.personaActivationFailed",
     );
     expect(configApi.updateOnboardingDraft).not.toHaveBeenCalled();
   });
 
-  it('disables persona controls and navigation while activation is pending', async () => {
+  it("disables persona controls and navigation while activation is pending", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    let resolveActivation: ((value: { success: boolean; persona_id: string }) => void) | undefined;
+    let resolveActivation:
+      ((value: { success: boolean; persona_id: string }) => void) | undefined;
     vi.mocked(personasApi.setActive).mockImplementationOnce(
-      () => new Promise((resolve) => { resolveActivation = resolve; }),
+      () =>
+        new Promise((resolve) => {
+          resolveActivation = resolve;
+        }),
     );
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
     await waitFor(() => expect(personasApi.setActive).toHaveBeenCalled());
 
-    expect(screen.getByRole('button', { name: /Ember/i })).toBeDisabled();
-    expect(screen.getByTestId('persona-create-custom')).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Ember/i })).toBeDisabled();
+    expect(screen.getByTestId("persona-create-custom")).toBeDisabled();
     expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'actions.previous' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'actions.activatingPersona' })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "actions.previous" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "actions.activatingPersona" }),
+    ).toBeDisabled();
 
-    resolveActivation?.({ success: true, persona_id: 'uuid-ember' });
-    await screen.findByText('firstContext.title');
+    resolveActivation?.({ success: true, persona_id: "uuid-ember" });
+    await screen.findByText("firstContext.title");
   });
 
-  it('prevents a timed-out seed request from activating an obsolete selection later', async () => {
+  it("prevents a timed-out seed request from activating an obsolete selection later", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const originalSetTimeout = window.setTimeout.bind(window);
-    vi.spyOn(window, 'setTimeout').mockImplementation((handler, timeout, ...args) =>
-      originalSetTimeout(handler, timeout === 15_000 ? 0 : timeout, ...args),
+    vi.spyOn(window, "setTimeout").mockImplementation(
+      (handler, timeout, ...args) =>
+        originalSetTimeout(handler, timeout === 15_000 ? 0 : timeout, ...args),
     );
     let resolveOldSeed: ((value: unknown) => void) | undefined;
     vi.mocked(personasApi.seed)
       .mockImplementationOnce(
-        () => new Promise((resolve) => { resolveOldSeed = resolve; }) as any,
+        () =>
+          new Promise((resolve) => {
+            resolveOldSeed = resolve;
+          }) as any,
       )
-      .mockResolvedValueOnce({ success: true, data: { created_ids: [] } } as any);
+      .mockResolvedValueOnce({
+        success: true,
+        data: { created_ids: [] },
+      } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByRole('button', { name: /Ember/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('messages.personaSetupTimedOut');
-    await user.click(screen.getByRole('button', { name: /Nova/i }));
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByText('firstContext.title');
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "messages.personaSetupTimedOut",
+    );
+    await user.click(screen.getByRole("button", { name: /Nova/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByText("firstContext.title");
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);
-    expect(personasApi.setActive).toHaveBeenCalledWith('uuid-nova');
+    expect(personasApi.setActive).toHaveBeenCalledWith("uuid-nova");
     expect(personasApi.list).toHaveBeenCalledTimes(1);
 
     resolveOldSeed?.({ success: true, data: { created_ids: [] } });
@@ -1074,49 +1358,60 @@ describe('OnboardingFlow (linear 5-step)', () => {
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
-  it('creates and activates a custom generated persona before leaving the persona step', async () => {
+  it("creates and activates a custom generated persona before leaving the persona step", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(CUSTOM_PERSONA_ID);
-    const completeOnboarding = vi.spyOn(configApi, 'completeOnboarding').mockResolvedValue({
-      success: true,
-      message: 'ok',
-      data: DEFAULT_SYSTEM_CONFIG,
-    } as any);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      CUSTOM_PERSONA_ID,
+    );
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
     const generated = generatedPersonaConfig();
-    vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+    vi.spyOn(personasApi, "generateWithProgress").mockResolvedValue({
       success: true,
-      message: 'ok',
+      message: "ok",
       data: generated,
       stages: [],
     } as any);
-    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+    const createSpy = vi.spyOn(personasApi, "create").mockResolvedValue({
       success: true,
       data: {
         persona_id: CUSTOM_PERSONA_ID,
-        name: 'Sage',
+        name: "Sage",
         slug: `onboarding-custom-${CUSTOM_PERSONA_ID}`,
       },
     } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
     // Persona step: generate a custom persona, which auto-selects it.
-    await user.click(await screen.findByTestId('persona-create-custom'));
-    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
-    await user.click(screen.getByTestId('persona-custom-generate'));
+    await user.click(await screen.findByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "a wise mentor",
+    );
+    await user.click(screen.getByTestId("persona-custom-generate"));
     // Back in chat mode with the custom persona selected — advance.
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "actions.next" }),
+      ).toBeEnabled(),
     );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     const createArg = createSpy.mock.calls[0][0] as {
@@ -1127,77 +1422,93 @@ describe('OnboardingFlow (linear 5-step)', () => {
     };
     expect(createArg.persona_id).toBe(CUSTOM_PERSONA_ID);
     expect(createArg.slug).toBe(`onboarding-custom-${CUSTOM_PERSONA_ID}`);
-    expect(createArg.locale).toBe('zh');
-    expect(JSON.parse(createArg.config_json).name).toBe('Sage');
+    expect(createArg.locale).toBe("zh");
+    expect(JSON.parse(createArg.config_json).name).toBe("Sage");
     expect(personasApi.setActive).toHaveBeenCalledWith(CUSTOM_PERSONA_ID);
-    await screen.findByText('firstContext.title');
+    await screen.findByText("firstContext.title");
     expect(completeOnboarding).not.toHaveBeenCalled();
 
     const persistedDraftCall = localStorageMock.setItem.mock.calls.findIndex(
-      ([key, value]) => key === 'magi_onboarding_state' && value.includes(CUSTOM_PERSONA_ID),
+      ([key, value]) =>
+        key === "magi_onboarding_state" && value.includes(CUSTOM_PERSONA_ID),
     );
     expect(persistedDraftCall).toBeGreaterThanOrEqual(0);
-    expect(localStorageMock.setItem.mock.invocationCallOrder[persistedDraftCall]).toBeLessThan(
-      createSpy.mock.invocationCallOrder[0],
-    );
+    expect(
+      localStorageMock.setItem.mock.invocationCallOrder[persistedDraftCall],
+    ).toBeLessThan(createSpy.mock.invocationCallOrder[0]);
 
-    await user.click(screen.getByRole('button', { name: 'actions.skipContext' }));
-    await user.click(await screen.findByRole('button', { name: 'actions.enterApp' }));
+    await user.click(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "actions.enterApp" }),
+    );
     await waitFor(() => expect(completeOnboarding).toHaveBeenCalledTimes(1));
     expect(createSpy).toHaveBeenCalledTimes(1);
     expect(personasApi.setActive).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses one custom persona id when activation fails and the user retries', async () => {
+  it("reuses one custom persona id when activation fails and the user retries", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(CUSTOM_PERSONA_ID);
+    vi.spyOn(globalThis.crypto, "randomUUID").mockReturnValue(
+      CUSTOM_PERSONA_ID,
+    );
     const generated = generatedPersonaConfig();
-    vi.spyOn(personasApi, 'generateWithProgress').mockResolvedValue({
+    vi.spyOn(personasApi, "generateWithProgress").mockResolvedValue({
       success: true,
-      message: 'ok',
+      message: "ok",
       data: generated,
       stages: [],
     } as any);
     const slug = `onboarding-custom-${CUSTOM_PERSONA_ID}`;
-    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+    const createSpy = vi.spyOn(personasApi, "create").mockResolvedValue({
       success: true,
-      data: { persona_id: CUSTOM_PERSONA_ID, name: 'Sage', slug },
+      data: { persona_id: CUSTOM_PERSONA_ID, name: "Sage", slug },
     } as any);
     vi.mocked(personasApi.setActive)
-      .mockRejectedValueOnce(new Error('activation unavailable'))
+      .mockRejectedValueOnce(new Error("activation unavailable"))
       .mockResolvedValueOnce({ success: true, persona_id: CUSTOM_PERSONA_ID });
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterPersonaStep(user);
-    await user.click(screen.getByTestId('persona-create-custom'));
-    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
-    await user.click(screen.getByTestId('persona-custom-generate'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled());
-
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'messages.personaActivationFailed',
+    await user.click(screen.getByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "a wise mentor",
     );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    await screen.findByText('firstContext.title');
+    await user.click(screen.getByTestId("persona-custom-generate"));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "actions.next" }),
+      ).toBeEnabled(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "messages.personaActivationFailed",
+    );
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByText("firstContext.title");
 
     expect(createSpy).toHaveBeenCalledTimes(2);
-    expect(createSpy.mock.calls.map(([payload]) => payload.persona_id)).toEqual([
-      CUSTOM_PERSONA_ID,
-      CUSTOM_PERSONA_ID,
+    expect(createSpy.mock.calls.map(([payload]) => payload.persona_id)).toEqual(
+      [CUSTOM_PERSONA_ID, CUSTOM_PERSONA_ID],
+    );
+    expect(createSpy.mock.calls.map(([payload]) => payload.slug)).toEqual([
+      slug,
+      slug,
     ]);
-    expect(createSpy.mock.calls.map(([payload]) => payload.slug)).toEqual([slug, slug]);
     expect(personasApi.setActive).toHaveBeenCalledTimes(2);
     expect(configApi.updateOnboardingDraft).toHaveBeenCalledTimes(1);
   });
 
-  it('reuses the saved persona id when submitting a restored custom draft', async () => {
+  it("reuses the saved persona id when submitting a restored custom draft", async () => {
     const user = userEvent.setup();
     const slug = `onboarding-custom-${CUSTOM_PERSONA_ID}`;
     const restoredConfig = generatedPersonaConfig();
     localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key !== 'magi_onboarding_state') return null;
+      if (key !== "magi_onboarding_state") return null;
       return JSON.stringify({
         current: 2,
         values: DEFAULT_SYSTEM_CONFIG,
@@ -1206,74 +1517,93 @@ describe('OnboardingFlow (linear 5-step)', () => {
           {
             personaId: CUSTOM_PERSONA_ID,
             slug,
-            name: 'Sage',
-            description: 'wise mentor',
+            name: "Sage",
+            description: "wise mentor",
             config: restoredConfig,
           },
         ],
       });
     });
-    const createSpy = vi.spyOn(personasApi, 'create').mockResolvedValue({
+    const createSpy = vi.spyOn(personasApi, "create").mockResolvedValue({
       success: true,
-      data: { persona_id: CUSTOM_PERSONA_ID, name: 'Sage', slug },
+      data: { persona_id: CUSTOM_PERSONA_ID, name: "Sage", slug },
     } as any);
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
-    expect(await screen.findByRole('button', { name: /Sage/i })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    await user.click(screen.getByRole('button', { name: 'actions.next' }));
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    expect(
+      await screen.findByRole("button", { name: /Sage/i }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalledTimes(1));
     expect(createSpy).toHaveBeenCalledWith(
       expect.objectContaining({ persona_id: CUSTOM_PERSONA_ID, slug }),
     );
     expect(personasApi.setActive).toHaveBeenCalledWith(CUSTOM_PERSONA_ID);
-    await screen.findByText('firstContext.title');
+    await screen.findByText("firstContext.title");
   });
 
-  it('disables the footer Next button while a custom persona is generating', async () => {
+  it("disables the footer Next button while a custom persona is generating", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     let resolveGen: (value: any) => void = () => {};
-    vi.spyOn(personasApi, 'generateWithProgress').mockImplementation(
-      () => new Promise((resolve) => { resolveGen = resolve; }),
+    vi.spyOn(personasApi, "generateWithProgress").mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveGen = resolve;
+        }),
     );
 
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
 
-    await user.click(screen.getByRole('button', { name: /welcome\.getStarted/ }));
-    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
-    await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    const nextBtn = screen.getByRole('button', { name: 'actions.next' });
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    const nextBtn = screen.getByRole("button", { name: "actions.next" });
     await waitFor(() => expect(nextBtn).toBeEnabled());
     await user.click(nextBtn);
 
     // Start a generation on the persona step.
-    await user.click(await screen.findByTestId('persona-create-custom'));
-    await user.type(screen.getByTestId('persona-custom-description'), 'a wise mentor');
-    await user.click(screen.getByTestId('persona-custom-generate'));
+    await user.click(await screen.findByTestId("persona-create-custom"));
+    await user.type(
+      screen.getByTestId("persona-custom-description"),
+      "a wise mentor",
+    );
+    await user.click(screen.getByTestId("persona-custom-generate"));
 
     // Footer Next is disabled while the generation is in flight...
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'actions.next' })).toBeDisabled(),
+      expect(
+        screen.getByRole("button", { name: "actions.next" }),
+      ).toBeDisabled(),
     );
 
     // ...and re-enabled once it resolves.
     resolveGen({
       success: true,
-      message: 'ok',
+      message: "ok",
       data: {
-        name: 'Sage',
-        avatar: '',
-        description: 'wise',
-        appearance_prompt: '',
-        identity_core: { identity_statement: 'patient', values_loved: [], values_rejected: [], attention_biases: [] },
-        idiolect: { sentence_style: 'calm', vocab_available: [], vocab_avoided: [], structural_quirks: [] },
+        name: "Sage",
+        avatar: "",
+        description: "wise",
+        appearance_prompt: "",
+        identity_core: {
+          identity_statement: "patient",
+          values_loved: [],
+          values_rejected: [],
+          attention_biases: [],
+        },
+        idiolect: {
+          sentence_style: "calm",
+          vocab_available: [],
+          vocab_avoided: [],
+          structural_quirks: [],
+        },
         registers: {},
         quiet_hours: [],
         signature_triggers: [],
@@ -1286,7 +1616,9 @@ describe('OnboardingFlow (linear 5-step)', () => {
       stages: [],
     });
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'actions.next' })).toBeEnabled(),
+      expect(
+        screen.getByRole("button", { name: "actions.next" }),
+      ).toBeEnabled(),
     );
   });
 });

@@ -2,7 +2,7 @@ import { type Dispatch, type SetStateAction, useCallback, useState } from 'react
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
-import { pluginsApi, type PluginPackageState } from '@/api/modules/plugins';
+import { pluginsApi, type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
 import type { PluginDraftMap } from '@/types/settings';
 import {
@@ -14,6 +14,8 @@ import {
 interface UseSettingsPluginsTimelineReturn {
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
+  pluginRegistryEntries: PluginRegistryEntry[];
+  pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
   reloadingActionPlugins: Record<string, boolean>;
   savedPluginDrafts: PluginDraftMap;
@@ -26,6 +28,7 @@ interface UseSettingsPluginsTimelineReturn {
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
+  loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
   loadPluginsAndSensors: () => Promise<void>;
   timelineStatuses: SensorSourceStatusItem[];
   timelineStatusesLoading: boolean;
@@ -38,6 +41,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   const [timelineStatusesLoading, setTimelineStatusesLoading] = useState(false);
   const [plugins, setPlugins] = useState<PluginPackageState[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginRegistryEntries, setPluginRegistryEntries] = useState<PluginRegistryEntry[]>([]);
+  const [pluginRegistryLoading, setPluginRegistryLoading] = useState(false);
   const [pluginProcessingIds, setPluginProcessingIds] = useState<Record<string, string>>({});
   const [savedPluginDrafts, setSavedPluginDrafts] = useState<PluginDraftMap>({});
   const [draftPluginDrafts, setDraftPluginDrafts] = useState<PluginDraftMap>({});
@@ -82,10 +87,31 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     }
   }, [t]);
 
+  const loadPluginRegistry = useCallback(async ({
+    silent = false,
+    force = false,
+  }: { silent?: boolean; force?: boolean } = {}) => {
+    if (!silent) {
+      setPluginRegistryLoading(true);
+    }
+    try {
+      const response = await pluginsApi.getRegistry({ force });
+      setPluginRegistryEntries(response.plugins || []);
+    } catch {
+      setPluginRegistryEntries([]);
+    } finally {
+      if (!silent) {
+        setPluginRegistryLoading(false);
+      }
+    }
+  }, []);
+
   const loadPluginsAndSensors = useCallback(async () => {
     await loadPlugins();
     await fetchTimelineStatuses();
-  }, [loadPlugins, fetchTimelineStatuses]);
+    await loadPluginRegistry({ silent: true });
+  }, [loadPlugins, fetchTimelineStatuses, loadPluginRegistry]);
+
 
   const handlePluginDraftChange = useCallback((pluginId: string, key: string, value: unknown) => {
     setDraftPluginDrafts((prev) => ({
@@ -186,6 +212,8 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
   return {
     plugins,
     pluginsLoading,
+    pluginRegistryEntries,
+    pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,
     savedPluginDrafts,
@@ -198,6 +226,7 @@ export function useSettingsPluginsTimeline(): UseSettingsPluginsTimelineReturn {
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginRegistry,
     loadPluginsAndSensors,
     timelineStatuses,
     timelineStatusesLoading,

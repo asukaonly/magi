@@ -87,11 +87,29 @@ class SensorScheduleRegistrationModule(LifecycleModule):
         self._context.agent_runtime.sensor_scheduler_contrib = None
         self._contrib = None
 
-    async def queue_manual_sync(self, source_type: str):
+    async def queue_manual_sync(
+        self,
+        source_type: str,
+        *,
+        first_context: bool = False,
+        sync_mode: str = "latest",
+        backfill_scope: str | None = None,
+        backfill_days: int | None = None,
+        backfill_start_date: str | None = None,
+        backfill_end_date: str | None = None,
+    ):
         """Queue a manual sync using the active sensor contributor."""
         if self._contrib is None:
             raise RuntimeError("sensor scheduler contributor is not initialized")
-        return await self._contrib.queue_manual_sync(source_type)
+        return await self._contrib.queue_manual_sync(
+            source_type,
+            first_context=first_context,
+            sync_mode=sync_mode,
+            backfill_scope=backfill_scope,
+            backfill_days=backfill_days,
+            backfill_start_date=backfill_start_date,
+            backfill_end_date=backfill_end_date,
+        )
 
 
 class SensorSyncExecutorModule(LifecycleModule):

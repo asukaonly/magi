@@ -1,21 +1,22 @@
-import { useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
-import { useInstallableSensors } from '../../hooks/useInstallableSensors';
+import { useInstallableSensors } from "../../hooks/useInstallableSensors";
 import {
   usePluginInstallPanelStore,
+  type PluginInstallDoneInfo,
   type PluginInstallPanelContext,
-} from '../../stores/pluginInstallPanel';
-import { useChatShellStore } from '../../stores/chat-shell';
+} from "../../stores/pluginInstallPanel";
+import { useChatShellStore } from "../../stores/chat-shell";
 import {
   BROWSER_HISTORY_PRIORITY_PLUGINS,
   EMPTY_STATE_PRIORITY_PLUGINS,
   FIRST_CONTEXT_PRIORITY_PLUGINS,
   getEmptyStatePluginMeta,
   type EmptyStatePluginMeta,
-} from '../../constants/emptyStatePriorities';
-import type { InstallableItem } from '../../api/modules/systemSuggestions';
-import { EmptyStateSensorCard } from './EmptyStateSensorCard';
+} from "../../constants/emptyStatePriorities";
+import type { InstallableItem } from "../../api/modules/systemSuggestions";
+import { EmptyStateSensorCard } from "./EmptyStateSensorCard";
 
 /**
  * Orchestrator component for the empty-state CTA list.
@@ -44,7 +45,7 @@ import { EmptyStateSensorCard } from './EmptyStateSensorCard';
  */
 
 export interface EmptyStateAvailableSensorsProps {
-  variant?: 'standard' | 'first_context';
+  variant?: "standard" | "first_context";
   /**
    * Plugin IDs that are already installed/configured and should be hidden from
    * the list. The orchestrator filters them from the rendered rows.
@@ -86,7 +87,7 @@ export interface EmptyStateAvailableSensorsProps {
    * First-run surfaces use this to dismiss guidance only after a source is
    * actually connected.
    */
-  onConnectDone?: (pluginId: string) => void;
+  onConnectDone?: (pluginId: string, info?: PluginInstallDoneInfo) => void;
   /**
    * Lets embedded first-run surfaces request a lighter connect flow without
    * changing Settings or normal plugin-entry behavior.
@@ -100,7 +101,9 @@ export interface EmptyStateAvailableSensorsProps {
  * a stable sort).
  */
 function priorityIndex(pluginId: string, firstContext = false): number {
-  if ((BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).includes(pluginId)) {
+  if (
+    (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).includes(pluginId)
+  ) {
     return 0;
   }
   const priorities = firstContext
@@ -111,7 +114,9 @@ function priorityIndex(pluginId: string, firstContext = false): number {
 }
 
 function browserHistoryIndex(pluginId: string): number {
-  const idx = (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).indexOf(pluginId);
+  const idx = (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).indexOf(
+    pluginId,
+  );
   return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
 }
 
@@ -131,9 +136,9 @@ function isKnownPlugin(pluginId: string, firstContext = false): boolean {
 const MAX_EMPTY_STATE_CARDS = 5;
 
 export function EmptyStateAvailableSensors({
-  variant = 'standard',
+  variant = "standard",
   excludePluginIds,
-  i18nNamespace = 'onboarding',
+  i18nNamespace = "onboarding",
   i18nKeyPrefix,
   showBrowseAll = true,
   fallbackPluginIds,
@@ -144,17 +149,19 @@ export function EmptyStateAvailableSensors({
   onRetryInstallable,
   onConnectStart,
   onConnectDone,
-  panelContext = 'default',
+  panelContext = "default",
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
   const { t } = useTranslation(i18nNamespace);
-  const keyed = (key: string) => (i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key);
+  const keyed = (key: string) =>
+    i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key;
 
   const hookState = useInstallableSensors(installableItems === undefined);
   const items = installableItems ?? hookState.items ?? [];
   const loading = installableLoading ?? hookState.loading;
-  const error = installableError === undefined ? hookState.error : installableError;
+  const error =
+    installableError === undefined ? hookState.error : installableError;
   const retryInstallable = onRetryInstallable ?? hookState.refresh;
-  const firstContext = variant === 'first_context';
+  const firstContext = variant === "first_context";
 
   // Connect now opens the single MainLayout-mounted <PluginInstallPanel>, which
   // owns the full honest flow (install → enable → sync → build-memory) and its
@@ -178,22 +185,30 @@ export function EmptyStateAvailableSensors({
   // not in the list go last, stable), drop items without display metadata, then
   // cap to the top MAX_EMPTY_STATE_CARDS — the remainder stays behind the
   // marketplace exit so the empty state never grows unbounded.
-  const visible = useMemo<{ item: InstallableItem; meta: EmptyStatePluginMeta }[]>(() => {
+  const visible = useMemo<
+    { item: InstallableItem; meta: EmptyStatePluginMeta }[]
+  >(() => {
     const collectWithMeta = (
       sourceItems: InstallableItem[],
       useFirstContext = false,
     ) => {
       const browserHistory = [...sourceItems]
         .filter((item) => isBrowserHistoryPlugin(item.plugin_id))
-        .sort((a, b) => browserHistoryIndex(a.plugin_id) - browserHistoryIndex(b.plugin_id))
+        .sort(
+          (a, b) =>
+            browserHistoryIndex(a.plugin_id) - browserHistoryIndex(b.plugin_id),
+        )
         .slice(0, useFirstContext ? undefined : 1);
-      const otherItems = sourceItems.filter((item) => !isBrowserHistoryPlugin(item.plugin_id));
+      const otherItems = sourceItems.filter(
+        (item) => !isBrowserHistoryPlugin(item.plugin_id),
+      );
       const sorted = [...browserHistory, ...otherItems].sort(
         (a, b) =>
           priorityIndex(a.plugin_id, useFirstContext) -
           priorityIndex(b.plugin_id, useFirstContext),
       );
-      const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] = [];
+      const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] =
+        [];
       for (const item of sorted) {
         const meta = getEmptyStatePluginMeta(item.plugin_id);
         if (meta && isKnownPlugin(item.plugin_id, useFirstContext)) {
@@ -207,19 +222,22 @@ export function EmptyStateAvailableSensors({
       .filter((pluginId) => !excluded.has(pluginId))
       .map((pluginId) => ({
         plugin_id: pluginId,
-        category: 'onboarding_fallback',
+        category: "onboarding_fallback",
         installed: false,
-        rationale: { zh: '', en: '' },
+        rationale: { zh: "", en: "" },
         setup_time_estimate_seconds: 30,
-        data_locality: 'local_only' as const,
+        data_locality: "local_only" as const,
       }));
 
     const candidates = items.filter((item) => !excluded.has(item.plugin_id));
     if (firstContext) {
       const excludedCategories = new Set(
         [...excluded].map((pluginId) => {
-          const metaCategory = getEmptyStatePluginMeta(pluginId)?.recommendationCategory;
-          const itemCategory = items.find((item) => item.plugin_id === pluginId)?.category;
+          const metaCategory =
+            getEmptyStatePluginMeta(pluginId)?.recommendationCategory;
+          const itemCategory = items.find(
+            (item) => item.plugin_id === pluginId,
+          )?.category;
           return metaCategory || itemCategory || pluginId;
         }),
       );
@@ -227,7 +245,8 @@ export function EmptyStateAvailableSensors({
         candidates.filter(
           (item) => {
             const category =
-              getEmptyStatePluginMeta(item.plugin_id)?.recommendationCategory ||
+              getEmptyStatePluginMeta(item.plugin_id)
+                ?.recommendationCategory ||
               item.category ||
               item.plugin_id;
             return !excludedCategories.has(category);
@@ -239,11 +258,15 @@ export function EmptyStateAvailableSensors({
           return a.item.installed ? -1 : 1;
         }
         const priorityDelta =
-          priorityIndex(a.item.plugin_id, true) - priorityIndex(b.item.plugin_id, true);
+          priorityIndex(a.item.plugin_id, true) -
+          priorityIndex(b.item.plugin_id, true);
         if (priorityDelta !== 0) {
           return priorityDelta;
         }
-        return a.item.setup_time_estimate_seconds - b.item.setup_time_estimate_seconds;
+        return (
+          a.item.setup_time_estimate_seconds -
+          b.item.setup_time_estimate_seconds
+        );
       });
       const categoryRepresentatives = new Map<
         string,
@@ -268,8 +291,13 @@ export function EmptyStateAvailableSensors({
           ...candidates,
           ...fallbackItems.filter(
             (fallback) =>
-              !candidates.some((item) => item.plugin_id === fallback.plugin_id) &&
-              !(candidatesHaveBrowserHistory && isBrowserHistoryPlugin(fallback.plugin_id)),
+              !candidates.some(
+                (item) => item.plugin_id === fallback.plugin_id,
+              ) &&
+              !(
+                candidatesHaveBrowserHistory &&
+                isBrowserHistoryPlugin(fallback.plugin_id)
+              ),
           ),
         ]
       : candidates;
@@ -284,7 +312,7 @@ export function EmptyStateAvailableSensors({
   if (firstContext && loading && visible.length === 0) {
     return (
       <div className="rounded-xl border border-border/45 bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
-        {t(keyed('emptyState.checking'))}
+        {t(keyed("emptyState.checking"))}
       </div>
     );
   }
@@ -294,10 +322,10 @@ export function EmptyStateAvailableSensors({
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border/50 bg-muted/20 px-4 py-4">
         <div className="min-w-0 space-y-1">
           <p className="text-sm font-medium text-foreground">
-            {t(keyed('emptyState.loadErrorTitle'))}
+            {t(keyed("emptyState.loadErrorTitle"))}
           </p>
           <p className="text-xs leading-5 text-muted-foreground">
-            {t(keyed('emptyState.loadError'))}
+            {t(keyed("emptyState.loadError"))}
           </p>
         </div>
         <button
@@ -306,7 +334,7 @@ export function EmptyStateAvailableSensors({
           onClick={retryInstallable}
           className="shrink-0 rounded-md border border-primary/30 bg-background px-3 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
         >
-          {t(keyed('emptyState.retry'))}
+          {t(keyed("emptyState.retry"))}
         </button>
       </div>
     );
@@ -327,12 +355,12 @@ export function EmptyStateAvailableSensors({
       type="button"
       data-testid="empty-state-browse-all"
       onClick={() => {
-        setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
-        setActivePanel('settings');
+        setSettingsNavigationIntent({ section: "pluginsMarketplace" });
+        setActivePanel("settings");
       }}
       className="text-xs font-semibold text-muted-foreground transition hover:text-foreground"
     >
-      {t(keyed('emptyState.browseAll'))}
+      {t(keyed("emptyState.browseAll"))}
     </button>
   ) : null;
 
@@ -341,10 +369,10 @@ export function EmptyStateAvailableSensors({
       return (
         <div className="rounded-xl border border-border/45 bg-muted/20 px-4 py-4">
           <p className="text-sm font-medium text-foreground">
-            {t(keyed('emptyState.noAvailable'))}
+            {t(keyed("emptyState.noAvailable"))}
           </p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {t(keyed('emptyState.noAvailableHint'))}
+            {t(keyed("emptyState.noAvailableHint"))}
           </p>
         </div>
       );
@@ -372,27 +400,32 @@ export function EmptyStateAvailableSensors({
       reason: t(
         keyed(
           item.installed
-            ? 'emptyState.availableReasonInstalled'
-            : 'emptyState.availableReason',
+            ? "emptyState.availableReasonInstalled"
+            : "emptyState.availableReason",
         ),
       ),
       scope: meta.scopeKey ? t(keyed(meta.scopeKey)) : undefined,
       localityLabel: t(
         keyed(
-          item.data_locality === 'local_only'
-            ? 'emptyState.localOnly'
-            : 'emptyState.uploads',
+          item.data_locality === "local_only"
+            ? "emptyState.localOnly"
+            : "emptyState.uploads",
         ),
       ),
-      setupTimeLabel: t(keyed('emptyState.setupTime'), {
+      setupTimeLabel: t(keyed("emptyState.setupTime"), {
         seconds: item.setup_time_estimate_seconds,
       }),
       onConnect: (pluginId: string) => {
         const options = { install: !item.installed };
         openPanel(pluginId, {
           ...options,
-          ...(panelContext !== 'default' ? { context: panelContext } : {}),
-          ...(onConnectDone ? { onDone: () => onConnectDone(pluginId) } : {}),
+          ...(panelContext !== "default" ? { context: panelContext } : {}),
+          ...(onConnectDone
+            ? {
+                onDone: (info?: PluginInstallDoneInfo) =>
+                  onConnectDone(pluginId, info),
+              }
+            : {}),
         });
         onConnectStart?.(pluginId, options);
       },
@@ -401,7 +434,7 @@ export function EmptyStateAvailableSensors({
     return (
       <div className="space-y-3 text-left">
         <h3 className="text-sm font-semibold text-foreground">
-          {t(keyed('emptyState.firstContextHeading'))}
+          {t(keyed("emptyState.firstContextHeading"))}
         </h3>
         <EmptyStateSensorCard
           {...cardProps(featured)}
@@ -431,7 +464,7 @@ export function EmptyStateAvailableSensors({
     // title vs (longer) description so they look misaligned.
     <div className="space-y-3 text-left">
       <h3 className="text-sm font-medium text-foreground">
-        {t(keyed('emptyState.heading'))}
+        {t(keyed("emptyState.heading"))}
       </h3>
       <div className="divide-y divide-border/35 overflow-hidden rounded-lg bg-[hsl(var(--app-chrome-elevated)/0.44)] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
         {visible.map(({ item, meta }) => (
@@ -444,7 +477,9 @@ export function EmptyStateAvailableSensors({
             i18nNamespace={i18nNamespace}
             i18nKeyPrefix={i18nKeyPrefix}
             connectLabelKey={
-              item.installed ? 'emptyState.connect' : 'emptyState.installAndConnect'
+              item.installed
+                ? "emptyState.connect"
+                : "emptyState.installAndConnect"
             }
             onConnect={(pluginId) => {
               // Install-first for registry-only items: the panel downloads
@@ -452,8 +487,15 @@ export function EmptyStateAvailableSensors({
               const options = { install: !item.installed };
               openPanel(pluginId, {
                 ...options,
-                ...(panelContext !== 'default' ? { context: panelContext } : {}),
-                ...(onConnectDone ? { onDone: () => onConnectDone(pluginId) } : {}),
+                ...(panelContext !== "default"
+                  ? { context: panelContext }
+                  : {}),
+                ...(onConnectDone
+                  ? {
+                      onDone: (info?: PluginInstallDoneInfo) =>
+                        onConnectDone(pluginId, info),
+                    }
+                  : {}),
               });
               onConnectStart?.(pluginId, options);
             }}

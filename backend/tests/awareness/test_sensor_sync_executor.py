@@ -22,7 +22,15 @@ def _build_sensor_schedule(
     *,
     plugin_id: str = "test-plugin",
     source_type: str = "test-source",
+    target_payload: dict[str, object] | None = None,
 ) -> ScheduleDefinition:
+    payload = {
+        "plugin_id": plugin_id,
+        "source_type": source_type,
+        "manual": False,
+    }
+    if target_payload:
+        payload.update(target_payload)
     return ScheduleDefinition(
         schedule_id=f"sensor-sync:{plugin_id}:{source_type}",
         target_type=ScheduledTargetType.SENSOR_SYNC,
@@ -31,11 +39,7 @@ def _build_sensor_schedule(
             trigger_type=TriggerType.INTERVAL,
             config={"seconds": 300.0},
         ),
-        target_payload={
-            "plugin_id": plugin_id,
-            "source_type": source_type,
-            "manual": False,
-        },
+        target_payload=payload,
         metadata={"plugin_id": plugin_id, "source_type": source_type},
     )
 
@@ -445,6 +449,123 @@ async def test_sensor_sync_has_more_queues_continuation_and_defers_derivations(t
     assert continuation["metadata"]["parent_job_id"] == job_id
     assert summarize_calls == []
     assert derive_calls == []
+
+
+@pytest.mark.asyncio
+async def test_sensor_sync_continuation_preserves_backfill_request(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    sync_request = {
+        "mode": "backfill",
+        "backfill_scope": "last_30_days",
+        "backfill_days": 30,
+    }
+    schedule = _build_sensor_schedule(target_payload={"sync_request": sync_request})
+    job_id = await _enqueue_job(repository, schedule)
+
+    continuation_calls: list[dict[str, object]] = []
+
+    async def _fake_schedule_once(**kwargs):
+        continuation_calls.append(kwargs)
+        return ScheduleDefinition(
+            schedule_id=str(kwargs["schedule_id"]),
+            target_type=kwargs["target_type"],
+            target_key=str(kwargs["target_key"]),
+            trigger=TriggerDefinition(
+                trigger_type=TriggerType.ONCE,
+                config={"run_at": kwargs["run_at"]},
+            ),
+            target_payload=dict(kwargs["target_payload"]),
+            metadata=dict(kwargs.get("metadata") or {}),
+        )
+
+    class _FakeSchedulerService:
+        schedule_once = staticmethod(_fake_schedule_once)
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        assert dict(job_record["payload"])["sync_request"] == sync_request
+        return ScheduledExecutionResult(
+            success=True,
+            message="sensor_sync_completed",
+            next_cursor="cursor-2",
+            stats={"items": 200, "has_more": True},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=_FakeSchedulerService(),
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not continuation_calls:
+        await asyncio.sleep(0.02)
+    await executor.stop()
+
+    assert len(continuation_calls) == 1
+    continuation = continuation_calls[0]
+    assert continuation["target_payload"]["sync_request"] == sync_request
+    assert continuation["metadata"]["sync_request"] == sync_request
+
+
+@pytest.mark.asyncio
+async def test_first_context_sensor_sync_does_not_queue_continuation(tmp_path, monkeypatch):
+    db_path = tmp_path / "scheduler.db"
+    repository = ScheduleRepository(db_path)
+    await repository.initialize()
+    schedule = _build_sensor_schedule(target_payload={"first_context": True})
+    job_id = await _enqueue_job(repository, schedule)
+
+    continuation_calls: list[dict[str, object]] = []
+
+    async def _fake_schedule_once(**kwargs):
+        continuation_calls.append(kwargs)
+        return ScheduleDefinition(
+            schedule_id=str(kwargs["schedule_id"]),
+            target_type=kwargs["target_type"],
+            target_key=str(kwargs["target_key"]),
+            trigger=TriggerDefinition(
+                trigger_type=TriggerType.ONCE,
+                config={"run_at": kwargs["run_at"]},
+            ),
+            target_payload=dict(kwargs["target_payload"]),
+            metadata=dict(kwargs.get("metadata") or {}),
+        )
+
+    class _FakeSchedulerService:
+        schedule_once = staticmethod(_fake_schedule_once)
+
+        async def execute_schedule_async(self, *args, **kwargs):
+            return ScheduledExecutionResult(success=True, message="queued", stats={})
+
+    async def run_job(job_record: dict[str, object]) -> ScheduledExecutionResult:
+        assert job_record["job_id"] == job_id
+        assert dict(job_record["payload"])["first_context"] is True
+        return ScheduledExecutionResult(
+            success=True,
+            message="sensor_sync_completed",
+            next_cursor="cursor-2",
+            stats={"items": 200, "has_more": True},
+        )
+
+    executor = SensorSyncExecutor(
+        repository=repository,
+        run_job=run_job,
+        scheduler_service=_FakeSchedulerService(),
+        poll_interval_seconds=0.01,
+        running_timeout_seconds=30.0,
+    )
+    await executor.start()
+    await _wait_for_job_status(repository, job_id, "success")
+    await asyncio.sleep(0.05)
+    await executor.stop()
+
+    assert continuation_calls == []
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@
  * which surface the backend's view of which plugins the user might want to
  * enable based on recent message text (and which suggestions they've dismissed).
  */
-import { api, unwrapGatewayPayload } from '../client';
+import { api, unwrapGatewayPayload } from "../client";
 
 /**
  * How long a dismissed suggestion stays suppressed.
@@ -14,7 +14,7 @@ import { api, unwrapGatewayPayload } from '../client';
  * - `explicit`: a long cooldown (days) — user actively said "not now".
  * - `never`: permanent — user said "stop suggesting this".
  */
-export type DismissalKind = 'transient' | 'explicit' | 'never';
+export type DismissalKind = "transient" | "explicit" | "never";
 
 export interface SuggestionProposal {
   dedupe_key: string;
@@ -58,13 +58,13 @@ export interface DismissalItem {
  */
 export async function checkSystemSuggestions(args: {
   text: string;
-  locale: 'zh' | 'en';
+  locale: "zh" | "en";
   sessionId?: string;
 }): Promise<SuggestionProposal[]> {
-  const response = await api.post<CheckResponse>('/system-suggestions/check', {
+  const response = await api.post<CheckResponse>("/system-suggestions/check", {
     text: args.text,
     locale: args.locale,
-    session_id: args.sessionId ?? 'default',
+    session_id: args.sessionId ?? "default",
   });
   return unwrapGatewayPayload(response).suggestions;
 }
@@ -83,7 +83,7 @@ export async function dismissSystemSuggestion(args: {
   title?: string;
 }): Promise<DismissResponse> {
   const response = await api.post<DismissResponse>(
-    '/system-suggestions/dismiss',
+    "/system-suggestions/dismiss",
     args,
   );
   return unwrapGatewayPayload(response);
@@ -95,7 +95,7 @@ export async function dismissSystemSuggestion(args: {
  */
 export async function listDismissals(): Promise<DismissalItem[]> {
   const response = await api.get<{ dismissals: DismissalItem[] }>(
-    '/system-suggestions/dismissals',
+    "/system-suggestions/dismissals",
   );
   return unwrapGatewayPayload(response).dismissals;
 }
@@ -120,7 +120,7 @@ export interface InstallableItem {
   installed: boolean;
   rationale: { zh: string; en: string };
   setup_time_estimate_seconds: number;
-  data_locality: 'local_only' | 'uploads';
+  data_locality: "local_only" | "uploads";
 }
 
 /**
@@ -129,7 +129,7 @@ export interface InstallableItem {
  */
 export async function listInstallable(): Promise<InstallableItem[]> {
   const r = await api.get<{ items: InstallableItem[] }>(
-    '/system-suggestions/installable',
+    "/system-suggestions/installable",
   );
   return unwrapGatewayPayload(r).items;
 }

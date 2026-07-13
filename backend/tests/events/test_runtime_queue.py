@@ -108,6 +108,7 @@ async def test_runtime_command_queue_enqueues_and_claims_sensor_sync(tmp_path: P
         assert claimed.command_id == queued_command_id
         assert claimed.command_type is RuntimeCommandType.SENSOR_SYNC
         assert claimed.payload["source_name"] == "calendar"
+        assert claimed.payload["first_context"] is False
 
         await queue.ack(claimed.command_id)
 

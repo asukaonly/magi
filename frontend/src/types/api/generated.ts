@@ -556,6 +556,23 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/config/preferences/language": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        /** Update Language Preference */
+        readonly put: operations["update_language_preference_api_config_preferences_language_put"];
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/config/template": {
         readonly parameters: {
             readonly query?: never;
@@ -5930,6 +5947,15 @@ export interface components {
              */
             readonly timeout: number;
         };
+        /** LanguagePreferenceUpdateRequest */
+        readonly LanguagePreferenceUpdateRequest: {
+            /**
+             * Language
+             * @description Preferred application language.
+             * @enum {string}
+             */
+            readonly language: "zh" | "en";
+        };
         /** LayerModifiersModel */
         readonly "LayerModifiersModel-Input": {
             /** Behavior Shifts */
@@ -7606,6 +7632,26 @@ export interface components {
             readonly field_values?: {
                 readonly [key: string]: unknown;
             };
+        };
+        /** SensorSourceSyncRequest */
+        readonly SensorSourceSyncRequest: {
+            /** Backfill End Date */
+            readonly backfill_end_date?: string | null;
+            /** Backfill Scope */
+            readonly backfill_scope?: ("last_7_days" | "last_30_days" | "full" | "custom") | null;
+            /** Backfill Start Date */
+            readonly backfill_start_date?: string | null;
+            /**
+             * First Context
+             * @default false
+             */
+            readonly first_context: boolean;
+            /**
+             * Mode
+             * @default latest
+             * @enum {string}
+             */
+            readonly mode: "latest" | "backfill";
         };
         /** SignatureTriggerModel */
         readonly SignatureTriggerModel: {
@@ -9543,6 +9589,39 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["OnboardingTemplateResponse"];
+                };
+            };
+        };
+    };
+    readonly update_language_preference_api_config_preferences_language_put: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["LanguagePreferenceUpdateRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ConfigResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -15591,7 +15670,11 @@ export interface operations {
             };
             readonly cookie?: never;
         };
-        readonly requestBody?: never;
+        readonly requestBody?: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["SensorSourceSyncRequest"] | null;
+            };
+        };
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {

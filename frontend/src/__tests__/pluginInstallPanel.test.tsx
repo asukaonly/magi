@@ -239,7 +239,7 @@ describe('PluginInstallPanel', () => {
     expect(screen.queryByText('pluginInstallPanel.readyTitle')).not.toBeInTheDocument();
   }, 12000);
 
-  it('clarifies when source memory total is larger than the latest sync count', async () => {
+  it('keeps first-context memory progress scoped to the latest sync count', async () => {
     vi.spyOn(sensorsApi, 'getStatus')
       .mockResolvedValueOnce({
         sources: [
@@ -288,13 +288,82 @@ describe('PluginInstallPanel', () => {
 
     await waitFor(
       () => {
+        expect(screen.getAllByText('pluginInstallPanel.memoryProgress').length).toBeGreaterThan(0);
         expect(
-          screen.getAllByText('pluginInstallPanel.memoryProgressWithSourceTotal').length,
-        ).toBeGreaterThan(0);
-        expect(screen.queryByText('pluginInstallPanel.memoryProgress')).not.toBeInTheDocument();
+          screen.queryByText('pluginInstallPanel.memoryProgressWithSourceTotal'),
+        ).not.toBeInTheDocument();
       },
       { timeout: 8000 },
     );
+  }, 12000);
+
+  it('uses first-context copy when onboarding only prepares initial context', async () => {
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            activation_flow: {
+              enabled_key: 'sensors.chrome_history.enabled',
+              configured_key: 'sensors.chrome_history.configured',
+              fields: [],
+              authorize_on_confirm: false,
+            },
+            last_success: null,
+            last_result_count: 0,
+          },
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          {
+            source_name: 'chrome_history',
+            plugin_id: 'chrome-history',
+            last_success: 'x',
+            last_result_count: 125,
+          },
+        ],
+      } as any);
+    vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'chrome_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'chrome_history',
+      l1_event_count: 125,
+      l2_ready: false,
+      l2_total_count: 125,
+      l2_processed_count: 101,
+      l2_remaining_count: 24,
+    } as any);
+
+    const onDone = vi.fn();
+    render(<PluginInstallPanel />);
+    act(() => {
+      usePluginInstallPanelStore.getState().openPanel('chrome-history', {
+        context: 'first_context',
+        onDone,
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getByText('pluginInstallPanel.firstContextDescription')).toBeInTheDocument();
+        expect(screen.getAllByText('pluginInstallPanel.firstContextReadyTitle').length).toBeGreaterThan(0);
+        expect(screen.getAllByText('pluginInstallPanel.firstContextPrepared').length).toBeGreaterThan(0);
+        expect(screen.getByText('pluginInstallPanel.firstContextBackfillHint')).toBeInTheDocument();
+        expect(screen.queryByText('pluginInstallPanel.stepMemory')).not.toBeInTheDocument();
+        expect(screen.queryByText('pluginInstallPanel.memoryReadying')).not.toBeInTheDocument();
+      },
+      { timeout: 8000 },
+    );
+    expect(onDone).toHaveBeenCalledWith({
+      pluginId: 'chrome-history',
+      sourceName: 'chrome_history',
+      firstContextCount: 125,
+    });
   }, 12000);
 
   it('explains raw history reads that produce no new memory input', async () => {

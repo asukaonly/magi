@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import enum
+import importlib
 from pathlib import Path
 from typing import Any, Dict
 
 import pytest
 import yaml
 
+from magi.config import loader as config_loader
 from magi.config.loader import ConfigLoader
 from magi.config.models import NetworkProxySettings, ProxyType
 
@@ -172,6 +174,23 @@ def test_loader_save_rejects_invalid_config_without_writing(tmp_path: Path, monk
     assert saved is False
     assert agent_file.read_text(encoding="utf-8") == original_yaml
     assert loader.load().network.proxy_type == ProxyType.HTTP
+
+
+def test_get_user_preference_loads_runtime_config_when_global_loader_is_empty(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    importlib.reload(config_loader)
+    _patch_config_paths(monkeypatch, tmp_path)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (config_dir / "agent.yaml").write_text(
+        yaml.safe_dump({"preferences": {"language": "en"}}, sort_keys=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_loader, "_loader", None)
+
+    assert config_loader.get_user_preference("language", None) == "en"
 
 
 def test_network_proxy_url_includes_encoded_credentials() -> None:

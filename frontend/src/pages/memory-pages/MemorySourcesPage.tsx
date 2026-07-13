@@ -7,6 +7,10 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
+  SourceBackfillDialog,
+  type SourceBackfillSelection,
+} from '@/components/sources/SourceBackfillDialog';
+import {
   memoryApi,
   type L1Event,
   type L1EventQueryParams,
@@ -740,15 +744,19 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
 function SourceDetailHeader({
   row,
   syncing,
+  backfilling,
   togglingEnabled,
   onSync,
+  onBackfill,
   onOpenSettings,
   onToggleEnabled,
 }: {
   row: SourceLedgerRow;
   syncing: boolean;
+  backfilling: boolean;
   togglingEnabled: boolean;
   onSync: () => void;
+  onBackfill: () => void;
   onOpenSettings: () => void;
   onToggleEnabled: () => void;
 }) {
@@ -793,6 +801,15 @@ function SourceDetailHeader({
           >
             {syncing ? <LoadingSpinner className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />}
             {t('memory.sourcesPage.actions.sync')}
+          </button>
+          <button
+            type="button"
+            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-2', backfilling && 'opacity-70')}
+            onClick={onBackfill}
+            disabled={backfilling || !row.supportsPullSync}
+          >
+            {backfilling ? <LoadingSpinner className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />}
+            {t('memory.sourcesPage.actions.backfill')}
           </button>
           <button type="button" className={MEMORY_ACTION_BUTTON_CLASS} onClick={onOpenSettings}>
             {t('memory.sourcesPage.actions.settings')}
@@ -1078,6 +1095,8 @@ export const MemorySourceDetailPage = () => {
   const [metadataReady, setMetadataReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
@@ -1196,6 +1215,27 @@ export const MemorySourceDetailPage = () => {
     }
   };
 
+  const handleBackfill = async (selection: SourceBackfillSelection) => {
+    setBackfilling(true);
+    try {
+      await sensorsApi.requestSync(sourceName, {
+        mode: 'backfill',
+        backfillScope: selection.scope,
+        backfillStartDate: selection.startDate,
+        backfillEndDate: selection.endDate,
+      });
+      toast.success(t('memory.sourcesPage.feedback.backfillQueued', { source: row.label }));
+      setBackfillDialogOpen(false);
+      await loadMetadata();
+    } catch (err) {
+      toast.error(t('memory.sourcesPage.feedback.syncFailed', {
+        message: err instanceof Error ? err.message : String(err),
+      }));
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   const handleOpenSettings = () => {
     setSettingsNavigationIntent({
       section: 'timeline',
@@ -1256,8 +1296,10 @@ export const MemorySourceDetailPage = () => {
           <SourceDetailHeader
             row={row}
             syncing={syncing}
+            backfilling={backfilling}
             togglingEnabled={togglingEnabled}
             onSync={handleSync}
+            onBackfill={() => setBackfillDialogOpen(true)}
             onOpenSettings={handleOpenSettings}
             onToggleEnabled={handleToggleEnabled}
           />
@@ -1277,6 +1319,13 @@ export const MemorySourceDetailPage = () => {
             onQueryDraftChange={setQueryDraft}
             onSearch={handleSearch}
             onLoadMore={handleLoadMore}
+          />
+          <SourceBackfillDialog
+            open={backfillDialogOpen}
+            sourceLabel={row.label}
+            isSubmitting={backfilling}
+            onOpenChange={setBackfillDialogOpen}
+            onConfirm={handleBackfill}
           />
         </div>
       )}

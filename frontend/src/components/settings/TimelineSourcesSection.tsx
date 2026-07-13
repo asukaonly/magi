@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RefreshCw, ScrollText } from 'lucide-react';
+import { Download, History, Loader2, RefreshCw, ScrollText } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
-import type { ActivationFlowSpec } from '@/api/modules/plugins';
+import { pluginsApi, type ActivationFlowSpec, type PluginInstallJobSnapshot } from '@/api/modules/plugins';
 import type { UserMode } from '@/api/modules/config';
 import { sensorsApi, type SensorSourceStatusItem } from '@/api/modules/sensors';
 import { PluginActivationDialog } from '@/components/plugins/PluginActivationDialog';
+import { PluginConsentDialog } from '@/components/plugins/PluginConsentDialog';
+import { PluginIcon } from '@/components/plugins/PluginIcon';
+import { PluginInstallProgressPanel } from '@/components/plugins/PluginInstallProgressPanel';
+import {
+  SourceBackfillDialog,
+  type SourceBackfillSelection,
+} from '@/components/sources/SourceBackfillDialog';
 import PluginSettingsCustomBlocks from '@/components/settings/PluginSettingsCustomBlocks';
 import PluginSettingsActions from '@/components/settings/PluginSettingsActions';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
@@ -25,17 +32,20 @@ import {
   getTimelineEntryDescription,
   getTimelineEntryDisplayName,
   type TimelineCapability,
+  type TimelineAvailableEntry,
 } from '@/utils/timeline-capabilities';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 interface TimelineSourcesSectionProps {
   userMode: UserMode;
   statuses: SensorSourceStatusItem[];
+  availableEntries?: TimelineAvailableEntry[];
   loadingStatus: boolean;
   selectedSourceName: string | null;
   pluginDrafts: Record<string, Record<string, any>>;
   onSelectSource: (sourceName: string | null) => void;
   onRefreshSources: () => Promise<void>;
+  onPluginInstalled?: () => Promise<void>;
   onBrowseMarketplace?: () => void;
   onPluginFieldChange: (pluginId: string, key: string, value: any) => void;
   onPluginFieldsChange: (pluginId: string, updates: Record<string, any>) => void;
@@ -159,6 +169,60 @@ const EntryOption: React.FC<{
   </button>
 );
 
+const AvailableEntryOption: React.FC<{
+  entry: TimelineAvailableEntry;
+  installing: boolean;
+  statusLabel: string;
+  installLabel: string;
+  installingLabel: string;
+  onInstall: () => void;
+}> = ({ entry, installing, statusLabel, installLabel, installingLabel, onInstall }) => (
+  <div
+    data-testid={`timeline-marketplace-entry-${entry.pluginId}`}
+    className="min-h-[112px] w-[280px] flex-none snap-start rounded-lg bg-[hsl(var(--settings-shell)/0.32)] px-4 py-3 text-left shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] md:w-[300px] xl:w-[320px]"
+  >
+    <div className="flex h-full flex-col justify-between gap-3">
+      <div className="flex min-w-0 gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell-elevated)/0.76)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]">
+          <PluginIcon
+            iconId={entry.icon}
+            pluginId={entry.pluginId}
+            sourceName={entry.entryDisplayName}
+            className="h-5 w-5"
+          />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-medium text-foreground">{entry.entryDisplayName}</span>
+            <Badge variant="secondary" className="shrink-0 rounded-md">
+              v{entry.version}
+            </Badge>
+          </div>
+          <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{entry.entryDescription}</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <Badge variant="outline" className="rounded-md">{statusLabel}</Badge>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 px-3"
+          disabled={installing}
+          onClick={onInstall}
+        >
+          {installing ? (
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 h-4 w-4" />
+          )}
+          <span>{installing ? installingLabel : installLabel}</span>
+        </Button>
+      </div>
+    </div>
+  </div>
+);
+
 const StatusMetric: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="space-y-1">
     <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
@@ -185,18 +249,26 @@ const SectionBlock: React.FC<{
 export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   userMode,
   statuses,
+  availableEntries = [],
   loadingStatus,
   selectedSourceName,
   pluginDrafts,
   onSelectSource,
   onRefreshSources,
+  onPluginInstalled,
   onBrowseMarketplace,
   onPluginFieldChange,
   onPluginFieldsChange,
 }) => {
   const { t } = useTranslation('app');
   const [syncingSource, setSyncingSource] = useState<string | null>(null);
+  const [backfillingSource, setBackfillingSource] = useState<string | null>(null);
+  const [backfillDialogSource, setBackfillDialogSource] = useState<SensorSourceStatusItem | null>(null);
   const [flushingSource, setFlushingSource] = useState<string | null>(null);
+  const [installingEntryId, setInstallingEntryId] = useState<string | null>(null);
+  const [installingEntryLabel, setInstallingEntryLabel] = useState<string | null>(null);
+  const [installSnapshot, setInstallSnapshot] = useState<PluginInstallJobSnapshot | null>(null);
+  const [installConsentEntry, setInstallConsentEntry] = useState<TimelineAvailableEntry | null>(null);
   const [selectedEntryName, setSelectedEntryName] = useState<string | null>(null);
   const [queuedSource, setQueuedSource] = useState<{
     sourceName: string;
@@ -322,6 +394,25 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
     }
   };
 
+  const performBackfill = async (source: SensorSourceStatusItem, selection: SourceBackfillSelection) => {
+    setBackfillingSource(source.source_name);
+    try {
+      await sensorsApi.requestSync(source.source_name, {
+        mode: 'backfill',
+        backfillScope: selection.scope,
+        backfillStartDate: selection.startDate,
+        backfillEndDate: selection.endDate,
+      });
+      toast.success(t('settings.timeline.backfillQueued', { source: getSourceDisplayName(source) }));
+      setBackfillDialogSource(null);
+      await onRefreshSources();
+    } catch (error: any) {
+      toast.error(t('settings.timeline.errors.backfillFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setBackfillingSource(null);
+    }
+  };
+
   const performStateFlush = async (source: SensorSourceStatusItem) => {
     setFlushingSource(source.source_name);
     try {
@@ -332,6 +423,25 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
       toast.error(t('settings.timeline.errors.stateFlushFailed', { message: error?.message || 'unknown' }));
     } finally {
       setFlushingSource(null);
+    }
+  };
+
+  const performAvailableEntryInstall = async (entry: TimelineAvailableEntry) => {
+    setInstallingEntryId(entry.pluginId);
+    setInstallingEntryLabel(entry.entryDisplayName);
+    setInstallSnapshot(null);
+    try {
+      await pluginsApi.installFromRegistryWithProgress(entry.pluginId, setInstallSnapshot);
+      toast.success(t('settings.marketplace.feedback.installSuccess'));
+      if (onPluginInstalled) {
+        await onPluginInstalled();
+      } else {
+        await onRefreshSources();
+      }
+    } catch (error: any) {
+      toast.error(t('settings.marketplace.feedback.installFailed', { message: error?.message || 'unknown' }));
+    } finally {
+      setInstallingEntryId(null);
     }
   };
 
@@ -454,8 +564,11 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
   const entryDescription = getTimelineEntryDescription(t, selectedSource);
   const capabilityId = selectedCapability?.id ?? selectedSource.source_name;
   const entrySources = selectedCapability?.sources ?? [selectedSource];
+  const availableCapabilityEntries = availableEntries.filter((entry) => entry.capabilityId === capabilityId);
   const hasMultipleEntries = entrySources.length > 1;
   const showEntrySelector = entrySources.length > 0;
+  const knownEntryCount = entrySources.length + availableCapabilityEntries.length;
+  const hasMultipleKnownEntries = knownEntryCount > 1;
   const getEntryEnabled = (source: SensorSourceStatusItem) =>
     Boolean(resolveSourceValue(source, getSourceEnabledKey(source), source.enabled));
   const getEntryAttention = (source: SensorSourceStatusItem) =>
@@ -517,6 +630,18 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             />
             {t('settings.timeline.actions.syncNow')}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setBackfillDialogSource(selectedSource)}
+            disabled={!selectedSource.supports_pull_sync || backfillingSource === selectedSource.source_name}
+          >
+            <History
+              className={cn('mr-2 h-4 w-4', backfillingSource === selectedSource.source_name && 'animate-spin')}
+            />
+            {t('settings.timeline.actions.backfill')}
+          </Button>
         </>
       ) : null}
       <label className="inline-flex items-center gap-3 text-sm text-foreground">
@@ -553,13 +678,13 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                   </Badge>
                 )}
               </div>
-              {!hasMultipleEntries ? (
-                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{entryDescription}</p>
-              ) : null}
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {hasMultipleKnownEntries ? (selectedCapability?.description ?? entryDescription) : entryDescription}
+              </p>
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
                 <span>
                   {t('settings.timeline.workspace.entries')}
-                  <span className="ml-2 font-medium text-foreground">{selectedCapability?.sources.length ?? 1}</span>
+                  <span className="ml-2 font-medium text-foreground">{knownEntryCount}</span>
                 </span>
                 <span>
                   {t('settings.timeline.statuses.attention')}
@@ -593,7 +718,7 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             <div
               className={cn(
                 'flex snap-x gap-3 overflow-x-auto px-1 pb-3 [scrollbar-width:thin]',
-                hasMultipleEntries && 'pr-10'
+                hasMultipleEntries ? 'pr-10' : 'pr-1'
               )}
               data-testid={`timeline-entry-selector-scroll-${capabilityId}`}
               role="tablist"
@@ -613,6 +738,50 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
                 />
               ))}
             </div>
+          </section>
+        ) : null}
+
+        {availableCapabilityEntries.length > 0 ? (
+          <section
+            className="relative space-y-3"
+            data-testid={`timeline-available-entry-selector-${capabilityId}`}
+          >
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  {t('settings.timeline.workspace.availableEntriesTitle')}
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {t('settings.timeline.workspace.availableEntriesDesc')}
+                </p>
+              </div>
+              {onBrowseMarketplace ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onBrowseMarketplace}>
+                  {t('settings.timeline.actions.browseMarketplace')}
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex snap-x gap-3 overflow-x-auto px-1 pb-3 [scrollbar-width:thin]">
+              {availableCapabilityEntries.map((entry) => (
+                <AvailableEntryOption
+                  key={entry.pluginId}
+                  entry={entry}
+                  installing={installingEntryId === entry.pluginId}
+                  statusLabel={t('settings.timeline.statuses.notInstalled')}
+                  installLabel={t('settings.timeline.actions.installEntry')}
+                  installingLabel={t('settings.timeline.actions.installingEntry')}
+                  onInstall={() => setInstallConsentEntry(entry)}
+                />
+              ))}
+            </div>
+            {installSnapshot ? (
+              <PluginInstallProgressPanel
+                snapshot={installSnapshot}
+                title={t('settings.marketplace.installProgress.itemTitle', {
+                  name: installingEntryLabel ?? '',
+                })}
+              />
+            ) : null}
           </section>
         ) : null}
 
@@ -733,6 +902,35 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             initialValues={activationDialog.values}
             onConfirm={(values) => confirmActivationFlow(values)}
             pluginId={activationDialog.source.plugin_id}
+          />
+        ) : null}
+        {backfillDialogSource ? (
+          <SourceBackfillDialog
+            open
+            sourceLabel={getSourceDisplayName(backfillDialogSource)}
+            isSubmitting={backfillingSource === backfillDialogSource.source_name}
+            onOpenChange={(open) => {
+              if (!open) {
+                setBackfillDialogSource(null);
+              }
+            }}
+            onConfirm={(scope) => void performBackfill(backfillDialogSource, scope)}
+          />
+        ) : null}
+        {installConsentEntry ? (
+          <PluginConsentDialog
+            open
+            mode="install"
+            pluginName={installConsentEntry.entryDisplayName}
+            version={installConsentEntry.version}
+            official={installConsentEntry.official}
+            capabilities={installConsentEntry.capabilities ?? []}
+            onCancel={() => setInstallConsentEntry(null)}
+            onConfirm={() => {
+              const entry = installConsentEntry;
+              setInstallConsentEntry(null);
+              void performAvailableEntryInstall(entry);
+            }}
           />
         ) : null}
       </div>

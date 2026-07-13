@@ -47,6 +47,7 @@ from .config_schemas import (
     BackgroundTasksConfigModel,
     ConfigResponse,
     FullPersonalityConfigModel,
+    LanguagePreferenceUpdateRequest,
     NetworkProxyConfigModel,
     OnboardingConfigUpdateRequest,
     OnboardingStatusDataModel,
@@ -352,6 +353,31 @@ async def update_config(request: Request, config: SystemConfigModel):
         raise
     except Exception as exc:
         logger.exception("Failed to update config")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@config_router.put("/preferences/language", response_model=ConfigResponse)
+async def update_language_preference(
+    request: Request,
+    payload: LanguagePreferenceUpdateRequest,
+):
+    try:
+        language = core_i18n.app_language_code(payload.language)
+        if not save_config({"preferences.language": language}):
+            raise HTTPException(
+                status_code=500,
+                detail=_t(request, "config.errors.save_failed", "Failed to save config"),
+            )
+        reload_config()
+        return ConfigResponse(
+            success=True,
+            message=_t(request, "config.messages.updated", "Configuration updated"),
+            data=_build_system_config(),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Failed to update language preference")
         raise HTTPException(status_code=500, detail=str(exc))
 
 

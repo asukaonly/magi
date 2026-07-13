@@ -43,6 +43,12 @@ class ExtensionFieldSpec(BaseModel):
     depends_on_values: list[str] = Field(default_factory=list)
 
 
+class ActivationFirstContextSpec(BaseModel):
+    """First-run-only activation settings applied by the host onboarding UI."""
+
+    settings_overrides: dict[str, Any] = Field(default_factory=dict)
+
+
 class ActivationFlowSpec(BaseModel):
     """Declarative first-enable flow rendered by the host UI."""
 
@@ -54,6 +60,7 @@ class ActivationFlowSpec(BaseModel):
     enabled_key: str
     configured_key: str
     fields: list[ExtensionFieldSpec] = Field(default_factory=list)
+    first_context: ActivationFirstContextSpec | None = None
 
 
 class SettingsUIBlockSpec(BaseModel):

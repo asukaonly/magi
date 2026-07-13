@@ -33,6 +33,10 @@ import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { cn } from '@/lib/utils';
 import { ErrorBoundary } from '@/components/ui/ErrorBoundary';
+import {
+  buildTimelineAvailableEntries,
+  getTimelineCapabilityId,
+} from '@/utils/timeline-capabilities';
 import { getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 import { validateLLMCustomProviderReadiness, type LLMValidationIssue } from '@/components/config-forms/llm-form-state';
 
@@ -66,7 +70,7 @@ const TOOL_SECTION_IDS = new Set<string>([
 ]);
 
 export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({ onRequestClose }, ref) => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
 
   const {
     loading,
@@ -87,6 +91,7 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
     updateMemoryToggle,
     plugins,
     pluginsLoading,
+    pluginRegistryEntries,
     pluginProcessingIds,
     reloadingActionPlugins,
     draftPluginDrafts,
@@ -129,6 +134,20 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
       collator.compare(getTimelineSourceDisplayName(t, left), getTimelineSourceDisplayName(t, right))
     );
   }, [t, timelineStatuses]);
+
+  const timelineAvailableEntries = useMemo(() => {
+    const installedPluginIds = new Set(plugins.map((plugin) => plugin.manifest.plugin_id));
+    for (const source of timelineStatuses) {
+      installedPluginIds.add(source.plugin_id);
+    }
+    return buildTimelineAvailableEntries(
+      pluginRegistryEntries,
+      installedPluginIds,
+      i18n?.language ?? 'zh-CN'
+    ).filter((entry) =>
+      timelineStatuses.some((source) => getTimelineCapabilityId(source) === entry.capabilityId)
+    );
+  }, [i18n?.language, pluginRegistryEntries, plugins, timelineStatuses]);
 
   const channelContributions = useMemo(() =>
     plugins.flatMap((plugin) =>
@@ -289,11 +308,13 @@ export const SettingsPage = forwardRef<SettingsPageHandle, SettingsPageProps>(({
           <TimelineSourcesSection
             userMode={draftConfig.preferences.user_mode}
             statuses={sortedTimelineStatuses}
+            availableEntries={timelineAvailableEntries}
             loadingStatus={timelineStatusesLoading}
             selectedSourceName={timelineSelection}
             pluginDrafts={draftPluginDrafts}
             onSelectSource={setTimelineSelection}
             onRefreshSources={fetchTimelineStatuses}
+            onPluginInstalled={loadPluginsAndSensors}
             onBrowseMarketplace={browsePluginMarketplace}
             onPluginFieldChange={handlePluginDraftChange}
             onPluginFieldsChange={handlePluginDraftChanges}

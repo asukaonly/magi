@@ -313,6 +313,82 @@ def test_trigger_sensor_source_sync(monkeypatch):
     assert response.status_code == 200
     assert response.json()["queued"] is True
     assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].first_context is False
+
+
+def test_trigger_first_context_sensor_source_sync(monkeypatch):
+    client, queue, _ = _build_client(monkeypatch)
+
+    response = client.post("/api/sensors/screen_time/sync", json={"first_context": True})
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert len(queue.sensor_sync_commands) == 1
+    assert queue.sensor_sync_commands[0].first_context is True
+
+
+def test_trigger_sensor_source_backfill_sync(monkeypatch):
+    client, queue, _ = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/sensors/screen_time/sync",
+        json={"mode": "backfill", "backfill_scope": "last_30_days"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert response.json()["mode"] == "backfill"
+    assert response.json()["backfill_scope"] == "last_30_days"
+    assert len(queue.sensor_sync_commands) == 1
+    command = queue.sensor_sync_commands[0]
+    assert command.first_context is False
+    assert command.sync_mode == "backfill"
+    assert command.backfill_scope == "last_30_days"
+    assert command.backfill_days == 30
+
+
+def test_trigger_sensor_source_custom_backfill_sync(monkeypatch):
+    client, queue, _ = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/sensors/screen_time/sync",
+        json={
+            "mode": "backfill",
+            "backfill_scope": "custom",
+            "backfill_start_date": "2026-06-01",
+            "backfill_end_date": "2026-06-30",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert response.json()["mode"] == "backfill"
+    assert response.json()["backfill_scope"] == "custom"
+    assert response.json()["backfill_start_date"] == "2026-06-01"
+    assert response.json()["backfill_end_date"] == "2026-06-30"
+    assert len(queue.sensor_sync_commands) == 1
+    command = queue.sensor_sync_commands[0]
+    assert command.sync_mode == "backfill"
+    assert command.backfill_scope == "custom"
+    assert command.backfill_days is None
+    assert command.backfill_start_date == "2026-06-01"
+    assert command.backfill_end_date == "2026-06-30"
+
+
+def test_trigger_sensor_source_custom_backfill_rejects_inverted_range(monkeypatch):
+    client, _, _ = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/sensors/screen_time/sync",
+        json={
+            "mode": "backfill",
+            "backfill_scope": "custom",
+            "backfill_start_date": "2026-06-30",
+            "backfill_end_date": "2026-06-01",
+        },
+    )
+
+    assert response.status_code == 422
 
 
 def test_trigger_sensor_source_state_flush(monkeypatch):

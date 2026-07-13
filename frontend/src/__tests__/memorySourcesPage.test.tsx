@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -25,9 +25,25 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.columns.action': '操作',
         'memory.sourcesPage.actions.view': '查看',
         'memory.sourcesPage.actions.sync': '同步一次',
+        'memory.sourcesPage.actions.backfill': '补旧数据',
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
         'memory.sourcesPage.actions.resume': '恢复',
+        'memory.sourcesPage.feedback.backfillQueued': '{{source}} 已开始在后台补旧数据',
+        'sourceBackfill.title': '补回历史',
+        'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
+        'sourceBackfill.rangeLabel': '时间范围',
+        'sourceBackfill.ranges.last7Days': '近 7 天',
+        'sourceBackfill.ranges.last30Days': '近 30 天',
+        'sourceBackfill.ranges.full': '全部历史',
+        'sourceBackfill.ranges.custom': '自定义',
+        'sourceBackfill.custom.start': '开始日期',
+        'sourceBackfill.custom.end': '结束日期',
+        'sourceBackfill.custom.errorRequired': '请选择开始和结束日期',
+        'sourceBackfill.custom.errorOrder': '结束日期不能早于开始日期',
+        'sourceBackfill.idempotencyNote': '重复记录会自动跳过。',
+        'sourceBackfill.cancel': '取消',
+        'sourceBackfill.submit': '开始补回',
         'memory.sourcesPage.syncModes.interval': '定时同步',
         'memory.sourcesPage.syncModes.manual': '手动同步',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
@@ -367,6 +383,58 @@ describe('MemorySourcesPage', () => {
     await user.click(screen.getByRole('button', { name: '同步一次' }));
 
     await waitFor(() => expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history'));
+  });
+
+  it('queues a historical backfill from a source detail page', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Chrome 历史')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '补旧数据' }));
+    expect(await screen.findByText('选择 Chrome 历史 要补回的范围。')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '开始补回' }));
+
+    await waitFor(() =>
+      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', {
+        mode: 'backfill',
+        backfillScope: 'last_30_days',
+      })
+    );
+  });
+
+  it('queues a custom-range historical backfill from a source detail page', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('Chrome 历史')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '补旧数据' }));
+    await user.click(await screen.findByRole('radio', { name: '自定义' }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-06-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-06-30' } });
+    await user.click(screen.getByRole('button', { name: '开始补回' }));
+
+    await waitFor(() =>
+      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', {
+        mode: 'backfill',
+        backfillScope: 'custom',
+        backfillStartDate: '2026-06-01',
+        backfillEndDate: '2026-06-30',
+      })
+    );
   });
 
   it('loads additional source detail events without replacing the first page', async () => {

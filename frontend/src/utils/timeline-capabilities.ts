@@ -1,4 +1,6 @@
 import type { SensorSourceStatusItem } from '@/api/modules/sensors';
+import type { PluginRegistryEntry } from '@/api/modules/plugins';
+import { localizedPluginText } from '@/utils/plugin-display-groups';
 import { getTimelineSourceDescription, getTimelineSourceDisplayName } from '@/utils/timeline-source-copy';
 
 type TimelineTranslateFn = (key: string) => string;
@@ -11,6 +13,21 @@ export interface TimelineCapability {
   enabledCount: number;
   attentionCount: number;
   lastSyncAt: number | string | null | undefined;
+}
+
+export interface TimelineAvailableEntry {
+  capabilityId: string;
+  capabilityDisplayName: string;
+  capabilityDescription: string;
+  pluginId: string;
+  icon?: string;
+  entryId: string;
+  entryDisplayName: string;
+  entryDescription: string;
+  entryOrder: number;
+  version: string;
+  official: boolean;
+  capabilities: PluginRegistryEntry['capabilities'];
 }
 
 export const getTimelineCapabilityId = (source: SensorSourceStatusItem): string =>
@@ -107,4 +124,79 @@ export const buildTimelineCapabilities = (
       }),
     }))
     .sort((left, right) => collator.compare(left.displayName, right.displayName));
+};
+
+const currentDesktopPlatform = (): 'macos' | 'windows' | null => {
+  if (typeof navigator === 'undefined') {
+    return null;
+  }
+  if (/mac/i.test(navigator.userAgent)) {
+    return 'macos';
+  }
+  if (/win/i.test(navigator.userAgent)) {
+    return 'windows';
+  }
+  return null;
+};
+
+const registryEntrySupportedOnCurrentPlatform = (entry: PluginRegistryEntry): boolean => {
+  const platforms = entry.platforms ?? [];
+  if (platforms.length === 0) {
+    return true;
+  }
+  const platform = currentDesktopPlatform();
+  return platform == null || platforms.includes(platform);
+};
+
+export const buildTimelineAvailableEntries = (
+  registryEntries: PluginRegistryEntry[],
+  installedPluginIds: Set<string>,
+  language: string
+): TimelineAvailableEntry[] => {
+  const entries = registryEntries
+    .filter((entry) => {
+      const group = entry.display_group;
+      if (!group?.id) {
+        return false;
+      }
+      if (!entry.contribution_types.includes('sensor')) {
+        return false;
+      }
+      if (entry.installed || installedPluginIds.has(entry.plugin_id)) {
+        return false;
+      }
+      return registryEntrySupportedOnCurrentPlatform(entry);
+    })
+    .map((entry) => {
+      const group = entry.display_group!;
+      return {
+        capabilityId: group.id,
+        capabilityDisplayName: localizedPluginText(group.name, group.name_i18n, language),
+        capabilityDescription: localizedPluginText(group.description, group.description_i18n, language),
+        pluginId: entry.plugin_id,
+        icon: entry.icon || group.icon,
+        entryId: group.member_label || entry.plugin_id,
+        entryDisplayName: localizedPluginText(
+          group.member_label || entry.name,
+          group.member_label_i18n || entry.name_i18n,
+          language
+        ),
+        entryDescription: localizedPluginText(entry.description, entry.description_i18n, language),
+        entryOrder: Number(group.member_order ?? 999),
+        version: entry.version,
+        official: entry.official,
+        capabilities: entry.capabilities,
+      } satisfies TimelineAvailableEntry;
+    });
+
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  return entries.sort((left, right) => {
+    if (left.capabilityId !== right.capabilityId) {
+      return collator.compare(left.capabilityDisplayName, right.capabilityDisplayName);
+    }
+    if (left.entryOrder !== right.entryOrder) {
+      return left.entryOrder - right.entryOrder;
+    }
+    return collator.compare(left.entryDisplayName, right.entryDisplayName);
+  });
 };

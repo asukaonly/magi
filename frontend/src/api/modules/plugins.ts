@@ -79,6 +79,10 @@ export interface ActivationFlowSpec {
   enabled_key: string;
   configured_key: string;
   fields: ExtensionFieldSpec[];
+  first_context?: {
+    settings_overrides?: Record<string, unknown>;
+    settings?: Record<string, unknown>;
+  } | null;
 }
 
 export interface PluginSettingsUiBlockSpec {

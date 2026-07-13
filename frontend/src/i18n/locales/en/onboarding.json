@@ -39,6 +39,10 @@
     "chooseModeFirst": "Please select a mode before continuing.",
     "completedTitle": "Ready to begin",
     "completedDesc": "Magi has its voice and knows where the first hello should start. You can enter chat now.",
+    "completedStepChat": "You can start chatting now.",
+    "completedStepBackground": "Connected sources will keep organizing in the background.",
+    "completedStepBackfillWithSources": "You can backfill full history later from Memory → Sources.",
+    "completedStepBackfillNoSources": "When you connect sources later, you can backfill full history from Memory → Sources.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
@@ -232,9 +236,11 @@
     "kicker": "Optional context source",
     "title": "Add a little context to the first conversation?",
     "body": "Connect one historical source you are comfortable sharing. Magi will read a small representative sample so the first hello does not start from zero. You can also skip this and connect sources later.",
+    "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
     "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
     "connectedCount": "{{count}} source connected",
     "connectedHint": "You can add more sources here, then continue when you are ready.",
+    "preparedCount": "Prepared {{count}} items for the first conversation",
     "memoryWarningTitle": "No vector model is configured yet",
     "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate."
   },
@@ -305,7 +311,7 @@
       },
       "screenshotTimeline": {
         "title": "Screen activity",
-        "value": "Lets magi see what's on your screen"
+        "value": "Let Magi see what is happening on your screen"
       },
       "calendar": {
         "title": "Calendar",
@@ -362,6 +368,7 @@
     "stepEnable": "Enable data source",
     "stepSync": "Sync history",
     "stepMemory": "Build memory",
+    "stepFirstContext": "Prepare first-chat context",
     "syncedCount": "Synced {{count}} items",
     "syncedEmpty": "No new history items were imported this time",
     "syncedRawOnly": "Read {{count}} history items, but nothing new needed importing",
@@ -369,14 +376,17 @@
     "syncBackground": "Sync is queued and will continue in the background. Organizing starts after it finishes.",
     "memoryCount": "Organized {{count}} memories",
     "memoryProgress": "Organized {{processed}} / {{total}} items, {{remaining}} remaining",
-    "memoryProgressWithSourceTotal": "Latest sync {{synced}} items; source total organized {{processed}} / {{total}}, {{remaining}} remaining",
     "memoryProcessed": "Organized {{count}} items",
     "memoryTotal": "{{count}} items to organize",
-    "memoryTotalWithSourceTotal": "Latest sync {{synced}} items; source total {{total}} to organize",
     "memoryChecking": "Checking context for the first conversation…",
     "memoryEmpty": "No new items entered the organizing queue this time. They may already be imported, or there may be no new items in the sync range.",
     "memoryEmptyAfterRaw": "History was read, but no new items entered the organizing queue. They may already be imported, or skipped by the sync range or filters.",
     "memoryNoNewTitle": "No new items to organize",
+    "firstContextChecking": "Preparing context for the first conversation…",
+    "firstContextPrepared": "Prepared {{count}} items for the first conversation",
+    "firstContextEmpty": "No new items are available for the first conversation this time. They may already be imported, or there may be no new items in the sync range.",
+    "firstContextNoNewTitle": "No new context",
+    "firstContextReadyTitle": "First-chat context ready",
     "memoryWaitingForSync": "Waiting for sync",
     "fieldsTitle": "First, choose what to connect",
     "connect": "Connect",
@@ -384,8 +394,10 @@
     "close": "Done",
     "closeBackground": "Finish for now",
     "description": "Magi will enable the source, read recent history, then prepare context for the first conversation.",
+    "firstContextDescription": "This step only prepares a small amount of context for the first conversation. It does not backfill your full history here.",
     "readyTitle": "Connection complete",
     "backfillNote": "Your full history is still being organized in the background — we'll let you know when it's ready.",
+    "firstContextBackfillHint": "You can backfill full history later from Settings → Plugins or Memory → Sources.",
     "syncBackgroundNote": "Sync is still queued or running in the background. Organizing will start automatically after it finishes.",
     "memoryReadying": "Organizing — ready soon",
     "unsupported": "This data source can't be connected in one click yet — you can set it up in Settings.",
@@ -517,12 +529,12 @@
       "modelManualEntry": "Add Model",
       "modelManualEntryPlaceholder": "Enter model ID",
       "apiKey": "API Key",
-        "baseUrl": "Base URL",
-        "displayName": "Display Name",
-        "apiFormat": "API Format",
-        "providerPlan": "Billing mode",
-        "providerEndpoint": "Endpoint Country / Region",
-        "enabled": "Enabled",
+      "baseUrl": "Base URL",
+      "displayName": "Display Name",
+      "apiFormat": "API Format",
+      "providerPlan": "Billing mode",
+      "providerEndpoint": "Endpoint Country / Region",
+      "enabled": "Enabled",
       "modelKind": "Model Type",
       "modelManualEntryChat": "Add Chat Model",
       "modelManualEntryEmbedding": "Add Embedding Model",
@@ -534,11 +546,11 @@
       "embedding": "Embedding",
       "image": "Image Generation"
     },
-      "providerPlans": {
-        "default": "API billing",
-        "customEndpoint": "Custom Base URL",
-        "backgroundNotice": "Plans are limited to chat and its immediate preparation. Memory organization, Timeline, embeddings, and image generation require a standard API."
-      },
+    "providerPlans": {
+      "default": "API billing",
+      "customEndpoint": "Custom Base URL",
+      "backgroundNotice": "Plans are limited to chat and its immediate preparation. Memory organization, Timeline, embeddings, and image generation require a standard API."
+    },
     "modelFields": {
       "modelId": "Model ID",
       "icon": "Icon",

@@ -187,10 +187,30 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
 
     class _FakeSensorSchedulerContrib:
         def __init__(self) -> None:
-            self.queued_sources: list[str] = []
+            self.queued_sources: list[dict[str, object]] = []
 
-        async def queue_manual_sync(self, source_name: str):
-            self.queued_sources.append(source_name)
+        async def queue_manual_sync(
+            self,
+            source_name: str,
+            *,
+            first_context: bool = False,
+            sync_mode: str = "latest",
+            backfill_scope: str | None = None,
+            backfill_days: int | None = None,
+            backfill_start_date: str | None = None,
+            backfill_end_date: str | None = None,
+        ):
+            self.queued_sources.append(
+                {
+                    "source_name": source_name,
+                    "first_context": first_context,
+                    "sync_mode": sync_mode,
+                    "backfill_scope": backfill_scope,
+                    "backfill_days": backfill_days,
+                    "backfill_start_date": backfill_start_date,
+                    "backfill_end_date": backfill_end_date,
+                }
+            )
             return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
 
     sensor_scheduler = _FakeSensorSchedulerContrib()
@@ -209,6 +229,7 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
             SensorSyncCommand(
                 source="api",
                 source_name="calendar",
+                first_context=True,
             )
         )
 
@@ -220,7 +241,99 @@ async def test_runtime_command_processor_queues_sensor_sync(tmp_path: Path) -> N
 
         stats = await queue.get_stats()
         assert stats["completed_count"] == 1
-        assert sensor_scheduler.queued_sources == ["calendar"]
+        assert sensor_scheduler.queued_sources == [
+            {
+                "source_name": "calendar",
+                "first_context": True,
+                "sync_mode": "latest",
+                "backfill_scope": None,
+                "backfill_days": None,
+                "backfill_start_date": None,
+                "backfill_end_date": None,
+            }
+        ]
+    finally:
+        await processor.shutdown()
+        await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_queues_backfill_sensor_sync(tmp_path: Path) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = await _start_in_memory_message_bus()
+
+    class _FakeSensorSchedulerContrib:
+        def __init__(self) -> None:
+            self.queued_sources: list[dict[str, object]] = []
+
+        async def queue_manual_sync(
+            self,
+            source_name: str,
+            *,
+            first_context: bool = False,
+            sync_mode: str = "latest",
+            backfill_scope: str | None = None,
+            backfill_days: int | None = None,
+            backfill_start_date: str | None = None,
+            backfill_end_date: str | None = None,
+        ):
+            self.queued_sources.append(
+                {
+                    "source_name": source_name,
+                    "first_context": first_context,
+                    "sync_mode": sync_mode,
+                    "backfill_scope": backfill_scope,
+                    "backfill_days": backfill_days,
+                    "backfill_start_date": backfill_start_date,
+                    "backfill_end_date": backfill_end_date,
+                }
+            )
+            return type("Schedule", (), {"schedule_id": f"manual:{source_name}"})()
+
+    sensor_scheduler = _FakeSensorSchedulerContrib()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+    context.agent_runtime.sensor_scheduler_contrib = sensor_scheduler
+
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+    await processor.init()
+
+    try:
+        await queue.enqueue_sensor_sync(
+            SensorSyncCommand(
+                source="api",
+                source_name="chrome_history",
+                sync_mode="backfill",
+                backfill_scope="custom",
+                backfill_start_date="2026-06-01",
+                backfill_end_date="2026-06-30",
+            )
+        )
+
+        for _ in range(100):
+            stats = await queue.get_stats()
+            if stats["completed_count"] == 1:
+                break
+            await asyncio.sleep(0.02)
+
+        stats = await queue.get_stats()
+        assert stats["completed_count"] == 1
+        assert sensor_scheduler.queued_sources == [
+            {
+                "source_name": "chrome_history",
+                "first_context": False,
+                "sync_mode": "backfill",
+                "backfill_scope": "custom",
+                "backfill_days": None,
+                "backfill_start_date": "2026-06-01",
+                "backfill_end_date": "2026-06-30",
+            }
+        ]
     finally:
         await processor.shutdown()
         await message_bus.stop()

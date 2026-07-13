@@ -852,6 +852,8 @@ export const DEFAULT_SYSTEM_CONFIG: SystemConfig = {
 export const configApi = {
   get: () => api.get<SystemConfig>('/config'),
   update: (config: Partial<SystemConfig>) => api.put<SystemConfig>('/config', config),
+  updateLanguagePreference: (language: LanguageCode) =>
+    api.put<SystemConfig>('/config/preferences/language', { language }),
   embeddingPreflight: async (config: Partial<SystemConfig>): Promise<EmbeddingConfigPreflight> =>
     unwrapConfigResponse(await api.post<EmbeddingConfigPreflight>('/config/embedding-preflight', config)),
   getTemplate: () => api.get<SystemConfig>('/config/template'),

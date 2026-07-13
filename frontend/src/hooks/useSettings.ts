@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type SystemConfig } from '@/api/modules/config';
 import { type ControlSettingsDTO } from '@/api/modules/control';
-import { type PluginPackageState } from '@/api/modules/plugins';
+import { type PluginPackageState, type PluginRegistryEntry } from '@/api/modules/plugins';
 import { type ToolConfig } from '@/api/modules/tools';
 import { type SensorSourceStatusItem } from '@/api/modules/sensors';
 import { useThemeStore, type ThemeMode } from '@/stores/theme';
@@ -65,6 +65,8 @@ export interface UseSettingsReturn {
   // Plugins
   plugins: PluginPackageState[];
   pluginsLoading: boolean;
+  pluginRegistryEntries: PluginRegistryEntry[];
+  pluginRegistryLoading: boolean;
   pluginProcessingIds: Record<string, string>;
   reloadingActionPlugins: Record<string, boolean>;
   draftPluginDrafts: PluginDraftMap;
@@ -74,6 +76,7 @@ export interface UseSettingsReturn {
   handlePluginAction: (pluginId: string, action: 'enable' | 'disable' | 'reload') => Promise<void>;
   handleReloadActionPlugin: (pluginId: string) => Promise<void>;
   loadPlugins: (options?: { silent?: boolean }) => Promise<void>;
+  loadPluginRegistry: (options?: { silent?: boolean; force?: boolean }) => Promise<void>;
   loadPluginsAndSensors: () => Promise<void>;
 
   // Tools
@@ -165,6 +168,8 @@ export function useSettings(): UseSettingsReturn {
   const {
     plugins,
     pluginsLoading,
+    pluginRegistryEntries,
+    pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,
     savedPluginDrafts,
@@ -177,6 +182,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginRegistry,
     loadPluginsAndSensors,
     timelineStatuses,
     timelineStatusesLoading,
@@ -246,9 +252,10 @@ export function useSettings(): UseSettingsReturn {
       loadControlSettings(),
       fetchTimelineStatuses(),
       loadPlugins(),
+      loadPluginRegistry({ silent: true }),
       loadTools(),
     ]);
-  }, [fetchConfig, loadControlSettings, fetchTimelineStatuses, loadPlugins, loadTools]);
+  }, [fetchConfig, loadControlSettings, fetchTimelineStatuses, loadPlugins, loadPluginRegistry, loadTools]);
 
   // Reset timeline selection when statuses change
   useEffect(() => {
@@ -353,6 +360,8 @@ export function useSettings(): UseSettingsReturn {
     // Plugins
     plugins,
     pluginsLoading,
+    pluginRegistryEntries,
+    pluginRegistryLoading,
     pluginProcessingIds,
     reloadingActionPlugins,
     draftPluginDrafts,
@@ -362,6 +371,7 @@ export function useSettings(): UseSettingsReturn {
     handlePluginAction,
     handleReloadActionPlugin,
     loadPlugins,
+    loadPluginRegistry,
     loadPluginsAndSensors,
 
     // Tools

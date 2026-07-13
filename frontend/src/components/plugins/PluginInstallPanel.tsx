@@ -50,20 +50,11 @@ const isFieldSatisfied = (field: ExtensionFieldSpec, value: unknown): boolean =>
  */
 const seedFieldValues = (
   fields: ExtensionFieldSpec[],
-  options: { pluginId: string | null; panelContext: string },
 ): Record<string, unknown> => {
   const seed: Record<string, unknown> = {};
   for (const field of fields) {
     if (field.default !== undefined && field.default !== null) {
       seed[field.key] = field.default;
-    }
-  }
-  if (options.pluginId === 'chrome-history' && options.panelContext === 'first_context') {
-    if ('sensors.chrome_history.initial_sync_policy' in seed) {
-      seed['sensors.chrome_history.initial_sync_policy'] = 'lookback_days';
-    }
-    if ('sensors.chrome_history.initial_sync_lookback_days' in seed) {
-      seed['sensors.chrome_history.initial_sync_lookback_days'] = 1;
     }
   }
   return seed;
@@ -86,6 +77,7 @@ export function PluginInstallPanel(): JSX.Element | null {
   const panelContext = usePluginInstallPanelStore((s) => s.context);
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
   const onDone = usePluginInstallPanelStore((s) => s.onDone);
+  const isFirstContext = panelContext === 'first_context';
 
   const [consented, setConsented] = useState(false);
   const [entryMeta, setEntryMeta] = useState<{
@@ -145,9 +137,25 @@ export function PluginInstallPanel(): JSX.Element | null {
       // The installed/connected plugin set just changed — let every suggestion
       // surface re-evaluate so this plugin stops being suggested.
       dispatchAppEvent.pluginsChanged();
-      onDone?.();
+      onDone?.({
+        pluginId: pluginId ?? '',
+        sourceName: flow.sourceName ?? undefined,
+        firstContextCount: isFirstContext
+          ? flow.syncedCount ?? flow.memoryCount ?? flow.memoryTotalCount ?? null
+          : undefined,
+      });
     }
-  }, [open, flow.phase, onDone]);
+  }, [
+    open,
+    flow.phase,
+    flow.memoryCount,
+    flow.memoryTotalCount,
+    flow.sourceName,
+    flow.syncedCount,
+    isFirstContext,
+    onDone,
+    pluginId,
+  ]);
 
   const fieldSpecs = flow.flow?.fields ?? [];
 
@@ -158,10 +166,10 @@ export function PluginInstallPanel(): JSX.Element | null {
       return;
     }
     if (flow.phase === 'awaiting_fields') {
-      setValues(seedFieldValues(fieldSpecs, { pluginId, panelContext }));
+      setValues(seedFieldValues(fieldSpecs));
     }
     // fieldSpecs identity is stable per flow fetch; key off phase + flow.flow.
-  }, [open, flow.phase, flow.flow, panelContext, pluginId]);
+  }, [open, flow.phase, flow.flow]);
 
   const handleFieldChange = useCallback((key: string, nextValue: unknown) => {
     setValues((prev) => ({ ...prev, [key]: nextValue }));
@@ -201,51 +209,58 @@ export function PluginInstallPanel(): JSX.Element | null {
   }, [flow.syncDeferred, flow.syncedCount, rawRecordsRead, syncedRawCount, syncStep?.status, t]);
 
   const memoryProgressDetail = useMemo(() => {
+    if (isFirstContext) {
+      const count = flow.syncedCount ?? flow.memoryCount ?? flow.memoryTotalCount;
+      if (count != null) {
+        return count === 0
+          ? t('pluginInstallPanel.firstContextEmpty')
+          : t('pluginInstallPanel.firstContextPrepared', { count });
+      }
+      if (memoryStep?.status === 'running') {
+        return t('pluginInstallPanel.firstContextChecking');
+      }
+      return undefined;
+    }
+
     const processed = flow.memoryProcessedCount ?? (flow.memoryReady ? flow.memoryCount : null);
     const total = flow.memoryTotalCount ?? flow.syncedCount ?? flow.memoryCount;
     const remaining =
       flow.memoryRemainingCount ??
       (processed != null && total != null ? Math.max(0, total - processed) : null);
     const latestSyncCount = flow.syncedCount;
-    const hasLargerSourceTotal =
-      latestSyncCount != null && latestSyncCount > 0 && total != null && total > latestSyncCount;
+    const displayTotal =
+      latestSyncCount != null && latestSyncCount > 0 && total != null && total > latestSyncCount
+        ? latestSyncCount
+        : total;
+    const displayProcessed =
+      processed != null && displayTotal != null ? Math.min(processed, displayTotal) : processed;
+    const displayRemaining =
+      displayProcessed != null && displayTotal != null
+        ? Math.max(0, displayTotal - displayProcessed)
+        : remaining;
 
-    if (processed != null && total != null) {
-      if (total === 0) {
+    if (displayProcessed != null && displayTotal != null) {
+      if (displayTotal === 0) {
         return rawRecordsRead
           ? t('pluginInstallPanel.memoryEmptyAfterRaw')
           : t('pluginInstallPanel.memoryEmpty');
-      }
-      if (hasLargerSourceTotal) {
-        return t('pluginInstallPanel.memoryProgressWithSourceTotal', {
-          synced: latestSyncCount,
-          processed,
-          total,
-          remaining: remaining ?? Math.max(0, total - processed),
-        });
       }
       return t('pluginInstallPanel.memoryProgress', {
-        processed,
-        total,
-        remaining: remaining ?? Math.max(0, total - processed),
+        processed: displayProcessed,
+        total: displayTotal,
+        remaining: displayRemaining ?? Math.max(0, displayTotal - displayProcessed),
       });
     }
-    if (processed != null) {
-      return t('pluginInstallPanel.memoryProcessed', { count: processed });
+    if (displayProcessed != null) {
+      return t('pluginInstallPanel.memoryProcessed', { count: displayProcessed });
     }
-    if (total != null) {
-      if (total === 0) {
+    if (displayTotal != null) {
+      if (displayTotal === 0) {
         return rawRecordsRead
           ? t('pluginInstallPanel.memoryEmptyAfterRaw')
           : t('pluginInstallPanel.memoryEmpty');
       }
-      if (hasLargerSourceTotal) {
-        return t('pluginInstallPanel.memoryTotalWithSourceTotal', {
-          synced: latestSyncCount,
-          total,
-        });
-      }
-      return t('pluginInstallPanel.memoryTotal', { count: total });
+      return t('pluginInstallPanel.memoryTotal', { count: displayTotal });
     }
     if (memoryStep?.status === 'running') {
       return t('pluginInstallPanel.memoryChecking');
@@ -260,6 +275,7 @@ export function PluginInstallPanel(): JSX.Element | null {
     rawRecordsRead,
     flow.memoryRemainingCount,
     memoryStep?.status,
+    isFirstContext,
     t,
   ]);
 
@@ -267,15 +283,23 @@ export function PluginInstallPanel(): JSX.Element | null {
     install: t('pluginInstallPanel.stepInstall'),
     enable: t('pluginInstallPanel.stepEnable'),
     sync: t('pluginInstallPanel.stepSync'),
-    memory: flow.syncDeferred
-      ? t('pluginInstallPanel.memoryWaitingForSync')
-      : memoryHasNoNewRecords
-      ? t('pluginInstallPanel.memoryNoNewTitle')
-      : flow.memoryReady
-        ? t('pluginInstallPanel.readyTitle')
-        : flow.backfillNote
-          ? t('pluginInstallPanel.memoryReadying')
-          : t('pluginInstallPanel.stepMemory'),
+    memory: isFirstContext
+      ? flow.syncDeferred
+        ? t('pluginInstallPanel.memoryWaitingForSync')
+        : memoryHasNoNewRecords
+          ? t('pluginInstallPanel.firstContextNoNewTitle')
+          : memoryStep?.status === 'done'
+            ? t('pluginInstallPanel.firstContextReadyTitle')
+            : t('pluginInstallPanel.stepFirstContext')
+      : flow.syncDeferred
+        ? t('pluginInstallPanel.memoryWaitingForSync')
+        : memoryHasNoNewRecords
+          ? t('pluginInstallPanel.memoryNoNewTitle')
+          : flow.memoryReady
+            ? t('pluginInstallPanel.readyTitle')
+            : flow.backfillNote
+              ? t('pluginInstallPanel.memoryReadying')
+              : t('pluginInstallPanel.stepMemory'),
   };
 
   const details: Partial<Record<InstallStepId, string>> = {
@@ -321,7 +345,9 @@ export function PluginInstallPanel(): JSX.Element | null {
         <DialogHeader>
           <DialogTitle>{name}</DialogTitle>
           <DialogDescription>
-            {flow.description ?? t('pluginInstallPanel.description')}
+            {isFirstContext
+              ? t('pluginInstallPanel.firstContextDescription')
+              : flow.description ?? t('pluginInstallPanel.description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -344,7 +370,11 @@ export function PluginInstallPanel(): JSX.Element | null {
             <InstallStepper steps={flow.steps} labels={labels} details={details} />
           )}
 
-          {flow.phase === 'done' && flow.backfillNote ? (
+          {flow.phase === 'done' && isFirstContext && !flow.syncDeferred ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              {t('pluginInstallPanel.firstContextBackfillHint')}
+            </p>
+          ) : flow.phase === 'done' && flow.backfillNote ? (
             <p className="mt-3 text-xs text-muted-foreground">
               {flow.syncDeferred
                 ? t('pluginInstallPanel.syncBackgroundNote')

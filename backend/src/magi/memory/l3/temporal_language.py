@@ -13,11 +13,11 @@ _LATIN_WORD_PATTERN = re.compile(r"[A-Za-z]{3,}")
 
 
 def target_language_code() -> str:
-    return core_i18n.effective_app_language_code(default="en")
+    return core_i18n.effective_app_language_code()
 
 
 def target_language_label() -> str:
-    return core_i18n.llm_language_label(default="en")
+    return core_i18n.llm_language_label()
 
 
 def target_language_instruction() -> str:

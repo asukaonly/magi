@@ -6,27 +6,39 @@ import { Card, CardContent } from '@/components/ui/card';
 
 interface CompletionScreenProps {
   onFinish: () => void;
+  connectedSourceCount?: number;
   loading?: boolean;
   loadingLabel?: string;
 }
 
 export const CompletionScreen: React.FC<CompletionScreenProps> = ({
   onFinish,
+  connectedSourceCount = 0,
   loading = false,
   loadingLabel,
 }) => {
   const { t } = useTranslation('onboarding');
+  const hasConnectedSources = connectedSourceCount > 0;
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <Card>
         <CardContent className="px-8 py-10">
-          <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex flex-col items-center gap-5 text-center">
             <CheckCircle2 className="h-12 w-12 text-emerald-600" />
             <div>
               <h3 className="text-lg font-semibold">{t('messages.completedTitle')}</h3>
               <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
                 {t('messages.completedDesc')}
+              </p>
+            </div>
+            <div className="w-full max-w-md rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-left text-sm leading-6 text-muted-foreground">
+              <p>{t('messages.completedStepChat')}</p>
+              {hasConnectedSources ? <p>{t('messages.completedStepBackground')}</p> : null}
+              <p>
+                {hasConnectedSources
+                  ? t('messages.completedStepBackfillWithSources')
+                  : t('messages.completedStepBackfillNoSources')}
               </p>
             </div>
             <Button onClick={onFinish} disabled={loading}>

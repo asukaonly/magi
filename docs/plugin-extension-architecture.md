@@ -217,6 +217,21 @@ The contracts live in:
 
 - [sensors.py](backend/src/magi/plugins/sensors.py)
 
+#### First-Context Activation Metadata
+
+The onboarding first-context panel reuses the same activation flow as Settings, but
+it may need a lighter initial sync than the long-term source defaults. Plugins can
+declare first-run-only setting overrides under
+`activation_flow.first_context.settings_overrides`. The host frontend applies that
+map only when the shared install/connect panel is opened from first-context
+onboarding. Without this metadata, the host preserves the user's submitted
+activation settings instead of special-casing plugin ids.
+
+The first conversation prompt uses recent L1 evidence by event timestamp. Import
+time is not a substitute for source time when the event already has a real
+timestamp, so a newly imported historical photo or history item should not appear
+as first-contact context solely because it was just backfilled.
+
 ### Channel Registry
 
 Channels are bidirectional messaging adapters that connect Magi to external platforms (e.g. Telegram).

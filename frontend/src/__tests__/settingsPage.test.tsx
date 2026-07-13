@@ -47,6 +47,26 @@ const translationMap: Record<string, string> = {
   'settings.tabs.photo_library': '照片库',
   'settings.tabs.chrome_history': 'Chrome 历史',
   'settings.timeline.sourceDesc.photo_library': '引用照片库或导出目录，并决定保留多少原始媒体信息。',
+  'settings.timeline.actions.backfill': '补旧数据',
+  'sourceBackfill.title': '补回历史',
+  'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
+  'sourceBackfill.rangeLabel': '时间范围',
+  'sourceBackfill.ranges.last7Days': '近 7 天',
+  'sourceBackfill.ranges.last30Days': '近 30 天',
+  'sourceBackfill.ranges.custom': '自定义',
+  'sourceBackfill.ranges.full': '全部历史',
+  'sourceBackfill.rangeDescriptions.last7Days': '快速补最近几天的内容。',
+  'sourceBackfill.rangeDescriptions.last30Days': '默认范围，适合补近期活动。',
+  'sourceBackfill.rangeDescriptions.custom': '选择明确的开始和结束日期。',
+  'sourceBackfill.rangeDescriptions.full': '尽量补完整历史，可能需要更久。',
+  'sourceBackfill.custom.title': '选择日期',
+  'sourceBackfill.custom.start': '开始日期',
+  'sourceBackfill.custom.end': '结束日期',
+  'sourceBackfill.custom.errorRequired': '请选择开始和结束日期',
+  'sourceBackfill.custom.errorOrder': '结束日期不能早于开始日期',
+  'sourceBackfill.idempotencyNote': '重复记录会自动跳过。',
+  'sourceBackfill.cancel': '取消',
+  'sourceBackfill.submit': '开始补回',
 };
 
 vi.mock('react-i18next', () => ({
@@ -183,6 +203,7 @@ vi.mock('@/api/modules/plugins', async () => {
       reload: vi.fn(),
       getSettingsResource: vi.fn(),
       getRegistry: vi.fn(),
+      installFromRegistryWithProgress: vi.fn(),
       updateSettings: vi.fn(),
       startSettingsAction: vi.fn(),
       pollSettingsAction: vi.fn(),
@@ -387,6 +408,49 @@ const chromeTimelineSourceFixture = {
   scheduler_job_id: null,
   runtime_base_dir: '/tmp/magi-runtime',
 };
+
+const browserDisplayGroup = (memberLabel: string, memberOrder: number) => ({
+  id: 'browser_history',
+  name: 'Browser History',
+  name_i18n: { 'zh-CN': '浏览器历史' },
+  description: 'Manage browser history sources.',
+  description_i18n: { 'zh-CN': '统一管理浏览器历史入口。' },
+  icon: 'lucide:globe',
+  order: 10,
+  member_label: memberLabel,
+  member_label_i18n: { 'zh-CN': memberLabel },
+  member_order: memberOrder,
+});
+
+const browserRegistryEntry = (
+  pluginId: string,
+  name: string,
+  memberLabel: string,
+  memberOrder: number,
+  installed = false,
+) => ({
+  plugin_id: pluginId,
+  name,
+  name_i18n: { 'zh-CN': `${memberLabel} 浏览器历史` },
+  version: '0.1.0',
+  description: `Read local ${memberLabel} browsing history.`,
+  description_i18n: { 'zh-CN': `读取本地 ${memberLabel} 浏览记录。` },
+  author: 'Magi Team',
+  icon: `brand:${memberLabel.toLowerCase()}`,
+  display_group: browserDisplayGroup(memberLabel, memberOrder),
+  official: true,
+  data_locality: 'local_only',
+  contribution_types: ['sensor'],
+  platforms: [],
+  min_sdk_version: '0.1.0',
+  homepage: '',
+  repository: '',
+  path: pluginId,
+  installed,
+  installed_version: installed ? '0.1.0' : null,
+  update_available: false,
+  capabilities: [],
+});
 
 const pluginsListFixture = {
   plugins: [
@@ -595,6 +659,7 @@ describe('settings page draft saving', () => {
     } as any);
     vi.mocked(pluginsApi.list).mockResolvedValue(pluginsListFixture as any);
     vi.mocked(pluginsApi.getRegistry).mockResolvedValue({ plugins: [], total: 0 } as any);
+    vi.mocked(pluginsApi.installFromRegistryWithProgress).mockResolvedValue({} as any);
     vi.mocked(pluginsApi.rescan).mockResolvedValue(pluginsListFixture as any);
     vi.mocked(pluginsApi.enable).mockImplementation(async (pluginId: string) =>
       (pluginsListFixture.plugins.find((plugin) => plugin.manifest.plugin_id === pluginId) ?? pluginsListFixture.plugins[0]) as any
@@ -1592,6 +1657,40 @@ describe('settings page draft saving', () => {
     );
   });
 
+  it('queues a historical backfill from timeline source settings', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          enabled: true,
+          activation_required: false,
+          current_settings: {
+            ...chromeTimelineSourceFixture.current_settings,
+            'sensors.chrome_history.enabled': true,
+            'sensors.chrome_history.initial_sync_configured': true,
+          },
+        },
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-chrome_history'));
+
+    const chromePanel = await screen.findByTestId('timeline-source-detail-chrome_history');
+    await user.click(within(chromePanel).getByRole('button', { name: '补旧数据' }));
+    await user.click(await screen.findByRole('button', { name: '开始补回' }));
+
+    await waitFor(() =>
+      expect(sensorsApi.requestSync).toHaveBeenCalledWith('chrome_history', {
+        mode: 'backfill',
+        backfillScope: 'last_30_days',
+      })
+    );
+  });
+
   it('uses translated timeline source labels in the nav and overview list', async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
@@ -1764,6 +1863,48 @@ describe('settings page draft saving', () => {
     expect(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history')).toHaveTextContent('Safari');
     await user.click(within(browserWorkspace).getByTestId('timeline-entry-option-safari_history'));
     expect(within(browserWorkspace).getByTestId('timeline-entry-detail-safari_history')).toBeInTheDocument();
+  });
+
+  it('shows addable marketplace entries when a capability has only one installed source', async () => {
+    const user = userEvent.setup();
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: [
+        {
+          ...chromeTimelineSourceFixture,
+          capability_id: 'browser_history',
+          capability_display_name: 'Browser History',
+          capability_display_name_translated: '浏览器历史',
+          capability_description: 'Manage browser history sources.',
+          capability_description_translated: '统一管理浏览器历史入口。',
+          entry_id: 'chrome',
+          entry_display_name: 'Chrome',
+          entry_display_name_translated: 'Chrome',
+          enabled: true,
+        },
+      ],
+    } as any);
+    vi.mocked(pluginsApi.getRegistry).mockResolvedValue({
+      registry_version: '1',
+      plugins: [
+        browserRegistryEntry('chrome-history', 'Chrome History', 'Chrome', 10, true),
+        browserRegistryEntry('safari-history', 'Safari History', 'Safari', 20, false),
+        browserRegistryEntry('firefox-history', 'Firefox History', 'Firefox', 30, false),
+      ],
+    } as any);
+
+    render(<SettingsPage />);
+
+    await user.click(await screen.findByRole('button', { name: 'settings.tabs.timeline' }));
+    await user.click(await screen.findByTestId('timeline-nav-source-browser_history'));
+    const browserWorkspace = await screen.findByTestId('timeline-capability-detail-browser_history');
+
+    expect(within(browserWorkspace).getByTestId('timeline-entry-selector-browser_history')).toBeInTheDocument();
+    expect(within(browserWorkspace).getByTestId('timeline-entry-option-chrome_history')).toHaveTextContent('Chrome');
+    expect(within(browserWorkspace).getByTestId('timeline-available-entry-selector-browser_history')).toBeInTheDocument();
+    expect(within(browserWorkspace).getByText('settings.timeline.workspace.availableEntriesTitle')).toBeInTheDocument();
+    expect(within(browserWorkspace).getByTestId('timeline-marketplace-entry-safari-history')).toHaveTextContent('Safari');
+    expect(within(browserWorkspace).getByTestId('timeline-marketplace-entry-firefox-history')).toHaveTextContent('Firefox');
+    expect(within(browserWorkspace).queryByTestId('timeline-marketplace-entry-chrome-history')).not.toBeInTheDocument();
   });
 
   it('shows the installed entry option even for single-entry sensor details', async () => {

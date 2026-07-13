@@ -37,6 +37,7 @@ from .ingress import (
 )
 from .contracts import (
     ActivationFlowSpec,
+    ActivationFirstContextSpec,
     ContributionType,
     DerivedAssertionRuleSpec,
     ExtractionProfileSpec,
@@ -148,6 +149,7 @@ __all__ = [
     # Field / settings specs
     "ExtensionFieldOption",
     "ExtensionFieldSpec",
+    "ActivationFirstContextSpec",
     "ActivationFlowSpec",
     "SettingsUIBlockSpec",
     "PluginSettingsActionSpec",

@@ -40,6 +40,10 @@
     "validationFailed": "请补全必填配置项。",
     "completedTitle": "准备好了",
     "completedDesc": "Magi 已经有了声音，也知道第一次见面该从哪里开始。现在可以进入聊天了。",
+    "completedStepChat": "现在可以直接开始聊天。",
+    "completedStepBackground": "刚接入的来源会继续在后台整理。",
+    "completedStepBackfillWithSources": "完整历史可稍后在「记忆 → 来源」里补回。",
+    "completedStepBackfillNoSources": "之后接入来源时，也可以在「记忆 → 来源」补完整历史。",
     "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
   },
   "language": {
@@ -233,9 +237,11 @@
     "kicker": "可选的数据源",
     "title": "要不要给第一次对话加一点上下文？",
     "body": "连接一个你愿意分享的历史数据源，Magi 会先读取一小部分代表性内容，让第一次开场不必从零开始。也可以跳过，之后随时再连接。",
+    "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",
     "note": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
     "connectedCount": "已连接 {{count}} 个来源",
     "connectedHint": "还可以继续添加其他来源；准备好了再点右下角继续。",
+    "preparedCount": "已准备 {{count}} 条可用于第一次对话",
     "memoryWarningTitle": "当前还没有向量模型",
     "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。"
   },
@@ -306,7 +312,7 @@
       },
       "screenshotTimeline": {
         "title": "屏幕记录",
-        "value": "让 magi 看到你屏幕上发生了什么"
+        "value": "让 Magi 看到你屏幕上发生了什么"
       },
       "calendar": {
         "title": "日历",
@@ -363,6 +369,7 @@
     "stepEnable": "启用数据源",
     "stepSync": "同步历史数据",
     "stepMemory": "整理记忆",
+    "stepFirstContext": "准备首轮上下文",
     "syncedCount": "已同步 {{count}} 条",
     "syncedEmpty": "本次没有导入新的历史记录",
     "syncedRawOnly": "读到了 {{count}} 条历史，但没有新的记录需要导入",
@@ -370,14 +377,17 @@
     "syncBackground": "同步已经排队，后台会继续处理；完成后再进入整理。",
     "memoryCount": "已整理 {{count}} 条记忆",
     "memoryProgress": "已整理 {{processed}} / {{total}} 条，剩余 {{remaining}} 条",
-    "memoryProgressWithSourceTotal": "本次同步 {{synced}} 条；来源累计已整理 {{processed}} / {{total}} 条，剩余 {{remaining}} 条",
     "memoryProcessed": "已整理 {{count}} 条",
     "memoryTotal": "待整理 {{count}} 条",
-    "memoryTotalWithSourceTotal": "本次同步 {{synced}} 条；来源累计待整理 {{total}} 条",
     "memoryChecking": "正在确认可用于第一次对话的上下文…",
     "memoryEmpty": "本次没有新的记录进入整理队列；可能已经导入过，或同步范围内没有新增。",
     "memoryEmptyAfterRaw": "读到了历史，但没有新的记录进入整理队列；可能已经导入过，或被同步范围/过滤规则跳过。",
     "memoryNoNewTitle": "没有新的记录进入整理",
+    "firstContextChecking": "正在准备第一次对话可用的上下文…",
+    "firstContextPrepared": "已准备 {{count}} 条可用于第一次对话",
+    "firstContextEmpty": "本次没有新的记录可用于第一次对话；可能已经导入过，或同步范围内没有新增。",
+    "firstContextNoNewTitle": "没有新的上下文",
+    "firstContextReadyTitle": "首轮上下文已准备好",
     "memoryWaitingForSync": "等待同步完成",
     "fieldsTitle": "连接前，先选择要接入的内容",
     "connect": "连接",
@@ -385,8 +395,10 @@
     "close": "完成",
     "closeBackground": "先完成",
     "description": "我们会先启用来源，再读取最近历史，最后整理成第一次对话可用的上下文。",
+    "firstContextDescription": "这一步只准备第一次对话需要的少量上下文，不会在这里回刷完整历史。",
     "readyTitle": "已完成连接",
     "backfillNote": "完整历史正在后台整理中，完成后会通知你",
+    "firstContextBackfillHint": "完整历史可以稍后在「设置 → 插件」或「记忆 → 来源」里继续回刷。",
     "syncBackgroundNote": "同步还在后台排队或处理中，完成后会自动进入整理。",
     "memoryReadying": "整理中，稍后就绪",
     "unsupported": "该数据源暂不支持一键连接，可在设置中配置",
@@ -518,12 +530,12 @@
       "modelManualEntry": "添加模型",
       "modelManualEntryPlaceholder": "输入模型 ID",
       "apiKey": "API Key",
-        "baseUrl": "Base URL",
-        "displayName": "显示名称",
-        "apiFormat": "API 格式",
-        "providerPlan": "计费方式",
-        "providerEndpoint": "端点国家/区域",
-        "enabled": "启用",
+      "baseUrl": "Base URL",
+      "displayName": "显示名称",
+      "apiFormat": "API 格式",
+      "providerPlan": "计费方式",
+      "providerEndpoint": "端点国家/区域",
+      "enabled": "启用",
       "modelKind": "模型类型",
       "modelManualEntryChat": "添加聊天模型",
       "modelManualEntryEmbedding": "添加向量模型",
@@ -535,11 +547,11 @@
       "embedding": "向量模型",
       "image": "生图模型"
     },
-      "providerPlans": {
-        "default": "API 计费",
-        "customEndpoint": "自定义 Base URL",
-        "backgroundNotice": "套餐仅用于聊天及其直接准备步骤；记忆整理、时间线、向量和生图需要普通 API。"
-      },
+    "providerPlans": {
+      "default": "API 计费",
+      "customEndpoint": "自定义 Base URL",
+      "backgroundNotice": "套餐仅用于聊天及其直接准备步骤；记忆整理、时间线、向量和生图需要普通 API。"
+    },
     "modelFields": {
       "modelId": "模型 ID",
       "icon": "图标",

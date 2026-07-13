@@ -6,6 +6,7 @@ All contract types originate from ``magi-plugin-sdk``.
 
 from magi_plugin_sdk import (  # noqa: F401
     ActivationFlowSpec,
+    ActivationFirstContextSpec,
     ContributionType,
     ExtractionProfileSpec,
     ExtensionFieldOption,
@@ -33,6 +34,7 @@ from .sensors import SensorRegistry
 
 __all__ = [
     "ActivationFlowSpec",
+    "ActivationFirstContextSpec",
     "ContributionType",
     "ExtractionProfileSpec",
     "ExtensionFieldOption",

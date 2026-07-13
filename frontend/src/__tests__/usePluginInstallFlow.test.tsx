@@ -163,7 +163,7 @@ describe('usePluginInstallFlow', () => {
     expect(upd).toHaveBeenCalledWith('p', expect.objectContaining({ 'sensors.s.source_paths': ['/x'] }));
   });
 
-  it('uses lightweight Chrome defaults in first-context mode', async () => {
+  it('uses optional field defaults in first-context mode when a plugin declares no overrides', async () => {
     const chromeFlow = () => ({
       title: 't',
       description: 'd',
@@ -209,9 +209,9 @@ describe('usePluginInstallFlow', () => {
             last_result_count: 2,
           }),
         ],
-      } as any);
+    } as any);
     const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
-    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+    const requestSync = vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
       queued: true,
       source_name: 'chrome_history',
     } as any);
@@ -227,14 +227,8 @@ describe('usePluginInstallFlow', () => {
     const { result } = renderHook(() =>
       usePluginInstallFlow('chrome-history', false, 'first_context'),
     );
-    await waitFor(() => expect(result.current.phase).toBe('awaiting_fields'));
-    await act(async () => {
-      result.current.submitFields({
-        'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-        'sensors.chrome_history.initial_sync_lookback_days': 7,
-      });
-    });
     await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
+    expect(result.current.flow?.fields).toEqual([]);
 
     expect(upd).toHaveBeenCalledWith(
       'chrome-history',
@@ -242,8 +236,239 @@ describe('usePluginInstallFlow', () => {
         'sensors.chrome_history.enabled': true,
         'sensors.chrome_history.initial_sync_configured': true,
         'sensors.chrome_history.initial_sync_policy': 'lookback_days',
-        'sensors.chrome_history.initial_sync_lookback_days': 1,
+        'sensors.chrome_history.initial_sync_lookback_days': 7,
         'sensors.chrome_history.max_items_per_sync': 200,
+      }),
+    );
+    expect(requestSync).toHaveBeenCalledWith('chrome_history', { firstContext: true });
+  });
+
+  it('skips fields covered by plugin-declared first-context overrides', async () => {
+    const firstContextFlow = () => ({
+      title: 't',
+      description: 'd',
+      confirm_label: 'c',
+      cancel_label: 'x',
+      authorize_on_confirm: false,
+      enabled_key: 'sensors.agent_history.enabled',
+      configured_key: 'sensors.agent_history.configured',
+      first_context: {
+        settings_overrides: {
+          'sensors.agent_history.initial_sync_policy': 'lookback_days',
+          'sensors.agent_history.initial_sync_lookback_days': 14,
+          'sensors.agent_history.max_items_per_sync': 200,
+        },
+      },
+      fields: [
+        {
+          key: 'sensors.agent_history.initial_sync_policy',
+          type: 'select',
+          label: 'scope',
+          required: false,
+          default: 'lookback_days',
+        },
+        {
+          key: 'sensors.agent_history.initial_sync_lookback_days',
+          type: 'number',
+          label: 'days',
+          required: false,
+          default: 30,
+        },
+      ],
+    });
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          source({
+            plugin_id: 'agent-history',
+            source_name: 'agent_history',
+            activation_flow: firstContextFlow(),
+          }),
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          source({
+            plugin_id: 'agent-history',
+            source_name: 'agent_history',
+            activation_flow: firstContextFlow(),
+            last_success: '2026-01-01T00:00:01Z',
+            last_result_count: 3,
+          }),
+        ],
+      } as any);
+    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'agent_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'agent_history',
+      l1_event_count: 3,
+      l2_ready: true,
+      l2_total_count: 3,
+      l2_processed_count: 3,
+      l2_remaining_count: 0,
+    } as any);
+
+    const { result } = renderHook(() =>
+      usePluginInstallFlow('agent-history', false, 'first_context'),
+    );
+    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
+    expect(result.current.flow?.fields).toEqual([]);
+
+    expect(upd).toHaveBeenCalledWith(
+      'agent-history',
+      expect.objectContaining({
+        'sensors.agent_history.enabled': true,
+        'sensors.agent_history.configured': true,
+        'sensors.agent_history.initial_sync_policy': 'lookback_days',
+        'sensors.agent_history.initial_sync_lookback_days': 14,
+        'sensors.agent_history.max_items_per_sync': 200,
+      }),
+    );
+  });
+
+  it('finishes first-context once raw context is available without waiting for full memory organizing', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sensorsApi, 'getStatus')
+        .mockResolvedValueOnce({
+          sources: [
+            source({
+              plugin_id: 'chrome-history',
+              source_name: 'chrome_history',
+            }),
+          ],
+        } as any)
+        .mockResolvedValue({
+          sources: [
+            source({
+              plugin_id: 'chrome-history',
+              source_name: 'chrome_history',
+              last_success: '2026-01-01T00:00:01Z',
+              last_result_count: 125,
+            }),
+          ],
+        } as any);
+      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+        queued: true,
+        source_name: 'chrome_history',
+      } as any);
+      const readinessSpy = vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+        source_name: 'chrome_history',
+        l1_event_count: 125,
+        l2_ready: false,
+        l2_total_count: 125,
+        l2_processed_count: 101,
+        l2_remaining_count: 24,
+      } as any);
+
+      const { result } = renderHook(() =>
+        usePluginInstallFlow('chrome-history', false, 'first_context'),
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+
+      expect(result.current.phase).toBe('done');
+      expect(result.current.memoryReady).toBe(false);
+      expect(result.current.backfillNote).toBe(false);
+      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
+      expect(readinessSpy).toHaveBeenCalledTimes(1);
+      expect(readinessSpy).toHaveBeenCalledWith('chrome_history', { maxWaitMs: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still asks for first-context fields that are not covered by overrides', async () => {
+    const partialOverrideFlow = () => ({
+      title: 't',
+      description: 'd',
+      confirm_label: 'c',
+      cancel_label: 'x',
+      authorize_on_confirm: false,
+      enabled_key: 'sensors.agent_history.enabled',
+      configured_key: 'sensors.agent_history.configured',
+      first_context: {
+        settings_overrides: {
+          'sensors.agent_history.initial_sync_lookback_days': 14,
+        },
+      },
+      fields: [
+        {
+          key: 'sensors.agent_history.source_paths',
+          type: 'path',
+          label: 'folders',
+          required: true,
+          default: [],
+        },
+        {
+          key: 'sensors.agent_history.initial_sync_lookback_days',
+          type: 'number',
+          label: 'days',
+          required: false,
+          default: 30,
+        },
+      ],
+    });
+    vi.spyOn(sensorsApi, 'getStatus')
+      .mockResolvedValueOnce({
+        sources: [
+          source({
+            plugin_id: 'agent-history',
+            source_name: 'agent_history',
+            activation_flow: partialOverrideFlow(),
+          }),
+        ],
+      } as any)
+      .mockResolvedValue({
+        sources: [
+          source({
+            plugin_id: 'agent-history',
+            source_name: 'agent_history',
+            activation_flow: partialOverrideFlow(),
+            last_success: '2026-01-01T00:00:01Z',
+            last_result_count: 3,
+          }),
+        ],
+      } as any);
+    const upd = vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+    vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({
+      queued: true,
+      source_name: 'agent_history',
+    } as any);
+    vi.spyOn(sensorsApi, 'getMemoryReadiness').mockResolvedValue({
+      source_name: 'agent_history',
+      l1_event_count: 3,
+      l2_ready: true,
+      l2_total_count: 3,
+      l2_processed_count: 3,
+      l2_remaining_count: 0,
+    } as any);
+
+    const { result } = renderHook(() =>
+      usePluginInstallFlow('agent-history', false, 'first_context'),
+    );
+    await waitFor(() => expect(result.current.phase).toBe('awaiting_fields'));
+    expect(result.current.flow?.fields.map((field) => field.key)).toEqual([
+      'sensors.agent_history.source_paths',
+    ]);
+    await act(async () => {
+      result.current.submitFields({ 'sensors.agent_history.source_paths': ['/x'] });
+    });
+    await waitFor(() => expect(result.current.phase).toBe('done'), { timeout: 5000 });
+
+    expect(upd).toHaveBeenCalledWith(
+      'agent-history',
+      expect.objectContaining({
+        'sensors.agent_history.enabled': true,
+        'sensors.agent_history.configured': true,
+        'sensors.agent_history.source_paths': ['/x'],
+        'sensors.agent_history.initial_sync_lookback_days': 14,
       }),
     );
   });
@@ -322,6 +547,50 @@ describe('usePluginInstallFlow', () => {
       expect(result.current.memoryRemainingCount).toBe(2);
       expect(result.current.backfillNote).toBe(true);
       expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('background');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps refreshing background memory progress while the panel remains open', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(sensorsApi, 'getStatus')
+        .mockResolvedValueOnce({ sources: [source()] } as any)
+        .mockResolvedValue({
+          sources: [source({ last_success: '2026-01-01T00:00:01Z', last_result_count: 3 })],
+        } as any);
+      vi.spyOn(pluginsApi, 'updateSettings').mockResolvedValue({} as any);
+      vi.spyOn(sensorsApi, 'requestSync').mockResolvedValue({ queued: true, source_name: 's' } as any);
+      let ready = false;
+      vi.spyOn(sensorsApi, 'getMemoryReadiness').mockImplementation(async () => ({
+        source_name: 's',
+        l1_event_count: 3,
+        l2_ready: ready,
+        l2_total_count: 3,
+        l2_processed_count: ready ? 3 : 1,
+        l2_remaining_count: ready ? 0 : 2,
+      }) as any);
+
+      const { result } = renderHook(() => usePluginInstallFlow('p', false));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(result.current.phase).toBe('done');
+      expect(result.current.memoryReady).toBe(false);
+      expect(result.current.backfillNote).toBe(true);
+      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('background');
+
+      ready = true;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(result.current.memoryReady).toBe(true);
+      expect(result.current.memoryProcessedCount).toBe(3);
+      expect(result.current.memoryRemainingCount).toBe(0);
+      expect(result.current.backfillNote).toBe(false);
+      expect(result.current.steps.find((s) => s.id === 'memory')?.status).toBe('done');
     } finally {
       vi.useRealTimers();
     }

@@ -72,6 +72,12 @@ class SensorSyncCommand:
 
     source: str
     source_name: str
+    first_context: bool = False
+    sync_mode: str = "latest"
+    backfill_scope: str | None = None
+    backfill_days: int | None = None
+    backfill_start_date: str | None = None
+    backfill_end_date: str | None = None
     created_at: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: f"cmd_{uuid.uuid4().hex[:16]}")
 

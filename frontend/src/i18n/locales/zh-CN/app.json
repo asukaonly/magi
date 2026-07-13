@@ -36,6 +36,33 @@
       "body": "建议和任务通知都会出现在这个铃铛里。"
     }
   },
+  "sourceBackfill": {
+    "title": "补回历史",
+    "description": "选择 {{source}} 要补回的范围。",
+    "rangeLabel": "时间范围",
+    "ranges": {
+      "last7Days": "近 7 天",
+      "last30Days": "近 30 天",
+      "custom": "自定义",
+      "full": "全部历史"
+    },
+    "rangeDescriptions": {
+      "last7Days": "快速补最近几天的内容。",
+      "last30Days": "默认范围，适合补近期活动。",
+      "custom": "选择明确的开始和结束日期。",
+      "full": "尽量补完整历史，可能需要更久。"
+    },
+    "custom": {
+      "title": "选择日期",
+      "start": "开始日期",
+      "end": "结束日期",
+      "errorRequired": "请选择开始和结束日期",
+      "errorOrder": "结束日期不能早于开始日期"
+    },
+    "idempotencyNote": "重复记录会自动跳过。",
+    "cancel": "取消",
+    "submit": "开始补回"
+  },
   "bootstrap": {
     "startupFailed": "后端启动失败",
     "retry": "重试",
@@ -2223,6 +2250,8 @@
         "entries": "入口数",
         "entriesTitle": "同步入口",
         "entriesDesc": "每个入口独立启用、同步和记录状态。",
+        "availableEntriesTitle": "还可以添加",
+        "availableEntriesDesc": "这些入口属于同一组传感器，安装后会出现在上面的入口选择里。",
         "sourceStatusTitle": "运行状态",
         "sourceStateHint": "{{mode}}",
         "nextRun": "下次执行",
@@ -2277,12 +2306,17 @@
         "queued": "已入队",
         "syncing": "同步中",
         "awaitingSetup": "等待首次配置",
+        "notInstalled": "未安装",
         "loading": "正在加载来源状态..."
       },
       "actions": {
         "refresh": "刷新状态",
         "flushStateNow": "立即落盘",
         "syncNow": "立即同步",
+        "backfill": "补旧数据",
+        "installEntry": "添加入口",
+        "installingEntry": "正在添加",
+        "browseMarketplace": "打开插件市场",
         "resetActivation": "重置首次同步设置"
       },
       "activation": {
@@ -2290,10 +2324,12 @@
         "resetSuccess": "{{source}} 的首次同步设置已重置"
       },
       "syncQueued": "{{source}} 已进入同步队列",
+      "backfillQueued": "{{source}} 已开始在后台补旧数据",
       "stateFlushQueued": "{{source}} 已进入落盘队列",
       "errors": {
         "statusLoadFailed": "来源状态加载失败：{{message}}",
         "syncFailed": "同步请求失败：{{message}}",
+        "backfillFailed": "补旧数据失败：{{message}}",
         "stateFlushFailed": "落盘请求失败：{{message}}",
         "authorizationFailed": "授权失败：{{message}}",
         "settingsSaveFailed": "来源设置保存失败：{{message}}",
@@ -2627,6 +2663,7 @@
       "actions": {
         "view": "查看",
         "sync": "同步一次",
+        "backfill": "补旧数据",
         "settings": "打开设置",
         "pause": "暂停",
         "resume": "恢复",
@@ -2640,6 +2677,7 @@
       "feedback": {
         "pauseSuccess": "{{source}} 已暂停",
         "resumeSuccess": "{{source}} 已恢复",
+        "backfillQueued": "{{source}} 已开始在后台补旧数据",
         "toggleFailed": "更新来源状态失败：{{message}}"
       },
       "detail": {

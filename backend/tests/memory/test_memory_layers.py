@@ -9,6 +9,7 @@ import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import aiosqlite
 
@@ -471,11 +472,15 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(local_store.l3)
         local_store.l3._temporal_llm_service._call_temporal_model = _unexpected_model
 
-        summary = await local_store.generate_summary(
-            period_type="day",
-            period_start=now - 10,
-            period_end=now + 60,
-        )
+        with patch(
+            "magi.memory.l3.temporal_fallback.target_language_code",
+            return_value="en",
+        ):
+            summary = await local_store.generate_summary(
+                period_type="day",
+                period_start=now - 10,
+                period_end=now + 60,
+            )
 
         self.assertIsNotNone(summary)
         self.assertEqual(summary["generated_by_model"], "rule-summary")

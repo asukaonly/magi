@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import time
 import uuid
 from dataclasses import dataclass
@@ -168,25 +169,63 @@ class SensorSchedulerContrib:
             )
             self._registered_schedule_ids.add(schedule_id)
 
-    async def queue_manual_sync(self, source_type: str) -> ScheduleDefinition:
+    async def queue_manual_sync(
+        self,
+        source_type: str,
+        *,
+        first_context: bool = False,
+        sync_mode: str = "latest",
+        backfill_scope: str | None = None,
+        backfill_days: int | None = None,
+        backfill_start_date: str | None = None,
+        backfill_end_date: str | None = None,
+    ) -> ScheduleDefinition:
         resolved = self._sensor_registry.resolve_source_sensor(source_type)
         if resolved is None:
             raise KeyError(source_type)
         plugin_id, _, sensor, _ = resolved
         if not bool(getattr(sensor, "supports_pull_sync", False)):
             raise ValueError(f"Sensor source does not support pull sync: {source_type}")
-        schedule_id = f"sensor-sync-manual:{plugin_id}:{source_type}:{uuid.uuid4().hex}"
+        normalized_mode = "backfill" if sync_mode == "backfill" else "latest"
+        normalized_scope = str(backfill_scope or "last_30_days").strip() or "last_30_days"
+        normalized_start_date = _normalize_optional_date(backfill_start_date)
+        normalized_end_date = _normalize_optional_date(backfill_end_date)
+        if normalized_mode == "backfill":
+            schedule_suffix = normalized_scope
+            if normalized_scope == "custom" and normalized_start_date and normalized_end_date:
+                schedule_suffix = f"custom:{normalized_start_date}:{normalized_end_date}"
+            schedule_id = f"sensor-sync-backfill:{plugin_id}:{source_type}:{schedule_suffix}"
+        else:
+            schedule_id = f"sensor-sync-manual:{plugin_id}:{source_type}:{uuid.uuid4().hex}"
+        target_payload = {
+            "plugin_id": plugin_id,
+            "source_type": source_type,
+            "manual": True,
+        }
+        metadata = {"manual": True, "source_type": source_type, "plugin_id": plugin_id}
+        if first_context:
+            target_payload["first_context"] = True
+            metadata["first_context"] = True
+        if normalized_mode == "backfill":
+            sync_request: dict[str, Any] = {
+                "mode": "backfill",
+                "backfill_scope": normalized_scope,
+            }
+            if backfill_days is not None:
+                sync_request["backfill_days"] = int(backfill_days)
+            if normalized_start_date is not None:
+                sync_request["backfill_start_date"] = normalized_start_date
+            if normalized_end_date is not None:
+                sync_request["backfill_end_date"] = normalized_end_date
+            target_payload["sync_request"] = dict(sync_request)
+            metadata["sync_request"] = dict(sync_request)
         return await self._scheduler_service.schedule_once(
             schedule_id=schedule_id,
             target_type=ScheduledTargetType.SENSOR_SYNC,
             target_key=build_sensor_target_key(plugin_id, source_type),
             run_at=time.time(),
-            target_payload={
-                "plugin_id": plugin_id,
-                "source_type": source_type,
-                "manual": True,
-            },
-            metadata={"manual": True, "source_type": source_type, "plugin_id": plugin_id},
+            target_payload=target_payload,
+            metadata=metadata,
         )
 
     async def _handle_sensor_sync(
@@ -200,6 +239,7 @@ class SensorSchedulerContrib:
             source_type=source_type,
             manual=context.manual,
             target_state=context.target_state,
+            sync_payload=context.schedule.target_payload,
         )
 
     async def execute_sensor_sync_job(self, job: dict[str, object]) -> ScheduledExecutionResult:
@@ -213,6 +253,7 @@ class SensorSchedulerContrib:
             source_type=str(job["source_type"]),
             manual=bool(job["manual"]),
             target_state=target_state,
+            sync_payload=job.get("payload") if isinstance(job.get("payload"), dict) else {},
         )
 
     async def flush_sensor_state(self, source_type: str) -> dict[str, Any]:
@@ -237,6 +278,7 @@ class SensorSchedulerContrib:
         source_type: str,
         manual: bool,
         target_state: Any,
+        sync_payload: dict[str, Any] | None = None,
     ) -> ScheduledExecutionResult:
         target = self._resolve_sensor_sync_target(source_type)
         settings = self._sensor_sync_settings(
@@ -244,6 +286,16 @@ class SensorSchedulerContrib:
             source_type=source_type,
             spec=target.spec,
         )
+        sync_request = _extract_backfill_sync_request(sync_payload)
+        last_cursor = target_state.last_cursor
+        if sync_request is not None:
+            settings = _apply_backfill_sync_request(
+                settings=settings,
+                source_type=source_type,
+                sync_request=sync_request,
+            )
+            if not schedule_id.startswith("sensor-sync-continuation:"):
+                last_cursor = None
         preferred_language = get_preferred_language()
         if preferred_language:
             settings.package_settings.setdefault("locale", preferred_language)
@@ -253,7 +305,7 @@ class SensorSchedulerContrib:
             pull_context = SensorSyncContext(
                 source_type=source_type,
                 manual=manual,
-                last_cursor=target_state.last_cursor,
+                last_cursor=last_cursor,
                 last_success_at=target_state.last_success_at,
                 limit=settings.limit,
                 runtime_paths=self._runtime_paths,
@@ -273,7 +325,7 @@ class SensorSchedulerContrib:
                 message="sensor_sync_completed",
                 next_cursor=result.next_cursor,
                 watermark_ts=result.watermark_ts,
-                stats=result.stats,
+                stats=_merge_sync_request_stats(result.stats, sync_request),
             )
         finally:
             set_plugin_current_language(previous_language or None)
@@ -295,7 +347,7 @@ class SensorSchedulerContrib:
         spec: Any,
     ) -> _SensorSyncSettings:
         package_state = self._plugin_manager.get_package(plugin_id)
-        package_settings = dict(package_state.current_settings) if package_state is not None else {}
+        package_settings = copy.deepcopy(package_state.current_settings) if package_state is not None else {}
         source_settings = dict(package_settings.get("sensors", {}).get(source_type, {}))
         default_settings = spec.metadata.get("default_settings", {})
         allowed_edge_whitelist = [
@@ -405,3 +457,90 @@ def _should_checkpoint_modified_cursor(stats: Any) -> bool:
     stats_dict = dict(stats or {})
     cursor_kind = str(stats_dict.get("cursor_kind") or "modified_at").strip().lower()
     return cursor_kind in {"modified_at", "mtime", "timestamp"}
+
+
+def _extract_backfill_sync_request(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    request = payload.get("sync_request")
+    if not isinstance(request, dict):
+        return None
+    if request.get("mode") != "backfill":
+        return None
+    scope = str(request.get("backfill_scope") or "last_30_days").strip() or "last_30_days"
+    normalized: dict[str, Any] = {
+        "mode": "backfill",
+        "backfill_scope": scope,
+    }
+    days = request.get("backfill_days")
+    if days is not None:
+        try:
+            normalized["backfill_days"] = int(days)
+        except (TypeError, ValueError):
+            pass
+    start_date = _normalize_optional_date(request.get("backfill_start_date"))
+    end_date = _normalize_optional_date(request.get("backfill_end_date"))
+    if start_date is not None:
+        normalized["backfill_start_date"] = start_date
+    if end_date is not None:
+        normalized["backfill_end_date"] = end_date
+    return normalized
+
+
+def _apply_backfill_sync_request(
+    *,
+    settings: _SensorSyncSettings,
+    source_type: str,
+    sync_request: dict[str, Any],
+) -> _SensorSyncSettings:
+    package_settings = copy.deepcopy(settings.package_settings)
+    sensors_settings = package_settings.get("sensors")
+    if not isinstance(sensors_settings, dict):
+        sensors_settings = {}
+        package_settings["sensors"] = sensors_settings
+    source_settings = sensors_settings.get(source_type)
+    if not isinstance(source_settings, dict):
+        source_settings = {}
+    else:
+        source_settings = dict(source_settings)
+    sensors_settings[source_type] = source_settings
+
+    if sync_request.get("backfill_scope") == "custom":
+        source_settings["initial_sync_policy"] = "custom_range"
+        source_settings.pop("initial_sync_lookback_days", None)
+        start_date = _normalize_optional_date(sync_request.get("backfill_start_date"))
+        end_date = _normalize_optional_date(sync_request.get("backfill_end_date"))
+        if start_date is not None:
+            source_settings["initial_sync_start_date"] = start_date
+        if end_date is not None:
+            source_settings["initial_sync_end_date"] = end_date
+    elif sync_request.get("backfill_scope") == "full":
+        source_settings["initial_sync_policy"] = "full"
+        source_settings.pop("initial_sync_lookback_days", None)
+    else:
+        source_settings["initial_sync_policy"] = "lookback_days"
+        days = sync_request.get("backfill_days")
+        if days is not None:
+            source_settings["initial_sync_lookback_days"] = int(days)
+
+    return _SensorSyncSettings(
+        package_settings=package_settings,
+        allowed_edge_whitelist=settings.allowed_edge_whitelist,
+        limit=settings.limit,
+    )
+
+
+def _normalize_optional_date(value: object) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _merge_sync_request_stats(
+    stats: dict[str, Any] | None,
+    sync_request: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if sync_request is None:
+        return stats
+    merged = dict(stats or {})
+    merged["sync_request"] = dict(sync_request)
+    return merged

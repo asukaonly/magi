@@ -244,10 +244,11 @@ def get_loader() -> Optional[ConfigLoader]:
 
 def get_user_preference(key: str, default: Any = None) -> Any:
     """Read a single user preference from the runtime config."""
-    loader = get_loader()
-    if loader is None:
-        return default
-    return loader.get_raw_value("preferences", key, default=default)
+    global _loader
+
+    if _loader is None:
+        _loader = ConfigLoader()
+    return _loader.get_raw_value("preferences", key, default=default)
 
 
 def get_config_file_path() -> Path:
