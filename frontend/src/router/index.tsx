@@ -91,18 +91,28 @@ const LoadingFallbackInner = () => {
 };
 
 type OnboardingStatusState = 'loading' | 'complete' | 'incomplete' | 'error';
+type OnboardingStatusSnapshot = {
+  requireCompleted: boolean;
+  status: OnboardingStatusState;
+};
 
 const OnboardingGuard: React.FC<{
   children: React.ReactElement;
   requireCompleted: boolean;
 }> = ({ children, requireCompleted }) => {
   const { t } = useTranslation('app');
-  const [status, setStatus] = React.useState<OnboardingStatusState>('loading');
+  const [snapshot, setSnapshot] = React.useState<OnboardingStatusSnapshot>({
+    requireCompleted,
+    status: 'loading',
+  });
   const requestIdRef = React.useRef(0);
+  const status = snapshot.requireCompleted === requireCompleted
+    ? snapshot.status
+    : 'loading';
 
   const check = React.useCallback(async () => {
     const requestId = ++requestIdRef.current;
-    setStatus('loading');
+    setSnapshot({ requireCompleted, status: 'loading' });
     try {
       const response = await configApi.getOnboardingStatus();
       const completed = response.data?.completed;
@@ -110,14 +120,17 @@ const OnboardingGuard: React.FC<{
         throw new Error('Onboarding status response is missing completion state');
       }
       if (requestId === requestIdRef.current) {
-        setStatus(completed ? 'complete' : 'incomplete');
+        setSnapshot({
+          requireCompleted,
+          status: completed ? 'complete' : 'incomplete',
+        });
       }
     } catch {
       if (requestId === requestIdRef.current) {
-        setStatus('error');
+        setSnapshot({ requireCompleted, status: 'error' });
       }
     }
-  }, []);
+  }, [requireCompleted]);
 
   React.useEffect(() => {
     void check();

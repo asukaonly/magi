@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,9 +47,21 @@ vi.mock('../pages/Timeline', () => ({
   TimelinePage: () => <div data-testid="timeline-page">timeline-page</div>,
 }));
 
-vi.mock('../pages/Onboarding', () => ({
-  default: () => <div data-testid="onboarding-page">onboarding-page</div>,
-}));
+vi.mock('../pages/Onboarding', () => {
+  function OnboardingPageMock() {
+    const navigate = useNavigate();
+    return (
+      <div data-testid="onboarding-page">
+        onboarding-page
+        <button type="button" onClick={() => navigate('/')}>
+          finish-onboarding
+        </button>
+      </div>
+    );
+  }
+
+  return { default: OnboardingPageMock };
+});
 
 vi.mock('../pages/memory-pages', () => ({
   MemoryOverviewPage: () => <div data-testid="memory-overview-page">memory-overview-page</div>,
@@ -157,5 +169,24 @@ describe('app shell routing', () => {
 
     expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
     expect(screen.queryByTestId('onboarding-page')).not.toBeInTheDocument();
+  });
+
+  it('rechecks completion when leaving onboarding for the main app', async () => {
+    const user = userEvent.setup();
+    getOnboardingStatusMock.mockResolvedValueOnce({ data: { completed: false } });
+    window.history.replaceState({}, '', '/onboarding');
+    vi.resetModules();
+    const { default: AppRouter } = await import('@/router');
+
+    await act(async () => {
+      render(<AppRouter />);
+    });
+
+    expect(await screen.findByTestId('onboarding-page')).toBeInTheDocument();
+    getOnboardingStatusMock.mockResolvedValue({ data: { completed: true } });
+    await user.click(screen.getByRole('button', { name: 'finish-onboarding' }));
+
+    expect(await screen.findByTestId('chat-page')).toBeInTheDocument();
+    expect(getOnboardingStatusMock).toHaveBeenCalledTimes(2);
   });
 });
