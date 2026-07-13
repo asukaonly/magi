@@ -25,7 +25,6 @@ def ground_phase1_fact_claims(
         grounded_event_ids = _grounded_event_ids(
             claim=claim,
             eligible_events=eligible_events,
-            valid_original_ids=valid_original_ids,
         )
         if not grounded_event_ids:
             rejected_count += 1
@@ -48,21 +47,43 @@ def _grounded_event_ids(
     *,
     claim: L2Phase1FactClaim,
     eligible_events: list[tuple[L2BatchEvent, str]],
-    valid_original_ids: list[str],
 ) -> list[str]:
     evidence_text = _normalize_evidence_text(claim.evidence_text)
-    if evidence_text:
-        return [
-            event.event_id
-            for event, content in eligible_events
-            if evidence_text in _normalize_evidence_text(content)
-        ]
-    if len(eligible_events) != 1:
+    if not evidence_text:
         return []
-    only_event_id = eligible_events[0][0].event_id
-    if valid_original_ids and valid_original_ids != [only_event_id]:
-        return []
-    return [only_event_id]
+    return [
+        event.event_id
+        for event, content in eligible_events
+        if evidence_text in _normalize_evidence_text(content)
+    ]
+
+
+def phase1_claim_evidence_contract_issues(
+    payload: dict[str, object],
+    event_window: L2EventWindow,
+) -> list[str]:
+    """Describe Phase 1 claims that lack exact current-event evidence."""
+    eligible_contents = [content for _event, content in _eligible_evidence_events(event_window)]
+    issues: list[str] = []
+    raw_claims = payload.get("fact_claims")
+    if not isinstance(raw_claims, list):
+        return issues
+    for index, claim in enumerate(raw_claims):
+        field_path = f"fact_claims[{index}].evidence_text"
+        if not isinstance(claim, dict):
+            issues.append(f"{field_path} is required")
+            continue
+        evidence = claim.get("evidence_text")
+        if not isinstance(evidence, str) or not evidence.strip():
+            issues.append(f"{field_path} is required")
+            continue
+        normalized_evidence = _normalize_evidence_text(evidence)
+        if not any(
+            normalized_evidence in _normalize_evidence_text(content)
+            for content in eligible_contents
+        ):
+            issues.append(f"{field_path} must be an exact quote from a current message")
+    return issues
 
 
 def _eligible_evidence_events(
@@ -102,4 +123,4 @@ def _unique_event_ids(values: list[str]) -> list[str]:
     return unique
 
 
-__all__ = ["ground_phase1_fact_claims"]
+__all__ = ["ground_phase1_fact_claims", "phase1_claim_evidence_contract_issues"]

@@ -90,7 +90,7 @@ def test_ground_phase1_claim_rejects_ungrounded_multi_event_claim() -> None:
     assert result.fact_claims == []
 
 
-def test_ground_phase1_claim_allows_single_event_as_exact_evidence() -> None:
+def test_ground_phase1_claim_rejects_single_event_without_quote() -> None:
     result = L2Phase1Result(
         fact_claims=[
             _claim(
@@ -105,8 +105,8 @@ def test_ground_phase1_claim_allows_single_event_as_exact_evidence() -> None:
         _window(("evt-only", "昨晚去看了 DIIV 演出。")),
     )
 
-    assert stats == {"kept": 1, "rejected": 0, "rebound": 0}
-    assert result.fact_claims[0].supporting_event_ids == ["evt-only"]
+    assert stats == {"kept": 0, "rejected": 1, "rebound": 0}
+    assert result.fact_claims == []
 
 
 def test_ground_phase1_claim_ids_are_deterministic_and_claim_specific() -> None:

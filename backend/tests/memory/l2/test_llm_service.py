@@ -135,6 +135,45 @@ def _make_event_window(**overrides):  # type: ignore[no-untyped-def]
     return L2EventWindow(summary=summary, **overrides)
 
 
+def _phase1_response(evidence_text: str | None) -> str:
+    claim = {
+        "subject_ref": "user:self",
+        "subject_type": "user",
+        "predicate": "LIKES",
+        "object_ref": "DIIV",
+        "object_type": "group",
+        "fact_kind": "stable_preference",
+        "polarity": "positive",
+        "specificity": "concrete",
+        "confidence": 0.9,
+        "supporting_event_ids": ["evt-diiv"],
+    }
+    if evidence_text is not None:
+        claim["evidence_text"] = evidence_text
+    return json.dumps(
+        {
+            "entities": [],
+            "fact_claims": [claim],
+            "resolved_refs": [],
+            "diagnostics": {"entity_status": "none"},
+        }
+    )
+
+
+def _phase1_event_window():  # type: ignore[no-untyped-def]
+    from magi.memory.l2.models import L2BatchEvent, L2EventWindow
+
+    return L2EventWindow(
+        events=[
+            L2BatchEvent(
+                event_id="evt-diiv",
+                content="我去看了 DIIV 演出，但暂时谈不上喜欢。",
+                author_type="user",
+            )
+        ]
+    )
+
+
 def test_phase1_prompt_includes_entity_types_and_predicates():
     from magi.memory.l2.pipeline.prompts import PHASE1_EXTRACT_SYSTEM_PROMPT, render_phase1_extract_prompt
 
@@ -753,6 +792,69 @@ def test_missing_required_json_fields_trigger_format_retry():
     )
 
     assert outcomes == []
+    assert len(adapter.calls) == 2
+
+
+def test_phase1_missing_evidence_quote_triggers_format_retry():
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter(
+        [
+            _phase1_response(None),
+            _phase1_response("我去看了 DIIV 演出"),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=_phase1_event_window(),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert result.fact_claims[0].evidence_text == "我去看了 DIIV 演出"
+    assert len(adapter.calls) == 2
+    assert "fact_claims[0].evidence_text" in str(adapter.calls[1]["messages"])
+
+
+def test_phase1_nonmatching_evidence_quote_triggers_format_retry():
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter(
+        [
+            _phase1_response("我很喜欢 DIIV"),
+            _phase1_response("我去看了 DIIV 演出"),
+        ]
+    )
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    result = asyncio.run(
+        service.extract_phase1(
+            event_window=_phase1_event_window(),
+            focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+        )
+    )
+
+    assert result.fact_claims[0].evidence_text == "我去看了 DIIV 演出"
+    assert len(adapter.calls) == 2
+
+
+def test_phase1_repeated_missing_evidence_quote_raises():
+    from magi.memory.l2.llm_json_client import L2InvalidJsonResponseError
+    from magi.memory.l2.llm_service import L2LLMService
+
+    adapter = _FakeAdapter([_phase1_response(None), _phase1_response(None)])
+    service = L2LLMService(_FakeScenarioPool(adapter))
+
+    with pytest.raises(L2InvalidJsonResponseError):
+        asyncio.run(
+            service.extract_phase1(
+                event_window=_phase1_event_window(),
+                focal_subject={"entity_ref": "user:self", "entity_type": "user"},
+            )
+        )
+
     assert len(adapter.calls) == 2
 
 

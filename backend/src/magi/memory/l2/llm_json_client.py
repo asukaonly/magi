@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any, Optional, Protocol, cast
 
@@ -41,6 +42,10 @@ class L2LLMCallError(L2LLMJsonError):
 
 class L2InvalidJsonResponseError(L2LLMJsonError):
     """Raised when the provider repeatedly returns an invalid JSON object."""
+
+    def __init__(self, message: str, *, issues: list[str] | None = None) -> None:
+        super().__init__(message)
+        self.issues = list(issues or [])
 
 
 @dataclass(slots=True)
@@ -81,6 +86,7 @@ class L2LLMJsonClientMixin:
         disable_thinking: bool = True,
         priority: LLMRequestPriority | str | int | None = None,
         required_fields: dict[str, type] | None = None,
+        contract_validator: Callable[[dict[str, Any]], list[str]] | None = None,
     ) -> dict[str, Any]:
         call = _L2JsonCall(
             system_prompt=system_prompt,
@@ -110,18 +116,26 @@ class L2LLMJsonClientMixin:
             started_at=started_at,
         )
         completion_context = self._log_json_completion(context, response, started_at)
+        validation_issues: list[str] = []
         try:
             return self._parse_json_response(
                 response.content,
                 completion_context,
                 required_fields=required_fields,
+                contract_validator=contract_validator,
             )
-        except L2InvalidJsonResponseError:
+        except L2InvalidJsonResponseError as exc:
+            validation_issues = exc.issues
             logger.info("L2 LLM JSON format retry scheduled", **completion_context)
 
+        correction_suffix = _JSON_FORMAT_RETRY_SUFFIX
+        if validation_issues:
+            correction_suffix += "\nValidation problems:\n" + "\n".join(
+                f"- {issue}" for issue in validation_issues[:20]
+            )
         retry_call = replace(
             call,
-            system_prompt=f"{call.system_prompt}{_JSON_FORMAT_RETRY_SUFFIX}",
+            system_prompt=f"{call.system_prompt}{correction_suffix}",
         )
         retry_context = dict(context)
         retry_context.update(
@@ -146,6 +160,7 @@ class L2LLMJsonClientMixin:
             retry_response.content,
             retry_completion_context,
             required_fields=required_fields,
+            contract_validator=contract_validator,
         )
 
     def _get_json_target(self, call: _L2JsonCall) -> _L2JsonTarget | None:
@@ -297,6 +312,7 @@ class L2LLMJsonClientMixin:
         completion_context: dict[str, Any],
         *,
         required_fields: dict[str, type] | None = None,
+        contract_validator: Callable[[dict[str, Any]], list[str]] | None = None,
     ) -> dict[str, Any]:
         try:
             parsed = json.loads(raw)
@@ -315,6 +331,7 @@ class L2LLMJsonClientMixin:
             parsed,
             completion_context=completion_context,
             required_fields=required_fields,
+            contract_validator=contract_validator,
         )
         return cast(dict[str, Any], parsed)
 
@@ -324,22 +341,30 @@ class L2LLMJsonClientMixin:
         *,
         completion_context: dict[str, Any],
         required_fields: dict[str, type] | None,
+        contract_validator: Callable[[dict[str, Any]], list[str]] | None,
     ) -> None:
-        if not required_fields:
-            return
-        missing_fields = [field for field in required_fields if field not in parsed]
+        required = required_fields or {}
+        missing_fields = [field for field in required if field not in parsed]
         invalid_fields = [
             field
-            for field, expected_type in required_fields.items()
+            for field, expected_type in required.items()
             if field in parsed and not isinstance(parsed[field], expected_type)
         ]
-        if not missing_fields and not invalid_fields:
+        contract_issues = contract_validator(parsed) if contract_validator is not None else []
+        if not missing_fields and not invalid_fields and not contract_issues:
             return
         invalid_context = dict(completion_context)
         invalid_context["missing_fields"] = missing_fields
         invalid_context["invalid_field_types"] = invalid_fields
+        invalid_context["contract_issues"] = contract_issues
         logger.warning("L2 LLM returned invalid JSON contract", **invalid_context)
-        raise L2InvalidJsonResponseError("L2 LLM response does not match the JSON contract")
+        issues = [f"missing field: {field}" for field in missing_fields]
+        issues.extend(f"invalid field type: {field}" for field in invalid_fields)
+        issues.extend(contract_issues)
+        raise L2InvalidJsonResponseError(
+            "L2 LLM response does not match the JSON contract",
+            issues=issues,
+        )
 
     def _is_rate_limit_error(self, exc: Exception) -> bool:
         return bool(is_rate_limit_exception(exc))

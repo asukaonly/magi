@@ -8,6 +8,7 @@ from typing import Any
 from ...core.logger import get_logger
 from .models import L2EventWindow, L2Phase1Result, L2Phase2Result
 from .llm_priority import l2_llm_priority_for_event_window
+from .pipeline.claim_grounding import phase1_claim_evidence_contract_issues
 from .pipeline.evidence_packet import build_phase2_evidence_packet
 from .pipeline.prompts import (
     PHASE1_EXTRACT_SYSTEM_PROMPT,
@@ -71,6 +72,10 @@ class L2LLMExtractionMixin:
                 "fact_claims": list,
                 "resolved_refs": list,
             },
+            contract_validator=lambda response: phase1_claim_evidence_contract_issues(
+                response,
+                event_window,
+            ),
         )
         result = L2Phase1Result.from_dict(payload)
         is_single_event = len(event_window.event_ids) <= 1
