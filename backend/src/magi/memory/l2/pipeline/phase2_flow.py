@@ -216,6 +216,7 @@ class L2Phase2FlowMixin:
             item.to_dict() if hasattr(item, "to_dict") else dict(item)
             for item in merged_history_contexts
         ]
+        await self._emit_active_entities(event=batch.stored_event, focal_entities=focal_entities)
         existing_graph_edges: list[dict[str, Any]] = []
         existing_assertions: list[dict[str, Any]] = []
         if self._cognition_store is not None:
