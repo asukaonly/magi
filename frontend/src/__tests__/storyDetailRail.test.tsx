@@ -150,7 +150,8 @@ describe('StoryDetailRail', () => {
     expect(screen.queryByRole('heading', { name: /## 要点/ })).not.toBeInTheDocument();
     expect(memoryStoriesApi.evidence).not.toHaveBeenCalled();
     expect(screen.getByRole('button', { name: '查看依据 · 3 条' })).toBeInTheDocument();
-    expect(screen.getByTestId('story-detail-rail')).toHaveClass('flex', 'flex-col', 'overflow-hidden');
+    expect(screen.getByTestId('story-detail-rail')).toHaveClass('fixed', 'flex', 'flex-col', 'overflow-hidden');
+    expect(screen.getByTestId('story-detail-rail')).not.toHaveClass('relative');
     expect(screen.getByTestId('story-detail-scroll')).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
     expect(screen.getByTestId('story-detail-meta')).toHaveClass('w-fit');
     expect(screen.queryByTestId('story-detail-header')).not.toBeInTheDocument();

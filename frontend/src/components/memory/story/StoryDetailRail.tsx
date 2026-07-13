@@ -110,7 +110,7 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
       <DialogContent
         data-testid="story-detail-rail"
         hideClose
-        className="relative flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
+        className="flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
       >
         <DialogTitle className="sr-only">
           {headerLabel}
