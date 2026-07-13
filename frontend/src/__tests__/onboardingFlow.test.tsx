@@ -498,10 +498,16 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const enterApp = await screen.findByRole("button", {
       name: "actions.enterApp",
     });
-    expect(screen.getByText("messages.completedStepChat")).toBeInTheDocument();
+    expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
+    expect(
+      screen.getByText("messages.completedStepNoSources"),
+    ).toBeInTheDocument();
     expect(
       screen.getByText("messages.completedStepBackfillNoSources"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("messages.completedStepBackground"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
     ).not.toBeInTheDocument();
@@ -1057,12 +1063,16 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       await screen.findByRole("button", { name: "actions.enterApp" }),
     ).toBeInTheDocument();
+    expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
     expect(
       screen.getByText("messages.completedStepBackground"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("messages.completedStepBackfillWithSources"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("messages.completedStepNoSources"),
+    ).not.toBeInTheDocument();
   });
 
   it("offers retry when first-context recommendations fail to load", async () => {

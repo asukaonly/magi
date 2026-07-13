@@ -39,11 +39,11 @@
     "chooseModeFirst": "请先选择模式再继续。",
     "validationFailed": "请补全必填配置项。",
     "completedTitle": "准备好了",
-    "completedDesc": "Magi 已经有了声音，也知道第一次见面该从哪里开始。现在可以进入聊天了。",
-    "completedStepChat": "现在可以直接开始聊天。",
-    "completedStepBackground": "刚接入的来源会继续在后台整理。",
+    "completedDesc": "你选择的人格已经准备好，现在可以开始聊天。",
+    "completedStepBackground": "刚接入的来源会继续在后台整理，Magi 会逐步使用这些内容。",
+    "completedStepNoSources": "没有接入历史也没关系，Magi 会从这次对话开始了解你。",
     "completedStepBackfillWithSources": "完整历史可稍后在「记忆 → 来源」里补回。",
-    "completedStepBackfillNoSources": "之后接入来源时，也可以在「记忆 → 来源」补完整历史。",
+    "completedStepBackfillNoSources": "之后可以随时在「记忆 → 来源」接入历史记录。",
     "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
   },
   "language": {

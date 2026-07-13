@@ -33,8 +33,11 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
               </p>
             </div>
             <div className="w-full max-w-md rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-left text-sm leading-6 text-muted-foreground">
-              <p>{t('messages.completedStepChat')}</p>
-              {hasConnectedSources ? <p>{t('messages.completedStepBackground')}</p> : null}
+              <p>
+                {hasConnectedSources
+                  ? t('messages.completedStepBackground')
+                  : t('messages.completedStepNoSources')}
+              </p>
               <p>
                 {hasConnectedSources
                   ? t('messages.completedStepBackfillWithSources')

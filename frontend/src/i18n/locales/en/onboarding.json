@@ -37,12 +37,13 @@
     "personaActivationFailed": "Magi could not activate the selected persona. Try again.",
     "requiredFieldMissing": "Please complete required fields before continuing.",
     "chooseModeFirst": "Please select a mode before continuing.",
+    "validationFailed": "Please complete all required configuration fields.",
     "completedTitle": "Ready to begin",
-    "completedDesc": "Magi has its voice and knows where the first hello should start. You can enter chat now.",
-    "completedStepChat": "You can start chatting now.",
-    "completedStepBackground": "Connected sources will keep organizing in the background.",
+    "completedDesc": "Your chosen persona is ready. You can start chatting now.",
+    "completedStepBackground": "Connected sources will keep organizing in the background, and Magi will gradually use that context.",
+    "completedStepNoSources": "It's okay to start without history. Magi will get to know you from this conversation.",
     "completedStepBackfillWithSources": "You can backfill full history later from Memory → Sources.",
-    "completedStepBackfillNoSources": "When you connect sources later, you can backfill full history from Memory → Sources.",
+    "completedStepBackfillNoSources": "You can connect history later from Memory → Sources.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {
