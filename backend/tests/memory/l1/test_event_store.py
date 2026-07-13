@@ -195,6 +195,45 @@ async def test_l1_query_events_can_order_by_created_at_for_recent_imports(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        await store.store(
+            _external_activity_event(
+                event_id="older-occurrence",
+                source="chrome_history",
+                content="Older imported event",
+                timestamp=100.0,
+                created_at=2_000.0,
+            )
+        )
+        await store.store(
+            _external_activity_event(
+                event_id="newer-occurrence",
+                source="chrome_history",
+                content="Newer imported event",
+                timestamp=300.0,
+                created_at=1_000.0,
+            )
+        )
+
+        timestamps = await store.get_event_timestamps(
+            ["newer-occurrence", "missing", "older-occurrence"]
+        )
+
+        assert timestamps == {
+            "newer-occurrence": 300.0,
+            "older-occurrence": 100.0,
+        }
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_event_store_persists_evidence_annotation(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 

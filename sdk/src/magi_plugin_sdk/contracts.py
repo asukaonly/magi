@@ -5,7 +5,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ContributionType(str, Enum):
@@ -174,6 +174,39 @@ class TemporalSummarySourceFeatures(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class DerivedAssertionRuleSpec(BaseModel):
+    """Domain signal semantics for host-owned graph-to-assertion promotion."""
+
+    rule_id: str
+    source_predicates: list[str] = Field(min_length=1)
+    source_types: list[str] = Field(min_length=1)
+    trait_family: str
+    trait_name_template: str
+    min_observations: int = Field(default=3, ge=1)
+    min_distinct_days: int = Field(default=2, ge=1)
+    signal_preset: Literal[
+        "passive_exposure",
+        "sustained_engagement",
+        "deliberate_choice",
+        "structured_source",
+    ] = "passive_exposure"
+    durable_permitted: bool = False
+    durable_min_observations: int = Field(default=6, ge=6)
+    durable_min_distinct_days: int = Field(default=3, ge=3)
+    durable_min_span_days: float = Field(default=14.0, ge=14.0)
+    source_domains: list[str] = Field(default_factory=lambda: ["external_activity"])
+    value_strategy: Literal["canonical_name", "object_id", "object_slug"] = (
+        "canonical_name"
+    )
+    object_types: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_durable_signal(self) -> "DerivedAssertionRuleSpec":
+        if self.durable_permitted and self.signal_preset == "passive_exposure":
+            raise ValueError("passive_exposure cannot permit durable assertions")
+        return self
+
+
 class ExtractionProfileSpec(BaseModel):
     """Declarative L2 extraction profile contributed by a plugin.
 
@@ -195,7 +228,7 @@ class ExtractionProfileSpec(BaseModel):
     phase2_instructions: str | None = None
     assertion_mode: Literal["none", "derived", "phase2_candidate"] | None = None
     allowed_assertion_traits: list[str] | Literal["all"] | None = None
-    derived_assertion_specs: list[dict[str, Any]] = Field(default_factory=list)
+    derived_assertion_specs: list[DerivedAssertionRuleSpec] = Field(default_factory=list)
 
 
 class Triggers(BaseModel):

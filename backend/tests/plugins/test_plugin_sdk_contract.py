@@ -4,6 +4,7 @@ import pytest
 
 from magi.plugins import Plugin
 from magi_plugin_sdk import (
+    DerivedAssertionRuleSpec,
     ExtractionProfileSpec,
     PluginI18n,
     PluginSettingsActionResult,
@@ -137,3 +138,30 @@ def test_extraction_profile_spec_contract_is_public() -> None:
     assert dumped["profile_id"] == "source.example"
     assert dumped["source_types"] == ["example"]
     assert dumped["allowed_predicates"] == ["USES"]
+
+
+def test_derived_assertion_rule_contract_exposes_safe_promotion_semantics() -> None:
+    rule = DerivedAssertionRuleSpec(
+        rule_id="coding.projects",
+        source_predicates=["CONTRIBUTES_TO"],
+        source_types=["coding_agent_history"],
+        trait_family="project_profile",
+        trait_name_template="project.{object_slug}",
+        signal_preset="sustained_engagement",
+        durable_permitted=True,
+    )
+
+    assert rule.min_observations == 3
+    assert rule.min_distinct_days == 2
+    assert rule.durable_min_observations == 6
+
+    with pytest.raises(ValueError, match="passive_exposure"):
+        DerivedAssertionRuleSpec(
+            rule_id="browser.interests",
+            source_predicates=["INTERESTED_IN"],
+            source_types=["chrome_history"],
+            trait_family="interest_profile",
+            trait_name_template="interest.{object_slug}",
+            signal_preset="passive_exposure",
+            durable_permitted=True,
+        )

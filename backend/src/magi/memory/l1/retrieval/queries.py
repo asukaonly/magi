@@ -180,6 +180,27 @@ class L1EventQueryMixin(
                 row = await cursor.fetchone()
         return host._row_to_memory_event(row) if row else None
 
+    async def get_event_timestamps(self, event_ids: List[str]) -> Dict[str, float]:
+        """Return original occurrence timestamps for existing, active L1 events."""
+        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
+        if not ordered_ids:
+            return {}
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        timestamps: Dict[str, float] = {}
+        async with sqlite_connection_async(host.db_path) as db:
+            for offset in range(0, len(ordered_ids), 500):
+                chunk = ordered_ids[offset : offset + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                async with db.execute(
+                    f"SELECT event_id, timestamp FROM {FACT_EVENTS_TABLE} "
+                    f"WHERE deleted_at IS NULL AND event_id IN ({placeholders})",
+                    tuple(chunk),
+                ) as cursor:
+                    for event_id, timestamp in await cursor.fetchall():
+                        timestamps[str(event_id)] = float(timestamp)
+        return timestamps
+
     async def get_event_vectors(
         self,
         event_ids: List[str],

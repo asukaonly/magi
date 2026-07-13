@@ -31,6 +31,8 @@ from magi.notifications.service import NotificationService
 from magi.notifications.store import NotificationStore
 from magi.scheduler.contracts import ScheduledTargetType
 
+from .test_derived_assertion_rules import _EvidenceEventStore
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -48,6 +50,7 @@ def _build_mock_unified(store: L2CognitionStore, db_path: str) -> Any:
     pipeline_mock._cognition_store = store
 
     unified = MagicMock()
+    unified.l1 = _EvidenceEventStore()
     unified.l2_entity_catalog = catalog_mock
     unified.l2_pipeline = pipeline_mock
     return unified

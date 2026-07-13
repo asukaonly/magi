@@ -2,7 +2,7 @@
 
 Three test scenarios:
 1. Basic aggregation: Topics A & C (observation_count >= 3) produce
-   ``preference_profile`` assertions; topic B (count < 3) is skipped.
+   ``interest_profile`` assertions; topic B (count < 3) is skipped.
 2. Snapshot surfacing: aggregated interests appear in a refreshed snapshot
    under ``preferences`` with ``source_tier == "inferred"``.
 3. Idempotency: running aggregate_interests twice yields exactly one assertion
@@ -30,6 +30,8 @@ import pytest
 from magi.core.sqlite import sqlite_connection_async
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
+
+from .test_derived_assertion_rules import _EvidenceEventStore
 
 
 DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
@@ -134,7 +136,9 @@ async def test_aggregate_interests_filters_by_min_observations(l2_store_with_sch
     )
     await _seed_canonical_name(store, entity_id="topic:rust-lang", canonical_name="Rust Programming Language")
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
 
     assert stats["edges_seen"] == 3
     assert stats["topics_aggregated"] == 2
@@ -151,7 +155,7 @@ async def test_aggregate_interests_filters_by_min_observations(l2_store_with_sch
     # Verify families and source_domain
     for a in assertions:
         if a["trait_name"] in {"interest.machine-learning", "interest.rust-lang"}:
-            assert a["trait_family"] == "preference_profile", a
+            assert a["trait_family"] == "interest_profile", a
             assert a["source_domain"] == "external_activity", a
 
 
@@ -182,7 +186,9 @@ async def test_aggregate_interests_surfaces_in_snapshot_as_inferred(l2_store_wit
     )
     await _seed_canonical_name(store, entity_id="topic:fortran", canonical_name="Fortran")
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
     assert stats["topics_aggregated"] == 1
 
     # Verify assertion validation_state is at least corroborated
@@ -212,7 +218,9 @@ async def test_aggregate_interests_surfaces_in_snapshot_as_inferred(l2_store_wit
         f"Expected source_tier='inferred', got {pref['source_tier']!r}"
     )
     assert pref["value"] == "Python", f"Expected value='Python', got {pref['value']!r}"
-    assert pref["family"] == "preference_profile", f"Expected family='preference_profile', got {pref['family']!r}"
+    assert pref["family"] == "interest_profile", (
+        f"Expected family='interest_profile', got {pref['family']!r}"
+    )
 
     # Negative invariant: below-threshold topic must be absent from snapshot preferences
     assert "interest.fortran" not in preferences, (
@@ -237,10 +245,15 @@ async def test_aggregate_interests_is_idempotent(l2_store_with_schema):
     )
     await _seed_canonical_name(store, entity_id="topic:go-lang", canonical_name="Go Programming Language")
 
-    stats1 = await aggregate_interests(store, min_observations=3)
+    l1_store = _EvidenceEventStore()
+    stats1 = await aggregate_interests(
+        store, l1_store=l1_store, min_observations=3
+    )
     assert stats1["topics_aggregated"] == 1
 
-    stats2 = await aggregate_interests(store, min_observations=3)
+    stats2 = await aggregate_interests(
+        store, l1_store=l1_store, min_observations=3
+    )
     assert stats2["topics_aggregated"] == 1
 
     # Must be exactly ONE non-shadow assertion row for this trait
@@ -272,7 +285,9 @@ async def test_aggregate_interests_returns_zero_when_all_below_threshold(l2_stor
         event_ids=["hk-e1"],  # only 1 event
     )
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
     assert stats["edges_seen"] == 1
     assert stats["topics_aggregated"] == 0
 
@@ -293,7 +308,11 @@ async def test_aggregate_interests_skips_single_day_repetition(l2_store_with_sch
     )
     await _seed_canonical_name(store, entity_id="topic:one-off-news", canonical_name="One-off news")
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store,
+        l1_store=_EvidenceEventStore(spread_days=False),
+        min_observations=3,
+    )
 
     assert stats["edges_seen"] == 1
     assert stats["topics_aggregated"] == 0
@@ -318,7 +337,9 @@ async def test_aggregate_interests_skips_non_profile_object_types(l2_store_with_
         entity_type="software",
     )
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
 
     assert stats["edges_seen"] == 1
     assert stats["topics_aggregated"] == 0
@@ -352,7 +373,9 @@ async def test_aggregate_interests_slug_collision_produces_distinct_trait_names(
     )
     await _seed_canonical_name(store, entity_id="topic:c# lang", canonical_name="C#")
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
     assert stats["topics_aggregated"] == 2, (
         f"Both topics should be aggregated, got topics_aggregated={stats['topics_aggregated']}"
     )
@@ -396,7 +419,9 @@ async def test_aggregate_interests_skips_empty_slug(l2_store_with_schema):
     )
     await _seed_canonical_name(store, entity_id="topic:typescript", canonical_name="TypeScript")
 
-    stats = await aggregate_interests(store, min_observations=3)
+    stats = await aggregate_interests(
+        store, l1_store=_EvidenceEventStore(), min_observations=3
+    )
 
     # "topic:" should be skipped; only "topic:typescript" should be aggregated
     assert stats["topics_aggregated"] == 1, (

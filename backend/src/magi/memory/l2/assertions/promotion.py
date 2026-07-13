@@ -10,7 +10,6 @@ from ..phase1_models import L2TemporalCue
 _EVENT_ONLY_TTL_SECONDS = 24 * 60 * 60
 _RECENT_TTL_SECONDS = 14 * 24 * 60 * 60
 _PROJECT_RECENT_TTL_SECONDS = 30 * 24 * 60 * 60
-_RECENT_MAX_AGE_DAYS = 30.0
 _RECENT_MIN_OBSERVATIONS = 3
 _RECENT_MIN_EVIDENCE = 2
 _RECENT_MIN_DISTINCT_DAYS = 2
@@ -18,6 +17,10 @@ _DURABLE_MIN_OBSERVATIONS = 6
 _DURABLE_MIN_EVIDENCE = 4
 _DURABLE_MIN_DISTINCT_DAYS = 3
 _DURABLE_MIN_SPAN_DAYS = 14.0
+_DURABLE_MAX_AGE_DAYS = 30.0
+_SUSTAINED_RECENT_MIN_OBSERVATIONS = 2
+_SUSTAINED_RECENT_MIN_EVIDENCE = 2
+_SUSTAINED_RECENT_MIN_DISTINCT_DAYS = 2
 
 _SHORT_LIVED_FAMILIES = frozenset(
     {
@@ -101,6 +104,15 @@ class AssertionPromotionInput:
     baseline_temporal_scope: str | None = None
     baseline_decay_policy: str | None = None
     baseline_ttl_seconds: float | None = None
+    recent_min_observations: int = _RECENT_MIN_OBSERVATIONS
+    recent_min_evidence: int = _RECENT_MIN_EVIDENCE
+    recent_min_distinct_days: int = _RECENT_MIN_DISTINCT_DAYS
+    recent_max_age_days: float | None = None
+    durable_min_observations: int = _DURABLE_MIN_OBSERVATIONS
+    durable_min_evidence: int = _DURABLE_MIN_EVIDENCE
+    durable_min_distinct_days: int = _DURABLE_MIN_DISTINCT_DAYS
+    durable_min_span_days: float = _DURABLE_MIN_SPAN_DAYS
+    durable_max_age_days: float = _DURABLE_MAX_AGE_DAYS
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "fact_kind", _normalized_text(self.fact_kind))
@@ -124,6 +136,55 @@ class AssertionPromotionInput:
         )
         object.__setattr__(self, "user_feedback", _normalized_text(self.user_feedback))
         object.__setattr__(self, "durable_permitted", bool(self.durable_permitted))
+        object.__setattr__(
+            self,
+            "recent_min_observations",
+            max(1, int(self.recent_min_observations or 1)),
+        )
+        object.__setattr__(
+            self,
+            "recent_min_evidence",
+            max(1, int(self.recent_min_evidence or 1)),
+        )
+        object.__setattr__(
+            self,
+            "recent_min_distinct_days",
+            max(1, int(self.recent_min_distinct_days or 1)),
+        )
+        object.__setattr__(
+            self,
+            "recent_max_age_days",
+            (
+                None
+                if self.recent_max_age_days is None
+                else max(0.0, float(self.recent_max_age_days))
+            ),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_observations",
+            max(1, int(self.durable_min_observations or 1)),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_evidence",
+            max(1, int(self.durable_min_evidence or 1)),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_distinct_days",
+            max(1, int(self.durable_min_distinct_days or 1)),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_span_days",
+            max(0.0, float(self.durable_min_span_days or 0.0)),
+        )
+        object.__setattr__(
+            self,
+            "durable_max_age_days",
+            max(0.0, float(self.durable_max_age_days or 0.0)),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +241,10 @@ def evaluate_assertion_promotion(
     if _is_explicit_durable_fact(evidence, strength):
         return _durable("explicit_durable_fact")
 
-    if strength is SourceStrengthPreset.SUSTAINED_ENGAGEMENT:
+    if strength in {
+        SourceStrengthPreset.SUSTAINED_ENGAGEMENT,
+        SourceStrengthPreset.STRUCTURED_SOURCE,
+    }:
         if _passes_durable_engagement_gates(evidence) and evidence.durable_permitted:
             return _durable("sustained_engagement_durable_gates")
         if _passes_recent_accumulation_gates(evidence):
@@ -239,27 +303,59 @@ def _is_explicit_durable_fact(
 
 
 def _passes_recent_accumulation_gates(evidence: AssertionPromotionInput) -> bool:
+    strength = _resolved_source_strength(evidence)
+    if strength is SourceStrengthPreset.PASSIVE_EXPOSURE:
+        floor_observations = _RECENT_MIN_OBSERVATIONS
+        floor_evidence = _RECENT_MIN_EVIDENCE
+        floor_distinct_days = _RECENT_MIN_DISTINCT_DAYS
+    elif strength is SourceStrengthPreset.SUSTAINED_ENGAGEMENT:
+        floor_observations = _SUSTAINED_RECENT_MIN_OBSERVATIONS
+        floor_evidence = _SUSTAINED_RECENT_MIN_EVIDENCE
+        floor_distinct_days = _SUSTAINED_RECENT_MIN_DISTINCT_DAYS
+    else:
+        floor_observations = 1
+        floor_evidence = 1
+        floor_distinct_days = 1
     return bool(
-        evidence.observation_count >= _RECENT_MIN_OBSERVATIONS
-        and evidence.evidence_count >= _RECENT_MIN_EVIDENCE
-        and evidence.distinct_days >= _RECENT_MIN_DISTINCT_DAYS
-        and _is_recent_enough(evidence.recency_days)
+        evidence.observation_count
+        >= max(evidence.recent_min_observations, floor_observations)
+        and evidence.evidence_count >= max(evidence.recent_min_evidence, floor_evidence)
+        and evidence.distinct_days
+        >= max(evidence.recent_min_distinct_days, floor_distinct_days)
+        and _is_recent_enough(
+            evidence.recency_days,
+            max_age_days=_recent_max_age_days(evidence),
+        )
     )
 
 
 def _passes_durable_engagement_gates(evidence: AssertionPromotionInput) -> bool:
     return bool(
-        evidence.temporal_cue in {L2TemporalCue.RECURRING, L2TemporalCue.STABLE}
-        and evidence.observation_count >= _DURABLE_MIN_OBSERVATIONS
-        and evidence.evidence_count >= _DURABLE_MIN_EVIDENCE
-        and evidence.distinct_days >= _DURABLE_MIN_DISTINCT_DAYS
-        and evidence.span_days >= _DURABLE_MIN_SPAN_DAYS
-        and _is_recent_enough(evidence.recency_days)
+        evidence.observation_count
+        >= max(evidence.durable_min_observations, _DURABLE_MIN_OBSERVATIONS)
+        and evidence.evidence_count
+        >= max(evidence.durable_min_evidence, _DURABLE_MIN_EVIDENCE)
+        and evidence.distinct_days
+        >= max(evidence.durable_min_distinct_days, _DURABLE_MIN_DISTINCT_DAYS)
+        and evidence.span_days
+        >= max(evidence.durable_min_span_days, _DURABLE_MIN_SPAN_DAYS)
+        and _is_recent_enough(
+            evidence.recency_days,
+            max_age_days=evidence.durable_max_age_days,
+        )
     )
 
 
-def _is_recent_enough(recency_days: float | None) -> bool:
-    return recency_days is not None and recency_days <= _RECENT_MAX_AGE_DAYS
+def _recent_max_age_days(evidence: AssertionPromotionInput) -> float:
+    if evidence.recent_max_age_days is not None:
+        return evidence.recent_max_age_days
+    if evidence.trait_family == "project_profile":
+        return float(_PROJECT_RECENT_TTL_SECONDS / 86_400)
+    return float(_RECENT_TTL_SECONDS / 86_400)
+
+
+def _is_recent_enough(recency_days: float | None, *, max_age_days: float) -> bool:
+    return recency_days is not None and recency_days <= max_age_days
 
 
 def _event_only(reason: str) -> AssertionPromotionDecision:

@@ -40,6 +40,7 @@ TARGET_KEY_L2_DERIVE = "memory_l2_derive"
 class L2DeriveContext:
     l2_cfg: Any
     unified: Any
+    l1_store: Any
     cognition_store: Any
     user_id: str
     user_entity_id: str
@@ -103,6 +104,12 @@ async def _build_l2_derive_context(
             stats={},
         )
 
+    if unified.l1 is None:
+        return ScheduledExecutionResult(
+            success=True,
+            message="l1_store_uninitialized_skip",
+            stats={},
+        )
     if unified.l2_entity_catalog is None:
         return ScheduledExecutionResult(
             success=True,
@@ -114,6 +121,7 @@ async def _build_l2_derive_context(
     return L2DeriveContext(
         l2_cfg=l2_cfg,
         unified=unified,
+        l1_store=unified.l1,
         cognition_store=cognition_store,
         user_id=str(CANONICAL_LOCAL_USER),
         user_entity_id=_canonical_user_entity_id(),
@@ -138,6 +146,7 @@ async def _run_interest_aggregation(context: L2DeriveContext) -> int:
     try:
         agg_stats = await aggregate_interests(
             context.cognition_store,
+            l1_store=context.l1_store,
             entity_id=context.user_entity_id,
             min_observations=int(context.l2_cfg.interest_observation_threshold),
         )
@@ -171,6 +180,7 @@ async def _run_plugin_derived_rules(context: L2DeriveContext) -> int:
             rule_stats = await evaluate_graph_derived_assertion_rule(
                 context.cognition_store,
                 rule,
+                l1_store=context.l1_store,
                 entity_id=context.user_entity_id,
                 entity_type="user",
             )

@@ -6,7 +6,7 @@ The interest aggregation step now lives in ``handle_l2_derive``, NOT in
 1. Config defaults — ``interest_aggregation_enabled=True``, ``interest_observation_threshold=3``.
 2. Derive handler enabled — seeds INTERESTED_IN edges (≥ threshold), runs
    ``handle_l2_derive``, asserts the snapshot contains an inferred
-   preference_profile assertion.
+   interest_profile assertion.
 3. Derive handler disabled — same setup but ``interest_aggregation_enabled=False``;
    asserts no interest assertion appears in the snapshot.
 4. Maintenance handler no longer emits ``interest_topics_aggregated`` in its stats.
@@ -25,6 +25,8 @@ from _shared.memory_schema import apply_memory_shared_schema
 from magi.config.memory_models import MemoryL2Settings
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 from magi.memory.l2.store import L2CognitionStore
+
+from .test_derived_assertion_rules import _EvidenceEventStore
 
 
 DEFAULT_USER_ENTITY_ID = f"user:{CANONICAL_LOCAL_USER}"
@@ -100,6 +102,7 @@ def _build_mock_unified(store: L2CognitionStore, db_path: str) -> Any:
     pipeline_mock._cognition_store = store
 
     unified = MagicMock()
+    unified.l1 = _EvidenceEventStore()
     unified.l2_entity_catalog = catalog_mock
     unified.l2_pipeline = pipeline_mock
     return unified

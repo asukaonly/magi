@@ -13,6 +13,7 @@ import pytest
 from magi.events.events import EventLevel
 from magi.memory.l2.assertions.interest_aggregation import aggregate_interests
 
+from .test_derived_assertion_rules import _EvidenceEventStore
 from .test_pipeline import _FakeAdapter, _FakeScenarioPool, UnifiedMemoryStore
 
 
@@ -76,7 +77,7 @@ async def _wait_for_relationships(store, *, entity_id: str, attempts: int = 300)
 
 
 @pytest.mark.asyncio
-async def test_external_interest_surfaces_via_derived_preference_in_snapshot():
+async def test_external_interest_surfaces_via_recent_interest_in_snapshot():
     adapter = _FakeAdapter([_external_interest_phase1(), _external_interest_phase2()])
     with tempfile.TemporaryDirectory() as temp_dir:
         base = Path(temp_dir)
@@ -128,6 +129,13 @@ async def test_external_interest_surfaces_via_derived_preference_in_snapshot():
 
             agg_stats = await aggregate_interests(
                 store.l2,
+                l1_store=_EvidenceEventStore(
+                    {
+                        "evt-ext-interest-1": time.time() - 2 * 86_400,
+                        "evt-ext-interest-extra-1": time.time() - 86_400,
+                        "evt-ext-interest-extra-2": time.time(),
+                    }
+                ),
                 entity_id="user:u1",
                 min_observations=3,
             )
@@ -142,7 +150,7 @@ async def test_external_interest_surfaces_via_derived_preference_in_snapshot():
             assert len(interest_keys) == 1, f"preference not in snapshot: {preferences!r}"
             pref = preferences[interest_keys[0]]
             assert pref["value"] == "rock climbing"
-            assert pref["family"] == "preference_profile"
+            assert pref["family"] == "interest_profile"
             assert pref["source_tier"] == "inferred"
         finally:
             await store.shutdown()

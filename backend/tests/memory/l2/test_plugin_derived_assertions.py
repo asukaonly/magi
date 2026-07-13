@@ -22,7 +22,7 @@ from .test_derive_schedule import (
     _make_dummy_context,
     _seed_canonical_name,
 )
-from .test_derived_assertion_rules import _seed_edge
+from .test_derived_assertion_rules import _EvidenceEventStore, _seed_edge
 
 
 def _music_profile_spec(
@@ -35,7 +35,7 @@ def _music_profile_spec(
         source_types=["netease_music"],
         allowed_entity_types=["media"],
         allowed_predicates=["LISTENED"],
-        allowed_assertion_families=["preference_profile"],
+        allowed_assertion_families=["interest_profile"],
         allowed_assertion_traits=["music.*"],
         assertion_mode="derived",
         derived_assertion_specs=[
@@ -43,9 +43,11 @@ def _music_profile_spec(
                 "rule_id": "netease_music.listened",
                 "source_predicates": ["LIKES" if invalid else "LISTENED"],
                 "source_types": ["chrome_history" if invalid else "netease_music"],
-                "trait_family": "mood" if invalid else "preference_profile",
+                "trait_family": "mood" if invalid else "interest_profile",
                 "trait_name_template": "mood.{object_slug}" if invalid else "music.{object_slug}",
                 "min_observations": 2,
+                "min_distinct_days": 2,
+                "signal_preset": "sustained_engagement",
                 **({"object_types": object_types} if object_types is not None else {}),
                 "source_domains": ["external_activity"],
                 "value_strategy": "canonical_name",
@@ -75,8 +77,9 @@ def test_valid_plugin_spec_builds_derived_rule():
     assert rule.rule_id == "netease_music.listened"
     assert rule.source_predicates == ("LISTENED",)
     assert rule.source_types == ("netease_music",)
-    assert rule.trait_family == "preference_profile"
+    assert rule.trait_family == "interest_profile"
     assert rule.trait_name_template == "music.{object_slug}"
+    assert rule.signal_preset.value == "sustained_engagement"
 
 
 def test_invalid_plugin_spec_is_ignored():
@@ -108,7 +111,11 @@ async def test_plugin_rule_writes_inferred_assertion(l2_store_with_schema):
     profiles = build_extraction_profile_registry([_music_profile_spec()])
     rules = build_graph_derived_rules_from_profiles(profiles)
 
-    stats = await evaluate_graph_derived_assertion_rule(store, rules[0])
+    stats = await evaluate_graph_derived_assertion_rule(
+        store,
+        rules[0],
+        l1_store=_EvidenceEventStore(),
+    )
 
     assert stats["assertions_written"] == 1
     rows = await _rows_for_trait(store, trait_name="music.song-a")
@@ -155,7 +162,11 @@ async def test_plugin_rule_does_not_overwrite_authoritative_assertion(l2_store_w
     profiles = build_extraction_profile_registry([_music_profile_spec()])
     rule = build_graph_derived_rules_from_profiles(profiles)[0]
 
-    await evaluate_graph_derived_assertion_rule(store, rule)
+    await evaluate_graph_derived_assertion_rule(
+        store,
+        rule,
+        l1_store=_EvidenceEventStore(),
+    )
 
     rows = await _rows_for_trait(store, trait_name="music.song-a")
     active = [row for row in rows if row["status"] != "shadow"]
@@ -190,7 +201,11 @@ async def test_derive_schedule_runs_plugin_derived_rules(tmp_path):
         _cognition_store=store,
         _extraction_profile_provider=lambda: [_music_profile_spec()],
     )
-    unified_mock = SimpleNamespace(l2_entity_catalog=catalog_mock, l2_pipeline=pipeline_mock)
+    unified_mock = SimpleNamespace(
+        l1=_EvidenceEventStore(),
+        l2_entity_catalog=catalog_mock,
+        l2_pipeline=pipeline_mock,
+    )
     cfg_mock = _build_config(
         interest_aggregation_enabled=False,
         shadow_conflict_notification_enabled=False,

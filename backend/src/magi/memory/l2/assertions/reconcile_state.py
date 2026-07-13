@@ -40,6 +40,12 @@ class L2ReconcileStateMixin:
             return "communication_profile"
         if normalized.startswith("preference."):
             return "preference_profile"
+        if normalized.startswith("interest."):
+            return "interest_profile"
+        if normalized.startswith("project."):
+            return "project_profile"
+        if normalized.startswith("routine."):
+            return "routine_profile"
         if normalized.startswith("state."):
             return "state_profile"
         return "preference_profile"
@@ -100,7 +106,7 @@ class L2ReconcileStateMixin:
     def _recommend_snapshot_field(self, *, trait_name: str, status: str) -> str:
         if status not in {"stable", "corroborated"}:
             return "none"
-        if trait_name.startswith("preference."):
+        if trait_name.startswith(("preference.", "interest.")):
             return "preferences"
         if trait_name.startswith("trigger."):
             return "sensitive_triggers"

@@ -38,6 +38,7 @@ from .ingress import (
 from .contracts import (
     ActivationFlowSpec,
     ContributionType,
+    DerivedAssertionRuleSpec,
     ExtractionProfileSpec,
     ExtensionFieldOption,
     ExtensionFieldSpec,
@@ -155,6 +156,7 @@ __all__ = [
     "PluginSettingsResourcePayload",
     # Manifest and registry
     "ContributionType",
+    "DerivedAssertionRuleSpec",
     "ExtractionProfileSpec",
     "PluginContribution",
     "PluginDisplayGroupSpec",

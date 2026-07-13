@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import re
+import time
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol, cast
 
@@ -12,6 +13,13 @@ from ....core.logger import get_logger
 from ....identity.defaults import CANONICAL_LOCAL_USER
 from ..entities.catalog.lookup import get_canonical_names
 from ..ontology import ASSERTION_FAMILY_ALLOWLIST, ENTITY_TYPE_REGISTRY, PREDICATE_REGISTRY
+from ..phase1_models import L2TemporalCue
+from .promotion import (
+    AssertionPromotionInput,
+    PromotionHorizon,
+    SourceStrengthPreset,
+    evaluate_assertion_promotion,
+)
 
 logger = get_logger(__name__)
 
@@ -76,6 +84,11 @@ class GraphDerivedAssertionRule:
     source_domains: tuple[str, ...] = field(default_factory=lambda: ("external_activity",))
     value_strategy: str = "canonical_name"
     object_types: tuple[str, ...] = field(default_factory=tuple)
+    signal_preset: SourceStrengthPreset | str = SourceStrengthPreset.PASSIVE_EXPOSURE
+    durable_permitted: bool = False
+    durable_min_observations: int = 6
+    durable_min_distinct_days: int = 3
+    durable_min_span_days: float = 14.0
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "rule_id", str(self.rule_id).strip())
@@ -122,6 +135,27 @@ class GraphDerivedAssertionRule:
                 if str(object_type).strip()
             ),
         )
+        object.__setattr__(
+            self,
+            "signal_preset",
+            SourceStrengthPreset.from_value(self.signal_preset),
+        )
+        object.__setattr__(self, "durable_permitted", bool(self.durable_permitted))
+        object.__setattr__(
+            self,
+            "durable_min_observations",
+            max(1, int(self.durable_min_observations or 1)),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_distinct_days",
+            max(1, int(self.durable_min_distinct_days or 1)),
+        )
+        object.__setattr__(
+            self,
+            "durable_min_span_days",
+            max(0.0, float(self.durable_min_span_days or 0.0)),
+        )
 
 
 @dataclass(slots=True, frozen=True)
@@ -133,18 +167,31 @@ class _EdgeCandidateContext:
     object_slug: str
 
 
+@dataclass(slots=True, frozen=True)
+class _EdgeEvidenceStats:
+    event_ids: tuple[str, ...]
+    observation_count: int
+    evidence_count: int
+    distinct_days: int
+    first_observed_at: float
+    last_observed_at: float
+    span_days: float
+    recency_days: float | None
+
+
 def builtin_interest_rule(*, min_observations: int = 3) -> GraphDerivedAssertionRule:
-    """Return the host fallback rule for stable profile-worthy interests."""
+    """Return the host fallback rule for recent profile-worthy interests."""
     return GraphDerivedAssertionRule(
         rule_id="builtin.interested_in",
         source_predicates=("INTERESTED_IN",),
-        trait_family="preference_profile",
+        trait_family="interest_profile",
         trait_name_template="interest.{object_slug}",
         min_observations=min_observations,
         min_distinct_days=_PROFILE_INTEREST_MIN_DISTINCT_DAYS,
         source_domains=("external_activity",),
         value_strategy="canonical_name",
         object_types=_PROFILE_INTEREST_OBJECT_TYPES,
+        signal_preset=SourceStrengthPreset.PASSIVE_EXPOSURE,
     )
 
 
@@ -170,9 +217,11 @@ async def evaluate_graph_derived_assertion_rule(
     store: Any,
     rule: GraphDerivedAssertionRule,
     *,
+    l1_store: Any,
     entity_id: str = _DEFAULT_USER_ENTITY_ID,
     entity_type: str = "user",
     limit: int = 500,
+    now: float | None = None,
 ) -> dict[str, int]:
     """Evaluate one graph-derived assertion rule and persist matching assertions."""
     edges, edges_seen = await _fetch_rule_edges(
@@ -181,7 +230,17 @@ async def evaluate_graph_derived_assertion_rule(
         entity_id=entity_id,
         limit=limit,
     )
-    qualifying = _qualifying_edges(edges=edges, rule=rule)
+    evaluation_time = float(now if now is not None else time.time())
+    evidence_stats = await _load_edge_evidence_stats(
+        edges=edges,
+        l1_store=l1_store,
+        now=evaluation_time,
+    )
+    qualifying = _qualifying_edges(
+        edges=edges,
+        rule=rule,
+        evidence_stats=evidence_stats,
+    )
     if not qualifying:
         _log_no_qualifying_edges(rule=rule, entity_id=entity_id, edges_seen=edges_seen)
         return {"edges_seen": edges_seen, "assertions_written": 0}
@@ -195,6 +254,7 @@ async def evaluate_graph_derived_assertion_rule(
         entity_type=entity_type,
         qualifying=qualifying,
         canonical_names=canonical_names,
+        evidence_stats=evidence_stats,
     )
     _log_rule_completed(
         rule=rule,
@@ -233,8 +293,100 @@ def _qualifying_edges(
     *,
     edges: list[dict[str, Any]],
     rule: GraphDerivedAssertionRule,
+    evidence_stats: dict[str, _EdgeEvidenceStats],
 ) -> list[dict[str, Any]]:
-    return [edge for edge in edges if _edge_meets_rule(edge=edge, rule=rule)]
+    return [
+        edge
+        for edge in edges
+        if _edge_meets_rule(
+            edge=edge,
+            rule=rule,
+            evidence_stats=evidence_stats.get(_edge_key(edge)),
+        )
+    ]
+
+
+async def _load_edge_evidence_stats(
+    *,
+    edges: list[dict[str, Any]],
+    l1_store: Any,
+    now: float,
+) -> dict[str, _EdgeEvidenceStats]:
+    event_ids = _unique_edge_event_ids(edges)
+    timestamps = await l1_store.get_event_timestamps(event_ids)
+    return {
+        _edge_key(edge): _evidence_stats_for_edge(
+            edge,
+            timestamps=timestamps,
+            now=now,
+        )
+        for edge in edges
+    }
+
+
+def _unique_edge_event_ids(edges: list[dict[str, Any]]) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for edge in edges:
+        for raw_event_id in edge.get("evidence_event_ids") or []:
+            event_id = str(raw_event_id or "").strip()
+            if not event_id or event_id in seen:
+                continue
+            seen.add(event_id)
+            unique.append(event_id)
+    return unique
+
+
+def _evidence_stats_for_edge(
+    edge: dict[str, Any],
+    *,
+    timestamps: Mapping[str, float],
+    now: float,
+) -> _EdgeEvidenceStats:
+    event_times = [
+        (str(raw_event_id), float(timestamps[str(raw_event_id)]))
+        for raw_event_id in edge.get("evidence_event_ids") or []
+        if str(raw_event_id) in timestamps and float(timestamps[str(raw_event_id)]) > 0
+    ]
+    event_times.sort(key=lambda item: (item[1], item[0]))
+    if not event_times:
+        return _EdgeEvidenceStats(
+            event_ids=(),
+            observation_count=int(edge.get("observation_count", 0) or 0),
+            evidence_count=0,
+            distinct_days=0,
+            first_observed_at=0.0,
+            last_observed_at=0.0,
+            span_days=0.0,
+            recency_days=None,
+        )
+    ordered_times = [timestamp for _event_id, timestamp in event_times]
+    distinct_days = {
+        (time.localtime(timestamp).tm_year, time.localtime(timestamp).tm_yday)
+        for timestamp in ordered_times
+    }
+    first_observed_at = ordered_times[0]
+    last_observed_at = ordered_times[-1]
+    return _EdgeEvidenceStats(
+        event_ids=tuple(event_id for event_id, _timestamp in event_times),
+        observation_count=int(edge.get("observation_count", 0) or 0),
+        evidence_count=len(event_times),
+        distinct_days=len(distinct_days),
+        first_observed_at=first_observed_at,
+        last_observed_at=last_observed_at,
+        span_days=max(0.0, (last_observed_at - first_observed_at) / 86_400),
+        recency_days=max(0.0, (now - last_observed_at) / 86_400),
+    )
+
+
+def _edge_key(edge: Mapping[str, Any]) -> str:
+    triple_id = str(edge.get("triple_id") or "").strip()
+    if triple_id:
+        return triple_id
+    return "\x1f".join(
+        str(edge.get(field) or "").strip()
+        for field in ("subject_id", "predicate", "object_id", "source_type")
+    )
 
 
 def _log_no_qualifying_edges(
@@ -259,6 +411,7 @@ async def _write_derived_assertion_candidates(
     entity_type: str,
     qualifying: list[dict[str, Any]],
     canonical_names: dict[str, str],
+    evidence_stats: dict[str, _EdgeEvidenceStats],
 ) -> int:
     assertions_written = 0
     for edge in qualifying:
@@ -268,6 +421,7 @@ async def _write_derived_assertion_candidates(
             entity_id=entity_id,
             entity_type=entity_type,
             canonical_names=canonical_names,
+            evidence_stats=evidence_stats[_edge_key(edge)],
         )
         if candidate is None:
             continue
@@ -300,7 +454,12 @@ def _log_rule_completed(
     )
 
 
-def _edge_meets_rule(*, edge: dict[str, Any], rule: GraphDerivedAssertionRule) -> bool:
+def _edge_meets_rule(
+    *,
+    edge: dict[str, Any],
+    rule: GraphDerivedAssertionRule,
+    evidence_stats: _EdgeEvidenceStats | None,
+) -> bool:
     if int(edge.get("observation_count", 0) or 0) < rule.min_observations:
         return False
     if rule.source_types:
@@ -311,15 +470,12 @@ def _edge_meets_rule(*, edge: dict[str, Any], rule: GraphDerivedAssertionRule) -
         object_type = str(edge.get("object_type") or "").strip().casefold()
         if object_type not in rule.object_types:
             return False
-    if rule.min_distinct_days <= 1:
-        return True
-    first_observed_at = float(edge.get("first_observed_at", 0.0) or 0.0)
-    last_observed_at = float(edge.get("last_observed_at", 0.0) or 0.0)
-    if first_observed_at <= 0 or last_observed_at <= 0:
+    if evidence_stats is None:
         return False
-    first_day = int(first_observed_at // 86_400)
-    last_day = int(last_observed_at // 86_400)
-    return (last_day - first_day + 1) >= rule.min_distinct_days
+    return bool(
+        evidence_stats.evidence_count >= rule.min_observations
+        and evidence_stats.distinct_days >= max(1, rule.min_distinct_days)
+    )
 
 
 def _candidate_from_edge(
@@ -329,6 +485,7 @@ def _candidate_from_edge(
     entity_id: str,
     entity_type: str,
     canonical_names: dict[str, str],
+    evidence_stats: _EdgeEvidenceStats,
 ) -> dict[str, Any] | None:
     context = _edge_candidate_context(edge=edge, rule=rule)
     if context is None:
@@ -358,6 +515,7 @@ def _candidate_from_edge(
         entity_type=entity_type,
         context=context,
         trait_value=trait_value,
+        evidence_stats=evidence_stats,
     )
 
 
@@ -403,11 +561,11 @@ def _trait_name_for_edge(
     )
 
 
-def _confidence_for_edge(edge: dict[str, Any]) -> float:
-    obs_count = int(edge.get("observation_count", 1) or 1)
+def _confidence_for_edge(edge: dict[str, Any], *, evidence_count: int) -> float:
     return min(
         0.9,
-        float(edge.get("confidence", 0.5) or 0.5) * (1 + 0.1 * min(obs_count, 5)),
+        float(edge.get("confidence", 0.5) or 0.5)
+        * (1 + 0.1 * min(evidence_count, 5)),
     )
 
 
@@ -419,13 +577,48 @@ def _build_derived_assertion_candidate(
     entity_type: str,
     context: _EdgeCandidateContext,
     trait_value: str,
-) -> dict[str, Any]:
+    evidence_stats: _EdgeEvidenceStats,
+) -> dict[str, Any] | None:
     trait_name = _trait_name_for_edge(
         rule=rule,
         context=context,
     )
-    evidence_events = list(edge.get("evidence_event_ids") or [])
     source_domain = rule.source_domains[0] if rule.source_domains else "external_activity"
+    promotion = evaluate_assertion_promotion(
+        AssertionPromotionInput(
+            trait_family=rule.trait_family,
+            fact_kind="interaction_evidence",
+            predicate=context.predicate,
+            evidence_class=(
+                "external_observation"
+                if source_domain == "external_activity"
+                else "unknown"
+            ),
+            temporal_cue=L2TemporalCue.UNSPECIFIED,
+            source_strength=rule.signal_preset,
+            observation_count=evidence_stats.observation_count,
+            evidence_count=evidence_stats.evidence_count,
+            distinct_days=evidence_stats.distinct_days,
+            span_days=evidence_stats.span_days,
+            recency_days=evidence_stats.recency_days,
+            durable_permitted=rule.durable_permitted,
+            recent_min_observations=rule.min_observations,
+            recent_min_evidence=rule.min_observations,
+            recent_min_distinct_days=max(1, rule.min_distinct_days),
+            durable_min_observations=rule.durable_min_observations,
+            durable_min_evidence=rule.durable_min_observations,
+            durable_min_distinct_days=rule.durable_min_distinct_days,
+            durable_min_span_days=rule.durable_min_span_days,
+        )
+    )
+    if promotion.horizon is PromotionHorizon.EVENT_ONLY:
+        return None
+    expiry = promotion.expiry
+    expires_at = (
+        evidence_stats.last_observed_at + expiry.ttl_seconds
+        if expiry.ttl_seconds is not None
+        else None
+    )
 
     return {
         "entity_id": entity_id,
@@ -433,19 +626,29 @@ def _build_derived_assertion_candidate(
         "trait_family": rule.trait_family,
         "trait_name": trait_name,
         "trait_value": trait_value,
-        "confidence_score": _confidence_for_edge(edge),
-        "evidence_events": evidence_events,
-        "volatility_index": 0.2,
+        "confidence_score": _confidence_for_edge(
+            edge,
+            evidence_count=evidence_stats.evidence_count,
+        ),
+        "evidence_events": list(evidence_stats.event_ids),
+        "volatility_index": (
+            0.7 if promotion.horizon is PromotionHorizon.RECENT else 0.2
+        ),
         "source_domain": source_domain,
         "inference_depth": "topology_only",
         "validation_state": "tentative",
-        "first_inferred_at": float(edge.get("first_observed_at", 0.0) or 0.0),
-        "last_validated_at": float(edge.get("last_observed_at", 0.0) or 0.0),
+        "first_inferred_at": evidence_stats.first_observed_at,
+        "last_validated_at": evidence_stats.last_observed_at,
         "target_entity_id": context.object_id,
         "target_entity_type": context.object_type,
         "target_scope": "entity_bound",
-        "temporal_scope": "stable",
-        "decay_policy": "evidence_only",
+        "temporal_scope": expiry.temporal_scope,
+        "decay_policy": expiry.decay_policy,
+        "decay_anchor_at": evidence_stats.last_observed_at,
+        "expires_at": expires_at,
+        "memory_subdomain": (
+            "state" if promotion.horizon is PromotionHorizon.RECENT else "semantic"
+        ),
         "natural_summary": f"Recurring {context.predicate.lower()} signal for {trait_value}",
     }
 
@@ -526,6 +729,20 @@ def _rule_from_profile_spec(
     object_types = _profile_rule_object_types(profile, spec, index)
     if object_types is None:
         return None
+    signal_preset = _profile_rule_signal_preset(profile, spec, index)
+    if signal_preset is None:
+        return None
+    durable_permitted = bool(spec.get("durable_permitted", False))
+    if (
+        durable_permitted
+        and signal_preset is SourceStrengthPreset.PASSIVE_EXPOSURE
+    ):
+        logger.warning(
+            "skipping passive derived assertion spec with durable promotion",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
 
     return GraphDerivedAssertionRule(
         rule_id=str(spec.get("rule_id") or f"{profile.profile_id}.derived.{index}").strip(),
@@ -538,7 +755,46 @@ def _rule_from_profile_spec(
         source_domains=_normalize_source_domains(spec.get("source_domains")),
         value_strategy=value_strategy,
         object_types=object_types,
+        signal_preset=signal_preset,
+        durable_permitted=durable_permitted,
+        durable_min_observations=max(
+            1,
+            int(spec.get("durable_min_observations") or 6),
+        ),
+        durable_min_distinct_days=max(
+            1,
+            int(spec.get("durable_min_distinct_days") or 3),
+        ),
+        durable_min_span_days=max(
+            0.0,
+            float(spec.get("durable_min_span_days") or 14.0),
+        ),
     )
+
+
+def _profile_rule_signal_preset(
+    profile: _DerivedAssertionProfile,
+    spec: dict[str, Any],
+    index: int,
+) -> SourceStrengthPreset | None:
+    raw_preset = str(spec.get("signal_preset") or "passive_exposure").strip()
+    try:
+        preset = SourceStrengthPreset.from_value(raw_preset)
+    except ValueError:
+        logger.warning(
+            "skipping derived assertion spec with invalid signal preset",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+    if preset in {SourceStrengthPreset.AUTO, SourceStrengthPreset.DIRECT_USER}:
+        logger.warning(
+            "skipping derived assertion spec with host-reserved signal preset",
+            profile_id=profile.profile_id,
+            spec_index=index,
+        )
+        return None
+    return preset
 
 
 def _profile_rule_source_predicates(
