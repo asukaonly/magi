@@ -114,6 +114,17 @@ async def schedule_portrait_projection_refresh_after_assertion_change(
     await scheduler.schedule_assertion_change(assertion)
 
 
+async def schedule_portrait_projection_refresh(
+    unified_memory: Any,
+    user_id: str,
+) -> None:
+    """Schedule a debounced portrait refresh for one known local user."""
+    scheduler = get_portrait_projection_scheduler(unified_memory)
+    if scheduler is None:
+        return
+    await scheduler.schedule_user(user_id)
+
+
 def register_l2_portrait_projection_refresh(unified_memory: Any) -> None:
     """Attach portrait refresh scheduling to L2 assertion writes when available."""
     l2 = getattr(unified_memory, "l2", None)
@@ -198,5 +209,6 @@ __all__ = [
     "UserPortraitProjectionScheduler",
     "get_portrait_projection_scheduler",
     "register_l2_portrait_projection_refresh",
+    "schedule_portrait_projection_refresh",
     "schedule_portrait_projection_refresh_after_assertion_change",
 ]

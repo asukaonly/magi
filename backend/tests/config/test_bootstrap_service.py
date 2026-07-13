@@ -205,7 +205,7 @@ class TestBootstrapOpening:
         prompt = service._build_opening_system_prompt(
             config,
             config.bootstrap,
-            "- Source chrome_history:\n  - 浏览 X",
+            "- 用户关注或偏好：DIIV。",
             target_language="Simplified Chinese (zh-CN)",
         )
         # Layer 1: persona fingerprint fields wired into the opening prompt.
@@ -221,9 +221,9 @@ class TestBootstrapOpening:
         assert "你是不是 AI" in prompt
         # Layer 2: onboarding goals are subordinate to staying in character.
         assert "subordinate to staying in character" in prompt
-        # Layer 3B: tiered evidence use with a creepiness self-check.
+        # Layer 3B: governed portrait use with a creepiness self-check.
         assert "Creepiness check" in prompt
-        assert "broad, non-sensitive THEME" in prompt
+        assert "Use at most one relevant idea" in prompt
 
     @pytest.mark.asyncio
     async def test_get_opening_llm_fails_uses_static_fallback(self):
@@ -487,7 +487,7 @@ class TestBootstrapL2PriorityMetadata:
         assert metadata == {}
 
 
-def test_build_opening_system_prompt_includes_activity_snippet():
+def test_build_opening_system_prompt_includes_governed_portrait_context():
     from magi.personality.bootstrap_service import BootstrapDialogueService
     from magi.personality.loader import BootstrapConfig, PersonalityConfig
     svc = BootstrapDialogueService(growth_engine=None)
@@ -496,7 +496,7 @@ def test_build_opening_system_prompt_includes_activity_snippet():
     with_snip = svc._build_opening_system_prompt(
         cfg,
         bs,
-        "今天看了关于 X 的网页",
+        "- 用户关注或偏好：DIIV。\n- 近期线索：正在推进 Magi；不要直接当成长期结论。",
         target_language="Simplified Chinese (zh-CN)",
     )
     without = svc._build_opening_system_prompt(
@@ -505,75 +505,93 @@ def test_build_opening_system_prompt_includes_activity_snippet():
         None,
         target_language="Simplified Chinese (zh-CN)",
     )
-    assert "今天看了关于 X 的网页" in with_snip
-    assert "How to use it (tiered" in with_snip
+    assert "# Existing user understanding" in with_snip
+    assert "用户关注或偏好：DIIV" in with_snip
+    assert "Treat anything labeled as recent context as tentative" in with_snip
     assert "ignore it completely" in with_snip
     assert "MUST include" not in with_snip
     assert "Reply in Simplified Chinese (zh-CN)" in with_snip
-    assert "今天看了关于 X 的网页" not in without
-    assert "How to use it (tiered" not in without
+    assert "用户关注或偏好：DIIV" not in without
+    assert "# Existing user understanding" not in without
     assert "Reply in Simplified Chinese (zh-CN)" in without
     # Both still invite the user to share what to call them (persona-gated, optional).
     assert "what to call them" in without
 
 
 @pytest.mark.asyncio
-async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(monkeypatch):
+async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatch):
     import magi.personality.bootstrap_service as mod
+    import magi.memory.provider as memory_provider
 
-    class FakeL1:
-        async def query_events(self, *, source_filters, limit, order_by, **_kwargs):
-            assert order_by == "created_at_desc"
-            source = source_filters[0]
-            rows = {
-                "chrome_history": [
-                    {
-                        "source": "chrome_history",
-                        "content": "Chrome title: React animation notes https://example.test/path?token=secret",
-                        "timestamp": 100.0,
-                        "created_at": 2000.0,
-                        "memory_domain": "external_activity",
-                    },
-                    {
-                        "source": "chrome_history",
-                        "content": "Chrome title: LLM prompt caching article",
-                        "timestamp": 90.0,
-                        "created_at": 1999.0,
-                        "memory_domain": "external_activity",
-                    },
-                ],
-                "git_activity": [
-                    {
-                        "source": "git_activity",
-                        "content": "Commit in magi: improve onboarding plugin flow",
-                        "timestamp": 80.0,
-                        "created_at": 1998.0,
-                        "memory_domain": "external_activity",
-                    }
-                ],
-            }
-            return rows.get(source, [])[:limit]
+    memory = object()
+    requested_user_ids: list[str] = []
 
-        async def summarize_event_sources(self, **_kwargs):
+    class FakeProfileService:
+        def __init__(self, *, unified_memory):
+            assert unified_memory is memory
+
+        async def get_portrait_prompt_summary(self, user_id: str):
+            requested_user_ids.append(user_id)
             return [
-                {"source": "chrome_history", "event_count": 1200},
-                {"source": "git_activity", "event_count": 80},
+                "用户关注或偏好：DIIV。",
+                "近期线索：正在推进 Magi；不要直接当成长期结论。",
             ]
 
-    class FakeMemory:
-        l1 = FakeL1()
+    monkeypatch.setattr(memory_provider, "get_unified_memory", lambda: memory)
+    monkeypatch.setattr(
+        "magi.context.user_profile_service.UserProfileService",
+        FakeProfileService,
+    )
 
-        async def generate_source_activity_summary(self, **_kwargs):
-            raise AssertionError("recent 24h summary should be fallback after L1 import samples")
+    snippet = await mod._fetch_bootstrap_memory_snippet()
+
+    assert requested_user_ids == ["local_user"]
+    assert snippet == (
+        "- 用户关注或偏好：DIIV。\n"
+        "- 近期线索：正在推进 Magi；不要直接当成长期结论。"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_bootstrap_memory_snippet_returns_none_without_portrait(monkeypatch):
+    import magi.personality.bootstrap_service as mod
+    import magi.memory.provider as memory_provider
+
+    class FakeProfileService:
+        def __init__(self, *, unified_memory):
+            _ = unified_memory
+
+        async def get_portrait_prompt_summary(self, user_id: str):
+            _ = user_id
+            return []
+
+    monkeypatch.setattr(memory_provider, "get_unified_memory", object)
+    monkeypatch.setattr(
+        "magi.context.user_profile_service.UserProfileService",
+        FakeProfileService,
+    )
+
+    assert await mod._fetch_bootstrap_memory_snippet() is None
+
+
+@pytest.mark.asyncio
+async def test_get_opening_uses_governed_portrait_context(monkeypatch):
+    import magi.personality.bootstrap_service as mod
 
     mock_bridge = AsyncMock()
     mock_bridge.chat.return_value = "opening"
     mock_pool = MagicMock()
     mock_pool.get.return_value = object()
-    import magi.memory.provider as memory_provider
-
-    monkeypatch.setattr(memory_provider, "get_unified_memory", lambda: FakeMemory())
-    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
+    monkeypatch.setattr(
+        mod,
+        "_fetch_bootstrap_memory_snippet",
+        AsyncMock(
+            return_value=(
+                "- 用户关注或偏好：DIIV。\n"
+                "- 近期线索：正在推进 Magi；不要直接当成长期结论。"
+            )
+        ),
+    )
 
     svc = mod.BootstrapDialogueService(growth_engine=None)
     with (
@@ -584,61 +602,12 @@ async def test_get_opening_prefers_recent_l1_import_samples_from_each_source(mon
         assert await svc.get_opening("test") == "opening"
 
     system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
-    assert "Optional user-authorized activity evidence" in system_prompt
-    assert "Recently imported user data" not in system_prompt
-    assert "chrome_history" in system_prompt
-    assert "git_activity" in system_prompt
-    assert "React animation notes" in system_prompt
-    assert "improve onboarding plugin flow" in system_prompt
-    assert "token=secret" not in system_prompt
-    assert "MUST include" not in system_prompt
+    assert "# Existing user understanding" in system_prompt
+    assert "用户关注或偏好：DIIV" in system_prompt
+    assert "近期线索：正在推进 Magi" in system_prompt
+    assert "browser" not in system_prompt.casefold()
+    assert "raw samples" not in system_prompt
     assert "Creepiness check" in system_prompt
-    assert "broad, non-sensitive THEME" in system_prompt
-
-
-@pytest.mark.asyncio
-async def test_recent_l1_import_samples_include_user_authored_plugin_sources(monkeypatch):
-    import magi.personality.bootstrap_service as mod
-
-    class FakeL1:
-        async def query_events(self, *, source_filters, limit, order_by, memory_domain=None, **_kwargs):
-            assert order_by == "created_at_desc"
-            source = source_filters[0]
-            rows = {
-                "chrome_history": [
-                    {
-                        "source": "chrome_history",
-                        "content": f"Chrome 浏览 long context sample {idx}",
-                        "created_at": 2000.0 - idx,
-                    }
-                    for idx in range(1, 6)
-                ],
-                "claude_code_agent_history": [
-                    {
-                        "source": "claude_code_agent_history",
-                        "content": "Claude Code 对话 Magi onboarding context design",
-                        "created_at": 2001.0,
-                    }
-                ],
-            }
-            if source == "claude_code_agent_history" and memory_domain == "external_activity":
-                return []
-            return rows.get(source, [])[:limit]
-
-        async def summarize_event_sources(self, **_kwargs):
-            return [
-                {"source": "chrome_history", "event_count": 122},
-                {"source": "claude_code_agent_history", "event_count": 35},
-            ]
-
-    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
-
-    snippet = await mod._fetch_recent_import_activity_snippet(type("M", (), {"l1": FakeL1()})())
-
-    assert snippet is not None
-    assert "claude_code_agent_history" in snippet
-    assert "Magi onboarding context design" in snippet
-    assert "long context sample 5" in snippet
 
 
 @pytest.mark.asyncio
@@ -651,7 +620,7 @@ async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
     mock_pool = MagicMock()
     mock_pool.get.return_value = object()
 
-    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", AsyncMock(return_value=None))
+    monkeypatch.setattr(mod, "_fetch_bootstrap_memory_snippet", AsyncMock(return_value=None))
     service = BootstrapDialogueService(growth_engine=AsyncMock())
 
     with (
@@ -667,58 +636,7 @@ async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_recent_l1_import_samples_skip_low_signal_private_browser_entries(monkeypatch):
-    import magi.personality.bootstrap_service as mod
-
-    class FakeL1:
-        async def query_events(self, *, source_filters, limit, order_by, **_kwargs):
-            assert order_by == "created_at_desc"
-            return [
-                {
-                    "source": source_filters[0],
-                    "content": "Chrome 浏览 收件箱 (3) - user@example.com - Gmail",
-                    "created_at": 2000.0,
-                },
-                {
-                    "source": source_filters[0],
-                    "content": "Chrome 浏览 用户登录_2DFan",
-                    "created_at": 1999.0,
-                },
-                {
-                    "source": source_filters[0],
-                    "content": "Chrome 浏览 注册新用户_2DFan",
-                    "created_at": 1998.0,
-                },
-                {
-                    "source": source_filters[0],
-                    "content": "Chrome 浏览 Ever17 -the out of infinity-_时空轮回_2DFan",
-                    "created_at": 1997.0,
-                },
-                {
-                    "source": source_filters[0],
-                    "content": "Chrome 浏览 游戏条目搜索：ever17_2DFan",
-                    "created_at": 1996.0,
-                },
-            ][:limit]
-
-        async def summarize_event_sources(self, **_kwargs):
-            return [{"source": "chrome_history", "event_count": 110}]
-
-    monkeypatch.setattr(mod.time, "time", lambda: 2010.0)
-
-    snippet = await mod._fetch_recent_import_activity_snippet(type("M", (), {"l1": FakeL1()})())
-
-    assert snippet is not None
-    assert "Ever17" in snippet
-    assert "游戏条目搜索" in snippet
-    assert "Gmail" not in snippet
-    assert "user@example.com" not in snippet
-    assert "用户登录" not in snippet
-    assert "注册新用户" not in snippet
-
-
-@pytest.mark.asyncio
-async def test_get_opening_logs_full_system_prompt_for_diagnostics(monkeypatch):
+async def test_get_opening_does_not_log_portrait_context(monkeypatch):
     import magi.personality.bootstrap_service as mod
 
     mock_bridge = AsyncMock()
@@ -742,10 +660,10 @@ async def test_get_opening_logs_full_system_prompt_for_diagnostics(monkeypatch):
 
     assert any(
         call.args
-        and "Bootstrap opening system prompt" in str(call.args[0])
-        and "Chrome 浏览 Ever17" in str(call.args)
+        and "Bootstrap opening prompt ready" in str(call.args[0])
         for call in log_info.call_args_list
     )
+    assert "Chrome 浏览 Ever17" not in str(log_info.call_args_list)
 
 
 @pytest.mark.asyncio
@@ -755,7 +673,7 @@ async def test_get_opening_survives_snippet_fetch_failure(monkeypatch):
     # snippet fetch raises -> get_opening must still return (fallback opener path)
     async def boom():
         raise RuntimeError("memory down")
-    monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", boom)
+    monkeypatch.setattr(mod, "_fetch_bootstrap_memory_snippet", boom)
     # LLM pool unavailable -> falls back to static opening_line (None here) without raising
     result = await svc.get_opening("Echo-01")
     assert result is None or isinstance(result, str)

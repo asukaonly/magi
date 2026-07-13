@@ -21,6 +21,9 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
+from ...user_profile.portrait_projection_scheduler import (
+    schedule_portrait_projection_refresh,
+)
 from ..provider import get_unified_memory
 from .assertions.derived_rules import (
     build_graph_derived_rules_from_profiles,
@@ -67,6 +70,8 @@ async def handle_l2_derive(
     interest_topics_aggregated = await _run_interest_aggregation(derive_context)
     plugin_derived_assertions_written = await _run_plugin_derived_rules(derive_context)
     shadow_notifications_emitted = await _run_shadow_conflict_notifications(derive_context)
+    if interest_topics_aggregated > 0 or plugin_derived_assertions_written > 0:
+        await _schedule_portrait_refresh(derive_context)
 
     return ScheduledExecutionResult(
         success=True,
@@ -216,6 +221,16 @@ async def _run_shadow_conflict_notifications(context: L2DeriveContext) -> int:
     except Exception as exc:
         logger.warning("L2 shadow conflict notification scan failed", error=str(exc))
         return 0
+
+
+async def _schedule_portrait_refresh(context: L2DeriveContext) -> None:
+    try:
+        await schedule_portrait_projection_refresh(
+            context.unified,
+            context.user_id,
+        )
+    except Exception as exc:
+        logger.warning("L2 derived portrait refresh scheduling failed", error=str(exc))
 
 
 async def _refresh_user_snapshot(

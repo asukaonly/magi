@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
-from magi.user_profile.portrait_projection_scheduler import UserPortraitProjectionScheduler
+from magi.user_profile.portrait_projection_scheduler import (
+    UserPortraitProjectionScheduler,
+    schedule_portrait_projection_refresh,
+)
 
 
 @pytest.mark.asyncio
@@ -59,6 +63,20 @@ async def test_scheduler_ignores_non_user_assertion_changes():
     await scheduler.wait_idle()
 
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_schedule_portrait_refresh_targets_known_user(monkeypatch):
+    scheduler = AsyncMock()
+    memory = object()
+    monkeypatch.setattr(
+        "magi.user_profile.portrait_projection_scheduler.get_portrait_projection_scheduler",
+        lambda unified_memory: scheduler if unified_memory is memory else None,
+    )
+
+    await schedule_portrait_projection_refresh(memory, "local_user")
+
+    scheduler.schedule_user.assert_awaited_once_with("local_user")
 
 
 def _assertion(

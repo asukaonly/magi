@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -264,16 +264,22 @@ async def test_derive_handler_interest_surfaces_in_canonical_user_snapshot(tmp_p
     cfg_mock = _build_config(shadow_conflict_notification_enabled=False)
 
     from magi.memory.l2.derive_schedule import handle_l2_derive
+    schedule_portrait_refresh = AsyncMock()
 
     with (
         patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified_mock),
         patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock),
+        patch(
+            "magi.memory.l2.derive_schedule.schedule_portrait_projection_refresh",
+            schedule_portrait_refresh,
+        ),
     ):
         result = await handle_l2_derive(_make_dummy_context())
 
     assert result.success is True
     assert result.message == "derive_ok"
     assert result.stats.get("interest_topics_aggregated", 0) >= 1
+    schedule_portrait_refresh.assert_awaited_once_with(unified_mock, "local_user")
 
     snapshot = await store.get_tom_snapshot(entity_id="user:local_user", entity_type="user")
     assert snapshot is not None

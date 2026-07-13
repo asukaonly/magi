@@ -13,10 +13,10 @@ from __future__ import annotations
 import re
 import time
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlsplit, urlunsplit
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
+from ..identity.defaults import CANONICAL_LOCAL_USER
 from ..i18n import llm_language_label
 from ..llm import LLMProviderBridge
 from ..llm.provider import get_scenario_llm_pool
@@ -30,29 +30,6 @@ logger = get_logger(__name__)
 BOOTSTRAP_OPENING_LLM_TIMEOUT_SECONDS = 10.0
 BOOTSTRAP_L2_PRIORITY_MAX_WAIT_SECONDS = 1.0
 BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS = 15 * 60
-BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS = 24 * 60 * 60
-BOOTSTRAP_IMPORT_SAMPLE_MAX_SOURCES = 4
-BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE = 6
-BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT = 24
-BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS = 180
-_URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+")
-_EMAIL_PATTERN = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
-_LOW_SIGNAL_IMPORT_SAMPLE_TERMS = (
-    "gmail",
-    "inbox",
-    "收件箱",
-    "登录",
-    "登陆",
-    "注册",
-    "sign in",
-    "log in",
-    "login",
-    "register",
-    "auth",
-    "password",
-    "密码",
-    "验证码",
-)
 
 _growth_engine_instance: GrowthMemoryEngine | None = None
 
@@ -114,86 +91,10 @@ def _select_voice_examples(
     return examples
 
 
-def _strip_url_tracking(match: re.Match[str]) -> str:
-    raw = match.group(0)
+async def _fetch_bootstrap_memory_snippet() -> Optional[str]:
+    """Return governed portrait context for the first opening, or None."""
     try:
-        parts = urlsplit(raw)
-        return urlunsplit((parts.scheme, parts.netloc, parts.path or "", "", ""))
-    except Exception:
-        return raw.split("?", 1)[0].split("#", 1)[0]
-
-
-def _compact_import_sample_content(value: Any) -> str:
-    text = re.sub(r"\s+", " ", str(value or "")).strip()
-    if not text:
-        return ""
-    text = _URL_PATTERN.sub(_strip_url_tracking, text)
-    text = _EMAIL_PATTERN.sub("[email]", text)
-    if len(text) > BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS:
-        text = f"{text[: BOOTSTRAP_IMPORT_SAMPLE_MAX_CHARS - 3].rstrip()}..."
-    return text
-
-
-def _is_low_signal_import_sample(value: str) -> bool:
-    normalized = value.lower()
-    return any(term in normalized for term in _LOW_SIGNAL_IMPORT_SAMPLE_TERMS)
-
-
-async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
-    l1 = getattr(memory, "l1", None)
-    if l1 is None or not hasattr(l1, "summarize_event_sources") or not hasattr(l1, "query_events"):
-        return None
-
-    source_rows = await l1.summarize_event_sources(cognition_eligible=True)
-    if not source_rows:
-        return None
-
-    cutoff = time.time() - BOOTSTRAP_IMPORT_SAMPLE_WINDOW_SECONDS
-    source_blocks: list[tuple[str, list[str]]] = []
-    for source_row in source_rows:
-        source = str((source_row or {}).get("source") or "").strip()
-        if not source:
-            continue
-        rows = await l1.query_events(
-            source_filters=[source],
-            cognition_eligible=True,
-            limit=BOOTSTRAP_IMPORT_SAMPLE_QUERY_LIMIT,
-            order_by="created_at_desc",
-            include_embedding_fields=False,
-        )
-        samples: list[str] = []
-        for row in rows or []:
-            if _safe_float(row.get("created_at")) < cutoff:
-                break
-            content = _compact_import_sample_content(row.get("content"))
-            if content and not _is_low_signal_import_sample(content):
-                samples.append(content)
-            if len(samples) >= BOOTSTRAP_IMPORT_SAMPLE_PER_SOURCE:
-                break
-        if samples:
-            source_blocks.append((source, samples))
-        if len(source_blocks) >= BOOTSTRAP_IMPORT_SAMPLE_MAX_SOURCES:
-            break
-
-    if not source_blocks:
-        return None
-
-    lines: list[str] = []
-    for source, samples in source_blocks:
-        lines.append(f"- Source {source}:")
-        for sample in samples:
-            lines.append(f"  - {sample}")
-    return "\n".join(lines)
-
-
-async def _fetch_recent_activity_snippet() -> Optional[str]:
-    """Best-effort one-line 'what magi can already see' summary, or None.
-
-    Used to make the first opening data-aware. Any failure (no memory, no data,
-    ingest not done yet) returns None so the opener falls back to the existing
-    'ask the user' behavior. Never fabricates.
-    """
-    try:
+        from ..context.user_profile_service import UserProfileService
         from ..memory.provider import get_unified_memory
 
         memory = get_unified_memory()
@@ -202,29 +103,13 @@ async def _fetch_recent_activity_snippet() -> Optional[str]:
         return None
 
     try:
-        import_snippet = await _fetch_recent_import_activity_snippet(memory)
-        if import_snippet:
-            return import_snippet
-    except Exception as exc:  # noqa: BLE001 - import samples are best-effort
-        logger.info("bootstrap recent-import snippet unavailable: %s", exc)
-
-    try:
-        summary = await memory.generate_source_activity_summary(
-            summary_category="bootstrap_opening",
-            source_filter=[],
-            period_type="day",
-            min_events=1,
-        )
-        if not summary:
-            return None
-        # The L3 temporal-summary dict carries its prose under "content"
-        # (with an optional richer "essence_prose"); there is no "summary" key.
-        text = str(
-            summary.get("content") or summary.get("essence_prose") or ""
-        ).strip()
-        return text or None
+        lines = await UserProfileService(
+            unified_memory=memory,
+        ).get_portrait_prompt_summary(str(CANONICAL_LOCAL_USER))
+        cleaned = [str(line).strip() for line in lines if str(line).strip()]
+        return "\n".join(f"- {line}" for line in cleaned) or None
     except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
-        logger.info("bootstrap recent-activity snippet unavailable: %s", exc)
+        logger.info("bootstrap portrait context unavailable: %s", exc)
         return None
 
 
@@ -390,14 +275,14 @@ class BootstrapDialogueService:
         bootstrap = self._ensure_bootstrap_config(config)
 
         try:
-            activity_snippet = await _fetch_recent_activity_snippet()
+            memory_snippet = await _fetch_bootstrap_memory_snippet()
         except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
-            logger.info("bootstrap recent-activity snippet fetch raised: %s", exc)
-            activity_snippet = None
+            logger.info("bootstrap portrait context fetch raised: %s", exc)
+            memory_snippet = None
         generated = await self._generate_opening_via_llm(
             config,
             bootstrap,
-            activity_snippet,
+            memory_snippet,
             target_language=target_language or llm_language_label(),
         )
         if generated:
@@ -410,7 +295,7 @@ class BootstrapDialogueService:
         self,
         config: PersonalityConfig,
         bootstrap: BootstrapConfig,
-        activity_snippet: Optional[str],
+        memory_snippet: Optional[str],
         *,
         target_language: str,
     ) -> str:
@@ -461,22 +346,22 @@ class BootstrapDialogueService:
         if bootstrap.style_instruction:
             system_prompt += f"\n# First-contact stance\n{bootstrap.style_instruction}\n"
 
-        # --- Optional activity evidence (tiered use) ---
-        if activity_snippet:
+        # --- Optional governed user memory ---
+        if memory_snippet:
             system_prompt += (
-                "\nOptional user-authorized activity evidence "
-                "(raw samples, temporary first-chat context; not a profile or long-term memory):\n"
-                f"{activity_snippet}\n"
-                "\nHow to use it (tiered — when unsure, use less):\n"
-                "- You MAY surface ONLY a broad, non-sensitive THEME (a general interest or "
-                "domain), rephrased in your own voice as a light, tentative guess.\n"
-                "- Ignore silently anything specific, account-related, name-bearing, private, "
-                "or that could reveal you saw any records.\n"
+                "\n# Existing user understanding\n"
+                "The following memory has already passed the product's evidence and retention "
+                "rules:\n"
+                f"{memory_snippet}\n"
+                "\nHow to use it:\n"
+                "- Use at most one relevant idea, only when it makes the opening feel naturally "
+                "personal.\n"
+                "- Treat anything labeled as recent context as tentative, not as a lasting trait.\n"
                 "- Creepiness check: if your line could make the user wonder \"how do you know "
                 "that?\", cut it.\n"
-                "- Never mention browsing history, plugins, sensors, data import, records, or "
-                "sources. Do not list or quote samples.\n"
-                "- If the evidence is thin, noisy, or uncertain, ignore it completely and open "
+                "- Never mention memory storage, plugins, sensors, data import, records, or "
+                "sources. Do not list or quote the context.\n"
+                "- If the understanding is thin, noisy, or uncertain, ignore it completely and open "
                 "from persona alone.\n"
             )
 
@@ -508,7 +393,7 @@ class BootstrapDialogueService:
         self,
         config: PersonalityConfig,
         bootstrap: BootstrapConfig,
-        activity_snippet: Optional[str] = None,
+        memory_snippet: Optional[str] = None,
         *,
         target_language: str | None = None,
     ) -> Optional[str]:
@@ -517,14 +402,10 @@ class BootstrapDialogueService:
         system_prompt = self._build_opening_system_prompt(
             config,
             bootstrap,
-            activity_snippet,
+            memory_snippet,
             target_language=resolved_target_language,
         )
-        logger.info(
-            "Bootstrap opening system prompt | has_activity_context=%s prompt=%s",
-            bool(activity_snippet),
-            system_prompt,
-        )
+        logger.info("Bootstrap opening prompt ready | has_memory_context=%s", bool(memory_snippet))
 
         try:
             pool = get_scenario_llm_pool()
