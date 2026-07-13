@@ -79,6 +79,20 @@ def _build_test_config() -> AppConfig:
     )
 
 
+def _add_dashscope_coding_plan(config: AppConfig, plan_id: str = "codeplan") -> None:
+    provider = config.llm.providers["openai"].model_copy(deep=True)
+    provider.provider_type = LLMProvider.DASHSCOPE
+    provider.display_name = "Alibaba Cloud Coding Plan"
+    provider.provider_plan = plan_id
+    provider.services.chat.api_key = "sk-sp-dashscope"
+    provider.services.chat.base_url = "https://coding.dashscope.aliyuncs.com/v1"
+    config.llm.providers["dashscope"] = provider
+    config.llm.selections["core"].provider_id = "dashscope"
+    config.llm.selections["core"].model = "qwen3.7-plus"
+    config.llm.selections["context_decider"].provider_id = "dashscope"
+    config.llm.selections["context_decider"].model = "qwen3.6-plus"
+
+
 def test_scenario_llm_pool_returns_distinct_adapters_for_distinct_scenarios():
     from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
 
@@ -123,6 +137,66 @@ def test_scenario_llm_pool_falls_back_to_core_for_memory_summarizer():
 
     assert memory_llm.model_name == "claude-sonnet-4-6"
     assert created == [("anthropic", "claude-sonnet-4-6")]
+
+
+def test_scenario_llm_pool_allows_interactive_scenarios_for_coding_plan() -> None:
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    config = _build_test_config()
+    _add_dashscope_coding_plan(config)
+    created: list[dict[str, object]] = []
+
+    def adapter_factory(**kwargs) -> DummyAdapter:  # type: ignore[no-untyped-def]
+        created.append(dict(kwargs))
+        return DummyAdapter(provider_name=str(kwargs["provider_type"]), model_name=str(kwargs["model"]))
+
+    pool = ScenarioLLMPool(config=config, adapter_factory=adapter_factory)
+
+    assert pool.get(LLMScenario.CORE).model_name == "qwen3.7-plus"
+    assert pool.get(LLMScenario.CONTEXT_DECIDER).model_name == "qwen3.6-plus"
+    assert [item["provider_plan"] for item in created] == ["codeplan", "codeplan"]
+
+
+def test_scenario_llm_pool_rejects_background_scenario_for_coding_plan() -> None:
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    config = _build_test_config()
+    _add_dashscope_coding_plan(config)
+    pool = ScenarioLLMPool(
+        config=config,
+        adapter_factory=lambda **kwargs: DummyAdapter(
+            provider_name=str(kwargs["provider_type"]),
+            model_name=str(kwargs["model"]),
+        ),
+    )
+
+    try:
+        pool.get(LLMScenario.MEMORY_SUMMARIZER)
+    except ValueError as exc:
+        assert "does not allow scenario 'memory_summarizer'" in str(exc)
+    else:
+        raise AssertionError("Expected ScenarioLLMPool to reject background plan usage")
+
+
+def test_scenario_llm_pool_rejects_unknown_provider_plan() -> None:
+    from magi.llm.scenario_pool import LLMScenario, ScenarioLLMPool
+
+    config = _build_test_config()
+    _add_dashscope_coding_plan(config, plan_id="unknown-plan")
+    pool = ScenarioLLMPool(
+        config=config,
+        adapter_factory=lambda **kwargs: DummyAdapter(
+            provider_name=str(kwargs["provider_type"]),
+            model_name=str(kwargs["model"]),
+        ),
+    )
+
+    try:
+        pool.get(LLMScenario.CORE)
+    except ValueError as exc:
+        assert "Unknown LLM provider plan 'unknown-plan'" in str(exc)
+    else:
+        raise AssertionError("Expected ScenarioLLMPool to reject an unknown plan")
 
 
 def test_scenario_llm_pool_resolves_adapter_and_context_profile_together():

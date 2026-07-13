@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Callable
 
 from ..config import AppConfig
+from ..config.loader import get_llm_provider_registry_file
+from ..config.llm_registry import (
+    LLMProviderRegistryModel,
+    find_provider_meta,
+    load_llm_provider_registry,
+)
+from ..config.llm_registry_model_resolution import find_provider_plan
 from ..config.models import LLMProvider
 from ..config.models import LLMScenario
 from .model_context import ModelContextProfile, ResolvedModel
@@ -15,6 +23,14 @@ _OPTIONAL_SCENARIO_FALLBACKS = {
     LLMScenario.MEMORY_SUMMARIZER: LLMScenario.CORE,
     LLMScenario.TIMELINE_DIARY_NARRATIVE: LLMScenario.CORE,
 }
+
+
+@lru_cache(maxsize=1)
+def _load_provider_registry() -> LLMProviderRegistryModel:
+    return load_llm_provider_registry(
+        get_llm_provider_registry_file(),
+        fallback=LLMProviderRegistryModel(),
+    )
 
 
 class ScenarioLLMPool:
@@ -80,6 +96,7 @@ class ScenarioLLMPool:
             raise ValueError(
                 f"LLM scenario '{scenario.value}' references disabled provider '{selection.provider_id}'"
             )
+        self._validate_provider_plan_scenario(provider, scenario)
         service = (
             provider.services.embedding
             if scenario == LLMScenario.EMBEDDING
@@ -121,6 +138,33 @@ class ScenarioLLMPool:
         for configurator in self._adapter_configurators:
             configurator(adapter)
         return adapter
+
+    @staticmethod
+    def _validate_provider_plan_scenario(provider: object, scenario: LLMScenario) -> None:
+        provider_plan = str(getattr(provider, "provider_plan", "") or "").strip()
+        if not provider_plan:
+            return
+
+        provider_type = str(
+            getattr(
+                getattr(provider, "provider_type", ""),
+                "value",
+                getattr(provider, "provider_type", ""),
+            )
+            or ""
+        ).strip()
+        provider_meta = find_provider_meta(_load_provider_registry(), provider_type)
+        plan = find_provider_plan(provider_meta, provider_plan) if provider_meta is not None else None
+        if plan is None:
+            raise ValueError(
+                f"Unknown LLM provider plan '{provider_plan}' for provider '{provider_type}'"
+            )
+        if plan.allowed_scenarios is None or scenario in plan.allowed_scenarios:
+            return
+
+        raise ValueError(
+            f"LLM provider plan '{provider_plan}' does not allow scenario '{scenario.value}'"
+        )
 
     def _selection_for_scenario(self, scenario: LLMScenario) -> object | None:
         selection = self._config.llm.selections.get(scenario.value)

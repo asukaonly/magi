@@ -6,7 +6,13 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
-from .models import LLMCapabilitiesSettings, LLMLimitsSettings, LLMModelCostModel, ModelVendor
+from .models import (
+    LLMCapabilitiesSettings,
+    LLMLimitsSettings,
+    LLMModelCostModel,
+    LLMScenario,
+    ModelVendor,
+)
 
 
 def _default_chat_capabilities() -> "LLMChatCapabilitiesModel":
@@ -69,6 +75,7 @@ class LLMProviderPlanModel(BaseModel):
     default_model: Optional[str] = Field(default=None)
     default_classify_model: Optional[str] = Field(default=None)
     default_base_url: Optional[str] = Field(default=None)
+    allowed_scenarios: Optional[list[LLMScenario]] = Field(default=None)
     endpoints: list[LLMProviderPlanEndpointModel] = Field(default_factory=list)
     chat_models: Optional[list[LLMModelMetaModel]] = Field(default=None)
     embedding_models: Optional[list["LLMEmbeddingModelMetaModel"]] = Field(default=None)

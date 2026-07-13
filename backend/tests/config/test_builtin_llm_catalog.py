@@ -74,6 +74,14 @@ def test_builtin_subscription_plans_match_provider_allowlists() -> None:
     minimax_plan = _provider(registry, "minimax").plans[0]
     assert [model.id for model in minimax_plan.chat_models] == ["MiniMax-M2.7", "MiniMax-M2.7-highspeed"]
 
+    for provider_id in ("glm", "dashscope", "minimax", "xiaomimimo"):
+        plan = _provider(registry, provider_id).plans[0]
+        assert [scenario.value for scenario in plan.allowed_scenarios or []] == [
+            "context_compact",
+            "context_decider",
+            "core",
+        ]
+
 
 def test_builtin_catalog_removes_retired_or_unverified_models() -> None:
     registry = _load_registry()
