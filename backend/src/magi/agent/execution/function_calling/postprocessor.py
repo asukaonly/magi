@@ -5,6 +5,7 @@ This module keeps tool-result context shaping out of executor orchestration logi
 """
 from __future__ import annotations
 
+import json
 from typing import Any, Dict, cast
 
 from ...asset_refs import normalize_asset_ref_list, normalize_asset_ref_payload
@@ -21,10 +22,12 @@ class FunctionCallingPostprocessor:
         self,
         max_items: int = 40,
         max_text_chars: int = 2000,
+        max_payload_chars: int = 24_000,
         formatter_registry: ToolContextFormatterRegistry | None = None,
     ) -> None:
         self.max_items = max_items
         self.max_text_chars = max_text_chars
+        self.max_payload_chars = max(512, max_payload_chars)
         self._formatter_registry = formatter_registry or ToolContextFormatterRegistry.build_default(
             max_items=max_items,
             max_text_chars=max_text_chars,
@@ -39,7 +42,7 @@ class FunctionCallingPostprocessor:
             "data": self._compact_tool_data_for_context(
                 tool_name=tool_name, data=getattr(result, "data", None)
             ),
-            "error": getattr(result, "error", None),
+            "error": self._bound_context_text(getattr(result, "error", None)),
             "error_code": error_code,
         }
         if tool_name == "memory_query":
@@ -49,7 +52,7 @@ class FunctionCallingPostprocessor:
                 "The previous scan was blocked because the target location is ambiguous outside the current workspace. "
                 "Ask the user for an explicit path or use web-search before attempting another external local scan."
             )
-        return payload
+        return self._enforce_total_payload_limit(payload)
 
     def _compact_tool_data_for_context(self, tool_name: str, data: Any) -> Any:
         """Trim large tool payloads before injecting back into model context."""
@@ -62,34 +65,50 @@ class FunctionCallingPostprocessor:
         compacted, _ = self._compact_generic_value(data)
         return compacted
 
-    def _compact_generic_value(self, value: Any, *, depth: int = 0) -> tuple[Any, bool]:
+    def _compact_generic_value(
+        self,
+        value: Any,
+        *,
+        depth: int = 0,
+        max_items: int | None = None,
+        max_text_chars: int | None = None,
+        max_depth: int = 8,
+    ) -> tuple[Any, bool]:
         """Bound unregistered tool output without relying on tool-specific schemas."""
-        if depth >= 8:
+        item_limit = self.max_items if max_items is None else max(1, max_items)
+        text_limit = self.max_text_chars if max_text_chars is None else max(1, max_text_chars)
+        if depth >= max_depth:
             return "...[truncated]", True
         if isinstance(value, str):
-            if len(value) <= self.max_text_chars:
+            if len(value) <= text_limit:
                 return value, False
-            return value[: self.max_text_chars].rstrip() + "...[truncated]", True
+            return value[:text_limit].rstrip() + "...[truncated]", True
         if isinstance(value, list):
-            selected = value[: self.max_items]
+            selected = value[:item_limit]
             compacted_items: list[Any] = []
             truncated = len(selected) < len(value)
             for item in selected:
                 compacted, item_truncated = self._compact_generic_value(
                     item,
                     depth=depth + 1,
+                    max_items=item_limit,
+                    max_text_chars=text_limit,
+                    max_depth=max_depth,
                 )
                 compacted_items.append(compacted)
                 truncated = truncated or item_truncated
             return compacted_items, truncated
         if isinstance(value, dict):
-            selected_items = list(value.items())[: self.max_items]
+            selected_items = list(value.items())[:item_limit]
             compacted_dict: dict[str, Any] = {}
             truncated = len(selected_items) < len(value)
             for key, item in selected_items:
                 compacted, item_truncated = self._compact_generic_value(
                     item,
                     depth=depth + 1,
+                    max_items=item_limit,
+                    max_text_chars=text_limit,
+                    max_depth=max_depth,
                 )
                 compacted_dict[str(key)] = compacted
                 truncated = truncated or item_truncated
@@ -97,6 +116,87 @@ class FunctionCallingPostprocessor:
                 compacted_dict["__context_truncated__"] = True
             return compacted_dict, truncated
         return value, False
+
+    def _bound_context_text(self, value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        text_limit = min(
+            self.max_text_chars,
+            max(64, self.max_payload_chars // 4),
+        )
+        if len(value) <= text_limit:
+            return value
+        return value[:text_limit].rstrip() + "...[truncated]"
+
+    def _enforce_total_payload_limit(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        if self._serialized_length(payload) <= self.max_payload_chars:
+            return payload
+
+        source_data = payload.get("data")
+        stages = (
+            (20, 1_000, 7),
+            (10, 500, 6),
+            (5, 240, 5),
+            (2, 120, 4),
+            (1, 80, 3),
+        )
+        for item_limit, text_limit, depth_limit in stages:
+            compacted_data, _ = self._compact_generic_value(
+                source_data,
+                max_items=min(self.max_items, item_limit),
+                max_text_chars=min(self.max_text_chars, text_limit),
+                max_depth=depth_limit,
+            )
+            candidate = dict(payload)
+            candidate["data"] = compacted_data
+            if self._serialized_length(candidate) <= self.max_payload_chars:
+                return candidate
+
+        fallback = dict(payload)
+        fallback["data"] = {"__context_truncated__": True}
+        if self._serialized_length(fallback) <= self.max_payload_chars:
+            return fallback
+
+        fallback.pop("recovery_guidance", None)
+        fallback["error"] = self._truncate_to_length(fallback.get("error"), 64)
+        return fallback
+
+    def compact_tool_message_content(self, content: Any) -> tuple[Any, bool]:
+        """Bound an existing tool message before it is reused in a model request."""
+        if not isinstance(content, str) or len(content) <= self.max_payload_chars:
+            return content, False
+        try:
+            payload = json.loads(content)
+        except (TypeError, ValueError):
+            return self._truncate_to_length(content, self.max_payload_chars), True
+
+        if isinstance(payload, dict):
+            if "error" in payload:
+                payload["error"] = self._bound_context_text(payload.get("error"))
+            compacted = self._enforce_total_payload_limit(payload)
+        else:
+            compacted, _ = self._compact_generic_value(
+                payload,
+                max_items=2,
+                max_text_chars=120,
+                max_depth=4,
+            )
+        rendered = json.dumps(compacted, ensure_ascii=False)
+        if len(rendered) > self.max_payload_chars:
+            rendered = json.dumps({"__context_truncated__": True}, ensure_ascii=False)
+        return rendered, rendered != content
+
+    @staticmethod
+    def _serialized_length(value: Any) -> int:
+        return len(json.dumps(value, ensure_ascii=False, default=str))
+
+    @staticmethod
+    def _truncate_to_length(value: Any, max_chars: int) -> Any:
+        if not isinstance(value, str) or len(value) <= max_chars:
+            return value
+        marker = "...[truncated]"
+        keep = max(0, max_chars - len(marker))
+        return value[:keep].rstrip() + marker
 
     def _sanitize_structured_tool_data(self, data: Any) -> Any:
         if not isinstance(data, dict):

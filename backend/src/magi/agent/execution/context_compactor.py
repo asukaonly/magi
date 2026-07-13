@@ -16,8 +16,10 @@ from typing import Any, Callable, Dict, List
 from ...config.models import LLMScenario, ThinkingDepth
 from ...context.window_budget import (
     ContextWindowBudget,
+    ContextWindowUsage,
     build_context_window_budget,
     estimate_context_tokens,
+    measure_context_window_usage,
 )
 from ...llm.model_context import (
     ModelContextProfile,
@@ -214,6 +216,10 @@ class ContextCompactor:
         """Discard provider usage from an earlier execution run."""
         self._last_input_tokens = None
 
+    def invalidate_recorded_usage(self) -> None:
+        """Discard provider usage after the provider-facing prompt changes."""
+        self._last_input_tokens = None
+
     def record_input_tokens(self, input_tokens: int) -> None:
         """Feed provider-reported input token count after each LLM call."""
         if input_tokens > 0:
@@ -236,11 +242,23 @@ class ContextCompactor:
         prompt_overhead: Any | None = None,
     ) -> int:
         """Best-effort token count: prefer provider-reported, else estimate."""
-        payload = {"messages": messages, "overhead": prompt_overhead}
-        message_estimate = _estimate_message_tokens([payload])
-        if self._last_input_tokens is not None and self._last_input_tokens > 0:
-            return max(self._last_input_tokens, message_estimate)
-        return message_estimate
+        return self.measure_usage(
+            messages,
+            prompt_overhead=prompt_overhead,
+        ).estimated_tokens
+
+    def measure_usage(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        prompt_overhead: Any | None = None,
+    ) -> ContextWindowUsage:
+        """Measure the complete provider-facing input against the active budget."""
+        return measure_context_window_usage(
+            self._current_budget(),
+            {"messages": messages, "overhead": prompt_overhead},
+            observed_input_tokens=self._last_input_tokens,
+        )
 
     # -- decision -------------------------------------------------------------
 
@@ -251,18 +269,18 @@ class ContextCompactor:
         prompt_overhead: Any | None = None,
     ) -> bool:
         """Return True when the messages are close enough to the limit."""
-        token_count = self._current_token_estimate(
+        usage = self.measure_usage(
             messages,
             prompt_overhead=prompt_overhead,
         )
-        threshold = self.compact_threshold
-        above = token_count >= threshold
-        if above:
+        if usage.requires_compaction:
             logger.info(
                 "[ContextCompactor] Token count %d >= threshold %d (window=%d), compaction needed",
-                token_count, threshold, self.effective_window,
+                usage.estimated_tokens,
+                usage.compaction_trigger_tokens,
+                self.effective_window,
             )
-        return above
+        return usage.requires_compaction
 
     # -- compaction -----------------------------------------------------------
 

@@ -119,6 +119,17 @@ class FunctionCallingCheckpointLoop:
             return _LoopIterationResult(terminal_result=detached)
 
         await self._drain_steer_turns(request, cursor, steer_inbox)
+        context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
+            cursor.step_state
+        )
+        if context_failure is not None:
+            return _LoopIterationResult(
+                terminal_result=self._build_failed_result(
+                    request=request,
+                    cursor=cursor,
+                    execution_outcome=context_failure,
+                )
+            )
         step_outcome = await self._execute_step(
             request=request,
             cursor=cursor,
@@ -336,6 +347,24 @@ class FunctionCallingCheckpointLoop:
             ux_plan=_serialize_ux_plan(request.intent),
         )
 
+    def _build_failed_result(
+        self,
+        *,
+        request: FunctionCallingRequest,
+        cursor: _LoopCursor,
+        execution_outcome: Any,
+    ) -> FunctionCallingExecutionResult:
+        return FunctionCallingExecutionResult(
+            mode=request.mode,
+            response_text=str(getattr(execution_outcome, "content", "") or ""),
+            attachments=list(getattr(execution_outcome, "attachments", []) or []),
+            message_payload=dict(getattr(execution_outcome, "message_payload", {}) or {}),
+            root_user_message=cursor.user_message,
+            execution_outcome=execution_outcome.to_dict(),
+            turn_id=cursor.turn_id,
+            ux_plan=_serialize_ux_plan(request.intent),
+        )
+
     def _build_detached_result_if_requested(
         self,
         *,
@@ -395,6 +424,15 @@ class FunctionCallingCheckpointLoop:
         execution_workspace: str | None,
         cancel_token: CancelToken,
     ) -> FunctionCallingExecutionResult:
+        context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
+            cursor.step_state
+        )
+        if context_failure is not None:
+            return self._build_failed_result(
+                request=request,
+                cursor=cursor,
+                execution_outcome=context_failure,
+            )
         fallback_control = (
             request.context.control
             if hasattr(request.context, "control") and request.context.control is not None

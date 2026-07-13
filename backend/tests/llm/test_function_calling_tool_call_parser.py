@@ -764,6 +764,67 @@ def test_postprocessor_bounds_unregistered_scalar_payloads() -> None:
     assert payload["data"].endswith("...[truncated]")
 
 
+def test_postprocessor_enforces_total_payload_limit_for_nested_data() -> None:
+    postprocessor = FunctionCallingPostprocessor(
+        max_items=40,
+        max_text_chars=2_000,
+        max_payload_chars=4_000,
+    )
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="third_party_search",
+        result=ToolCallResult(
+            tool_call_id="external-nested",
+            tool_name="third_party_search",
+            success=True,
+            data={
+                f"group-{group}": ["x" * 2_000 for _ in range(40)]
+                for group in range(40)
+            },
+            error=None,
+        ),
+    )
+
+    assert len(json.dumps(payload, ensure_ascii=False)) <= 4_000
+    assert payload["data"]["__context_truncated__"] is True
+
+
+def test_postprocessor_bounds_error_text_inside_total_payload_limit() -> None:
+    postprocessor = FunctionCallingPostprocessor(max_payload_chars=2_000)
+
+    payload = postprocessor.build_tool_message_payload(
+        tool_name="third_party_shell",
+        result=ToolCallResult(
+            tool_call_id="external-error",
+            tool_name="third_party_shell",
+            success=False,
+            data=None,
+            error="failure " * 10_000,
+        ),
+    )
+
+    assert len(json.dumps(payload, ensure_ascii=False)) <= 2_000
+    assert str(payload["error"]).endswith("...[truncated]")
+
+
+def test_postprocessor_compacts_existing_tool_message_payload() -> None:
+    postprocessor = FunctionCallingPostprocessor(max_payload_chars=2_000)
+    content = json.dumps(
+        {
+            "success": True,
+            "data": {"rows": ["x" * 2_000 for _ in range(40)]},
+            "error": None,
+            "error_code": None,
+        }
+    )
+
+    compacted, changed = postprocessor.compact_tool_message_content(content)
+
+    assert changed is True
+    assert len(compacted) <= 2_000
+    assert json.loads(compacted)["data"]["__context_truncated__"] is True
+
+
 def test_postprocessor_compacts_image_generation_tool_data_for_display() -> None:
     postprocessor = FunctionCallingPostprocessor()
 

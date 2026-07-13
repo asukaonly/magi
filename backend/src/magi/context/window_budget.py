@@ -29,6 +29,25 @@ class ContextWindowBudget:
     uses_fallback: bool
 
 
+@dataclass(frozen=True, slots=True)
+class ContextWindowUsage:
+    """Measured prompt usage against one model's context-window budget."""
+
+    estimated_tokens: int
+    compaction_trigger_tokens: int
+    input_capacity: int
+
+    @property
+    def requires_compaction(self) -> bool:
+        """Return whether the prompt crossed the early compaction threshold."""
+        return self.estimated_tokens >= self.compaction_trigger_tokens
+
+    @property
+    def fits_input_capacity(self) -> bool:
+        """Return whether the prompt can be sent with the output reserve intact."""
+        return self.estimated_tokens <= self.input_capacity
+
+
 def build_context_window_budget(profile: ModelContextProfile) -> ContextWindowBudget:
     """Build the context policy from the model that will receive the request."""
     configured_window = profile.context_window
@@ -69,9 +88,28 @@ def estimate_context_tokens(value: Any) -> int:
     return max(1, len(rendered) // CHARS_PER_TOKEN_ESTIMATE)
 
 
+def measure_context_window_usage(
+    budget: ContextWindowBudget,
+    value: Any,
+    *,
+    observed_input_tokens: int | None = None,
+) -> ContextWindowUsage:
+    """Measure a complete provider-facing prompt against its active model budget."""
+    estimated_tokens = estimate_context_tokens(value)
+    if observed_input_tokens is not None and observed_input_tokens > 0:
+        estimated_tokens = max(estimated_tokens, observed_input_tokens)
+    return ContextWindowUsage(
+        estimated_tokens=estimated_tokens,
+        compaction_trigger_tokens=budget.compaction_trigger_tokens,
+        input_capacity=budget.input_capacity,
+    )
+
+
 __all__ = [
     "ContextWindowBudget",
+    "ContextWindowUsage",
     "FALLBACK_CONTEXT_WINDOW",
     "build_context_window_budget",
     "estimate_context_tokens",
+    "measure_context_window_usage",
 ]

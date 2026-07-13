@@ -34,7 +34,9 @@ class FunctionCallingLoopRunner:
             boundary_outcome = await self._poll_control_boundary(state, control)
             if boundary_outcome is not None:
                 return boundary_outcome
-            await self._host._try_compact(state)
+            context_failure = await self._host._prepare_context_for_model(state)
+            if context_failure is not None:
+                return cast(ExecutionOutcome, context_failure)
             step_outcome = await self._execute_step(
                 state=state,
                 run_input=run_input,
@@ -157,7 +159,9 @@ class FunctionCallingLoopRunner:
         thinking_depth: ThinkingDepth,
         control: RunControl,
     ) -> ExecutionOutcome:
-        await self._host._try_compact(state)
+        context_failure = await self._host._prepare_context_for_model(state)
+        if context_failure is not None:
+            return cast(ExecutionOutcome, context_failure)
         return cast(
             ExecutionOutcome,
             await self._host._execute_fallback_final_response(

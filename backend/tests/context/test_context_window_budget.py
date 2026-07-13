@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
+from magi.context.window_budget import (
+    build_context_window_budget,
+    estimate_context_tokens,
+    measure_context_window_usage,
+)
 from magi.llm.model_context import ModelContextProfile
 
 
@@ -58,3 +62,47 @@ def test_context_token_estimate_counts_structured_payload() -> None:
 
     assert small >= 1
     assert large > small
+
+
+def test_context_usage_distinguishes_trigger_from_hard_capacity() -> None:
+    budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="local",
+            model_id="small-model",
+            context_window=1_000,
+            max_output_tokens=100,
+        )
+    )
+
+    pressured = measure_context_window_usage(
+        budget,
+        {"prompt": "x" * 2_800},
+    )
+    oversized = measure_context_window_usage(
+        budget,
+        {"prompt": "x" * 4_000},
+    )
+
+    assert pressured.requires_compaction is True
+    assert pressured.fits_input_capacity is True
+    assert oversized.fits_input_capacity is False
+
+
+def test_context_usage_keeps_provider_count_as_lower_bound() -> None:
+    budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="local",
+            model_id="small-model",
+            context_window=2_000,
+            max_output_tokens=200,
+        )
+    )
+
+    usage = measure_context_window_usage(
+        budget,
+        {"prompt": "short"},
+        observed_input_tokens=1_500,
+    )
+
+    assert usage.estimated_tokens == 1_500
+    assert usage.requires_compaction is True

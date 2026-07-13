@@ -8,6 +8,7 @@ from magi.agent.execution.function_calling.step_executor import (
     FunctionCallingStepOutcome,
     FunctionCallingStepState,
 )
+from magi.agent.execution.function_calling.types import ExecutionOutcome
 from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
 from magi.agent.task_agents.handlers.handlers import ChatHandlerDependencies, FunctionCallingHandler
 from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
@@ -19,13 +20,20 @@ from magi.agent.task_agents.common import ExecutionMode, FunctionCallingRequest,
 class _FakeOrchestrator:
     MAX_ITERATIONS = 10
 
-    def __init__(self, step_results, on_step=None):  # type: ignore[no-untyped-def]
+    def __init__(
+        self,
+        step_results,
+        on_step=None,
+        context_failure: ExecutionOutcome | None = None,
+    ):  # type: ignore[no-untyped-def]
         self.step_executor = SimpleNamespace(execute_step=self._execute_step)
         self._step_results = list(step_results)
         self._on_step = on_step
         self.build_step_state_calls: list[str] = []
         self.execute_with_tools_calls: list[dict[str, object]] = []
         self.fallback_calls: list[dict[str, object]] = []
+        self.prepare_context_calls = 0
+        self.context_failure = context_failure
 
     def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, reply_context=None, allow_attachment_grounding=False, ephemeral_context=None, **kwargs):  # type: ignore[no-untyped-def]
         _ = (system_prompt, selected_tools, conversation_history, session_summary, session_origin, reply_context, allow_attachment_grounding, ephemeral_context, kwargs)
@@ -45,6 +53,13 @@ class _FakeOrchestrator:
         outcome = self._step_results.pop(0)
         state.iteration = outcome.iteration
         return outcome
+
+    async def _prepare_context_for_model(
+        self,
+        state: FunctionCallingStepState,
+    ) -> ExecutionOutcome | None:
+        self.prepare_context_calls += 1
+        return self.context_failure
 
     async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
         return await self.execute_with_tools(**run_input.to_execute_kwargs())
@@ -133,6 +148,41 @@ def _make_handler(orchestrator: _FakeOrchestrator, coordinator: SessionRunCoordi
         session_run_coordinator=coordinator,
     )
     return FunctionCallingHandler(deps)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_loop_stops_before_model_when_context_cannot_fit() -> None:
+    coordinator = SessionRunCoordinator()
+    first_turn = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+    orchestrator = _FakeOrchestrator(
+        step_results=[],
+        context_failure=ExecutionOutcome(
+            status="failed",
+            content="",
+            failure_reason="Context window exceeded",
+            iterations=0,
+        ),
+    )
+    handler = _make_handler(orchestrator, coordinator)
+    context = _make_context(
+        active_run=first_turn.active_run,
+        revision=first_turn.active_run.revision,
+        latest_user_message="Inspect the login flow.",
+    )
+
+    result = await handler.execute(_make_request(context))
+
+    assert result.execution_outcome["status"] == "failed"
+    assert result.execution_outcome["failure_reason"] == "Context window exceeded"
+    assert orchestrator.prepare_context_calls == 1
+    assert orchestrator.build_step_state_calls == ["Inspect the login flow."]
 
 
 @pytest.mark.asyncio

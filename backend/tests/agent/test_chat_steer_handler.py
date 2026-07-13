@@ -114,6 +114,12 @@ class _FakeOrchestrator:
             injected_contents.append(content)
         self.apply_steer_calls.append(injected_contents)
 
+    async def _prepare_context_for_model(
+        self,
+        state: FunctionCallingStepState,
+    ) -> None:
+        return None
+
 
 def _make_context(
     *,

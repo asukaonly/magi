@@ -11,8 +11,9 @@ from ....llm.provider_bridge import LLMProviderBridge
 from ....runtime_trace import RuntimeTraceStore
 from ...cancel import CancelToken
 from ...message_utils import append_latest_user_message
-from ....context.window_budget import build_context_window_budget
+from ....context.window_budget import ContextWindowUsage, build_context_window_budget
 from ....llm.model_context import ResolvedModel, unknown_model_context
+from ....tools.system_tools import resolve_resident_system_tools
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ...turn_input import UserTurnInput
 from magi.control.run_control import (
@@ -431,25 +432,124 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             control=control,
         )
 
-    async def _try_compact(
+    async def _prepare_context_for_model(
         self,
         state: FunctionCallingStepState,
-    ) -> None:
-        """Check token usage and compact the message history if needed."""
-        if not self._context_compactor.should_compact(
+    ) -> ExecutionOutcome | None:
+        """Compact and re-measure the full prompt before a provider request."""
+        usage = self._measure_context_usage(state)
+        if usage.requires_compaction:
+            result = await self._context_compactor.compact(
+                state.messages,
+                state.effective_system_prompt,
+            )
+            if result.compacted:
+                state.messages[:] = result.messages
+            usage = self._measure_context_usage(state)
+
+        if usage.fits_input_capacity:
+            return None
+
+        compacted_tool_messages = self._compact_existing_tool_messages(state)
+        if compacted_tool_messages:
+            self._context_compactor.invalidate_recorded_usage()
+            usage = self._measure_context_usage(state)
+            await self._emit_loop_event(
+                {
+                    "stage": "tool_message_context_compacted",
+                    "iteration": state.iteration,
+                    "message_count": compacted_tool_messages,
+                    "estimated_tokens": usage.estimated_tokens,
+                }
+            )
+            if usage.fits_input_capacity:
+                return None
+
+        removed_tools = self._drop_lower_priority_optional_tools_until_fit(state)
+        if removed_tools:
+            usage = self._measure_context_usage(state)
+            await self._emit_loop_event(
+                {
+                    "stage": "tool_context_reduced",
+                    "iteration": state.iteration,
+                    "removed_tools": removed_tools,
+                    "remaining_tool_count": len(state.selected_tool_names),
+                    "estimated_tokens": usage.estimated_tokens,
+                }
+            )
+            if usage.fits_input_capacity:
+                return None
+
+        logger.warning(
+            "[FunctionCalling] Prompt remains over model input capacity after compaction "
+            "(estimated=%d capacity=%d iteration=%d)",
+            usage.estimated_tokens,
+            usage.input_capacity,
+            state.iteration,
+        )
+        await self._emit_loop_event(
+            {
+                "stage": "context_window_exceeded",
+                "iteration": state.iteration,
+                "estimated_tokens": usage.estimated_tokens,
+                "input_capacity": usage.input_capacity,
+            }
+        )
+        return ExecutionOutcome(
+            status="failed",
+            content="",
+            failure_reason="Context window exceeded",
+            error_text=(
+                f"Prompt estimated at {usage.estimated_tokens} tokens exceeds the "
+                f"active model input capacity of {usage.input_capacity} tokens."
+            ),
+            tool_failures=list(state.tool_failures),
+            iterations=state.iteration,
+        )
+
+    def _measure_context_usage(
+        self,
+        state: FunctionCallingStepState,
+    ) -> ContextWindowUsage:
+        return self._context_compactor.measure_usage(
             state.messages,
             prompt_overhead={
                 "system_prompt": state.effective_system_prompt,
                 "tools": state.tools,
             },
-        ):
-            return
-        result = await self._context_compactor.compact(
-            state.messages,
-            state.effective_system_prompt,
         )
-        if result.compacted:
-            state.messages[:] = result.messages
+
+    def _compact_existing_tool_messages(self, state: FunctionCallingStepState) -> int:
+        compacted_count = 0
+        for message in state.messages:
+            if message.get("role") not in {"tool", "tool_result"}:
+                continue
+            compacted, changed = self.postprocessor.compact_tool_message_content(
+                message.get("content")
+            )
+            if changed:
+                message["content"] = compacted
+                compacted_count += 1
+        return compacted_count
+
+    def _drop_lower_priority_optional_tools_until_fit(
+        self,
+        state: FunctionCallingStepState,
+    ) -> list[str]:
+        resident_tools = set(resolve_resident_system_tools(self.tool_registry))
+        optional_tools = [
+            name for name in state.selected_tool_names if name not in resident_tools
+        ]
+        removed: list[str] = []
+        while len(optional_tools) > 1:
+            tool_name = optional_tools.pop()
+            state.selected_tool_names.remove(tool_name)
+            removed.append(tool_name)
+            state.tools = self._build_tools_parameter(state.selected_tool_names)
+            self._context_compactor.invalidate_recorded_usage()
+            if self._measure_context_usage(state).fits_input_capacity:
+                break
+        return removed
 
     async def _drop_ephemeral_context(self, state: FunctionCallingStepState) -> None:
         """Remove launch-only context after the first tool iteration."""
