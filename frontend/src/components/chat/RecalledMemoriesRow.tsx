@@ -109,7 +109,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
         <div
           ref={detailRef}
           id={detailId}
-          className="mt-1 space-y-2 border-l border-border/35 pl-4"
+          className="mt-1 space-y-2 border-l border-border/35 pb-4 pl-4"
           data-testid="recalled-memories-detail"
         >
           {hasAdditionalCoverage ? (

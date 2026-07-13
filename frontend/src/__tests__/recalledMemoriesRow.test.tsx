@@ -41,7 +41,7 @@ describe('RecalledMemoriesRow', () => {
 
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Visited example.com')).toBeInTheDocument();
-    expect(screen.getByTestId('recalled-memories-detail')).toHaveClass('mt-1');
+    expect(screen.getByTestId('recalled-memories-detail')).toHaveClass('mt-1', 'pb-4');
     expect(scrollIntoViewMock).toHaveBeenCalledWith({
       behavior: 'smooth',
       block: 'nearest',
