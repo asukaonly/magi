@@ -197,6 +197,7 @@ def _make_memory_event(
 
 def _phase1_result_with_support(event_id: str):
     from magi.memory.l2.models import L2Phase1FactClaim, L2Phase1Result
+    from magi.memory.l2.phase1_models import L2TemporalCue
 
     return L2Phase1Result(
         fact_claims=[
@@ -206,6 +207,8 @@ def _phase1_result_with_support(event_id: str):
                 predicate="INTERESTED_IN",
                 object_ref="topic:test",
                 object_type="topic",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECENT,
                 evidence_text="test",
                 confidence=0.7,
                 supporting_event_ids=[event_id],
@@ -503,6 +506,7 @@ async def test_ingest_event_enqueues_l2_work_and_returns_without_sync_l2_counts(
                     "object_ref": "stress",
                     "object_type": "health_metric",
                     "fact_kind": "explicit_fact",
+                    "temporal_cue": "recent",
                     "polarity": "positive",
                     "specificity": "concrete",
                     "evidence_text": "I have been stressed about work.",
@@ -1206,6 +1210,7 @@ async def test_extract_worker_records_mentions_and_resolved_graph_edge():
                         "object_ref": "魔都",
                         "object_type": "place",
                         "fact_kind": "stable_preference",
+                        "temporal_cue": "unspecified",
                         "polarity": "positive",
                         "specificity": "concrete",
                         "evidence_text": "我好喜欢魔都",
@@ -1310,6 +1315,7 @@ async def test_extract_worker_plumbs_place_and_type_hints_into_episode():
                         "object_ref": "魔都",
                         "object_type": "place",
                         "fact_kind": "stable_preference",
+                        "temporal_cue": "unspecified",
                         "polarity": "positive",
                         "specificity": "concrete",
                         "evidence_text": "我好喜欢魔都",
@@ -1832,6 +1838,8 @@ async def test_phase2_uses_phase1_entities_to_recall_l1_entity_history():
                             "predicate": "ATTENDED",
                             "object_ref": "DIIV",
                             "object_type": "group",
+                            "fact_kind": "interaction_evidence",
+                            "temporal_cue": "one_off",
                             "specificity": "concrete",
                             "confidence": 0.9,
                             "evidence_text": "That band was great last night.",
@@ -1971,6 +1979,7 @@ async def test_extract_worker_persists_llm_tom_assertions():
                         "object_ref": "stress",
                         "object_type": "health_metric",
                         "fact_kind": "explicit_fact",
+                        "temporal_cue": "recent",
                         "polarity": "positive",
                         "specificity": "concrete",
                         "evidence_text": "I am stressed about work today.",
@@ -2110,6 +2119,7 @@ async def test_extract_worker_does_not_let_phase2_directly_mutate_existing_asser
                                 "object_ref": "calm",
                                 "object_type": "health_metric",
                                 "fact_kind": "explicit_fact",
+                                "temporal_cue": "recent",
                                 "polarity": "positive",
                                 "specificity": "concrete",
                                 "evidence_text": "I feel calm and relaxed now.",
@@ -2231,6 +2241,7 @@ async def test_extract_worker_uses_conflict_arbitration_to_keep_existing_graph_f
                                 "object_ref": "place:shanghai",
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
+                                "temporal_cue": "recent",
                                 "polarity": "negative",
                                 "specificity": "concrete",
                                 "evidence_text": "I hate Shanghai now.",
@@ -2352,6 +2363,7 @@ async def test_extract_worker_marks_evolution_by_deprecating_old_graph_fact_and_
                                 "object_ref": "place:shanghai",
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
+                                "temporal_cue": "recent",
                                 "polarity": "negative",
                                 "specificity": "concrete",
                                 "evidence_text": "I hate Shanghai these days.",
@@ -2480,6 +2492,7 @@ async def test_extract_worker_refreshes_snapshot_after_graph_mark_evolution():
                                 "object_ref": "place:shanghai",
                                 "object_type": "place",
                                 "fact_kind": "stable_preference",
+                                "temporal_cue": "recent",
                                 "polarity": "negative",
                                 "specificity": "concrete",
                                 "evidence_text": "I hate Shanghai these days.",
@@ -2705,6 +2718,7 @@ async def test_assistant_quote_does_not_add_new_evidence_weight():
                             "object_ref": "stress",
                             "object_type": "health_metric",
                             "fact_kind": "explicit_fact",
+                            "temporal_cue": "recent",
                             "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "I am stressed about work today.",
@@ -2956,6 +2970,7 @@ async def test_pipeline_logs_profile_and_rejection_counts_for_unified_extraction
                             "object_ref": "GitHub",
                             "object_type": "product",
                             "fact_kind": "explicit_fact",
+                            "temporal_cue": "one_off",
                             "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "Visited GitHub today",
@@ -3063,6 +3078,7 @@ async def test_unified_extraction_normalizes_food_and_persists_dislikes_edge():
                             "object_ref": "西湖醋鱼",
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
+                            "temporal_cue": "unspecified",
                             "polarity": "negative",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
@@ -3243,6 +3259,7 @@ async def test_unified_extraction_keeps_higher_order_assertions_alongside_graph_
                             "object_ref": "西湖醋鱼",
                             "object_type": "dish",
                             "fact_kind": "stable_preference",
+                            "temporal_cue": "unspecified",
                             "polarity": "negative",
                             "specificity": "concrete",
                             "evidence_text": "但我讨厌吃西湖醋鱼",
@@ -3342,6 +3359,7 @@ async def test_unified_extraction_respects_calendar_profile_restrictions():
                             "object_ref": "Shanghai",
                             "object_type": "place",
                             "fact_kind": "explicit_fact",
+                            "temporal_cue": "one_off",
                             "polarity": "positive",
                             "specificity": "concrete",
                             "evidence_text": "Visited Shanghai today",
@@ -4656,6 +4674,7 @@ class TestExtractionInstructions:
                                 "object_ref": "Track A",
                                 "object_type": "media",
                                 "fact_kind": "stable_preference",
+                                "temporal_cue": "unspecified",
                                 "polarity": "positive",
                                 "specificity": "concrete",
                                 "evidence_text": "played Track A",
@@ -5157,8 +5176,8 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile"},
-                allowed_assertion_traits=frozenset({"preference.music"}),
+                allowed_assertion_families={"interest_profile"},
+                allowed_assertion_traits=frozenset({"interest.music"}),
             ),
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
@@ -5166,15 +5185,15 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="interest_profile",
+                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.movie",
+                    trait_family="interest_profile",
+                    trait_name="interest.movie",
                     trait_value="Movie B",
                     supporting_claim_ids=["claim:1"],
                 ),
@@ -5183,7 +5202,7 @@ class TestEntityTypeFiltering:
         )
 
         assert rejected_count == 1
-        assert [item["trait_name"] for item in prepared] == ["preference.music"]
+        assert [item["trait_name"] for item in prepared] == ["interest.music"]
 
     def test_phase2_assertions_allow_trait_namespace_wildcard(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -5197,8 +5216,8 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile"},
-                allowed_assertion_traits=frozenset({"preference.*"}),
+                allowed_assertion_families={"interest_profile"},
+                allowed_assertion_traits=frozenset({"interest.*"}),
             ),
             policy=SimpleNamespace(allow_assertion_write=True),
             graph_candidates=[],
@@ -5206,8 +5225,8 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="interest_profile",
+                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),
@@ -5216,7 +5235,7 @@ class TestEntityTypeFiltering:
         )
 
         assert rejected_count == 0
-        assert [item["trait_name"] for item in prepared] == ["preference.music"]
+        assert [item["trait_name"] for item in prepared] == ["interest.music"]
 
     def test_phase2_assertions_respect_policy_assertion_scope(self):
         from magi.memory.l2.models import L2Phase2AssertionCandidate
@@ -5230,7 +5249,7 @@ class TestEntityTypeFiltering:
             profile=SimpleNamespace(
                 allow_assertion=True,
                 assertion_mode="phase2_candidate",
-                allowed_assertion_families={"preference_profile", "public_sentiment"},
+                allowed_assertion_families={"interest_profile", "public_sentiment"},
                 allowed_assertion_traits=None,
             ),
             policy=SimpleNamespace(
@@ -5242,8 +5261,8 @@ class TestEntityTypeFiltering:
             phase2_assertions=[
                 L2Phase2AssertionCandidate(
                     entity_ref="user:local_user",
-                    trait_family="preference_profile",
-                    trait_name="preference.music",
+                    trait_family="interest_profile",
+                    trait_name="interest.music",
                     trait_value="Track A",
                     supporting_claim_ids=["claim:1"],
                 ),

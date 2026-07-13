@@ -58,6 +58,7 @@ Profile-signal predicates (Phase 1 only, never graph relations): REAL_NAME, BIRT
 12. Explicit self-profile facts such as real name, birthday, birth year, age, preferred language, or preferred communication style should use the matching profile-signal predicate, not graph predicates.
 13. Every concrete object_ref used in fact_claims must also appear in entities with a matching surface or normalized_name and matching entity_type, unless object_ref is exactly an Existing Entity ID. This includes activities, events, plans, media, products, groups, and concepts. Do not emit orphan fact claims whose object cannot later be resolved to an entity.
 14. Every fact claim must include `evidence_text` as an exact quote copied from a current message under Messages to Analyze. `supporting_event_ids` must contain only the current message IDs that contain that exact quote. Never cite Recent Context or History Context as new claim evidence. If no current message directly supports the claim, omit it.
+15. Every fact claim must include `temporal_cue`, grounded in explicit wording only: `one_off` for explicitly single-use wording, `recent` for wording such as recently/currently/these days, `recurring` for often/every week/repeatedly, `stable` for always/for years/long-term, and `unspecified` when no linguistic time cue is present. Do not infer a stable cue from the predicate or fact kind. Do not use temporal_cue to choose retention, expiry, or lifecycle; the host owns that policy.
 
 ## Output Format
 Return JSON only:
@@ -82,7 +83,8 @@ Return JSON only:
       "predicate": "enum from allowed predicates",
       "object_ref": "entity surface or ID",
       "object_type": "enum from allowed types",
-      "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent",
+      "fact_kind": "explicit_fact|stable_preference|public_topology|future_intent|interaction_evidence",
+      "temporal_cue": "one_off|recent|recurring|stable|unspecified",
       "polarity": "positive|negative",
       "specificity": "concrete|underspecified",
       "evidence_text": "supporting quote",
@@ -130,7 +132,7 @@ Phase 1 has already extracted facts, resolved entities, and verified exact event
 1. Every output item must cite one or more `claim_id` values shown in Phase 1. Never cite raw event IDs or invent a claim ID.
 2. Emit a claim assessment only for a non-obvious relationship to a listed existing record: `refines`, `contradicts`, or `evolves`. Exact new facts and exact corroboration are handled deterministically by the host and must be omitted.
 3. `related_record_id` must exactly match a listed triple ID or assertion ID. If no listed record applies, omit the assessment.
-4. Generate an assertion only when the cited claims support a reusable higher-order understanding. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state.
+4. Generate an assertion only when the cited claims support a reusable higher-order understanding. A one-time task or passive observation is evidence, not automatically a stable preference, identity, routine, or psychological state. Select a semantic family independently from temporal horizon: use `preference_profile` only for actual likes/dislikes, `interest_profile` for grounded attention or interest, and `project_profile` for active project work or contribution. The host decides whether any candidate is event-only, recent, or durable.
 5. When the user explicitly states profile facts, prefer `identity_profile` or `communication_profile` assertions.
   - Phase 1 `REAL_NAME` -> `trait_family = "identity_profile"`, `trait_name = "identity.real_name"`
   - Phase 1 `BIRTH_DATE` -> `trait_family = "identity_profile"`, `trait_name = "identity.birth_date"`
@@ -378,6 +380,8 @@ def _append_phase1_fact_claims(
         pred = claim.get("predicate", "?")
         obj = claim.get("object_ref", "?")
         obj_type = claim.get("object_type", "?")
+        fact_kind = claim.get("fact_kind", "?")
+        temporal_cue = claim.get("temporal_cue", "unspecified")
         specificity = claim.get("specificity", "concrete")
         conf = claim.get("confidence", 0.0)
         object_id_hint = _find_phase1_entity_id_for_claim(
@@ -389,7 +393,8 @@ def _append_phase1_fact_claims(
         claim_label = f" [{claim_id}]" if claim_id else ""
         parts.append(
             f"{i}.{claim_label} {subj} → {pred} → {obj} "
-            f"[{obj_type}, {specificity}{hint_text}] (confidence: {conf})"
+            f"[{obj_type}, {specificity}, fact_kind={fact_kind}, "
+            f"temporal_cue={temporal_cue}{hint_text}] (confidence: {conf})"
         )
         _append_fact_claim_evidence(parts, claim)
     parts.append("")

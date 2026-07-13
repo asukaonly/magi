@@ -3,6 +3,8 @@
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from magi.memory.event_contracts import MemoryDomain, TomDepth
 from magi.memory.l2.models import (
     L2Phase1FactClaim,
@@ -11,6 +13,7 @@ from magi.memory.l2.models import (
     L2Phase2ClaimAssessment,
     L2Phase2Result,
 )
+from magi.memory.l2.phase1_models import L2TemporalCue
 from magi.memory.l2.pipeline.prompts import PHASE2_INTEGRATE_SYSTEM_PROMPT
 from magi.memory.l2.pipeline.validation.assertions import L2AssertionValidationMixin
 from magi.memory.l2.pipeline.validation.claim_assessments import (
@@ -44,7 +47,7 @@ def test_phase2_result_contains_only_claim_assessments_and_assertions() -> None:
                 {
                     "entity_ref": "user:self",
                     "entity_type": "user",
-                    "trait_family": "preference_profile",
+                    "trait_family": "interest_profile",
                     "trait_name": "interest.music",
                     "trait_value": "DIIV",
                     "natural_summary": "喜欢 DIIV 的音乐",
@@ -87,6 +90,8 @@ def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
                 predicate="LIKES",
                 object_ref="group:diiv",
                 object_type="group",
+                fact_kind="stable_preference",
+                temporal_cue=L2TemporalCue.STABLE,
                 confidence=0.3,
                 supporting_event_ids=["evt-diiv"],
             )
@@ -117,7 +122,7 @@ def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
             L2Phase2AssertionCandidate(
                 entity_ref="user:self",
                 trait_family="preference_profile",
-                trait_name="interest.music",
+                trait_name="preference.music",
                 trait_value="DIIV",
                 natural_summary="喜欢 DIIV 的音乐",
                 supporting_claim_ids=["claim:diiv"],
@@ -131,6 +136,431 @@ def test_phase2_assertion_metadata_is_derived_from_grounded_claims() -> None:
     assert prepared[0]["confidence_score"] == 0.3
     assert prepared[0]["volatility_index"] == 0.2
     assert prepared[0]["inference_depth"] == "topology_only"
+
+
+def test_phase2_rejects_event_only_profile_candidate() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:page",
+                subject_ref="user:u1",
+                predicate="VIEWED",
+                object_ref="topic:memory",
+                object_type="topic",
+                fact_kind="interaction_evidence",
+                temporal_cue=L2TemporalCue.ONE_OFF,
+                confidence=0.7,
+                supporting_event_ids=["evt-page"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-page",
+        timestamp=1_700_000_000.0,
+        source="chrome-history",
+        user_id="u1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"interest_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=0.5,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-page"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family="interest_profile",
+                trait_name="interest.memory",
+                trait_value="Memory systems",
+                supporting_claim_ids=["claim:page"],
+            )
+        ],
+    )
+
+    assert prepared == []
+    assert rejected == 1
+
+
+def test_phase2_derives_recent_profile_expiry_from_temporal_evidence() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:project",
+                subject_ref="user:u1",
+                predicate="WORKS_ON",
+                object_ref="project:magi",
+                object_type="project",
+                fact_kind="interaction_evidence",
+                temporal_cue=L2TemporalCue.RECENT,
+                confidence=0.8,
+                supporting_event_ids=["evt-project"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-project",
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"project_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=1.0,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-project"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family="project_profile",
+                trait_name="project.active",
+                trait_value="Magi",
+                supporting_claim_ids=["claim:project"],
+            )
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == "recent"
+    assert prepared[0]["decay_policy"] == "time_window"
+    assert prepared[0]["expires_at"] > event.timestamp
+    assert prepared[0]["memory_subdomain"] == "state"
+
+
+def test_phase2_mixed_one_off_and_recent_evidence_cannot_become_durable() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:one-off",
+                subject_ref="user:u1",
+                predicate="LIKES",
+                object_ref="group:diiv",
+                object_type="group",
+                fact_kind="stable_preference",
+                temporal_cue=L2TemporalCue.ONE_OFF,
+                confidence=0.8,
+                supporting_event_ids=["evt-one-off"],
+            ),
+            L2Phase1FactClaim(
+                claim_id="claim:recent",
+                subject_ref="user:u1",
+                predicate="LIKES",
+                object_ref="group:diiv",
+                object_type="group",
+                fact_kind="stable_preference",
+                temporal_cue=L2TemporalCue.RECENT,
+                confidence=0.8,
+                supporting_event_ids=["evt-recent"],
+            ),
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-recent",
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"preference_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=1.0,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-one-off", "evt-recent"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family="preference_profile",
+                trait_name="preference.music",
+                trait_value="DIIV",
+                supporting_claim_ids=["claim:one-off", "claim:recent"],
+            )
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == "recent"
+    assert prepared[0]["expires_at"] > event.timestamp
+
+
+def test_phase2_external_preference_signal_is_not_durable_by_default() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:external-like",
+                subject_ref="listener:u1",
+                subject_type="person",
+                predicate="LIKES",
+                object_ref="group:diiv",
+                object_type="group",
+                fact_kind="stable_preference",
+                temporal_cue=L2TemporalCue.STABLE,
+                confidence=0.8,
+                supporting_event_ids=["evt-external-like"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-external-like",
+        timestamp=1_700_000_000.0,
+        source="play-history",
+        user_id="u1",
+        memory_domain=MemoryDomain.EXTERNAL_ACTIVITY,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"preference_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=0.5,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-external-like"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="listener:u1",
+                entity_type="person",
+                trait_family="preference_profile",
+                trait_name="preference.music",
+                trait_value="DIIV",
+                supporting_claim_ids=["claim:external-like"],
+            )
+        ],
+    )
+
+    assert prepared == []
+    assert rejected == 1
+
+
+def test_phase2_rejects_interest_claim_as_preference_profile() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:interest",
+                subject_ref="user:u1",
+                predicate="INTERESTED_IN",
+                object_ref="topic:memory",
+                object_type="topic",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECENT,
+                confidence=0.8,
+                supporting_event_ids=["evt-interest"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-interest",
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.TOPOLOGY_ONLY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"preference_profile"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=1.0,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-interest"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family="preference_profile",
+                trait_name="preference.memory",
+                trait_value="Memory systems",
+                supporting_claim_ids=["claim:interest"],
+            )
+        ],
+    )
+
+    assert prepared == []
+    assert rejected == 1
+
+
+def test_phase2_keeps_mood_session_lifetime() -> None:
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim:mood",
+                subject_ref="user:u1",
+                predicate="FEELS",
+                object_ref="calm",
+                object_type="concept",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECENT,
+                confidence=0.8,
+                supporting_event_ids=["evt-mood"],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id="evt-mood",
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({"mood"}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=1.0,
+        ),
+        graph_candidates=[],
+        default_event_ids=["evt-mood"],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family="mood",
+                trait_name="mood",
+                trait_value="calm",
+                supporting_claim_ids=["claim:mood"],
+            )
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == "session"
+    assert prepared[0]["decay_policy"] == "session_decay"
+    assert prepared[0]["expires_at"] == event.timestamp + 12 * 60 * 60
+
+
+@pytest.mark.parametrize(
+    ("trait_family", "expected_scope", "expected_ttl"),
+    [
+        ("stress", "daily", 24 * 60 * 60),
+        ("engagement", "session", 12 * 60 * 60),
+    ],
+)
+def test_phase2_keeps_other_short_lived_state_lifetimes(
+    trait_family: str,
+    expected_scope: str,
+    expected_ttl: int,
+) -> None:
+    claim_id = f"claim:{trait_family}"
+    event_id = f"evt-{trait_family}"
+    phase1_result = L2Phase1Result(
+        fact_claims=[
+            L2Phase1FactClaim(
+                claim_id=claim_id,
+                subject_ref="user:u1",
+                predicate="HAS_METRIC",
+                object_ref=trait_family,
+                object_type="concept",
+                fact_kind="explicit_fact",
+                temporal_cue=L2TemporalCue.RECENT,
+                confidence=0.8,
+                supporting_event_ids=[event_id],
+            )
+        ]
+    )
+    event = SimpleNamespace(
+        event_id=event_id,
+        timestamp=1_700_000_000.0,
+        source="chat",
+        user_id="u1",
+        memory_domain=MemoryDomain.USER_AUTHORED,
+        tom_depth=TomDepth.DEFENSIVE_PSYCHOLOGY,
+    )
+
+    prepared, rejected = _AssertionHarness()._validate_phase2_assertions(
+        event=event,
+        profile=SimpleNamespace(
+            allow_assertion=True,
+            assertion_mode="phase2_candidate",
+            allowed_assertion_families=frozenset({trait_family}),
+            allowed_assertion_traits="all",
+        ),
+        policy=SimpleNamespace(
+            allow_assertion_write=True,
+            assertion_scope="full",
+            evidence_weight=1.0,
+        ),
+        graph_candidates=[],
+        default_event_ids=[event_id],
+        phase1_result=phase1_result,
+        phase2_assertions=[
+            L2Phase2AssertionCandidate(
+                entity_ref="user:self",
+                trait_family=trait_family,
+                trait_name=trait_family,
+                trait_value="high",
+                supporting_claim_ids=[claim_id],
+            )
+        ],
+    )
+
+    assert rejected == 0
+    assert prepared[0]["temporal_scope"] == expected_scope
+    assert prepared[0]["expires_at"] == event.timestamp + expected_ttl
 
 
 def test_phase2_assertion_rejects_unknown_claim_reference() -> None:

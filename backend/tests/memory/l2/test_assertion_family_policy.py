@@ -11,6 +11,19 @@ def test_canonical_assertion_families_replace_taste_with_routine() -> None:
     assert "taste_profile" not in ASSERTION_FAMILY_ALLOWLIST
 
 
+def test_semantic_profiles_separate_preferences_interests_and_projects() -> None:
+    from magi.memory.l2.assertion_family_policy import ASSERTION_FAMILY_POLICIES
+
+    preference = ASSERTION_FAMILY_POLICIES["preference_profile"]
+    interest = ASSERTION_FAMILY_POLICIES["interest_profile"]
+    project = ASSERTION_FAMILY_POLICIES["project_profile"]
+
+    assert "likes" in preference.description.casefold()
+    assert "interests" not in preference.description.casefold()
+    assert interest.snapshot_bucket == "preferences"
+    assert project.snapshot_bucket == "core_traits"
+
+
 def test_family_policy_defines_lifecycle_and_snapshot_defaults() -> None:
     from magi.memory.l2.assertion_family_policy import get_assertion_family_policy
 
@@ -48,6 +61,8 @@ def test_phase2_prompt_explains_assertion_family_semantics() -> None:
     assert "## Assertion Family Semantics" in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert "`routine_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert "`preference_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "`interest_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
+    assert "`project_profile`" in PHASE2_INTEGRATE_SYSTEM_PROMPT
     assert "`taste_profile`" not in PHASE2_INTEGRATE_SYSTEM_PROMPT
 
 

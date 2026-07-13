@@ -6,6 +6,28 @@ import re
 import unicodedata
 
 from ..models import L2BatchEvent, L2EventWindow, L2Phase1FactClaim, L2Phase1Result
+from ..phase1_models import L2TemporalCue
+
+_TEMPORAL_CUE_PATTERNS: dict[L2TemporalCue, tuple[re.Pattern[str], ...]] = {
+    L2TemporalCue.ONE_OFF: (
+        re.compile(r"昨晚|昨天|刚刚|刚才|这一次|这次|只.{0,4}一次|首次|第一次|最后一次"),
+        re.compile(r"\b(?:last night|yesterday|just now|this time|only once|once|first time)\b"),
+        re.compile(r"\b(?:today|now)\b"),
+    ),
+    L2TemporalCue.RECENT: (
+        re.compile(r"最近|近期|目前|现在|这几天|这些天|近来|刚刚|刚才"),
+        re.compile(r"\b(?:recently|currently|lately|these days|today|now|just now)\b"),
+        re.compile(r"\b(?:have|has) been\b"),
+    ),
+    L2TemporalCue.RECURRING: (
+        re.compile(r"经常|常常|反复|每(?:天|周|星期|月|年)|每隔"),
+        re.compile(r"\b(?:often|frequently|repeatedly|usually|every (?:day|week|month|year))\b"),
+    ),
+    L2TemporalCue.STABLE: (
+        re.compile(r"一直|长期|长久|多年来|这些年|始终"),
+        re.compile(r"\b(?:always|long[- ]term|for years|over the years|consistently)\b"),
+    ),
+}
 
 
 def ground_phase1_fact_claims(
@@ -69,20 +91,37 @@ def phase1_claim_evidence_contract_issues(
     if not isinstance(raw_claims, list):
         return issues
     for index, claim in enumerate(raw_claims):
-        field_path = f"fact_claims[{index}].evidence_text"
         if not isinstance(claim, dict):
-            issues.append(f"{field_path} is required")
+            issues.append(f"fact_claims[{index}] must be an object")
             continue
+        field_path = f"fact_claims[{index}].evidence_text"
         evidence = claim.get("evidence_text")
         if not isinstance(evidence, str) or not evidence.strip():
             issues.append(f"{field_path} is required")
-            continue
-        normalized_evidence = _normalize_evidence_text(evidence)
-        if not any(
-            normalized_evidence in _normalize_evidence_text(content)
-            for content in eligible_contents
-        ):
-            issues.append(f"{field_path} must be an exact quote from a current message")
+        else:
+            normalized_evidence = _normalize_evidence_text(evidence)
+            if not any(
+                normalized_evidence in _normalize_evidence_text(content)
+                for content in eligible_contents
+            ):
+                issues.append(f"{field_path} must be an exact quote from a current message")
+
+        temporal_path = f"fact_claims[{index}].temporal_cue"
+        temporal_cue = claim.get("temporal_cue")
+        if not isinstance(temporal_cue, str) or not temporal_cue.strip():
+            issues.append(f"{temporal_path} is required")
+        elif temporal_cue.strip().casefold() not in {cue.value for cue in L2TemporalCue}:
+            issues.append(
+                f"{temporal_path} must be one_off, recent, recurring, stable, or unspecified"
+            )
+        elif temporal_cue.strip().casefold() != L2TemporalCue.UNSPECIFIED.value:
+            declared_cue = L2TemporalCue(temporal_cue.strip().casefold())
+            if not isinstance(evidence, str) or declared_cue not in _temporal_cues_in_text(
+                evidence
+            ):
+                issues.append(
+                    f"{temporal_path} must be grounded in the claim's evidence_text"
+                )
     return issues
 
 
@@ -109,6 +148,15 @@ def _is_evidence_event(event: L2BatchEvent) -> bool:
 def _normalize_evidence_text(value: object) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).casefold()
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _temporal_cues_in_text(value: object) -> set[L2TemporalCue]:
+    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return {
+        cue
+        for cue, patterns in _TEMPORAL_CUE_PATTERNS.items()
+        if any(pattern.search(text) for pattern in patterns)
+    }
 
 
 def _unique_event_ids(values: list[str]) -> list[str]:

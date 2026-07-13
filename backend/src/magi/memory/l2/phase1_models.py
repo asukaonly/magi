@@ -3,9 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from enum import Enum
 from typing import Any
 
 from .phase_model_utils import _optional_text
+
+
+class L2TemporalCue(str, Enum):
+    """Linguistic time horizon explicitly grounded in source wording."""
+
+    ONE_OFF = "one_off"
+    RECENT = "recent"
+    RECURRING = "recurring"
+    STABLE = "stable"
+    UNSPECIFIED = "unspecified"
+
+    @classmethod
+    def from_value(cls, value: "L2TemporalCue | str | None") -> "L2TemporalCue":
+        if isinstance(value, cls):
+            return value
+        normalized = str(value or "").strip().casefold() or cls.UNSPECIFIED.value
+        try:
+            return cls(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Unsupported L2 temporal cue: {value}") from exc
 
 
 @dataclass(slots=True)
@@ -59,6 +80,7 @@ class L2Phase1FactClaim:
     object_ref: str = ""
     object_type: str = ""
     fact_kind: str = ""
+    temporal_cue: L2TemporalCue | str = L2TemporalCue.UNSPECIFIED
     polarity: str = "positive"
     specificity: str = "concrete"
     evidence_text: str = ""
@@ -75,6 +97,7 @@ class L2Phase1FactClaim:
             object_ref=payload.get("object_ref", ""),
             object_type=payload.get("object_type", ""),
             fact_kind=payload.get("fact_kind", ""),
+            temporal_cue=payload.get("temporal_cue", L2TemporalCue.UNSPECIFIED.value),
             polarity=payload.get("polarity", "positive"),
             specificity=payload.get("specificity", "concrete"),
             evidence_text=payload.get("evidence_text", ""),
@@ -90,6 +113,7 @@ class L2Phase1FactClaim:
         self.object_ref = _optional_text(self.object_ref) or ""
         self.object_type = _optional_text(self.object_type) or ""
         self.fact_kind = _optional_text(self.fact_kind) or ""
+        self.temporal_cue = L2TemporalCue.from_value(self.temporal_cue)
         self.polarity = _optional_text(self.polarity) or "positive"
         self.specificity = _optional_text(self.specificity) or "concrete"
         self.evidence_text = _optional_text(self.evidence_text) or ""
@@ -99,7 +123,9 @@ class L2Phase1FactClaim:
         ]
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["temporal_cue"] = self.temporal_cue.value
+        return payload
 
 
 @dataclass(slots=True)
@@ -212,4 +238,5 @@ __all__ = [
     "L2Phase1FactClaim",
     "L2Phase1ResolvedRef",
     "L2Phase1Result",
+    "L2TemporalCue",
 ]

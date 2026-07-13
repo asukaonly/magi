@@ -113,12 +113,41 @@ ASSERTION_FAMILY_POLICIES: dict[str, AssertionFamilyPolicy] = {
     ),
     "preference_profile": AssertionFamilyPolicy(
         family="preference_profile",
-        description="Stable preferences, interests, affinities, and tastes.",
-        phase2_guidance="Use for durable preference conclusions; put domains in trait_name namespaces.",
+        description="Explicit likes, dislikes, affinities, and tastes.",
+        phase2_guidance=(
+            "Use only for actual preference claims such as LIKES or DISLIKES; "
+            "do not use it for attention, activity, or project participation."
+        ),
         default_temporal_scope="stable",
         default_decay_policy="evidence_only",
         default_ttl_seconds=None,
         snapshot_bucket="preferences",
+        value_i18n="literal",
+    ),
+    "interest_profile": AssertionFamilyPolicy(
+        family="interest_profile",
+        description="Topics, domains, and subjects that hold the user's attention or interest.",
+        phase2_guidance=(
+            "Use for INTERESTED_IN or sustained engagement evidence, not as a synonym "
+            "for liking something and not for a single exposure."
+        ),
+        default_temporal_scope="stable",
+        default_decay_policy="evidence_only",
+        default_ttl_seconds=None,
+        snapshot_bucket="preferences",
+        value_i18n="literal",
+    ),
+    "project_profile": AssertionFamilyPolicy(
+        family="project_profile",
+        description="Projects the user is actively building, maintaining, or contributing to.",
+        phase2_guidance=(
+            "Use for grounded project participation, not for merely viewing, mentioning, "
+            "or asking about a project."
+        ),
+        default_temporal_scope="stable",
+        default_decay_policy="evidence_only",
+        default_ttl_seconds=None,
+        snapshot_bucket="core_traits",
         value_i18n="literal",
     ),
     "routine_profile": AssertionFamilyPolicy(

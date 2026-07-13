@@ -38,6 +38,7 @@ def _external_interest_phase1() -> str:
                     "object_ref": "rock climbing",
                     "object_type": "activity",
                     "fact_kind": "stable_preference",
+                    "temporal_cue": "unspecified",
                     "polarity": "positive",
                     "specificity": "concrete",
                     "evidence_text": "browsed rock climbing gear reviews",
