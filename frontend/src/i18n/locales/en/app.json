@@ -2633,7 +2633,6 @@
       "loading": "Preparing sources.",
       "error": "Sources could not load right now.",
       "pulseEmpty": "No source activity yet today. New memory intake will appear here.",
-      "ledgerEmpty": "No sources yet. Choose one above to get started.",
       "localOnly": "Data stays on this device",
       "neverSynced": "Never synced",
       "noRecentBatch": "No recent batch",
@@ -2670,8 +2669,7 @@
         "pause": "Pause",
         "resume": "Resume",
         "back": "Back to sources",
-        "add": "Add source",
-        "hideAdd": "Hide"
+        "add": "Add source"
       },
       "syncModes": {
         "interval": "Interval sync",

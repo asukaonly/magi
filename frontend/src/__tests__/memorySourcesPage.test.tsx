@@ -39,9 +39,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.pause': '暂停',
         'memory.sourcesPage.actions.resume': '恢复',
         'memory.sourcesPage.actions.add': '添加来源',
-        'memory.sourcesPage.actions.hideAdd': '收起',
         'memory.sourcesPage.pulseEmpty': '今天还没有来源活动；有新内容进入记忆后会显示在这里。',
-        'memory.sourcesPage.ledgerEmpty': '还没有来源。可以从上面选择一个开始。',
         'memory.sourcesPage.feedback.backfillQueued': '{{source}} 已开始在后台补旧数据',
         'sourceBackfill.title': '补回历史',
         'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
@@ -338,7 +336,7 @@ beforeEach(() => {
 });
 
 describe('MemorySourcesPage', () => {
-  it('opens the shared source install flow from a populated source ledger', async () => {
+  it('opens the plugin marketplace from a populated source ledger', async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter initialEntries={['/memory/sources']}>
@@ -352,14 +350,11 @@ describe('MemorySourcesPage', () => {
     expect(screen.queryByTestId('memory-sources-install-guide')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '添加来源' }));
-    expect(screen.getByTestId('memory-sources-install-guide')).toBeInTheDocument();
-    await user.click(screen.getByTestId('empty-state-connect-calendar'));
-
-    expect(usePluginInstallPanelStore.getState()).toMatchObject({
-      open: true,
-      pluginId: 'calendar',
-      installMode: true,
+    expect(useChatShellStore.getState()).toMatchObject({
+      activePanel: 'settings',
+      settingsNavigationIntent: { section: 'pluginsMarketplace' },
     });
+    expect(screen.queryByTestId('memory-sources-install-guide')).not.toBeInTheDocument();
   });
 
   it('shows source suggestions immediately when empty and refreshes after connection', async () => {
@@ -395,7 +390,7 @@ describe('MemorySourcesPage', () => {
 
     expect(await screen.findByTestId('memory-sources-install-guide')).toBeInTheDocument();
     expect(screen.queryByTestId('memory-sources-pulse')).not.toBeInTheDocument();
-    expect(screen.queryByText('还没有来源。可以从上面选择一个开始。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('empty-state-connect-calendar'));

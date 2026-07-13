@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, Minus, Plus, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -583,24 +583,15 @@ function SourceLedgerSection({
   rows,
   todaySummary,
   onSourceConnected,
+  onBrowseSources,
 }: {
   rows: SourceLedgerRow[];
   todaySummary: SensorTodaySummaryResponse | null;
   onSourceConnected: () => void;
+  onBrowseSources: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const todayCounts = getTodayCountMap(todaySummary);
-  const [showAddSources, setShowAddSources] = useState(rows.length === 0);
-  const installedPluginIds = useMemo(
-    () => rows
-      .map((row) => row.pluginId)
-      .filter((pluginId): pluginId is string => Boolean(pluginId)),
-    [rows],
-  );
-
-  useEffect(() => {
-    setShowAddSources(rows.length === 0);
-  }, [rows.length]);
 
   return (
     <section className={MEMORY_SECTION_CARD_CLASS}>
@@ -617,30 +608,26 @@ function SourceLedgerSection({
           <span className="rounded-full bg-[hsl(var(--memory-panel-subtle)/0.76)] px-3 py-1 text-xs text-[hsl(var(--memory-muted))]">
             {t('memory.sourcesPage.localOnly')}
           </span>
-          <button
-            type="button"
-            data-testid="memory-sources-add-toggle"
-            aria-expanded={showAddSources}
-            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-1.5')}
-            onClick={() => setShowAddSources((open) => !open)}
-          >
-            {showAddSources
-              ? <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-              : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
-            {showAddSources
-              ? t('memory.sourcesPage.actions.hideAdd')
-              : t('memory.sourcesPage.actions.add')}
-          </button>
+          {rows.length > 0 ? (
+            <button
+              type="button"
+              data-testid="memory-sources-add"
+              className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-1.5')}
+              onClick={onBrowseSources}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('memory.sourcesPage.actions.add')}
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {showAddSources ? (
+      {rows.length === 0 ? (
         <div
           className="mt-5 border-t border-[hsl(var(--memory-divider)/0.58)] pt-5"
           data-testid="memory-sources-install-guide"
         >
           <EmptyStateAvailableSensors
-            excludePluginIds={installedPluginIds}
             i18nNamespace="app"
             i18nKeyPrefix="timeline"
             onConnectDone={onSourceConnected}
@@ -707,8 +694,6 @@ function SourceLedgerSection({
               );
             })}
           </>
-        ) : !showAddSources ? (
-          <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.ledgerEmpty')}</div>
         ) : null}
       </div>
     </section>
@@ -717,6 +702,8 @@ function SourceLedgerSection({
 
 export const MemorySourcesPage = () => {
   const { t } = useTranslation('app');
+  const setActivePanel = useChatShellStore((state) => state.setActivePanel);
+  const setSettingsNavigationIntent = useChatShellStore((state) => state.setSettingsNavigationIntent);
   const [dashboard, setDashboard] = useState<MemoryDashboard | null>(null);
   const [sensorStatus, setSensorStatus] = useState<SensorSourceStatusResponse | null>(null);
   const [todaySummary, setTodaySummary] = useState<SensorTodaySummaryResponse | null>(null);
@@ -760,6 +747,11 @@ export const MemorySourcesPage = () => {
     [dashboard?.source_counts, sensorStatus, t],
   );
 
+  const openSourceMarketplace = () => {
+    setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
+    setActivePanel('settings');
+  };
+
   return (
     <MemoryPageFrame title={t('memory.sourcesPage.title')} description={t('memory.sourcesPage.subtitle')} hideHeader>
       {loading ? (
@@ -778,6 +770,7 @@ export const MemorySourcesPage = () => {
             rows={rows}
             todaySummary={todaySummary}
             onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)}
+            onBrowseSources={openSourceMarketplace}
           />
         </div>
       )}
