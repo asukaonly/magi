@@ -26,22 +26,15 @@ export const CompletionScreen: React.FC<CompletionScreenProps> = ({
         <CardContent className="px-8 py-10">
           <div className="flex flex-col items-center gap-5 text-center">
             <CheckCircle2 className="h-12 w-12 text-emerald-600" />
-            <div>
+            <div className="space-y-2">
               <h3 className="text-lg font-semibold">{t('messages.completedTitle')}</h3>
-              <p className="mt-1 max-w-md text-sm leading-6 text-muted-foreground">
+              <p className="mx-auto max-w-md text-sm leading-6 text-muted-foreground">
                 {t('messages.completedDesc')}
               </p>
-            </div>
-            <div className="w-full max-w-md rounded-lg border border-border/60 bg-muted/20 px-4 py-3 text-left text-sm leading-6 text-muted-foreground">
-              <p>
+              <p className="mx-auto max-w-xl text-xs leading-5 text-muted-foreground/75">
                 {hasConnectedSources
-                  ? t('messages.completedStepBackground')
-                  : t('messages.completedStepNoSources')}
-              </p>
-              <p>
-                {hasConnectedSources
-                  ? t('messages.completedStepBackfillWithSources')
-                  : t('messages.completedStepBackfillNoSources')}
+                  ? t('messages.completedNoteWithSources')
+                  : t('messages.completedNoteNoSources')}
               </p>
             </div>
             <Button onClick={onFinish} disabled={loading}>

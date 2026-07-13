@@ -40,10 +40,8 @@
     "validationFailed": "Please complete all required configuration fields.",
     "completedTitle": "Ready to begin",
     "completedDesc": "Your chosen persona is ready. You can start chatting now.",
-    "completedStepBackground": "Connected sources will keep organizing in the background, and Magi will gradually use that context.",
-    "completedStepNoSources": "It's okay to start without history. Magi will get to know you from this conversation.",
-    "completedStepBackfillWithSources": "You can backfill full history later from Memory → Sources.",
-    "completedStepBackfillNoSources": "You can connect history later from Memory → Sources.",
+    "completedNoteWithSources": "Connected sources will keep organizing in the background, and Magi will gradually use that context. You can backfill full history later from Memory → Sources.",
+    "completedNoteNoSources": "It's okay to start without history. Magi will get to know you from this conversation. You can connect history later from Memory → Sources.",
     "runtimeStartingSlow": "Setup finished, but the runtime is still starting. You can enter now and it will finish warming up in the background."
   },
   "language": {

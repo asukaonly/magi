@@ -500,13 +500,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     });
     expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
     expect(
-      screen.getByText("messages.completedStepNoSources"),
+      screen.getByText("messages.completedNoteNoSources"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("messages.completedStepBackfillNoSources"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText("messages.completedStepBackground"),
+      screen.queryByText("messages.completedNoteWithSources"),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
@@ -1065,13 +1062,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("messages.completedDesc")).toBeInTheDocument();
     expect(
-      screen.getByText("messages.completedStepBackground"),
+      screen.getByText("messages.completedNoteWithSources"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("messages.completedStepBackfillWithSources"),
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByText("messages.completedStepNoSources"),
+      screen.queryByText("messages.completedNoteNoSources"),
     ).not.toBeInTheDocument();
   });
 

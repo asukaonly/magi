@@ -40,10 +40,8 @@
     "validationFailed": "请补全必填配置项。",
     "completedTitle": "准备好了",
     "completedDesc": "你选择的人格已经准备好，现在可以开始聊天。",
-    "completedStepBackground": "刚接入的来源会继续在后台整理，Magi 会逐步使用这些内容。",
-    "completedStepNoSources": "没有接入历史也没关系，Magi 会从这次对话开始了解你。",
-    "completedStepBackfillWithSources": "完整历史可稍后在「记忆 → 来源」里补回。",
-    "completedStepBackfillNoSources": "之后可以随时在「记忆 → 来源」接入历史记录。",
+    "completedNoteWithSources": "刚接入的来源会继续在后台整理，Magi 会逐步使用这些内容。完整历史可稍后在「记忆 → 来源」里补回。",
+    "completedNoteNoSources": "没有接入历史也没关系，Magi 会从这次对话开始了解你。之后可以随时在「记忆 → 来源」接入历史记录。",
     "runtimeStartingSlow": "配置已保存，但运行时还在启动中。你现在可以先进入系统，它会在后台继续完成初始化。"
   },
   "language": {
