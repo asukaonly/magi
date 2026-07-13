@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight } from 'lucide-react';
 import type { RecalledMemory, RecalledMemorySummary } from '@/domain/chat/state';
@@ -48,6 +48,13 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
   const { t, i18n } = useTranslation('app');
   const [expanded, setExpanded] = useState(false);
   const detailId = useId();
+  const detailRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (expanded && detailRef.current) {
+      detailRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [expanded]);
 
   const hasExhaustiveStructuredCoverage = summary?.canClaimTotal === true
     && summary.coverageKind === 'exhaustive';
@@ -100,6 +107,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
       </button>
       {expanded ? (
         <div
+          ref={detailRef}
           id={detailId}
           className="mt-1 space-y-2 border-l border-border/35 pl-4"
           data-testid="recalled-memories-detail"

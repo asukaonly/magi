@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RecalledMemoriesRow } from '@/components/chat/RecalledMemoriesRow';
 
 vi.mock('react-i18next', () => ({
@@ -19,7 +19,17 @@ const memory = {
   topic: 'example.com',
 };
 
+const scrollIntoViewMock = vi.fn();
+
 describe('RecalledMemoriesRow', () => {
+  beforeEach(() => {
+    scrollIntoViewMock.mockClear();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+  });
+
   it('keeps memory details collapsed until the summary is expanded', () => {
     render(<RecalledMemoriesRow memories={[memory]} />);
 
@@ -32,6 +42,15 @@ describe('RecalledMemoriesRow', () => {
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Visited example.com')).toBeInTheDocument();
     expect(screen.getByTestId('recalled-memories-detail')).toHaveClass('mt-1');
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({
+      behavior: 'smooth',
+      block: 'nearest',
+    });
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the visible disclosure close while preserving its click area', () => {
