@@ -341,7 +341,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
 
     // 1) Outstanding sensor sync jobs (queued/running) — first page only.
     if live_only_on_first_page {
-    if let Ok(mut stmt) = conn.prepare(
+        if let Ok(mut stmt) = conn.prepare(
         "SELECT job_id, schedule_id, target_type, target_key, source_type, status, created_at, started_at, error \
          FROM sensor_sync_jobs WHERE status IN ('queued', 'running') ORDER BY created_at ASC LIMIT ?1",
     ) {
@@ -388,51 +388,51 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     // schedule config page already shows "next run" per row, and upcoming rows
     // have no actions to take, so they'd just be duplicate noise.
     if live_only_on_first_page {
-    for schedule in &schedules {
-        let state = schedule
-            .get("target_state")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        let running = state
-            .get("running")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false);
-        let target_type = schedule
-            .get("target_type")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        if !running || target_type == "sensor_sync" {
-            continue;
+        for schedule in &schedules {
+            let state = schedule
+                .get("target_state")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            let running = state
+                .get("running")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let target_type = schedule
+                .get("target_type")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            if !running || target_type == "sensor_sync" {
+                continue;
+            }
+            let schedule_id = schedule
+                .get("schedule_id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let target_key = schedule
+                .get("target_key")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let title = schedule_title(schedule);
+            activities.push(json!({
+                "activity_id": format!("target:{target_type}:{target_key}"),
+                "schedule_id": schedule_id,
+                "title": title,
+                "target_type": target_type,
+                "target_key": target_key,
+                "status": "running",
+                "planned_at": Value::Null,
+                "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
+                "finished_at": Value::Null,
+                "duration_ms": Value::Null,
+                "cancellable": false,
+                "cancel_kind": Value::Null,
+                "error": state.get("last_error").cloned().unwrap_or(Value::Null),
+                "background_task_id": Value::Null,
+                "result_message": Value::Null,
+                "stats": json!({}),
+                "manual": false,
+            }));
         }
-        let schedule_id = schedule
-            .get("schedule_id")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        let target_key = schedule
-            .get("target_key")
-            .and_then(|value| value.as_str())
-            .unwrap_or("");
-        let title = schedule_title(schedule);
-        activities.push(json!({
-            "activity_id": format!("target:{target_type}:{target_key}"),
-            "schedule_id": schedule_id,
-            "title": title,
-            "target_type": target_type,
-            "target_key": target_key,
-            "status": "running",
-            "planned_at": Value::Null,
-            "started_at": state.get("last_run_at").cloned().unwrap_or(Value::Null),
-            "finished_at": Value::Null,
-            "duration_ms": Value::Null,
-            "cancellable": false,
-            "cancel_kind": Value::Null,
-            "error": state.get("last_error").cloned().unwrap_or(Value::Null),
-            "background_task_id": Value::Null,
-            "result_message": Value::Null,
-            "stats": json!({}),
-            "manual": false,
-        }));
-    }
     } // end live_only_on_first_page (running snapshots)
 
     // 3) Historical executions from schedule_executions, scoped to the
@@ -483,13 +483,14 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
     // Count of history rows matching filters (used for frontend pagination).
     // Uses the same params as the data query so far, before we append
     // LIMIT/OFFSET below.
-    let count_query =
-        format!("SELECT COUNT(*) FROM schedule_executions{where_sql}");
+    let count_query = format!("SELECT COUNT(*) FROM schedule_executions{where_sql}");
     let history_total: i64 = {
         let param_refs: Vec<&dyn rusqlite::types::ToSql> =
             params.iter().map(|p| p.as_ref()).collect();
-        conn.query_row(&count_query, param_refs.as_slice(), |row| row.get::<_, i64>(0))
-            .unwrap_or(0)
+        conn.query_row(&count_query, param_refs.as_slice(), |row| {
+            row.get::<_, i64>(0)
+        })
+        .unwrap_or(0)
     };
 
     let limit_param_idx = params.len() + 1;
@@ -548,10 +549,7 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
             object.insert("status".into(), Value::String(display_status.into()));
             object.insert(
                 "planned_at".into(),
-                object
-                    .get("started_at")
-                    .cloned()
-                    .unwrap_or(Value::Null),
+                object.get("started_at").cloned().unwrap_or(Value::Null),
             );
             object.insert("cancellable".into(), Value::Bool(false));
             object.insert("cancel_kind".into(), Value::Null);
@@ -590,14 +588,8 @@ pub(super) fn query_activity(filters: ActivityFilters) -> Value {
         if a_running != b_running {
             return b_running.cmp(&a_running);
         }
-        let a_ts = a
-            .get("started_at")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let b_ts = b
-            .get("started_at")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
+        let a_ts = a.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let b_ts = b.get("started_at").and_then(|v| v.as_f64()).unwrap_or(0.0);
         b_ts.partial_cmp(&a_ts).unwrap_or(std::cmp::Ordering::Equal)
     });
 

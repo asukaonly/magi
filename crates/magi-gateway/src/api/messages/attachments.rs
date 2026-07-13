@@ -233,10 +233,7 @@ fn query_attachment_metadata(
 /// `chat_attachments.storage_rel_path` is also written by the Python backend
 /// and (transitively) by plugins. A canonicalisation check at the read site
 /// stops any future writer that forgets to validate.
-fn resolve_safe_attachment_path(
-    base_dir: &FsPath,
-    storage_rel_path: &str,
-) -> Option<PathBuf> {
+fn resolve_safe_attachment_path(base_dir: &FsPath, storage_rel_path: &str) -> Option<PathBuf> {
     // Reject absolute paths up front — `base_dir.join(abs)` would silently
     // discard `base_dir` on Unix and behave inconsistently on Windows.
     let rel = FsPath::new(storage_rel_path);
@@ -728,23 +725,20 @@ mod tests {
 
         // A sibling file that exists OUTSIDE temp_root — canonicalisation
         // must keep us from reading it via a `..` escape.
-        let outside_dir = std::env::temp_dir().join(format!(
-            "magi-attachment-outside-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let outside_dir =
+            std::env::temp_dir().join(format!("magi-attachment-outside-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&outside_dir).unwrap();
         let outside = outside_dir.join("secret.bin");
         fs::write(&outside, b"leak").unwrap();
 
         // Sanity: a clean relative path resolves.
-        assert!(resolve_safe_attachment_path(
-            &temp_root,
-            "data/resources/inside.bin"
-        )
-        .is_some());
+        assert!(resolve_safe_attachment_path(&temp_root, "data/resources/inside.bin").is_some());
 
         // Path traversal escaping base_dir → rejected.
-        let escape_rel = format!("../{}/secret.bin", outside_dir.file_name().unwrap().to_string_lossy());
+        let escape_rel = format!(
+            "../{}/secret.bin",
+            outside_dir.file_name().unwrap().to_string_lossy()
+        );
         assert!(resolve_safe_attachment_path(&temp_root, &escape_rel).is_none());
 
         // Absolute path → rejected before canonicalisation discards base_dir.

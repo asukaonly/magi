@@ -94,10 +94,7 @@ impl IpcClient {
         let read_event_tx = event_tx.clone();
         tokio::spawn(Self::read_loop(reader, read_pending, read_event_tx));
 
-        Ok((
-            Self { write_tx, pending },
-            event_rx,
-        ))
+        Ok((Self { write_tx, pending }, event_rx))
     }
 
     /// Send a fire-and-forget notification.
@@ -180,10 +177,7 @@ impl IpcClient {
                 map.remove(&id);
                 Err(IpcError {
                     code: -5,
-                    message: format!(
-                        "IPC request timed out after {}s",
-                        timeout.as_secs()
-                    ),
+                    message: format!("IPC request timed out after {}s", timeout.as_secs()),
                 })
             }
         }
