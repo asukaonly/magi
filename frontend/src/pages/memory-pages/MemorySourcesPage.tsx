@@ -435,9 +435,23 @@ function SourcePulseSection({
     : dashboard?.deltas?.today?.l1_events ?? 0;
   const backlogCount = dashboard?.processing_backlog?.total_pending ?? 0;
   const errorCount = rows.filter((row) => row.status === 'error').length;
+  const hasPulseSignal = (
+    todayCount > 0
+    || todayEvents.length > 0
+    || pulseRows.length > 0
+    || backlogCount > 0
+    || errorCount > 0
+  );
+
+  if (!hasPulseSignal) {
+    return null;
+  }
 
   return (
-    <section className={cn(MEMORY_SECTION_CARD_CLASS, 'px-5 py-5')}>
+    <section
+      className={cn(MEMORY_SECTION_CARD_CLASS, 'px-5 py-5')}
+      data-testid="memory-sources-pulse"
+    >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 space-y-1.5">
           <h1 className="text-[1.55rem] font-semibold text-[hsl(var(--memory-title))]">

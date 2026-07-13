@@ -367,6 +367,11 @@ describe('MemorySourcesPage', () => {
     vi.mocked(memoryApi.getDashboard).mockResolvedValue({
       ...dashboardPayload,
       source_counts: [],
+      processing_backlog: { total_pending: 0, all_idle: true },
+      deltas: {
+        ...dashboardPayload.deltas,
+        today: { ...dashboardPayload.deltas.today, l1_events: 0 },
+      },
     } as never);
     vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
     vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
@@ -389,6 +394,7 @@ describe('MemorySourcesPage', () => {
     );
 
     expect(await screen.findByTestId('memory-sources-install-guide')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-pulse')).not.toBeInTheDocument();
     expect(screen.queryByText('还没有来源。可以从上面选择一个开始。')).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
 
@@ -399,6 +405,41 @@ describe('MemorySourcesPage', () => {
 
     await waitFor(() => expect(memoryApi.getDashboard).toHaveBeenCalledTimes(2));
     expect(sensorsApi.getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the pulse visible when work is still waiting despite no source activity', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      source_counts: [],
+      processing_backlog: { total_pending: 2, all_idle: false },
+      deltas: {
+        ...dashboardPayload.deltas,
+        today: { ...dashboardPayload.deltas.today, l1_events: 0 },
+      },
+    } as never);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+      ...todayPayload,
+      sources: [],
+    } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 500,
+      offset: 0,
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources']}>
+        <Routes>
+          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('memory-sources-pulse')).toBeInTheDocument();
+    expect(screen.getByText('今天还没有来源活动；有新内容进入记忆后会显示在这里。')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
   });
 
   it('renders the pulse strip and source ledger, then opens a source detail route', async () => {
