@@ -78,7 +78,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
 
   return (
     <div
-      className="mt-2 flex flex-col text-xs"
+      className="flex flex-col text-xs"
       data-testid="recalled-memories-row"
     >
       <button
@@ -87,7 +87,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
         className={cn(
-          '-ml-1.5 inline-flex min-h-9 w-fit items-center gap-1 rounded-md px-1.5 py-1 text-left text-muted-foreground/75',
+          "relative -ml-1.5 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-left text-muted-foreground/75 after:absolute after:inset-x-0 after:-inset-y-1.5 after:rounded-md after:content-['']",
           'transition-colors hover:bg-muted/35 hover:text-muted-foreground',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
         )}
@@ -101,7 +101,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
       {expanded ? (
         <div
           id={detailId}
-          className="mt-1.5 space-y-2 border-l border-border/35 pl-4"
+          className="mt-1 space-y-2 border-l border-border/35 pl-4"
           data-testid="recalled-memories-detail"
         >
           {hasAdditionalCoverage ? (

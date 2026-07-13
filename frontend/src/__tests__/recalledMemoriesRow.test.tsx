@@ -31,6 +31,23 @@ describe('RecalledMemoriesRow', () => {
 
     expect(trigger).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Visited example.com')).toBeInTheDocument();
+    expect(screen.getByTestId('recalled-memories-detail')).toHaveClass('mt-1');
+  });
+
+  it('keeps the visible disclosure close while preserving its click area', () => {
+    render(<RecalledMemoriesRow memories={[memory]} />);
+
+    const row = screen.getByTestId('recalled-memories-row');
+    const trigger = screen.getByRole('button', { name: '1 条记忆引用' });
+
+    expect(row).not.toHaveClass('mt-2');
+    expect(trigger).toHaveClass(
+      'relative',
+      'items-center',
+      'py-1',
+      'after:-inset-y-1.5',
+      "after:content-['']",
+    );
   });
 
   it('separates expandable reference count from exhaustive coverage', () => {
