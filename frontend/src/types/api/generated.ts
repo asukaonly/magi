@@ -1927,6 +1927,26 @@ export interface paths {
         readonly patch: operations["update_experience_draft_route_api_memory_l2_experience_drafts__draft_id__patch"];
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/experience-drafts/{draft_id}/cover": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Upload Experience Draft Cover
+         * @description Upload and persist a user-selected cover image for an experience draft.
+         */
+        readonly post: operations["upload_experience_draft_cover_api_memory_l2_experience_drafts__draft_id__cover_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/experience-drafts/{draft_id}/create": {
         readonly parameters: {
             readonly query?: never;
@@ -4256,6 +4276,11 @@ export interface components {
              * @default local_user
              */
             readonly user_id: string;
+        };
+        /** Body_upload_experience_draft_cover_api_memory_l2_experience_drafts__draft_id__cover_post */
+        readonly Body_upload_experience_draft_cover_api_memory_l2_experience_drafts__draft_id__cover_post: {
+            /** File */
+            readonly file: string;
         };
         /** Body_upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post */
         readonly Body_upload_l2_experience_cover_api_memory_l2_experiences__experience_id__cover_post: {
@@ -11956,6 +11981,43 @@ export interface operations {
         readonly requestBody: {
             readonly content: {
                 readonly "application/json": components["schemas"]["ExperienceDraftUpdateRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": {
+                        readonly [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly upload_experience_draft_cover_api_memory_l2_experience_drafts__draft_id__cover_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly draft_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "multipart/form-data": components["schemas"]["Body_upload_experience_draft_cover_api_memory_l2_experience_drafts__draft_id__cover_post"];
             };
         };
         readonly responses: {
