@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
@@ -8,6 +8,15 @@ import { pluginsApi } from '@/api/modules/plugins';
 import { sensorsApi } from '@/api/modules/sensors';
 import { MemorySourceDetailPage, MemorySourcesPage } from '@/pages/memory-pages';
 import { useChatShellStore } from '@/stores';
+import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
+
+const { mockUseInstallableSensors } = vi.hoisted(() => ({
+  mockUseInstallableSensors: vi.fn(),
+}));
+
+vi.mock('@/hooks/useInstallableSensors', () => ({
+  useInstallableSensors: () => mockUseInstallableSensors(),
+}));
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -29,6 +38,10 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
         'memory.sourcesPage.actions.resume': '恢复',
+        'memory.sourcesPage.actions.add': '添加来源',
+        'memory.sourcesPage.actions.hideAdd': '收起',
+        'memory.sourcesPage.pulseEmpty': '今天还没有来源活动；有新内容进入记忆后会显示在这里。',
+        'memory.sourcesPage.ledgerEmpty': '还没有来源。可以从上面选择一个开始。',
         'memory.sourcesPage.feedback.backfillQueued': '{{source}} 已开始在后台补旧数据',
         'sourceBackfill.title': '补回历史',
         'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
@@ -273,11 +286,25 @@ const buildEvent = (index: number, overrides: Record<string, unknown> = {}) => (
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockUseInstallableSensors.mockReturnValue({
+    items: [{
+      plugin_id: 'calendar',
+      category: 'calendar',
+      installed: false,
+      rationale: { zh: '', en: '' },
+      setup_time_estimate_seconds: 20,
+      data_locality: 'local_only',
+    }],
+    loading: false,
+    error: null,
+    refresh: vi.fn(),
+  });
   vi.mocked(memoryApi.getDashboard).mockResolvedValue(dashboardPayload as never);
   vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as never);
   vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue(todayPayload as never);
   vi.mocked(pluginsApi.updateSettings).mockResolvedValue({} as never);
   useChatShellStore.setState({ activePanel: 'none', settingsNavigationIntent: null });
+  usePluginInstallPanelStore.getState().closePanel();
   vi.mocked(memoryApi.getL1Events).mockResolvedValue({
     items: [
       {
@@ -311,6 +338,69 @@ beforeEach(() => {
 });
 
 describe('MemorySourcesPage', () => {
+  it('opens the shared source install flow from a populated source ledger', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/memory/sources']}>
+        <Routes>
+          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('来源总账')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-install-guide')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '添加来源' }));
+    expect(screen.getByTestId('memory-sources-install-guide')).toBeInTheDocument();
+    await user.click(screen.getByTestId('empty-state-connect-calendar'));
+
+    expect(usePluginInstallPanelStore.getState()).toMatchObject({
+      open: true,
+      pluginId: 'calendar',
+      installMode: true,
+    });
+  });
+
+  it('shows source suggestions immediately when empty and refreshes after connection', async () => {
+    const user = userEvent.setup();
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      source_counts: [],
+    } as never);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as never);
+    vi.mocked(sensorsApi.getTodaySummary).mockResolvedValue({
+      ...todayPayload,
+      sources: [],
+    } as never);
+    vi.mocked(memoryApi.getL1Events).mockResolvedValue({
+      items: [],
+      total: 0,
+      limit: 500,
+      offset: 0,
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources']}>
+        <Routes>
+          <Route path="/memory/sources" element={<MemorySourcesPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByTestId('memory-sources-install-guide')).toBeInTheDocument();
+    expect(screen.queryByText('还没有来源。可以从上面选择一个开始。')).not.toBeInTheDocument();
+    expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('empty-state-connect-calendar'));
+    const onDone = usePluginInstallPanelStore.getState().onDone;
+    expect(onDone).not.toBeNull();
+    act(() => onDone?.({ pluginId: 'calendar', sourceName: 'calendar' }));
+
+    await waitFor(() => expect(memoryApi.getDashboard).toHaveBeenCalledTimes(2));
+    expect(sensorsApi.getStatus).toHaveBeenCalledTimes(2);
+  });
+
   it('renders the pulse strip and source ledger, then opens a source detail route', async () => {
     const user = userEvent.setup();
     render(

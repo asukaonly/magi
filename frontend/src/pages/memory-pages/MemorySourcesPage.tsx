@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, Minus, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
   SourceBackfillDialog,
@@ -558,7 +559,7 @@ function SourcePulseSection({
           </div>
         </div>
       ) : (
-        <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.empty')}</div>
+        <div className={cn(MEMORY_EMPTY_PANEL_CLASS, 'mt-5')}>{t('memory.sourcesPage.pulseEmpty')}</div>
       )}
     </section>
   );
@@ -567,12 +568,25 @@ function SourcePulseSection({
 function SourceLedgerSection({
   rows,
   todaySummary,
+  onSourceConnected,
 }: {
   rows: SourceLedgerRow[];
   todaySummary: SensorTodaySummaryResponse | null;
+  onSourceConnected: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const todayCounts = getTodayCountMap(todaySummary);
+  const [showAddSources, setShowAddSources] = useState(rows.length === 0);
+  const installedPluginIds = useMemo(
+    () => rows
+      .map((row) => row.pluginId)
+      .filter((pluginId): pluginId is string => Boolean(pluginId)),
+    [rows],
+  );
+
+  useEffect(() => {
+    setShowAddSources(rows.length === 0);
+  }, [rows.length]);
 
   return (
     <section className={MEMORY_SECTION_CARD_CLASS}>
@@ -585,10 +599,40 @@ function SourceLedgerSection({
             {t('memory.sourcesPage.ledgerSubtitle')}
           </p>
         </div>
-        <span className="rounded-full bg-[hsl(var(--memory-panel-subtle)/0.76)] px-3 py-1 text-xs text-[hsl(var(--memory-muted))]">
-          {t('memory.sourcesPage.localOnly')}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-[hsl(var(--memory-panel-subtle)/0.76)] px-3 py-1 text-xs text-[hsl(var(--memory-muted))]">
+            {t('memory.sourcesPage.localOnly')}
+          </span>
+          <button
+            type="button"
+            data-testid="memory-sources-add-toggle"
+            aria-expanded={showAddSources}
+            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-1.5')}
+            onClick={() => setShowAddSources((open) => !open)}
+          >
+            {showAddSources
+              ? <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+              : <Plus className="h-3.5 w-3.5" aria-hidden="true" />}
+            {showAddSources
+              ? t('memory.sourcesPage.actions.hideAdd')
+              : t('memory.sourcesPage.actions.add')}
+          </button>
+        </div>
       </div>
+
+      {showAddSources ? (
+        <div
+          className="mt-5 border-t border-[hsl(var(--memory-divider)/0.58)] pt-5"
+          data-testid="memory-sources-install-guide"
+        >
+          <EmptyStateAvailableSensors
+            excludePluginIds={installedPluginIds}
+            i18nNamespace="app"
+            i18nKeyPrefix="timeline"
+            onConnectDone={onSourceConnected}
+          />
+        </div>
+      ) : null}
 
       <div className="mt-4 divide-y divide-[hsl(var(--memory-divider)/0.58)]">
         {rows.length > 0 ? (
@@ -649,9 +693,9 @@ function SourceLedgerSection({
               );
             })}
           </>
-        ) : (
-          <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.empty')}</div>
-        )}
+        ) : !showAddSources ? (
+          <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.ledgerEmpty')}</div>
+        ) : null}
       </div>
     </section>
   );
@@ -665,6 +709,7 @@ export const MemorySourcesPage = () => {
   const [todayEvents, setTodayEvents] = useState<L1Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sourceRefreshVersion, setSourceRefreshVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -694,7 +739,7 @@ export const MemorySourcesPage = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [sourceRefreshVersion]);
 
   const rows = useMemo(
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
@@ -715,7 +760,11 @@ export const MemorySourcesPage = () => {
             todaySummary={todaySummary}
             todayEvents={todayEvents}
           />
-          <SourceLedgerSection rows={rows} todaySummary={todaySummary} />
+          <SourceLedgerSection
+            rows={rows}
+            todaySummary={todaySummary}
+            onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)}
+          />
         </div>
       )}
     </MemoryPageFrame>

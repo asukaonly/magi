@@ -2631,7 +2631,8 @@
       "subtitle": "看看 Magi 今天从哪里形成记忆。",
       "loading": "正在整理来源。",
       "error": "来源暂时加载失败。",
-      "empty": "还没有可查看的来源。",
+      "pulseEmpty": "今天还没有来源活动；有新内容进入记忆后会显示在这里。",
+      "ledgerEmpty": "还没有来源。可以从上面选择一个开始。",
       "localOnly": "数据只保存在本机",
       "neverSynced": "还没有同步",
       "noRecentBatch": "暂无最近批次",
@@ -2667,7 +2668,9 @@
         "settings": "打开设置",
         "pause": "暂停",
         "resume": "恢复",
-        "back": "返回来源"
+        "back": "返回来源",
+        "add": "添加来源",
+        "hideAdd": "收起"
       },
       "syncModes": {
         "interval": "定时同步",
