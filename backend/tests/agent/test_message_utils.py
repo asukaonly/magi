@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from magi.agent.message_utils import append_latest_user_message
+from magi.agent.message_utils import (
+    _estimate_prompt_message_tokens,
+    append_latest_user_message,
+)
 from magi.agent.run.ports import NullAttachmentResolver
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
 from magi.agent.turn_input import UserTurnInput
@@ -65,6 +68,17 @@ def test_append_latest_user_message_without_limit_keeps_full_short_history() -> 
         "answer 2",
         "message 3",
     ]
+
+
+def test_prompt_history_estimate_is_more_conservative_for_chinese_text() -> None:
+    ascii_tokens = _estimate_prompt_message_tokens(
+        {"role": "user", "content": "a" * 400}
+    )
+    chinese_tokens = _estimate_prompt_message_tokens(
+        {"role": "user", "content": "你" * 400}
+    )
+
+    assert chinese_tokens > ascii_tokens * 3
 
 
 def test_append_latest_user_message_adds_origin_anchor_when_head_is_trimmed() -> None:

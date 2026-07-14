@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,8 @@ SMALL_CONTEXT_WINDOW_LIMIT = 512_000
 SMALL_CONTEXT_TRIGGER_RATIO = 0.75
 LARGE_CONTEXT_TRIGGER_RATIO = 0.50
 RECENT_TAIL_RATIO = 0.20
-CHARS_PER_TOKEN_ESTIMATE = 4
+ASCII_CHARS_PER_TOKEN_ESTIMATE = 4.0
+NON_ASCII_BYTES_PER_TOKEN_ESTIMATE = 2.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,13 +81,26 @@ def build_context_window_budget(profile: ModelContextProfile) -> ContextWindowBu
     )
 
 
+def estimate_text_tokens(text: str) -> int:
+    """Return a lightweight multilingual token estimate for prompt text."""
+    if not text:
+        return 0
+    ascii_chars = sum(1 for char in text if char.isascii())
+    non_ascii_bytes = len(text.encode("utf-8", errors="replace")) - ascii_chars
+    estimated = (
+        ascii_chars / ASCII_CHARS_PER_TOKEN_ESTIMATE
+        + non_ascii_bytes / NON_ASCII_BYTES_PER_TOKEN_ESTIMATE
+    )
+    return max(1, math.ceil(estimated))
+
+
 def estimate_context_tokens(value: Any) -> int:
     """Return a provider-agnostic token estimate for structured prompt data."""
     try:
         rendered = json.dumps(value, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         rendered = str(value)
-    return max(1, len(rendered) // CHARS_PER_TOKEN_ESTIMATE)
+    return max(1, estimate_text_tokens(rendered))
 
 
 def measure_context_window_usage(
@@ -111,5 +126,6 @@ __all__ = [
     "FALLBACK_CONTEXT_WINDOW",
     "build_context_window_budget",
     "estimate_context_tokens",
+    "estimate_text_tokens",
     "measure_context_window_usage",
 ]

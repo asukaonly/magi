@@ -177,6 +177,17 @@ def test_transcript_summarizer_recomputes_threshold_for_active_model() -> None:
     assert not hasattr(small_plan, "reason")
 
 
+def test_transcript_summarizer_estimates_chinese_history_conservatively() -> None:
+    ascii_tokens = ChatTranscriptSummarizer._estimate_prompt_messages_tokens(
+        [{"role": "user", "content": "a" * 400}]
+    )
+    chinese_tokens = ChatTranscriptSummarizer._estimate_prompt_messages_tokens(
+        [{"role": "user", "content": "你" * 400}]
+    )
+
+    assert chinese_tokens > ascii_tokens * 3
+
+
 def test_transcript_summarizer_ignores_message_count_gate_under_token_pressure() -> None:
     summarizer = ChatTranscriptSummarizer(
         chat_store=None,

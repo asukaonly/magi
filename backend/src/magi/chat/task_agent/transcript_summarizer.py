@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import inspect
-import json
 import uuid
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
@@ -12,7 +11,11 @@ from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.provider_bridge import LLMProviderBridge
-from magi.context.window_budget import build_context_window_budget
+from magi.context.window_budget import (
+    build_context_window_budget,
+    estimate_context_tokens,
+    estimate_text_tokens,
+)
 from magi.llm.model_context import (
     ModelContextProfile,
     ResolvedModel,
@@ -25,7 +28,7 @@ logger = get_logger(__name__)
 SUMMARY_KIND_TOKEN_BUDGET = "token_budget"
 DEFAULT_MIN_MESSAGES_FOR_SUMMARY = 16
 SUMMARY_OUTPUT_RESERVE = 8_192
-_CHARS_PER_TOKEN_ESTIMATE = 4
+_SUMMARY_CHARS_PER_TOKEN_TARGET = 4
 _SUMMARY_INPUT_RATIO = 0.60
 _PROMPT_MESSAGE_KINDS = {"user_text", "assistant_final", "assistant_rhythm_segment"}
 
@@ -312,7 +315,8 @@ class ChatTranscriptSummarizer:
         budget = build_context_window_budget(resolved.context)
         max_chars = max(
             4_000,
-            int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _CHARS_PER_TOKEN_ESTIMATE,
+            int(budget.input_capacity * _SUMMARY_INPUT_RATIO)
+            * _SUMMARY_CHARS_PER_TOKEN_TARGET,
         )
         chunks = self._split_text(
             self._build_user_prompt(summary_input),
@@ -472,18 +476,14 @@ class ChatTranscriptSummarizer:
         active_summary_text: str | None,
         messages: list[TranscriptMessageForSummary],
     ) -> int:
-        summary_tokens = len(str(active_summary_text or "")) // _CHARS_PER_TOKEN_ESTIMATE
+        summary_tokens = estimate_text_tokens(str(active_summary_text or ""))
         return summary_tokens + self._estimate_prompt_messages_tokens(
             [message.to_prompt_message() for message in messages]
         )
 
     @staticmethod
     def _estimate_prompt_messages_tokens(messages: list[dict[str, Any]]) -> int:
-        try:
-            rendered = json.dumps(messages, ensure_ascii=False, default=str)
-        except (TypeError, ValueError):
-            rendered = str(messages)
-        return max(1, len(rendered) // _CHARS_PER_TOKEN_ESTIMATE)
+        return estimate_context_tokens(messages)
 
     @staticmethod
     def _derive_session_origin(messages: list[TranscriptMessageForSummary]) -> str:

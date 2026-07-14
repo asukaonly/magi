@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import base64
-import json
 from pathlib import Path
 from typing import Any
+
+from magi.context.window_budget import estimate_context_tokens
 
 from .run.ports import AttachmentResolverPort
 from .turn_input import UserTurnInput
@@ -14,7 +15,6 @@ from ..utils.message_text import (
     _is_matching_user_message,
 )
 
-_CHARS_PER_TOKEN_ESTIMATE = 4
 _SESSION_CONTEXT_ROLE = "user"
 
 
@@ -352,8 +352,4 @@ def _estimate_prompt_messages_tokens(messages: list[dict[str, Any]]) -> int:
 
 
 def _estimate_prompt_message_tokens(message: dict[str, Any]) -> int:
-    try:
-        rendered = json.dumps(message, ensure_ascii=False, default=str)
-    except (TypeError, ValueError):
-        rendered = str(message)
-    return max(1, len(rendered) // _CHARS_PER_TOKEN_ESTIMATE)
+    return estimate_context_tokens(message)

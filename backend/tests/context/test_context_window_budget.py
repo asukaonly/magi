@@ -64,6 +64,14 @@ def test_context_token_estimate_counts_structured_payload() -> None:
     assert large > small
 
 
+def test_context_token_estimate_is_more_conservative_for_non_ascii_text() -> None:
+    ascii_text = estimate_context_tokens("a" * 400)
+    chinese_text = estimate_context_tokens("你" * 400)
+
+    assert 90 <= ascii_text <= 110
+    assert chinese_text > ascii_text * 3
+
+
 def test_context_usage_distinguishes_trigger_from_hard_capacity() -> None:
     budget = build_context_window_budget(
         ModelContextProfile(

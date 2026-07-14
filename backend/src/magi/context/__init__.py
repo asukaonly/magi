@@ -10,6 +10,7 @@ from .window_budget import (
     ContextWindowBudget,
     build_context_window_budget,
     estimate_context_tokens,
+    estimate_text_tokens,
 )
 from .scenarios import Scenario
 from .schema import (
@@ -42,4 +43,5 @@ __all__ = [
     "UserProfileService",
     "build_context_window_budget",
     "estimate_context_tokens",
+    "estimate_text_tokens",
 ]
