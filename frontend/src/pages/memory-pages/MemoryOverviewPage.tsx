@@ -5,10 +5,11 @@ import { memoryApi, type MemoryDashboard } from '@/api/modules/memory';
 import { sensorsApi, type SensorSourceStatusResponse } from '@/api/modules/sensors';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
-import { OverviewMetricCards } from './overview/OverviewMetricCards';
+import { OverviewEmptyState } from './overview/OverviewEmptyState';
 import { OverviewPendingSection } from './overview/OverviewPendingSection';
 import { OverviewRecentStories } from './overview/OverviewRecentStories';
 import { OverviewSourceCoverage } from './overview/OverviewSourceCoverage';
+import { OverviewSummary } from './overview/OverviewSummary';
 import {
   buildPendingItems,
   buildRecentStories,
@@ -71,6 +72,12 @@ export const MemoryOverviewPage = () => {
     () => buildRecentStories(stories, t),
     [stories, t],
   );
+  const hasOverviewContent = (
+    (dashboard?.statistics.total_memories ?? 0) > 0
+    || sourceRows.length > 0
+    || pendingItems.length > 0
+    || recentStories.length > 0
+  );
 
   const dismissItem = (id: string) => {
     setDismissedIds((current) => new Set([...current, id]));
@@ -101,9 +108,11 @@ export const MemoryOverviewPage = () => {
         </section>
       ) : error ? (
         <section className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.overview.empty.error')}</section>
+      ) : !hasOverviewContent ? (
+        <OverviewEmptyState diskUsageBytes={dashboard?.statistics.disk_usage_bytes} />
       ) : (
-        <div className="space-y-4">
-          <OverviewMetricCards dashboard={dashboard} />
+        <div className="space-y-6">
+          <OverviewSummary dashboard={dashboard} sourceCount={sourceRows.length} />
           <OverviewSourceCoverage
             rows={sourceRows}
             processingBacklog={dashboard?.processing_backlog?.total_pending ?? 0}
@@ -115,7 +124,7 @@ export const MemoryOverviewPage = () => {
               onAction={handlePendingAction}
             />
           ) : null}
-          <OverviewRecentStories stories={recentStories} />
+          {recentStories.length > 0 ? <OverviewRecentStories stories={recentStories} /> : null}
         </div>
       )}
     </MemoryPageFrame>

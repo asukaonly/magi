@@ -785,7 +785,7 @@ Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every
 The default memory UI starts from a product overview rather than a raw layer
 workbench. That overview aggregates L1 source coverage, L2 reviewable
 assertions, L3 reviewable insights, storage usage, and recent memory formation.
-Its summary cards show current memory totals plus live same-day formation
+Its compact summary shows current memory totals plus live same-day formation
 deltas from L1 event creation, L2 assertion inference, and L3 summary creation;
 storage remains a current usage value until a durable daily snapshot exists.
 A dedicated Sources page expands the overview's source coverage into a

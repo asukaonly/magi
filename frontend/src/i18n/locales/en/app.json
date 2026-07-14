@@ -2531,6 +2531,7 @@
     "overview": {
       "title": "Overview",
       "subtitle": "See what Magi remembers, where it came from, and what needs your judgment.",
+      "summaryLabel": "Memory summary",
       "metrics": {
         "totalMemories": "Total memories",
         "understanding": "About you",
@@ -2573,6 +2574,9 @@
         "story": "Memory update"
       },
       "actions": {
+        "addSource": "Add source",
+        "startChat": "Start a conversation",
+        "connectSource": "Connect your first source",
         "confirm": "Confirm",
         "reject": "Not right",
         "confirmAssertion": "Confirm assertion",
@@ -2583,7 +2587,11 @@
       "empty": {
         "loading": "Preparing your memory overview.",
         "error": "Memory overview could not load right now.",
-        "sources": "No sources have entered memory yet.",
+        "title": "Magi has no memories to organize yet",
+        "body": "Add a source or start a conversation, and your memory overview will begin to take shape here.",
+        "storage": "{{value}} currently in use",
+        "sources": "No sources connected yet",
+        "sourcesBody": "Connect a source to see where your memories are forming.",
         "pending": "Nothing needs your judgment right now.",
         "recent": "No recent reviews yet."
       }

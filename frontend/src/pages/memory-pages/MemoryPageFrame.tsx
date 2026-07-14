@@ -141,6 +141,9 @@ export const MEMORY_EMPTY_PANEL_CLASS =
 export const MEMORY_SECTION_CARD_CLASS =
   'rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] p-4';
 
+export const MEMORY_SECTION_SURFACE_CLASS =
+  'rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.58)] px-5 py-5 shadow-[0_14px_36px_hsl(var(--memory-shadow)/0.035)] sm:px-6';
+
 export const MEMORY_INTERACTIVE_CARD_CLASS =
   'group flex items-center justify-between rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-3 transition-colors duration-200 hover:border-[hsl(var(--memory-accent)/0.28)] hover:bg-[hsl(var(--memory-panel-elevated)/0.86)]';
 

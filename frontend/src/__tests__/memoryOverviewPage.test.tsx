@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { MemoryOverviewPage } from '@/pages/memory-pages';
 import { memoryApi } from '@/api/modules/memory';
 import { sensorsApi } from '@/api/modules/sensors';
@@ -13,7 +14,9 @@ vi.mock('react-i18next', () => ({
         'memory.overview.metrics.totalMemories': 'Total memories',
         'memory.overview.metrics.understanding': 'About you',
         'memory.overview.metrics.summaries': 'Reviews & summaries',
+        'memory.overview.metrics.sources': 'Active sources',
         'memory.overview.metrics.storage': 'Storage',
+        'memory.overview.summaryLabel': 'Memory summary',
         'memory.overview.metricDelta.current': 'Current',
         'memory.overview.sections.sources': 'Source coverage',
         'memory.overview.sections.pending': 'Pending review',
@@ -29,6 +32,14 @@ vi.mock('react-i18next', () => ({
         'memory.overview.sourceStatus.never_synced': 'Never synced',
         'memory.overview.sourceStatus.setup_required': 'Setup required',
         'memory.overview.sourceStatus.disabled': 'Disabled',
+        'memory.overview.actions.addSource': 'Add source',
+        'memory.overview.actions.startChat': 'Start a conversation',
+        'memory.overview.actions.connectSource': 'Connect your first source',
+        'memory.overview.empty.title': 'Magi has no memories to organize yet',
+        'memory.overview.empty.body': 'Add a source or start a conversation, and your memory overview will begin to take shape here.',
+        'memory.overview.empty.storage': '{{value}} currently in use',
+        'memory.overview.empty.sources': 'No sources connected yet',
+        'memory.overview.empty.sourcesBody': 'Connect a source to see where your memories are forming.',
         'memory.sources.chat_projector': 'Chat',
         'timeline.sources.chat': 'Chat',
         'memory.stories.categories.day': 'Daily summary',
@@ -330,6 +341,12 @@ const sensorPayload = {
   ],
 };
 
+const renderOverview = () => render(
+  <MemoryRouter>
+    <MemoryOverviewPage />
+  </MemoryRouter>,
+);
+
 describe('MemoryOverviewPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -344,12 +361,13 @@ describe('MemoryOverviewPage', () => {
     });
   });
 
-  it('renders dashboard metrics, source coverage, pending review, and recent memory', async () => {
-    render(<MemoryOverviewPage />);
+  it('renders the compact summary, source coverage, pending review, and recent memory', async () => {
+    renderOverview();
 
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
     expect(screen.getByTestId('memory-theme-root')).toHaveClass('px-4', 'py-4');
     expect(screen.getByTestId('memory-theme-root')).not.toHaveClass('px-6', 'py-6');
+    expect(await screen.findByTestId('memory-overview-summary')).toBeInTheDocument();
     expect(await screen.findByText('Total memories')).toBeInTheDocument();
     expect(await screen.findByText('28')).toBeInTheDocument();
     expect(screen.getByText('Today +9')).toBeInTheDocument();
@@ -361,7 +379,7 @@ describe('MemoryOverviewPage', () => {
     expect(screen.getByText('Today +2')).toBeInTheDocument();
     expect(screen.getByText('Storage')).toBeInTheDocument();
     expect(screen.getByText('1.5 KB')).toBeInTheDocument();
-    expect(screen.getByText('Current')).toBeInTheDocument();
+    expect(screen.queryByText('Current')).not.toBeInTheDocument();
     expect(screen.getByText('Source')).toBeInTheDocument();
     expect(screen.getByText('Status')).toBeInTheDocument();
     expect(screen.getAllByText('Stored').length).toBeGreaterThan(0);
@@ -388,6 +406,77 @@ describe('MemoryOverviewPage', () => {
     expect(memoryApi.getDashboard).toHaveBeenCalledWith({ pending_limit: 8 });
     expect(sensorsApi.getStatus).toHaveBeenCalled();
     expect(memoryStoriesApi.list).toHaveBeenCalledWith({ limit: 12, offset: 0, surface: 'all' });
+  });
+
+  it('shows one guided starting point when no memory data exists', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      statistics: {
+        ...dashboardPayload.statistics,
+        l1: { event_count: 0 },
+        l2: { relation_count: 0, assertion_count: 0 },
+        l3: { summary_count: 0 },
+        total_memories: 0,
+        disk_usage_bytes: 1_363_149,
+        attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+      },
+      source_counts: [],
+      attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+      pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
+      deltas: {
+        today: {
+          total_memories: 0,
+          l1_events: 0,
+          l2_assertions: 0,
+          l3_summaries: 0,
+          disk_usage_bytes: null,
+        },
+      },
+    } as any);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      ...storyPayload,
+      items: [],
+      total: 0,
+    } as any);
+
+    renderOverview();
+
+    expect(await screen.findByRole('heading', { name: 'Magi has no memories to organize yet' })).toBeInTheDocument();
+    expect(screen.getByText('Add a source or start a conversation, and your memory overview will begin to take shape here.')).toBeInTheDocument();
+    expect(screen.getByText('1.3 MB currently in use')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Add source' })).toHaveAttribute('href', '/memory/sources');
+    expect(screen.getByRole('link', { name: 'Start a conversation' })).toHaveAttribute('href', '/chat');
+    expect(screen.queryByTestId('memory-overview-summary')).not.toBeInTheDocument();
+    expect(screen.queryByText('Source coverage')).not.toBeInTheDocument();
+    expect(screen.queryByText('Latest summaries')).not.toBeInTheDocument();
+  });
+
+  it('offers a source action without showing an empty summaries section', async () => {
+    vi.mocked(memoryApi.getDashboard).mockResolvedValue({
+      ...dashboardPayload,
+      statistics: {
+        ...dashboardPayload.statistics,
+        total_memories: 1,
+      },
+      source_counts: [],
+      attention: { pending_assertions: 0, open_circuit_breakers: 0 },
+      pending_assertions: { items: [], total: 0, limit: 8, offset: 0 },
+    } as any);
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({ sources: [] } as any);
+    vi.mocked(memoryStoriesApi.list).mockResolvedValue({
+      ...storyPayload,
+      items: [],
+      total: 0,
+    } as any);
+
+    renderOverview();
+
+    expect(await screen.findByTestId('memory-overview-summary')).toBeInTheDocument();
+    expect(screen.getByText('Source coverage')).toBeInTheDocument();
+    expect(screen.getByText('No sources connected yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Connect your first source' })).toHaveAttribute('href', '/memory/sources');
+    expect(screen.queryByText('Latest summaries')).not.toBeInTheDocument();
   });
 
   it('uses the same readable wording for pending address assertions as the review page', async () => {
@@ -421,7 +510,7 @@ describe('MemoryOverviewPage', () => {
       },
     } as any);
 
-    render(<MemoryOverviewPage />);
+    renderOverview();
 
     expect(await screen.findByText('You want me to call you "子涵".')).toBeInTheDocument();
     expect(screen.getByText('Is this judgment right?')).toBeInTheDocument();
@@ -440,7 +529,7 @@ describe('MemoryOverviewPage', () => {
       items: storyPayload.items.filter((story) => story.review_state !== 'pending_confirmation'),
     } as any);
 
-    render(<MemoryOverviewPage />);
+    renderOverview();
 
     expect(await screen.findByText('Latest summaries')).toBeInTheDocument();
     expect(screen.queryByText('Pending review')).not.toBeInTheDocument();
@@ -449,7 +538,7 @@ describe('MemoryOverviewPage', () => {
 
   it('routes pending item actions to their owning memory APIs', async () => {
     const user = userEvent.setup();
-    render(<MemoryOverviewPage />);
+    renderOverview();
 
     await screen.findByText('I found an about-you judgment: "Python"');
     await user.click(screen.getByRole('button', { name: 'memory.overview.actions.confirmAssertion' }));

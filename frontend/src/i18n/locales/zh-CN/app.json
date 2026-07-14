@@ -2530,6 +2530,7 @@
     "overview": {
       "title": "总览",
       "subtitle": "看看 Magi 现在记住了什么、从哪里来，以及哪些内容需要你判断。",
+      "summaryLabel": "记忆概况",
       "metrics": {
         "totalMemories": "记忆总量",
         "understanding": "关于你的理解",
@@ -2572,6 +2573,9 @@
         "story": "记忆更新"
       },
       "actions": {
+        "addSource": "添加来源",
+        "startChat": "开始对话",
+        "connectSource": "连接第一个来源",
         "confirm": "确认",
         "reject": "不对",
         "confirmAssertion": "确认断言",
@@ -2582,7 +2586,11 @@
       "empty": {
         "loading": "正在整理你的记忆概况。",
         "error": "记忆概况暂时加载失败。",
-        "sources": "还没有来源进入记忆。",
+        "title": "Magi 还没有可以整理的记忆",
+        "body": "添加一个来源，或开始对话后，这里会逐渐形成你的记忆概况。",
+        "storage": "当前占用 {{value}}",
+        "sources": "还没有连接来源",
+        "sourcesBody": "连接来源后，这里会显示记忆从哪里形成。",
         "pending": "现在没有需要确认的内容。",
         "recent": "还没有新的回顾。"
       }
