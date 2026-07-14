@@ -414,6 +414,11 @@ Expected product behavior:
 
 - users can inspect discovered plugin packages in a dedicated Plugins area
 - users can enable, disable, reload, and rescan plugin packages
+- users must see a plugin's declared system and data access before installing it
+- an update must ask again only when it adds a new access type or broadens an existing scope
+- uploaded plugin archives must be inspected before installation so they receive the same review as marketplace packages
+- official badges must come from the maintainer-controlled registry rather than a plugin's own claim
+- plugins with third-party Python dependencies must pass locked, hash-verified installation before they are enabled
 - plugin-provided settings are rendered from backend field metadata rather than custom plugin frontend code
 - tool surfaces should continue to reflect runtime-registered tools rather than hardcoded frontend lists
 

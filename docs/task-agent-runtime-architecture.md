@@ -796,7 +796,7 @@ loop hand itself off to the background runtime while preserving the
 exact tool-loop state.
 
 Primitives (in
-[agent/run_control.py](../backend/src/magi/agent/run_control.py)):
+[control/run_control.py](../backend/src/magi/control/run_control.py)):
 
 - ``DetachSignal`` — one-shot flag flipped by a tool or a user action.
   Exposes ``request(payload)`` and ``is_requested()``.

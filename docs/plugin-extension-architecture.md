@@ -10,7 +10,10 @@ It is the implementation-facing guide for:
 - contributors wiring new tools, timeline sensors, channels, or plugin ingress handlers
 - frontend contributors building settings surfaces for plugin-backed capabilities
 
-The current contracts unify `tool`, `sensor`, `channel`, `skill`, and `hook` contributions under one package model; runtime registration for skills remains owned by the skill-loading subsystem.
+The manifest contract recognizes `tool`, `sensor`, `channel`, `skill`, and
+`hook`. The shared plugin registrar currently consumes tools, sensors, channels,
+and hooks. Skill loading remains separate and is not driven by a plugin's
+`get_skills()` hook today.
 
 ## Design Goals
 
@@ -27,10 +30,15 @@ Each plugin package is a backend Python package that may contribute one or more 
 - tools
 - sensors
 - channels
+- skills
+- hooks
 
-The current runtime also lets a plugin register host-routed ingress handlers through
-`get_plugin_ingress_registrations()`. Those handlers are not a separate contribution
-type in `PluginContribution`; they are backend-dispatched event hooks.
+Tools, sensors, channels, and hooks register through the shared plugin lifecycle.
+Although `skill` is a recognized manifest value and the SDK exposes
+`get_skills()`, `PluginManager` does not consume that hook today. A plugin may
+also register host-routed ingress handlers through
+`get_plugin_ingress_registrations()`; those handlers are backend-dispatched events,
+not a separate `PluginContribution` type.
 
 A plugin package is discovered from disk, parsed from `plugin.toml`, loaded from a Python entry module, then registered into one or more runtime registries.
 
@@ -60,7 +68,7 @@ The plugin manager scans two roots:
 
 These roots are persisted in:
 
-- [models.py](backend/src/magi/config/models.py)
+- [models.py](../backend/src/magi/config/models.py)
 
 under:
 
@@ -75,13 +83,13 @@ A plugin package is a directory containing:
 
 Official built-in examples live in:
 
-- [core-tools](plugins/core-tools/plugin.py)
+- [core-tools](../plugins/core-tools/plugin.py)
 
 External plugin examples live in the separate plugin repository (`github.com/asukaonly/magi-plugins`):
 
-- `chrome-history/` �?full-featured sensor with entity hints, batch policies, and metadata extraction
-- `telegram/` �?bidirectional channel adapter
-- `screen_time/` �?sensor plus plugin ingress handler pair backed by local host events
+- `chrome-history/` — full-featured sensor with entity hints, batch policies, and metadata extraction
+- `telegram/` — bidirectional channel adapter
+- `screen_time/` — sensor plus plugin ingress handler pair backed by local host events
 
 ## Manifest Contract
 
@@ -98,16 +106,20 @@ Important fields:
 - `entry_class`
 - `official`
 - `contribution_types`
+- `permissions.capabilities`
+- `dependencies`
+- `depends_on`
+- `kind`
 
 The typed contract lives in:
 
-- [contracts.py](backend/src/magi/plugins/contracts.py)
+- [contracts.py](../backend/src/magi/plugins/contracts.py)
 
 ## Base Plugin Contract
 
 Every plugin entry class must inherit:
 
-- [Plugin](backend/src/magi/plugins/base.py)
+- [Plugin](../backend/src/magi/plugins/base.py)
 
 The base contract exposes the current authoring hooks consumed by the runtime:
 
@@ -177,17 +189,12 @@ When a plugin wants the assistant to send back local files such as photos, keep 
 - source plugins own domain resolution and selection
 - the host runtime owns chat attachment import, persistence, and display
 
-The long-term resolver design is documented in
-[Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md).
-Plugins should prefer that generic `asset_resolve` contract for reusable
-`asset_refs` instead of adding source-specific resolver tools to the
-agent-visible tool list.
+Current flow:
 
-Current intended flow:
-
-1. a source plugin resolves memory or sensor metadata into stable local file paths or source-owned asset refs
-2. the host-owned `prepare_chat_attachments` tool imports those files into managed chat attachment storage for the active turn
-3. the assistant response persists `attachments` payloads and the frontend renders them like other chat history attachments
+1. a source plugin returns compact `asset_refs` and records its source-owned resolver tool when later resolution is supported
+2. a follow-up turn calls the recorded source resolver to obtain current local file paths or source evidence
+3. the host-owned `prepare_chat_attachments` tool imports those files into managed chat attachment storage for the active turn
+4. the assistant response persists `attachments` payloads and the frontend renders them like other chat history attachments
 
 For follow-up turns, tool results may also return an `assistant_payload` object. The host runtime persists that object into the assistant message payload after sanitization. The current reusable host contract is:
 
@@ -215,7 +222,7 @@ Builtin timeline sensor packages that should be configurable in Settings are exp
 
 The contracts live in:
 
-- [sensors.py](backend/src/magi/plugins/sensors.py)
+- [sensors.py](../backend/src/magi/plugins/sensors.py)
 
 #### First-Context Activation Metadata
 
@@ -321,7 +328,7 @@ Static alias lists or multi-language label tables should stay in plugin i18n res
 - `fact_hints`: preferred source-owned structured facts for L2 cognition
 - `relation_candidates`: legacy/timeline-compatible relation projections
 
-Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** �?they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
+Entity hints are passed through the ingestion gateway as `structured_entity_hints` in `MemoryEvent.metadata_json`. In the L2 pipeline, these hints are injected into the Phase 1 LLM prompt as **context anchors** — they help the LLM resolve entities to consistent canonical names and types, but are NOT automatically materialized into the entity catalog. Only entities that the LLM independently extracts in Phase 1 output become persisted entities.
 
 `fact_hints` are the preferred L2 structured-fact path. They let the source describe high-confidence SPO-style facts while the host still owns evidence classification, profile allowlists, conflict handling, and persistence. Passive observations should normally emit interaction evidence (`VIEWED`, `LISTENED`, `USED`, `VISITED`) rather than direct preference claims.
 
@@ -331,7 +338,7 @@ Tags are never a substitute for fact evidence. A tag, page category, or weak co-
 
 ### Target Semantic Enrichment Contract
 
-The long-term plugin-facing contract should evolve from “entity hints + ad hoc rule edges�?into a source-owned semantic enrichment envelope.
+The long-term plugin-facing contract should evolve from “entity hints + ad hoc rule edges” into a source-owned semantic enrichment envelope.
 
 Important boundary:
 
@@ -437,7 +444,7 @@ In practice this means extraction profiles may allow them for structured hints w
 
 See also:
 
-- [memory-system-design.md](docs/memory-system-design.md)
+- [memory-system-design.md](./memory-system-design.md)
 
 ### L2 Batch Policy
 
@@ -562,8 +569,8 @@ Important field attributes:
 
 The frontend consumes these fields through:
 
-- [plugins.ts](frontend/src/api/modules/plugins.ts)
-- [PluginSettingsFields.tsx](frontend/src/components/settings/PluginSettingsFields.tsx)
+- [plugins.ts](../frontend/src/api/modules/plugins.ts)
+- [PluginSettingsFields.tsx](../frontend/src/components/settings/PluginSettingsFields.tsx)
 
 ## Plugin Settings Resources
 
@@ -722,10 +729,10 @@ Examples:
 
 Frontend surfaces:
 
-- [Settings.tsx](frontend/src/pages/Settings.tsx)
-- [PluginsSection.tsx](frontend/src/components/settings/PluginsSection.tsx)
-- [TimelineSourcesSection.tsx](frontend/src/components/settings/TimelineSourcesSection.tsx)
-- [ChannelsSection.tsx](frontend/src/components/settings/ChannelsSection.tsx)
+- [Settings.tsx](../frontend/src/pages/Settings.tsx)
+- [PluginsSection.tsx](../frontend/src/components/settings/PluginsSection.tsx)
+- [TimelineSourcesSection.tsx](../frontend/src/components/settings/TimelineSourcesSection.tsx)
+- [ChannelsSection.tsx](../frontend/src/components/settings/ChannelsSection.tsx)
 
 ## Configuration Persistence
 
@@ -740,6 +747,8 @@ The persisted shape is:
   - `packages.<plugin_id>.trusted`
   - `packages.<plugin_id>.source`
   - `packages.<plugin_id>.manifest_path`
+  - `packages.<plugin_id>.official`
+  - `packages.<plugin_id>.consented_capabilities`
 - `~/.magi/config/plugins/<plugin_id>.yaml`
   - plugin-owned `settings`
 
@@ -749,7 +758,7 @@ This keeps host runtime configuration separate from plugin lifecycle state and r
 
 The unified plugin management API lives in:
 
-- [plugins.py](backend/src/magi/api/routers/plugins.py)
+- [plugins.py](../backend/src/magi/api/routers/plugins.py)
 
 Current endpoints:
 
@@ -764,7 +773,7 @@ Current endpoints:
 
 Timeline source status also now reflects plugin-backed sensor registration:
 
-- [timeline.py](backend/src/magi/api/routers/timeline.py)
+- [timeline.py](../backend/src/magi/api/routers/timeline.py)
 
 ## Built-In And Example Plugins
 
@@ -804,7 +813,7 @@ plugin runtime.
 In the current codebase:
 
 - `ContributionType` contains `tool`, `sensor`, `channel`, `skill`, and `hook`
-- `PluginManager` registers tools, sensors, channels, and hooks; skills use the separate skill-loading runtime
+- `PluginManager` registers tools, sensors, channels, and hooks; its `get_skills()` hook is not wired into runtime loading
 - the frontend settings UI exposes plugin-backed sections for installed plugins, timeline sources, and channels only
 - there is no `get_actions()` hook or `ActionRegistry` implementation under `backend/src/magi/`
 
@@ -826,7 +835,47 @@ The marketplace index is a `registry.json` file at the repository root containin
 - `author` - plugin author
 - `official` - whether the plugin is maintained by the Magi team
 - `contribution_types` - array of declared contribution types supported by the current contracts (`sensor`, `channel`, `tool`, `skill`, `hook`)
+- `capabilities` - user-visible access declarations copied from the plugin manifest
+- `kind` and `depends_on` - package-library and plugin dependency metadata when present
 - `platforms` - array of supported platforms (`macos`, `windows`, `linux`)
+
+### Registry Authority And Install Consent
+
+Marketplace trust is not self-declared by a plugin package.
+
+- the external registry derives `official` from the maintainer-controlled
+  `official-plugins.json` allowlist
+- an external plugin's `official = true` manifest value is ignored unless its
+  plugin id is in that allowlist
+- built-in packages may use their bundled manifest value; uploaded packages are
+  always treated as non-official
+- registry installs persist the registry-derived value, and installed-plugin
+  responses read that persisted value rather than trusting a local manifest
+
+Plugins declare user-visible access under
+`[[plugin.permissions.capabilities]]`. The external registry validates each
+capability against the shared known set and copies the declaration into
+`registry.json`. The product shows these declarations before install. Updates
+prompt again only when a new capability, a new scope, or a broader scope exceeds
+the user's stored consent. Uploaded packages are inspected before installation
+so the same review applies to sideloads.
+
+Capability declarations are disclosure and review metadata. They do not provide
+an operating-system sandbox, so runtime enforcement still depends on the host's
+existing permission and trust boundaries.
+
+### Dependency Integrity
+
+A plugin that declares Python dependencies must ship a generated
+`requirements.lock` containing exact versions and hashes. The installer uses
+that lock with hash verification and refuses ordinary installation when the
+lock is missing. `MAGI_ALLOW_UNLOCKED_PLUGIN_DEPS=1` exists only as an explicit
+developer-mode escape hatch and must not be treated as a normal distribution
+path.
+
+The companion plugin repository regenerates lockfiles and `registry.json`
+together. Its CI checks both outputs for drift, so a manifest or dependency
+change is not complete until the generated artifacts are committed with it.
 
 ### Installation Flow
 
@@ -839,7 +888,7 @@ The marketplace index is a `registry.json` file at the repository root containin
 5. `RegistryClient.clone_plugin()` downloads the GitHub repository tarball, with short-lived in-memory caching for repeat install requests
 6. The requested plugin subdirectory is extracted from the tarball into a temporary directory
 7. `PluginManager.install_plugin_from_directory()` copies the plugin into `~/.magi/plugins/<plugin_id>/`
-8. Python dependencies declared by the plugin are installed with a resolved Python interpreter's `pip` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
+8. Python dependencies declared by the plugin are installed from its hash-verified `requirements.lock` into the plugin-local `.deps/` directory; pip output is attached to the install job logs. Source/dev runs use the active backend Python. Packaged desktop runs pass `Contents/Resources/plugin-python/.../python` through `MAGI_PLUGIN_PYTHON`; the packaged `magi-backend` sidecar is never used as a pip executable.
 9. The plugin is discovered on next scan and can be enabled from the settings UI
 
 Packaged desktop builds stage two generated runtime resources under `frontend/src-tauri/`: `sidecar-dist/` for the backend sidecar and `plugin-python/` for plugin dependency installation. Release CI runs `scripts/prepare-plugin-python-runtime.py` to download a python-build-standalone runtime for the target platform, writes it to `MAGI_PLUGIN_PYTHON_SOURCE`, and requires that source during sidecar staging. Local development builds may omit the variable and use a local venv fallback. macOS signing scripts sign Mach-O files in both runtime resource roots before notarization.
@@ -863,21 +912,21 @@ The current system is a local backend Python extension model.
 
 ## Related Files
 
-- [Plugin manager](backend/src/magi/plugins/manager.py)
-- [Plugin runtime exports](backend/src/magi/plugins/__init__.py)
-- [Registry client](backend/src/magi/plugins/registry_client.py)
-- [Config models](backend/src/magi/config/models.py)
-- [Plugins API](backend/src/magi/api/routers/plugins.py)
-- [Timeline API](backend/src/magi/api/routers/timeline.py)
-- [Sensor base contract](backend/src/magi/awareness/sensor_base.py)
-- [Sensor output models](backend/src/magi/awareness/sensor_output.py)
-- [Ingestion gateway](backend/src/magi/awareness/ingestion_gateway.py)
-- [Extraction profiles](backend/src/magi/memory/l2/extraction_profiles.py)
-- [L2 pipeline](backend/src/magi/memory/l2/pipeline.py)
+- [Plugin manager](../backend/src/magi/plugins/manager.py)
+- [Plugin runtime exports](../backend/src/magi/plugins/__init__.py)
+- [Registry client](../backend/src/magi/plugins/registry_client.py)
+- [Config models](../backend/src/magi/config/models.py)
+- [Plugins API](../backend/src/magi/api/routers/plugins.py)
+- [Timeline API](../backend/src/magi/api/routers/timeline.py)
+- [Sensor base contract](../backend/src/magi/awareness/sensor_base.py)
+- [Sensor output models](../backend/src/magi/awareness/sensor_output.py)
+- [Ingestion gateway](../backend/src/magi/awareness/ingestion_gateway.py)
+- [Extraction profiles](../backend/src/magi/memory/l2/extraction_profiles.py)
+- [L2 pipeline](../backend/src/magi/memory/l2/pipeline/)
 
 ## Related Documents
 
-- [Project Overview](docs/project-overview.md)
-- [Product Configuration Guide](docs/product-configuration-guide.md)
-- [Plugin Development Guide](docs/plugin-development-guide.md)
-- [Memory System Design](docs/memory-system-design.md)
+- [Project Overview](./project-overview.md)
+- [Product Configuration Guide](./product-configuration-guide.md)
+- [Plugin Development Guide](./plugin-development-guide.md)
+- [Memory System Design](./memory-system-design.md)

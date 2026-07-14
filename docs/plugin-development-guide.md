@@ -185,6 +185,58 @@ Plugin state is persisted in split config files:
 - enable / trust / source metadata lives in `~/.magi/config/plugins/index.yaml`
 - plugin-owned settings live in `~/.magi/config/plugins/<plugin_id>.yaml`
 
+## Declaring Access And Safe Dependencies
+
+Every plugin should disclose the system and data access it needs. Declare one
+entry per access type in `plugin.toml`:
+
+```toml
+[[plugin.permissions.capabilities]]
+capability = "filesystem_read"
+scope = ["~/Documents"]
+optional = false
+reason_i18n = { en = "Read documents selected by the user", "zh-CN" = "读取用户选择的文档" }
+```
+
+Supported capability names are:
+
+- `screen_recording`
+- `accessibility`
+- `calendar`
+- `photos`
+- `contacts`
+- `system_media`
+- `filesystem_read`
+- `filesystem_write`
+- `network`
+- `subprocess`
+
+Use `scope` to narrow file roots, network hosts, or executable names. Use
+`optional = true` only when the plugin still works without that access. Keep the
+English and Simplified Chinese reasons aligned because users see them before
+installation.
+
+These declarations are disclosure and review metadata, not a sandbox. They must
+match what the plugin actually does. The companion plugin registry rejects
+unknown capability names.
+
+Official status is maintainer-owned. Setting `official = true` in an external
+plugin manifest does not grant an official badge; the companion registry derives
+that value from its reviewed `official-plugins.json` allowlist.
+
+When `dependencies` is non-empty, the distributed plugin must include a
+generated `requirements.lock` with exact versions and hashes. In the companion
+`magi-plugins` repository, refresh generated artifacts after every manifest
+change:
+
+```bash
+bash scripts/refresh.sh <plugin-directory>
+```
+
+Commit the refreshed lockfile and `registry.json` with the manifest change. Do
+not hand-edit either generated file. A plugin with dependencies but no lockfile
+is rejected during normal installation.
+
 ## Tool Plugins
 
 Tool plugins return normal Magi tool classes from `get_tools()`.
@@ -770,6 +822,9 @@ Use these as the primary templates:
 - exposing timeline sensors without `metadata.source_type`
 - trying to ship plugin-owned frontend code instead of field metadata
 - assuming new external plugins auto-enable after discovery
+- relying on `official = true` in an external manifest instead of the registry allowlist
+- declaring dependencies without regenerating and committing `requirements.lock`
+- omitting or understating user-visible capability declarations
 - returning entity hints with types not in the source's `ExtractionProfile.allowed_entity_types`
 - using full page titles as canonical entity names instead of concise subject names
 

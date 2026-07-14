@@ -104,12 +104,18 @@ The core runtime is centered on:
 
 ### Unified plugin runtime
 
-Plugin packages now contribute two capability families through one registration path:
+Plugin packages declare five contribution types through one package model:
 
 - tools
 - sensors
+- channels
+- skills
+- hooks
 
-Discovery, enablement, and settings metadata are owned by the plugin runtime; execution stays in the owning runtime layers.
+Discovery, enablement, trust, install consent, and settings metadata are owned by
+the plugin runtime. Tools, sensors, channels, and hooks register through the
+shared plugin lifecycle. Skill loading remains separate and is not currently
+driven by plugin registration.
 
 ### Scheduler runtime
 

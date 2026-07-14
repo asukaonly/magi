@@ -30,7 +30,8 @@ ownership, or module boundaries.
   Maintainer-level implementation design for the lifecycle-based memory model.
 
 7. [Unified Plugin Architecture](./plugin-extension-architecture.md)
-  Current design for plugin discovery, contribution registration, and settings metadata.
+  Current design for plugin discovery, contribution registration, marketplace trust,
+  install consent, dependency integrity, and settings metadata.
 
 8. [Plugin Development Guide](./plugin-development-guide.md)
   Practical guide for authoring built-in or external plugins.
@@ -58,23 +59,11 @@ but they are narrower than the core source-of-truth set.
 - [Persistence & Migrations](./persistence-and-migrations.md)
   Read this when working on SQLite schema, runtime DB layout, Alembic environments, or migration workflow.
 
-- [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
-  Read this when working on reusable `asset_refs`, source-specific asset resolution, chat attachments, or follow-up routing from memory recall to plugin-owned evidence.
-
 - [API Types Codegen Design](./api-types-codegen-design.md)
   Read this when changing the OpenAPI-to-frontend type generation contract.
 
-- [Plugin Capability Consent Design](./plugin-capability-consent-design.md)
-  Durable design for plugin capability prompts, consent state, and user approval behavior.
-
-- [Plugin Registry Official Authority Design](./plugin-registry-official-authority-design.md)
-  Durable design for official registry trust and authority boundaries.
-
 - [Plugin Suggestion Descriptor](./plugin-suggestion-descriptor.md)
   Reference for plugin suggestion metadata consumed by product surfaces.
-
-- [Plugin Supply Chain Locking Design](./plugin-supply-chain-locking-design.md)
-  Durable design for plugin lock state and supply-chain safety checks.
 
 ## Architecture Records
 
@@ -83,13 +72,9 @@ and rationale, but new temporary plans should still start in local-only
 `docs/dev/` and only graduate to the root when they become lasting reference.
 
 - [Agent Runtime Seam ADR](./agent-runtime-seam-adr.md)
-- [API Types Codegen Phase 0 Plan](./api-types-codegen-phase-0-plan.md) — completed implementation record
 - [Context Decider Routing Redesign ADR](./contextdecider-routing-redesign-adr.md)
 - [Control Plane Extraction ADR](./control-plane-extraction-adr.md)
 - [Domain Task Agents ADR](./domain-task-agents-adr.md)
-- [Plugin Capability Consent Plan](./plugin-capability-consent-plan.md) — completed implementation record
-- [Plugin Registry Official Authority Plan](./plugin-registry-official-authority-plan.md) — completed implementation record
-- [Plugin Supply Chain Locking Plan](./plugin-supply-chain-locking-plan.md) — completed implementation record
 - [Tool Taxonomy ADR](./tool-taxonomy-adr.md)
 
 ## Audience Guide
@@ -113,7 +98,7 @@ and rationale, but new temporary plans should still start in local-only
   Read [Persistence & Migrations](./persistence-and-migrations.md) before touching any SQLite DDL or migration file.
 
 - Plugin maintainers
-  Read [Unified Plugin Architecture](./plugin-extension-architecture.md), [Plugin Development Guide](./plugin-development-guide.md), and [Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md) when contributing reusable local assets.
+  Read [Unified Plugin Architecture](./plugin-extension-architecture.md) and [Plugin Development Guide](./plugin-development-guide.md).
 
 - Release maintainers
   Start with [Project Overview](./project-overview.md) for the current desktop distribution and GitHub Release automation flow.

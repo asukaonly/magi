@@ -100,6 +100,23 @@ Open items:
 - keep routers and websocket handlers transport-thin as new product behavior is added
 - avoid reintroducing direct runtime-domain lookups in transport code
 
+### 6. Decide whether reusable assets need one shared resolver
+
+Status: active
+
+Current state:
+
+- chat and memory can retain compact `asset_refs` without storing raw local paths
+- photo and screenshot plugins record their own resolver tool in those references
+- follow-up turns call the recorded source resolver before importing files into chat
+- there is no host-owned universal asset resolver today
+
+Open items:
+
+- validate that several independent sources need the same resolver contract before adding a new host abstraction
+- if the need is proven, define one SDK contract, host dispatch path, privacy boundary, and migration for existing source-owned resolver tools
+- until then, document and test the current source-owned flow rather than presenting a universal resolver as implemented
+
 ## Maintenance Fixes
 
 ### 1. Retire or split oversized legacy modules

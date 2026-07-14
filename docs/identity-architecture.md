@@ -19,10 +19,7 @@ downstream store.
 
 Read it together with [Layered Agent Architecture](./layered-agent-architecture.md)
 (which fixes the layer position), [Task-Agent Runtime Architecture](./task-agent-runtime-architecture.md)
-(which owns the ingress paths that will call this layer), and
-[Unified Asset Resolver Architecture](./unified-asset-resolver-architecture.md)
-(which is the closest precedent for a cross-layer substrate in this
-codebase).
+(which owns the ingress paths that call this layer).
 
 ## 2. Problem
 
@@ -504,18 +501,3 @@ lost, only re-keyed).
 
 All resolver calls flow downward from the call site to L1. No L1
 module imports anything above it.
-
-## Appendix B: Comparison to `unified-asset-resolver`
-
-| Aspect              | unified-asset-resolver                                 | identity                                              |
-| ------------------- | ------------------------------------------------------ | ----------------------------------------------------- |
-| Domain              | "what is the source of this asset_ref"                 | "who is the human behind this event"                  |
-| Cross-layer scope   | memory recall, plugin tools, assistant reply payloads  | channels, api, awareness, memory, chat, runtime_trace |
-| Boundary mechanism  | one host-owned `asset_resolve` tool + plugin resolvers | one host-owned `IdentityResolver` service             |
-| Where it lives      | host integration (no specific layer)                   | L1 substrate (alongside `core/`, `runtime_trace/`)    |
-| External-id leakage | source-specific resolver names in tool surface         | external ids in `user_id` columns                     |
-| Fix shape           | one tool + plugin contract                             | one service + one binding table                       |
-
-The two designs share the same instinct: pull a cross-cutting
-identity / resolution concern out of N ad-hoc sites and into one
-typed service. Identity is the lower-level cousin.
