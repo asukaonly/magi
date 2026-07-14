@@ -77,13 +77,16 @@ def compact_historical_recall(
         sections.append("No confirmed memory found. Do not guess.")
     elif bool(coverage.get("can_claim_total")):
         sections.append(
-            "Structured coverage is exhaustive for the stated scope. "
-            "total-count claims are allowed only inside that scope."
+            "Structured coverage is exhaustive only for the stated source and time scope. "
+            "Total-count and overall claims are allowed only inside that scope."
         )
     else:
         sections.append(
             "These findings are representative, not exhaustive. "
-            "Do not make total-count claims from them."
+            "Describe only patterns directly supported by them and frame summaries as "
+            "observations from the returned records. Do not infer overall habits, preferences, "
+            "diversity, frequency, or totals unless the returned findings directly establish them. "
+            "If no clear pattern is supported, report the findings concretely."
         )
 
     return "\n\n".join(sections)

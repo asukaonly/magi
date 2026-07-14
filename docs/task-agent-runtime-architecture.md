@@ -541,6 +541,7 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
 - the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
+- final responses must keep historical claims inside the returned findings and coverage boundary; persona tone may change phrasing but must not turn representative records into broader claims about habits, preferences, diversity, frequency, or totals unless the findings directly establish them
 - that `historical_recall` contract may carry compact `entity_refs` and `asset_refs` alongside human-readable findings so later turns can reuse concrete entities or assets without leaking raw source paths into the chat protocol
 - raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
 - cross-turn tool continuity uses only a compact chat-specific summary block; old raw tool transcripts, full arguments, and full results are not replayed into the general chat prompt

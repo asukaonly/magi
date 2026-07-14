@@ -25,6 +25,11 @@ def test_projection_marks_plain_recall_as_non_exhaustive() -> None:
 
     formatted = compact_historical_recall(asdict(projected), max_items=6, max_text_chars=500)
     assert "representative, not exhaustive" in formatted
+    assert "patterns directly supported" in formatted
+    assert "observations from the returned records" in formatted
+    assert "overall habits, preferences, diversity, frequency, or totals" in formatted
+    assert "returned findings directly establish" in formatted
+    assert "report the findings concretely" in formatted
 
 
 def test_projection_preserves_structured_exhaustive_coverage() -> None:
@@ -55,7 +60,8 @@ def test_projection_preserves_structured_exhaustive_coverage() -> None:
 
     formatted = compact_historical_recall(asdict(projected), max_items=6, max_text_chars=500)
     assert "coverage=exhaustive" in formatted
-    assert "total-count claims are allowed" in formatted
+    assert "Total-count and overall claims are allowed" in formatted
+    assert "source and time scope" in formatted
 
 
 def test_compaction_renders_generic_structured_totals() -> None:

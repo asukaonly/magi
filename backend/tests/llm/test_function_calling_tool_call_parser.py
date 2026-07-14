@@ -579,6 +579,23 @@ def test_build_final_response_system_prompt_prioritizes_memory_query_results() -
 
     assert "memory_query results as the source of truth" in final_prompt
     assert "Do not replace missing recall results with implicit memory" in final_prompt
+    assert "Keep historical claims within the returned findings and coverage" in final_prompt
+    assert "Persona or tone may change phrasing" in final_prompt
+
+
+def test_build_final_response_system_prompt_omits_memory_governance_without_memory_query() -> None:
+    executor = FunctionCallingOrchestrator(
+        llm_adapter=_DummyLLMAdapter(),
+        tool_registry=_RecordingToolRegistry(),  # type: ignore[arg-type]
+    )
+
+    final_prompt = executor._build_final_response_system_prompt(
+        "# System Information\n* Time: now\n",
+        strict_plain_text=True,
+    )
+
+    assert "Keep historical claims within the returned findings and coverage" not in final_prompt
+    assert "Persona or tone may change phrasing" not in final_prompt
 
 
 def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
@@ -617,7 +634,8 @@ def test_postprocessor_marks_memory_query_results_with_context_role() -> None:
     historical = payload["data"]["historical_recall"]
     assert isinstance(historical, str)
     assert "These findings are representative, not exhaustive" in historical
-    assert "Do not make total-count claims" in historical
+    assert "observations from the returned records" in historical
+    assert "overall habits, preferences, diversity, frequency, or totals" in historical
 
 
 def test_build_tool_message_payload_keeps_only_projected_historical_recall_for_memory_query() -> (

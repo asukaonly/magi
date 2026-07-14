@@ -83,6 +83,8 @@ class FunctionCallingResponseMixin:
                 [
                     "- Treat memory_query results as the source of truth for historical recall in this turn.",
                     "- Do not replace missing recall results with implicit memory, prior assumptions, or guesses.",
+                    "- Keep historical claims within the returned findings and coverage.",
+                    "- Persona or tone may change phrasing, but must not broaden or distort memory evidence.",
                 ]
             )
         return f"{prompt}\n\n" + "\n".join(rules)
