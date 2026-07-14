@@ -151,9 +151,7 @@ def _build_latest_user_message_content(
         if not storage_path and user_id and session_id:
             attachment_id = str(attachment.get("attachment_id") or "").strip()
             if attachment_id:
-                resolved = resolver.get_attachment_payload(
-                    user_id, session_id, attachment_id
-                )
+                resolved = resolver.get_attachment_payload(user_id, session_id, attachment_id)
                 if isinstance(resolved, dict):
                     storage_path = str(resolved.get("storage_path") or "").strip()
         if not storage_path:
@@ -196,7 +194,9 @@ def _build_reply_context_note(reply_context: Any | None) -> str:
     if content_excerpt:
         lines.append(f'message="{content_excerpt}"')
     structured_payload = getattr(reply_context, "structured_payload", None)
-    attachments = structured_payload.get("attachments") if isinstance(structured_payload, dict) else None
+    attachments = (
+        structured_payload.get("attachments") if isinstance(structured_payload, dict) else None
+    )
     if isinstance(attachments, list) and attachments:
         lines.append("Referenced attachments from the replied-to message:")
         for attachment in attachments[:6]:
@@ -225,7 +225,9 @@ def _build_reply_context_note(reply_context: Any | None) -> str:
             if parse_status:
                 details.append(f"parse_status={parse_status}")
             lines.append("- " + "; ".join(details))
-        lines.append("Interpret deictic phrases like this image, that document, or the previous attachment against this reply target first.")
+        lines.append(
+            "Interpret deictic phrases like this image, that document, or the previous attachment against this reply target first."
+        )
     return "\n".join(lines).strip()
 
 

@@ -319,8 +319,7 @@ class ChatTranscriptSummarizer:
         summary_output_tokens = self._resolve_summary_output_tokens(budget)
         max_chars = max(
             4_000,
-            int(budget.input_capacity * _SUMMARY_INPUT_RATIO)
-            * _SUMMARY_CHARS_PER_TOKEN_TARGET,
+            int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _SUMMARY_CHARS_PER_TOKEN_TARGET,
         )
         chunks = self._split_text(
             self._build_user_prompt(summary_input),

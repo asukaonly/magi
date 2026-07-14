@@ -10,7 +10,13 @@ from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, Intent
 from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.handlers.tool_exposure_policy import ToolExposurePolicy
-from magi.agent.task_agents.common import DirectLLMRequest, ExecutionMode, IncomingFactKind, ToolSelection, UserMessagePayload
+from magi.agent.task_agents.common import (
+    DirectLLMRequest,
+    ExecutionMode,
+    IncomingFactKind,
+    ToolSelection,
+    UserMessagePayload,
+)
 from magi.i18n import language_context
 from magi.llm.model_context import ModelContextProfile
 from magi.tools.context_routing import RouteDecision
@@ -497,7 +503,9 @@ async def test_direct_llm_handler_passes_uploaded_attachments_into_context_servi
             user_id="local_user",
             session_id="session-1",
             content="summarize this file",
-            attachments=[{"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}],
+            attachments=[
+                {"attachment_id": "att-1", "kind": "text_file", "original_name": "notes.md"}
+            ],
             turn_id="turn-1",
         ),
     )
@@ -825,16 +833,23 @@ async def test_function_calling_handler_appends_scope_guidance_from_task_hint() 
                     "requires_clarification": True,
                 },
             ),
-            tool_selection=ToolSelection(tools=["web-search", "file_read"], reasoning="compare", task_hint={}),
+            tool_selection=ToolSelection(
+                tools=["web-search", "file_read"], reasoning="compare", task_hint={}
+            ),
         )
     )
 
     assert "# Scope Guidance" in request.system_prompt
-    assert "ask the user for a path or use web-search before any external local scan" in request.system_prompt
+    assert (
+        "ask the user for a path or use web-search before any external local scan"
+        in request.system_prompt
+    )
 
 
 @pytest.mark.asyncio
-async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_tools_selected() -> None:
+async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_tools_selected() -> (
+    None
+):
     context_service = _FakeContextService()
     handler = FunctionCallingHandler(
         SimpleNamespace(
@@ -892,7 +907,9 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(tmp_path: Path) -> None:
+async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(
+    tmp_path: Path,
+) -> None:
     image_path = tmp_path / "diagram.png"
     image_path.write_bytes(b"x" * 600_000)
 
@@ -1129,14 +1146,16 @@ class _FakeCoordinator:
         run_id: str | None = None,
         revision: int | None = None,
     ) -> str | None:
-        self.calls.append(
-            {"session_id": session_id, "run_id": run_id, "revision": revision}
-        )
+        self.calls.append({"session_id": session_id, "run_id": run_id, "revision": revision})
         if self.session_id is not None and session_id != self.session_id:
             return None
         if run_id is not None and self.run_id is not None and run_id != self.run_id:
             return None
-        if revision is not None and self.revision is not None and int(revision) != int(self.revision):
+        if (
+            revision is not None
+            and self.revision is not None
+            and int(revision) != int(self.revision)
+        ):
             return None
         return self.status
 
@@ -1241,9 +1260,7 @@ async def test_build_cancel_token_false_when_revision_has_advanced() -> None:
     )
     handler = FunctionCallingHandler(SimpleNamespace(session_run_coordinator=coordinator))
 
-    token = handler._build_cancel_token(
-        _make_cancel_request(session_run_revision=0)
-    )
+    token = handler._build_cancel_token(_make_cancel_request(session_run_revision=0))
 
     assert await token.is_cancelled() is False
 

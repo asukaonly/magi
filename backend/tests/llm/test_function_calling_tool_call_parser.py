@@ -795,10 +795,7 @@ def test_postprocessor_enforces_total_payload_limit_for_nested_data() -> None:
             tool_call_id="external-nested",
             tool_name="third_party_search",
             success=True,
-            data={
-                f"group-{group}": ["x" * 2_000 for _ in range(40)]
-                for group in range(40)
-            },
+            data={f"group-{group}": ["x" * 2_000 for _ in range(40)] for group in range(40)},
             error=None,
         ),
     )
@@ -1257,7 +1254,9 @@ async def test_execute_with_tools_stops_replanning_for_non_recoverable_tool_fail
 
 
 @pytest.mark.asyncio
-async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_with_other_tools() -> None:
+async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_with_other_tools() -> (
+    None
+):
     registry = _SequencedToolRegistry(
         results={
             "web_search": [
@@ -1320,14 +1319,20 @@ async def test_execute_with_tools_stops_replanning_for_provider_challenge_even_w
 
 
 def test_function_calling_tools_request_kind_distinguishes_worker_and_chat() -> None:
-    assert function_calling_llm_invocation_module.resolve_tools_request_kind(
-        execution_agent_id="worker_123",
-        intent="worker_general",
-    ) == "function_calling:worker_tools"
-    assert function_calling_llm_invocation_module.resolve_tools_request_kind(
-        execution_agent_id="chat_session",
-        intent="chat",
-    ) == "function_calling:chat_tools"
+    assert (
+        function_calling_llm_invocation_module.resolve_tools_request_kind(
+            execution_agent_id="worker_123",
+            intent="worker_general",
+        )
+        == "function_calling:worker_tools"
+    )
+    assert (
+        function_calling_llm_invocation_module.resolve_tools_request_kind(
+            execution_agent_id="chat_session",
+            intent="chat",
+        )
+        == "function_calling:chat_tools"
+    )
 
 
 @pytest.mark.asyncio

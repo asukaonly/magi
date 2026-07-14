@@ -47,7 +47,9 @@ async def _append_assistant_message(
 
 
 @pytest.mark.asyncio
-async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(runtime_paths_with_schema) -> None:
+async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(
+    runtime_paths_with_schema,
+) -> None:
     store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await store.initialize()
     calls: list[TranscriptSummaryInput] = []
@@ -252,8 +254,7 @@ def test_transcript_summary_output_budget_scales_with_core_model(
     )
 
     assert (
-        summarizer._resolve_summary_output_tokens(summary_model_budget)
-        == expected_summary_tokens
+        summarizer._resolve_summary_output_tokens(summary_model_budget) == expected_summary_tokens
     )
 
 

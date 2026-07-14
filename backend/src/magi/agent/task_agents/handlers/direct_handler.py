@@ -184,10 +184,12 @@ class DirectLLMHandler(BaseExecutionHandler):
             persona_id=getattr(request.context, "active_persona_id", None),
             persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
         )
-        effective_system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
-            system_prompt=prompt_package.system_prompt,
-            reply_context=getattr(request.context, "reply_context", None),
-            recent_tool_state=getattr(request.context, "recent_tool_state", None),
+        effective_system_prompt = (
+            self._deps.prompt_service.augment_system_prompt_with_reply_context(
+                system_prompt=prompt_package.system_prompt,
+                reply_context=getattr(request.context, "reply_context", None),
+                recent_tool_state=getattr(request.context, "recent_tool_state", None),
+            )
         )
         context_budget = self._current_context_budget()
         history_budget = max(
@@ -323,9 +325,7 @@ class DirectLLMHandler(BaseExecutionHandler):
         while low <= high:
             count = (low + high) // 2
             candidate = [
-                message
-                for history_turn in history_turns[-count:]
-                for message in history_turn
+                message for history_turn in history_turns[-count:] for message in history_turn
             ]
             candidate.extend(current_messages)
             request.messages = candidate

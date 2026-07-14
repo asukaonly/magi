@@ -72,12 +72,8 @@ def test_append_latest_user_message_without_limit_keeps_full_short_history() -> 
 
 
 def test_prompt_history_estimate_is_more_conservative_for_chinese_text() -> None:
-    ascii_tokens = _estimate_prompt_message_tokens(
-        {"role": "user", "content": "a" * 400}
-    )
-    chinese_tokens = _estimate_prompt_message_tokens(
-        {"role": "user", "content": "你" * 400}
-    )
+    ascii_tokens = _estimate_prompt_message_tokens({"role": "user", "content": "a" * 400})
+    chinese_tokens = _estimate_prompt_message_tokens({"role": "user", "content": "你" * 400})
 
     assert chinese_tokens > ascii_tokens * 3
 
