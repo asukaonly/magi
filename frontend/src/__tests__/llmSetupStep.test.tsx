@@ -389,7 +389,7 @@ describe('LLMSetupStep', () => {
 
     await user.click(await screen.findByTestId('llm-setup-provider-openai'));
     await user.type(screen.getByTestId('llm-setup-api-key'), 'sk-test');
-    await user.click(screen.getByRole('button', { name: 'llm.actions.testConnection' }));
+    await user.click(screen.getByRole('button', { name: 'llmSetup.verifyConnection' }));
 
     await waitFor(() => expect(onTestConnection).toHaveBeenCalledWith(true));
   });
@@ -427,6 +427,27 @@ describe('LLMSetupStep', () => {
     expect(latest.providers.custom.base_url).toBe('http://localhost:3000/v1');
     expect(latest.providers.custom.custom_models).toContain('gpt-4o-mini');
     expect(latest.selections.core.model).toBe('gpt-4o-mini');
+  });
+
+  it('prioritizes required custom connection fields and defers the display name', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-custom'));
+
+    const baseUrl = screen.getByTestId('llm-setup-base-url');
+    const coreModel = screen.getByTestId('llm-setup-custom-model');
+    const apiKey = screen.getByTestId('llm-setup-api-key');
+    expect(baseUrl.compareDocumentPosition(coreModel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(coreModel.compareDocumentPosition(apiKey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('llm-setup-custom-name')).not.toBeInTheDocument();
+
+    const verifyConnection = screen.getByRole('button', { name: 'llmSetup.verifyConnection' });
+    expect(verifyConnection).toHaveClass('bg-muted/45');
+    expect(verifyConnection).not.toHaveClass('border');
+
+    await user.click(screen.getByTestId('llm-setup-advanced-toggle'));
+    expect(screen.getByTestId('llm-setup-custom-name')).toBeInTheDocument();
   });
 
   it('requires an API key when a custom provider uses the Anthropic format', async () => {
@@ -469,7 +490,11 @@ describe('LLMSetupStep', () => {
 
     await user.click(await screen.findByTestId('llm-setup-provider-anthropic'));
 
-    expect(screen.getByTestId('llm-setup-embedding-row')).toBeInTheDocument();
+    const vectorModelHint = screen.getByTestId('llm-setup-embedding-row');
+    expect(vectorModelHint).toBeInTheDocument();
+    expect(vectorModelHint).toHaveAttribute('role', 'status');
+    expect(vectorModelHint).toHaveClass('bg-secondary/55', 'px-3', 'py-2.5');
+    expect(vectorModelHint).not.toHaveClass('border', 'border-amber-200');
     expect(screen.getByText('llmSetup.memoryModelMissingTitle')).toBeInTheDocument();
     expect(screen.getByText('llmSetup.memoryModelMissingBody')).toBeInTheDocument();
   });

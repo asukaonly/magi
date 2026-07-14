@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertCircle, ArrowLeft, ChevronDown, ChevronsUpDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Activity, ArrowLeft, ChevronDown, ChevronsUpDown, Eye, EyeOff, Info, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
@@ -737,7 +737,7 @@ export function LLMSetupStep({
             <div
               data-testid="llm-setup-provider-summary"
               aria-live="polite"
-              className="flex min-h-14 items-center justify-between gap-4 rounded-xl bg-accent/55 px-3.5 py-2.5"
+              className="flex min-h-[52px] items-center justify-between gap-4 rounded-xl bg-accent/45 px-3.5 py-2"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <ProviderIcon
@@ -755,7 +755,7 @@ export function LLMSetupStep({
                 data-testid="llm-setup-provider-change"
                 aria-expanded="false"
                 aria-controls="llm-provider-chooser"
-                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                 onClick={() => setProviderChooserOpen(true)}
               >
                 <ChevronsUpDown className="h-4 w-4" aria-hidden="true" />
@@ -763,250 +763,270 @@ export function LLMSetupStep({
               </button>
             </div>
 
-            <div className="space-y-5 rounded-xl bg-muted/20 p-4 sm:p-5">
-              <p className="text-xs leading-5 text-muted-foreground">
+            <div className="space-y-6 px-1 pb-1 pt-1 sm:px-2">
+              <p className="max-w-3xl text-xs leading-5 text-muted-foreground">
                 {activeProvider.provider_type === 'custom'
                   ? t('llmSetup.customRelaySelectedHint')
                   : t('llmSetup.builtinSelectedHint')}
               </p>
 
-          {memoryModelStatus === 'missing' ? (
-            <div
-              data-testid="llm-setup-embedding-row"
-              className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
-            >
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-              <span className="space-y-1">
-                <span className="block font-medium">{t(memoryModelMissingTitleKey)}</span>
-                <span className="block text-xs leading-5 opacity-80">{t(memoryModelMissingBodyKey)}</span>
-              </span>
-            </div>
-          ) : null}
-
-          {activeProvider.provider_type !== 'custom' && activeProviderPlans.length > 0 ? (
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
-              <SelectField
-                value={activeProvider.provider_plan || ''}
-                allowEmpty
-                placeholder={t('llm.providerPlans.default')}
-                options={activeProviderPlans.map((plan) => ({
-                  label: plan.display_name || plan.id,
-                  value: plan.id,
-                }))}
-                onChange={handleActiveProviderPlanChange}
-              />
-            </label>
-          ) : null}
-
-          {activeProvider.provider_type !== 'custom' && activeProviderPlanEndpoints.length > 0 ? (
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
-              <SelectField
-                value={getPlanEndpointValue(activeProviderPlan, activeProvider.base_url || activeProvider.services.chat.base_url)}
-                allowEmpty={false}
-                placeholder={t('llm.providerPlans.customEndpoint')}
-                options={activeProviderPlanEndpoints.map((endpoint) => ({
-                  label: endpoint.label || endpoint.country || endpoint.id,
-                  value: endpoint.id,
-                }))}
-                onChange={handleActiveProviderPlanEndpointChange}
-              />
-            </label>
-          ) : null}
-
-          {catalogResolutionError ? (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-3 text-sm text-destructive"
-            >
-              {t('llmSetup.planLoadFailed')}
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 md:grid-cols-2">
-            {activeProvider.provider_type === 'custom' ? (
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llmSetup.customNameLabel')}</span>
-                <input
-                  data-testid="llm-setup-custom-name"
-                  aria-label={t('llmSetup.customNameLabel')}
-                  className={fieldClassName}
-                  value={activeProvider.display_name || ''}
-                  onChange={(event) => {
-                    const displayName = event.target.value;
-                    updateActiveProvider((provider) => {
-                      provider.display_name = displayName;
-                    });
-                  }}
-                />
-              </label>
-            ) : null}
-
-            <div className="space-y-2">
-              <span className="text-sm font-medium">
-                {!providerRequiresApiKey(activeProvider)
-                  ? t('llmSetup.apiKeyOptionalLabel')
-                  : t('llmSetup.apiKeyLabel')}
-              </span>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="min-w-0 flex-1">{renderSecretInput()}</div>
-                <button
-                  type="button"
-                  className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-border/70 bg-background px-4 text-sm font-medium text-foreground transition hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-60"
-                  disabled={connectionTestState.loading}
-                  onClick={() => void onTestConnection(true)}
-                >
-                  {connectionTestState.loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Activity className="h-4 w-4" />
-                  )}
-                  <span>
-                    {connectionTestState.loading
-                      ? t('llm.actions.testingConnection')
-                      : t('llm.actions.testConnection')}
-                  </span>
-                </button>
-              </div>
-            </div>
-
-            {activeProvider.provider_type === 'custom' ? (
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium">{t('llmSetup.baseUrlLabel')}</span>
-                <input
-                  data-testid="llm-setup-base-url"
-                  aria-label={t('llmSetup.baseUrlLabel')}
-                  className={fieldClassName}
-                  value={activeProvider.base_url || activeProvider.services.chat.base_url || ''}
-                  placeholder={t('llmSetup.baseUrlPlaceholder')}
-                  onChange={(event) => {
-                    const baseUrl = event.target.value;
-                    updateActiveProvider((provider) => {
-                      provider.base_url = baseUrl;
-                    });
-                  }}
-                />
-              </label>
-            ) : null}
-
-            {activeProvider.provider_type === 'custom' ? (
-              <label className="space-y-2 md:col-span-2">
-                <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
-                <input
-                  data-testid="llm-setup-custom-model"
-                  aria-label={t('llmSetup.coreModelLabel')}
-                  className={fieldClassName}
-                  value={currentCoreModel}
-                  placeholder={t('llmSetup.coreModelPlaceholder')}
-                  onChange={(event) => {
-                    const model = event.target.value;
-                    updateActiveProvider(
-                      (provider) => {
-                        provider.custom_default_model = model;
-                      },
-                      { core: model, context_decider: currentContextModel || model }
-                    );
-                  }}
-                />
-              </label>
-            ) : null}
-          </div>
-
-          {connectionTestState.error || connectionTestState.result ? (
-            <LLMProviderTestStatus
-              error={connectionTestState.error}
-              result={connectionTestState.result}
-            />
-          ) : null}
-
-          <button
-            type="button"
-            data-testid="llm-setup-advanced-toggle"
-            className="inline-flex items-center gap-1 text-sm text-[#7d685a] underline-offset-4 hover:underline"
-            onClick={() => setShowAdvanced((current) => !current)}
-          >
-            <ChevronDown className={cn('h-4 w-4 transition-transform', showAdvanced && 'rotate-180')} />
-            {showAdvanced ? t('llmSetup.hideAdvanced') : t('llmSetup.showAdvanced')}
-          </button>
-
-          {showAdvanced ? (
-            <div className="grid gap-4 rounded-lg bg-muted/30 p-4 md:grid-cols-2">
-              {activeProvider.provider_type !== 'custom' ? (
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm font-medium">{t('llmSetup.baseUrlOptionalLabel')}</span>
-                  <input
-                    data-testid="llm-setup-base-url"
-                    aria-label={t('llmSetup.baseUrlOptionalLabel')}
-                    className={fieldClassName}
-                    value={activeProvider.base_url || ''}
-                    placeholder={activeProviderMeta?.default_base_url || t('llmSetup.baseUrlDefaultPlaceholder')}
-                    onChange={(event) => {
-                      const baseUrl = event.target.value;
-                      updateActiveProvider((provider) => {
-                        provider.base_url = baseUrl;
-                      });
-                    }}
+              {activeProvider.provider_type !== 'custom' && activeProviderPlans.length > 0 ? (
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium">{t('llm.fields.providerPlan')}</span>
+                  <SelectField
+                    value={activeProvider.provider_plan || ''}
+                    allowEmpty
+                    placeholder={t('llm.providerPlans.default')}
+                    options={activeProviderPlans.map((plan) => ({
+                      label: plan.display_name || plan.id,
+                      value: plan.id,
+                    }))}
+                    onChange={handleActiveProviderPlanChange}
                   />
                 </label>
-              ) : (
-                <label className="space-y-2">
-                  <span className="text-sm font-medium">{t('llmSetup.apiFormatLabel')}</span>
-                  <select
-                    data-testid="llm-setup-api-format"
-                    aria-label={t('llmSetup.apiFormatLabel')}
-                    className={fieldClassName}
-                    value={activeProvider.api_format || 'openai'}
-                    onChange={(event) => {
-                      const apiFormat = event.target.value as ApiFormat;
-                      updateActiveProvider((provider) => {
-                        provider.api_format = apiFormat;
-                      });
-                    }}
-                  >
-                    <option value="openai">{t('llm.apiFormatOptions.openai')}</option>
-                    <option value="anthropic">{t('llm.apiFormatOptions.anthropic')}</option>
-                  </select>
+              ) : null}
+
+              {activeProvider.provider_type !== 'custom' && activeProviderPlanEndpoints.length > 0 ? (
+                <label className="block space-y-2">
+                  <span className="text-sm font-medium">{t('llm.fields.providerEndpoint')}</span>
+                  <SelectField
+                    value={getPlanEndpointValue(activeProviderPlan, activeProvider.base_url || activeProvider.services.chat.base_url)}
+                    allowEmpty={false}
+                    placeholder={t('llm.providerPlans.customEndpoint')}
+                    options={activeProviderPlanEndpoints.map((endpoint) => ({
+                      label: endpoint.label || endpoint.country || endpoint.id,
+                      value: endpoint.id,
+                    }))}
+                    onChange={handleActiveProviderPlanEndpointChange}
+                  />
                 </label>
-              )}
+              ) : null}
 
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
-                <input
-                  data-testid="llm-setup-core-model"
-                  aria-label={t('llmSetup.coreModelLabel')}
-                  className={fieldClassName}
-                  value={currentCoreModel}
-                  placeholder={t('llmSetup.coreModelPlaceholder')}
-                  onChange={(event) => {
-                    const model = event.target.value;
-                    updateActiveProvider(
-                      () => undefined,
-                      { core: model, context_decider: currentContextModel || model }
-                    );
-                  }}
-                />
-              </label>
+              {catalogResolutionError ? (
+                <div
+                  role="alert"
+                  className="rounded-lg bg-destructive/5 px-3.5 py-3 text-sm text-destructive"
+                >
+                  {t('llmSetup.planLoadFailed')}
+                </div>
+              ) : null}
 
-              <label className="space-y-2">
-                <span className="text-sm font-medium">{t('llmSetup.fastModelLabel')}</span>
-                <input
-                  data-testid="llm-setup-fast-model"
-                  aria-label={t('llmSetup.fastModelLabel')}
-                  className={fieldClassName}
-                  value={currentContextModel}
-                  placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
-                  onChange={(event) => {
-                    const model = event.target.value;
-                    updateActiveProvider(
-                      () => undefined,
-                      { core: currentCoreModel, context_decider: model || currentCoreModel }
-                    );
-                  }}
+              {memoryModelStatus === 'missing' ? (
+                <div
+                  data-testid="llm-setup-embedding-row"
+                  role="status"
+                  className="flex items-start gap-2.5 rounded-lg bg-secondary/55 px-3 py-2.5 text-secondary-foreground"
+                >
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
+                  <span className="flex min-w-0 flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-2">
+                    <span className="shrink-0 text-sm font-medium">{t(memoryModelMissingTitleKey)}</span>
+                    <span className="text-xs leading-5 text-secondary-foreground/70">
+                      {t(memoryModelMissingBodyKey)}
+                    </span>
+                  </span>
+                </div>
+              ) : null}
+
+              {activeProvider.provider_type === 'custom' ? (
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('llmSetup.baseUrlLabel')}</span>
+                    <input
+                      data-testid="llm-setup-base-url"
+                      aria-label={t('llmSetup.baseUrlLabel')}
+                      className={fieldClassName}
+                      value={activeProvider.base_url || activeProvider.services.chat.base_url || ''}
+                      placeholder={t('llmSetup.baseUrlPlaceholder')}
+                      onChange={(event) => {
+                        const baseUrl = event.target.value;
+                        updateActiveProvider((provider) => {
+                          provider.base_url = baseUrl;
+                        });
+                      }}
+                    />
+                  </label>
+
+                  <label className="space-y-2">
+                    <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
+                    <input
+                      data-testid="llm-setup-custom-model"
+                      aria-label={t('llmSetup.coreModelLabel')}
+                      className={fieldClassName}
+                      value={currentCoreModel}
+                      placeholder={t('llmSetup.coreModelPlaceholder')}
+                      onChange={(event) => {
+                        const model = event.target.value;
+                        updateActiveProvider(
+                          (provider) => {
+                            provider.custom_default_model = model;
+                          },
+                          { core: model, context_decider: currentContextModel || model }
+                        );
+                      }}
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <span className="text-sm font-medium">
+                  {!providerRequiresApiKey(activeProvider)
+                    ? t('llmSetup.apiKeyOptionalLabel')
+                    : t('llmSetup.apiKeyLabel')}
+                </span>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">{renderSecretInput()}</div>
+                  <button
+                    type="button"
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-muted/45 px-3.5 text-sm font-medium text-muted-foreground transition-[background-color,color,transform] duration-200 hover:bg-muted/70 hover:text-foreground active:translate-y-px focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={connectionTestState.loading}
+                    onClick={() => void onTestConnection(true)}
+                  >
+                    {connectionTestState.loading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Activity className="h-4 w-4" />
+                    )}
+                    <span>
+                      {connectionTestState.loading
+                        ? t('llmSetup.verifyingConnection')
+                        : t('llmSetup.verifyConnection')}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {connectionTestState.error || connectionTestState.result ? (
+                <LLMProviderTestStatus
+                  error={connectionTestState.error}
+                  result={connectionTestState.result}
                 />
-              </label>
-            </div>
-          ) : null}
+              ) : null}
+
+              <div className="pt-1">
+                <button
+                  type="button"
+                  data-testid="llm-setup-advanced-toggle"
+                  aria-expanded={showAdvanced}
+                  aria-controls="llm-setup-advanced-settings"
+                  className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/45 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  onClick={() => setShowAdvanced((current) => !current)}
+                >
+                  <ChevronDown
+                    className={cn('h-4 w-4 transition-transform duration-200', showAdvanced && 'rotate-180')}
+                    aria-hidden="true"
+                  />
+                  {showAdvanced ? t('llmSetup.hideAdvanced') : t('llmSetup.showAdvanced')}
+                </button>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {showAdvanced ? (
+                  <motion.div
+                    id="llm-setup-advanced-settings"
+                    key="advanced-settings"
+                    initial={shouldReduceMotion ? false : { opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.2, ease: PROVIDER_TRANSITION_EASE }}
+                    className="grid gap-4 rounded-lg bg-muted/25 p-4 md:grid-cols-2"
+                  >
+                    {activeProvider.provider_type === 'custom' ? (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{t('llmSetup.customNameLabel')}</span>
+                        <input
+                          data-testid="llm-setup-custom-name"
+                          aria-label={t('llmSetup.customNameLabel')}
+                          className={fieldClassName}
+                          value={activeProvider.display_name || ''}
+                          onChange={(event) => {
+                            const displayName = event.target.value;
+                            updateActiveProvider((provider) => {
+                              provider.display_name = displayName;
+                            });
+                          }}
+                        />
+                      </label>
+                    ) : null}
+
+                    {activeProvider.provider_type !== 'custom' ? (
+                      <label className="space-y-2 md:col-span-2">
+                        <span className="text-sm font-medium">{t('llmSetup.baseUrlOptionalLabel')}</span>
+                        <input
+                          data-testid="llm-setup-base-url"
+                          aria-label={t('llmSetup.baseUrlOptionalLabel')}
+                          className={fieldClassName}
+                          value={activeProvider.base_url || ''}
+                          placeholder={activeProviderMeta?.default_base_url || t('llmSetup.baseUrlDefaultPlaceholder')}
+                          onChange={(event) => {
+                            const baseUrl = event.target.value;
+                            updateActiveProvider((provider) => {
+                              provider.base_url = baseUrl;
+                            });
+                          }}
+                        />
+                      </label>
+                    ) : (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{t('llmSetup.apiFormatLabel')}</span>
+                        <select
+                          data-testid="llm-setup-api-format"
+                          aria-label={t('llmSetup.apiFormatLabel')}
+                          className={fieldClassName}
+                          value={activeProvider.api_format || 'openai'}
+                          onChange={(event) => {
+                            const apiFormat = event.target.value as ApiFormat;
+                            updateActiveProvider((provider) => {
+                              provider.api_format = apiFormat;
+                            });
+                          }}
+                        >
+                          <option value="openai">{t('llm.apiFormatOptions.openai')}</option>
+                          <option value="anthropic">{t('llm.apiFormatOptions.anthropic')}</option>
+                        </select>
+                      </label>
+                    )}
+
+                    {activeProvider.provider_type !== 'custom' ? (
+                      <label className="space-y-2">
+                        <span className="text-sm font-medium">{t('llmSetup.coreModelLabel')}</span>
+                        <input
+                          data-testid="llm-setup-core-model"
+                          aria-label={t('llmSetup.coreModelLabel')}
+                          className={fieldClassName}
+                          value={currentCoreModel}
+                          placeholder={t('llmSetup.coreModelPlaceholder')}
+                          onChange={(event) => {
+                            const model = event.target.value;
+                            updateActiveProvider(
+                              () => undefined,
+                              { core: model, context_decider: currentContextModel || model }
+                            );
+                          }}
+                        />
+                      </label>
+                    ) : null}
+
+                    <label className={cn('space-y-2', activeProvider.provider_type === 'custom' && 'md:col-span-2')}>
+                      <span className="text-sm font-medium">{t('llmSetup.fastModelLabel')}</span>
+                      <input
+                        data-testid="llm-setup-fast-model"
+                        aria-label={t('llmSetup.fastModelLabel')}
+                        className={fieldClassName}
+                        value={currentContextModel}
+                        placeholder={currentCoreModel || t('llmSetup.fastModelPlaceholder')}
+                        onChange={(event) => {
+                          const model = event.target.value;
+                          updateActiveProvider(
+                            () => undefined,
+                            { core: currentCoreModel, context_decider: model || currentCoreModel }
+                          );
+                        }}
+                      />
+                    </label>
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
             </div>
           </motion.section>
         ) : null}

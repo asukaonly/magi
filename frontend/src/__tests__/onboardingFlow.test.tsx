@@ -672,7 +672,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
@@ -703,7 +703,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(await screen.findByTestId("llm-setup-provider-glm"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
@@ -779,7 +779,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(await screen.findByTestId("llm-setup-provider-glm"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "glm-key");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
@@ -839,7 +839,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     const keyInput = screen.getByTestId("llm-setup-api-key");
     await user.type(keyInput, "sk-first");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
@@ -870,7 +870,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
@@ -906,7 +906,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(await screen.findByTestId("llm-setup-provider-openai"));
     await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
     await user.click(
-      screen.getByRole("button", { name: "llm.actions.testConnection" }),
+      screen.getByRole("button", { name: "llmSetup.verifyConnection" }),
     );
     expect(
       await screen.findByText("llm.providerConfiguration.testSuccess"),
