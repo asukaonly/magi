@@ -8,14 +8,8 @@ import {
   type PluginInstallPanelContext,
 } from "../../stores/pluginInstallPanel";
 import { useChatShellStore } from "../../stores/chat-shell";
-import {
-  BROWSER_HISTORY_PRIORITY_PLUGINS,
-  EMPTY_STATE_PRIORITY_PLUGINS,
-  FIRST_CONTEXT_PRIORITY_PLUGINS,
-  getEmptyStatePluginMeta,
-  type EmptyStatePluginMeta,
-} from "../../constants/emptyStatePriorities";
 import type { InstallableItem } from "../../api/modules/systemSuggestions";
+import { localizedPluginText } from "../../utils/plugin-display-groups";
 import { EmptyStateSensorCard } from "./EmptyStateSensorCard";
 
 /**
@@ -27,10 +21,9 @@ import { EmptyStateSensorCard } from "./EmptyStateSensorCard";
  *      `useInstallableSensors`. The backend returns the availability-filtered
  *      union of locally-installed sensors and registry-available plugins, each
  *      tagged with an `installed` flag.
- *   2. Render an `<EmptyStateSensorCard>` for each first-context item that has
- *      display metadata, sorted by `EMPTY_STATE_PRIORITY_PLUGINS`. Browser
- *      history plugins share one top slot; items outside the first-context list
- *      are silently skipped even when they have generic suggestion metadata.
+ *   2. Render an `<EmptyStateSensorCard>` for plugins that opt into the current
+ *      surface. Plugins own their copy and order; sibling implementations share
+ *      one category slot.
  *   3. On a Connect click, open the single MainLayout-mounted
  *      `<PluginInstallPanel>` via `usePluginInstallPanelStore.openPanel`. For
  *      registry-only items (`installed === false`) we pass `{ install: true }`
@@ -59,17 +52,6 @@ export interface EmptyStateAvailableSensorsProps {
    */
   showBrowseAll?: boolean;
   /**
-   * Optional conservative fallback cards for surfaces that must not collapse to
-   * empty when the installable suggestion endpoint is unavailable.
-   */
-  fallbackPluginIds?: string[];
-  /**
-   * When the backend only returns a sparse installable list, embedded first-run
-   * surfaces can still fill the remaining top slots with conservative fallback
-   * cards so the page does not look artificially limited.
-   */
-  fillWithFallback?: boolean;
-  /**
    * Optional preloaded suggestions. Onboarding uses this to avoid a blank
    * completion page while the same suggestions are already being fetched.
    */
@@ -96,41 +78,8 @@ export interface EmptyStateAvailableSensorsProps {
 }
 
 /**
- * Stable index for the priority ordering. Plugins absent from the priority
- * list sort after every listed plugin (and keep their relative input order via
- * a stable sort).
- */
-function priorityIndex(pluginId: string, firstContext = false): number {
-  if (
-    (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).includes(pluginId)
-  ) {
-    return 0;
-  }
-  const priorities = firstContext
-    ? (FIRST_CONTEXT_PRIORITY_PLUGINS as readonly string[])
-    : (EMPTY_STATE_PRIORITY_PLUGINS as readonly string[]);
-  const idx = priorities.indexOf(pluginId);
-  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
-}
-
-function browserHistoryIndex(pluginId: string): number {
-  const idx = (BROWSER_HISTORY_PRIORITY_PLUGINS as readonly string[]).indexOf(
-    pluginId,
-  );
-  return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
-}
-
-function isBrowserHistoryPlugin(pluginId: string): boolean {
-  return browserHistoryIndex(pluginId) !== Number.MAX_SAFE_INTEGER;
-}
-
-function isKnownPlugin(pluginId: string, firstContext = false): boolean {
-  return priorityIndex(pluginId, firstContext) !== Number.MAX_SAFE_INTEGER;
-}
-
-/**
  * Hard cap on how many cards the empty-state list renders. Items beyond the
- * top-N (by priority, after dropping metadata-less ones) stay behind the
+ * top-N (by plugin-declared order) stay behind the
  * "Browse all plugins" marketplace exit rather than growing the list.
  */
 const MAX_EMPTY_STATE_CARDS = 5;
@@ -141,8 +90,6 @@ export function EmptyStateAvailableSensors({
   i18nNamespace = "onboarding",
   i18nKeyPrefix,
   showBrowseAll = true,
-  fallbackPluginIds,
-  fillWithFallback = false,
   installableItems,
   installableLoading,
   installableError,
@@ -151,7 +98,7 @@ export function EmptyStateAvailableSensors({
   onConnectDone,
   panelContext = "default",
 }: EmptyStateAvailableSensorsProps): JSX.Element | null {
-  const { t } = useTranslation(i18nNamespace);
+  const { t, i18n } = useTranslation(i18nNamespace);
   const keyed = (key: string) =>
     i18nKeyPrefix ? `${i18nKeyPrefix}.${key}` : key;
 
@@ -162,6 +109,13 @@ export function EmptyStateAvailableSensors({
     installableError === undefined ? hookState.error : installableError;
   const retryInstallable = onRetryInstallable ?? hookState.refresh;
   const firstContext = variant === "first_context";
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const localized = (
+    text: { zh: string; en: string } | null | undefined,
+  ): string | undefined =>
+    text ? localizedPluginText(text.en, text, language) : undefined;
+  const pluginName = (item: InstallableItem): string =>
+    localizedPluginText(item.name, item.name_i18n, language);
 
   // Connect now opens the single MainLayout-mounted <PluginInstallPanel>, which
   // owns the full honest flow (install → enable → sync → build-memory) and its
@@ -169,7 +123,7 @@ export function EmptyStateAvailableSensors({
   const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
   // "Browse all plugins" footer deep-links into Settings → plugin marketplace,
-  // the full catalog beyond the META-whitelisted empty-state cards. Same intent
+  // the full catalog beyond the plugin-declared empty-state cards. Same intent
   // mechanism ScheduleConfigPage uses to jump into a settings section.
   const setActivePanel = useChatShellStore((s) => s.setActivePanel);
   const setSettingsNavigationIntent = useChatShellStore(
@@ -181,133 +135,47 @@ export function EmptyStateAvailableSensors({
     [excludePluginIds],
   );
 
-  // Filter out excluded plugins, order by the empty-state priority list (plugins
-  // not in the list go last, stable), drop items without display metadata, then
-  // cap to the top MAX_EMPTY_STATE_CARDS — the remainder stays behind the
-  // marketplace exit so the empty state never grows unbounded.
-  const visible = useMemo<
-    { item: InstallableItem; meta: EmptyStatePluginMeta }[]
-  >(() => {
-    const collectWithMeta = (
-      sourceItems: InstallableItem[],
-      useFirstContext = false,
-    ) => {
-      const browserHistory = [...sourceItems]
-        .filter((item) => isBrowserHistoryPlugin(item.plugin_id))
-        .sort(
-          (a, b) =>
-            browserHistoryIndex(a.plugin_id) - browserHistoryIndex(b.plugin_id),
-        )
-        .slice(0, useFirstContext ? undefined : 1);
-      const otherItems = sourceItems.filter(
-        (item) => !isBrowserHistoryPlugin(item.plugin_id),
-      );
-      const sorted = [...browserHistory, ...otherItems].sort(
-        (a, b) =>
-          priorityIndex(a.plugin_id, useFirstContext) -
-          priorityIndex(b.plugin_id, useFirstContext),
-      );
-      const withMeta: { item: InstallableItem; meta: EmptyStatePluginMeta }[] =
-        [];
-      for (const item of sorted) {
-        const meta = getEmptyStatePluginMeta(item.plugin_id);
-        if (meta && isKnownPlugin(item.plugin_id, useFirstContext)) {
-          withMeta.push({ item, meta });
-        }
-      }
-      return withMeta;
-    };
-
-    const fallbackItems = (fallbackPluginIds ?? [])
-      .filter((pluginId) => !excluded.has(pluginId))
-      .map((pluginId) => ({
-        plugin_id: pluginId,
-        category: "onboarding_fallback",
-        installed: false,
-        rationale: { zh: "", en: "" },
-        setup_time_estimate_seconds: 30,
-        data_locality: "local_only" as const,
-      }));
-
-    const candidates = items.filter((item) => !excluded.has(item.plugin_id));
-    if (firstContext) {
-      const excludedCategories = new Set(
-        [...excluded].map((pluginId) => {
-          const metaCategory =
-            getEmptyStatePluginMeta(pluginId)?.recommendationCategory;
-          const itemCategory = items.find(
-            (item) => item.plugin_id === pluginId,
-          )?.category;
-          return metaCategory || itemCategory || pluginId;
-        }),
-      );
-      const eligible = collectWithMeta(
-        candidates.filter(
-          (item) => {
-            const category =
-              getEmptyStatePluginMeta(item.plugin_id)
-                ?.recommendationCategory ||
-              item.category ||
-              item.plugin_id;
-            return !excludedCategories.has(category);
-          },
-        ),
-        true,
-      ).sort((a, b) => {
-        if (a.item.installed !== b.item.installed) {
-          return a.item.installed ? -1 : 1;
-        }
-        const priorityDelta =
-          priorityIndex(a.item.plugin_id, true) -
-          priorityIndex(b.item.plugin_id, true);
-        if (priorityDelta !== 0) {
-          return priorityDelta;
-        }
-        return (
-          a.item.setup_time_estimate_seconds -
-          b.item.setup_time_estimate_seconds
-        );
-      });
-      const categoryRepresentatives = new Map<
-        string,
-        { item: InstallableItem; meta: EmptyStatePluginMeta }
-      >();
-      for (const candidate of eligible) {
-        const category =
-          candidate.meta.recommendationCategory ||
-          candidate.item.category ||
-          candidate.item.plugin_id;
-        if (!categoryRepresentatives.has(category)) {
-          categoryRepresentatives.set(category, candidate);
-        }
-      }
-      return [...categoryRepresentatives.values()].slice(0, 3);
-    }
-    const candidatesHaveBrowserHistory = candidates.some((item) =>
-      isBrowserHistoryPlugin(item.plugin_id),
+  // Plugins opt into each surface and own their order/copy/scope. The host only
+  // groups sibling implementations by category and caps the amount shown.
+  const visible = useMemo<InstallableItem[]>(() => {
+    const surface = (item: InstallableItem) =>
+      firstContext
+        ? item.surfaces?.first_context
+        : item.surfaces?.empty_state;
+    const excludedCategories = new Set(
+      items
+        .filter((item) => excluded.has(item.plugin_id))
+        .map((item) => item.category),
     );
-    const mergedCandidates = fillWithFallback
-      ? [
-          ...candidates,
-          ...fallbackItems.filter(
-            (fallback) =>
-              !candidates.some(
-                (item) => item.plugin_id === fallback.plugin_id,
-              ) &&
-              !(
-                candidatesHaveBrowserHistory &&
-                isBrowserHistoryPlugin(fallback.plugin_id)
-              ),
-          ),
-        ]
-      : candidates;
-    const fromInstallable = collectWithMeta(mergedCandidates);
-    if (fromInstallable.length > 0) {
-      return fromInstallable.slice(0, MAX_EMPTY_STATE_CARDS);
+    const grouped = new Map<string, InstallableItem[]>();
+    for (const item of items) {
+      if (
+        excluded.has(item.plugin_id) ||
+        excludedCategories.has(item.category) ||
+        !surface(item)
+      ) {
+        continue;
+      }
+      const siblings = grouped.get(item.category) ?? [];
+      siblings.push(item);
+      grouped.set(item.category, siblings);
     }
-
-    return collectWithMeta(fallbackItems).slice(0, MAX_EMPTY_STATE_CARDS);
-  }, [items, excluded, fallbackPluginIds, fillWithFallback, firstContext]);
+    const representatives = [...grouped.values()].map((siblings) =>
+      [...siblings].sort((a, b) => {
+        if (a.installed !== b.installed) return a.installed ? -1 : 1;
+        const orderDelta = (surface(a)?.order ?? 100) - (surface(b)?.order ?? 100);
+        if (orderDelta !== 0) return orderDelta;
+        return a.setup_time_estimate_seconds - b.setup_time_estimate_seconds;
+      })[0],
+    );
+    representatives.sort((a, b) => {
+      const orderDelta = (surface(a)?.order ?? 100) - (surface(b)?.order ?? 100);
+      if (orderDelta !== 0) return orderDelta;
+      if (a.installed !== b.installed) return a.installed ? -1 : 1;
+      return a.setup_time_estimate_seconds - b.setup_time_estimate_seconds;
+    });
+    return representatives.slice(0, firstContext ? 3 : MAX_EMPTY_STATE_CARDS);
+  }, [items, excluded, firstContext]);
 
   if (firstContext && loading && visible.length === 0) {
     return (
@@ -341,9 +209,7 @@ export function EmptyStateAvailableSensors({
   }
 
   if (loading && visible.length === 0) {
-    // Suppress flash-of-cards while the installable list is in flight, unless
-    // the caller supplied conservative fallback cards for a must-not-blank
-    // surface such as onboarding completion.
+    // Suppress flash-of-cards while the installable list is in flight.
     return null;
   }
 
@@ -377,24 +243,21 @@ export function EmptyStateAvailableSensors({
         </div>
       );
     }
-    // No device-available, whitelisted cards — still surface the marketplace
+    // No device-available cards — still surface the marketplace
     // exit rather than rendering nothing.
     return browseAll ? <div className="text-left">{browseAll}</div> : null;
   }
 
   if (firstContext) {
     const [featured, ...alternatives] = visible;
-    const cardProps = ({
-      item,
-      meta,
-    }: {
-      item: InstallableItem;
-      meta: EmptyStatePluginMeta;
-    }) => ({
+    const cardProps = (item: InstallableItem) => ({
       pluginId: item.plugin_id,
-      titleKey: meta.titleKey,
-      valueKey: meta.firstContextValueKey ?? meta.valueKey,
-      iconId: meta.iconId,
+      title: pluginName(item),
+      value:
+        localized(item.surfaces?.first_context?.rationale) ??
+        localized(item.rationale) ??
+        item.description,
+      iconId: item.icon,
       i18nNamespace,
       i18nKeyPrefix,
       reason: t(
@@ -404,7 +267,7 @@ export function EmptyStateAvailableSensors({
             : "emptyState.availableReason",
         ),
       ),
-      scope: meta.scopeKey ? t(keyed(meta.scopeKey)) : undefined,
+      scope: localized(item.surfaces?.first_context?.scope),
       localityLabel: t(
         keyed(
           item.data_locality === "local_only"
@@ -419,6 +282,8 @@ export function EmptyStateAvailableSensors({
         const options = { install: !item.installed };
         openPanel(pluginId, {
           ...options,
+          pluginName: pluginName(item),
+          pluginIcon: item.icon,
           ...(panelContext !== "default" ? { context: panelContext } : {}),
           ...(onConnectDone
             ? {
@@ -445,7 +310,7 @@ export function EmptyStateAvailableSensors({
           <div className="grid gap-3 md:grid-cols-2">
             {alternatives.map((entry) => (
               <EmptyStateSensorCard
-                key={entry.item.plugin_id}
+                key={entry.plugin_id}
                 {...cardProps(entry)}
                 variant="compact"
                 connectLabelKey="emptyState.view"
@@ -467,13 +332,13 @@ export function EmptyStateAvailableSensors({
         {t(keyed("emptyState.heading"))}
       </h3>
       <div className="divide-y divide-border/35 overflow-hidden rounded-lg bg-[hsl(var(--app-chrome-elevated)/0.44)] shadow-[inset_0_0_0_1px_hsl(var(--border)/0.34)]">
-        {visible.map(({ item, meta }) => (
+        {visible.map((item) => (
           <EmptyStateSensorCard
             key={item.plugin_id}
             pluginId={item.plugin_id}
-            titleKey={meta.titleKey}
-            valueKey={meta.valueKey}
-            iconId={meta.iconId}
+            title={pluginName(item)}
+            value={localized(item.surfaces?.empty_state?.rationale) ?? localized(item.rationale) ?? item.description}
+            iconId={item.icon}
             i18nNamespace={i18nNamespace}
             i18nKeyPrefix={i18nKeyPrefix}
             connectLabelKey={
@@ -487,6 +352,8 @@ export function EmptyStateAvailableSensors({
               const options = { install: !item.installed };
               openPanel(pluginId, {
                 ...options,
+                pluginName: pluginName(item),
+                pluginIcon: item.icon,
                 ...(panelContext !== "default"
                   ? { context: panelContext }
                   : {}),

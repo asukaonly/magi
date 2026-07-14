@@ -12,8 +12,13 @@ vi.mock('react-i18next', () => ({
 const singleProposal: SuggestionProposal = {
   dedupe_key: 'browser_history',
   category: 'browser_history',
-  plugin_ids: ['chrome-history'],
-  installable_plugin_ids: [],
+  plugins: [{
+    plugin_id: 'chrome-history',
+    name: 'Chrome History',
+    name_i18n: { 'zh-CN': 'Chrome 浏览器历史' },
+    icon: 'brand:googlechrome',
+    installed: true,
+  }],
   confidence: 0.9,
   rationale: { zh: '连接 Chrome 历史', en: 'Connect Chrome history' },
 };
@@ -21,8 +26,11 @@ const singleProposal: SuggestionProposal = {
 const multiProposal: SuggestionProposal = {
   dedupe_key: 'browser_history',
   category: 'browser_history',
-  plugin_ids: ['chrome-history', 'safari-history', 'arc-history'],
-  installable_plugin_ids: [],
+  plugins: [
+    { plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: {}, icon: 'brand:googlechrome', installed: true },
+    { plugin_id: 'safari-history', name: 'Safari History', name_i18n: {}, icon: 'brand:safari', installed: true },
+    { plugin_id: 'arc-history', name: 'Arc History', name_i18n: {}, icon: 'lucide:globe', installed: true },
+  ],
   confidence: 0.85,
   rationale: { zh: '连接浏览器历史', en: 'Connect browser history' },
 };
@@ -56,7 +64,7 @@ describe('SystemSuggestionSideCard', () => {
       />,
     );
     expect(screen.getAllByTestId('system-suggestion-side-card-row')).toHaveLength(
-      multiProposal.plugin_ids.length,
+      multiProposal.plugins.length,
     );
   });
 
@@ -102,14 +110,21 @@ describe('SystemSuggestionSideCard', () => {
     );
 
     await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
-    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: false });
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
+      install: false,
+      pluginName: 'Chrome 浏览器历史',
+      pluginIcon: 'brand:googlechrome',
+    });
   });
 
   it('opens the panel in install-mode for a not-yet-installed plugin', async () => {
     const openPanel = vi.spyOn(usePluginInstallPanelStore.getState(), 'openPanel');
     render(
       <SystemSuggestionSideCard
-        proposal={{ ...singleProposal, installable_plugin_ids: ['chrome-history'] }}
+        proposal={{
+          ...singleProposal,
+          plugins: [{ ...singleProposal.plugins[0], installed: false }],
+        }}
         onClose={() => {}}
         onDecline={() => {}}
         onActivated={() => {}}
@@ -117,6 +132,10 @@ describe('SystemSuggestionSideCard', () => {
     );
 
     await userEvent.click(await screen.findByTestId('empty-state-connect-chrome-history'));
-    expect(openPanel).toHaveBeenCalledWith('chrome-history', { install: true });
+    expect(openPanel).toHaveBeenCalledWith('chrome-history', {
+      install: true,
+      pluginName: 'Chrome 浏览器历史',
+      pluginIcon: 'brand:googlechrome',
+    });
   });
 });

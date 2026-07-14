@@ -59,8 +59,7 @@ describe('Chat suggestions integration', () => {
       {
         dedupe_key: 'browser_history',
         category: 'browser_history',
-        plugin_ids: ['chrome-history'],
-        installable_plugin_ids: [],
+        plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: {}, icon: 'brand:googlechrome', installed: true }],
         confidence: 0.9,
         rationale: { zh: '想看你的浏览', en: 'see your browsing' },
       },
@@ -81,8 +80,7 @@ describe('Chat suggestions integration', () => {
       {
         dedupe_key: 'browser_history',
         category: 'browser_history',
-        plugin_ids: ['chrome-history'],
-        installable_plugin_ids: [],
+        plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: {}, icon: 'brand:googlechrome', installed: true }],
         confidence: 0.9,
         rationale: { zh: '想看你的浏览', en: 'see your browsing' },
       },

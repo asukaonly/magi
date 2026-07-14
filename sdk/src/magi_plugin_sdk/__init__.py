@@ -54,6 +54,8 @@ from .contracts import (
     PluginSettingsResourcePayload,
     PluginSettingsResourceSpec,
     SettingsUIBlockSpec,
+    SuggestionSurfaceSpec,
+    SuggestionSurfacesSpec,
     SummaryProfileSpec,
     TemporalSummaryFeatureBudget,
     TemporalSummarySourceFeatures,
@@ -156,6 +158,8 @@ __all__ = [
     "PluginSettingsActionResult",
     "PluginSettingsResourceSpec",
     "PluginSettingsResourcePayload",
+    "SuggestionSurfaceSpec",
+    "SuggestionSurfacesSpec",
     # Manifest and registry
     "ContributionType",
     "DerivedAssertionRuleSpec",

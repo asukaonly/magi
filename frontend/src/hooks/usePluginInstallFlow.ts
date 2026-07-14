@@ -77,7 +77,8 @@ function getFirstContextHostDefaults(flow: ActivationFlowSpec): Record<string, u
     return {};
   }
   return {
-    [`${prefix}.max_items_per_sync`]: FIRST_CONTEXT_MAX_ITEMS_PER_SYNC,
+    [`${prefix}.max_items_per_sync`]:
+      flow.first_context?.max_items_per_sync ?? FIRST_CONTEXT_MAX_ITEMS_PER_SYNC,
   };
 }
 
@@ -98,7 +99,7 @@ function getFirstContextOverrides(flow: ActivationFlowSpec): Record<string, unkn
   if (!isRecord(flow.first_context)) {
     return null;
   }
-  const overrides = flow.first_context.settings_overrides ?? flow.first_context.settings;
+  const overrides = flow.first_context.settings_overrides;
   if (!isRecord(overrides)) {
     return null;
   }

@@ -18,11 +18,23 @@ vi.mock("@/hooks/useInstallableSensors", () => ({
 function item(overrides: Partial<InstallableItem> = {}): InstallableItem {
   return {
     plugin_id: "chrome-history",
+    name: "Chrome History",
+    name_i18n: { "zh-CN": "Chrome 浏览器历史" },
+    description: "Chrome history",
+    description_i18n: {},
+    icon: "brand:googlechrome",
     category: "browser_history",
     installed: false,
     rationale: { zh: "", en: "" },
     setup_time_estimate_seconds: 10,
     data_locality: "local_only",
+    surfaces: {
+      first_context: {
+        order: 10,
+        rationale: { zh: "从最近浏览开始", en: "Start from browsing" },
+        scope: { zh: "最近 7 天", en: "Last 7 days" },
+      },
+    },
     ...overrides,
   };
 }
@@ -91,11 +103,13 @@ describe("ProductTour", () => {
       screen.getByTestId("empty-state-connect-chrome-history"),
     );
 
-    expect(openPanel).toHaveBeenCalledWith("chrome-history", {
+    expect(openPanel).toHaveBeenCalledWith("chrome-history", expect.objectContaining({
       install: true,
       context: "first_context",
       onDone: expect.any(Function),
-    });
+      pluginIcon: "brand:googlechrome",
+      pluginName: "Chrome 浏览器历史",
+    }));
     expect(onComplete).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),

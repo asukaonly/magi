@@ -80,8 +80,8 @@ export interface ActivationFlowSpec {
   configured_key: string;
   fields: ExtensionFieldSpec[];
   first_context?: {
+    max_items_per_sync?: number | null;
     settings_overrides?: Record<string, unknown>;
-    settings?: Record<string, unknown>;
   } | null;
 }
 

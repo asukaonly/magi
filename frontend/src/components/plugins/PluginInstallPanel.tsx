@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { pluginsApi } from '@/api/modules/plugins';
 import type { ExtensionFieldSpec, PluginCapability } from '@/api/modules/plugins';
 import PluginSettingsFields from '@/components/settings/PluginSettingsFields';
+import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
   Dialog,
   DialogContent,
@@ -18,9 +19,9 @@ import { usePluginInstallFlow, type InstallStepId } from '../../hooks/usePluginI
 import { InstallStepper } from './InstallStepper';
 import { PluginConsentDialog } from './PluginConsentDialog';
 import { dispatchAppEvent } from '@/constants/events';
+import { localizedPluginText } from '@/utils/plugin-display-groups';
 
-/** "netease-music" → "Netease Music" — readable fallback when a plugin has no
- *  localized name in the `pluginNames` i18n map. Mirrors SystemSuggestionSideCard. */
+/** "netease-music" → "Netease Music" — fallback when no name is provided. */
 function humanizePluginId(pluginId: string): string {
   return pluginId
     .split(/[-_]/)
@@ -70,9 +71,11 @@ const seedFieldValues = (
  *   - error → the message + a retry action
  */
 export function PluginInstallPanel(): JSX.Element | null {
-  const { t } = useTranslation('onboarding');
+  const { t, i18n } = useTranslation('onboarding');
   const open = usePluginInstallPanelStore((s) => s.open);
   const pluginId = usePluginInstallPanelStore((s) => s.pluginId);
+  const pluginName = usePluginInstallPanelStore((s) => s.pluginName);
+  const pluginIcon = usePluginInstallPanelStore((s) => s.pluginIcon);
   const installMode = usePluginInstallPanelStore((s) => s.installMode);
   const panelContext = usePluginInstallPanelStore((s) => s.context);
   const closePanel = usePluginInstallPanelStore((s) => s.closePanel);
@@ -81,6 +84,8 @@ export function PluginInstallPanel(): JSX.Element | null {
 
   const [consented, setConsented] = useState(false);
   const [entryMeta, setEntryMeta] = useState<{
+    name: string;
+    name_i18n: Record<string, string>;
     capabilities: PluginCapability[];
     version: string;
     official: boolean;
@@ -113,6 +118,8 @@ export function PluginInstallPanel(): JSX.Element | null {
         if (cancelled) return;
         const e = reg.plugins.find((p) => p.plugin_id === pluginId);
         setEntryMeta({
+          name: e?.name ?? humanizePluginId(pluginId),
+          name_i18n: e?.name_i18n ?? {},
           capabilities: e?.capabilities ?? [],
           version: e?.version ?? '',
           official: e?.official ?? false,
@@ -121,7 +128,14 @@ export function PluginInstallPanel(): JSX.Element | null {
       })
       .catch(() => {
         if (!cancelled) {
-          setEntryMeta({ capabilities: [], version: '', official: false, icon: null });
+          setEntryMeta({
+            name: humanizePluginId(pluginId),
+            name_i18n: {},
+            capabilities: [],
+            version: '',
+            official: false,
+            icon: null,
+          });
         }
       });
     return () => {
@@ -184,9 +198,14 @@ export function PluginInstallPanel(): JSX.Element | null {
     [fieldSpecs, values],
   );
 
-  const name = pluginId
-    ? t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) })
-    : '';
+  const name = pluginName || (
+    entryMeta
+      ? localizedPluginText(entryMeta.name, entryMeta.name_i18n, i18n.language)
+      : pluginId
+        ? humanizePluginId(pluginId)
+        : ''
+  );
+  const icon = pluginIcon || entryMeta?.icon || '';
   const syncStep = flow.steps.find((step) => step.id === 'sync');
   const memoryStep = flow.steps.find((step) => step.id === 'memory');
   const memoryInputCount = flow.memoryTotalCount ?? flow.memoryCount;
@@ -329,8 +348,7 @@ export function PluginInstallPanel(): JSX.Element | null {
         open
         mode="install"
         pluginName={name}
-        pluginId={pluginId ?? undefined}
-        pluginIcon={entryMeta?.icon}
+        pluginIcon={icon}
         version={entryMeta?.version ?? ''}
         official={entryMeta?.official}
         capabilities={entryMeta?.capabilities ?? []}
@@ -349,7 +367,14 @@ export function PluginInstallPanel(): JSX.Element | null {
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>{name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2.5">
+            {icon ? (
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/55">
+                <PluginIcon iconId={icon} className="h-5 w-5" />
+              </span>
+            ) : null}
+            <span>{name}</span>
+          </DialogTitle>
           <DialogDescription>
             {isFirstContext
               ? t('pluginInstallPanel.firstContextDescription')

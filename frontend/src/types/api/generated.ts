@@ -5015,8 +5015,28 @@ export interface components {
              * @enum {string}
              */
             readonly data_locality: "local_only" | "uploads";
+            /**
+             * Description
+             * @default
+             */
+            readonly description: string;
+            /** Description I18N */
+            readonly description_i18n?: {
+                readonly [key: string]: string;
+            };
+            /**
+             * Icon
+             * @default
+             */
+            readonly icon: string;
             /** Installed */
             readonly installed: boolean;
+            /** Name */
+            readonly name: string;
+            /** Name I18N */
+            readonly name_i18n?: {
+                readonly [key: string]: string;
+            };
             /** Plugin Id */
             readonly plugin_id: string;
             /** Rationale */
@@ -5025,6 +5045,7 @@ export interface components {
             };
             /** Setup Time Estimate Seconds */
             readonly setup_time_estimate_seconds: number;
+            readonly surfaces: components["schemas"]["SuggestionSurfacesSpec"];
         };
         /** JournalReflectRequest */
         readonly JournalReflectRequest: {
@@ -6116,6 +6137,16 @@ export interface components {
             readonly name: string;
             /** Size Mb */
             readonly size_mb: number;
+        };
+        /**
+         * LocalizedText
+         * @description Per-locale strings; both zh and en are required.
+         */
+        readonly LocalizedText: {
+            /** En */
+            readonly en: string;
+            /** Zh */
+            readonly zh: string;
         };
         /** ManualEntryCreateBody */
         readonly ManualEntryCreateBody: {
@@ -7736,12 +7767,33 @@ export interface components {
             readonly layers?: readonly string[] | null;
         };
         /**
+         * SuggestionPlugin
+         * @description Plugin-owned display metadata carried with a suggestion.
+         */
+        readonly SuggestionPlugin: {
+            /**
+             * Icon
+             * @default
+             */
+            readonly icon: string;
+            /** Installed */
+            readonly installed: boolean;
+            /** Name */
+            readonly name: string;
+            /** Name I18N */
+            readonly name_i18n?: {
+                readonly [key: string]: string;
+            };
+            /** Plugin Id */
+            readonly plugin_id: string;
+        };
+        /**
          * SuggestionProposal
          * @description A single suggestion produced by the matcher.
          *
          *     Multiple sibling plugins (e.g. chrome-history + safari-history both under
          *     browser_history) collapse into one SuggestionProposal with all matched
-         *     plugin_ids listed. The UI bundles them into a single side card.
+         *     plugins listed. The UI bundles them into a single side card.
          */
         readonly SuggestionProposal: {
             /** Category */
@@ -7750,14 +7802,33 @@ export interface components {
             readonly confidence: number;
             /** Dedupe Key */
             readonly dedupe_key: string;
-            /** Installable Plugin Ids */
-            readonly installable_plugin_ids?: readonly string[];
-            /** Plugin Ids */
-            readonly plugin_ids: readonly string[];
+            /** Plugins */
+            readonly plugins: readonly components["schemas"]["SuggestionPlugin"][];
             /** Rationale */
             readonly rationale: {
                 readonly [key: string]: string;
             };
+        };
+        /**
+         * SuggestionSurfaceSpec
+         * @description Plugin-owned presentation for one recommendation surface.
+         */
+        readonly SuggestionSurfaceSpec: {
+            /**
+             * Order
+             * @default 100
+             */
+            readonly order: number;
+            readonly rationale?: components["schemas"]["LocalizedText"] | null;
+            readonly scope?: components["schemas"]["LocalizedText"] | null;
+        };
+        /**
+         * SuggestionSurfacesSpec
+         * @description Recommendation surfaces where the plugin opts in to appear.
+         */
+        readonly SuggestionSurfacesSpec: {
+            readonly empty_state?: components["schemas"]["SuggestionSurfaceSpec"] | null;
+            readonly first_context?: components["schemas"]["SuggestionSurfaceSpec"] | null;
         };
         /** SystemConfigModel */
         readonly "SystemConfigModel-Input": {

@@ -46,6 +46,8 @@ class ExtensionFieldSpec(BaseModel):
 class ActivationFirstContextSpec(BaseModel):
     """First-run-only activation settings applied by the host onboarding UI."""
 
+    max_items_per_sync: int | None = Field(default=None, ge=1)
+    """Optional first-sync item limit. The host uses 200 only when omitted."""
     settings_overrides: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -258,6 +260,21 @@ class LocalizedText(BaseModel):
     en: str
 
 
+class SuggestionSurfaceSpec(BaseModel):
+    """Plugin-owned presentation for one recommendation surface."""
+
+    order: int = Field(default=100, ge=0)
+    rationale: LocalizedText | None = None
+    scope: LocalizedText | None = None
+
+
+class SuggestionSurfacesSpec(BaseModel):
+    """Recommendation surfaces where the plugin opts in to appear."""
+
+    empty_state: SuggestionSurfaceSpec | None = None
+    first_context: SuggestionSurfaceSpec | None = None
+
+
 class PluginCapability(BaseModel):
     """A single self-declared capability shown to the user for install-time
     consent. NOT enforced at runtime (no sandbox this iteration).
@@ -345,6 +362,8 @@ class SuggestionDescriptor(BaseModel):
     data_locality: Literal["local_only", "uploads"] = "local_only"
     icon: str | None = None
     """Optional icon path; if unset, the plugin's default icon is used."""
+    surfaces: SuggestionSurfacesSpec = Field(default_factory=SuggestionSurfacesSpec)
+    """Plugin-owned empty-state and first-context presentation metadata."""
 
 
 class PluginDisplayGroupSpec(BaseModel):
@@ -375,8 +394,10 @@ class PluginManifest(BaseModel):
 
     plugin_id: str = Field(alias="id")
     name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
     version: str
     description: str = ""
+    description_i18n: dict[str, str] = Field(default_factory=dict)
     author: str = "Magi Team"
     icon: str = ""
     """Optional stable icon id for host UIs, for example ``brand:googlechrome`` or ``lucide:calendar-days``."""

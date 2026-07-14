@@ -25,6 +25,8 @@ from magi_plugin_sdk import (  # noqa: F401
     PluginSettingsResourceSpec,
     SensorSpec,
     SettingsUIBlockSpec,
+    SuggestionSurfaceSpec,
+    SuggestionSurfacesSpec,
     configure_basic_logging,
     get_logger,
 )
@@ -56,6 +58,8 @@ __all__ = [
     "SensorRegistry",
     "SensorSpec",
     "SettingsUIBlockSpec",
+    "SuggestionSurfaceSpec",
+    "SuggestionSurfacesSpec",
     "configure_basic_logging",
     "get_logger",
 ]

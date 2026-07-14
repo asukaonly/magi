@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from magi.system_suggestions.contracts import (
     DismissalKind,
     DismissalRecord,
+    SuggestionPlugin,
     SuggestionProposal,
 )
 
@@ -33,12 +34,20 @@ def test_suggestion_proposal_minimal_valid() -> None:
     proposal = SuggestionProposal(
         dedupe_key="browser_history",
         category="browser_history",
-        plugin_ids=["chrome-history"],
+        plugins=[
+            SuggestionPlugin(
+                plugin_id="chrome-history",
+                name="Chrome History",
+                name_i18n={"zh-CN": "Chrome 浏览器历史"},
+                icon="brand:googlechrome",
+                installed=True,
+            )
+        ],
         confidence=0.9,
         rationale={"zh": "测试", "en": "test"},
     )
     assert proposal.dedupe_key == "browser_history"
-    assert proposal.plugin_ids == ["chrome-history"]
+    assert proposal.plugins[0].name_i18n["zh-CN"] == "Chrome 浏览器历史"
     assert proposal.confidence == 0.9
 
 
@@ -47,18 +56,18 @@ def test_suggestion_proposal_rejects_invalid_confidence() -> None:
         SuggestionProposal(
             dedupe_key="x",
             category="x",
-            plugin_ids=["p"],
+            plugins=[{"plugin_id": "p", "name": "P", "installed": True}],
             confidence=1.5,
             rationale={"zh": "测试", "en": "test"},
         )
 
 
-def test_suggestion_proposal_rejects_empty_plugin_ids() -> None:
+def test_suggestion_proposal_rejects_empty_plugins() -> None:
     with pytest.raises(ValidationError):
         SuggestionProposal(
             dedupe_key="x",
             category="x",
-            plugin_ids=[],
+            plugins=[],
             confidence=0.5,
             rationale={"zh": "测试", "en": "test"},
         )

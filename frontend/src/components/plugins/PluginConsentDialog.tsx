@@ -15,7 +15,6 @@ interface Props {
   open: boolean;
   mode: ConsentMode;
   pluginName: string;
-  pluginId?: string;
   pluginIcon?: string | null;
   version: string;
   official?: boolean;
@@ -33,7 +32,6 @@ export const PluginConsentDialog: React.FC<Props> = ({
   open,
   mode,
   pluginName,
-  pluginId,
   pluginIcon,
   version,
   official,
@@ -120,8 +118,6 @@ export const PluginConsentDialog: React.FC<Props> = ({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/55 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.55)]">
               <PluginIcon
                 iconId={pluginIcon}
-                pluginId={pluginId}
-                sourceName={pluginName}
                 className="h-6 w-6"
               />
             </div>

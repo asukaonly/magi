@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils";
 
 export interface EmptyStateSensorCardProps {
   pluginId: string;
-  titleKey: string;
-  valueKey: string;
+  title: string;
+  value: string;
   iconId?: string;
   onConnect: (pluginId: string) => void;
   disabled?: boolean;
@@ -27,8 +27,8 @@ export interface EmptyStateSensorCardProps {
 
 export function EmptyStateSensorCard({
   pluginId,
-  titleKey,
-  valueKey,
+  title,
+  value,
   iconId,
   onConnect,
   disabled,
@@ -66,7 +66,7 @@ export function EmptyStateSensorCard({
         </span>
       ) : null}
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
-        <PluginIcon iconId={iconId} pluginId={pluginId} className="h-6 w-6" />
+        <PluginIcon iconId={iconId} className="h-6 w-6" />
       </span>
       <div
         className={cn(
@@ -80,7 +80,7 @@ export function EmptyStateSensorCard({
             isFeatured ? "text-base" : "truncate text-sm",
           )}
         >
-          {t(keyed(titleKey))}
+          {title}
         </h3>
         <p
           className={cn(
@@ -88,7 +88,7 @@ export function EmptyStateSensorCard({
             isFirstContext ? "text-xs leading-5" : "truncate text-xs leading-5",
           )}
         >
-          {t(keyed(valueKey))}
+          {value}
         </p>
         {isFeatured && reason ? (
           <p className="flex items-center gap-1.5 text-xs leading-5 text-foreground/75">

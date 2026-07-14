@@ -24,6 +24,8 @@ export interface PluginInstallDoneInfo {
 interface PluginInstallPanelState {
   open: boolean;
   pluginId: string | null;
+  pluginName: string | null;
+  pluginIcon: string | null;
   installMode: boolean;
   context: PluginInstallPanelContext;
   /**
@@ -38,6 +40,8 @@ interface PluginInstallPanelState {
     pluginId: string,
     opts?: {
       install?: boolean;
+      pluginName?: string;
+      pluginIcon?: string;
       onDone?: (info?: PluginInstallDoneInfo) => void;
       context?: PluginInstallPanelContext;
     },
@@ -48,6 +52,8 @@ interface PluginInstallPanelState {
 export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) => ({
   open: false,
   pluginId: null,
+  pluginName: null,
+  pluginIcon: null,
   installMode: false,
   context: 'default',
   onDone: null,
@@ -55,6 +61,8 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
     set({
       open: true,
       pluginId,
+      pluginName: opts?.pluginName ?? null,
+      pluginIcon: opts?.pluginIcon ?? null,
       installMode: opts?.install ?? false,
       context: opts?.context ?? 'default',
       onDone: opts?.onDone ?? null,
@@ -63,6 +71,8 @@ export const usePluginInstallPanelStore = create<PluginInstallPanelState>((set) 
     set({
       open: false,
       pluginId: null,
+      pluginName: null,
+      pluginIcon: null,
       installMode: false,
       context: 'default',
       onDone: null,

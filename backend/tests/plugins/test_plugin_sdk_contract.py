@@ -97,17 +97,17 @@ def test_activation_flow_preserves_first_context_overrides() -> None:
         enabled_key="sensors.example.enabled",
         configured_key="sensors.example.configured",
         first_context={
+            "max_items_per_sync": 75,
             "settings_overrides": {
-                "sensors.example.max_items_per_sync": 200,
+                "sensors.example.lookback_days": 7,
             }
         },
     )
 
     dumped = flow.model_dump()
 
-    assert dumped["first_context"]["settings_overrides"] == {
-        "sensors.example.max_items_per_sync": 200,
-    }
+    assert dumped["first_context"]["max_items_per_sync"] == 75
+    assert dumped["first_context"]["settings_overrides"] == {"sensors.example.lookback_days": 7}
 
 
 def test_plugin_i18n_defaults_to_current_language(tmp_path) -> None:

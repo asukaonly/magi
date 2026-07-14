@@ -5,8 +5,8 @@ The matcher is split into two reusable pure functions:
 * :func:`candidate_categories` — a cheap keyword *gate* that groups
   available + undismissed suggestion candidates (whose locale keywords appear in
   the recent text) by category. Candidates may be installed plugins *or*
-  registry-discovered (not-yet-installed) plugins; the latter are tracked
-  separately in ``installable_plugin_ids``. This is cheap enough to run on every
+  registry-discovered (not-yet-installed) plugins; each carries its installation
+  state. This is cheap enough to run on every
   message.
 * :func:`build_proposals` — a proposal builder that ranks candidate categories
   into :class:`SuggestionProposal` objects, using LLM confidences when available
@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
-from magi.system_suggestions.contracts import SuggestionProposal
+from magi.system_suggestions.contracts import SuggestionPlugin, SuggestionProposal
 
 
 @dataclass
@@ -33,13 +33,12 @@ class CategoryCandidate:
     ``browser_history``) collapse into a single candidate so the suggestion UI
     can bundle them.
 
-    ``installable_plugin_ids`` is the subset of ``plugin_ids`` that are not yet
-    installed (registry-discovered), so the UI can offer an install-first flow.
+    Each plugin carries its installation state so the UI can offer an
+    install-first flow without another catalogue lookup.
     """
 
     category: str
-    plugin_ids: list[str] = field(default_factory=list)
-    installable_plugin_ids: list[str] = field(default_factory=list)
+    plugins: list[SuggestionPlugin] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
     rationale: dict[str, str] = field(default_factory=dict)
     keyword_hits: int = 0
@@ -71,8 +70,7 @@ def candidate_categories(
     Returns:
         Mapping of category -> :class:`CategoryCandidate` for every category
         with at least one matching, available, undismissed candidate. Candidates
-        with ``installed is False`` are also recorded in
-        ``installable_plugin_ids``.
+        with ``installed is False`` retain that state in their plugin metadata.
     """
     text_lower = recent_text.lower()
     out: dict[str, CategoryCandidate] = {}
@@ -99,9 +97,15 @@ def candidate_categories(
                 },
             )
             out[category] = cand
-        cand.plugin_ids.append(c.plugin_id)
-        if not c.installed:
-            cand.installable_plugin_ids.append(c.plugin_id)
+        cand.plugins.append(
+            SuggestionPlugin(
+                plugin_id=c.plugin_id,
+                name=c.name,
+                name_i18n=c.name_i18n,
+                icon=c.icon,
+                installed=c.installed,
+            )
+        )
         for kw in keywords:
             if kw not in cand.keywords:
                 cand.keywords.append(kw)
@@ -142,8 +146,7 @@ def build_proposals(
             SuggestionProposal(
                 dedupe_key=category,
                 category=category,
-                plugin_ids=cand.plugin_ids,
-                installable_plugin_ids=cand.installable_plugin_ids,
+                plugins=cand.plugins,
                 confidence=min(1.0, max(0.0, float(conf))),
                 rationale=cand.rationale,
             )

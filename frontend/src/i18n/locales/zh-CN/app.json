@@ -663,45 +663,7 @@
       "connect": "启用",
       "installAndConnect": "安装并启用",
       "installing": "安装中…",
-      "browseAll": "浏览全部插件 →",
-      "plugins": {
-        "chromeHistory": {
-          "title": "Chrome 历史",
-          "value": "让我看到你最近在网上读什么"
-        },
-        "safariHistory": {
-          "title": "Safari 历史",
-          "value": "让我看到你最近在网上读什么"
-        },
-        "firefoxHistory": {
-          "title": "Firefox 历史",
-          "value": "让我看到你最近在网上读什么"
-        },
-        "edgeHistory": {
-          "title": "Edge 历史",
-          "value": "让我看到你最近在网上读什么"
-        },
-        "screenshotTimeline": {
-          "title": "屏幕记录",
-          "value": "让我看到你屏幕上发生了什么"
-        },
-        "calendar": {
-          "title": "日历",
-          "value": "让我看到你的日程安排"
-        },
-        "gitActivity": {
-          "title": "Git 活动",
-          "value": "让我看到你最近在构建什么"
-        },
-        "photoLibrary": {
-          "title": "照片库",
-          "value": "让我看到你保存下来的时刻"
-        },
-        "codingAgentHistory": {
-          "title": "Agent 历史",
-          "value": "让我看到你在 Claude Code / Codex 会话里做过什么"
-        }
-      }
+      "browseAll": "浏览全部插件 →"
     },
     "manualEntry": {
       "openButton": "记一笔 (n)",
@@ -2541,8 +2503,7 @@
         "settingsSaveFailed": "执行器设置保存失败：{{message}}",
         "reloadFailed": "执行器重载失败：{{message}}"
       }
-    },
-    "plugins": {}
+    }
   },
   "memory": {
     "title": "记忆查看",
@@ -3139,14 +3100,25 @@
       "manualEntry": "手动添加一条记忆"
     },
     "governance": {
-      "title": "整理",
+      "title": "记忆管理",
       "subtitle": "分层查看、手动整理、遗忘清理和维护诊断。",
+      "objectSubtitle": "按记忆对象查看、整理、遗忘和诊断。",
       "tabs": {
+        "objects": "对象明细",
         "layers": "分层明细",
         "tasks": "定时任务",
         "manual": "手动整理",
         "forget": "遗忘清理",
         "diagnostics": "诊断"
+      },
+      "status": {
+        "healthy": "运行正常",
+        "awaitingData": "等待记忆数据",
+        "needsAttention": "需要处理",
+        "objects": "{{count}} 个对象",
+        "events": "{{count}} 条原始事件",
+        "pending": "{{count}} 条待处理",
+        "breakers": "{{count}} 个工具异常"
       },
       "actions": {
         "refresh": "刷新"
@@ -3170,10 +3142,23 @@
         "openRecord": "打开记录 {{id}}"
       },
       "objects": {
+        "choose": "选择对象",
+        "tableSubtitle": "{{description}}（共 {{count}} 条）",
         "openRecord": "打开记录 {{title}}",
         "searchLabel": "搜索当前选项记录",
         "searchPlaceholder": "搜索当前选项记录",
         "searchEmpty": "这个选项里没有匹配的记录。",
+        "emptyTitle": "还没有{{category}}记录",
+        "emptyBody": "Magi 会从对话和已连接的来源中逐步整理这类记忆。",
+        "addSource": "添加来源",
+        "startChat": "开始对话",
+        "searchEmptyTitle": "没有匹配结果",
+        "searchEmptyBody": "换个关键词，或清除搜索后查看全部记录。",
+        "clearSearch": "清除搜索",
+        "pageSummary": "{{start}}-{{end}} / {{total}} 条",
+        "prevPage": "上一页",
+        "nextPage": "下一页",
+        "pageIndex": "{{page}} / {{pageCount}}",
         "recordSubtitle": {
           "entity": "{{type}} · {{source}}",
           "relation": "{{source}} 关系"

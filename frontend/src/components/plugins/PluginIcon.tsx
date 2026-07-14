@@ -36,8 +36,6 @@ import { cn } from '@/lib/utils';
 
 interface PluginIconProps {
   iconId?: string | null;
-  pluginId?: string | null;
-  sourceName?: string | null;
   className?: string;
 }
 
@@ -58,36 +56,6 @@ const BRAND_ICONS: Record<string, SimpleIcon> = {
   steam: siSteam,
   telegram: siTelegram,
   wechat: siWechat,
-};
-
-const BRAND_ALIASES: Record<string, string> = {
-  chrome: 'googlechrome',
-  chrome_history: 'googlechrome',
-  chrome_history_core: 'googlechrome',
-  'chrome-history': 'googlechrome',
-  browser_history_core: 'googlechrome',
-  firefox: 'firefoxbrowser',
-  firefox_history: 'firefoxbrowser',
-  'firefox-history': 'firefoxbrowser',
-  safari_history: 'safari',
-  'safari-history': 'safari',
-  steam_play_history: 'steam',
-  'steam-play-history': 'steam',
-  netease_music: 'neteasecloudmusic',
-  'netease-music': 'neteasecloudmusic',
-  git_activity: 'git',
-  'git-activity': 'git',
-  github_activity: 'github',
-  'github-activity': 'github',
-  obsidian_vault: 'obsidian',
-  'obsidian-vault': 'obsidian',
-  weixin: 'wechat',
-  wechat: 'wechat',
-  telegram: 'telegram',
-  github: 'github',
-  spotify: 'spotify',
-  system_media: 'applemusic',
-  'system-media': 'applemusic',
 };
 
 const LUCIDE_ICONS: Record<string, LucideIcon> = {
@@ -113,30 +81,9 @@ const LUCIDE_ICONS: Record<string, LucideIcon> = {
   'message-circle': MessageCircle,
 };
 
-const CUSTOM_ICON_ALIASES: Record<string, CustomIconKey> = {
-  chrome: 'googlechrome',
-  chrome_history: 'googlechrome',
-  chrome_history_core: 'googlechrome',
-  'chrome-history': 'googlechrome',
-  googlechrome: 'googlechrome',
-  photo_library: 'photo-library',
-  'photo-library': 'photo-library',
-};
-
-const LUCIDE_ALIASES: Record<string, string> = {
-  calendar_plugin: 'calendar-days',
-  coding_agent_history: 'code',
-  local_documents: 'file-text',
-  'local-documents': 'file-text',
-  photo_library: 'image',
-  'photo-library': 'image',
-  screen: 'monitor',
-  screen_time: 'monitor',
-  'screen-time': 'monitor',
-  screenshot_timeline: 'monitor',
-  terminal_history: 'terminal',
-  'terminal-history': 'terminal',
-  chat_projector: 'message-circle',
+const CUSTOM_ICON_IDS: Record<string, CustomIconKey> = {
+  'brand:googlechrome': 'googlechrome',
+  'custom:photo-library': 'photo-library',
 };
 
 const normalizeIconKey = (value: string | null | undefined): string => (
@@ -156,49 +103,21 @@ const stripIconNamespace = (value: string): { namespace: 'brand' | 'lucide' | nu
   return { namespace: null, key: value };
 };
 
-const resolveCustomIcon = (...candidates: Array<string | null | undefined>): CustomIconKey | null => {
-  for (const candidate of candidates) {
-    const normalized = normalizeIconKey(candidate);
-    const { key } = stripIconNamespace(normalized);
-    const aliasKey = key.replace(/-/g, '_');
-    const iconKey = CUSTOM_ICON_ALIASES[key] || CUSTOM_ICON_ALIASES[aliasKey];
-    if (iconKey) {
-      return iconKey;
-    }
-  }
-  return null;
+const resolveCustomIcon = (iconId: string | null | undefined): CustomIconKey | null =>
+  CUSTOM_ICON_IDS[normalizeIconKey(iconId)] ?? null;
+
+const resolveBrandIcon = (iconId: string | null | undefined): SimpleIcon | null => {
+  const normalized = normalizeIconKey(iconId);
+  const { namespace, key } = stripIconNamespace(normalized);
+  if (namespace === 'lucide' || normalized.startsWith('custom:')) return null;
+  return BRAND_ICONS[key] ?? null;
 };
 
-const resolveBrandIcon = (...candidates: Array<string | null | undefined>): SimpleIcon | null => {
-  for (const candidate of candidates) {
-    const normalized = normalizeIconKey(candidate);
-    const { namespace, key } = stripIconNamespace(normalized);
-    const aliasKey = key.replace(/-/g, '_');
-    const slug = BRAND_ALIASES[key] || BRAND_ALIASES[aliasKey] || key;
-    if (namespace === 'lucide') {
-      continue;
-    }
-    if (BRAND_ICONS[slug]) {
-      return BRAND_ICONS[slug];
-    }
-  }
-  return null;
-};
-
-const resolveLucideIcon = (...candidates: Array<string | null | undefined>): LucideIcon => {
-  for (const candidate of candidates) {
-    const normalized = normalizeIconKey(candidate);
-    const { namespace, key } = stripIconNamespace(normalized);
-    if (namespace === 'brand') {
-      continue;
-    }
-    const aliasKey = key.replace(/-/g, '_');
-    const iconKey = LUCIDE_ALIASES[key] || LUCIDE_ALIASES[aliasKey] || key;
-    if (LUCIDE_ICONS[iconKey]) {
-      return LUCIDE_ICONS[iconKey];
-    }
-  }
-  return Activity;
+const resolveLucideIcon = (iconId: string | null | undefined): LucideIcon => {
+  const normalized = normalizeIconKey(iconId);
+  const { namespace, key } = stripIconNamespace(normalized);
+  if (namespace === 'brand' || normalized.startsWith('custom:')) return Activity;
+  return LUCIDE_ICONS[key] ?? Activity;
 };
 
 function GoogleChromeIcon({ className }: { className: string }): JSX.Element {
@@ -256,12 +175,10 @@ function PhotoLibraryIcon({ className }: { className: string }): JSX.Element {
 
 export function PluginIcon({
   iconId,
-  pluginId,
-  sourceName,
   className,
 }: PluginIconProps): JSX.Element {
   const baseClassName = cn('h-4 w-4', className);
-  const customIcon = resolveCustomIcon(iconId, pluginId, sourceName);
+  const customIcon = resolveCustomIcon(iconId);
   if (customIcon === 'googlechrome') {
     return <GoogleChromeIcon className={baseClassName} />;
   }
@@ -269,7 +186,7 @@ export function PluginIcon({
     return <PhotoLibraryIcon className={baseClassName} />;
   }
 
-  const brandIcon = resolveBrandIcon(iconId, pluginId, sourceName);
+  const brandIcon = resolveBrandIcon(iconId);
   if (brandIcon) {
     return (
       <svg
@@ -284,6 +201,6 @@ export function PluginIcon({
     );
   }
 
-  const Icon = resolveLucideIcon(iconId, pluginId, sourceName);
+  const Icon = resolveLucideIcon(iconId);
   return <Icon data-testid="plugin-icon-fallback" className={baseClassName} aria-hidden="true" />;
 }

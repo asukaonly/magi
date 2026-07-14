@@ -5,6 +5,7 @@ import type { InstallableItem } from "@/api/modules/systemSuggestions";
 import type { LLMConfig } from "@/api/modules/config";
 import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateAvailableSensors";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
+import { localizedPluginText } from "@/utils/plugin-display-groups";
 import { getMemoryModelStatus } from "./memoryModelStatus";
 
 interface FirstContextStepProps {
@@ -28,9 +29,16 @@ export function FirstContextStep({
   connectedCountsByPluginId = {},
   onConnectDone,
 }: FirstContextStepProps): JSX.Element {
-  const { t } = useTranslation("onboarding");
+  const { t, i18n } = useTranslation("onboarding");
   const memoryModelMissing = getMemoryModelStatus(llmConfig) === "missing";
   const connectedCount = connectedPluginIds.length;
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const connectedPluginName = (pluginId: string): string => {
+    const item = installableItems?.find((candidate) => candidate.plugin_id === pluginId);
+    return item
+      ? localizedPluginText(item.name, item.name_i18n, language)
+      : pluginId;
+  };
   const preparedCount = connectedPluginIds.reduce((total, pluginId) => {
     const value = connectedCountsByPluginId[pluginId];
     return typeof value === "number" && Number.isFinite(value)
@@ -87,7 +95,7 @@ export function FirstContextStep({
                     key={pluginId}
                     className="rounded-full border border-primary/15 bg-background/70 px-2 py-0.5 text-xs font-medium text-foreground"
                   >
-                    {t(`pluginNames.${pluginId}`, { defaultValue: pluginId })}
+                    {connectedPluginName(pluginId)}
                   </span>
                 ))}
               </span>

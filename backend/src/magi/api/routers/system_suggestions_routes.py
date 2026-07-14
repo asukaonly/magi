@@ -150,6 +150,11 @@ class _SystemSuggestionsRouteHandlers:
 def _installable_item(candidate: SuggestionCandidate) -> InstallableItem:
     return InstallableItem(
         plugin_id=candidate.plugin_id,
+        name=candidate.name,
+        name_i18n=candidate.name_i18n,
+        description=candidate.description,
+        description_i18n=candidate.description_i18n,
+        icon=candidate.icon,
         category=candidate.descriptor.category,
         installed=candidate.installed,
         rationale={
@@ -158,6 +163,7 @@ def _installable_item(candidate: SuggestionCandidate) -> InstallableItem:
         },
         setup_time_estimate_seconds=candidate.descriptor.setup_time_estimate_seconds,
         data_locality=candidate.descriptor.data_locality,
+        surfaces=candidate.descriptor.surfaces,
     )
 
 

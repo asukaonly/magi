@@ -40,7 +40,13 @@ describe('systemSuggestions client', () => {
           {
             dedupe_key: 'browser_history',
             category: 'browser_history',
-            plugin_ids: ['chrome-history'],
+            plugins: [{
+              plugin_id: 'chrome-history',
+              name: 'Chrome History',
+              name_i18n: {},
+              icon: 'brand:googlechrome',
+              installed: true,
+            }],
             confidence: 0.85,
             rationale: { zh: '测试', en: 'test' },
           },
@@ -59,7 +65,7 @@ describe('systemSuggestions client', () => {
       session_id: 'default',
     });
     expect(result).toHaveLength(1);
-    expect(result[0].plugin_ids).toEqual(['chrome-history']);
+    expect(result[0].plugins[0].name).toBe('Chrome History');
   });
 
   it('checkSystemSuggestions threads sessionId into session_id', async () => {

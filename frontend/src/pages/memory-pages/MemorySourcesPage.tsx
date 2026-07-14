@@ -375,8 +375,6 @@ function SourceIcon({
     )}>
       <PluginIcon
         iconId={row.icon}
-        pluginId={row.pluginId}
-        sourceName={row.key}
         className={cn('h-6 w-6 text-[hsl(var(--memory-body))]', iconClassName)}
       />
     </span>

@@ -505,7 +505,8 @@ Guidelines:
 - store settings under a stable subtree such as `sensors.<source_name>.*`
 - keep the sensor contribution visible when the source-level `enabled` setting is false; disabled sources should stay configurable in Settings, with runtime sync gated by the saved setting instead of disappearing from discovery
 - when first enablement needs an OS permission prompt, expose an `activation_flow` and set `authorize_on_confirm=True`; the host will call the sensor authorization endpoint before flipping the source to enabled
-- when a source needs lighter first-run behavior for onboarding, declare `activation_flow.first_context.settings_overrides` with the settings that should apply only in the first-context panel; do not rely on the host frontend hardcoding the plugin id
+- when a source needs lighter first-run behavior for onboarding, declare `activation_flow.first_context.max_items_per_sync` for its initial read cap and use `settings_overrides` for other settings that apply only in the first-context panel; the host uses 200 only as a safety fallback when the cap is absent
+- opt into first-context or empty-source recommendations through `suggestion_descriptor.surfaces.first_context` or `suggestion_descriptor.surfaces.empty_state`; the plugin owns its name, icon, copy, scope, and order, so do not rely on the host frontend hardcoding the plugin id
 
 ### SensorBase Hooks
 

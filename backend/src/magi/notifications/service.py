@@ -35,8 +35,10 @@ class NotificationService:
             payload = json.dumps(
                 {
                     "category": getattr(p, "category", dedupe_key),
-                    "plugin_ids": list(getattr(p, "plugin_ids", []) or []),
-                    "installable_plugin_ids": list(getattr(p, "installable_plugin_ids", []) or []),
+                    "plugins": [
+                        item.model_dump() if hasattr(item, "model_dump") else dict(item)
+                        for item in (getattr(p, "plugins", []) or [])
+                    ],
                 },
                 ensure_ascii=False,
             )

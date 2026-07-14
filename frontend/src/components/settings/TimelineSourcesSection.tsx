@@ -186,8 +186,6 @@ const AvailableEntryOption: React.FC<{
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell-elevated)/0.76)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]">
           <PluginIcon
             iconId={entry.icon}
-            pluginId={entry.pluginId}
-            sourceName={entry.entryDisplayName}
             className="h-5 w-5"
           />
         </div>
@@ -922,7 +920,6 @@ export const TimelineSourcesSection: React.FC<TimelineSourcesSectionProps> = ({
             open
             mode="install"
             pluginName={installConsentEntry.entryDisplayName}
-            pluginId={installConsentEntry.pluginId}
             pluginIcon={installConsentEntry.icon}
             version={installConsentEntry.version}
             official={installConsentEntry.official}

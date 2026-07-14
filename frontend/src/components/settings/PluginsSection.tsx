@@ -161,8 +161,6 @@ export const PluginsSection: React.FC<PluginsSectionProps> = ({
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell)/0.78)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)]">
                         <PluginIcon
                           iconId={item.primary.manifest.icon}
-                          pluginId={item.id}
-                          sourceName={itemName}
                           className="h-5 w-5"
                         />
                       </div>

@@ -230,10 +230,15 @@ describe('PluginInstallPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'pluginInstallPanel.close' }));
     act(() => {
-      usePluginInstallPanelStore.getState().openPanel('agent-history', { onDone: secondDone });
+      usePluginInstallPanelStore.getState().openPanel('agent-history', {
+        onDone: secondDone,
+        pluginName: 'Agent History',
+        pluginIcon: 'lucide:bot',
+      });
     });
 
-    expect(screen.getByText('pluginNames.agent-history')).toBeInTheDocument();
+    expect(screen.getByText('Agent History')).toBeInTheDocument();
+    expect(screen.getByTestId('plugin-icon-fallback')).toBeInTheDocument();
     expect(secondDone).not.toHaveBeenCalled();
     expect(screen.queryByText('Chrome desc')).not.toBeInTheDocument();
     expect(screen.queryByText('pluginInstallPanel.readyTitle')).not.toBeInTheDocument();

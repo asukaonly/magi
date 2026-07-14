@@ -8,6 +8,11 @@ from typing import Any, Iterable
 @dataclass
 class SuggestionCandidate:
     plugin_id: str
+    name: str
+    name_i18n: dict[str, str]
+    description: str
+    description_i18n: dict[str, str]
+    icon: str
     descriptor: Any  # SuggestionDescriptor
     installed: bool
 
@@ -26,13 +31,35 @@ def build_suggestion_candidates(
         desc = getattr(m, "suggestion_descriptor", None)
         if desc is None:
             continue
-        out.append(SuggestionCandidate(plugin_id=m.plugin_id, descriptor=desc, installed=True))
+        out.append(
+            SuggestionCandidate(
+                plugin_id=m.plugin_id,
+                name=m.name,
+                name_i18n=dict(getattr(m, "name_i18n", {}) or {}),
+                description=getattr(m, "description", ""),
+                description_i18n=dict(getattr(m, "description_i18n", {}) or {}),
+                icon=desc.icon or getattr(m, "icon", ""),
+                descriptor=desc,
+                installed=True,
+            )
+        )
         seen.add(m.plugin_id)
     for e in registry_entries:
         desc = getattr(e, "suggestion_descriptor", None)
         if desc is None or e.plugin_id in seen:
             continue
-        out.append(SuggestionCandidate(plugin_id=e.plugin_id, descriptor=desc, installed=False))
+        out.append(
+            SuggestionCandidate(
+                plugin_id=e.plugin_id,
+                name=e.name,
+                name_i18n=dict(getattr(e, "name_i18n", {}) or {}),
+                description=getattr(e, "description", ""),
+                description_i18n=dict(getattr(e, "description_i18n", {}) or {}),
+                icon=desc.icon or getattr(e, "icon", ""),
+                descriptor=desc,
+                installed=False,
+            )
+        )
         seen.add(e.plugin_id)
     return out
 

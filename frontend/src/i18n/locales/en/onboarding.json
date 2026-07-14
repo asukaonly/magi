@@ -243,25 +243,6 @@
     "memoryWarningTitle": "No vector model is configured yet",
     "memoryWarningBody": "You can still connect a source now. Magi will organize basic context first; adding a vector model later will make long-term memory retrieval more accurate."
   },
-  "pluginNames": {
-    "chrome-history": "Chrome history",
-    "safari-history": "Safari history",
-    "firefox-history": "Firefox history",
-    "edge-history": "Edge history",
-    "calendar": "Calendar",
-    "git-activity": "Git activity",
-    "github-activity": "GitHub activity",
-    "photo-library": "Photo library",
-    "coding_agent_history": "Agent history",
-    "obsidian-vault": "Obsidian vault",
-    "local-documents": "Local documents",
-    "netease-music": "Listening history",
-    "terminal-history": "Terminal history",
-    "screen-time": "Screen Time",
-    "steam-play-history": "Game records",
-    "screenshot_timeline": "Screenshot timeline",
-    "system-media": "System media"
-  },
   "emptyState": {
     "heading": "Let me see your activity",
     "firstContextHeading": "Recommended starting point",
@@ -282,79 +263,7 @@
     "retry": "Retry",
     "noAvailable": "No source is a good fit to connect right now",
     "noAvailableHint": "You can skip this step and add sources from Settings later.",
-    "browseAll": "Browse all plugins →",
-    "plugins": {
-      "chromeHistory": {
-        "title": "Chrome history",
-        "value": "Lets magi see what you've been reading online",
-        "firstContextValue": "Continue from the topics you have been exploring recently",
-        "scope": "Page titles and timestamps from the last 7 days"
-      },
-      "safariHistory": {
-        "title": "Safari history",
-        "value": "Lets magi see what you've been reading online",
-        "firstContextValue": "Continue from the topics you have been exploring recently",
-        "scope": "Page titles and timestamps from the last 7 days"
-      },
-      "firefoxHistory": {
-        "title": "Firefox history",
-        "value": "Lets magi see what you've been reading online",
-        "firstContextValue": "Continue from the topics you have been exploring recently",
-        "scope": "Page titles and timestamps from the last 7 days"
-      },
-      "edgeHistory": {
-        "title": "Edge history",
-        "value": "Lets magi see what you've been reading online",
-        "firstContextValue": "Continue from the topics you have been exploring recently",
-        "scope": "Page titles and timestamps from the last 7 days"
-      },
-      "screenshotTimeline": {
-        "title": "Screen activity",
-        "value": "Let Magi see what is happening on your screen"
-      },
-      "calendar": {
-        "title": "Calendar",
-        "value": "Lets magi see what's on your schedule",
-        "firstContextValue": "Give the first conversation a sense of your recent plans and rhythm",
-        "scope": "Events and reminders from the last 30 days"
-      },
-      "gitActivity": {
-        "title": "Git activity",
-        "value": "Lets magi see what you've been building",
-        "firstContextValue": "Understand active projects from recent commits",
-        "scope": "Commits and branch activity from the last 30 days"
-      },
-      "photoLibrary": {
-        "title": "Photo library",
-        "value": "Lets magi see your photos and recent moments",
-        "firstContextValue": "Recall recent experiences from time and location metadata",
-        "scope": "Photo time, location, and device metadata"
-      },
-      "codingAgentHistory": {
-        "title": "Agent history",
-        "value": "Lets magi see what you're doing in Claude Code / Codex sessions",
-        "firstContextValue": "Understand active projects from questions you asked coding agents",
-        "scope": "Your own messages from the last 30 days"
-      },
-      "githubActivity": {
-        "title": "GitHub activity",
-        "value": "Understand project progress and collaboration from repository activity",
-        "firstContextValue": "Understand project progress and collaboration from repository activity",
-        "scope": "Recent activity from repositories you choose"
-      },
-      "obsidianVault": {
-        "title": "Obsidian vault",
-        "value": "Understand what you are organizing and thinking about from your notes",
-        "firstContextValue": "Understand what you are organizing and thinking about from your notes",
-        "scope": "Markdown from the vault you choose"
-      },
-      "localDocuments": {
-        "title": "Local documents",
-        "value": "Add existing context from local notes and documents",
-        "firstContextValue": "Add existing context from local notes and documents",
-        "scope": "Text and Markdown from folders you choose"
-      }
-    }
+    "browseAll": "Browse all plugins →"
   },
   "systemSuggestion": {
     "dismiss": "Dismiss",

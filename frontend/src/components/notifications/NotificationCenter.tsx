@@ -4,9 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useSuggestionDismissals } from '@/hooks/useSuggestionDismissals';
 import { usePluginInstallPanelStore } from '@/stores/pluginInstallPanel';
-import { getEmptyStatePluginMeta } from '@/constants/emptyStatePriorities';
 import { resolveConflict } from '@/api/modules/notifications';
 import type { NotificationItem } from '@/api/modules/notifications';
+import type { SuggestionPlugin } from '@/api/modules/systemSuggestions';
+import { localizedPluginText } from '@/utils/plugin-display-groups';
 
 // A non-localized fallback rationale some plugin descriptors still emit
 // (e.g. "connect chrome-history (zh)"). We never surface it verbatim.
@@ -21,7 +22,7 @@ function humanizePluginId(pluginId: string): string {
 }
 
 export function NotificationCenter(): JSX.Element {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
   const { items, markRead, markAllRead, dismiss, dismissAll, act } = useNotifications();
   const { items: dismissed, refresh: refreshDismissed, clear: restore } = useSuggestionDismissals();
   const [showDismissed, setShowDismissed] = useState(false);
@@ -38,34 +39,24 @@ export function NotificationCenter(): JSX.Element {
   // panel never drops the suggestion item.
   const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
 
-  // Human-readable plugin name: localized via the shared `pluginNames` map
-  // (onboarding ns; same source the in-chat side card uses, so naming is
-  // consistent), humanized id ("netease-music" → "Netease Music") as fallback.
-  const pluginName = (pluginId: string): string =>
-    t(`pluginNames.${pluginId}`, { ns: 'onboarding', defaultValue: humanizePluginId(pluginId) });
+  const pluginName = (plugin: SuggestionPlugin): string =>
+    localizedPluginText(plugin.name, plugin.name_i18n, i18n.language);
 
   // Short, plugin-centric collapsed title — distinct from the body so the same
   // sentence never appears twice. Replaces any placeholder rationale.
   const displayTitle = (n: NotificationItem): string => {
-    const ids = n.payload.plugin_ids ?? [];
-    if (ids.length > 0) {
-      return t('notifications.suggestionTitle', { plugin: ids.map(pluginName).join('、') });
+    const plugins = n.payload.plugins ?? [];
+    if (plugins.length > 0) {
+      return t('notifications.suggestionTitle', { plugin: plugins.map(pluginName).join('、') });
     }
     if (n.title && !PLACEHOLDER_RATIONALE.test(n.title)) return n.title;
     return t('notifications.suggestionTitleGeneric');
   };
 
   // The "why connect" line shown once when expanded: the rationale if it's
-  // real, else the known plugin's value statement, else a generic hint.
+  // real, otherwise a generic hint.
   const description = (n: NotificationItem): string => {
     if (n.body && !PLACEHOLDER_RATIONALE.test(n.body)) return n.body;
-    for (const pid of n.payload.plugin_ids ?? []) {
-      const meta = getEmptyStatePluginMeta(pid);
-      if (meta) {
-        const v = t(meta.valueKey, { ns: 'onboarding' });
-        if (v && v !== meta.valueKey) return v;
-      }
-    }
     return t('notifications.connectHint');
   };
 
@@ -114,9 +105,8 @@ export function NotificationCenter(): JSX.Element {
         <ul className="divide-y divide-border/55 overflow-y-auto">
           {items.map((n) => {
             const isExpanded = expanded.has(n.id);
-            const ids = n.payload.plugin_ids ?? [];
-            const installable = n.payload.installable_plugin_ids ?? [];
-            const multi = ids.length > 1;
+            const plugins = n.payload.plugins ?? [];
+            const multi = plugins.length > 1;
             return (
               <li key={n.id} data-testid="notification-row" className="group">
                 <div className="flex items-start gap-2 px-4 py-2.5 hover:bg-muted/40">
@@ -153,21 +143,23 @@ export function NotificationCenter(): JSX.Element {
                 {isExpanded ? (
                   <div className="space-y-2 px-4 pb-3 pl-8">
                     <p className="text-xs leading-relaxed text-muted-foreground">{description(n)}</p>
-                    {ids.length > 0 ? (
+                    {plugins.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
-                        {ids.map((pid) => {
-                          const needsInstall = installable.includes(pid);
+                        {plugins.map((plugin) => {
+                          const needsInstall = !plugin.installed;
                           const base = needsInstall
                             ? t('notifications.installAndConnect')
                             : t('notifications.connect');
                           return (
                             <button
-                              key={pid}
+                              key={plugin.plugin_id}
                               type="button"
-                              data-testid={`notification-connect-${pid}`}
+                              data-testid={`notification-connect-${plugin.plugin_id}`}
                               onClick={() => {
-                                openPanel(pid, {
+                                openPanel(plugin.plugin_id, {
                                   install: needsInstall,
+                                  pluginName: pluginName(plugin),
+                                  pluginIcon: plugin.icon,
                                   onDone: () => {
                                     void act(n.id);
                                   },
@@ -175,7 +167,7 @@ export function NotificationCenter(): JSX.Element {
                               }}
                               className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition hover:bg-primary/90"
                             >
-                              {multi ? `${base} ${pluginName(pid)}` : base}
+                              {multi ? `${base} ${pluginName(plugin)}` : base}
                             </button>
                           );
                         })}

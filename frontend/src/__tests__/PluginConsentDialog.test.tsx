@@ -38,7 +38,6 @@ describe('PluginConsentDialog', () => {
         open
         mode="install"
         pluginName="Chrome History"
-        pluginId="chrome-history"
         pluginIcon="brand:googlechrome"
         version="1.0.0"
         capabilities={[{

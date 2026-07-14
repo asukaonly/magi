@@ -9,9 +9,23 @@ def _svc(tmp_path):
 def _proposal(category="browser_history"):
     # minimal SuggestionProposal-shaped object
     from types import SimpleNamespace
+    plugin = SimpleNamespace(
+        plugin_id="edge-history",
+        name="Edge History",
+        name_i18n={"zh-CN": "Edge 浏览器历史"},
+        icon="lucide:globe",
+        installed=False,
+    )
+    plugin.model_dump = lambda: {
+        "plugin_id": plugin.plugin_id,
+        "name": plugin.name,
+        "name_i18n": plugin.name_i18n,
+        "icon": plugin.icon,
+        "installed": plugin.installed,
+    }
     return SimpleNamespace(category=category, dedupe_key=category,
-                           plugin_ids=["chrome-history"], installable_plugin_ids=["edge-history"],
-                           confidence=0.9, rationale={"zh": "看浏览器历史", "en": "browser history"})
+                           plugins=[plugin], confidence=0.9,
+                           rationale={"zh": "看浏览器历史", "en": "browser history"})
 
 def test_materialize_inserts_localized(tmp_path):
     svc, store = _svc(tmp_path)
@@ -21,7 +35,9 @@ def test_materialize_inserts_localized(tmp_path):
     assert items[0].title  # non-empty
     assert "浏览" in items[0].body
     import json
-    assert json.loads(items[0].payload_json)["installable_plugin_ids"] == ["edge-history"]
+    payload = json.loads(items[0].payload_json)
+    assert payload["plugins"][0]["name_i18n"]["zh-CN"] == "Edge 浏览器历史"
+    assert payload["plugins"][0]["installed"] is False
 
 def test_materialize_dedups_active(tmp_path):
     svc, store = _svc(tmp_path)
@@ -71,8 +87,8 @@ def test_materialize_reinserts_after_restore(tmp_path):
     from magi.notifications.service import NotificationService
     svc = NotificationService(store=s)
     from types import SimpleNamespace
-    p = SimpleNamespace(category="music", dedupe_key="music", plugin_ids=[],
-                        installable_plugin_ids=[], confidence=0.9, rationale={"zh": "x", "en": "y"})
+    p = SimpleNamespace(category="music", dedupe_key="music", plugins=[],
+                        confidence=0.9, rationale={"zh": "x", "en": "y"})
     svc.materialize(user_id="default_user", locale="zh", proposals=[p])
     nid = s.list_for_user("default_user")[0].id
     s.mark_dismissed(nid, "explicit")                      # simulate prior dismiss
@@ -89,7 +105,7 @@ async def test_materialize_helper_inserts_and_signals(tmp_path, monkeypatch):
     monkeypatch.setattr(svc_mod, "_emit_notification_added_signal", fake_signal)
     from types import SimpleNamespace
     p = SimpleNamespace(category="browser_history", dedupe_key="browser_history",
-        plugin_ids=[], installable_plugin_ids=[], confidence=0.9, rationale={"zh":"x","en":"y"})
+        plugins=[], confidence=0.9, rationale={"zh":"x","en":"y"})
     await svc_mod.materialize_suggestion_notifications(user_id="default_user", locale="zh", proposals=[p])
     assert len(s.list_for_user("default_user")) == 1
     assert signals and signals[0]["unread_count"] == 1

@@ -287,11 +287,22 @@ beforeEach(() => {
   mockUseInstallableSensors.mockReturnValue({
     items: [{
       plugin_id: 'calendar',
+      name: 'Calendar',
+      name_i18n: { 'zh-CN': '日历' },
+      description: 'Read calendar events',
+      description_i18n: { 'zh-CN': '读取日历事件' },
+      icon: 'brand:googlecalendar',
       category: 'calendar',
       installed: false,
       rationale: { zh: '', en: '' },
       setup_time_estimate_seconds: 20,
       data_locality: 'local_only',
+      surfaces: {
+        empty_state: {
+          order: 30,
+          rationale: { zh: '让 Magi 看到你的日程', en: 'Lets Magi see your schedule' },
+        },
+      },
     }],
     loading: false,
     error: null,

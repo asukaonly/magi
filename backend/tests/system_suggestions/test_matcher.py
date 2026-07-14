@@ -9,6 +9,7 @@ from magi.system_suggestions.matcher import (
     build_proposals,
     candidate_categories,
 )
+from magi.system_suggestions.contracts import SuggestionPlugin
 
 
 def _cand(
@@ -20,7 +21,14 @@ def _cand(
         triggers=SimpleNamespace(keywords={"zh": kw, "en": []}),
         rationale=SimpleNamespace(zh="z", en="e"),
     )
-    return SimpleNamespace(plugin_id=pid, descriptor=desc, installed=installed)
+    return SimpleNamespace(
+        plugin_id=pid,
+        name=pid,
+        name_i18n={"zh-CN": f"{pid} 中文"},
+        icon="lucide:activity",
+        descriptor=desc,
+        installed=installed,
+    )
 
 
 def test_candidate_categories_groups_keyword_hits_by_category() -> None:
@@ -37,7 +45,7 @@ def test_candidate_categories_groups_keyword_hits_by_category() -> None:
         is_dismissed=lambda _cat: False,
     )
     assert set(grouped.keys()) == {"browser_history"}
-    assert sorted(grouped["browser_history"].plugin_ids) == [
+    assert sorted(plugin.plugin_id for plugin in grouped["browser_history"].plugins) == [
         "chrome-history",
         "edge-history",
     ]
@@ -56,8 +64,8 @@ def test_candidate_categories_tracks_installable() -> None:
         is_dismissed=lambda _c: False,
     )
     cat = grouped["browser_history"]
-    assert sorted(cat.plugin_ids) == ["chrome-history", "edge-history"]
-    assert cat.installable_plugin_ids == ["edge-history"]
+    assert sorted(plugin.plugin_id for plugin in cat.plugins) == ["chrome-history", "edge-history"]
+    assert [plugin.plugin_id for plugin in cat.plugins if not plugin.installed] == ["edge-history"]
 
 
 def test_candidate_categories_filters_unavailable_and_dismissed() -> None:
@@ -88,14 +96,14 @@ def _cands() -> dict[str, CategoryCandidate]:
     return {
         "browser_history": CategoryCandidate(
             category="browser_history",
-            plugin_ids=["chrome-history"],
+            plugins=[SuggestionPlugin(plugin_id="chrome-history", name="Chrome", installed=True)],
             keywords=["浏览"],
             rationale={"zh": "z", "en": "e"},
             keyword_hits=2,
         ),
         "code_activity": CategoryCandidate(
             category="code_activity",
-            plugin_ids=["git-activity"],
+            plugins=[SuggestionPlugin(plugin_id="git-activity", name="Git", installed=True)],
             keywords=["代码"],
             rationale={"zh": "z", "en": "e"},
             keyword_hits=1,
@@ -109,7 +117,7 @@ def test_build_proposals_uses_llm_confidences_and_drops_zero() -> None:
     )
     assert [p.category for p in props] == ["browser_history"]
     assert props[0].confidence == 0.9
-    assert props[0].plugin_ids == ["chrome-history"]
+    assert [plugin.plugin_id for plugin in props[0].plugins] == ["chrome-history"]
 
 
 def test_build_proposals_degrades_to_keyword_when_confidences_none() -> None:
@@ -118,16 +126,18 @@ def test_build_proposals_degrades_to_keyword_when_confidences_none() -> None:
     assert props[0].category == "browser_history"  # more hits -> higher keyword confidence
 
 
-def test_build_proposals_carries_installable() -> None:
+def test_build_proposals_carries_plugin_install_state() -> None:
     cands = {
         "browser_history": CategoryCandidate(
             category="browser_history",
-            plugin_ids=["chrome-history", "edge-history"],
-            installable_plugin_ids=["edge-history"],
+            plugins=[
+                SuggestionPlugin(plugin_id="chrome-history", name="Chrome", installed=True),
+                SuggestionPlugin(plugin_id="edge-history", name="Edge", installed=False),
+            ],
             keywords=["浏览"],
             rationale={"zh": "z", "en": "e"},
             keyword_hits=1,
         )
     }
     props = build_proposals(cands, confidences=None)
-    assert props[0].installable_plugin_ids == ["edge-history"]
+    assert [plugin.plugin_id for plugin in props[0].plugins if not plugin.installed] == ["edge-history"]

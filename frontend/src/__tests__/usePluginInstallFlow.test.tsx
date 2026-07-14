@@ -253,10 +253,10 @@ describe('usePluginInstallFlow', () => {
       enabled_key: 'sensors.agent_history.enabled',
       configured_key: 'sensors.agent_history.configured',
       first_context: {
+        max_items_per_sync: 75,
         settings_overrides: {
           'sensors.agent_history.initial_sync_policy': 'lookback_days',
           'sensors.agent_history.initial_sync_lookback_days': 14,
-          'sensors.agent_history.max_items_per_sync': 200,
         },
       },
       fields: [
@@ -324,7 +324,7 @@ describe('usePluginInstallFlow', () => {
         'sensors.agent_history.configured': true,
         'sensors.agent_history.initial_sync_policy': 'lookback_days',
         'sensors.agent_history.initial_sync_lookback_days': 14,
-        'sensors.agent_history.max_items_per_sync': 200,
+        'sensors.agent_history.max_items_per_sync': 75,
       }),
     );
   });

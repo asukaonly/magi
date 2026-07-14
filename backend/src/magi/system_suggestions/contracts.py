@@ -28,19 +28,27 @@ class DismissalRecord(BaseModel):
     """
 
 
+class SuggestionPlugin(BaseModel):
+    """Plugin-owned display metadata carried with a suggestion."""
+
+    plugin_id: str
+    name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
+    icon: str = ""
+    installed: bool
+
+
 class SuggestionProposal(BaseModel):
     """A single suggestion produced by the matcher.
 
     Multiple sibling plugins (e.g. chrome-history + safari-history both under
     browser_history) collapse into one SuggestionProposal with all matched
-    plugin_ids listed. The UI bundles them into a single side card.
+    plugins listed. The UI bundles them into a single side card.
     """
 
     dedupe_key: str
     category: str
-    plugin_ids: list[str] = Field(min_length=1)
-    installable_plugin_ids: list[str] = Field(default_factory=list)
-    """Subset of plugin_ids that are not yet installed (registry-discovered)."""
+    plugins: list[SuggestionPlugin] = Field(min_length=1)
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: dict[str, str]
     """Locale → user-facing rationale text. At least 'zh' and 'en' expected."""

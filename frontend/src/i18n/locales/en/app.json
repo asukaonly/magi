@@ -663,45 +663,7 @@
       "connect": "Enable",
       "installAndConnect": "Install & enable",
       "installing": "Installing…",
-      "browseAll": "Browse all plugins →",
-      "plugins": {
-        "chromeHistory": {
-          "title": "Chrome history",
-          "value": "Let Magi see what you've been reading online"
-        },
-        "safariHistory": {
-          "title": "Safari history",
-          "value": "Let Magi see what you've been reading online"
-        },
-        "firefoxHistory": {
-          "title": "Firefox history",
-          "value": "Let Magi see what you've been reading online"
-        },
-        "edgeHistory": {
-          "title": "Edge history",
-          "value": "Let Magi see what you've been reading online"
-        },
-        "screenshotTimeline": {
-          "title": "Screen activity",
-          "value": "Let Magi see what's on your screen"
-        },
-        "calendar": {
-          "title": "Calendar",
-          "value": "Let Magi see what's on your schedule"
-        },
-        "gitActivity": {
-          "title": "Git activity",
-          "value": "Let Magi see what you've been building"
-        },
-        "photoLibrary": {
-          "title": "Photo library",
-          "value": "Let Magi see the moments you've saved"
-        },
-        "codingAgentHistory": {
-          "title": "Agent history",
-          "value": "Let Magi see what you did in Claude Code / Codex sessions"
-        }
-      }
+      "browseAll": "Browse all plugins →"
     },
     "manualEntry": {
       "openButton": "Add a note (n)",
@@ -2542,8 +2504,7 @@
         "settingsSaveFailed": "Failed to save action settings: {{message}}",
         "reloadFailed": "Failed to reload action plugin: {{message}}"
       }
-    },
-    "plugins": {}
+    }
   },
   "memory": {
     "title": "Memory Viewer",
@@ -3140,14 +3101,25 @@
       "manualEntry": "Add a memory manually"
     },
     "governance": {
-      "title": "Manage",
+      "title": "Memory management",
       "subtitle": "Inspect layers, run maintenance, clean up forgetting, and diagnose memory health.",
+      "objectSubtitle": "Review, organize, forget, and diagnose memory by object.",
       "tabs": {
+        "objects": "Object details",
         "layers": "Layer details",
         "tasks": "Scheduled jobs",
         "manual": "Manual runs",
         "forget": "Forget & clean",
         "diagnostics": "Diagnostics"
+      },
+      "status": {
+        "healthy": "Running normally",
+        "awaitingData": "Waiting for memory data",
+        "needsAttention": "Needs attention",
+        "objects": "{{count}} objects",
+        "events": "{{count}} raw events",
+        "pending": "{{count}} pending",
+        "breakers": "{{count}} tool issues"
       },
       "actions": {
         "refresh": "Refresh"
@@ -3171,10 +3143,23 @@
         "openRecord": "Open record {{id}}"
       },
       "objects": {
+        "choose": "Choose object",
+        "tableSubtitle": "{{description}} ({{count}} total)",
         "openRecord": "Open record {{title}}",
         "searchLabel": "Search this category",
         "searchPlaceholder": "Search this category",
         "searchEmpty": "No matching records in this category.",
+        "emptyTitle": "No {{category}} records yet",
+        "emptyBody": "Magi will gradually organize this kind of memory from chats and connected sources.",
+        "addSource": "Add a source",
+        "startChat": "Start a chat",
+        "searchEmptyTitle": "No matching results",
+        "searchEmptyBody": "Try another keyword, or clear the search to see every record.",
+        "clearSearch": "Clear search",
+        "pageSummary": "{{start}}-{{end}} / {{total}}",
+        "prevPage": "Previous",
+        "nextPage": "Next",
+        "pageIndex": "{{page}} / {{pageCount}}",
         "recordSubtitle": {
           "entity": "{{type}} · {{source}}",
           "relation": "{{source}} relation"

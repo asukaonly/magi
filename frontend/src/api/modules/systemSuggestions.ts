@@ -16,11 +16,34 @@ import { api, unwrapGatewayPayload } from "../client";
  */
 export type DismissalKind = "transient" | "explicit" | "never";
 
+export interface LocalizedText {
+  zh: string;
+  en: string;
+}
+
+export interface SuggestionSurfaceSpec {
+  order: number;
+  rationale?: LocalizedText | null;
+  scope?: LocalizedText | null;
+}
+
+export interface SuggestionSurfacesSpec {
+  empty_state?: SuggestionSurfaceSpec | null;
+  first_context?: SuggestionSurfaceSpec | null;
+}
+
+export interface SuggestionPlugin {
+  plugin_id: string;
+  name: string;
+  name_i18n: Record<string, string>;
+  icon: string;
+  installed: boolean;
+}
+
 export interface SuggestionProposal {
   dedupe_key: string;
   category: string;
-  plugin_ids: string[];
-  installable_plugin_ids: string[];
+  plugins: SuggestionPlugin[];
   confidence: number;
   rationale: { zh: string; en: string };
 }
@@ -116,11 +139,17 @@ export async function clearDismissal(dedupeKey: string): Promise<void> {
  */
 export interface InstallableItem {
   plugin_id: string;
+  name: string;
+  name_i18n: Record<string, string>;
+  description: string;
+  description_i18n: Record<string, string>;
+  icon: string;
   category: string;
   installed: boolean;
   rationale: { zh: string; en: string };
   setup_time_estimate_seconds: number;
   data_locality: "local_only" | "uploads";
+  surfaces: SuggestionSurfacesSpec;
 }
 
 /**

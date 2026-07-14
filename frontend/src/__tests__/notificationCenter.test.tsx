@@ -19,7 +19,7 @@ describe('NotificationCenter', () => {
     useNotificationStore.setState({ items: [], unreadCount: 0, loading: false });
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
-        payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
+        payload: { plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: { 'zh-CN': 'Chrome 浏览器历史' }, icon: 'brand:googlechrome', installed: true }] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
       unread_count: 1,
     });
     vi.spyOn(api, 'markRead').mockResolvedValue();
@@ -72,6 +72,8 @@ describe('NotificationCenter', () => {
       const s = usePluginInstallPanelStore.getState();
       expect(s.open).toBe(true);
       expect(s.pluginId).toBe('chrome-history');
+      expect(s.pluginName).toBe('Chrome 浏览器历史');
+      expect(s.pluginIcon).toBe('brand:googlechrome');
       expect(s.installMode).toBe(false);
       expect(typeof s.onDone).toBe('function');
     });
@@ -176,7 +178,7 @@ describe('NotificationCenter — profile_conflict branch', () => {
   it('does NOT render conflict buttons for a suggestion notification', async () => {
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: '看浏览器历史', body: '看浏览器历史',
-        payload: { plugin_ids: ['chrome-history'], installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
+        payload: { plugins: [{ plugin_id: 'chrome-history', name: 'Chrome History', name_i18n: {}, icon: 'brand:googlechrome', installed: true }] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
       unread_count: 1,
     });
     render(<NotificationCenter />);

@@ -52,8 +52,6 @@ export function OverviewSourceCoverage({
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]">
                       <PluginIcon
                         iconId={row.icon}
-                        pluginId={row.pluginId}
-                        sourceName={row.key}
                         className="h-4 w-4 text-[hsl(var(--memory-body))]"
                       />
                     </span>

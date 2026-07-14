@@ -519,8 +519,6 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell)/0.78)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)]">
                       <PluginIcon
                         iconId={getMarketplaceItemIcon(item)}
-                        pluginId={item.id}
-                        sourceName={itemName}
                         className="h-5 w-5"
                       />
                     </div>
@@ -800,8 +798,6 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <PluginIcon
                           iconId={candidate.icon || candidate.display_group?.icon}
-                          pluginId={candidate.plugin_id}
-                          sourceName={memberName}
                           className="h-4 w-4"
                         />
                         <span className="text-sm font-semibold text-foreground">{memberName}</span>
@@ -843,7 +839,6 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           open
           mode={consent.mode}
           pluginName={consent.name}
-          pluginId={consent.pluginId}
           pluginIcon={consent.icon}
           version={consent.version}
           official={consent.official}

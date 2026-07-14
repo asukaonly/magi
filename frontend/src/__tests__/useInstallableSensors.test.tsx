@@ -9,19 +9,31 @@ describe("useInstallableSensors", () => {
     vi.spyOn(api, "listInstallable").mockResolvedValue([
       {
         plugin_id: "chrome-history",
+        name: "Chrome History",
+        name_i18n: {},
+        description: "Chrome history",
+        description_i18n: {},
+        icon: "brand:googlechrome",
         category: "browser_history",
         installed: false,
         rationale: { zh: "", en: "" },
         setup_time_estimate_seconds: 10,
         data_locality: "local_only",
+        surfaces: { empty_state: { order: 10 } },
       },
       {
         plugin_id: "git-activity",
+        name: "Git Activity",
+        name_i18n: {},
+        description: "Git activity",
+        description_i18n: {},
+        icon: "brand:git",
         category: "code_activity",
         installed: true,
         rationale: { zh: "", en: "" },
         setup_time_estimate_seconds: 15,
         data_locality: "local_only",
+        surfaces: { empty_state: { order: 20 } },
       },
     ]);
   });

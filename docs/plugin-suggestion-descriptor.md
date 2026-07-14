@@ -28,6 +28,24 @@ en = ["code", "commit", "changed"]
 zh = "magi 会读取你的 git 仓库回答这类问题"
 en = "magi will read your git repositories to answer these questions"
 
+[plugin.suggestion_descriptor.surfaces.empty_state]
+order = 40
+
+[plugin.suggestion_descriptor.surfaces.empty_state.rationale]
+zh = "让 magi 看到你在做什么项目"
+en = "Lets magi see what you've been building"
+
+[plugin.suggestion_descriptor.surfaces.first_context]
+order = 40
+
+[plugin.suggestion_descriptor.surfaces.first_context.rationale]
+zh = "从提交记录中了解正在推进的项目"
+en = "Understand active projects from recent commits"
+
+[plugin.suggestion_descriptor.surfaces.first_context.scope]
+zh = "最近 30 天的提交和分支活动"
+en = "Commits and branch activity from the last 30 days"
+
 [[plugin.suggestion_descriptor.local_requirements]]
 check_kind = "executable_in_path"
 names = ["git"]
@@ -37,11 +55,28 @@ names = ["git"]
 
 Pick one of the documented categories — or propose a new one in a PR if
 yours doesn't fit. Current categories: `browser_history`, `code_activity`,
-`calendar`, `screen_context`, `music`, `photos`, `messaging`, `terminal`.
+`calendar`, `screen_context`, `music`, `photos`, `messaging`, `terminal`,
+`notes`.
 
 Sibling plugins under one category (e.g., `safari-history` and
 `chrome-history` both `browser_history`) are bundled by the host's
 suggestion UI; users see a single card with multiple options.
+
+## Recommendation surfaces
+
+The base descriptor enables contextual suggestions in chat. Plugins opt into
+other host surfaces explicitly:
+
+- `surfaces.empty_state` controls whether the plugin can appear on empty source
+  pages.
+- `surfaces.first_context` controls whether the plugin can be offered during
+  first-context onboarding.
+
+Each surface owns its display `order` and may provide surface-specific
+`rationale`. First-context entries should also provide a concise `scope` that
+states what the initial read includes. The host does not maintain a plugin
+allowlist, display copy, or ordering for these surfaces. Sibling plugins with the
+same category are grouped automatically.
 
 ## Local requirements
 
@@ -94,8 +129,9 @@ registry-scan implementation lands.
 
 `triggers.keywords` is keyed by locale. Magi currently matches against
 `zh` and `en`. Other locales will be added when the host adds them.
-`rationale` is required for both `zh` and `en` — these strings appear
-verbatim in the suggestion UI.
+The base and surface-specific `rationale` values are required for both `zh` and
+`en` when declared. `surfaces.first_context.scope` follows the same rule. These
+strings appear verbatim in the corresponding UI.
 
 ## Trigger signal weights
 

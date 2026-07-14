@@ -243,25 +243,6 @@
     "memoryWarningTitle": "当前还没有向量模型",
     "memoryWarningBody": "可以先连接数据源，Magi 会先整理基础上下文；之后补上向量模型，长期记忆检索会更准。"
   },
-  "pluginNames": {
-    "chrome-history": "Chrome 历史",
-    "safari-history": "Safari 历史",
-    "firefox-history": "Firefox 历史",
-    "edge-history": "Edge 历史",
-    "calendar": "日历",
-    "git-activity": "Git 活动",
-    "github-activity": "GitHub 活动",
-    "photo-library": "照片库",
-    "coding_agent_history": "Agent 历史",
-    "obsidian-vault": "Obsidian 笔记库",
-    "local-documents": "本地文档",
-    "netease-music": "听歌历史",
-    "terminal-history": "终端历史",
-    "screen-time": "屏幕使用时间",
-    "steam-play-history": "游戏记录",
-    "screenshot_timeline": "截图时间线",
-    "system-media": "系统媒体"
-  },
   "emptyState": {
     "heading": "让 magi 看看你的活动",
     "firstContextHeading": "推荐从这里开始",
@@ -282,79 +263,7 @@
     "retry": "重试",
     "noAvailable": "暂时没有适合现在连接的来源",
     "noAvailableHint": "可以直接跳过；进入 Magi 后仍能从设置里添加来源。",
-    "browseAll": "浏览全部插件 →",
-    "plugins": {
-      "chromeHistory": {
-        "title": "Chrome 历史",
-        "value": "让 magi 看到你最近在网上读什么",
-        "firstContextValue": "从最近浏览中了解你正在关注的问题",
-        "scope": "最近 7 天的页面标题和时间"
-      },
-      "safariHistory": {
-        "title": "Safari 历史",
-        "value": "让 magi 看到你最近在网上读什么",
-        "firstContextValue": "从最近浏览中了解你正在关注的问题",
-        "scope": "最近 7 天的页面标题和时间"
-      },
-      "firefoxHistory": {
-        "title": "Firefox 历史",
-        "value": "让 magi 看到你最近在网上读什么",
-        "firstContextValue": "从最近浏览中了解你正在关注的问题",
-        "scope": "最近 7 天的页面标题和时间"
-      },
-      "edgeHistory": {
-        "title": "Edge 历史",
-        "value": "让 magi 看到你最近在网上读什么",
-        "firstContextValue": "从最近浏览中了解你正在关注的问题",
-        "scope": "最近 7 天的页面标题和时间"
-      },
-      "screenshotTimeline": {
-        "title": "屏幕记录",
-        "value": "让 Magi 看到你屏幕上发生了什么"
-      },
-      "calendar": {
-        "title": "日历",
-        "value": "让 magi 看到你的日程",
-        "firstContextValue": "让第一次对话知道你最近的安排与节奏",
-        "scope": "最近 30 天的事件和提醒"
-      },
-      "gitActivity": {
-        "title": "Git 活动",
-        "value": "让 magi 看到你在做什么项目",
-        "firstContextValue": "从提交记录中了解正在推进的项目",
-        "scope": "最近 30 天的提交和分支活动"
-      },
-      "photoLibrary": {
-        "title": "照片库",
-        "value": "让 magi 看到你的照片",
-        "firstContextValue": "从时间和地点信息中回想最近的经历",
-        "scope": "照片的时间、地点和设备信息"
-      },
-      "codingAgentHistory": {
-        "title": "Agent 历史",
-        "value": "让 magi 从 Claude Code / Codex 会话看到你在做什么",
-        "firstContextValue": "从你发给编程助手的问题中理解正在推进的项目",
-        "scope": "最近 30 天内你自己发出的内容"
-      },
-      "githubActivity": {
-        "title": "GitHub 活动",
-        "value": "从仓库动态中了解项目进展与协作关系",
-        "firstContextValue": "从仓库动态中了解项目进展与协作关系",
-        "scope": "你选择仓库的近期活动"
-      },
-      "obsidianVault": {
-        "title": "Obsidian 笔记库",
-        "value": "从笔记中了解你正在整理和思考的内容",
-        "firstContextValue": "从笔记中了解你正在整理和思考的内容",
-        "scope": "你选择笔记库中的 Markdown"
-      },
-      "localDocuments": {
-        "title": "本地文档",
-        "value": "从本地笔记和文档中补充已有背景",
-        "firstContextValue": "从本地笔记和文档中补充已有背景",
-        "scope": "你选择文件夹中的文本与 Markdown"
-      }
-    }
+    "browseAll": "浏览全部插件 →"
   },
   "systemSuggestion": {
     "dismiss": "关闭",

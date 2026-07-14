@@ -195,9 +195,8 @@ def test_post_check_filters_dismissed_after_dismiss(app_with_suggestions) -> Non
 def app_with_installable():
     """App whose only candidate is a not-installed (registry) plugin.
 
-    The candidate carries ``installed=False`` so the engine must (a) surface it
-    via the registry/descriptor availability path and (b) record it in
-    ``installable_plugin_ids`` on the returned proposal.
+    The candidate carries ``installed=False`` so the engine must preserve its
+    display metadata and install state on the returned proposal.
     """
     from magi_plugin_sdk.contracts import (
         LocalizedText,
@@ -256,9 +255,15 @@ def test_post_check_surfaces_installable_for_not_installed_candidate(
     proposal = suggestions[0]
     assert proposal["category"] == "music_history"
     assert proposal["confidence"] == 0.9
-    # The not-installed candidate must surface in installable_plugin_ids.
-    assert proposal["installable_plugin_ids"] == ["spotify-history"]
-    assert proposal["plugin_ids"] == ["spotify-history"]
+    assert proposal["plugins"] == [
+        {
+            "plugin_id": "spotify-history",
+            "name": "spotify-history",
+            "name_i18n": {},
+            "icon": "",
+            "installed": False,
+        }
+    ]
 
 
 @pytest.fixture
@@ -271,24 +276,41 @@ def app_with_installable_endpoint():
     available candidate with its ``installed`` flag + ``category``.
     """
     from types import SimpleNamespace
+    from magi_plugin_sdk.contracts import SuggestionSurfaceSpec, SuggestionSurfacesSpec
+
+    surfaces = SuggestionSurfacesSpec(
+        empty_state=SuggestionSurfaceSpec(order=10),
+    )
 
     installed_cand = SimpleNamespace(
         plugin_id="chrome-history",
+        name="Chrome History",
+        name_i18n={"zh-CN": "Chrome 浏览器历史"},
+        description="Local Chrome history",
+        description_i18n={"zh-CN": "本地 Chrome 历史"},
+        icon="brand:googlechrome",
         descriptor=SimpleNamespace(
             category="browser_history",
             rationale=SimpleNamespace(zh="浏览器历史", en="browsing history"),
             setup_time_estimate_seconds=10,
             data_locality="local_only",
+            surfaces=surfaces,
         ),
         installed=True,
     )
     registry_cand = SimpleNamespace(
         plugin_id="spotify-history",
+        name="Spotify History",
+        name_i18n={},
+        description="Spotify history",
+        description_i18n={},
+        icon="brand:spotify",
         descriptor=SimpleNamespace(
             category="music_history",
             rationale=SimpleNamespace(zh="音乐历史", en="music history"),
             setup_time_estimate_seconds=20,
             data_locality="uploads",
+            surfaces=surfaces,
         ),
         installed=False,
     )
@@ -324,11 +346,14 @@ def test_list_installable_returns_only_available(
     assert len(items) == 1
     item = items[0]
     assert item["plugin_id"] == "chrome-history"
+    assert item["name_i18n"] == {"zh-CN": "Chrome 浏览器历史"}
+    assert item["icon"] == "brand:googlechrome"
     assert item["category"] == "browser_history"
     assert item["installed"] is True
     assert item["rationale"] == {"zh": "浏览器历史", "en": "browsing history"}
     assert item["setup_time_estimate_seconds"] == 10
     assert item["data_locality"] == "local_only"
+    assert item["surfaces"]["empty_state"]["order"] == 10
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:

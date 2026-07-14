@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from magi.plugins.contracts import SuggestionSurfacesSpec
 from magi.system_suggestions.contracts import DismissalKind, SuggestionProposal
 
 
@@ -50,11 +51,17 @@ class ClearDismissalResponse(BaseModel):
 
 class InstallableItem(BaseModel):
     plugin_id: str
+    name: str
+    name_i18n: dict[str, str] = Field(default_factory=dict)
+    description: str = ""
+    description_i18n: dict[str, str] = Field(default_factory=dict)
+    icon: str = ""
     category: str
     installed: bool
     rationale: dict[str, str]
     setup_time_estimate_seconds: int
     data_locality: Literal["local_only", "uploads"]
+    surfaces: SuggestionSurfacesSpec
 
 
 class ListInstallableResponse(BaseModel):

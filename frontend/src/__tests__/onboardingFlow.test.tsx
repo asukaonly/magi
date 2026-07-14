@@ -270,11 +270,17 @@ describe("OnboardingFlow (linear 5-step)", () => {
     vi.spyOn(systemSuggestions, "listInstallable").mockResolvedValue([
       {
         plugin_id: "chrome-history",
+        name: "Chrome History",
+        name_i18n: { "zh-CN": "Chrome 浏览器历史" },
+        description: "Chrome history",
+        description_i18n: {},
+        icon: "brand:googlechrome",
         category: "browser_history",
         installed: false,
         rationale: { zh: "", en: "" },
         setup_time_estimate_seconds: 10,
         data_locality: "local_only",
+        surfaces: { first_context: { order: 10 } },
       },
     ]);
     vi.spyOn(personasApi, "seed").mockResolvedValue({
@@ -1028,11 +1034,13 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await screen.findByText("firstContext.title");
     await user.click(screen.getByTestId("empty-state-connect-chrome-history"));
 
-    expect(openPanel).toHaveBeenCalledWith("chrome-history", {
+    expect(openPanel).toHaveBeenCalledWith("chrome-history", expect.objectContaining({
       install: true,
       context: "first_context",
       onDone: expect.any(Function),
-    });
+      pluginIcon: "brand:googlechrome",
+      pluginName: "Chrome 浏览器历史",
+    }));
     expect(screen.getByText("firstContext.title")).toBeInTheDocument();
 
     const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
@@ -1044,7 +1052,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       ).toBeInTheDocument(),
     );
     expect(screen.getByText("firstContext.connectedCount")).toBeInTheDocument();
-    expect(screen.getByText("pluginNames.chrome-history")).toBeInTheDocument();
+    expect(screen.getByText("Chrome 浏览器历史")).toBeInTheDocument();
     expect(screen.getByText("firstContext.preparedCount")).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),
@@ -1077,11 +1085,17 @@ describe("OnboardingFlow (linear 5-step)", () => {
       .mockResolvedValueOnce([
         {
           plugin_id: "chrome-history",
+          name: "Chrome History",
+          name_i18n: { "zh-CN": "Chrome 浏览器历史" },
+          description: "Chrome history",
+          description_i18n: {},
+          icon: "brand:googlechrome",
           category: "browser_history",
           installed: false,
           rationale: { zh: "", en: "" },
           setup_time_estimate_seconds: 10,
           data_locality: "local_only",
+          surfaces: { first_context: { order: 10 } },
         },
       ]);
 

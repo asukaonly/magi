@@ -8,20 +8,20 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('EmptyStateSensorCard', () => {
-  it('renders title and value labels from i18n keys', () => {
+  it('renders plugin-owned title and value text', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="emptyState.plugins.chromeHistory.title"
-        valueKey="emptyState.plugins.chromeHistory.value"
+        title="Chrome 浏览器历史"
+        value="最近浏览内容"
         onConnect={() => {}}
       />,
     );
     expect(
-      screen.getByText('emptyState.plugins.chromeHistory.title'),
+      screen.getByText('Chrome 浏览器历史'),
     ).toBeInTheDocument();
     expect(
-      screen.getByText('emptyState.plugins.chromeHistory.value'),
+      screen.getByText('最近浏览内容'),
     ).toBeInTheDocument();
   });
 
@@ -30,8 +30,8 @@ describe('EmptyStateSensorCard', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="t1"
-        valueKey="v1"
+        title="t1"
+        value="v1"
         onConnect={onConnect}
       />,
     );
@@ -45,8 +45,8 @@ describe('EmptyStateSensorCard', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="t"
-        valueKey="v"
+        title="t"
+        value="v"
         onConnect={() => {}}
       />,
     );
@@ -59,8 +59,8 @@ describe('EmptyStateSensorCard', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="t"
-        valueKey="v"
+        title="t"
+        value="v"
         onConnect={() => {}}
         connectLabelKey="emptyState.installAndConnect"
       />,
@@ -75,17 +75,15 @@ describe('EmptyStateSensorCard', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="emptyState.plugins.chromeHistory.title"
-        valueKey="emptyState.plugins.chromeHistory.value"
+        title="Chrome"
+        value="History"
         onConnect={() => {}}
         i18nNamespace="app"
         i18nKeyPrefix="timeline"
         connectLabelKey="emptyState.installAndConnect"
       />,
     );
-    expect(
-      screen.getByText('timeline.emptyState.plugins.chromeHistory.title'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Chrome')).toBeInTheDocument();
     expect(
       screen.getByTestId('empty-state-connect-chrome-history'),
     ).toHaveTextContent('timeline.emptyState.installAndConnect');
@@ -95,8 +93,8 @@ describe('EmptyStateSensorCard', () => {
     render(
       <EmptyStateSensorCard
         pluginId="chrome-history"
-        titleKey="t"
-        valueKey="v"
+        title="t"
+        value="v"
         onConnect={() => {}}
         disabled
       />,

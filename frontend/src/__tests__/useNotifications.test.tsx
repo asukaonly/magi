@@ -8,7 +8,7 @@ describe('useNotifications', () => {
     vi.restoreAllMocks();
     vi.spyOn(api, 'listNotifications').mockResolvedValue({
       items: [{ id: 1, kind: 'suggestion', dedupe_key: 'browser_history', title: 't', body: 'b',
-        payload: { installable_plugin_ids: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
+        payload: { plugins: [] }, status: 'unread', created_at_ms: 1, read_at_ms: null }],
       unread_count: 1,
     });
     vi.spyOn(api, 'markRead').mockResolvedValue();

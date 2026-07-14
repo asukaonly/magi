@@ -1,16 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { usePluginInstallPanelStore } from '../../stores/pluginInstallPanel';
 import type { SuggestionProposal } from '../../api/modules/systemSuggestions';
-
-/** "netease-music" → "Netease Music" — readable fallback when a plugin has no
- *  localized name in the `pluginNames` i18n map. */
-function humanizePluginId(pluginId: string): string {
-  return pluginId
-    .split(/[-_]/)
-    .filter(Boolean)
-    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
-    .join(' ');
-}
+import { PluginIcon } from '../plugins/PluginIcon';
+import { localizedPluginText } from '../../utils/plugin-display-groups';
 
 export interface SystemSuggestionSideCardProps {
   proposal: SuggestionProposal;
@@ -37,8 +29,6 @@ export function SystemSuggestionSideCard({
   // render a row for each plugin directly (no client-side availability re-probe
   // — that probe only resolves *installed* plugins and would wrongly hide
   // not-yet-installed suggestions).
-  const visiblePluginIds = proposal.plugin_ids;
-
   // Connect opens the single MainLayout-mounted <PluginInstallPanel>, which owns
   // the full honest flow (install → enable → sync → build-memory).
   const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
@@ -64,28 +54,32 @@ export function SystemSuggestionSideCard({
       <p className="mt-2 text-xs text-muted-foreground">{rationale}</p>
 
       <div className="mt-3 space-y-2">
-        {visiblePluginIds.map((pluginId) => {
-          // Name the plugin so the user knows *what* they're enabling (the old
-          // generic "启用 / 启用" said nothing). Localized via `pluginNames`,
-          // humanized id as fallback.
-          const name = t(`pluginNames.${pluginId}`, { defaultValue: humanizePluginId(pluginId) });
-          const needsInstall = proposal.installable_plugin_ids.includes(pluginId);
+        {proposal.plugins.map((plugin) => {
+          const name = localizedPluginText(plugin.name, plugin.name_i18n, i18n.language);
+          const needsInstall = !plugin.installed;
           const label = needsInstall
             ? t('emptyState.installAndConnect')
             : t('emptyState.connect');
           return (
             <div
               data-testid="system-suggestion-side-card-row"
-              key={pluginId}
+              key={plugin.plugin_id}
               className="flex items-center gap-3"
             >
+              <PluginIcon iconId={plugin.icon} className="h-5 w-5 shrink-0" />
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                 {name}
               </span>
               <button
                 type="button"
-                data-testid={`empty-state-connect-${pluginId}`}
-                onClick={() => openPanel(pluginId, { install: needsInstall })}
+                data-testid={`empty-state-connect-${plugin.plugin_id}`}
+                onClick={() =>
+                  openPanel(plugin.plugin_id, {
+                    install: needsInstall,
+                    pluginName: name,
+                    pluginIcon: plugin.icon,
+                  })
+                }
                 className="ml-auto shrink-0 min-w-[5.5rem] rounded-md border border-primary/40 px-3 py-1.5 text-center text-xs font-medium text-primary transition hover:bg-primary/10 disabled:opacity-50"
               >
                 {label}

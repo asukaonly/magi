@@ -228,11 +228,21 @@ The contracts live in:
 
 The onboarding first-context panel reuses the same activation flow as Settings, but
 it may need a lighter initial sync than the long-term source defaults. Plugins can
-declare first-run-only setting overrides under
-`activation_flow.first_context.settings_overrides`. The host frontend applies that
-map only when the shared install/connect panel is opened from first-context
-onboarding. Without this metadata, the host preserves the user's submitted
-activation settings instead of special-casing plugin ids.
+declare a first-run item cap under
+`activation_flow.first_context.max_items_per_sync` and other first-run-only
+settings under `activation_flow.first_context.settings_overrides`. The host
+frontend applies them only when the shared install/connect panel is opened from
+first-context onboarding. The item cap defaults to 200 when a plugin omits it;
+that value is a safety fallback rather than a plugin policy. Without other
+overrides, the host preserves the user's submitted activation settings instead
+of special-casing plugin ids.
+
+Plugins that should be offered during onboarding opt in through
+`suggestion_descriptor.surfaces.first_context`, which owns the order, rationale,
+and scope shown there. Empty-source recommendations use the corresponding
+`suggestion_descriptor.surfaces.empty_state` declaration. The host groups
+siblings by suggestion category and does not own plugin-specific names, icons,
+copy, or recommendation lists.
 
 The first conversation prompt uses recent L1 evidence by event timestamp. Import
 time is not a substitute for source time when the event already has a real

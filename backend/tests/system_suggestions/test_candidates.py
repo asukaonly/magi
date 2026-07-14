@@ -3,15 +3,23 @@ from magi.system_suggestions.candidates import build_suggestion_candidates, Sugg
 
 
 def _desc(category):
-    return SimpleNamespace(category=category)
+    return SimpleNamespace(category=category, icon=None)
 
 
 def _manifest(pid, desc):
-    return SimpleNamespace(plugin_id=pid, suggestion_descriptor=desc)
+    return SimpleNamespace(
+        plugin_id=pid,
+        name=pid,
+        name_i18n={"zh-CN": f"{pid} 中文"},
+        description=f"{pid} description",
+        description_i18n={},
+        icon="lucide:activity",
+        suggestion_descriptor=desc,
+    )
 
 
 def _entry(pid, desc):
-    return SimpleNamespace(plugin_id=pid, suggestion_descriptor=desc)
+    return _manifest(pid, desc)
 
 
 def test_union_tags_installed_and_dedups():
@@ -25,6 +33,8 @@ def test_union_tags_installed_and_dedups():
     assert set(by_id) == {"chrome-history", "git-activity"}
     assert by_id["chrome-history"].installed is True
     assert by_id["git-activity"].installed is False
+    assert by_id["git-activity"].name == "git-activity"
+    assert by_id["git-activity"].icon == "lucide:activity"
 
 
 def test_empty_inputs():

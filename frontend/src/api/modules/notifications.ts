@@ -11,6 +11,7 @@
  * with hand-written local TS interfaces (not the generated API types).
  */
 import { api, unwrapGatewayPayload } from '../client';
+import type { SuggestionPlugin } from './systemSuggestions';
 
 export type NotificationKind = 'suggestion';
 export type NotificationStatus = 'unread' | 'read' | 'actioned' | 'dismissed';
@@ -23,8 +24,7 @@ export interface NotificationItem {
   body: string;
   payload: {
     category?: string;
-    plugin_ids?: string[];
-    installable_plugin_ids?: string[];
+    plugins?: SuggestionPlugin[];
     conflict_type?: 'profile_conflict';
     shadow_id?: string;
     authoritative_id?: string;
