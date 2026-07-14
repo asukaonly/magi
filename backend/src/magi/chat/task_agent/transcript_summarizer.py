@@ -12,6 +12,7 @@ from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.provider_bridge import LLMProviderBridge
 from magi.context.window_budget import (
+    ContextWindowBudget,
     build_context_window_budget,
     estimate_context_tokens,
     estimate_text_tokens,
@@ -27,7 +28,9 @@ logger = get_logger(__name__)
 
 SUMMARY_KIND_TOKEN_BUDGET = "token_budget"
 DEFAULT_MIN_MESSAGES_FOR_SUMMARY = 16
-SUMMARY_OUTPUT_RESERVE = 8_192
+SUMMARY_OUTPUT_RATIO = 0.05
+MIN_SUMMARY_OUTPUT_TOKENS = 1_024
+MAX_SUMMARY_OUTPUT_TOKENS = 16_384
 _SUMMARY_CHARS_PER_TOKEN_TARGET = 4
 _SUMMARY_INPUT_RATIO = 0.60
 _PROMPT_MESSAGE_KINDS = {"user_text", "assistant_final", "assistant_rhythm_segment"}
@@ -313,6 +316,7 @@ class ChatTranscriptSummarizer:
         if resolved is None:
             return ""
         budget = build_context_window_budget(resolved.context)
+        summary_output_tokens = self._resolve_summary_output_tokens(budget)
         max_chars = max(
             4_000,
             int(budget.input_capacity * _SUMMARY_INPUT_RATIO)
@@ -334,9 +338,9 @@ class ChatTranscriptSummarizer:
                     f"# Next Transcript Chunk\n{chunk}"
                 )
             response = await bridge.chat(
-                system_prompt=self._build_system_prompt(),
+                system_prompt=self._build_system_prompt(summary_output_tokens),
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=min(SUMMARY_OUTPUT_RESERVE, budget.output_reserve),
+                max_tokens=summary_output_tokens,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
                 event_context={
@@ -386,6 +390,18 @@ class ChatTranscriptSummarizer:
             adapter=self._llm_adapter,
             context=unknown_model_context(self._llm_adapter),
         )
+
+    def _resolve_summary_output_tokens(
+        self,
+        summary_model_budget: ContextWindowBudget,
+    ) -> int:
+        core_budget = self._current_budget()
+        capacity_target = int(core_budget.input_capacity * SUMMARY_OUTPUT_RATIO)
+        core_limit = min(
+            MAX_SUMMARY_OUTPUT_TOKENS,
+            max(MIN_SUMMARY_OUTPUT_TOKENS, capacity_target),
+        )
+        return max(1, min(core_limit, summary_model_budget.output_reserve))
 
     def _resolve_model_provider(self) -> str | None:
         resolved = self._resolve_summary_model()
@@ -501,14 +517,15 @@ class ChatTranscriptSummarizer:
         return "The session began with these early exchanges:\n" + "\n".join(lines)
 
     @staticmethod
-    def _build_system_prompt() -> str:
-        return """You create durable rolling summaries for an AI chat session.
+    def _build_system_prompt(max_summary_tokens: int) -> str:
+        return f"""You create durable rolling summaries for an AI chat session.
 
 Rules:
 - Preserve user intent, decisions, constraints, names, IDs, file paths, code references, and unresolved tasks.
 - If a previous summary is provided, merge it with the new transcript range into one cumulative summary.
 - Do not mention that older messages were hidden or deleted.
 - Write concise, structured plain text that can be inserted into a future prompt.
+- Keep the summary within {max_summary_tokens} tokens.
 - Keep the latest raw messages authoritative; summarize only the provided older range.
 """.strip()
 

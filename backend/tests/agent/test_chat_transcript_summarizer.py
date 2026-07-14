@@ -11,6 +11,7 @@ from magi.chat.task_agent.transcript_summarizer import (
     TranscriptSummaryInput,
 )
 from magi.chat import ChatMessageRecord, ChatStore
+from magi.context.window_budget import build_context_window_budget
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 
 
@@ -218,6 +219,44 @@ def test_transcript_summarizer_ignores_message_count_gate_under_token_pressure()
     assert len(plan.messages_to_summarize) == 1
 
 
+@pytest.mark.parametrize(
+    ("context_window", "max_output_tokens", "expected_summary_tokens"),
+    [
+        (16_000, 4_000, 1_024),
+        (128_000, 8_000, 6_000),
+        (200_000, 8_000, 9_600),
+        (1_000_000, 64_000, 16_384),
+    ],
+)
+def test_transcript_summary_output_budget_scales_with_core_model(
+    context_window: int,
+    max_output_tokens: int,
+    expected_summary_tokens: int,
+) -> None:
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        model_context_provider=lambda: ModelContextProfile(
+            provider_id="core-provider",
+            model_id="core-model",
+            context_window=context_window,
+            max_output_tokens=max_output_tokens,
+        ),
+    )
+    summary_model_budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="summary-provider",
+            model_id="summary-model",
+            context_window=1_000_000,
+            max_output_tokens=64_000,
+        )
+    )
+
+    assert (
+        summarizer._resolve_summary_output_tokens(summary_model_budget)
+        == expected_summary_tokens
+    )
+
+
 @pytest.mark.asyncio
 async def test_transcript_summary_request_uses_summary_model_capacity() -> None:
     fake_adapter = SimpleNamespace()
@@ -262,3 +301,8 @@ async def test_transcript_summary_request_uses_summary_model_capacity() -> None:
 
     assert summary == "cumulative summary"
     assert bridge.chat.await_count > 1
+    assert {call.kwargs["max_tokens"] for call in bridge.chat.await_args_list} == {1_000}
+    assert all(
+        "Keep the summary within 1000 tokens." in call.kwargs["system_prompt"]
+        for call in bridge.chat.await_args_list
+    )
