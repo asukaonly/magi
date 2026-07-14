@@ -1,6 +1,6 @@
 [package]
 name = "magi-desktop"
-version = "0.1.17"
+version = "0.1.18"
 description = "Magi desktop client"
 authors = ["Magi Contributors"]
 edition = "2021"
