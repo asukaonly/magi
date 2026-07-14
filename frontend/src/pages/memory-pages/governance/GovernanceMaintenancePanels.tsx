@@ -3,7 +3,6 @@ import { AlertTriangle, ArrowUpRight, CheckCircle2, Loader2, Play } from 'lucide
 import { type EpisodeReconsolidateResult } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { MEMORY_INFO_PANEL_CLASS } from '../MemoryPageFrame';
 
 export function TaskMaintenancePanel({
   label,
@@ -18,24 +17,27 @@ export function TaskMaintenancePanel({
     [label('tasks.skillsTitle', '工具记忆维护'), label('tasks.skillsBody', '维护工具技能和失败保护状态'), label('tasks.skillsScope', '技能维护'), label('statuses.enabled', '已启用')],
   ];
   return (
-    <section className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
-      <div className="flex items-center justify-between border-b border-[hsl(var(--memory-divider)/0.58)] px-4 py-3">
+    <section className="rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
+      <div className="flex flex-col gap-3 px-3 pb-4 pt-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{label('tasks.title', '记忆维护任务')}</h2>
-          <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">{label('tasks.subtitle', '这里只聚合记忆相关任务；完整编辑仍在调度配置里。')}</p>
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-[hsl(var(--memory-title))]">{label('tasks.title', '记忆维护任务')}</h2>
+          <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{label('tasks.subtitle', '这里只聚合记忆相关任务；完整编辑仍在调度配置里。')}</p>
         </div>
-        <Link to="/tasks/schedules" className="inline-flex items-center gap-1 text-sm text-[hsl(var(--memory-accent))]">
+        <Link to="/tasks/schedules" className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-[hsl(var(--memory-accent))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.46)] hover:text-[hsl(var(--memory-title))]">
           {label('tasks.openSchedules', '打开调度配置')}
           <ArrowUpRight className="h-4 w-4" />
         </Link>
       </div>
-      <div className="divide-y divide-[hsl(var(--memory-divider)/0.46)]">
+      <div className="space-y-1">
         {rows.map(([name, description, scope, status]) => (
-          <div key={name} className="grid gap-2 px-4 py-3 text-sm md:grid-cols-[170px_minmax(0,1fr)_140px_92px] md:items-center">
+          <div key={name} className="grid gap-2 rounded-lg px-3 py-3 text-sm transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.54)] md:grid-cols-[170px_minmax(0,1fr)_140px_92px] md:items-center">
             <div className="font-semibold text-[hsl(var(--memory-title))]">{name}</div>
-            <div className="text-[hsl(var(--memory-body))]">{description}</div>
+            <div className="leading-6 text-[hsl(var(--memory-body))]">{description}</div>
             <div className="truncate text-xs text-[hsl(var(--memory-muted))]">{scope}</div>
-            <div className="text-emerald-600">{status}</div>
+            <div className="inline-flex items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {status}
+            </div>
           </div>
         ))}
       </div>
@@ -61,7 +63,7 @@ export function ManualMaintenancePanel({
   l2ActionLoading: boolean;
 }) {
   return (
-    <section className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
+    <section className="rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
       <ActionRow
         title={label('reconsolidateTitle', '整理章节')}
         description={label('reconsolidateBody', '让 Magi 把最近形成的活动片段升级成章节，并给它们起标题。')}
@@ -77,7 +79,7 @@ export function ManualMaintenancePanel({
         onClick={() => void onFlushMicrobatches()}
       />
       {reconsolidateResult ? (
-        <div className="border-t border-[hsl(var(--memory-divider)/0.46)] px-4 py-3 text-sm text-[hsl(var(--memory-body))]">
+        <div className="mx-1 mb-1 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.54)] px-4 py-3 text-sm leading-6 text-[hsl(var(--memory-body))]">
           {label('reconsolidateResult', '升级 {{promoted}} 条 · 标志 {{standouts}} 条 · 新章节 {{summaries}} 条', {
             promoted: reconsolidateResult.promoted,
             standouts: reconsolidateResult.standouts,
@@ -86,7 +88,7 @@ export function ManualMaintenancePanel({
         </div>
       ) : null}
       {reconsolidateError ? (
-        <div className="border-t border-[hsl(var(--memory-divider)/0.46)] px-4 py-3 text-sm text-red-600">{reconsolidateError}</div>
+        <div className="mx-1 mb-1 rounded-lg bg-red-50 px-4 py-3 text-sm leading-6 text-red-700 dark:bg-red-950/30 dark:text-red-300">{reconsolidateError}</div>
       ) : null}
     </section>
   );
@@ -106,12 +108,12 @@ function ActionRow({
   onClick: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.46)] px-4 py-4 last:border-b-0 md:flex-row md:items-center md:justify-between">
+    <div className="flex flex-col gap-4 rounded-lg px-3 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.48)] md:flex-row md:items-center md:justify-between">
       <div>
         <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
-        <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">{description}</p>
+        <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{description}</p>
       </div>
-      <Button onClick={onClick} disabled={busy} className="h-9 w-fit rounded-sm px-4">
+      <Button onClick={onClick} disabled={busy} className="h-9 w-fit rounded-lg px-4">
         {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
         {buttonLabel}
       </Button>
@@ -125,11 +127,11 @@ export function ForgetMaintenancePanel({
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
 }) {
   return (
-    <section className="space-y-3">
-      <div className={MEMORY_INFO_PANEL_CLASS}>
+    <section className="space-y-4">
+      <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-5 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
         {label('forgetDrawerHintObjects', '遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。')}
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="space-y-1 rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
         <LinkPanel to="/memory/events" title={label('forgetBySource', '按来源/事件清理')} body={label('forgetBySourceBodyObjects', '进入原始事件后按来源、时间和内容筛选。')} />
         <LinkPanel to="/memory/knowledge" title={label('forgetByEntity', '按实体处理')} body={label('forgetByEntityBodyObjects', '进入结构知识后查看实体、断言和关系。')} />
         <LinkPanel to="/memory/episodes" title={label('forgetByEpisode', '按经历处理')} body={label('forgetByEpisodeBody', '进入经历详情后处理章节边界和可见性。')} />
@@ -142,13 +144,13 @@ function LinkPanel({ to, title, body }: { to: string; title: string; body: strin
   return (
     <Link
       to={to}
-      className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-4 transition-colors hover:border-[hsl(var(--memory-accent)/0.32)] hover:bg-[hsl(var(--memory-panel-elevated)/0.86)]"
+      className="flex items-center justify-between gap-5 rounded-lg px-4 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.56)]"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
         <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
-        <ArrowUpRight className="h-4 w-4 text-[hsl(var(--memory-accent))]" />
+        <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{body}</p>
       </div>
-      <p className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{body}</p>
+      <ArrowUpRight className="h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" />
     </Link>
   );
 }
@@ -161,14 +163,14 @@ export function DiagnosticsPanel({
   diagnostics: Array<{ id: string; severity: string; title: string; detail: string }>;
 }) {
   return (
-    <section className="rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)]">
-      <div className="border-b border-[hsl(var(--memory-divider)/0.58)] px-4 py-3">
-        <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{label('diagnostics.title', '维护诊断')}</h2>
-        <p className="mt-1 text-sm text-[hsl(var(--memory-body))]">{label('diagnostics.subtitle', '把需要运维注意的记忆问题集中在这里。')}</p>
+    <section className="rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
+      <div className="px-3 pb-4 pt-3">
+        <h2 className="text-lg font-semibold tracking-[-0.02em] text-[hsl(var(--memory-title))]">{label('diagnostics.title', '维护诊断')}</h2>
+        <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{label('diagnostics.subtitle', '把需要运维注意的记忆问题集中在这里。')}</p>
       </div>
-      <div className="divide-y divide-[hsl(var(--memory-divider)/0.46)]">
+      <div className="space-y-1">
         {diagnostics.map((item) => (
-          <div key={item.id} className="flex items-start gap-3 px-4 py-3">
+          <div key={item.id} className="flex items-start gap-3 rounded-lg px-3 py-3 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.5)]">
             {item.severity === 'ok' ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-600" /> : <AlertTriangle className={cn('mt-0.5 h-5 w-5', item.severity === 'danger' ? 'text-red-600' : 'text-amber-600')} />}
             <div className="min-w-0">
               <div className="font-semibold text-[hsl(var(--memory-title))]">{item.title}</div>

@@ -224,22 +224,44 @@ beforeEach(() => {
 });
 
 describe('MemoryGovernancePage', () => {
-  it('starts from the maintenance workspace without the large page header', async () => {
+  it('starts with a clear page heading and compact status summary', async () => {
     renderPage();
 
-    expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '记忆管理' })).toBeInTheDocument();
+    const status = screen.getByTestId('governance-status-summary');
+    expect(within(status).getByText('需要处理')).toBeInTheDocument();
+    expect(within(status).getByText('2 条待处理')).toBeInTheDocument();
+    expect(within(status).getByText('1 个工具异常')).toBeInTheDocument();
     expect(await screen.findByRole('tab', { name: '对象明细' })).toBeInTheDocument();
   });
 
   it('renders object maintenance categories without exposing layer codes', async () => {
     renderPage();
     expect(await screen.findByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toHaveClass('text-xs');
+    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /断言 偏好、判断/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /关系图谱/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /实体：用户/ })).toBeInTheDocument();
+    expect(screen.queryByText('健康')).not.toBeInTheDocument();
+    expect(screen.queryByText('稳定')).not.toBeInTheDocument();
     expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
+  });
+
+  it('turns an empty object category into a useful next step', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Entities: [],
+      l2EntitiesTotal: 0,
+    } as ReturnType<typeof useMemory>);
+
+    renderPage();
+
+    expect(await screen.findByRole('heading', { level: 3, name: '还没有实体记录' })).toBeInTheDocument();
+    expect(screen.getByText('Magi 会从对话和已连接的来源中逐步整理这类记忆。')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '添加来源' })).toHaveAttribute('href', '/memory/sources');
+    expect(screen.getByRole('link', { name: '开始对话' })).toHaveAttribute('href', '/chat');
+    expect(screen.queryByRole('searchbox', { name: '搜索当前选项记录' })).not.toBeInTheDocument();
   });
 
   it('requests global object search for the active category', async () => {

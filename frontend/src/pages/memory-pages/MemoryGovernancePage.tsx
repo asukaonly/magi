@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  AlertTriangle,
-  Database,
-  Layers3,
-  ShieldAlert,
-} from 'lucide-react';
 import { memoryApi, type EpisodeReconsolidateResult } from '@/api/modules/memory';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMemory } from '@/hooks/useMemory';
@@ -23,7 +17,6 @@ import {
 } from './governanceModel';
 import { LayerWorkspace } from './governance/GovernanceLayerWorkspace';
 import { ManualMaintenancePanel, TaskMaintenancePanel, ForgetMaintenancePanel, DiagnosticsPanel } from './governance/GovernanceMaintenancePanels';
-import { MetricCell } from './governance/GovernanceMetrics';
 import { RecordDrawer } from './governance/GovernanceRecordDrawer';
 
 export const MemoryGovernancePage = () => {
@@ -95,6 +88,9 @@ export const MemoryGovernancePage = () => {
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
   const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
   const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
+  const objectCount = navigationLayers.reduce((sum, layer) => sum + layer.count, 0);
+  const hasMemoryData = objectCount > 0 || l1EventCount > 0;
+  const hasAttentionIssues = pendingAssertionCount > 0 || openBreakerCount > 0;
   const currentPageParams = useCallback(() => ({
     limit: RECORD_PAGE_SIZE,
     offset: (currentPage - 1) * RECORD_PAGE_SIZE,
@@ -266,24 +262,63 @@ export const MemoryGovernancePage = () => {
 
   return (
     <MemoryPageFrame
-      title={label('title', '整理')}
+      title={label('title', '记忆管理')}
       description={label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
       hideHeader
-      className="max-w-[1180px]"
+      className="max-w-[1280px] px-5 py-5 lg:px-7 lg:py-6"
       contentClassName="min-h-0 flex-1 overflow-hidden pb-0"
       scrollable={false}
     >
-      <div className="flex h-full min-h-0 flex-col gap-4">
-        <section className="grid gap-3 rounded-xl border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.66)] p-3 md:grid-cols-4">
-          <MetricCell icon={<Layers3 className="h-5 w-5" />} label={label('metrics.objects', '维护对象')} value={formatCount(navigationLayers.reduce((sum, layer) => sum + layer.count, 0))} />
-          <MetricCell icon={<AlertTriangle className="h-5 w-5" />} label={label('metrics.pending', '待处理')} value={formatCount(pendingAssertionCount)} tone={pendingAssertionCount > 0 ? 'warn' : 'default'} />
-          <MetricCell icon={<Database className="h-5 w-5" />} label={label('metrics.events', '原始事件')} value={formatCount(l1EventCount)} />
-          <MetricCell icon={<ShieldAlert className="h-5 w-5" />} label={label('metrics.toolBreakers', '工具熔断')} value={formatCount(openBreakerCount)} tone={openBreakerCount > 0 ? 'danger' : 'default'} />
-        </section>
+      <div className="flex h-full min-h-0 flex-col gap-6">
+        <header className="flex shrink-0 flex-col gap-5 px-1 pt-1 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-[clamp(1.65rem,2vw,2rem)] font-semibold tracking-[-0.035em] text-[hsl(var(--memory-title))]">
+              {label('title', '记忆管理')}
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
+              {label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
+            </p>
+          </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-4">
-          <div className="shrink-0 overflow-x-auto pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.8)]">
-            <TabsList className="inline-flex h-auto min-w-full justify-start gap-1 rounded-sm border border-[hsl(var(--memory-border))] bg-[hsl(var(--memory-panel-elevated)/0.86)] p-1">
+          <div
+            data-testid="governance-status-summary"
+            className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-[hsl(var(--memory-muted))]"
+          >
+            <span className="inline-flex items-center gap-2 font-medium text-[hsl(var(--memory-body))]">
+              <span
+                aria-hidden="true"
+                className={`h-1.5 w-1.5 rounded-full ${
+                  hasAttentionIssues
+                    ? 'bg-amber-500'
+                    : hasMemoryData
+                      ? 'bg-emerald-500'
+                      : 'bg-[hsl(var(--memory-muted))]'
+                }`}
+              />
+              {hasAttentionIssues
+                ? label('status.needsAttention', '需要处理')
+                : hasMemoryData
+                  ? label('status.healthy', '运行正常')
+                  : label('status.awaitingData', '等待记忆数据')}
+            </span>
+            <span>{label('status.objects', '{{count}} 个对象', { count: formatCount(objectCount) })}</span>
+            <span>{label('status.events', '{{count}} 条原始事件', { count: formatCount(l1EventCount) })}</span>
+            {pendingAssertionCount > 0 ? (
+              <span className="font-medium text-amber-700 dark:text-amber-400">
+                {label('status.pending', '{{count}} 条待处理', { count: formatCount(pendingAssertionCount) })}
+              </span>
+            ) : null}
+            {openBreakerCount > 0 ? (
+              <span className="font-medium text-red-700 dark:text-red-400">
+                {label('status.breakers', '{{count}} 个工具异常', { count: formatCount(openBreakerCount) })}
+              </span>
+            ) : null}
+          </div>
+        </header>
+
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-5">
+          <div className="shrink-0 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
+            <TabsList className="inline-flex h-auto min-w-max justify-start gap-7 bg-transparent p-0">
               {[
                 ['objects', label('tabs.objects', '对象明细')],
                 ['tasks', label('tabs.tasks', '定时任务')],
@@ -294,7 +329,7 @@ export const MemoryGovernancePage = () => {
                 <TabsTrigger
                   key={value}
                   value={value}
-                  className="rounded-sm border border-transparent px-4 py-2 text-sm text-[hsl(var(--memory-body))] data-[state=active]:border-[hsl(var(--memory-border))] data-[state=active]:bg-[hsl(var(--memory-panel))] data-[state=active]:text-[hsl(var(--memory-title))]"
+                  className="relative rounded-none bg-transparent px-0 py-2.5 text-sm font-medium text-[hsl(var(--memory-muted))] shadow-none transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:bg-transparent data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none data-[state=active]:after:scale-x-100"
                 >
                   {text}
                 </TabsTrigger>
@@ -302,11 +337,10 @@ export const MemoryGovernancePage = () => {
             </TabsList>
           </div>
 
-          <TabsContent value="objects" className="mt-0 min-h-0 flex-1">
+          <TabsContent value="objects" className="mt-0 min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
             <LayerWorkspace
               layers={navigationLayers}
               activeLayer={activeLayer}
-              activeRecords={activeRecords}
               visibleRecords={visibleRecords}
               page={displayPage}
               pageCount={displayPageCount}
@@ -335,11 +369,11 @@ export const MemoryGovernancePage = () => {
             />
           </TabsContent>
 
-          <TabsContent value="tasks" className="mt-0">
+          <TabsContent value="tasks" className="mt-0 overflow-y-auto">
             <TaskMaintenancePanel label={label} />
           </TabsContent>
 
-          <TabsContent value="manual" className="mt-0">
+          <TabsContent value="manual" className="mt-0 overflow-y-auto">
             <ManualMaintenancePanel
               label={label}
               reconsolidating={reconsolidating}
@@ -351,11 +385,11 @@ export const MemoryGovernancePage = () => {
             />
           </TabsContent>
 
-          <TabsContent value="forget" className="mt-0">
+          <TabsContent value="forget" className="mt-0 overflow-y-auto">
             <ForgetMaintenancePanel label={label} />
           </TabsContent>
 
-          <TabsContent value="diagnostics" className="mt-0">
+          <TabsContent value="diagnostics" className="mt-0 overflow-y-auto">
             <DiagnosticsPanel label={label} diagnostics={diagnostics} />
           </TabsContent>
         </Tabs>
