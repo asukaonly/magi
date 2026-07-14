@@ -180,6 +180,8 @@
     "customRelayTitle": "自定义供应商",
     "customRelayDesc": "适合 OpenRouter、OneAPI、NewAPI 或自托管兼容端点。",
     "selectedProvider": "已选择的供应商",
+    "changeProvider": "更换供应商",
+    "backToProviderConfig": "返回当前配置",
     "builtinSelectedHint": "填入 API Key 后，Magi 会自动使用推荐的核心模型和快速模型。",
     "customRelaySelectedHint": "填入自定义供应商的 Base URL 和模型 ID。本地或内网的 OpenAI 兼容端点可以不填 API Key。",
     "planLoadFailed": "这个计费方式暂时加载失败。原来的模型设置没有改变，请重新选择一次。",

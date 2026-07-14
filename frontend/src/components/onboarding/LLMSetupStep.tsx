@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, AlertCircle, ChevronDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Activity, AlertCircle, ArrowLeft, ChevronDown, ChevronsUpDown, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -69,6 +70,8 @@ const fieldClassName =
 
 const secretFieldButtonClassName =
   'absolute inset-y-0 right-2 inline-flex items-center justify-center text-muted-foreground transition hover:text-foreground';
+
+const PROVIDER_TRANSITION_EASE = [0.22, 1, 0.36, 1] as const;
 
 function providerRequiresApiKey(provider: LLMProviderConfig): boolean {
   return provider.provider_type !== 'custom' || (provider.api_format || 'openai') !== 'openai';
@@ -342,6 +345,8 @@ export function LLMSetupStep({
   const catalogResolutionRequestIdRef = useRef(0);
   const activeProviderId = getActiveProviderId(value);
   const activeProvider = activeProviderId ? value.providers?.[activeProviderId] : undefined;
+  const [providerChooserOpen, setProviderChooserOpen] = useState(() => !activeProviderId);
+  const shouldReduceMotion = useReducedMotion();
   const activeProviderMeta = activeProvider?.provider_type === 'custom'
     ? undefined
     : registry?.providers.find((provider) => provider.id === activeProvider?.provider_type);
@@ -434,6 +439,13 @@ export function LLMSetupStep({
     ];
   }, [registry, t]);
 
+  const activeProviderCard = providerCards.find(
+    (card) => selectedCardId === card.id || selectedCardId === card.providerType,
+  );
+  const activeProviderTitle = activeProvider?.provider_type === 'custom'
+    ? activeProvider.display_name || activeProviderCard?.title || t('llmSetup.selectedProvider')
+    : activeProviderCard?.title || activeProvider?.display_name || t('llmSetup.selectedProvider');
+
   const commitProvider = (
     providerId: string,
     provider: LLMProviderConfig,
@@ -501,6 +513,7 @@ export function LLMSetupStep({
         existing?.[1]
       );
       commitProvider(providerId, provider);
+      setProviderChooserOpen(false);
       return;
     }
 
@@ -511,6 +524,7 @@ export function LLMSetupStep({
     const providerId = existing?.[0] || card.meta.id;
     const provider = createProviderFromMeta(card.meta, existing?.[1]);
     commitProvider(providerId, provider);
+    setProviderChooserOpen(false);
   };
 
   const updateActiveProvider = (
@@ -633,56 +647,128 @@ export function LLMSetupStep({
       disabled={catalogResolutionPending}
       aria-busy={catalogResolutionPending}
       className={cn(
-        'm-0 flex min-w-0 flex-col gap-6 border-0 p-0',
+        'm-0 min-w-0 border-0 p-0',
         catalogResolutionPending && 'pointer-events-none opacity-60',
       )}
       data-testid="llm-setup-simple"
     >
-      <div className="space-y-2">
-        <h3 className="text-base font-semibold text-foreground">{t('llmSetup.providerTitle')}</h3>
-        <p className="text-sm leading-6 text-muted-foreground">{t('llmSetup.providerDesc')}</p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {providerCards.map((card) => {
-          const selected = selectedCardId === card.id || selectedCardId === card.providerType;
-          return (
-            <button
-              key={card.id}
-              type="button"
-              data-testid={`llm-setup-provider-${card.id}`}
-              aria-pressed={selected}
-              onClick={() => handleSelectCard(card)}
-              className={cn(
-                'flex min-h-[64px] items-center gap-3 rounded-xl bg-muted/30 px-4 py-3 text-left shadow-none transition-[background-color,box-shadow,color] duration-200 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
-                selected && 'bg-accent/75 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]'
-              )}
-            >
-              <ProviderIcon
-                providerId={String(card.providerType)}
-                iconName={card.iconName}
-                displayName={card.title}
-              />
-              <span className="min-w-0 space-y-1">
-                <span className="block text-sm font-semibold text-foreground">{card.title}</span>
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {activeProvider ? (
-        <div className="space-y-4 rounded-xl border border-border/70 bg-background/90 p-4">
-          <div className="space-y-1">
-            <div className="text-sm font-semibold text-foreground">
-              {activeProvider.display_name || t('llmSetup.selectedProvider')}
+      <AnimatePresence initial={false} mode="popLayout">
+        {providerChooserOpen || !activeProvider ? (
+          <motion.section
+            key="provider-chooser"
+            id="llm-provider-chooser"
+            data-testid="llm-provider-chooser"
+            layout
+            initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
+            transition={
+              shouldReduceMotion
+                ? { duration: 0 }
+                : { duration: 0.22, ease: PROVIDER_TRANSITION_EASE }
+            }
+            className="space-y-5"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-2">
+                <h3 className="text-base font-semibold text-foreground">{t('llmSetup.providerTitle')}</h3>
+                <p className="text-sm leading-6 text-muted-foreground">{t('llmSetup.providerDesc')}</p>
+              </div>
+              {activeProvider ? (
+                <button
+                  type="button"
+                  data-testid="llm-setup-provider-back"
+                  className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-muted/65 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                  onClick={() => setProviderChooserOpen(false)}
+                >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+                  {t('llmSetup.backToProviderConfig')}
+                </button>
+              ) : null}
             </div>
-            <p className="text-xs leading-5 text-muted-foreground">
-              {activeProvider.provider_type === 'custom'
-                ? t('llmSetup.customRelaySelectedHint')
-                : t('llmSetup.builtinSelectedHint')}
-            </p>
-          </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {providerCards.map((card) => {
+                const selected = selectedCardId === card.id || selectedCardId === card.providerType;
+                return (
+                  <motion.button
+                    key={card.id}
+                    type="button"
+                    data-testid={`llm-setup-provider-${card.id}`}
+                    aria-pressed={selected}
+                    onClick={() => handleSelectCard(card)}
+                    whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+                    whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
+                    transition={{ duration: shouldReduceMotion ? 0 : 0.14 }}
+                    className={cn(
+                      'flex min-h-[64px] items-center gap-3 rounded-xl bg-muted/30 px-4 py-3 text-left shadow-none transition-[background-color,box-shadow,color] duration-200 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+                      selected && 'bg-accent/75 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]'
+                    )}
+                  >
+                    <ProviderIcon
+                      providerId={String(card.providerType)}
+                      iconName={card.iconName}
+                      displayName={card.title}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-foreground">{card.title}</span>
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </motion.section>
+        ) : activeProvider ? (
+          <motion.section
+            key={`provider-config-${selectedCardId}`}
+            id="llm-provider-config"
+            data-testid="llm-provider-config"
+            layout
+            initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={shouldReduceMotion ? undefined : { opacity: 0, y: 6 }}
+            transition={
+              shouldReduceMotion
+                ? { duration: 0 }
+                : { duration: 0.26, ease: PROVIDER_TRANSITION_EASE }
+            }
+            className="space-y-4"
+          >
+            <div
+              data-testid="llm-setup-provider-summary"
+              aria-live="polite"
+              className="flex min-h-14 items-center justify-between gap-4 rounded-xl bg-accent/55 px-3.5 py-2.5"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <ProviderIcon
+                  providerId={String(activeProvider.provider_type)}
+                  iconName={activeProviderCard?.iconName}
+                  displayName={activeProviderTitle}
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs text-muted-foreground">{t('llmSetup.selectedProvider')}</span>
+                  <span className="block truncate text-sm font-semibold text-foreground">{activeProviderTitle}</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                data-testid="llm-setup-provider-change"
+                aria-expanded="false"
+                aria-controls="llm-provider-chooser"
+                className="inline-flex h-10 shrink-0 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors duration-200 hover:bg-background/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
+                onClick={() => setProviderChooserOpen(true)}
+              >
+                <ChevronsUpDown className="h-4 w-4" aria-hidden="true" />
+                {t('llmSetup.changeProvider')}
+              </button>
+            </div>
+
+            <div className="space-y-5 rounded-xl bg-muted/20 p-4 sm:p-5">
+              <p className="text-xs leading-5 text-muted-foreground">
+                {activeProvider.provider_type === 'custom'
+                  ? t('llmSetup.customRelaySelectedHint')
+                  : t('llmSetup.builtinSelectedHint')}
+              </p>
 
           {memoryModelStatus === 'missing' ? (
             <div
@@ -921,12 +1007,10 @@ export function LLMSetupStep({
               </label>
             </div>
           ) : null}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 p-5 text-sm text-muted-foreground">
-          {t('llmSetup.pickProviderHint')}
-        </div>
-      )}
+            </div>
+          </motion.section>
+        ) : null}
+      </AnimatePresence>
     </fieldset>
   );
 }

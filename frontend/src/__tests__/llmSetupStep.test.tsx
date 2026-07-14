@@ -8,6 +8,18 @@ import {
   type LLMConnectionTestState,
 } from '@/components/onboarding/LLMSetupStep';
 
+const { reducedMotionMock } = vi.hoisted(() => ({
+  reducedMotionMock: vi.fn(() => false),
+}));
+
+vi.mock('framer-motion', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('framer-motion')>();
+  return {
+    ...actual,
+    useReducedMotion: () => reducedMotionMock(),
+  };
+});
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
@@ -267,6 +279,7 @@ function Harness({
 
 describe('LLMSetupStep', () => {
   beforeEach(() => {
+    reducedMotionMock.mockReturnValue(false);
     vi.spyOn(configApi, 'resolveLLMProviderCatalog').mockResolvedValue(catalog() as any);
     vi.spyOn(configApi, 'getLLMCustomProviderTemplate').mockResolvedValue(customTemplate() as any);
     vi.spyOn(configApi, 'testLLMProviderConnection').mockResolvedValue({
@@ -292,7 +305,7 @@ describe('LLMSetupStep', () => {
     expect(openAiCard).not.toHaveTextContent('llm.providers.openai.desc');
   });
 
-  it('exposes provider selection as a pressed state without a default border', async () => {
+  it('collapses the provider grid into a selected-provider summary', async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
@@ -301,8 +314,43 @@ describe('LLMSetupStep', () => {
     expect(openAiCard).not.toHaveClass('border');
 
     await user.click(openAiCard);
-    expect(openAiCard).toHaveAttribute('aria-pressed', 'true');
-    expect(openAiCard).toHaveClass('bg-accent/75');
+
+    expect(await screen.findByTestId('llm-setup-provider-summary')).toHaveTextContent(
+      'llm.providers.openai.name',
+    );
+    expect(screen.getByRole('button', { name: 'llmSetup.changeProvider' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId('llm-setup-provider-anthropic')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: 'llmSetup.changeProvider' }));
+    const selectedOpenAiCard = await screen.findByTestId('llm-setup-provider-openai');
+    expect(selectedOpenAiCard).toHaveAttribute('aria-pressed', 'true');
+    expect(selectedOpenAiCard).toHaveClass('bg-accent/75');
+  });
+
+  it('returns to the current setup without losing entered credentials', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    await user.type(await screen.findByTestId('llm-setup-api-key'), 'sk-kept');
+    await user.click(screen.getByRole('button', { name: 'llmSetup.changeProvider' }));
+    await user.click(await screen.findByRole('button', { name: 'llmSetup.backToProviderConfig' }));
+
+    expect(await screen.findByTestId('llm-setup-api-key')).toHaveValue('sk-kept');
+  });
+
+  it('keeps provider switching usable when motion is reduced', async () => {
+    const user = userEvent.setup();
+    reducedMotionMock.mockReturnValue(true);
+    render(<Harness />);
+
+    await user.click(await screen.findByTestId('llm-setup-provider-openai'));
+    expect(await screen.findByTestId('llm-setup-provider-summary')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'llmSetup.changeProvider' }));
+    expect(await screen.findByTestId('llm-setup-provider-anthropic')).toBeInTheDocument();
   });
 
   it('uses compact single-line provider cards after descriptions are removed', async () => {
