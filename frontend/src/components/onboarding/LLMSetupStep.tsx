@@ -723,7 +723,6 @@ export function LLMSetupStep({
             key={`provider-config-${selectedCardId}`}
             id="llm-provider-config"
             data-testid="llm-provider-config"
-            layout
             initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={shouldReduceMotion ? undefined : { opacity: 0, y: 6 }}
