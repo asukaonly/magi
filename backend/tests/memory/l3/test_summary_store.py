@@ -10,6 +10,14 @@ from magi.memory.event_contracts import normalize_runtime_event
 from magi.memory.l3.models import EpisodicGenerationResult, L3Candidate, ValidationDecision
 
 
+@pytest.fixture(autouse=True)
+def _use_english_temporal_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "magi.i18n.get_preferred_language",
+        lambda default="zh-CN": "en",
+    )
+
+
 class _ExperienceSummaryL2Stub:
     def __init__(self, event_ids: list[str] | dict[str, list[str]]) -> None:
         if isinstance(event_ids, dict):

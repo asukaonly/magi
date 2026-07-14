@@ -506,6 +506,9 @@ class L2AssertionValidationMixin:
         """Derive host-owned horizon and expiry from grounded evidence."""
         name_lower = trait_name.casefold()
         policy = get_assertion_family_policy(trait_family)
+        baseline_scope: str | None
+        baseline_decay: str | None
+        baseline_ttl: float | None
         if name_lower in {"annoyance", "irritation", "frustration"}:
             baseline_scope = "momentary"
             baseline_decay = "fast_decay"

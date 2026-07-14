@@ -18,6 +18,7 @@ from magi.memory.l2.entities.maintenance import (
     L2EntityMaintenance,
     L2MaintenanceLifecycle,
 )
+from magi.memory.l2.assertions.promotion import PromotionHorizon
 from magi.memory.l2.episode_formation import (
     MERGE_GAP_FACTOR,
     MIN_ENTITY_OVERLAP_FOR_MERGE,
@@ -29,6 +30,8 @@ from magi.memory.l2.episode_formation import (
     StandoutGate,
     _passes_standout_gate,
 )
+from magi.memory.l2.extraction_profiles import ExtractionProfile
+from magi.memory.l2.phase1_models import L2Phase1FactClaim, L2TemporalCue
 from magi.memory.l2.storage.utils import (
     CONFIDENCE_ACCUMULATION_CAP,
     MAX_EVIDENCE_EVENT_IDS,
@@ -534,17 +537,38 @@ def test_phase2_assertion_decay_reads_configured_family_ttl(monkeypatch):
             text = str(value).strip()
             return text or None
 
-    event = type("Event", (), {"timestamp": 1000.0})()
+    event = type(
+        "Event",
+        (),
+        {
+            "timestamp": 1000.0,
+            "memory_domain": type("MemoryDomain", (), {"label": "user_authored"})(),
+            "metadata_json": {},
+        },
+    )()
 
-    temporal_scope, decay_policy, expires_at = Host()._derive_assertion_decay_from_family(
+    promotion = Host()._evaluate_phase2_assertion_promotion(
         event=event,
+        profile=ExtractionProfile(profile_id="test"),
         trait_family="mood",
         trait_name="mood",
+        supporting_claims=[
+            L2Phase1FactClaim(
+                claim_id="claim-1",
+                fact_kind="explicit_fact",
+                predicate="HAS_MOOD",
+                temporal_cue=L2TemporalCue.RECENT,
+                supporting_event_ids=["event-1"],
+            )
+        ],
+        supporting_event_ids=["event-1"],
     )
 
-    assert temporal_scope == "session"
-    assert decay_policy == "session_decay"
-    assert expires_at == 1123.0
+    assert promotion.horizon is PromotionHorizon.RECENT
+    assert promotion.expiry.temporal_scope == "session"
+    assert promotion.expiry.decay_policy == "session_decay"
+    assert promotion.expiry.ttl_seconds == 123.0
+    assert event.timestamp + promotion.expiry.ttl_seconds == 1123.0
 
     candidate = type(
         "Candidate",

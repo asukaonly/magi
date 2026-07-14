@@ -12,6 +12,14 @@ from magi.memory.l3.temporal_llm_service import TemporalSummaryLLMService
 from magi.i18n import set_current_language
 
 
+@pytest.fixture(autouse=True)
+def _use_english_temporal_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "magi.i18n.get_preferred_language",
+        lambda default="zh-CN": "en",
+    )
+
+
 def test_temporal_evidence_pack_keeps_window_and_event_ids() -> None:
     pack = TemporalEvidencePack(
         summary_category="day",

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
+from magi.i18n import language_context
 
 
 @pytest.mark.asyncio
@@ -98,7 +99,12 @@ async def test_summary_and_experience_modes_hit_l3_and_l4(tmp_path):
                 timestamp=1710000600.0,
             )
         )
-        await store.generate_summary(period_type="day", period_start=1709990000.0, period_end=1710003600.0)
+        with language_context("en"):
+            await store.generate_summary(
+                period_type="day",
+                period_start=1709990000.0,
+                period_end=1710003600.0,
+            )
 
         service = HybridRetrievalService(store)
         summary_payload = await service.query(

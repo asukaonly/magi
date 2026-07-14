@@ -270,8 +270,9 @@ def evaluate_assertion_promotion(
 
 
 def _resolved_source_strength(evidence: AssertionPromotionInput) -> SourceStrengthPreset:
-    if evidence.source_strength is not SourceStrengthPreset.AUTO:
-        return evidence.source_strength
+    source_strength = SourceStrengthPreset.from_value(evidence.source_strength)
+    if source_strength is not SourceStrengthPreset.AUTO:
+        return source_strength
     if evidence.evidence_class == "user_self_report":
         return SourceStrengthPreset.DIRECT_USER
     if evidence.fact_kind == "interaction_evidence":

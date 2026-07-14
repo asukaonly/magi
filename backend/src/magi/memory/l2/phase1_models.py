@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from .phase_model_utils import _optional_text
 
@@ -124,7 +124,7 @@ class L2Phase1FactClaim:
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["temporal_cue"] = self.temporal_cue.value
+        payload["temporal_cue"] = cast(L2TemporalCue, self.temporal_cue).value
         return payload
 
 
