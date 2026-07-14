@@ -9,6 +9,7 @@ less frequently than housekeeping without coupling the two.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,9 +22,6 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from ...scheduler.service import SchedulerService
-from ...user_profile.portrait_projection_scheduler import (
-    schedule_portrait_projection_refresh,
-)
 from ..provider import get_unified_memory
 from .assertions.derived_rules import (
     build_graph_derived_rules_from_profiles,
@@ -37,6 +35,7 @@ logger = get_logger(__name__)
 
 SCHEDULE_ID_L2_DERIVE = "memory-l2-derive:global"
 TARGET_KEY_L2_DERIVE = "memory_l2_derive"
+PortraitRefreshScheduler = Callable[[Any, str], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -55,6 +54,8 @@ def _canonical_user_entity_id() -> str:
 
 async def handle_l2_derive(
     context: ScheduledExecutionContext,
+    *,
+    portrait_refresh_scheduler: PortraitRefreshScheduler | None = None,
 ) -> ScheduledExecutionResult:
     """Run L2 derived-data steps; no-ops when L2 is off or derive task is disabled."""
     _ = context
@@ -71,7 +72,7 @@ async def handle_l2_derive(
     plugin_derived_assertions_written = await _run_plugin_derived_rules(derive_context)
     shadow_notifications_emitted = await _run_shadow_conflict_notifications(derive_context)
     if interest_topics_aggregated > 0 or plugin_derived_assertions_written > 0:
-        await _schedule_portrait_refresh(derive_context)
+        await _schedule_portrait_refresh(derive_context, portrait_refresh_scheduler)
 
     return ScheduledExecutionResult(
         success=True,
@@ -223,9 +224,14 @@ async def _run_shadow_conflict_notifications(context: L2DeriveContext) -> int:
         return 0
 
 
-async def _schedule_portrait_refresh(context: L2DeriveContext) -> None:
+async def _schedule_portrait_refresh(
+    context: L2DeriveContext,
+    portrait_refresh_scheduler: PortraitRefreshScheduler | None,
+) -> None:
+    if portrait_refresh_scheduler is None:
+        return
     try:
-        await schedule_portrait_projection_refresh(
+        await portrait_refresh_scheduler(
             context.unified,
             context.user_id,
         )
@@ -250,8 +256,21 @@ async def _refresh_user_snapshot(
 class L2DeriveScheduleContrib:
     """Registers MEMORY_L2_DERIVE handler and optional interval schedule."""
 
+    def __init__(
+        self,
+        *,
+        portrait_refresh_scheduler: PortraitRefreshScheduler | None = None,
+    ) -> None:
+        self._portrait_refresh_scheduler = portrait_refresh_scheduler
+
     async def register_schedules(self, scheduler: SchedulerService) -> None:
-        scheduler.register_handler(ScheduledTargetType.MEMORY_L2_DERIVE, handle_l2_derive)
+        async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+            return await handle_l2_derive(
+                context,
+                portrait_refresh_scheduler=self._portrait_refresh_scheduler,
+            )
+
+        scheduler.register_handler(ScheduledTargetType.MEMORY_L2_DERIVE, handler)
         l2_cfg = get_config().agent.memory.l2
         # The schedule is always written so runtime toggling of l2.enabled /
         # derive_schedule_enabled takes effect without a restart. The handler is

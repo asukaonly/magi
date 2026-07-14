@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit, urlunsplit
 
 from ..config.models import LLMScenario
 from ..core.logger import get_logger
-from ..identity.defaults import CANONICAL_LOCAL_USER
 from ..i18n import llm_language_label
 from ..llm import LLMProviderBridge
 from ..llm.provider import get_scenario_llm_pool
@@ -229,28 +229,6 @@ async def _fetch_recent_import_activity_snippet(memory: Any) -> Optional[str]:
     return "\n".join(lines)
 
 
-async def _fetch_bootstrap_memory_snippet() -> Optional[str]:
-    """Return governed portrait context for the first opening, or None."""
-    try:
-        from ..context.user_profile_service import UserProfileService
-        from ..memory.provider import get_unified_memory
-
-        memory = get_unified_memory()
-    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
-        logger.info("bootstrap memory unavailable: %s", exc)
-        return None
-
-    try:
-        lines = await UserProfileService(
-            unified_memory=memory,
-        ).get_portrait_prompt_summary(str(CANONICAL_LOCAL_USER))
-        cleaned = [str(line).strip() for line in lines if str(line).strip()]
-        return "\n".join(f"- {line}" for line in cleaned) or None
-    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
-        logger.info("bootstrap portrait context unavailable: %s", exc)
-        return None
-
-
 async def _fetch_recent_activity_snippet() -> Optional[str]:
     """Best-effort one-line 'what magi can already see' summary, or None.
 
@@ -383,9 +361,11 @@ class BootstrapDialogueService:
         *,
         growth_engine: GrowthMemoryEngine,
         l2_store: Any = None,
+        memory_snippet_provider: Callable[[], Awaitable[Optional[str]]] | None = None,
     ) -> None:
         self._growth_engine = growth_engine
         self._l2_store = l2_store
+        self._memory_snippet_provider = memory_snippet_provider
 
     async def needs_bootstrap(self, persona_name: str, *, persona_id: str = "") -> bool:
         """Return whether the first-contact opening still needs to be injected."""
@@ -454,11 +434,12 @@ class BootstrapDialogueService:
             config = PersonalityConfig()
         bootstrap = self._ensure_bootstrap_config(config)
 
-        try:
-            memory_snippet = await _fetch_bootstrap_memory_snippet()
-        except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
-            logger.info("bootstrap portrait context fetch raised: %s", exc)
-            memory_snippet = None
+        memory_snippet = None
+        if self._memory_snippet_provider is not None:
+            try:
+                memory_snippet = await self._memory_snippet_provider()
+            except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+                logger.info("bootstrap portrait context fetch raised: %s", exc)
         activity_snippet = None
         if not memory_snippet:
             try:

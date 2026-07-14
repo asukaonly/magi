@@ -7,6 +7,7 @@ from types import ModuleType
 from typing import Any, Dict, List, Optional
 
 from ...config.models import LLMSettings
+from ...identity.defaults import CANONICAL_LOCAL_USER
 from ...personality.loader import PersonalityConfig
 from .personality_config_schemas import PersonalityConfigModel, PersonalityDiff
 
@@ -38,7 +39,38 @@ async def _get_bootstrap_service():
     """Create a BootstrapDialogueService wired to the shared growth engine."""
     legacy = legacy_personality_config_module()
     engine = await legacy._get_growth_engine()
-    return legacy.BootstrapDialogueService(growth_engine=engine)
+    return legacy.BootstrapDialogueService(
+        growth_engine=engine,
+        memory_snippet_provider=_fetch_bootstrap_memory_snippet,
+    )
+
+
+async def _fetch_bootstrap_memory_snippet() -> Optional[str]:
+    """Return governed portrait context for the first opening, or None."""
+    try:
+        from ...context.user_profile_service import UserProfileService
+        from ...memory.provider import get_unified_memory
+
+        memory = get_unified_memory()
+    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+        legacy_personality_config_module().logger.info(
+            "bootstrap memory unavailable: %s",
+            exc,
+        )
+        return None
+
+    try:
+        lines = await UserProfileService(
+            unified_memory=memory,
+        ).get_portrait_prompt_summary(str(CANONICAL_LOCAL_USER))
+        cleaned = [str(line).strip() for line in lines if str(line).strip()]
+        return "\n".join(f"- {line}" for line in cleaned) or None
+    except Exception as exc:  # noqa: BLE001 - best-effort, never block the opening
+        legacy_personality_config_module().logger.info(
+            "bootstrap portrait context unavailable: %s",
+            exc,
+        )
+        return None
 
 
 async def _get_runtime_status_snapshot() -> Dict[str, Any]:
@@ -197,6 +229,7 @@ __all__ = [
     "_build_diffs",
     "_flatten_dict",
     "_get_bootstrap_service",
+    "_fetch_bootstrap_memory_snippet",
     "_get_growth_engine",
     "_get_journal_service",
     "_get_runtime_status_snapshot",

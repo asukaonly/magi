@@ -81,7 +81,10 @@ from ..timeline.lifecycle import (
 )
 from ..tools import tool_registry
 from ..tools.lifecycle import ToolsModule
-from ..user_profile.portrait_projection_scheduler import register_l2_portrait_projection_refresh
+from ..user_profile.portrait_projection_scheduler import (
+    register_l2_portrait_projection_refresh,
+    schedule_portrait_projection_refresh,
+)
 
 
 RuntimeWorkerPhaseBuilder = Callable[[RuntimeBootstrapContext], list[LifecycleModule]]
@@ -275,7 +278,10 @@ def _build_exports_and_maintenance_modules(context: RuntimeBootstrapContext) -> 
         L1MaintenanceScheduleRegistrationModule(context),
         L2MaintenanceScheduleRegistrationModule(context),
         L2ConsolidationScheduleRegistrationModule(context),
-        L2DeriveScheduleRegistrationModule(context),
+        L2DeriveScheduleRegistrationModule(
+            context,
+            portrait_refresh_scheduler=schedule_portrait_projection_refresh,
+        ),
         L3SummaryScheduleRegistrationModule(context),
         L3MaintenanceScheduleRegistrationModule(context),
         L4MaintenanceScheduleRegistrationModule(context),

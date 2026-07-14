@@ -554,7 +554,7 @@ def test_build_opening_system_prompt_includes_governed_portrait_context():
 @pytest.mark.asyncio
 async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatch):
     import magi.memory.provider as memory_provider
-    import magi.personality.bootstrap_service as mod
+    import magi.api.routers.personality_config_common as mod
 
     memory = object()
     requested_user_ids: list[str] = []
@@ -588,7 +588,7 @@ async def test_fetch_bootstrap_memory_snippet_reads_governed_portrait(monkeypatc
 @pytest.mark.asyncio
 async def test_fetch_bootstrap_memory_snippet_returns_none_without_portrait(monkeypatch):
     import magi.memory.provider as memory_provider
-    import magi.personality.bootstrap_service as mod
+    import magi.api.routers.personality_config_common as mod
 
     class FakeProfileService:
         def __init__(self, *, unified_memory):
@@ -615,20 +615,19 @@ async def test_get_opening_uses_governed_portrait_context(monkeypatch):
     mock_bridge.chat.return_value = "opening"
     mock_pool = MagicMock()
     mock_pool.get.return_value = object()
-    monkeypatch.setattr(
-        mod,
-        "_fetch_bootstrap_memory_snippet",
-        AsyncMock(
-            return_value=(
-                "- 用户关注或偏好：DIIV。\n"
-                "- 近期线索：正在推进 Magi；不要直接当成长期结论。"
-            )
-        ),
+    memory_snippet_provider = AsyncMock(
+        return_value=(
+            "- 用户关注或偏好：DIIV。\n"
+            "- 近期线索：正在推进 Magi；不要直接当成长期结论。"
+        )
     )
     activity_fetch = AsyncMock(return_value="raw browser sample")
     monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", activity_fetch)
 
-    svc = mod.BootstrapDialogueService(growth_engine=None)
+    svc = mod.BootstrapDialogueService(
+        growth_engine=None,
+        memory_snippet_provider=memory_snippet_provider,
+    )
     with (
         patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
         patch("magi.personality.bootstrap_service.get_scenario_llm_pool", return_value=mock_pool),
@@ -705,8 +704,6 @@ async def test_get_opening_prefers_recent_l1_activity_samples_from_each_source(m
 
     monkeypatch.setattr(memory_provider, "get_unified_memory", lambda: FakeMemory())
     monkeypatch.setattr(mod.time, "time", lambda: now)
-    monkeypatch.setattr(mod, "_fetch_bootstrap_memory_snippet", AsyncMock(return_value=None))
-
     svc = mod.BootstrapDialogueService(growth_engine=None)
     with (
         patch("magi.personality.bootstrap_service.resolve_persona_config", new_callable=AsyncMock, return_value=_make_config(with_bootstrap=True)),
@@ -797,7 +794,6 @@ async def test_get_opening_uses_current_user_language_for_output(monkeypatch):
     mock_pool = MagicMock()
     mock_pool.get.return_value = object()
 
-    monkeypatch.setattr(mod, "_fetch_bootstrap_memory_snippet", AsyncMock(return_value=None))
     monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", AsyncMock(return_value=None))
     service = BootstrapDialogueService(growth_engine=AsyncMock())
 
@@ -958,11 +954,13 @@ async def test_get_opening_does_not_log_private_context(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_opening_survives_snippet_fetch_failure(monkeypatch):
     import magi.personality.bootstrap_service as mod
-    svc = mod.BootstrapDialogueService(growth_engine=None)
     # snippet fetch raises -> get_opening must still return (fallback opener path)
     async def boom():
         raise RuntimeError("memory down")
-    monkeypatch.setattr(mod, "_fetch_bootstrap_memory_snippet", boom)
+    svc = mod.BootstrapDialogueService(
+        growth_engine=None,
+        memory_snippet_provider=boom,
+    )
     monkeypatch.setattr(mod, "_fetch_recent_activity_snippet", boom)
     # LLM pool unavailable -> falls back to static opening_line (None here) without raising
     result = await svc.get_opening("Echo-01")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
@@ -330,7 +330,12 @@ class L2ConsolidationScheduleRegistrationModule(LifecycleModule):
 class L2DeriveScheduleRegistrationModule(LifecycleModule):
     """Register L2 derived-data schedule (interest aggregation + conflict notifications) with the unified scheduler (runtime worker)."""
 
-    def __init__(self, context: RuntimeBootstrapContext):
+    def __init__(
+        self,
+        context: RuntimeBootstrapContext,
+        *,
+        portrait_refresh_scheduler: Callable[[Any, str], Awaitable[None]] | None = None,
+    ):
         super().__init__(
             name="runtime_l2_derive_scheduler",
             dependencies=(
@@ -341,6 +346,7 @@ class L2DeriveScheduleRegistrationModule(LifecycleModule):
             ),
         )
         self._context = context
+        self._portrait_refresh_scheduler = portrait_refresh_scheduler
         self._contrib: Any = None
 
     async def init(self) -> None:
@@ -349,7 +355,9 @@ class L2DeriveScheduleRegistrationModule(LifecycleModule):
         scheduler_service = require_initialized(
             self._context.scheduler.scheduler_service, "scheduler service"
         )
-        self._contrib = L2DeriveScheduleContrib()
+        self._contrib = L2DeriveScheduleContrib(
+            portrait_refresh_scheduler=self._portrait_refresh_scheduler,
+        )
         await self._contrib.register_schedules(scheduler_service)
 
     async def shutdown(self) -> None:

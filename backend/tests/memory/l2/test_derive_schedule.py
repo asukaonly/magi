@@ -235,7 +235,7 @@ async def test_l2_derive_contrib_registers_handler_and_schedule():
         await contrib.register_schedules(FakeScheduler())
 
     assert ScheduledTargetType.MEMORY_L2_DERIVE in registered_handlers
-    assert registered_handlers[ScheduledTargetType.MEMORY_L2_DERIVE] is handle_l2_derive
+    assert callable(registered_handlers[ScheduledTargetType.MEMORY_L2_DERIVE])
 
     assert len(scheduled_intervals) == 1
     si = scheduled_intervals[0]
@@ -269,12 +269,11 @@ async def test_derive_handler_interest_surfaces_in_canonical_user_snapshot(tmp_p
     with (
         patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified_mock),
         patch("magi.memory.l2.derive_schedule.get_config", return_value=cfg_mock),
-        patch(
-            "magi.memory.l2.derive_schedule.schedule_portrait_projection_refresh",
-            schedule_portrait_refresh,
-        ),
     ):
-        result = await handle_l2_derive(_make_dummy_context())
+        result = await handle_l2_derive(
+            _make_dummy_context(),
+            portrait_refresh_scheduler=schedule_portrait_refresh,
+        )
 
     assert result.success is True
     assert result.message == "derive_ok"
