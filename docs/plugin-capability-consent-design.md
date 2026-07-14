@@ -1,7 +1,8 @@
 # Plugin Capability Declaration + Install Consent Design
 
-Status: Design — pending user review
+Status: Implemented — declarations, install/update/sideload consent, and persistence shipped
 Author: brainstorming session 2026-06-01
+Last verified: 2026-07-14
 Scope: Third and largest of three plugin-security sub-projects (#3). #1
 (supply-chain locking) and #2 (registry-as-authority for `official`) are done.
 本子项目做 **capability 声明 + 安装前知情同意 UI**;运行时沙箱/进程隔离仍
@@ -10,13 +11,13 @@ Scope: Third and largest of three plugin-security sub-projects (#3). #1
 ## 1. 背景
 
 Magi 的可选插件住在 `magi-plugins` 仓,通过 `registry.json` 被 App 拉取,装进
-`~/.magi/plugins/<id>/`。当前安装流程
+`~/.magi/plugins/<id>/`。本设计提出时的安装流程
 (`frontend/src/components/settings/PluginMarketplace.tsx:97` `handleInstall`)
 点了"安装"就直接调 `pluginsApi.installFromRegistryWithProgress(pluginId, ...)`
 落地,**没有任何披露/同意步骤**。用户装一个第三方插件时,看不出它会读你的
 日历、扫你的照片、还是把数据发到某个外部主机。
 
-仓里已有一个**萌芽期的能力声明约定**——
+当时仓里已有一个**萌芽期的能力声明约定**——
 `magi-plugins/plugins/screenshot_timeline/plugin.toml:22`:
 
 ```toml

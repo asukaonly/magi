@@ -1,8 +1,8 @@
 # Identity Architecture
 
-**Status**: Proposed
+**Status**: Implemented for the current single-user product scope
 **Owner**: Channels, Memory, and Chat runtime maintainers
-**Last Updated**: 2026-06-02
+**Last Updated**: 2026-07-14
 
 ## 1. Purpose
 

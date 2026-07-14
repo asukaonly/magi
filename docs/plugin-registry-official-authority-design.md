@@ -1,14 +1,15 @@
 # Plugin Registry `official` Authority Design
 
-Status: Design — pending user review
+Status: Implemented — registry allowlist is authoritative and app persistence is wired
 Author: brainstorming session 2026-05-31
+Last verified: 2026-07-14
 Scope: Second of three plugin-security sub-projects (#2). #1 (supply-chain
-locking) is done. #3 (capability declaration + consent UI) follows in its own
-cycle. Sandbox/process-isolation remains parked.
+locking) and #3 (capability declaration + consent UI) are also done.
+Sandbox/process-isolation remains parked.
 
 ## 1. 背景
 
-Magi 的可选插件住在 `magi-plugins` 仓,通过 `registry.json` 被 App 拉取。每个
+Magi 的可选插件住在 `magi-plugins` 仓,通过 `registry.json` 被 App 拉取。本设计提出时，每个
 插件在 `plugin.toml` 里**自报** `official` 字段;`magi-plugins/scripts/build-
 registry.py:42` 直接把它抄进 `registry.json`:
 

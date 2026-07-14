@@ -83,13 +83,13 @@ and rationale, but new temporary plans should still start in local-only
 `docs/dev/` and only graduate to the root when they become lasting reference.
 
 - [Agent Runtime Seam ADR](./agent-runtime-seam-adr.md)
-- [API Types Codegen Phase 0 Plan](./api-types-codegen-phase-0-plan.md)
+- [API Types Codegen Phase 0 Plan](./api-types-codegen-phase-0-plan.md) — completed implementation record
 - [Context Decider Routing Redesign ADR](./contextdecider-routing-redesign-adr.md)
 - [Control Plane Extraction ADR](./control-plane-extraction-adr.md)
 - [Domain Task Agents ADR](./domain-task-agents-adr.md)
-- [Plugin Capability Consent Plan](./plugin-capability-consent-plan.md)
-- [Plugin Registry Official Authority Plan](./plugin-registry-official-authority-plan.md)
-- [Plugin Supply Chain Locking Plan](./plugin-supply-chain-locking-plan.md)
+- [Plugin Capability Consent Plan](./plugin-capability-consent-plan.md) — completed implementation record
+- [Plugin Registry Official Authority Plan](./plugin-registry-official-authority-plan.md) — completed implementation record
+- [Plugin Supply Chain Locking Plan](./plugin-supply-chain-locking-plan.md) — completed implementation record
 - [Tool Taxonomy ADR](./tool-taxonomy-adr.md)
 
 ## Audience Guide

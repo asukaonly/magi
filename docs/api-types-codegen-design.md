@@ -1,19 +1,25 @@
 # Frontend API Types Codegen (Lv2 boundary tightening)
 
-Status: Design — pending user review
+Status: Active architecture — Phase 0 complete; module migration ongoing
 Author: brainstorming session 2026-05-29
+Last verified: 2026-07-14
 Context: follows up on the Lv1 boundary refactor (commit `7e7b2ed4`) where
 the `api.*` helper generics in `frontend/src/api/client.ts` were tightened
 from `<T = any>` to `<T = unknown>`. Lv2 is the next architectural step:
 make the FastAPI / pydantic backend the single source of truth for the
 shape of every payload that crosses the IPC boundary.
 
+Implementation note: the generator, committed `generated.ts`, and CI/release
+drift gates shipped in Phase 0. The migration of handwritten API-module types
+is still in progress; `sensors.ts` currently consumes a generated schema while
+the remaining modules retain handwritten request/response types.
+
 ## 1. 背景
 
-Magi 前端目前在 `frontend/src/api/modules/*.ts` 里有 27 个手写的 API 模块，
+本设计提出时，Magi 前端在 `frontend/src/api/modules/*.ts` 里有 27 个手写的 API 模块，
 合计 400+ 个 `interface`/`type` 声明。这些类型描述的是后端
 `backend/src/magi/transport/http_app.py` 那一组 FastAPI 路由的请求 /
-响应形状，但**没有任何机制保证手写类型与后端 pydantic 模型一致**。
+响应形状，但当时**没有任何机制保证手写类型与后端 pydantic 模型一致**。
 
 后端已经具备生成 OpenAPI 的能力：
 
@@ -21,9 +27,9 @@ Magi 前端目前在 `frontend/src/api/modules/*.ts` 里有 27 个手写的 API 
   把 FastAPI 的运行时 schema 序列化为 JSON。
 - `release.yml` 第 184-186 行已经在 release 流程里跑这个脚本，但只是
   导出后让 `scripts/check-api-contract.py` 做"路径 + 方法存在性"校验。
-- **没有任何步骤把 schema 信息回灌到前端类型**。
+- Phase 0 之前没有步骤把 schema 信息回灌到前端类型；现在生成和漂移检查已落地。
 
-结果是：
+Phase 0 之前的结果是：
 
 1. 后端改 pydantic 字段（rename、变 optional、加 enum），前端类型
    不会自动跟进。
@@ -278,7 +284,7 @@ Phase 0 实施时再二选一；不影响本 spec 的整体设计。
 
 ## 6. 迁移策略（分阶段）
 
-### Phase 0 — 铺管道（1 个 PR，半天）
+### Phase 0 — 铺管道（已完成）
 
 - 装 `openapi-typescript`。
 - 写 `scripts/gen-api-types.sh`。
@@ -293,7 +299,7 @@ Phase 0 实施时再二选一；不影响本 spec 的整体设计。
 - `npm run build` 仍然过。
 - `npm run test:ci` 仍然 547/547。
 
-### Phase 1+N — 逐 module 迁移（每个 PR 1-3 个模块，可分散数周）
+### Phase 1+N — 逐 module 迁移（进行中；每个 PR 1-3 个模块）
 
 每个 PR：
 

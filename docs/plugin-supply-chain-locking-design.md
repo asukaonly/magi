@@ -1,16 +1,17 @@
 # Plugin Supply-Chain Locking Design
 
-Status: Design — pending user review
+Status: Implemented — hashed locks, drift CI, and install-time enforcement shipped
 Author: brainstorming session 2026-05-31
+Last verified: 2026-07-14
 Scope: First of three independent plugin-security sub-projects. The other two
 (registry-as-authority for the `official` flag; capability declaration +
-install consent) get their own spec → plan cycles.
+install consent) were completed in their own spec → plan cycles.
 
 ## 1. 背景
 
 Magi 的可选插件住在独立仓 `magi-plugins`,通过 `registry.json` 被 App 拉取,
 `git clone --depth 1 --sparse` 到 `~/.magi/plugins/<id>/`,然后安装其 Python
-依赖。当前安装命令(`backend/src/magi/plugins/installation.py:150-169`):
+依赖。本设计提出时的安装命令(`backend/src/magi/plugins/installation.py:150-169`):
 
 ```
 <bundled-python-3.13> -m pip install --target <plugin>/.deps --no-user <deps...>

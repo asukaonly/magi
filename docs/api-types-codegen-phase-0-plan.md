@@ -1,6 +1,8 @@
 # API Types Codegen — Phase 0 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Complete — generator, committed output, and CI/release drift gates shipped.
+
+> Historical execution record: every task below is complete; the checked steps preserve the rollout and its validation sequence.
 
 **Goal:** Plumb the FastAPI → openapi-typescript → frontend type-generation pipeline end to end, with a CI drift check, but without migrating any existing `api/modules/*.ts`. After this plan, the pipeline exists and CI enforces it; the migration to use generated types is Phase 1+ (separate plans).
 
@@ -36,7 +38,7 @@ No existing `frontend/src/api/modules/*.ts` files are touched in Phase 0.
 - Modify: `frontend/package.json`
 - Modify: `frontend/package-lock.json`
 
-- [ ] **Step 1: Install the devDep**
+- [x] **Step 1: Install the devDep**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -45,7 +47,7 @@ npm install --save-dev openapi-typescript@^7
 
 Expected: Installs `openapi-typescript` and writes the version into `frontend/package.json` `devDependencies` (should resolve to `^7.13.0` or whatever the current 7.x latest is at run time).
 
-- [ ] **Step 2: Verify it shows up in package.json**
+- [x] **Step 2: Verify it shows up in package.json**
 
 ```bash
 grep '"openapi-typescript"' /Users/asuka/code/magi/frontend/package.json
@@ -53,7 +55,7 @@ grep '"openapi-typescript"' /Users/asuka/code/magi/frontend/package.json
 
 Expected: one line of output like `    "openapi-typescript": "^7.13.0",` (the patch version may differ).
 
-- [ ] **Step 3: Verify baseline still green**
+- [x] **Step 3: Verify baseline still green**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -76,7 +78,7 @@ Expected:
 **Files:**
 - Create: `scripts/gen-api-types.sh`
 
-- [ ] **Step 1: Write the script**
+- [x] **Step 1: Write the script**
 
 Create `/Users/asuka/code/magi/scripts/gen-api-types.sh` with exactly this content:
 
@@ -120,13 +122,13 @@ echo "Generating frontend/src/types/api/generated.ts..."
 echo "Done. Generated: frontend/src/types/api/generated.ts"
 ```
 
-- [ ] **Step 2: Make it executable**
+- [x] **Step 2: Make it executable**
 
 ```bash
 chmod +x /Users/asuka/code/magi/scripts/gen-api-types.sh
 ```
 
-- [ ] **Step 3: Verify shebang & permissions**
+- [x] **Step 3: Verify shebang & permissions**
 
 ```bash
 ls -l /Users/asuka/code/magi/scripts/gen-api-types.sh
@@ -145,7 +147,7 @@ Expected: leading `-rwxr-xr-x` (the `x` bits matter).
 
 (The `frontend/src/types/api/` directory itself will be created implicitly when the README is written.)
 
-- [ ] **Step 1: Write the README**
+- [x] **Step 1: Write the README**
 
 Create `/Users/asuka/code/magi/frontend/src/types/api/README.md` with this content:
 
@@ -194,7 +196,7 @@ See `docs/api-types-codegen-design.md` for the full design (Phase 0
 pipeline; Phase 1+N per-module migration).
 ```
 
-- [ ] **Step 2: Verify the directory and README exist**
+- [x] **Step 2: Verify the directory and README exist**
 
 ```bash
 ls /Users/asuka/code/magi/frontend/src/types/api/
@@ -211,7 +213,7 @@ Expected: `README.md` (and later `generated.ts` after Task 5).
 **Files:**
 - Modify: `frontend/package.json`
 
-- [ ] **Step 1: Add `gen:api-types` script entry**
+- [x] **Step 1: Add `gen:api-types` script entry**
 
 Locate the `"scripts"` block in `frontend/package.json` (currently around lines 7-16). It looks like:
 
@@ -248,7 +250,7 @@ Add a new key `"gen:api-types": "bash ../scripts/gen-api-types.sh"` immediately 
   },
 ```
 
-- [ ] **Step 2: Sanity-check the JSON is still valid**
+- [x] **Step 2: Sanity-check the JSON is still valid**
 
 ```bash
 node -e "require('/Users/asuka/code/magi/frontend/package.json')" && echo "valid JSON"
@@ -266,7 +268,7 @@ Expected: `valid JSON` printed; no SyntaxError.
 - Create: `frontend/src/types/api/generated.ts` (produced by the script)
 - (Touches all files modified/created in Tasks 1-4)
 
-- [ ] **Step 1: Run the generator**
+- [x] **Step 1: Run the generator**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -280,7 +282,7 @@ Generating frontend/src/types/api/generated.ts...
 Done. Generated: frontend/src/types/api/generated.ts
 ```
 
-- [ ] **Step 2: Verify generated.ts looks sane**
+- [x] **Step 2: Verify generated.ts looks sane**
 
 ```bash
 wc -l /Users/asuka/code/magi/frontend/src/types/api/generated.ts
@@ -293,7 +295,7 @@ Expected:
 - Head should show an auto-generated header from `openapi-typescript`, then `export interface paths` or `export type paths`.
 - A nonzero count of `export interface` or `export type` lines.
 
-- [ ] **Step 3: Verify the generated file type-checks**
+- [x] **Step 3: Verify the generated file type-checks**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -302,7 +304,7 @@ npm run type-check 2>&1 | tail -5
 
 Expected: no `error TS` lines (clean exit). The generated file is included by `tsconfig.json`'s `"include": ["src"]`.
 
-- [ ] **Step 4: Inspect the `unknown` density**
+- [x] **Step 4: Inspect the `unknown` density**
 
 ```bash
 grep -c "unknown" /Users/asuka/code/magi/frontend/src/types/api/generated.ts || true
@@ -311,7 +313,7 @@ grep -c "Record<string, unknown>" /Users/asuka/code/magi/frontend/src/types/api/
 
 Record these numbers in the commit message body. They are the spec's Risk §8.1 — "OpenAPI export 可能不全" — surfacing as concrete data. Do **not** fail or block on high counts; this is intentionally just observational input for Phase 1 planning.
 
-- [ ] **Step 5: Verify the existing build + tests are still green**
+- [x] **Step 5: Verify the existing build + tests are still green**
 
 ```bash
 npm run test:ci 2>&1 | grep -E "(Test Files|Tests)" | head -3
@@ -322,7 +324,7 @@ Expected:
 - Test count not lower than the pre-Task-1 baseline (`88 / 547` or whatever the baseline was).
 - `✓ built in ...` line.
 
-- [ ] **Step 6: Commit the pipeline + first generated.ts**
+- [x] **Step 6: Commit the pipeline + first generated.ts**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -368,7 +370,7 @@ EOF
 
 Before running the commit, replace the three `<fill from ...>` placeholders with the actual numbers you observed.
 
-- [ ] **Step 7: Verify the commit landed cleanly**
+- [x] **Step 7: Verify the commit landed cleanly**
 
 ```bash
 git log --oneline -1
@@ -386,7 +388,7 @@ Expected: one new commit with subject `feat(types): plumb openapi-typescript cod
 
 The current `ci.yml` (read it at `/Users/asuka/code/magi/.github/workflows/ci.yml`) has separate top-level jobs. We're adding a new sibling job `api-types-drift` that sets up Python + Node + backend deps, runs the generator, and asserts `git diff --exit-code`.
 
-- [ ] **Step 1: Read the current ci.yml top to confirm the `jobs:` block**
+- [x] **Step 1: Read the current ci.yml top to confirm the `jobs:` block**
 
 ```bash
 grep -n "^jobs:\|^  [a-z]" /Users/asuka/code/magi/.github/workflows/ci.yml
@@ -394,7 +396,7 @@ grep -n "^jobs:\|^  [a-z]" /Users/asuka/code/magi/.github/workflows/ci.yml
 
 Expected: a `jobs:` line followed by sibling job names indented two spaces. Note the indentation of existing jobs.
 
-- [ ] **Step 2: Append the new job at the end of `ci.yml`**
+- [x] **Step 2: Append the new job at the end of `ci.yml`**
 
 Open `/Users/asuka/code/magi/.github/workflows/ci.yml` and append this block as the last top-level job under `jobs:` (preserve existing indentation; existing jobs are two-spaces-indented sibling keys of `jobs:`):
 
@@ -442,7 +444,7 @@ Open `/Users/asuka/code/magi/.github/workflows/ci.yml` and append this block as 
           fi
 ```
 
-- [ ] **Step 3: Validate the YAML**
+- [x] **Step 3: Validate the YAML**
 
 ```bash
 python -c "import yaml; yaml.safe_load(open('/Users/asuka/code/magi/.github/workflows/ci.yml'))" && echo "valid YAML"
@@ -461,7 +463,7 @@ Expected: `valid YAML` printed; no traceback.
 
 The release workflow already sets up Python, Node, and backend deps (lines 48-109 of the current file). We only need to insert the regenerate + assert step *before* `Run frontend validation` (currently around line 160).
 
-- [ ] **Step 1: Locate the insertion point**
+- [x] **Step 1: Locate the insertion point**
 
 ```bash
 grep -n "Run frontend validation\|Install frontend dependencies" /Users/asuka/code/magi/.github/workflows/release.yml
@@ -469,7 +471,7 @@ grep -n "Run frontend validation\|Install frontend dependencies" /Users/asuka/co
 
 Expected: two line numbers showing `Install frontend dependencies` first, then `Run frontend validation`. The new step goes between them.
 
-- [ ] **Step 2: Insert the drift-check step**
+- [x] **Step 2: Insert the drift-check step**
 
 Open `/Users/asuka/code/magi/.github/workflows/release.yml`. Find the block (approximately lines 155-167):
 
@@ -515,7 +517,7 @@ Insert this new step between them so the block becomes:
           npm run lint
 ```
 
-- [ ] **Step 3: Validate the YAML**
+- [x] **Step 3: Validate the YAML**
 
 ```bash
 python -c "import yaml; yaml.safe_load(open('/Users/asuka/code/magi/.github/workflows/release.yml'))" && echo "valid YAML"
@@ -531,7 +533,7 @@ Expected: `valid YAML`.
 
 This task does **not** modify committed state. It verifies that the drift logic actually fires when generated.ts is out of date.
 
-- [ ] **Step 1: Simulate drift**
+- [x] **Step 1: Simulate drift**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -539,7 +541,7 @@ cd /Users/asuka/code/magi
 echo "// intentionally-stale-marker-DELETE-ME" >> frontend/src/types/api/generated.ts
 ```
 
-- [ ] **Step 2: Re-run the generator**
+- [x] **Step 2: Re-run the generator**
 
 ```bash
 bash scripts/gen-api-types.sh
@@ -547,7 +549,7 @@ bash scripts/gen-api-types.sh
 
 Expected: regenerator overwrites generated.ts, removing the stray comment.
 
-- [ ] **Step 3: Confirm git sees no diff (regenerator restored the canonical form)**
+- [x] **Step 3: Confirm git sees no diff (regenerator restored the canonical form)**
 
 ```bash
 git diff --exit-code -- frontend/src/types/api/generated.ts && echo "OK: no drift after regen"
@@ -555,7 +557,7 @@ git diff --exit-code -- frontend/src/types/api/generated.ts && echo "OK: no drif
 
 Expected: `OK: no drift after regen`. This proves the workflow `git diff --exit-code` step will pass when the committed file is up to date.
 
-- [ ] **Step 4: Simulate the failure path**
+- [x] **Step 4: Simulate the failure path**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -571,7 +573,7 @@ fi
 
 Expected: the diff command exits nonzero, the script prints `EXPECTED: drift detected ...`, confirming the CI logic would catch a forgotten regenerate.
 
-- [ ] **Step 5: Clean up**
+- [x] **Step 5: Clean up**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -591,7 +593,7 @@ Expected: `clean`.
 - Modify: `.github/workflows/ci.yml` (from Task 6)
 - Modify: `.github/workflows/release.yml` (from Task 7)
 
-- [ ] **Step 1: Confirm only the two workflow files are staged-able**
+- [x] **Step 1: Confirm only the two workflow files are staged-able**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -600,7 +602,7 @@ git status --short -- .github/workflows/
 
 Expected: two `M` lines, one for `ci.yml`, one for `release.yml`. No other modified workflow.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add .github/workflows/ci.yml .github/workflows/release.yml
@@ -628,7 +630,7 @@ EOF
 )"
 ```
 
-- [ ] **Step 3: Verify the commit**
+- [x] **Step 3: Verify the commit**
 
 ```bash
 git log --oneline -2
@@ -643,7 +645,7 @@ Expected: latest commit subject `ci: assert frontend/src/types/api/generated.ts 
 
 This task confirms the local tree is healthy enough that the next PR-style validation (which is what will run on CI) would pass.
 
-- [ ] **Step 1: tsc, build, tests**
+- [x] **Step 1: tsc, build, tests**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -657,7 +659,7 @@ Expected:
 - `test:ci`: `Test Files  88 passed (88)` and `Tests  547 passed (547)` (or higher; never lower).
 - `build`: `✓ built in ...`.
 
-- [ ] **Step 2: Drift check passes against committed generated.ts**
+- [x] **Step 2: Drift check passes against committed generated.ts**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -667,7 +669,7 @@ git diff --exit-code -- frontend/src/types/api/generated.ts && echo "OK: generat
 
 Expected: `OK: ...`. Phase 0's central invariant.
 
-- [ ] **Step 3: Cargo + gateway sanity (we did not touch Rust, but confirm we did not accidentally regress)**
+- [x] **Step 3: Cargo + gateway sanity (we did not touch Rust, but confirm we did not accidentally regress)**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -676,7 +678,7 @@ cargo test -p magi-gateway 2>&1 | tail -5
 
 Expected: `test result: ok. ...` for each test binary; no `FAILED`.
 
-- [ ] **Step 4: Status check**
+- [x] **Step 4: Status check**
 
 ```bash
 cd /Users/asuka/code/magi

@@ -1,6 +1,8 @@
 # Plugin Capability Declaration + Install Consent Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Complete — both repository phases shipped and are covered by backend/frontend checks.
+
+> Historical execution record: every task below is complete; the checked steps preserve the rollout and its validation sequence.
 
 **Goal:** Formalize plugin capability declarations (`[[plugin.permissions.capabilities]]`), carry them through the registry like `official`, and gate install / update / sideload behind a grouped consent dialog. Declaration + disclosure + consent + review-checklist only — NO runtime enforcement (sandbox parked).
 
@@ -57,12 +59,12 @@ All Phase A tasks run from `/Users/asuka/code/magi-plugins`.
 **Files:**
 - Modify: `scripts/build-registry.py`
 
-- [ ] **Step 1: Read the current build_entry + main**
+- [x] **Step 1: Read the current build_entry + main**
 
 Run: `sed -n '46,114p' scripts/build-registry.py`
 Confirm: `build_entry(plugin_dir, official_ids)` builds `entry`, sets `entry["contribution_types"]` (~:79); `main()` loops `build_entry(child, official_ids)` and writes `registry.json`.
 
-- [ ] **Step 2: Add the known-capability set + a copy/validate helper**
+- [x] **Step 2: Add the known-capability set + a copy/validate helper**
 
 In `scripts/build-registry.py`, after the `OFFICIAL_ALLOWLIST_PATH` constant (~:21), add:
 
@@ -78,7 +80,7 @@ KNOWN_CAPABILITIES = {
 }
 ```
 
-- [ ] **Step 3: Copy capabilities in build_entry**
+- [x] **Step 3: Copy capabilities in build_entry**
 
 In `build_entry`, right after the `entry["contribution_types"] = ...` line (~:79), add:
 
@@ -89,7 +91,7 @@ In `build_entry`, right after the `entry["contribution_types"] = ...` line (~:79
         entry["capabilities"] = capabilities  # verbatim; validated in main()
 ```
 
-- [ ] **Step 4: Validate against the known set in main() before writing**
+- [x] **Step 4: Validate against the known set in main() before writing**
 
 In `main()`, after the `for child in ...` loop builds `entries` and before constructing `registry`, add:
 
@@ -113,7 +115,7 @@ In `main()`, after the `for child in ...` loop builds `entries` and before const
 
 (`sys` is already imported.)
 
-- [ ] **Step 5: Verify build still runs clean (no capabilities yet)**
+- [x] **Step 5: Verify build still runs clean (no capabilities yet)**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -122,7 +124,7 @@ git diff --exit-code -- registry.json && echo "NEUTRAL: no plugin declares capab
 ```
 Expected: `NEUTRAL: ...` (registry.json unchanged — no plugin declares capabilities until Task A2).
 
-- [ ] **Step 6: Verify the gate rejects an unknown capability**
+- [x] **Step 6: Verify the gate rejects an unknown capability**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -137,7 +139,7 @@ git checkout -- plugins/git_activity/plugin.toml
 ```
 Expected: prints `! git-activity: 'bogus_xyz'` and `exit=1`. Then the checkout reverts it.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -155,7 +157,7 @@ git commit -m "feat(registry): validate + propagate plugin capability declaratio
 
 > **TOML placement rule:** `[[plugin.permissions.capabilities]]` is a fully-qualified array-of-tables. Append the blocks at the **end of the file** (after any existing `[plugin.*]` subtables) — this never breaks the `[plugin]` scalar keys. For `screenshot_timeline`, also delete the legacy `declares = [...]` line and KEEP `memory_access`.
 
-- [ ] **Step 1: Append capability blocks to each plugin.toml**
+- [x] **Step 1: Append capability blocks to each plugin.toml**
 
 Add the following block to the END of each file (exact `reason_i18n` text included; adjust a `scope` path only if it contradicts the plugin's actual reader):
 
@@ -297,7 +299,7 @@ reason_i18n = { en = "Run the bundled OCR/vision helper", "zh-CN" = "运行随�
 
 (`browser_history_core` — no change; it is a hidden library.)
 
-- [ ] **Step 2: Regenerate the registry (two-step pipeline)**
+- [x] **Step 2: Regenerate the registry (two-step pipeline)**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -306,7 +308,7 @@ echo "exit=$?"
 ```
 Expected: `exit=0` (no unknown-capability error), 15 plugins printed.
 
-- [ ] **Step 3: Verify capabilities landed + behavior-neutral elsewhere**
+- [x] **Step 3: Verify capabilities landed + behavior-neutral elsewhere**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -326,7 +328,7 @@ git diff --stat -- registry.json
 ```
 Expected: assertions pass; `git diff --stat` shows registry.json changed (only `capabilities` added — other fields untouched).
 
-- [ ] **Step 4: Document the convention in agents.md**
+- [x] **Step 4: Document the convention in agents.md**
 
 In `/Users/asuka/code/magi-plugins/agents.md`, under the **Do** list, add:
 ```markdown
@@ -337,7 +339,7 @@ And under **Don't**:
 - Don't declare a capability outside the known set — `build-registry.py` will fail the build. Adding a new capability requires updating the SDK + frontend too.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -351,7 +353,7 @@ git commit -m "feat(plugins): declare capabilities for all plugins; regenerate r
 
 ## Task A3: Phase A verification
 
-- [ ] **Step 1: Registry consistent, CI-equivalent green**
+- [x] **Step 1: Registry consistent, CI-equivalent green**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -374,7 +376,7 @@ All Phase B tasks run from `/Users/asuka/code/magi`. Backend tests: `cd backend 
 - Modify: `backend/src/magi/plugins/contracts.py`
 - Test: `backend/tests/plugins/test_capability_contracts.py` (create)
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `backend/tests/plugins/test_capability_contracts.py`:
 ```python
@@ -446,12 +448,12 @@ def test_registry_entry_top_level_capabilities():
     assert e.capabilities[0].capability == "calendar"
 ```
 
-- [ ] **Step 2: Run, verify failure**
+- [x] **Step 2: Run, verify failure**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_contracts.py -v`
 Expected: FAIL (`ImportError: PluginCapability`).
 
-- [ ] **Step 3: Add the models to the SDK**
+- [x] **Step 3: Add the models to the SDK**
 
 In `sdk/src/magi_plugin_sdk/contracts.py`, after `class LocalizedText` (~:214), add:
 ```python
@@ -504,16 +506,16 @@ In `class PluginRegistryEntry`, after the `suggestion_descriptor` field (~:383),
     ``[[plugin.permissions.capabilities]]`` by build-registry.py."""
 ```
 
-- [ ] **Step 4: Re-export from the backend contracts module**
+- [x] **Step 4: Re-export from the backend contracts module**
 
 In `backend/src/magi/plugins/contracts.py`, add `PluginCapability,` and `PluginPermissions,` to the import list from `magi_plugin_sdk.contracts` (alphabetical-ish, near `PluginContribution`).
 
-- [ ] **Step 5: Run tests, verify pass**
+- [x] **Step 5: Run tests, verify pass**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_contracts.py -v`
 Expected: all 6 PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -535,7 +537,7 @@ git commit -m "feat(sdk): PluginCapability/PluginPermissions + manifest/registry
 - Modify: `backend/src/magi/api/routers/plugins_install_jobs.py` (persist on update job)
 - Test: `backend/tests/plugins/test_capability_consent.py` (create)
 
-- [ ] **Step 1: Read the exact integration sites**
+- [x] **Step 1: Read the exact integration sites**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -547,7 +549,7 @@ sed -n '150,162p' backend/src/magi/api/routers/plugins_registry_routes.py
 ```
 Confirm the sites referenced below.
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 Create `backend/tests/plugins/test_capability_consent.py`:
 ```python
@@ -597,12 +599,12 @@ def test_projection_consented_none_when_absent():
     assert resp.manifest.capabilities[0].capability == "calendar"
 ```
 
-- [ ] **Step 3: Run, verify failure**
+- [x] **Step 3: Run, verify failure**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_consent.py -v`
 Expected: FAIL (`PluginSettings` has no `consented_capabilities`; projection lacks fields).
 
-- [ ] **Step 4: Add `consented_capabilities` to PluginSettings**
+- [x] **Step 4: Add `consented_capabilities` to PluginSettings**
 
 In `backend/src/magi/config/plugin_models.py`, add the import at the top (after line 7):
 ```python
@@ -617,7 +619,7 @@ In `class PluginSettings`, after `official` (~:22):
     )
 ```
 
-- [ ] **Step 5: Add capabilities to the response schemas**
+- [x] **Step 5: Add capabilities to the response schemas**
 
 In `backend/src/magi/api/routers/plugins_schemas.py`, add after the imports (line 7):
 ```python
@@ -633,14 +635,14 @@ In `class PluginRegistryEntryResponse`, after `update_available` (~:87):
     capabilities: list[PluginCapability] = Field(default_factory=list)
 ```
 
-- [ ] **Step 6: Map capabilities in the registry route**
+- [x] **Step 6: Map capabilities in the registry route**
 
 In `backend/src/magi/api/routers/plugins_registry_routes.py`, in the `PluginRegistryEntryResponse(...)` construction (~:68-87), add before the closing `)`:
 ```python
                 capabilities=entry.capabilities,
 ```
 
-- [ ] **Step 7: Wire the two manifest projection sites**
+- [x] **Step 7: Wire the two manifest projection sites**
 
 In `backend/src/magi/api/routers/plugins_common.py`, in the `PluginManifestResponse(...)` at `_serialize_manifest` (~:133-144) add before the close:
 ```python
@@ -653,7 +655,7 @@ In `backend/src/magi/api/routers/plugins_common.py`, in the `PluginManifestRespo
 ```
 In `_serialize_package_lightweight`'s `PluginManifestResponse(...)` (~:602-613) add the same two lines (it already has `packages` resolved above).
 
-- [ ] **Step 8: Persist consented set on registry install**
+- [x] **Step 8: Persist consented set on registry install**
 
 In `plugins_common.py` `_lightweight_install` (~:417), after `package_config["official"] = bool(entry.official)`:
 ```python
@@ -675,7 +677,7 @@ Also set the manifest's permissions in `_lightweight_install`'s `PluginManifest(
             permissions=PluginPermissions(capabilities=list(entry.capabilities)),
 ```
 
-- [ ] **Step 9: Persist consented set on registry update**
+- [x] **Step 9: Persist consented set on registry update**
 
 In `backend/src/magi/api/routers/plugins_install_jobs.py` `_run_registry_update`, after `new_state = await asyncio.to_thread(manager.install_plugin_from_directory, ...)` (~:239) and before `job.complete(...)`:
 ```python
@@ -702,17 +704,17 @@ And in the sync route `update_plugin` (`plugins_registry_routes.py` ~:154, after
     )
 ```
 
-- [ ] **Step 10: Run tests, verify pass**
+- [x] **Step 10: Run tests, verify pass**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_consent.py tests/plugins/test_capability_contracts.py -v`
 Expected: all PASS.
 
-- [ ] **Step 11: Regression — plugins suite**
+- [x] **Step 11: Regression — plugins suite**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/ -q 2>&1 | tail -15`
 Expected: no NEW failures (the 7 pre-existing chrome-history discovery failures noted in #1/#2 may remain).
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -735,12 +737,12 @@ git commit -m "feat(plugins): surface capabilities on registry API; persist cons
 - Modify: `backend/src/magi/api/routers/plugins_schemas.py` (response reuse note)
 - Test: append to `backend/tests/plugins/test_capability_consent.py`
 
-- [ ] **Step 1: Read the archive install internals to reuse**
+- [x] **Step 1: Read the archive install internals to reuse**
 
 Run: `sed -n '325,360p' backend/src/magi/plugins/installation.py`
 Confirm `install_plugin_from_archive` does `self._extract_archive(archive_path, tmp_path)` → `self._find_manifest_in_tree(tmp_path)` → `self._load_manifest(manifest_file, source="external")`. The inspect method reuses exactly these without copying to the user root or persisting.
 
-- [ ] **Step 2: Write failing test**
+- [x] **Step 2: Write failing test**
 
 Append to `backend/tests/plugins/test_capability_consent.py`:
 ```python
@@ -777,12 +779,12 @@ def test_inspect_reads_capabilities_without_installing(tmp_path):
 ```
 > If `PluginManager.__new__` lacks the helper methods because they live on `PluginInstallationMixin`, instantiate the real manager fixture used by sibling tests instead (check `tests/plugins/conftest.py`); the assertion on the returned manifest is the point.
 
-- [ ] **Step 3: Run, verify failure**
+- [x] **Step 3: Run, verify failure**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_consent.py::test_inspect_reads_capabilities_without_installing -v`
 Expected: FAIL (`no attribute 'inspect_plugin_archive'`).
 
-- [ ] **Step 4: Implement `inspect_plugin_archive`**
+- [x] **Step 4: Implement `inspect_plugin_archive`**
 
 In `backend/src/magi/plugins/installation.py`, in `PluginInstallationMixin`, after `install_plugin_from_archive` (~ end of that method, before the next method):
 ```python
@@ -800,7 +802,7 @@ In `backend/src/magi/plugins/installation.py`, in `PluginInstallationMixin`, aft
 ```
 (`tempfile` and `Path` are already imported in this module.)
 
-- [ ] **Step 5: Add the inspect route**
+- [x] **Step 5: Add the inspect route**
 
 In `backend/src/magi/api/routers/plugins_install_routes.py`, add (reuse the archive-extension validation shape from `start_plugin_upload_install_job`):
 ```python
@@ -848,12 +850,12 @@ async def inspect_plugin_upload(file: UploadFile):
 ```
 Add `PluginManifestResponse` to the imports from `.plugins_schemas` at the top of the file, and add `"inspect_plugin_upload",` to `__all__`.
 
-- [ ] **Step 6: Run tests, verify pass**
+- [x] **Step 6: Run tests, verify pass**
 
 Run: `cd backend && ../.venv/bin/python -m pytest tests/plugins/test_capability_consent.py -v`
 Expected: all PASS (incl. the inspect test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -873,7 +875,7 @@ git commit -m "feat(plugins): /install/upload/inspect endpoint for sideload cons
 - Create: `frontend/src/__tests__/pluginCapabilities.test.ts`
 - Regenerate: `frontend/src/types/api/generated.ts`
 
-- [ ] **Step 1: Add types + inspectUpload to the API client**
+- [x] **Step 1: Add types + inspectUpload to the API client**
 
 In `frontend/src/api/modules/plugins.ts`, add the capability type (near the top, after the status types ~line 6):
 ```typescript
@@ -907,7 +909,7 @@ Add a method to `pluginsApi` (near the upload methods ~:469):
   },
 ```
 
-- [ ] **Step 2: Write failing vitest for the capability lib**
+- [x] **Step 2: Write failing vitest for the capability lib**
 
 Create `frontend/src/__tests__/pluginCapabilities.test.ts`:
 ```typescript
@@ -970,12 +972,12 @@ describe('capabilitiesExceedingConsent', () => {
 });
 ```
 
-- [ ] **Step 3: Run, verify failure**
+- [x] **Step 3: Run, verify failure**
 
 Run: `cd frontend && npx vitest run src/__tests__/pluginCapabilities.test.ts`
 Expected: FAIL (module not found).
 
-- [ ] **Step 4: Implement the capability lib**
+- [x] **Step 4: Implement the capability lib**
 
 Create `frontend/src/lib/pluginCapabilities.ts`:
 ```typescript
@@ -1047,18 +1049,18 @@ export function capabilitiesExceedingConsent(
 }
 ```
 
-- [ ] **Step 5: Run tests, verify pass**
+- [x] **Step 5: Run tests, verify pass**
 
 Run: `cd frontend && npx vitest run src/__tests__/pluginCapabilities.test.ts`
 Expected: all PASS.
 
-- [ ] **Step 6: Regenerate API types from backend OpenAPI**
+- [x] **Step 6: Regenerate API types from backend OpenAPI**
 
 Run: `cd frontend && npm run gen:api-types`
 Then: `git diff --stat -- src/types/api/generated.ts`
 Expected: generated.ts now includes `capabilities` / `consented_capabilities` on the plugin manifest + registry schemas. (CI drift-checks this.)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -1079,7 +1081,7 @@ git commit -m "feat(frontend): plugin capability types, category map, consent-di
 - Modify: `frontend/src/components/settings/PluginMarketplace.tsx`
 - Modify: `frontend/src/i18n/locales/en/app.json`, `frontend/src/i18n/locales/zh-CN/app.json`
 
-- [ ] **Step 1: Add i18n strings (en + zh-CN)**
+- [x] **Step 1: Add i18n strings (en + zh-CN)**
 
 In `frontend/src/i18n/locales/en/app.json`, under `settings.marketplace`, add a `consent` and a `capability` block:
 ```json
@@ -1136,7 +1138,7 @@ In `frontend/src/i18n/locales/zh-CN/app.json`, the same keys with zh-CN values:
 }
 ```
 
-- [ ] **Step 2: Write failing render test**
+- [x] **Step 2: Write failing render test**
 
 Create `frontend/src/__tests__/PluginConsentDialog.test.tsx`:
 ```tsx
@@ -1176,12 +1178,12 @@ describe('PluginConsentDialog', () => {
 });
 ```
 
-- [ ] **Step 3: Run, verify failure**
+- [x] **Step 3: Run, verify failure**
 
 Run: `cd frontend && npx vitest run src/__tests__/PluginConsentDialog.test.tsx`
 Expected: FAIL (component not found).
 
-- [ ] **Step 4: Implement the consent dialog**
+- [x] **Step 4: Implement the consent dialog**
 
 Create `frontend/src/components/plugins/PluginConsentDialog.tsx`:
 ```tsx
@@ -1313,12 +1315,12 @@ export default PluginConsentDialog;
 ```
 > Verify the named exports `Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle` exist in `frontend/src/components/ui/dialog.tsx`; match the actual export names if they differ.
 
-- [ ] **Step 5: Run the dialog test, verify pass**
+- [x] **Step 5: Run the dialog test, verify pass**
 
 Run: `cd frontend && npx vitest run src/__tests__/PluginConsentDialog.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 6: Wire the dialog into PluginMarketplace**
+- [x] **Step 6: Wire the dialog into PluginMarketplace**
 
 In `frontend/src/components/settings/PluginMarketplace.tsx`:
 
@@ -1471,7 +1473,7 @@ Update the update button (~:340) `onClick={() => void handleUpdate(entry.plugin_
       )}
 ```
 
-- [ ] **Step 7: Type-check + run frontend tests**
+- [x] **Step 7: Type-check + run frontend tests**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -1480,7 +1482,7 @@ npx vitest run src/__tests__/pluginCapabilities.test.ts src/__tests__/PluginCons
 ```
 Expected: type-check clean; both test files PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -1496,7 +1498,7 @@ git commit -m "feat(frontend): install/update/sideload consent dialog wired into
 
 ## Task B6: Phase B verification
 
-- [ ] **Step 1: Backend — capability tests + plugins suite**
+- [x] **Step 1: Backend — capability tests + plugins suite**
 
 ```bash
 cd /Users/asuka/code/magi/backend
@@ -1505,7 +1507,7 @@ cd /Users/asuka/code/magi/backend
 ```
 Expected: new tests PASS; no NEW failures (the 7 pre-existing chrome-history discovery failures may remain).
 
-- [ ] **Step 2: Frontend — full test + type-check + lint**
+- [x] **Step 2: Frontend — full test + type-check + lint**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -1515,7 +1517,7 @@ npm run lint 2>&1 | tail -15
 ```
 Expected: type-check clean; tests PASS; lint no new errors on the touched files.
 
-- [ ] **Step 3: API-types drift check**
+- [x] **Step 3: API-types drift check**
 
 ```bash
 cd /Users/asuka/code/magi/frontend
@@ -1524,7 +1526,7 @@ git diff --exit-code -- src/types/api/generated.ts && echo "api types in sync"
 ```
 Expected: `api types in sync` (already committed in B4; regeneration is idempotent).
 
-- [ ] **Step 4: Gateway sanity (untouched)**
+- [x] **Step 4: Gateway sanity (untouched)**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -1532,7 +1534,7 @@ cargo test -p magi-gateway 2>&1 | tail -5
 ```
 Expected: `test result: ok` for each binary.
 
-- [ ] **Step 5: Status + log**
+- [x] **Step 5: Status + log**
 
 ```bash
 cd /Users/asuka/code/magi

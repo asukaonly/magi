@@ -10,7 +10,7 @@ It is the implementation-facing guide for:
 - contributors wiring new tools, timeline sensors, channels, or plugin ingress handlers
 - frontend contributors building settings surfaces for plugin-backed capabilities
 
-The current system unifies `tool`, `sensor`, and `channel` plugin contributions under one package model.
+The current contracts unify `tool`, `sensor`, `channel`, `skill`, and `hook` contributions under one package model; runtime registration for skills remains owned by the skill-loading subsystem.
 
 ## Design Goals
 
@@ -803,8 +803,8 @@ plugin runtime.
 
 In the current codebase:
 
-- `ContributionType` contains `tool`, `sensor`, and `channel`
-- `PluginManager` registers only tools, sensors, and channels
+- `ContributionType` contains `tool`, `sensor`, `channel`, `skill`, and `hook`
+- `PluginManager` registers tools, sensors, channels, and hooks; skills use the separate skill-loading runtime
 - the frontend settings UI exposes plugin-backed sections for installed plugins, timeline sources, and channels only
 - there is no `get_actions()` hook or `ActionRegistry` implementation under `backend/src/magi/`
 
@@ -825,7 +825,7 @@ The marketplace index is a `registry.json` file at the repository root containin
 - `description` - short description
 - `author` - plugin author
 - `official` - whether the plugin is maintained by the Magi team
-- `contribution_types` - array of capability types supported by the current runtime (`sensor`, `channel`, `tool`)
+- `contribution_types` - array of declared contribution types supported by the current contracts (`sensor`, `channel`, `tool`, `skill`, `hook`)
 - `platforms` - array of supported platforms (`macos`, `windows`, `linux`)
 
 ### Installation Flow

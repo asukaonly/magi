@@ -31,24 +31,7 @@ Deferred unless profiling or product validation says otherwise:
 - Memory pipeline process isolation.
 - Repository-wide backend typing strictness.
 
-### 2. Persona registry migration and frontend integration
-
-Status: done
-
-Why it is still open:
-
-- The persona registry backend (PersonaRepository, seed service, evolution engine persona_id scoping, `/api/personas/*` routes) is implemented and tested.
-- The main frontend personality surface and onboarding flow now use the persona registry path.
-- Quick onboarding now selects the default persona from locale-aware seed metadata instead of a hardcoded seed slug.
-- Existing file-based persona JSON configs now require one-off local migration work when they need to be imported into the registry.
-- The old in-memory `current_state.py` bridge has been retired; active persona runtime state lives in `active_persona.py`.
-- Legacy `/api/personality` slug/list reads now stay registry-backed; bundled JSON preset reads remain isolated behind `/api/personalities/*`.
-
-Completed:
-
-- Legacy slug/list/current personality routes are no longer part of the public API surface; registry-backed product flows use `/api/personas/*` and bundled preset reads use `/api/personalities/*`.
-
-### 3. Finish the lifecycle-based memory implementation
+### 2. Finish the lifecycle-based memory implementation
 
 Status: active
 
@@ -63,7 +46,7 @@ Current focus areas:
 - finish retrieval and prompt integration against the lifecycle model
 - remove superseded legacy memory modules once the new path fully owns production behavior
 
-### 4. Redesign persona runtime around per-turn planning
+### 3. Redesign persona runtime around per-turn planning
 
 Status: active
 
@@ -91,7 +74,7 @@ Recent progress:
 - Frontend persona validation is now shared between the editor and save flow, with minimum and expert checks for registers, triggers, quiet hours, examples, layers, and bootstrap content.
 - The planner now suppresses non-essential signature triggers during tool execution and uses more reliable Chinese condition overlap for natural-language trigger activation.
 
-### 5. Continue runtime boundary cleanup
+### 4. Continue runtime boundary cleanup
 
 Status: active
 
@@ -107,7 +90,7 @@ Recent progress:
 - Removed unused runtime binding accessors for message bus, user-message sensor, skill loader, and skill runner; those objects remain lifecycle/container-owned without being public boundary helpers.
 - Moved LLM pool, chat store/projector, memory services, plugin/sensor services, skill indexer, runtime trace store, control-plane services, and background task manager access behind domain-owned providers. `core/runtime_bindings.py` now only exposes the runtime command queue and agent runtime boundary accessors.
 
-### 6. Keep service and transport boundaries thin
+### 5. Keep service and transport boundaries thin
 
 Status: active
 
@@ -117,29 +100,9 @@ Open items:
 - keep routers and websocket handlers transport-thin as new product behavior is added
 - avoid reintroducing direct runtime-domain lookups in transport code
 
-### 7. Retire legacy ``task_id`` alias from permission payload
-
-Status: done — ``turn_id`` is now the only permission payload runtime-turn identifier.
-
-Completed:
-
-- ``PermissionRequest.to_dict()`` emits ``turn_id`` only.
-- Frontend permission polling and modal projection read ``turn_id``
-  directly.
-- Backend/frontend tests cover the canonical payload shape.
-
 ## Maintenance Fixes
 
-### 1. Remove current backend warning debt
-
-Status: done — provider configuration helpers now use Pydantic v2 `model_config`.
-
-Completed:
-
-- resolved the Pydantic v2 deprecation warning from `ProviderConfig`.
-- updated the provider helper code to the current supported API shape.
-
-### 2. Retire or split oversized legacy modules
+### 1. Retire or split oversized legacy modules
 
 Status: active
 
@@ -157,7 +120,7 @@ Candidates to review next:
 - split large Rust gateway API handlers by route family and shared query helpers
 - keep the backend type gate directory/package-based instead of listing every extracted file manually
 
-### 3. Expand targeted validation where coverage is still weaker
+### 2. Expand targeted validation where coverage is still weaker
 
 Status: active
 

@@ -129,7 +129,7 @@ In scope for this ADR (one connected unit, one PR):
 
 ## Out of Scope
 
-- **P4 — driver convergence** (explore↔chat scaffold dedup; register `batch` as a standard driver) belongs to **ADR-0004's** Engine/Driver/Trigger line and depends on the driver-registry / trigger seam that is not yet built. Tracked there, not here.
+- **P4 — driver convergence** (explore↔chat scaffold dedup; register `batch` as a standard driver) belongs to **ADR-0004's** Engine/Driver/Trigger line. The trigger seam and typed engine front door are built; only the deferred driver registry remains. Tracked there, not here.
 
 ## Validation
 

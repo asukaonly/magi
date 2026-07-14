@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-02
 **Deciders:** maintainers (architecture owners)
-**Refines:** [ADR-0001 Control-Plane Extraction](./control-plane-extraction-adr.md) (supersedes its Action Items 6–7); builds on Plugin-Boundary Framework A (Phase 2 capability ports)
+**Refines:** [ADR-0001 Control-Plane Extraction](./control-plane-extraction-adr.md) (supersedes its Action Items 6–7); builds on the completed Plugin-Boundary Framework A capability ports
 
 ## Context
 
@@ -73,15 +73,15 @@ Capabilities the host chooses to share with plugins are exposed as **SDK ports o
 - `ask_user`/`detach` tools need NO relocation — they become ordinary capability tools using a port (Phase-2 pattern), staying in `tools.builtin`.
 - Future tools have a clear decision rule: "does it do work (capability → plugin path + SDK) or drive agent execution state (control → host path)?"
 
-**Harder / to revisit**
+**Harder / implementation follow-through**
 - A second registration source (composition root for control tools) — small, justified complexity; the registry model must support host-driven registration (it already supports plugin registration).
 - Per-capability judgment is required when new control-ish capabilities appear (classify as shareable-capability vs host-control). This ADR's table is the precedent.
-- `skills` still touch the permission gateway (`skills.lifecycle → control.permission.provider`) — addressed when `skills` is resolved (ADR-0001 Phase 5 / K cluster), under the same rules.
+- The skills boundary was resolved by treating `magi.skills` as host execution machinery, injecting the agent execution dependency, and keeping third-party skill content runtime-guarded.
 
 ## Action Items (supersede ADR-0001 AI 6–7)
 
-1. [ ] Add SDK `InteractionPort` (ask-user) + a detach capability port; expose on `ToolExecutionContext`; host adapters in the composition-root capability builder.
-2. [ ] Migrate `ask_user_question_tool` + `detach_to_background_tool` to use the ports; they stay in `tools.builtin` as capability tools; drop their control edges from the plugin-isolation baseline.
-3. [ ] Create `magi.control.tools` for `plan_mode` + `todo_write`; they import `magi.control` directly; register via the composition root into the shared registry; remove them from the plugin-isolation source scope.
-4. [ ] Add `magi.control` to plugin-isolation `forbidden_modules` (uniform with other host packages).
-5. [ ] Verify `plugin-isolation` baseline shrinks by the retired control edges; `2 kept, 0 broken`.
+1. [x] Added SDK interaction and detach ports on `ToolExecutionContext`, with host adapters in the capability builder.
+2. [x] Migrated `ask_user_question_tool` and `detach_to_background_tool` to injected ports while keeping them as capability tools.
+3. [x] Added `magi.control.tools` for plan/todo and `magi.agent.runtime_tools` for agent spawning, with host-side registration.
+4. [x] Added `magi.control` to plugin-isolation forbidden modules.
+5. [x] Retired the control edges and reduced the plugin-isolation baseline to zero; the rollout exit check passed.

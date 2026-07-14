@@ -58,7 +58,7 @@ The decisive principle is directionality: if chat is a surface on top of the age
 
 ## Action Items
 
-> **Implementation status (2026-06-02):** done as **ADR-0004 P2** (the Engine/Driver/Trigger seam's Ring 2↔3 inversion). `ChatTaskAgent` + its chat-driver service cluster now live in `chat/task_agent/` (L14); the handler bundle is typed against ring-2 Protocols; the factory is injected from the composition root; the `agent → chat` task-agent debt is retired (lint `2 kept, 0 broken`, chat behavior byte-faithful). `TimelineTaskAgent` and `ChatExecutionCoordinator` relocations remain (by-need).
+> **Implementation status (verified 2026-07-14):** the chat portion is complete as **ADR-0004 P2**. `ChatTaskAgent`, its service cluster, and `ChatExecutionCoordinator` live in `chat/task_agent/`; generic handlers live in `agent/task_agents/handlers/`; factory wiring is injected from the composition root. Only the separate `TimelineTaskAgent` relocation remains deferred by need.
 
 1. [x] Verified the dispatch (`TaskAgentManager`) selects by `target_task_agent_type` via injected factory callables and does NOT hard-import `ChatTaskAgent`.
 2. [x] Dispatch is injection-based (factory callables injected per type); a formal registry was unnecessary — the composition root injects `create_chat_agent`/`create_default_agent`.

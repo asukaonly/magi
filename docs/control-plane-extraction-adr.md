@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-05-31
 **Deciders:** maintainers (architecture owners)
-**Related:** [Layered Agent Architecture](./layered-agent-architecture.md), [Plugin Extension Architecture](./plugin-extension-architecture.md); Plugin-Boundary Framework A (Phase 2 capability ports, in progress)
+**Related:** [Layered Agent Architecture](./layered-agent-architecture.md), [Plugin Extension Architecture](./plugin-extension-architecture.md); Plugin-Boundary Framework A (Phase 2 capability ports, complete)
 
 > This is the first ADR in the repo. It establishes the `docs/control-plane-*` / `docs/<topic>-adr.md` convention: numbered, status-tracked decision records for cross-cutting architecture changes.
 
@@ -105,10 +105,10 @@ The tools dichotomy (capability vs runtime-actuator) is the connective insight: 
 - Interaction-answer delivery becomes transport→control; the broker's await/resolve path must preserve timeout semantics (`InteractionTimeoutError`).
 - Tool registration: relocated first-party tools must be registered without the registry (L7) importing agent/control (L11/L4) upward — registration happens at the composition root / agent layer, not via `magi.tools.core_tools`.
 
-**To revisit**
-- Whether `magi.skills` execution belongs in the agent layer wholesale (K), decided in the K sub-plan once control is extracted.
-- Whether the background task manager (`BackgroundPort`, Phase 2 D) should also fold into the control plane or stay a capability service (currently a port — leave unless a reason emerges).
-- Doc L-numbering: `events` stays L3; control becomes L4; old L4–L14 shift +1. Update `layered-agent-architecture.md` accordingly.
+**Resolved during implementation**
+- `magi.skills` is a host execution engine rather than plugin implementation code; its agent execution dependency is injected, and third-party skill content remains runtime-guarded.
+- The background task manager stays behind `BackgroundPort`; no control-plane move was needed.
+- Layer numbering was updated: `events` remains L3 and `control` is L4.
 
 ## Target Layering
 
@@ -129,13 +129,13 @@ import-linter `layers` contract: insert `control` between `plugins` and `events`
 
 ## Action Items
 
-1. [ ] Update `layered-agent-architecture.md`: add **L4 Control Plane** (`magi.control`), renumber old L4–L14 → L5–L15, document the "everything depends down on control" rule and the chat-subscribes-to-control-events contract.
+1. [x] Updated `layered-agent-architecture.md` with the L4 Control Plane, revised layer numbering, and the chat-owned control-event transcript projection.
 2. [x] Move `magi.agent.control/*` → `magi.control/*`; all importers now use the canonical package and the temporary `magi.agent.control` shims are removed.
 3. [x] Fold `magi.agent.run_control` (detach signal + `current_detach_signal`) into `magi.control.run_control`; all importers now use the canonical module and the temporary shim is removed.
-4. [ ] Invert `chat_state_persister`: remove `chat`/`transport` imports from control; add a `chat`-side subscriber that renders plan/todo/ask state from control events. Verify produced transcript messages are identical (tests).
-5. [ ] Move `InteractionBroker` answer-delivery to a downward `transport → control` call; preserve timeout/`InteractionTimeoutError` semantics.
-6. [ ] Relocate runtime-actuator tools (`ask_user_question`, `plan_mode`, `todo_write`, `detach_to_background`) and `agent_tool` out of `magi.tools.builtin` into a first-party location (agent/control-adjacent); register them via the composition root so the L7 registry does not import upward. They then import `magi.control` / `magi.agent` directly.
-7. [ ] Relocate the skill-execution core (`skills.subagent` orchestrator construction) into the agent layer (K); decide per-symbol port-vs-relocate for `skills → llm` / `chat.workspace`.
-8. [ ] import-linter: insert `control` layer above `events`; remove the now-downward control edges from both contracts' baselines; confirm the relocated actuator tools are no longer in `plugin-isolation` source scope; keep `magi.control` forbidden for genuine capability plugins.
-9. [ ] Clear the straggler `find_relevant_tools_tool -> magi.memory.provider` (reuse `MemoryQueryPort` or a small accessor) — unrelated to control, fold in opportunistically.
-10. [ ] Exit check: `plugin-isolation` baseline reaches 0 and layers-debt loses the `control → chat/transport` edges, with `2 kept, 0 broken`.
+4. [x] Replaced `chat_state_persister` with the chat-side `ControlTranscriptSubscriber`; parity tests cover plan/todo/ask transcript output.
+5. [x] Moved interaction answers to direct API/channel ingress calls into `InteractionBroker.resolve`; timeout semantics remain covered by broker and permission tests.
+6. [x] Resolved by ADR-0002: plan/todo live in `magi.control.tools`, the agent tool lives in `magi.agent.runtime_tools`, and ask/detach remain capability tools behind injected SDK ports.
+7. [x] Resolved the skills boundary by treating `magi.skills` as a host execution engine, injecting its agent execution dependency, and excluding only host skill machinery—not third-party content—from plugin implementation scope.
+8. [x] Added `control` to the layer/import rules, removed retired control edges, and kept `magi.control` forbidden to plugin implementation code.
+9. [x] Removed the direct memory-provider dependency from `find_relevant_tools_tool`; discovery now uses the tool index and injected capabilities.
+10. [x] The migration exit check reached a zero-edge plugin-isolation baseline and removed the control-to-chat/transport debt. Later unrelated layer checks are outside this ADR.

@@ -4,7 +4,7 @@ Context Decider - LLM-powered context and tool selection
 Decides:
 1. User intent classification
 2. Top 5 most relevant tools for the current request
-3. Memory layer to retrieve (TODO)
+3. Memory retrieval route and whether to expose the memory query tool
 
 This replaces the old ToolSelector for better tool selection.
 """

@@ -1,6 +1,8 @@
 # Plugin Registry `official` Authority Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Complete — the maintainer allowlist and app-side authority rules shipped.
+
+> Historical execution record: every task below is complete; the checked steps preserve the rollout and its validation sequence.
 
 **Goal:** Make the registry the sole authority for a plugin's `official` flag — a maintainer-controlled allowlist in `magi-plugins` decides it, and the `magi` app never trusts a non-builtin plugin's self-declared `official` from its local manifest.
 
@@ -42,7 +44,7 @@ All Phase A tasks run from `/Users/asuka/code/magi-plugins`.
 - Create: `official-plugins.json`
 - Modify: `scripts/build-registry.py`
 
-- [ ] **Step 1: Capture the current official set (migration baseline)**
+- [x] **Step 1: Capture the current official set (migration baseline)**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -56,14 +58,14 @@ cat official-plugins.json
 ```
 Expected: a JSON object with `official_plugin_ids` listing every plugin_id currently marked `official: true`. This seeds the allowlist so regeneration produces an unchanged registry.json (behavior-neutral migration).
 
-- [ ] **Step 2: Read the current build-registry.py official line**
+- [x] **Step 2: Read the current build-registry.py official line**
 
 ```bash
 grep -n "official" /Users/asuka/code/magi-plugins/scripts/build-registry.py
 ```
 Expected: `entry["official"] = meta.get("official", False)` (around line 42). Note the surrounding `build_entry(plugin_dir)` function signature and the `meta = data.get("plugin", {})` line above it.
 
-- [ ] **Step 3: Add allowlist loading + change the official derivation**
+- [x] **Step 3: Add allowlist loading + change the official derivation**
 
 In `scripts/build-registry.py`, near the top (after the `REGISTRY_PATH` constant), add a loader (the module already imports `json`):
 
@@ -103,7 +105,7 @@ In `main()`, load the ids once and pass them: `official_ids = load_official_ids(
 
 > Note: `entry["plugin_id"]` is already computed as `meta.get("id", plugin_dir.name)` in the existing code — reuse that exact expression for the allowlist membership test so the id matching is consistent (e.g. `calendar_plugin/` dir → `calendar` id).
 
-- [ ] **Step 4: Regenerate registry.json and verify it is UNCHANGED**
+- [x] **Step 4: Regenerate registry.json and verify it is UNCHANGED**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -114,7 +116,7 @@ git diff --exit-code -- registry.json && echo "MIGRATION NEUTRAL: registry.json 
 ```
 Expected: `MIGRATION NEUTRAL: registry.json unchanged`. If registry.json changed, the allowlist seed (Step 1) does not match the current official set — investigate before committing (a diff here means behavior would change for some plugin's badge).
 
-- [ ] **Step 5: Verify the authority actually flips a self-declared plugin**
+- [x] **Step 5: Verify the authority actually flips a self-declared plugin**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -137,7 +139,7 @@ PY
 ```
 Take the printed dir, temporarily append `official = true` under its `[plugin]` table, run `python scripts/build-registry.py`, and confirm it prints the `! ... ignored` warning AND that the regenerated registry entry for it has `official: false`. Then revert the plugin.toml edit (`git checkout -- plugins/<dir>/plugin.toml`) and re-run build-registry + gen_registry so registry.json is clean again.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -157,13 +159,13 @@ git commit -m "feat(registry): make official-plugins.json the authority for the 
 - Create/modify: `.github/CODEOWNERS`
 - Modify: `agents.md`
 
-- [ ] **Step 1: Check for an existing CODEOWNERS**
+- [x] **Step 1: Check for an existing CODEOWNERS**
 
 ```bash
 ls /Users/asuka/code/magi-plugins/.github/CODEOWNERS 2>/dev/null && cat /Users/asuka/code/magi-plugins/.github/CODEOWNERS || echo "(none)"
 ```
 
-- [ ] **Step 2: Add the allowlist ownership rule**
+- [x] **Step 2: Add the allowlist ownership rule**
 
 Create or append to `/Users/asuka/code/magi-plugins/.github/CODEOWNERS`:
 
@@ -176,7 +178,7 @@ Create or append to `/Users/asuka/code/magi-plugins/.github/CODEOWNERS`:
 
 (If a CODEOWNERS already exists, append only the comment + the `/official-plugins.json` line; don't disturb existing rules.)
 
-- [ ] **Step 3: Document in agents.md**
+- [x] **Step 3: Document in agents.md**
 
 In `/Users/asuka/code/magi-plugins/agents.md`, under the "Quick Rules (Do / Don't)" `**Don't**` list, add:
 
@@ -190,7 +192,7 @@ And under `**Do**`:
 - To mark a plugin official, add its `plugin_id` to `official-plugins.json` (maintainer-gated via CODEOWNERS), then regenerate the registry.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -202,7 +204,7 @@ git commit -m "docs(registry): gate official-plugins.json via CODEOWNERS; docume
 
 ## Task 3: Phase A verification
 
-- [ ] **Step 1: Registry neutral, allowlist authoritative, CI green**
+- [x] **Step 1: Registry neutral, allowlist authoritative, CI green**
 
 ```bash
 cd /Users/asuka/code/magi-plugins
@@ -232,7 +234,7 @@ All Phase B tasks run from `/Users/asuka/code/magi`. Use `../.venv/bin/python -m
 
 The registry-install persist point is already pinned: `plugins_common.py:390-393` builds a `package_config` dict and calls `save_config({f"plugins.packages.{entry.plugin_id}": package_config})` with the `PluginRegistryEntry` (`entry`) in hand. That's where `entry.official` gets persisted — same file as the helper and projection sites, so this whole task is one file plus config + manager + test.
 
-- [ ] **Step 1: Read the exact integration sites first**
+- [x] **Step 1: Read the exact integration sites first**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -242,7 +244,7 @@ sed -n '110,120p;385,397p;556,568p' backend/src/magi/api/routers/plugins_common.
 ```
 Confirm: (a) `PluginSettings` fields and that `Optional`/`Field` are imported; (b) the `_persist_new_packages` else/library branches; (c) the three plugins_common sites — the two projection responses (`official=manifest.official` ~115, `official=m.official` ~565) and the registry-install `package_config` / `save_config` block (~390-393).
 
-- [ ] **Step 2: Write failing tests**
+- [x] **Step 2: Write failing tests**
 
 Create `backend/tests/plugins/test_official_authority.py`:
 
@@ -294,7 +296,7 @@ def test_plugin_settings_has_official_field():
 
 > The helper signature here takes `packages` explicitly for testability. The two projection call sites will pass `get_config().plugins.packages`.
 
-- [ ] **Step 3: Run, verify failure**
+- [x] **Step 3: Run, verify failure**
 
 ```bash
 cd /Users/asuka/code/magi/backend
@@ -302,7 +304,7 @@ cd /Users/asuka/code/magi/backend
 ```
 Expected: FAIL — `PluginSettings` has no `official`, `_authoritative_official` doesn't exist.
 
-- [ ] **Step 4: Add `official` to `PluginSettings`**
+- [x] **Step 4: Add `official` to `PluginSettings`**
 
 In `backend/src/magi/config/plugin_models.py`, in `class PluginSettings`, after `manifest_path`:
 
@@ -316,7 +318,7 @@ In `backend/src/magi/config/plugin_models.py`, in `class PluginSettings`, after 
 
 (Confirm `Optional` and `Field` are already imported in that file; they are used by the existing fields.)
 
-- [ ] **Step 5: Add the projection helper**
+- [x] **Step 5: Add the projection helper**
 
 In `backend/src/magi/api/routers/plugins_common.py`, add near the top (after imports):
 
@@ -335,7 +337,7 @@ def _authoritative_official(manifest, *, packages) -> bool:
     return bool(getattr(entry, "official", None)) if entry is not None else False
 ```
 
-- [ ] **Step 6: Wire the two projection sites**
+- [x] **Step 6: Wire the two projection sites**
 
 At `plugins_common.py:~115`, change `official=manifest.official,` to:
 ```python
@@ -347,7 +349,7 @@ At `plugins_common.py:~565`, change `official=m.official,` to:
 ```
 (Confirm `get_config` is imported in this module; if not, add `from magi.config import get_config` — match the existing import style in the file.)
 
-- [ ] **Step 7: Persist official at scan (conservative default)**
+- [x] **Step 7: Persist official at scan (conservative default)**
 
 In `manager.py` `_persist_new_packages`, the `updates[f"plugins.packages.{plugin_id}.*"]` assignments sit AFTER the `if/else` that computes `enabled`/`trusted`, so they run for both the library and non-library branches. Add one more shared line in that block (next to the existing `enabled`/`trusted`/`source`/`manifest_path` assignments):
 
@@ -358,7 +360,7 @@ In `manager.py` `_persist_new_packages`, the `updates[f"plugins.packages.{plugin
 ```
 This gives builtin its bundled `manifest.official`, and everything else (library + external) a conservative `False` — the registry-install path (Step 8) overwrites the external case with the authoritative value when applicable.
 
-- [ ] **Step 8: Persist registry official at install**
+- [x] **Step 8: Persist registry official at install**
 
 At `plugins_common.py:390-393`, the registry install builds `package_config` then saves it. Add the registry's `official` to that dict before the `save_config` call:
 
@@ -371,7 +373,7 @@ At `plugins_common.py:390-393`, the registry install builds `package_config` the
 ```
 Invariant: after a registry install, `config.plugins.packages[plugin_id].official == entry.official`. (Libraries get `entry.official` too, but they're never shown as official badges and the projection treats library/non-builtin uniformly — fine.)
 
-- [ ] **Step 9: Run the tests, verify pass**
+- [x] **Step 9: Run the tests, verify pass**
 
 ```bash
 cd /Users/asuka/code/magi/backend
@@ -379,7 +381,7 @@ cd /Users/asuka/code/magi/backend
 ```
 Expected: all 5 tests PASS.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -394,7 +396,7 @@ git commit -m "feat(plugins): registry is authoritative for official; ignore non
 
 ## Task 5: Phase B verification
 
-- [ ] **Step 1: Targeted + full plugin suite**
+- [x] **Step 1: Targeted + full plugin suite**
 
 ```bash
 cd /Users/asuka/code/magi/backend
@@ -403,7 +405,7 @@ cd /Users/asuka/code/magi/backend
 ```
 Expected: the 5 new tests pass. For the full dir: the 7 pre-existing `test_chrome_history_plugin.py` discovery failures (documented in the supply-chain work, unrelated to this change) may remain; NO new failures introduced by this task. If any other test breaks because it asserted `official` from a non-builtin manifest, update it to the authoritative path and note it.
 
-- [ ] **Step 2: Gateway sanity (untouched)**
+- [x] **Step 2: Gateway sanity (untouched)**
 
 ```bash
 cd /Users/asuka/code/magi
@@ -411,7 +413,7 @@ cargo test -p magi-gateway 2>&1 | tail -5
 ```
 Expected: `test result: ok` for each binary.
 
-- [ ] **Step 3: Status + log**
+- [x] **Step 3: Status + log**
 
 ```bash
 cd /Users/asuka/code/magi
