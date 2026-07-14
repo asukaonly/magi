@@ -29,6 +29,7 @@ class _FakePromptService:
     def __init__(self) -> None:
         self.call_llm_calls = 0
         self.event_contexts: list[dict[str, object] | None] = []
+        self.message_batches: list[list[dict[str, object]]] = []
 
     def augment_system_prompt_with_reply_context(
         self,
@@ -55,6 +56,7 @@ class _FakePromptService:
     ):
         self.call_llm_calls += 1
         self.event_contexts.append(event_context)
+        self.message_batches.append(list(messages))
         _ = (system_prompt, messages, disable_thinking, thinking_depth, json_mode, timeout_seconds)
         if llm_trace_callback is not None:
             callback_result = llm_trace_callback(
@@ -94,6 +96,63 @@ def _model_context_provider() -> ModelContextProfile:
         model_id="test-model",
         context_window=128_000,
         max_output_tokens=8_000,
+    )
+
+
+def _small_model_context_provider() -> ModelContextProfile:
+    return ModelContextProfile(
+        provider_id="test",
+        model_id="small-test-model",
+        context_window=1_000,
+        max_output_tokens=100,
+    )
+
+
+def _direct_chat_context(
+    *,
+    latest_message: str,
+    history: list[dict[str, object]],
+    session_summary: str | None = None,
+    session_origin: str | None = None,
+) -> ChatRuntimeContext:
+    return ChatRuntimeContext(
+        latest_fact=None,
+        recent_facts=[],
+        batch_facts=[],
+        agent_id="local_user",
+        agent_type="chat",
+        runtime_key="chat:local_user",
+        user_id="local_user",
+        session_id="session-1",
+        history_key="local_user::session-1",
+        history=history,
+        conversation_history=history,
+        active_orchestrations=[],
+        recent_tool_errors=[],
+        latest_user_message=latest_message,
+        incoming_fact_kind=IncomingFactKind.USER_MESSAGE,
+        latest_payload=UserMessagePayload(
+            user_id="local_user",
+            session_id="session-1",
+            content=latest_message,
+            turn_id="turn-1",
+        ),
+        session_summary=session_summary,
+        session_origin=session_origin,
+    )
+
+
+def _direct_execution_request(context: ChatRuntimeContext) -> SimpleNamespace:
+    return SimpleNamespace(
+        mode=ExecutionMode.DIRECT_LLM,
+        context=context,
+        intent=IntentDecision(
+            intent="chat",
+            difficulty="normal",
+            execution_mode=ExecutionMode.DIRECT_LLM,
+            reasoning="direct",
+        ),
+        tool_selection=ToolSelection(tools=[], reasoning="direct"),
     )
 
 
@@ -205,6 +264,83 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
 
     assert request.messages == [{"role": "user", "content": "hello"}]
     assert context_service.calls[0]["attachments"] == []
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_drops_raw_history_but_keeps_summary_before_send() -> None:
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+            model_context_provider=_small_model_context_provider,
+        )
+    )
+    context = _direct_chat_context(
+        latest_message="current question",
+        history=[
+            {"role": "user", "content": "oversized raw history " + "x" * 5_000}
+        ],
+        session_summary="The earlier discussion established the stable decision.",
+        session_origin="The session started with a context-window review.",
+    )
+    request = await handler.build_request(_direct_execution_request(context))
+
+    result = await handler.execute(request)
+
+    assert result.response_text == "final answer"
+    assert prompt_service.call_llm_calls == 1
+    sent_messages = prompt_service.message_batches[0]
+    assert "# Current Session Summary" in str(sent_messages[0]["content"])
+    assert all("oversized raw history" not in str(item["content"]) for item in sent_messages)
+    assert sent_messages[-1] == {"role": "user", "content": "current question"}
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_stops_before_provider_when_current_turn_is_too_large() -> None:
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+            model_context_provider=_small_model_context_provider,
+        )
+    )
+    context = _direct_chat_context(
+        latest_message="你" * 1_000,
+        history=[],
+    )
+    request = await handler.build_request(_direct_execution_request(context))
+
+    with language_context("en"):
+        result = await handler.execute(request)
+
+    assert "too long for the current core model" in result.response_text
+    assert result.llm_trace["context_window_exceeded"] is True
+    assert prompt_service.call_llm_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_allows_pressure_below_hard_capacity() -> None:
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+            model_context_provider=_small_model_context_provider,
+        )
+    )
+    context = _direct_chat_context(
+        latest_message="a" * 2_800,
+        history=[],
+    )
+    request = await handler.build_request(_direct_execution_request(context))
+
+    result = await handler.execute(request)
+
+    assert result.response_text == "final answer"
+    assert prompt_service.call_llm_calls == 1
+    assert prompt_service.message_batches[0][-1]["content"] == "a" * 2_800
 
 
 @pytest.mark.asyncio
@@ -689,12 +825,13 @@ async def test_function_calling_handler_adds_photo_workflow_guidance_when_photo_
 @pytest.mark.asyncio
 async def test_direct_llm_handler_builds_multimodal_message_for_image_attachments(tmp_path: Path) -> None:
     image_path = tmp_path / "diagram.png"
-    image_path.write_bytes(b"fake-image-bytes")
+    image_path.write_bytes(b"x" * 600_000)
 
+    prompt_service = _FakePromptService()
     handler = DirectLLMHandler(
         SimpleNamespace(
             context_service=_FakeContextService(),
-            prompt_service=_FakePromptService(),
+            prompt_service=prompt_service,
             model_context_provider=_model_context_provider,
         )
     )
@@ -750,6 +887,11 @@ async def test_direct_llm_handler_builds_multimodal_message_for_image_attachment
     assert request.messages[0]["content"][0]["type"] == "text"
     assert request.messages[0]["content"][1]["type"] == "image"
     assert request.messages[0]["content"][1]["mime_type"] == "image/png"
+
+    result = await handler.execute(request)
+
+    assert result.response_text == "final answer"
+    assert prompt_service.call_llm_calls == 1
 
 
 @pytest.mark.asyncio

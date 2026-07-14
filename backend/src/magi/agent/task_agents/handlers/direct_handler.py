@@ -5,11 +5,19 @@ from __future__ import annotations
 from typing import Any
 
 from ....agent.message_utils import append_latest_user_message
-from ....context.window_budget import build_context_window_budget, estimate_context_tokens
+from ....context.window_budget import (
+    ContextWindowBudget,
+    ContextWindowUsage,
+    build_context_window_budget,
+    estimate_context_tokens,
+    measure_context_window_usage,
+)
 from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
+from ....core.logger import get_logger
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
+from ....llm.model_context import ModelContextProfile
 from ..common import (
     BaseExecutionHandler,
     DirectLLMRequest,
@@ -27,6 +35,10 @@ from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ....runtime_trace import enrich_event_context_with_turn_trace
 
 IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
+CONTEXT_WINDOW_EXCEEDED_RESPONSE_KEY = "chat.context_window_exceeded"
+_DIRECT_IMAGE_INPUT_TOKEN_RESERVE = 4_096
+
+logger = get_logger(__name__)
 
 
 def _is_image_attachment(attachment: object) -> bool:
@@ -47,6 +59,33 @@ def _image_attachments_supported(context: object, attachments: list[object]) -> 
 
 def _image_vision_unsupported_response() -> str:
     return core_i18n.t(IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY)
+
+
+def _context_window_exceeded_response() -> str:
+    return core_i18n.t(CONTEXT_WINDOW_EXCEEDED_RESPONSE_KEY)
+
+
+def _messages_without_inline_image_data(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    sanitized_messages: list[dict[str, Any]] = []
+    image_count = 0
+    for message in messages:
+        sanitized_message = dict(message)
+        content = message.get("content")
+        if isinstance(content, list):
+            sanitized_blocks: list[Any] = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    image_count += 1
+                    sanitized_block = dict(block)
+                    sanitized_block.pop("data", None)
+                    sanitized_blocks.append(sanitized_block)
+                else:
+                    sanitized_blocks.append(block)
+            sanitized_message["content"] = sanitized_blocks
+        sanitized_messages.append(sanitized_message)
+    return sanitized_messages, image_count
 
 
 def _build_llm_event_context(context: object, turn_id: object) -> dict[str, object]:
@@ -100,6 +139,20 @@ class DirectLLMHandler(BaseExecutionHandler):
         resolver = getattr(self._deps, "attachment_resolver", None)
         return resolver if resolver is not None else NullAttachmentResolver()
 
+    def _current_context_budget(self) -> ContextWindowBudget:
+        provider = getattr(self._deps, "model_context_provider", None)
+        profile = (
+            provider()
+            if callable(provider)
+            else ModelContextProfile(
+                provider_id="unknown",
+                model_id="unknown",
+                context_window=None,
+                max_output_tokens=None,
+            )
+        )
+        return build_context_window_budget(profile)
+
     async def build_request(self, request: ExecutionRequest) -> DirectLLMRequest:
         attachments = resolve_effective_turn_attachments(
             request.context, resolver=self._attachment_resolver
@@ -133,7 +186,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             reply_context=getattr(request.context, "reply_context", None),
             recent_tool_state=getattr(request.context, "recent_tool_state", None),
         )
-        context_budget = build_context_window_budget(self._deps.model_context_provider())
+        context_budget = self._current_context_budget()
         history_budget = max(
             1,
             context_budget.compaction_trigger_tokens
@@ -181,6 +234,18 @@ class DirectLLMHandler(BaseExecutionHandler):
         if unsupported is not None:
             return unsupported
 
+        context_usage = self._fit_messages_to_input_capacity(
+            request,
+            budget=self._current_context_budget(),
+        )
+        if not context_usage.fits_input_capacity:
+            return self._build_context_window_exceeded_result(
+                request=request,
+                turn_id=turn_id,
+                llm_trace=llm_trace,
+                usage=context_usage,
+            )
+
         streaming_enabled = getattr(request.context, "streaming_chat_enabled", False)
         if streaming_enabled:
             return await self._execute_streaming(
@@ -196,6 +261,113 @@ class DirectLLMHandler(BaseExecutionHandler):
             event_context=event_context,
             turn_id=turn_id,
             llm_trace=llm_trace,
+        )
+
+    def _fit_messages_to_input_capacity(
+        self,
+        request: DirectLLMRequest,
+        *,
+        budget: ContextWindowBudget,
+    ) -> ContextWindowUsage:
+        usage = self._measure_context_usage(request, budget=budget)
+        if usage.fits_input_capacity:
+            return usage
+
+        turn = self._build_current_turn(request)
+        candidates = [
+            append_latest_user_message(
+                [],
+                turn,
+                resolver=self._attachment_resolver,
+                history_token_budget=budget.input_capacity,
+                session_summary=getattr(request.context, "session_summary", None),
+                session_origin=getattr(request.context, "session_origin", None),
+                reply_context=getattr(request.context, "reply_context", None),
+            ),
+            append_latest_user_message(
+                [],
+                turn,
+                resolver=self._attachment_resolver,
+                history_token_budget=budget.input_capacity,
+                reply_context=getattr(request.context, "reply_context", None),
+            ),
+        ]
+        for candidate in candidates:
+            if candidate == request.messages:
+                continue
+            request.messages = candidate
+            usage = self._measure_context_usage(request, budget=budget)
+            if usage.fits_input_capacity:
+                return usage
+        return usage
+
+    def _build_current_turn(self, request: DirectLLMRequest) -> UserTurnInput:
+        attachments = resolve_effective_turn_attachments(
+            request.context,
+            resolver=self._attachment_resolver,
+        )
+        attachments_for_model = (
+            attachments
+            if _image_attachments_supported(request.context, attachments)
+            else [attachment for attachment in attachments if not _is_image_attachment(attachment)]
+        )
+        return UserTurnInput(
+            text=request.context.latest_user_message,
+            attachments=attachments_for_model,
+            user_id=request.context.user_id,
+            session_id=request.context.session_id,
+        )
+
+    @staticmethod
+    def _measure_context_usage(
+        request: DirectLLMRequest,
+        *,
+        budget: ContextWindowBudget,
+    ) -> ContextWindowUsage:
+        messages, image_count = _messages_without_inline_image_data(request.messages)
+        usage = measure_context_window_usage(
+            budget,
+            {
+                "system_prompt": request.system_prompt,
+                "messages": messages,
+            },
+        )
+        if image_count == 0:
+            return usage
+        return ContextWindowUsage(
+            estimated_tokens=(
+                usage.estimated_tokens + image_count * _DIRECT_IMAGE_INPUT_TOKEN_RESERVE
+            ),
+            compaction_trigger_tokens=usage.compaction_trigger_tokens,
+            input_capacity=usage.input_capacity,
+        )
+
+    @staticmethod
+    def _build_context_window_exceeded_result(
+        *,
+        request: DirectLLMRequest,
+        turn_id: object,
+        llm_trace: dict[str, object],
+        usage: ContextWindowUsage,
+    ) -> ExecutionResult:
+        logger.warning(
+            "Direct chat prompt exceeds the active model input capacity | "
+            "estimated_tokens=%d input_capacity=%d",
+            usage.estimated_tokens,
+            usage.input_capacity,
+        )
+        return ExecutionResult(
+            mode=request.mode,
+            response_text=_context_window_exceeded_response(),
+            root_user_message=request.context.latest_user_message,
+            turn_id=turn_id,
+            llm_trace={
+                **llm_trace,
+                "context_window_exceeded": True,
+                "estimated_input_tokens": usage.estimated_tokens,
+                "input_capacity": usage.input_capacity,
+            },
+            ux_plan=_serialize_ux_plan(request.intent),
         )
 
     def _build_unsupported_image_result_if_needed(

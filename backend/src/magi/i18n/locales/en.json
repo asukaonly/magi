@@ -4,6 +4,7 @@
   },
   "chat": {
     "image_vision_unsupported": "I received an image, but the current core model does not support image input. Please switch to a vision-capable core model or resend the message with a text description.",
+    "context_window_exceeded": "This conversation is too long for the current core model. Please shorten the current message, start a new conversation, or choose a model with a larger context capacity.",
     "runtime": {
       "not_ready": {
         "llm_selection_pending": "AI runtime is not ready yet. Please complete the core or context_decider model configuration first.",

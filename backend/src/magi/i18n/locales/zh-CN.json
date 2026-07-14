@@ -4,6 +4,7 @@
   },
   "chat": {
     "image_vision_unsupported": "我收到了图片，但当前核心模型不支持图片输入。请切换到支持视觉能力的核心模型，或补充文字描述后再发送。",
+    "context_window_exceeded": "当前对话内容超过了核心模型可接收的长度。请缩短这条消息、开启新会话，或换用上下文容量更大的模型。",
     "runtime": {
       "not_ready": {
         "llm_selection_pending": "AI 运行时尚未就绪。请先完成核心模型或 context_decider 模型配置。",
