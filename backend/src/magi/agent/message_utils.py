@@ -73,6 +73,22 @@ def append_latest_user_message(
     return messages
 
 
+def group_prompt_history_turns(
+    messages: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Group normalized prompt history into atomic user-led exchanges."""
+    groups: list[list[dict[str, Any]]] = []
+    current_group: list[dict[str, Any]] = []
+    for message in _normalize_prompt_messages(messages):
+        if message.get("role") == "user" and current_group:
+            groups.append(current_group)
+            current_group = []
+        current_group.append(message)
+    if current_group:
+        groups.append(current_group)
+    return groups
+
+
 def build_recent_messages(
     history: list[dict[str, Any]] | None,
     *,

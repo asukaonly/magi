@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ....agent.message_utils import append_latest_user_message
+from ....agent.message_utils import (
+    append_latest_user_message,
+    group_prompt_history_turns,
+)
 from ....context.window_budget import (
     ContextWindowBudget,
     ContextWindowUsage,
@@ -269,37 +272,77 @@ class DirectLLMHandler(BaseExecutionHandler):
         *,
         budget: ContextWindowBudget,
     ) -> ContextWindowUsage:
+        turn = self._build_current_turn(request)
+        reply_context = getattr(request.context, "reply_context", None)
+        full_messages = append_latest_user_message(
+            request.context.history,
+            turn,
+            resolver=self._attachment_resolver,
+            history_token_budget=None,
+            session_summary=getattr(request.context, "session_summary", None),
+            session_origin=getattr(request.context, "session_origin", None),
+            reply_context=reply_context,
+        )
+        request.messages = full_messages
         usage = self._measure_context_usage(request, budget=budget)
         if usage.fits_input_capacity:
             return usage
 
-        turn = self._build_current_turn(request)
-        candidates = [
-            append_latest_user_message(
-                [],
-                turn,
-                resolver=self._attachment_resolver,
-                history_token_budget=budget.input_capacity,
-                session_summary=getattr(request.context, "session_summary", None),
-                session_origin=getattr(request.context, "session_origin", None),
-                reply_context=getattr(request.context, "reply_context", None),
-            ),
-            append_latest_user_message(
-                [],
-                turn,
-                resolver=self._attachment_resolver,
-                history_token_budget=budget.input_capacity,
-                reply_context=getattr(request.context, "reply_context", None),
-            ),
-        ]
-        for candidate in candidates:
-            if candidate == request.messages:
-                continue
+        current_messages = append_latest_user_message(
+            [],
+            turn,
+            resolver=self._attachment_resolver,
+            history_token_budget=None,
+            reply_context=reply_context,
+        )
+        raw_messages = append_latest_user_message(
+            request.context.history,
+            turn,
+            resolver=self._attachment_resolver,
+            history_token_budget=None,
+            reply_context=reply_context,
+        )
+        if not current_messages or raw_messages[-len(current_messages) :] != current_messages:
+            return usage
+
+        request.messages = raw_messages
+        raw_usage = self._measure_context_usage(request, budget=budget)
+        if raw_usage.fits_input_capacity:
+            return raw_usage
+
+        raw_history = raw_messages[: -len(current_messages)]
+        history_turns = group_prompt_history_turns(raw_history)
+        if not history_turns:
+            request.messages = full_messages
+            return usage
+
+        best_messages: list[dict[str, Any]] | None = None
+        best_usage: ContextWindowUsage | None = None
+        low = 1
+        high = len(history_turns)
+        while low <= high:
+            count = (low + high) // 2
+            candidate = [
+                message
+                for history_turn in history_turns[-count:]
+                for message in history_turn
+            ]
+            candidate.extend(current_messages)
             request.messages = candidate
-            usage = self._measure_context_usage(request, budget=budget)
-            if usage.fits_input_capacity:
-                return usage
-        return usage
+            candidate_usage = self._measure_context_usage(request, budget=budget)
+            if candidate_usage.fits_input_capacity:
+                best_messages = candidate
+                best_usage = candidate_usage
+                low = count + 1
+            else:
+                high = count - 1
+
+        if best_messages is not None and best_usage is not None:
+            request.messages = best_messages
+            return best_usage
+
+        request.messages = [*history_turns[-1], *current_messages]
+        return self._measure_context_usage(request, budget=budget)
 
     def _build_current_turn(self, request: DirectLLMRequest) -> UserTurnInput:
         attachments = resolve_effective_turn_attachments(

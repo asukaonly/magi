@@ -267,7 +267,41 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
 
 
 @pytest.mark.asyncio
-async def test_direct_llm_handler_drops_raw_history_but_keeps_summary_before_send() -> None:
+async def test_direct_llm_handler_restores_complete_tail_when_it_fits_hard_capacity() -> None:
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+            model_context_provider=_small_model_context_provider,
+        )
+    )
+    old_question = "older question " + "x" * 1_800
+    old_answer = "older answer " + "y" * 700
+    context = _direct_chat_context(
+        latest_message="current question " + "z" * 100,
+        history=[
+            {"role": "user", "content": old_question},
+            {"role": "assistant", "content": old_answer},
+        ],
+        session_summary="The summary covers only messages before this raw tail.",
+        session_origin="The session started with a context-window review.",
+    )
+    request = await handler.build_request(_direct_execution_request(context))
+    assert all(old_question not in str(item["content"]) for item in request.messages)
+
+    result = await handler.execute(request)
+
+    assert result.response_text == "final answer"
+    assert prompt_service.call_llm_calls == 1
+    sent_messages = prompt_service.message_batches[0]
+    assert any("# Current Session Summary" in str(item["content"]) for item in sent_messages)
+    assert any(old_question == item["content"] for item in sent_messages)
+    assert any(old_answer == item["content"] for item in sent_messages)
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_drops_stale_summary_and_keeps_recent_complete_turns() -> None:
     prompt_service = _FakePromptService()
     handler = DirectLLMHandler(
         SimpleNamespace(
@@ -279,7 +313,10 @@ async def test_direct_llm_handler_drops_raw_history_but_keeps_summary_before_sen
     context = _direct_chat_context(
         latest_message="current question",
         history=[
-            {"role": "user", "content": "oversized raw history " + "x" * 5_000}
+            {"role": "user", "content": "oversized old question " + "x" * 5_000},
+            {"role": "assistant", "content": "oversized old answer"},
+            {"role": "user", "content": "recent question"},
+            {"role": "assistant", "content": "recent answer"},
         ],
         session_summary="The earlier discussion established the stable decision.",
         session_origin="The session started with a context-window review.",
@@ -291,9 +328,41 @@ async def test_direct_llm_handler_drops_raw_history_but_keeps_summary_before_sen
     assert result.response_text == "final answer"
     assert prompt_service.call_llm_calls == 1
     sent_messages = prompt_service.message_batches[0]
-    assert "# Current Session Summary" in str(sent_messages[0]["content"])
-    assert all("oversized raw history" not in str(item["content"]) for item in sent_messages)
+    assert all("# Current Session Summary" not in str(item["content"]) for item in sent_messages)
+    assert all("oversized old" not in str(item["content"]) for item in sent_messages)
+    assert [item["content"] for item in sent_messages[:-1]] == [
+        "recent question",
+        "recent answer",
+    ]
     assert sent_messages[-1] == {"role": "user", "content": "current question"}
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_stops_when_latest_complete_turn_cannot_fit() -> None:
+    prompt_service = _FakePromptService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=_FakeContextService(),
+            prompt_service=prompt_service,
+            model_context_provider=_small_model_context_provider,
+        )
+    )
+    context = _direct_chat_context(
+        latest_message="continue from that answer",
+        history=[
+            {"role": "user", "content": "large previous question " + "x" * 5_000},
+            {"role": "assistant", "content": "large previous answer " + "y" * 5_000},
+        ],
+        session_summary="The summary does not cover the latest complete turn.",
+        session_origin="The session started with a context-window review.",
+    )
+    request = await handler.build_request(_direct_execution_request(context))
+
+    with language_context("en"):
+        result = await handler.execute(request)
+
+    assert "too long for the current core model" in result.response_text
+    assert prompt_service.call_llm_calls == 0
 
 
 @pytest.mark.asyncio

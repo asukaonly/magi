@@ -5,6 +5,7 @@ from pathlib import Path
 from magi.agent.message_utils import (
     _estimate_prompt_message_tokens,
     append_latest_user_message,
+    group_prompt_history_turns,
 )
 from magi.agent.run.ports import NullAttachmentResolver
 from magi.agent.task_agents.handlers.contracts import ChatReplyContext
@@ -79,6 +80,32 @@ def test_prompt_history_estimate_is_more_conservative_for_chinese_text() -> None
     )
 
     assert chinese_tokens > ascii_tokens * 3
+
+
+def test_group_prompt_history_turns_keeps_each_exchange_atomic() -> None:
+    groups = group_prompt_history_turns(
+        [
+            {"role": "user", "content": "question 1"},
+            {"role": "assistant", "content": "calling a tool"},
+            {"role": "tool", "content": "tool result"},
+            {"role": "assistant", "content": "answer 1"},
+            {"role": "user", "content": "question 2"},
+            {"role": "assistant", "content": "answer 2"},
+        ]
+    )
+
+    assert groups == [
+        [
+            {"role": "user", "content": "question 1"},
+            {"role": "assistant", "content": "calling a tool"},
+            {"role": "tool", "content": "tool result"},
+            {"role": "assistant", "content": "answer 1"},
+        ],
+        [
+            {"role": "user", "content": "question 2"},
+            {"role": "assistant", "content": "answer 2"},
+        ],
+    ]
 
 
 def test_append_latest_user_message_adds_origin_anchor_when_head_is_trimmed() -> None:
