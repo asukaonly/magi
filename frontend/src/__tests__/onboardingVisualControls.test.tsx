@@ -22,8 +22,10 @@ describe('onboarding visual controls', () => {
     );
 
     const primaryAction = screen.getByRole('button', { name: 'welcome.getStarted' });
-    expect(primaryAction).toHaveClass('h-11', 'rounded-xl', 'bg-foreground');
+    expect(primaryAction).toHaveClass('h-12', 'min-w-[9.5rem]', 'rounded-xl', 'bg-[#7b4d33]');
+    expect(primaryAction).not.toHaveClass('bg-foreground');
     expect(primaryAction).not.toHaveClass('rounded-[14px]');
+    expect(document.querySelector('img')?.parentElement).toHaveClass('mb-8');
 
     const chinese = screen.getByRole('button', { name: '中文' });
     const english = screen.getByRole('button', { name: 'EN' });

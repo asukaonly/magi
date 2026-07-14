@@ -31,11 +31,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center overflow-hidden bg-[#fbf4ea] dark:bg-[#171311]">
       {/* Decorative background */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(251,244,234,0.98)_0%,rgba(255,249,241,0.94)_48%,rgba(244,236,226,0.92)_100%)] dark:bg-[linear-gradient(135deg,rgba(23,19,17,0.98)_0%,rgba(31,25,21,0.96)_48%,rgba(21,17,16,0.96)_100%)]" />
-        <div className="absolute left-1/2 top-[-10rem] h-[30rem] w-[44rem] -translate-x-1/2 rounded-full bg-[#f2dcc3]/50 blur-3xl dark:bg-[#6b4c37]/25" />
-        <div className="absolute -bottom-24 -left-24 h-[24rem] w-[24rem] rounded-full bg-[#ecd28a]/28 blur-3xl dark:bg-[#74572f]/18" />
-        <div className="absolute -right-24 top-24 h-[22rem] w-[22rem] rounded-full bg-[#c7d6bb]/28 blur-3xl dark:bg-[#4d5d4e]/20" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.34)_0%,rgba(255,255,255,0)_64%)] dark:bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05)_0%,rgba(255,255,255,0)_64%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(251,244,234,0.98)_0%,rgba(255,249,241,0.95)_48%,rgba(244,236,226,0.94)_100%)] dark:bg-[linear-gradient(135deg,rgba(23,19,17,0.98)_0%,rgba(31,25,21,0.96)_48%,rgba(21,17,16,0.96)_100%)]" />
+        <div className="absolute left-1/2 top-[46%] h-[34rem] w-[52rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#efd6bc]/48 blur-3xl dark:bg-[#704d36]/24" />
+        <div className="absolute -bottom-24 -left-24 h-[24rem] w-[24rem] rounded-full bg-[#ecd28a]/24 blur-3xl dark:bg-[#74572f]/16" />
+        <div className="absolute -right-24 top-24 h-[22rem] w-[22rem] rounded-full bg-[#c7d6bb]/24 blur-3xl dark:bg-[#4d5d4e]/18" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,250,243,0.42)_0%,rgba(255,250,243,0)_60%)] dark:bg-[radial-gradient(ellipse_at_center,rgba(255,245,235,0.05)_0%,rgba(255,245,235,0)_60%)]" />
       </div>
 
       {/* Center content */}
@@ -46,7 +46,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         transition={{ duration: shouldReduceMotion ? 0 : 0.5, ease: 'easeOut' }}
       >
         {/* Logo / Brand */}
-        <div className="mb-10 inline-flex items-center gap-4">
+        <div className="mb-8 inline-flex items-center gap-4">
           <img
             src={magiMark}
             alt=""
@@ -67,7 +67,11 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <motion.button
           type="button"
           onClick={onContinue}
-          className={cn('group mt-14 inline-flex items-center justify-center gap-2.5', ONBOARDING_PRIMARY_ACTION_CLASS)}
+          className={cn(
+            'group mt-10 inline-flex items-center justify-center gap-2.5',
+            ONBOARDING_PRIMARY_ACTION_CLASS,
+            'h-12 min-w-[9.5rem] bg-[#7b4d33] px-6 text-[#fff8f0] shadow-[0_14px_30px_-20px_rgba(91,53,31,0.68)] hover:bg-[#6d422c] hover:shadow-[0_18px_34px_-20px_rgba(91,53,31,0.76)] focus-visible:ring-[#8b5737]/30 dark:bg-[#d39166] dark:text-[#241914] dark:hover:bg-[#dda57a] dark:focus-visible:ring-[#efb084]/35',
+          )}
           whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
