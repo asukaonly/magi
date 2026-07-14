@@ -15,16 +15,18 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.segments.preferences': '偏好',
     'memory.portrait.segments.relationships': '关系',
     'memory.portrait.segments.impression': '总体印象',
-    'memory.portrait.world.title': '你的世界',
-    'memory.portrait.world.meta': '基于 {{count}} 条理解',
-    'memory.portrait.world.empty': '还没有形成清晰的关联。',
-    'memory.portrait.world.rootLabel': '你',
-    'memory.portrait.world.rootTitle': 'Magi 眼中的你',
-    'memory.portrait.world.rootMeta': '把目前可信的线索收拢成一个简洁轮廓',
+    'memory.portrait.world.title': '关于你',
+    'memory.portrait.world.summaryTitle': 'Magi 目前这样理解你',
+    'memory.portrait.world.meta': '已形成 {{count}} 条理解',
     'memory.portrait.world.groups.identity': '身份信息',
     'memory.portrait.world.groups.projects': '长期项目',
     'memory.portrait.world.groups.preferences': '偏好与关注',
     'memory.portrait.world.groups.work_style': '协作方式',
+    'memory.portrait.empty.title': '还在认识你',
+    'memory.portrait.empty.body': '随着对话和来源逐渐积累，Magi 会在这里整理出你的长期项目、偏好与协作方式。',
+    'memory.portrait.empty.helper': '只有反复出现、较可信的线索，才会成为这里的长期理解。',
+    'memory.portrait.empty.actions.chat': '开始对话',
+    'memory.portrait.empty.actions.sources': '连接来源',
     'memory.portrait.review.title': '需要你看一眼',
     'memory.portrait.review.count': '{{count}} 条',
     'memory.portrait.review.source': '来源：{{source}}',
@@ -44,7 +46,6 @@ vi.mock('react-i18next', async () => {
     'memory.portrait.sources.photo_library_apple_photos': '照片库',
     'memory.portrait.sources.user_profile_projection': '个人资料',
     'memory.portrait.sources.tom': '总结',
-    'memory.portrait.coldStartFallback': '还没结论',
     'memory.stories.actions.confirm': '确认',
     'memory.stories.actions.reject': '拒绝',
   };
@@ -76,7 +77,7 @@ const renderPage = () => render(
 beforeEach(() => vi.clearAllMocks());
 
 describe('MemoryPortraitPage', () => {
-  it('renders a useful cold-start shell when payload is_cold_start=true', async () => {
+  it('renders an actionable cold-start state without an empty portrait shell', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
       self_view: {
@@ -89,33 +90,21 @@ describe('MemoryPortraitPage', () => {
     });
     renderPage();
     await waitFor(() => {
-      expect(screen.getByText('还没结论')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: '还在认识你' })).toBeInTheDocument();
     });
-    expect(screen.getByTestId('portrait-world-map')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
-    const root = screen.getByTestId('portrait-world-root');
-    expect(root).toBeInTheDocument();
-    expect(within(root).getByText('你')).toBeInTheDocument();
-    expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
-    expect(within(root).getByText('把目前可信的线索收拢成一个简洁轮廓')).toBeInTheDocument();
-    expect(screen.getByText('你的世界')).toBeInTheDocument();
-    expect(screen.getByText('身份信息')).toBeInTheDocument();
-    expect(screen.getByText('长期项目')).toBeInTheDocument();
-    expect(screen.getByText('偏好与关注')).toBeInTheDocument();
-    expect(screen.getByText('协作方式')).toBeInTheDocument();
-    expect(screen.queryByText('稳定事实')).not.toBeInTheDocument();
-    expect(screen.queryByText('正在推进的项目')).not.toBeInTheDocument();
-    expect(screen.queryByText('常用工具')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
-    expect(screen.queryAllByTestId('portrait-world-trunk-segment')).toHaveLength(0);
-    expect(screen.queryByTestId('portrait-world-root-connector')).not.toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
+    expect(screen.getByText('随着对话和来源逐渐积累，Magi 会在这里整理出你的长期项目、偏好与协作方式。')).toBeInTheDocument();
+    expect(screen.getByText('只有反复出现、较可信的线索，才会成为这里的长期理解。')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '开始对话' })).toHaveAttribute('href', '/chat');
+    expect(screen.getByRole('link', { name: '连接来源' })).toHaveAttribute('href', '/memory/sources');
+    expect(screen.queryByText('还没结论')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-map')).not.toBeInTheDocument();
+    expect(screen.queryByText('已形成 {{count}} 条理解')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-review-queue')).not.toBeInTheDocument();
     expect(screen.queryByTestId('portrait-recent-state')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
   });
 
-  it('renders the redesigned world, review, and recent sections without the old page header', async () => {
+  it('renders only meaningful portrait groups followed by review and recent sections', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
       self_view: {
@@ -151,33 +140,20 @@ describe('MemoryPortraitPage', () => {
     });
     renderPage();
 
-    expect(await screen.findByText('你的世界')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '关于你' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Magi 目前这样理解你' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-page-header')).not.toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-tree')).toBeInTheDocument();
-    const root = screen.getByTestId('portrait-world-root');
-    expect(root).toBeInTheDocument();
-    expect(within(root).getByText('你')).toBeInTheDocument();
-    expect(within(root).getByText('Magi 眼中的你')).toBeInTheDocument();
-    expect(within(root).getByText('把目前可信的线索收拢成一个简洁轮廓')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-branch-identity')).toBeInTheDocument();
+    expect(screen.getByTestId('portrait-world-groups')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-branch-identity')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-projects')).toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-branch-preferences')).toBeInTheDocument();
+    expect(screen.queryByTestId('portrait-world-branch-preferences')).not.toBeInTheDocument();
     expect(screen.getByTestId('portrait-world-branch-work_style')).toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-world-branch-invariants')).not.toBeInTheDocument();
-    screen.getAllByTestId(/^portrait-world-branch-/).forEach((branch) => {
-      expect(branch.className).not.toContain('border-l');
-    });
-    expect(screen.queryByTestId('portrait-world-trunk')).not.toBeInTheDocument();
-    expect(screen.queryAllByTestId('portrait-world-trunk-segment')).toHaveLength(0);
-    expect(within(screen.getByTestId('portrait-world-branch-work_style')).queryByTestId('portrait-world-trunk-segment')).not.toBeInTheDocument();
-    expect(screen.getByTestId('portrait-world-tree').querySelector('svg')).not.toBeInTheDocument();
     expect(screen.getByText('Magi 记忆系统')).toBeInTheDocument();
     expect(screen.getByText('协作方式')).toBeInTheDocument();
     expect(screen.getByText('直接深入')).toBeInTheDocument();
     expect(screen.queryByText('稳定事实')).not.toBeInTheDocument();
     expect(screen.queryByText('Chrome')).not.toBeInTheDocument();
     expect(within(screen.getByTestId('portrait-world-branch-work_style')).getByText('先看代码再判断')).toBeInTheDocument();
-    expect(screen.queryByTestId('portrait-world-root-connector')).not.toBeInTheDocument();
 
     const review = screen.getByTestId('portrait-review-queue');
     expect(within(review).getByText('需要你看一眼')).toBeInTheDocument();
@@ -226,7 +202,7 @@ describe('MemoryPortraitPage', () => {
     expect(screen.queryByText('Asuka')).not.toBeInTheDocument();
     expect(screen.getByText('画像页面')).toBeInTheDocument();
     expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
-    expect(screen.getByText('基于 {{count}} 条理解')).toBeInTheDocument();
+    expect(screen.getByText('已形成 {{count}} 条理解')).toBeInTheDocument();
   });
 
   it('renders recent interests and projects as readable temporary signals', async () => {
@@ -388,6 +364,8 @@ describe('MemoryPortraitPage', () => {
     renderPage();
 
     await screen.findByText('Magi 记忆体验');
+    expect(screen.queryByTestId('portrait-world-groups')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Magi 目前这样理解你' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '确认' }));
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
 

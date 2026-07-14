@@ -808,6 +808,11 @@ user judgment; then recent state observations. Personal-profile fields are
 strong inputs to this portrait, not a second visible portrait surface. It should
 translate L2 assertion metadata into readable groups and review actions instead
 of exposing raw assertion/family/status names as primary UI copy.
+During cold start, the page must not render the four empty portrait groups or a
+zero-count world shell. It should explain what will form here and provide direct
+paths to conversation and source connection. Once understanding exists, only
+groups with user-facing content are shown; spacing and typography establish the
+hierarchy without a synthetic root card or nested world-map containers.
 `GET /api/memory/portrait/self` returns this as a backend-assembled `self_view`
 with `world`, `review`, and `recent` sections. The legacy flat `observations`
 list is diagnostic support for the endpoint; page classification belongs in the

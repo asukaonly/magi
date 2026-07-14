@@ -3035,17 +3035,23 @@
         "impression": "Magi 对你的总体印象"
       },
       "world": {
-        "title": "你的世界",
-        "meta": "基于 {{count}} 条理解",
-        "empty": "还没有形成清晰的关联。",
-        "rootLabel": "你",
-        "rootTitle": "Magi 的理解",
-        "rootMeta": "把目前可信的线索收拢成一个简洁轮廓。",
+        "title": "关于你",
+        "summaryTitle": "Magi 目前这样理解你",
+        "meta": "已形成 {{count}} 条理解",
         "groups": {
           "identity": "身份信息",
           "projects": "长期项目",
           "preferences": "偏好与关注",
           "work_style": "协作方式"
+        }
+      },
+      "empty": {
+        "title": "还在认识你",
+        "body": "随着对话和来源逐渐积累，Magi 会在这里整理出你的长期项目、偏好与协作方式。",
+        "helper": "只有反复出现、较可信的线索，才会成为这里的长期理解。",
+        "actions": {
+          "chat": "开始对话",
+          "sources": "连接来源"
         }
       },
       "review": {
@@ -3081,8 +3087,7 @@
         "photo_library_apple_photos": "照片库",
         "user_profile_projection": "个人资料",
         "tom": "总结"
-      },
-      "coldStartFallback": "Magi 还没有从你的记忆里得出关于你的整体印象。继续使用，这里会逐渐丰满。"
+      }
     },
     "recall": {
       "title": "找记忆",

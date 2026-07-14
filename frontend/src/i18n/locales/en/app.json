@@ -3036,17 +3036,23 @@
         "impression": "Magi's overall impression of you"
       },
       "world": {
-        "title": "Your world",
-        "meta": "Based on {{count}} understanding(s)",
-        "empty": "No clear connection yet.",
-        "rootLabel": "You",
-        "rootTitle": "Magi's view",
-        "rootMeta": "A compact outline of what Magi understands so far.",
+        "title": "About you",
+        "summaryTitle": "How Magi currently understands you",
+        "meta": "{{count}} understandings formed",
         "groups": {
           "identity": "Identity",
           "projects": "Long-term projects",
           "preferences": "Preferences and interests",
           "work_style": "Collaboration style"
+        }
+      },
+      "empty": {
+        "title": "Still getting to know you",
+        "body": "As conversations and sources accumulate, Magi will organize your long-term projects, preferences, and ways of working here.",
+        "helper": "Only recurring, credible signals become long-term understandings here.",
+        "actions": {
+          "chat": "Start a conversation",
+          "sources": "Connect a source"
         }
       },
       "review": {
@@ -3082,8 +3088,7 @@
         "photo_library_apple_photos": "Photo library",
         "user_profile_projection": "Profile",
         "tom": "Summary"
-      },
-      "coldStartFallback": "Magi hasn't formed an overall impression of you yet. It will grow as you keep using it."
+      }
     },
     "recall": {
       "title": "Search memories",
