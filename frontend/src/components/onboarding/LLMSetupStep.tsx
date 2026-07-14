@@ -651,10 +651,11 @@ export function LLMSetupStep({
               key={card.id}
               type="button"
               data-testid={`llm-setup-provider-${card.id}`}
+              aria-pressed={selected}
               onClick={() => handleSelectCard(card)}
               className={cn(
-                'flex min-h-[64px] items-center gap-3 rounded-xl border border-border/70 bg-background/80 px-4 py-3 text-left transition hover:bg-muted/35',
-                selected && 'border-primary/55 bg-primary/5 shadow-[0_10px_28px_-24px_rgba(15,23,42,0.45)]'
+                'flex min-h-[64px] items-center gap-3 rounded-xl bg-muted/30 px-4 py-3 text-left shadow-none transition-[background-color,box-shadow,color] duration-200 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+                selected && 'bg-accent/75 shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]'
               )}
             >
               <ProviderIcon

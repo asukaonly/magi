@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import magiMark from '@/assets/magi-mark.png';
+import { ONBOARDING_PRIMARY_ACTION_CLASS } from './onboardingStyles';
 
 type LanguageCode = 'zh' | 'en';
 
@@ -66,7 +67,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         <motion.button
           type="button"
           onClick={onContinue}
-          className="group mt-14 inline-flex h-12 items-center justify-center gap-2 rounded-[14px] border border-[#8f5532]/30 bg-[#a0623a] px-6 text-base font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.24),0_18px_36px_-24px_rgba(112,63,31,0.9)] transition hover:bg-[#965833] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_40px_-24px_rgba(112,63,31,0.95)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a0623a]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#fbf4ea] dark:border-[#efb084]/25 dark:bg-[#efb084] dark:text-[#2a1f1a] dark:hover:bg-[#f4bd94] dark:focus-visible:ring-[#efb084]/40 dark:focus-visible:ring-offset-[#171311]"
+          className={cn('group mt-14 inline-flex items-center justify-center gap-2.5', ONBOARDING_PRIMARY_ACTION_CLASS)}
           whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
           transition={{ duration: shouldReduceMotion ? 0 : 0.15 }}
@@ -78,17 +79,18 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
 
       {/* Language toggle - bottom left */}
       <div className="absolute bottom-6 left-6 z-10">
-        <div className="flex items-center gap-1 rounded-full border border-[#e8dacd]/80 bg-[#fff8f1]/78 p-1 shadow-[0_16px_36px_-28px_rgba(92,62,41,0.38)] backdrop-blur-sm dark:border-[#5a4539]/80 dark:bg-[#241c18]/78 dark:shadow-[0_16px_40px_-28px_rgba(0,0,0,0.62)]">
+        <div className="flex items-center gap-1">
           {languages.map((lang) => (
             <button
               key={lang.value}
               type="button"
               onClick={() => onLanguageChange(lang.value)}
+              aria-pressed={language === lang.value}
               className={cn(
-                'rounded-full px-3 py-1 text-xs font-medium transition',
+                'relative flex h-11 min-w-12 items-center justify-center px-2 text-xs font-medium transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#8b5737]/20',
                 language === lang.value
-                  ? 'bg-[#f2dfcd] text-[#a0623a] dark:bg-[#3a2b24] dark:text-[#efb084]'
-                  : 'text-[#8b7466] hover:text-[#3a2a22] dark:text-[#bba99c] dark:hover:text-[#f0e4d7]'
+                  ? 'text-[#6f422c] after:absolute after:bottom-1.5 after:left-2 after:right-2 after:h-px after:bg-[#8b5737]/55 dark:text-[#efb084] dark:after:bg-[#efb084]/55'
+                  : 'text-[#9a8578] hover:text-[#3a2a22] dark:text-[#a8978c] dark:hover:text-[#f0e4d7]'
               )}
             >
               {lang.label}

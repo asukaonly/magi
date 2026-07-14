@@ -37,7 +37,12 @@ import {
   type CustomPersonaDraft,
 } from "./PersonaPreviewChat";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PluginInstallDoneInfo } from "../../stores/pluginInstallPanel";
+import {
+  ONBOARDING_PRIMARY_ACTION_CLASS,
+  ONBOARDING_SECONDARY_ACTION_CLASS,
+} from "./onboardingStyles";
 
 const STORAGE_KEY = STORAGE_KEYS.ONBOARDING_STATE;
 const RUNTIME_READY_WAIT_INTERVAL_MS = 500;
@@ -239,6 +244,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     useState<Record<string, number | null>>({});
   const installablePreloadStartedRef = useRef(false);
   const lastPersistedLanguageRef = useRef<LanguageCode | null>(null);
+  const initializedLanguageRef = useRef<LanguageCode | null>(null);
   const mountedRef = useRef(true);
   const llmConnectionTestTarget = useMemo(
     () => buildLlmConnectionTestTarget(llmValue),
@@ -308,6 +314,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     const formLanguage = normalizeLanguageCode(
       initialConfig.preferences?.language,
     );
+    if (initializedLanguageRef.current === formLanguage) {
+      return;
+    }
+    initializedLanguageRef.current = formLanguage;
     const configuredLanguage = toI18nLanguage(formLanguage);
 
     localStorage.setItem("magi_language", formLanguage);
@@ -1097,7 +1107,9 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
             hideFooter ? null : (
               <div className="flex items-center justify-between gap-3">
                 <Button
-                  variant="outline"
+                  variant="ghost"
+                  size="lg"
+                  className={ONBOARDING_SECONDARY_ACTION_CLASS}
                   onClick={handlePrev}
                   disabled={
                     saving ||
@@ -1106,9 +1118,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                       (personaGenerating || personaConfirming))
                   }
                 >
+                  <ArrowLeft className="h-4 w-4" aria-hidden="true" />
                   {t("actions.previous")}
                 </Button>
                 <Button
+                  size="lg"
+                  className={ONBOARDING_PRIMARY_ACTION_CLASS}
                   onClick={handleNext}
                   disabled={
                     saving ||
@@ -1128,6 +1143,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                           ? t("actions.startingRuntime")
                           : t("actions.saving")
                         : nextLabel}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             )

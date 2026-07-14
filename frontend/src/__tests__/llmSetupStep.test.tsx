@@ -292,6 +292,19 @@ describe('LLMSetupStep', () => {
     expect(openAiCard).not.toHaveTextContent('llm.providers.openai.desc');
   });
 
+  it('exposes provider selection as a pressed state without a default border', async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    const openAiCard = await screen.findByTestId('llm-setup-provider-openai');
+    expect(openAiCard).toHaveAttribute('aria-pressed', 'false');
+    expect(openAiCard).not.toHaveClass('border');
+
+    await user.click(openAiCard);
+    expect(openAiCard).toHaveAttribute('aria-pressed', 'true');
+    expect(openAiCard).toHaveClass('bg-accent/75');
+  });
+
   it('uses compact single-line provider cards after descriptions are removed', async () => {
     render(<Harness />);
 

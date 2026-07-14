@@ -419,6 +419,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
         "en",
       ),
     );
+    expect(screen.getByRole("button", { name: "EN" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       "magi_language",
       "en",
