@@ -224,10 +224,11 @@ beforeEach(() => {
 });
 
 describe('MemoryGovernancePage', () => {
-  it('starts with a clear page heading and compact status summary', async () => {
+  it('starts with streamlined navigation and compact status summary', async () => {
     renderPage();
 
-    expect(screen.getByRole('heading', { level: 1, name: '记忆管理' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: '记忆管理' })).toHaveClass('sr-only');
+    expect(screen.queryByText('按记忆对象查看、整理、遗忘和诊断。')).not.toBeInTheDocument();
     const status = screen.getByTestId('governance-status-summary');
     expect(within(status).getByText('需要处理')).toBeInTheDocument();
     expect(within(status).getByText('2 条待处理')).toBeInTheDocument();

@@ -269,72 +269,64 @@ export const MemoryGovernancePage = () => {
       contentClassName="min-h-0 flex-1 overflow-hidden pb-0"
       scrollable={false}
     >
-      <div className="flex h-full min-h-0 flex-col gap-6">
-        <header className="flex shrink-0 flex-col gap-5 px-1 pt-1 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <h1 className="text-[clamp(1.65rem,2vw,2rem)] font-semibold tracking-[-0.035em] text-[hsl(var(--memory-title))]">
-              {label('title', '记忆管理')}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
-              {label('objectSubtitle', '按记忆对象查看、整理、遗忘和诊断。')}
-            </p>
-          </div>
-
-          <div
-            data-testid="governance-status-summary"
-            className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-[hsl(var(--memory-muted))]"
-          >
-            <span className="inline-flex items-center gap-2 font-medium text-[hsl(var(--memory-body))]">
-              <span
-                aria-hidden="true"
-                className={`h-1.5 w-1.5 rounded-full ${
-                  hasAttentionIssues
-                    ? 'bg-amber-500'
-                    : hasMemoryData
-                      ? 'bg-emerald-500'
-                      : 'bg-[hsl(var(--memory-muted))]'
-                }`}
-              />
-              {hasAttentionIssues
-                ? label('status.needsAttention', '需要处理')
-                : hasMemoryData
-                  ? label('status.healthy', '运行正常')
-                  : label('status.awaitingData', '等待记忆数据')}
-            </span>
-            <span>{label('status.objects', '{{count}} 个对象', { count: formatCount(objectCount) })}</span>
-            <span>{label('status.events', '{{count}} 条原始事件', { count: formatCount(l1EventCount) })}</span>
-            {pendingAssertionCount > 0 ? (
-              <span className="font-medium text-amber-700 dark:text-amber-400">
-                {label('status.pending', '{{count}} 条待处理', { count: formatCount(pendingAssertionCount) })}
-              </span>
-            ) : null}
-            {openBreakerCount > 0 ? (
-              <span className="font-medium text-red-700 dark:text-red-400">
-                {label('status.breakers', '{{count}} 个工具异常', { count: formatCount(openBreakerCount) })}
-              </span>
-            ) : null}
-          </div>
-        </header>
-
+      <div className="flex h-full min-h-0 flex-col">
+        <h1 className="sr-only">{label('title', '记忆管理')}</h1>
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as GovernanceTab)} className="flex min-h-0 flex-1 flex-col space-y-5">
-          <div className="shrink-0 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
-            <TabsList className="inline-flex h-auto min-w-max justify-start gap-7 bg-transparent p-0">
-              {[
-                ['objects', label('tabs.objects', '对象明细')],
-                ['tasks', label('tabs.tasks', '定时任务')],
-                ['manual', label('tabs.manual', '手动整理')],
-                ['forget', label('tabs.forget', '遗忘清理')],
-                ['diagnostics', label('tabs.diagnostics', '诊断')],
-              ].map(([value, text]) => (
-                <TabsTrigger
-                  key={value}
-                  value={value}
-                  className="relative rounded-none bg-transparent px-0 py-2.5 text-sm font-medium text-[hsl(var(--memory-muted))] shadow-none transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:bg-transparent data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none data-[state=active]:after:scale-x-100"
-                >
-                  {text}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="flex shrink-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[hsl(var(--memory-divider)/0.72)]">
+              <TabsList className="inline-flex h-auto min-w-max justify-start gap-7 bg-transparent p-0">
+                {[
+                  ['objects', label('tabs.objects', '对象明细')],
+                  ['tasks', label('tabs.tasks', '定时任务')],
+                  ['manual', label('tabs.manual', '手动整理')],
+                  ['forget', label('tabs.forget', '遗忘清理')],
+                  ['diagnostics', label('tabs.diagnostics', '诊断')],
+                ].map(([value, text]) => (
+                  <TabsTrigger
+                    key={value}
+                    value={value}
+                    className="relative rounded-none bg-transparent px-0 py-2.5 text-sm font-medium text-[hsl(var(--memory-muted))] shadow-none transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:scale-x-0 after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200 hover:text-[hsl(var(--memory-title))] data-[state=active]:bg-transparent data-[state=active]:text-[hsl(var(--memory-title))] data-[state=active]:shadow-none data-[state=active]:after:scale-x-100"
+                  >
+                    {text}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+
+            <div
+              data-testid="governance-status-summary"
+              className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-2 px-1 text-xs text-[hsl(var(--memory-muted))] lg:justify-end"
+            >
+              <span className="inline-flex items-center gap-2 font-medium text-[hsl(var(--memory-body))]">
+                <span
+                  aria-hidden="true"
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    hasAttentionIssues
+                      ? 'bg-amber-500'
+                      : hasMemoryData
+                        ? 'bg-emerald-500'
+                        : 'bg-[hsl(var(--memory-muted))]'
+                  }`}
+                />
+                {hasAttentionIssues
+                  ? label('status.needsAttention', '需要处理')
+                  : hasMemoryData
+                    ? label('status.healthy', '运行正常')
+                    : label('status.awaitingData', '等待记忆数据')}
+              </span>
+              <span>{label('status.objects', '{{count}} 个对象', { count: formatCount(objectCount) })}</span>
+              <span>{label('status.events', '{{count}} 条原始事件', { count: formatCount(l1EventCount) })}</span>
+              {pendingAssertionCount > 0 ? (
+                <span className="font-medium text-amber-700 dark:text-amber-400">
+                  {label('status.pending', '{{count}} 条待处理', { count: formatCount(pendingAssertionCount) })}
+                </span>
+              ) : null}
+              {openBreakerCount > 0 ? (
+                <span className="font-medium text-red-700 dark:text-red-400">
+                  {label('status.breakers', '{{count}} 个工具异常', { count: formatCount(openBreakerCount) })}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           <TabsContent value="objects" className="mt-0 min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
