@@ -38,7 +38,7 @@ import { EmptyStateSensorCard } from "./EmptyStateSensorCard";
  */
 
 export interface EmptyStateAvailableSensorsProps {
-  variant?: "standard" | "first_context";
+  variant?: "standard" | "first_context" | "source_page";
   /**
    * Plugin IDs that are already installed/configured and should be hidden from
    * the list. The orchestrator filters them from the rendered rows.
@@ -109,6 +109,7 @@ export function EmptyStateAvailableSensors({
     installableError === undefined ? hookState.error : installableError;
   const retryInstallable = onRetryInstallable ?? hookState.refresh;
   const firstContext = variant === "first_context";
+  const sourcePage = variant === "source_page";
   const language = i18n.resolvedLanguage ?? i18n.language;
   const localized = (
     text: { zh: string; en: string } | null | undefined,
@@ -121,6 +122,22 @@ export function EmptyStateAvailableSensors({
   // owns the full honest flow (install → enable → sync → build-memory) and its
   // own done state. This component no longer renders its own dialog.
   const openPanel = usePluginInstallPanelStore((s) => s.openPanel);
+  const connectItem = (item: InstallableItem) => (pluginId: string) => {
+    const options = { install: !item.installed };
+    openPanel(pluginId, {
+      ...options,
+      pluginName: pluginName(item),
+      pluginIcon: item.icon,
+      ...(panelContext !== "default" ? { context: panelContext } : {}),
+      ...(onConnectDone
+        ? {
+            onDone: (info?: PluginInstallDoneInfo) =>
+              onConnectDone(pluginId, info),
+          }
+        : {}),
+    });
+    onConnectStart?.(pluginId, options);
+  };
 
   // "Browse all plugins" footer deep-links into Settings → plugin marketplace,
   // the full catalog beyond the plugin-declared empty-state cards. Same intent
@@ -174,8 +191,8 @@ export function EmptyStateAvailableSensors({
       if (a.installed !== b.installed) return a.installed ? -1 : 1;
       return a.setup_time_estimate_seconds - b.setup_time_estimate_seconds;
     });
-    return representatives.slice(0, firstContext ? 3 : MAX_EMPTY_STATE_CARDS);
-  }, [items, excluded, firstContext]);
+    return representatives.slice(0, firstContext || sourcePage ? 3 : MAX_EMPTY_STATE_CARDS);
+  }, [items, excluded, firstContext, sourcePage]);
 
   if (firstContext && loading && visible.length === 0) {
     return (
@@ -224,9 +241,13 @@ export function EmptyStateAvailableSensors({
         setSettingsNavigationIntent({ section: "pluginsMarketplace" });
         setActivePanel("settings");
       }}
-      className="text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+      className={
+        sourcePage
+          ? "inline-flex h-9 items-center justify-center rounded-lg bg-[hsl(var(--secondary)/0.86)] px-4 text-sm font-semibold text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-secondary"
+          : "text-xs font-semibold text-muted-foreground transition hover:text-foreground"
+      }
     >
-      {t(keyed("emptyState.browseAll"))}
+      {t(keyed(sourcePage ? "emptyState.browseSources" : "emptyState.browseAll"))}
     </button>
   ) : null;
 
@@ -245,7 +266,7 @@ export function EmptyStateAvailableSensors({
     }
     // No device-available cards — still surface the marketplace
     // exit rather than rendering nothing.
-    return browseAll ? <div className="text-left">{browseAll}</div> : null;
+    return browseAll ? <div className={sourcePage ? "pt-1 text-left" : "text-left"}>{browseAll}</div> : null;
   }
 
   if (firstContext) {
@@ -278,22 +299,7 @@ export function EmptyStateAvailableSensors({
       setupTimeLabel: t(keyed("emptyState.setupTime"), {
         seconds: item.setup_time_estimate_seconds,
       }),
-      onConnect: (pluginId: string) => {
-        const options = { install: !item.installed };
-        openPanel(pluginId, {
-          ...options,
-          pluginName: pluginName(item),
-          pluginIcon: item.icon,
-          ...(panelContext !== "default" ? { context: panelContext } : {}),
-          ...(onConnectDone
-            ? {
-                onDone: (info?: PluginInstallDoneInfo) =>
-                  onConnectDone(pluginId, info),
-              }
-            : {}),
-        });
-        onConnectStart?.(pluginId, options);
-      },
+      onConnect: connectItem(item),
     });
 
     return (
@@ -323,6 +329,36 @@ export function EmptyStateAvailableSensors({
     );
   }
 
+  if (sourcePage) {
+    return (
+      <div className="space-y-4 text-left" data-testid="source-page-suggestions">
+        <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+          {t(keyed("emptyState.sourcePageHeading"))}
+        </h2>
+        <div className="divide-y divide-[hsl(var(--memory-divider)/0.32)] overflow-hidden rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.38)]">
+          {visible.map((item) => (
+            <EmptyStateSensorCard
+              key={item.plugin_id}
+              pluginId={item.plugin_id}
+              title={pluginName(item)}
+              value={localized(item.surfaces?.empty_state?.rationale) ?? localized(item.rationale) ?? item.description}
+              iconId={item.icon}
+              i18nNamespace={i18nNamespace}
+              i18nKeyPrefix={i18nKeyPrefix}
+              connectLabelKey={
+                item.installed
+                  ? "emptyState.connect"
+                  : "emptyState.installAndConnect"
+              }
+              onConnect={connectItem(item)}
+            />
+          ))}
+        </div>
+        {browseAll}
+      </div>
+    );
+  }
+
   return (
     // text-left: the timeline/memory empty states wrap this in a `text-center`
     // container; without this the inherited centering shifts each row's (short)
@@ -346,26 +382,7 @@ export function EmptyStateAvailableSensors({
                 ? "emptyState.connect"
                 : "emptyState.installAndConnect"
             }
-            onConnect={(pluginId) => {
-              // Install-first for registry-only items: the panel downloads
-              // from the registry before the connect flow runs.
-              const options = { install: !item.installed };
-              openPanel(pluginId, {
-                ...options,
-                pluginName: pluginName(item),
-                pluginIcon: item.icon,
-                ...(panelContext !== "default"
-                  ? { context: panelContext }
-                  : {}),
-                ...(onConnectDone
-                  ? {
-                      onDone: (info?: PluginInstallDoneInfo) =>
-                        onConnectDone(pluginId, info),
-                    }
-                  : {}),
-              });
-              onConnectStart?.(pluginId, options);
-            }}
+            onConnect={connectItem(item)}
           />
         ))}
       </div>

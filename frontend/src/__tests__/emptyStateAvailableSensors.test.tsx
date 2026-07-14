@@ -194,4 +194,40 @@ describe("EmptyStateAvailableSensors", () => {
       section: "pluginsMarketplace",
     });
   });
+
+  it("uses a focused source-page fallback when no recommendations exist", () => {
+    render(<EmptyStateAvailableSensors variant="source_page" i18nKeyPrefix="timeline" />);
+
+    const browseButton = screen.getByTestId("empty-state-browse-all");
+    expect(browseButton).toHaveTextContent("timeline.emptyState.browseSources");
+    expect(browseButton).toHaveClass("h-9", "rounded-lg");
+
+    fireEvent.click(browseButton);
+    expect(useChatShellStore.getState()).toMatchObject({
+      activePanel: "settings",
+      settingsNavigationIntent: { section: "pluginsMarketplace" },
+    });
+  });
+
+  it("caps source-page recommendations at three categories", () => {
+    const candidates = [
+      item(),
+      item({ plugin_id: "calendar", name: "Calendar", category: "calendar", surfaces: { empty_state: { order: 20 } } }),
+      item({ plugin_id: "git-activity", name: "Git Activity", category: "code_activity", surfaces: { empty_state: { order: 30 } } }),
+      item({ plugin_id: "photo-library", name: "Photo Library", category: "photos", surfaces: { empty_state: { order: 40 } } }),
+    ];
+
+    render(
+      <EmptyStateAvailableSensors
+        variant="source_page"
+        i18nKeyPrefix="timeline"
+        installableItems={candidates}
+        installableLoading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("source-page-suggestions")).toBeInTheDocument();
+    expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(3);
+    expect(screen.queryByTestId("empty-state-connect-photo-library")).not.toBeInTheDocument();
+  });
 });

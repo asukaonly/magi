@@ -25,7 +25,14 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.title': '来源',
         'memory.sourcesPage.subtitle': '看看 Magi 今天从哪里形成记忆',
         'memory.sourcesPage.sections.pulse': '今日脉搏',
-        'memory.sourcesPage.sections.ledger': '来源总账',
+        'memory.sourcesPage.sections.ledger': '已连接来源',
+        'memory.sourcesPage.empty.title': '连接第一个来源',
+        'memory.sourcesPage.empty.body': '把日历、浏览、照片或终端活动接入 Magi，记忆会从这些真实经历中逐渐形成。',
+        'memory.sourcesPage.empty.privacy': '来源数据只保存在本机。',
+        'timeline.emptyState.sourcePageHeading': '可以从这些来源开始',
+        'timeline.emptyState.connect': '启用',
+        'timeline.emptyState.installAndConnect': '安装并启用',
+        'timeline.emptyState.browseSources': '浏览全部来源',
         'memory.sourcesPage.columns.source': '来源',
         'memory.sourcesPage.columns.status': '状态',
         'memory.sourcesPage.columns.lastSync': '最近同步',
@@ -357,15 +364,15 @@ describe('MemorySourcesPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('来源总账')).toBeInTheDocument();
-    expect(screen.queryByTestId('memory-sources-install-guide')).not.toBeInTheDocument();
+    expect(await screen.findByText('已连接来源')).toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '添加来源' }));
     expect(useChatShellStore.getState()).toMatchObject({
       activePanel: 'settings',
       settingsNavigationIntent: { section: 'pluginsMarketplace' },
     });
-    expect(screen.queryByTestId('memory-sources-install-guide')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('memory-sources-empty')).not.toBeInTheDocument();
   });
 
   it('shows source suggestions immediately when empty and refreshes after connection', async () => {
@@ -399,9 +406,15 @@ describe('MemorySourcesPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByTestId('memory-sources-install-guide')).toBeInTheDocument();
+    expect(await screen.findByTestId('memory-sources-empty')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '连接第一个来源' })).toBeInTheDocument();
+    expect(screen.getByText('把日历、浏览、照片或终端活动接入 Magi，记忆会从这些真实经历中逐渐形成。')).toBeInTheDocument();
+    expect(screen.getByText('来源数据只保存在本机。')).toBeInTheDocument();
+    expect(screen.getByTestId('source-page-suggestions')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '浏览全部来源' })).toBeInTheDocument();
     expect(screen.queryByTestId('memory-sources-pulse')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument();
+    expect(screen.queryByText('已连接来源')).not.toBeInTheDocument();
     expect(screen.getByTestId('empty-state-connect-calendar')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('empty-state-connect-calendar'));
@@ -466,7 +479,7 @@ describe('MemorySourcesPage', () => {
     expect(screen.queryByText('今天')).not.toBeInTheDocument();
     expect(screen.queryByText('数据较多')).not.toBeInTheDocument();
     expect(screen.queryByText('无数据')).not.toBeInTheDocument();
-    expect(screen.getByText('来源总账')).toBeInTheDocument();
+    expect(screen.getByText('已连接来源')).toBeInTheDocument();
     expect(screen.getAllByText('Chrome 历史').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Claude Code').length).toBeGreaterThan(0);
     expect(screen.getAllByText('网易云音乐').length).toBeGreaterThan(0);

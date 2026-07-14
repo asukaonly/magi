@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
@@ -34,6 +35,7 @@ import MemoryPageFrame, {
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
   MEMORY_SECTION_CARD_CLASS,
+  MEMORY_SECTION_SURFACE_CLASS,
 } from './MemoryPageFrame';
 import {
   formatInteger,
@@ -370,7 +372,7 @@ function SourceIcon({
 }) {
   return (
     <span className={cn(
-      'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-subtle)/0.72)]',
+      'flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.72)]',
       className
     )}>
       <PluginIcon
@@ -396,6 +398,40 @@ function MemorySourcesLoading() {
 function MemorySourcesError() {
   const { t } = useTranslation('app');
   return <section className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.error')}</section>;
+}
+
+function SourceEmptyState({ onSourceConnected }: { onSourceConnected: () => void }) {
+  const { t } = useTranslation('app');
+
+  return (
+    <section
+      className="mx-auto flex min-h-[clamp(32rem,72vh,46rem)] w-full max-w-3xl items-start px-4 pt-[clamp(5rem,13vh,8rem)]"
+      data-testid="memory-sources-empty"
+    >
+      <div className="w-full">
+        <div className="max-w-xl">
+          <h1 className="text-[clamp(1.6rem,2.6vw,2.15rem)] font-semibold tracking-[-0.03em] text-[hsl(var(--memory-title))]">
+            {t('memory.sourcesPage.empty.title')}
+          </h1>
+          <p className="mt-3 text-sm leading-7 text-[hsl(var(--memory-body))]">
+            {t('memory.sourcesPage.empty.body')}
+          </p>
+          <p className="mt-4 text-xs leading-5 text-[hsl(var(--memory-muted))]">
+            {t('memory.sourcesPage.empty.privacy')}
+          </p>
+        </div>
+
+        <div className="mt-8 max-w-2xl">
+          <EmptyStateAvailableSensors
+            variant="source_page"
+            i18nNamespace="app"
+            i18nKeyPrefix="timeline"
+            onConnectDone={onSourceConnected}
+          />
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function SourcePulseSection({
@@ -447,42 +483,38 @@ function SourcePulseSection({
 
   return (
     <section
-      className={cn(MEMORY_SECTION_CARD_CLASS, 'px-5 py-5')}
+      className={MEMORY_SECTION_SURFACE_CLASS}
       data-testid="memory-sources-pulse"
     >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0 space-y-1.5">
-          <h1 className="text-[1.55rem] font-semibold text-[hsl(var(--memory-title))]">
+          <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
             {t('memory.sourcesPage.sections.pulse')}
-          </h1>
+          </h2>
           <p className="max-w-2xl text-sm leading-6 text-[hsl(var(--memory-body))]">
             {t('memory.sourcesPage.pulseSubtitle')}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-start gap-5 xl:justify-end">
-          <div className="flex flex-wrap items-start gap-5 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.22)] px-4 py-3">
-            <div className="min-w-[88px]">
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</div>
-            </div>
-            <div className="h-12 w-px bg-[hsl(var(--memory-divider)/0.72)]" aria-hidden="true" />
-            <div className="min-w-[88px]">
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</div>
-              <div className="mt-1 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</div>
-            </div>
-            <div className="h-12 w-px bg-[hsl(var(--memory-divider)/0.72)]" aria-hidden="true" />
-            <div className="min-w-[72px]">
-              <div className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.errors')}</div>
-              <div className={cn(
-                'mt-1 text-2xl font-semibold',
-                errorCount > 0 ? 'text-red-600' : 'text-[hsl(var(--memory-title))]'
-              )}>
-                {formatInteger(errorCount)}
-              </div>
-            </div>
+        <dl className="grid grid-cols-3 gap-x-8 gap-y-4 xl:min-w-[22rem] xl:justify-end">
+          <div>
+            <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.today')}</dt>
+            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(todayCount)}</dd>
           </div>
-        </div>
+          <div>
+            <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.backlog')}</dt>
+            <dd className="mt-1.5 text-2xl font-semibold text-[hsl(var(--memory-title))]">{formatInteger(backlogCount)}</dd>
+          </div>
+          <div>
+            <dt className="text-xs text-[hsl(var(--memory-muted))]">{t('memory.sourcesPage.pulseStats.errors')}</dt>
+            <dd className={cn(
+              'mt-1.5 text-2xl font-semibold',
+              errorCount > 0 ? 'text-red-600' : 'text-[hsl(var(--memory-title))]'
+            )}>
+              {formatInteger(errorCount)}
+            </dd>
+          </div>
+        </dl>
       </div>
 
       {pulseRows.length > 0 ? (
@@ -580,119 +612,96 @@ function SourcePulseSection({
 function SourceLedgerSection({
   rows,
   todaySummary,
-  onSourceConnected,
   onBrowseSources,
 }: {
   rows: SourceLedgerRow[];
   todaySummary: SensorTodaySummaryResponse | null;
-  onSourceConnected: () => void;
   onBrowseSources: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
   const todayCounts = getTodayCountMap(todaySummary);
 
   return (
-    <section className={MEMORY_SECTION_CARD_CLASS}>
+    <section className={MEMORY_SECTION_SURFACE_CLASS}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
+          <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
             {t('memory.sourcesPage.sections.ledger')}
           </h2>
           <p className="text-sm leading-6 text-[hsl(var(--memory-body))]">
             {t('memory.sourcesPage.ledgerSubtitle')}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-[hsl(var(--memory-panel-subtle)/0.76)] px-3 py-1 text-xs text-[hsl(var(--memory-muted))]">
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="text-xs text-[hsl(var(--memory-muted))]">
             {t('memory.sourcesPage.localOnly')}
           </span>
-          {rows.length > 0 ? (
-            <button
-              type="button"
-              data-testid="memory-sources-add"
-              className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-1.5')}
-              onClick={onBrowseSources}
-            >
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('memory.sourcesPage.actions.add')}
-            </button>
-          ) : null}
+          <Button
+            type="button"
+            data-testid="memory-sources-add"
+            variant="secondary"
+            size="sm"
+            className="rounded-lg px-4"
+            onClick={onBrowseSources}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            {t('memory.sourcesPage.actions.add')}
+          </Button>
         </div>
       </div>
 
-      {rows.length === 0 ? (
-        <div
-          className="mt-5 border-t border-[hsl(var(--memory-divider)/0.58)] pt-5"
-          data-testid="memory-sources-install-guide"
-        >
-          <EmptyStateAvailableSensors
-            i18nNamespace="app"
-            i18nKeyPrefix="timeline"
-            onConnectDone={onSourceConnected}
-          />
+      <div className="mt-5 space-y-1">
+        <div className="hidden grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] gap-3 px-3 pb-2 text-xs text-[hsl(var(--memory-muted))] lg:grid">
+          <div>{t('memory.sourcesPage.columns.source')}</div>
+          <div>{t('memory.sourcesPage.columns.status')}</div>
+          <div>{t('memory.sourcesPage.columns.lastSync')}</div>
+          <div>{t('memory.sourcesPage.columns.today')}</div>
+          <div>{t('memory.sourcesPage.columns.stored')}</div>
+          <div className="text-right">{t('memory.sourcesPage.columns.action')}</div>
         </div>
-      ) : null}
-
-      <div className="mt-4 divide-y divide-[hsl(var(--memory-divider)/0.58)]">
-        {rows.length > 0 ? (
-          <>
-            <div className="hidden grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] gap-3 pb-2 text-xs text-[hsl(var(--memory-muted))] lg:grid">
-              <div>{t('memory.sourcesPage.columns.source')}</div>
-              <div>{t('memory.sourcesPage.columns.status')}</div>
-              <div>{t('memory.sourcesPage.columns.lastSync')}</div>
-              <div>{t('memory.sourcesPage.columns.today')}</div>
-              <div>{t('memory.sourcesPage.columns.stored')}</div>
-              <div className="text-right">{t('memory.sourcesPage.columns.action')}</div>
-            </div>
-            {rows.map((row) => {
-              const statusLabel = sourceStatusLabel(row.status, t);
-              const syncLabel = sourceSyncLabel(row, i18n.language, t);
-              return (
-                <div
-                  key={row.key}
-                  className="grid gap-3 py-3 lg:grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] lg:items-center"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <SourceIcon row={row} />
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-[hsl(var(--memory-title))]">{row.label}</div>
-                      <div className="truncate text-xs text-[hsl(var(--memory-muted))]">
-                        {row.description || t('memory.sourcesPage.descriptionFallback')}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-[hsl(var(--memory-body))]">
-                    <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                    <span>{statusLabel}</span>
-                  </div>
-                  <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                    <div>{syncLabel}</div>
-                    <div>{sourceResultLabel(row, t)}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
-                      {formatInteger(todayCounts.get(normalizeSourceKey(row.key)) || 0)}
-                    </div>
-                    <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.today')}</div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
-                    <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.stored')}</div>
-                  </div>
-                  <div className="flex justify-start lg:justify-end">
-                    <Link
-                      to={sourceDetailPath(row.key)}
-                      className="inline-flex h-8 items-center gap-1 rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] px-3 text-xs font-medium text-[hsl(var(--memory-title))] transition-colors hover:bg-[hsl(var(--memory-panel-subtle)/0.82)]"
-                    >
-                      {t('memory.sourcesPage.actions.view')}
-                      <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
-                    </Link>
+        {rows.map((row) => {
+          const statusLabel = sourceStatusLabel(row.status, t);
+          const syncLabel = sourceSyncLabel(row, i18n.language, t);
+          return (
+            <Link
+              key={row.key}
+              to={sourceDetailPath(row.key)}
+              className="group grid gap-3 rounded-xl px-3 py-4 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.58)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.24)] lg:grid-cols-[minmax(0,1.35fr)_120px_150px_110px_110px_76px] lg:items-center"
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <SourceIcon row={row} />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-[hsl(var(--memory-title))]">{row.label}</div>
+                  <div className="truncate text-xs text-[hsl(var(--memory-muted))]">
+                    {row.description || t('memory.sourcesPage.descriptionFallback')}
                   </div>
                 </div>
-              );
-            })}
-          </>
-        ) : null}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-[hsl(var(--memory-body))]">
+                <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
+                <span>{statusLabel}</span>
+              </div>
+              <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                <div>{syncLabel}</div>
+                <div>{sourceResultLabel(row, t)}</div>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                  {formatInteger(todayCounts.get(normalizeSourceKey(row.key)) || 0)}
+                </div>
+                <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.today')}</div>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{formatInteger(row.eventCount)}</div>
+                <div className="text-xs text-[hsl(var(--memory-muted))] lg:hidden">{t('memory.sourcesPage.columns.stored')}</div>
+              </div>
+              <div className="flex items-center gap-1 text-xs font-medium text-[hsl(var(--memory-muted))] transition-colors group-hover:text-[hsl(var(--memory-title))] lg:justify-end">
+                <span>{t('memory.sourcesPage.actions.view')}</span>
+                <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true" />
+              </div>
+            </Link>
+          );
+        })}
       </div>
     </section>
   );
@@ -756,8 +765,19 @@ export const MemorySourcesPage = () => {
         <MemorySourcesLoading />
       ) : error ? (
         <MemorySourcesError />
+      ) : rows.length === 0 ? (
+        <div className="space-y-6">
+          <SourceEmptyState onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)} />
+          <SourcePulseSection
+            rows={rows}
+            dashboard={dashboard}
+            todaySummary={todaySummary}
+            todayEvents={todayEvents}
+          />
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
+          <h1 className="sr-only">{t('memory.sourcesPage.title')}</h1>
           <SourcePulseSection
             rows={rows}
             dashboard={dashboard}
@@ -767,7 +787,6 @@ export const MemorySourcesPage = () => {
           <SourceLedgerSection
             rows={rows}
             todaySummary={todaySummary}
-            onSourceConnected={() => setSourceRefreshVersion((version) => version + 1)}
             onBrowseSources={openSourceMarketplace}
           />
         </div>

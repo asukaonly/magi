@@ -660,10 +660,12 @@
     },
     "emptyState": {
       "heading": "Let me see your activity",
+      "sourcePageHeading": "Start with one of these sources",
       "connect": "Enable",
       "installAndConnect": "Install & enable",
       "installing": "Installing…",
-      "browseAll": "Browse all plugins →"
+      "browseAll": "Browse all plugins →",
+      "browseSources": "Browse all sources"
     },
     "manualEntry": {
       "openButton": "Add a note (n)",
@@ -2601,6 +2603,11 @@
       "subtitle": "See where Magi is forming memories today.",
       "loading": "Preparing sources.",
       "error": "Sources could not load right now.",
+      "empty": {
+        "title": "Connect your first source",
+        "body": "Connect calendar, browsing, photos, or terminal activity so Magi can begin forming memories from real experience.",
+        "privacy": "Source data stays on this device."
+      },
       "pulseEmpty": "No source activity yet today. New memory intake will appear here.",
       "localOnly": "Data stays on this device",
       "neverSynced": "Never synced",
@@ -2612,7 +2619,7 @@
       "unknownTime": "Unknown time",
       "sections": {
         "pulse": "Today's pulse",
-        "ledger": "Source ledger"
+        "ledger": "Connected sources"
       },
       "pulseSubtitle": "See today's memory intake by source, including what is active and what is still waiting.",
       "pulseStats": {
@@ -2621,7 +2628,7 @@
         "backlog": "Queued",
         "errors": "Errors"
       },
-      "ledgerSubtitle": "Status, latest sync, and stored memory counts for each source.",
+      "ledgerSubtitle": "See status, latest sync, and how much each source added to memory.",
       "columns": {
         "source": "Source",
         "status": "Status",

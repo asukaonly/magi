@@ -660,10 +660,12 @@
     },
     "emptyState": {
       "heading": "让我看看你的活动",
+      "sourcePageHeading": "可以从这些来源开始",
       "connect": "启用",
       "installAndConnect": "安装并启用",
       "installing": "安装中…",
-      "browseAll": "浏览全部插件 →"
+      "browseAll": "浏览全部插件 →",
+      "browseSources": "浏览全部来源"
     },
     "manualEntry": {
       "openButton": "记一笔 (n)",
@@ -2600,6 +2602,11 @@
       "subtitle": "看看 Magi 今天从哪里形成记忆。",
       "loading": "正在整理来源。",
       "error": "来源暂时加载失败。",
+      "empty": {
+        "title": "连接第一个来源",
+        "body": "把日历、浏览、照片或终端活动接入 Magi，记忆会从这些真实经历中逐渐形成。",
+        "privacy": "来源数据只保存在本机。"
+      },
       "pulseEmpty": "今天还没有来源活动；有新内容进入记忆后会显示在这里。",
       "localOnly": "数据只保存在本机",
       "neverSynced": "还没有同步",
@@ -2611,7 +2618,7 @@
       "unknownTime": "未知时间",
       "sections": {
         "pulse": "今日脉搏",
-        "ledger": "来源总账"
+        "ledger": "已连接来源"
       },
       "pulseSubtitle": "按来源看今天进入记忆的节奏，快速发现哪些来源活跃、哪些还在等待处理。",
       "pulseStats": {
@@ -2620,7 +2627,7 @@
         "backlog": "待处理",
         "errors": "异常"
       },
-      "ledgerSubtitle": "每个来源的状态、最近同步和已入库数量都在这里。",
+      "ledgerSubtitle": "查看状态、最近同步和进入记忆的数量。",
       "columns": {
         "source": "来源",
         "status": "状态",
