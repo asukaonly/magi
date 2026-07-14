@@ -8,8 +8,6 @@ import time
 from pathlib import Path
 from typing import Iterable
 
-import aiosqlite
-
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     RefreshChannelsCommand,
@@ -203,15 +201,24 @@ class SQLiteRuntimeCommandQueue:
     async def get_stats(self) -> dict[str, int]:
         await self._initialize()
         async with sqlite_connection_async(self.db_path) as db:
-            pending_count = await self._count_by_status(db, STATUS_PENDING)
-            claimed_count = await self._count_by_status(db, STATUS_CLAIMED)
-            completed_count = await self._count_by_status(db, STATUS_COMPLETED)
-            failed_count = await self._count_by_status(db, STATUS_FAILED)
+            cursor = await db.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN status = ? THEN 1 ELSE 0 END)
+                FROM runtime_commands
+                """,
+                (STATUS_PENDING, STATUS_CLAIMED, STATUS_COMPLETED, STATUS_FAILED),
+            )
+            row = await cursor.fetchone()
+        counts = row or (0, 0, 0, 0)
         return {
-            "pending_count": pending_count,
-            "claimed_count": claimed_count,
-            "completed_count": completed_count,
-            "failed_count": failed_count,
+            "pending_count": int(counts[0] or 0),
+            "claimed_count": int(counts[1] or 0),
+            "completed_count": int(counts[2] or 0),
+            "failed_count": int(counts[3] or 0),
         }
 
     async def _initialize(self) -> None:
@@ -232,12 +239,3 @@ class SQLiteRuntimeCommandQueue:
                 (status, int(clear_claim), int(clear_claim), time.time(), command_id),
             )
             await db.commit()
-
-    @staticmethod
-    async def _count_by_status(db: aiosqlite.Connection, status: str) -> int:
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM runtime_commands WHERE status = ?",
-            (status,),
-        )
-        row = await cursor.fetchone()
-        return int(row[0] or 0)
