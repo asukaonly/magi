@@ -781,6 +781,22 @@ Controlled facets: `platform`, `located_in`, `category`. Parsed constraints are 
 - Hybrid queries combine L2 candidates with L1 time-sliced evidence
 - For `exact_fact` recall, answer-facing results should retain direct `L1` evidence for non-enumeration fact questions when available; time-anchored queries should preserve the strongest `L1` evidence first. `L2` may summarize or disambiguate, but should not replace the underlying fact text outright
 
+**Governed answer reads**: every answer-facing assertion or relationship read
+uses the same correction-aware view before ranking. This includes structured
+graph lookup, topology traversal, vector-candidate hydration, graph spreading,
+fallback plans, and query expansion. Administrative memory pages may still use
+raw lifecycle reads because users need to inspect and correct inactive records;
+those raw reads must not be reused for chat answers.
+
+The governed view applies lifecycle, validity interval, and matching correction
+scope together. A query without a time constraint reads current state. `as_of`
+reads one historical point, while bounded or open time windows return only the
+claim versions that win during some part of that window. A more specific scope
+masks a broader claim only while that scoped version is valid. Relationship
+history is reconstructed only from complete immutable snapshots written by the
+governed correction path; legacy relationship versions that cannot prove their
+full evidence, scope, and validity state are not exposed as historical facts.
+
 **Observability**: Execution traces include the generated `SemanticFrame`, `ResolvedFrame`, selected strategy key, active providers/collectors, matched constraints, and top-contributing evidence items.
 
 #### User Agency and Privacy
@@ -819,6 +835,17 @@ claim is blocked from becoming current again when old events are replayed or a
 source is resynchronized. A changed situation closes the previous time range;
 a scoped refinement is only current when the query scope matches. Replacement
 claims do not inherit evidence that supported the rejected value.
+
+Raw L1 evidence is preserved for audit and narrative history, but it does not
+bypass an active correction. For fact-authoritative modes, an L1 event that
+supports an active assertion or relationship correction is removed before
+answer fusion and before structured totals are calculated. If the correction
+index cannot be read, fact recall fails closed instead of returning possibly
+rejected evidence. `event_stream`, episode, and experience modes may retain the
+event as a historical record and mark it as later corrected; prompt rendering
+must not restate it as current truth. This policy is intentionally event-level
+until span-level evidence atoms have a measured need and a verifiable parent
+contract.
 
 Correction-sensitive derived views use a monotonically increasing subject
 revision. Snapshots, profile projections, portrait projections, and dependent L3
@@ -927,6 +954,16 @@ correction worker rebuilds an insight from the new current claim when possible,
 or retires it when no valid replacement exists. Temporal summaries, episodes,
 experiences, and unrelated insights are not rewritten merely because one L2
 interpretation changed.
+
+Initial insight publication, correction rebuild, and retirement all validate
+the complete dependency set and the memory-clear generation in the same write
+transaction. A late job may publish only if the stale record it scanned is still
+the same record version. Replacing or retiring an insight detaches its old search
+and vector entries before the new state becomes visible; embedding computation
+may run outside the mutation lock, but its result is written only after the
+parent content and version are checked again. Pre-governance insights whose
+evidence cannot be verified stay quarantined rather than being treated as
+current merely because they predate the dependency ledger.
 
 Trend-shift insights are reserved for durable long-span signals. Sparse or volatile outcomes should remain L2 evidence and should not become L3 trend cards until they have enough evidence, enough elapsed time, and a non-volatile stability kind.
 
@@ -1292,6 +1329,8 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 
 - Each `query_mode` defines a `QueryModePlan` with layer weight profiles
 - Each fact-like mode defines which L1 evidence scopes are authoritative for that mode; BM25, vector, and keyword retrieval must apply those scopes before topK whenever scoped indexes are available
+- Fact-authoritative L1 candidates are also checked against active correction evidence before fusion. Missing correction governance, lookup failure, and missing event identity fail closed. Historical event, episode, and experience modes retain the record with explicit historical semantics instead of silently presenting it as current.
+- Answer-facing L2 candidates always cross the governed current/history/scope view before ranking. Vector and graph expansion may propose candidates, but neither may publish raw lifecycle rows.
 - Mode-adaptive RRF adjusts per-layer weights based on the query mode
 - Evidence assemblers shape raw retrieval results into per-mode evidence formats (fact cards, state cards, episode bundles, comparison frames, grouped lists)
 - Reducers produce final answering material (span selection, latest version, narrative, anchor comparison, enumeration)
@@ -1302,6 +1341,7 @@ The `HybridRetrievalService` orchestrates cross-layer retrieval with mode-aware 
 - plugins may optionally enrich these refs through a recall-artifact projection hook keyed by `source_type`; memory still owns the final query contract and chat still owns attachment import/display
 - For fact-like recall modes, answer-facing projection treats chat-derived assistant freeform replies and chat-derived user question prompts as non-authoritative artifacts. This projection hygiene is a last-mile defense; the primary defense is authoritative evidence scoping before retrieval ranking. These artifacts may remain in `L1` for audit or conversation replay, but they must not become factual `historical_recall.findings` unless the caller explicitly asks for chat-source evidence or uses a conversation-recall mode.
 - Generic topK recall is representative evidence, not an exhaustive count surface. Queries that ask for counts, totals, or full enumeration need an explicit coverage contract. When a source-backed structured recall provider can answer exhaustively, it must set `coverage.can_claim_total=true`; otherwise downstream prompts and UI must treat returned findings as samples, avoid total-count claims, and keep qualitative summaries bounded to patterns directly supported by the returned findings instead of inferring broader habits, preferences, diversity, or frequency.
+- Structured source-facet recall applies the same correction evidence blocklist before computing totals or claiming coverage. The answer path has no live L1 co-occurrence fallback that can synthesize ungoverned relationship claims.
 
 Layer contributions:
 
@@ -1362,6 +1402,40 @@ Retention policies are defined per event type and purpose, not as a global rule.
 - L3 cleanup may age out ordinary hot-path summaries, but it must preserve
   reviewable/user-confirmed insights and episodic summaries attached to stable
   L2 episode or experience objects.
+
+### Destructive Full-Clear Boundary
+
+A full user-memory clear is one runtime-wide boundary, not a collection of
+independent table deletes.
+
+- User-message dispatch holds a shared ingress boundary from attachment
+  preparation through chat persistence, L1 projection, runtime-command enqueue,
+  and the successful dispatch result.
+- Full clear takes the matching exclusive ingress boundary before it takes the
+  memory store's exclusive operation boundary. This lock order is mandatory.
+- After active chat and embedding work is stopped, clear advances a durable
+  user-message generation. Every `USER_MESSAGE` command present at that
+  boundary is deleted from the runtime queue in every state, including
+  completed and failed rows, so message bodies do not survive the
+  user-requested clear. Non-chat runtime commands are preserved.
+- The generation travels with the command through the local message bus,
+  `SensorHub`, router fact, and task-agent admission. A missing or mismatched
+  generation is rejected once generation governance is active, which prevents
+  a pre-clear message already held by an in-memory queue from recreating chat or
+  memory after clear completes.
+- Separately, the in-process message bus snapshots the current process-local
+  memory epoch onto every event when the publisher hands it to the bus. Both
+  event-to-memory subscribers require that reserved snapshot and pass it into
+  the guarded ingestion call. Clear advances the epoch before deleting memory, so any
+  pre-clear bus backlog is rejected even when its handler runs after clear.
+  The bus overwrites caller-provided values, does not persist this epoch, and
+  starts from the new store's epoch after process restart.
+- Chat transcripts, session summaries, session-bound runtime traces,
+  orchestration payloads, L0-L4 stores, manual-entry assets, and rebuildable
+  memory projections are cleared within the same boundary. Notifications
+  derived from memory conflicts are cleared with their source claims. Global
+  runtime notifications, unrelated user notifications, and non-chat
+  ingress/audit streams are not chat memory and are preserved.
 
 ### What Compression Means
 

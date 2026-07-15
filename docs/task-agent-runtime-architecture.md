@@ -556,6 +556,8 @@ Explicit historical recall is handled separately from implicit prompt injection:
 - parameter hint generation is handled by rules, not by an extra LLM planning step, to keep routing latency and variance low
 - the main LLM may still discover additional memory needs later during function calling and issue a refined tool call; the routing hint is advisory, not the final execution payload
 - once `memory_query` has returned, its answer-facing `historical_recall` payload is marked as the source of truth for historical recall in the current turn, and final-response prompt rules explicitly forbid replacing missing recall results with implicit memory or guesses
+- the memory result has already applied correction-aware current, historical, time-range, and scope selection before ranking; raw L2 lifecycle rows and corrected L1 evidence are not a second fallback available to the chat runtime
+- event, episode, and experience recall may include an item explicitly marked as a historical record or later corrected; the final response must preserve that time-qualified meaning rather than restating it as current truth
 - final responses must keep historical claims inside the returned findings and coverage boundary; persona tone may change phrasing but must not turn representative records into broader claims about habits, preferences, diversity, frequency, or totals unless the findings directly establish them
 - that `historical_recall` contract may carry compact `entity_refs` and `asset_refs` alongside human-readable findings so later turns can reuse concrete entities or assets without leaking raw source paths into the chat protocol
 - raw retrieval traces remain in the debug/trace path and are not reinjected into the main LLM tool-message context
@@ -1160,6 +1162,23 @@ Two rules matter here:
 - `L1` is the durable source of truth for long-term memory, while `L0` remains execution-scoped
 - `ActionExecuted` stays execution-scoped and does not enter `L1`, even though its outcome may still update `L4` procedural memory
 - `L2` progress is tracked by durable projection jobs, while microbatching remains an in-process execution optimization
+
+Destructive memory clear adds a separate chat-admission boundary around this
+flow. User-message dispatch holds its shared side from attachment preparation
+through chat persistence, L1 projection, and durable runtime enqueue. Clear
+takes the exclusive side first, stops active chat work, advances the durable
+message generation, discards every older queued user message, then enters the
+exclusive memory boundary. The generation is carried through command dispatch,
+the message bus, `SensorHub`, and task-agent routing; a missing or mismatched
+generation is rejected after clear. This makes a concurrent message either a
+complete pre-clear turn that is removed or a complete post-clear turn that is
+kept, never a partial turn that can later recreate deleted chat or memory.
+
+This admission boundary relies on the current runtime owning one
+`SQLiteRuntimeCommandQueue` instance in one Python worker process. A future
+API/runtime multi-process split must move generation admission and stale-command
+validation into database transactions before enabling a second queue instance;
+instance-local generation caches and barriers are not a cross-process contract.
 
 ## Runtime Trace Flow
 
