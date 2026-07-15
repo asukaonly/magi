@@ -463,23 +463,59 @@ class MemoryCorrectionRepository:
                     """,
                     (claimed_at, bounded_attempts),
                 )
+                await db.execute(
+                    """
+                    UPDATE memory_derivation_jobs AS dependent
+                    SET status = 'failed', next_retry_at = NULL,
+                        last_error = 'Blocked by failed profile derivation',
+                        updated_at = ?
+                    WHERE dependent.job_kind = 'portrait'
+                      AND dependent.status IN ('pending', 'failed')
+                      AND EXISTS (
+                          SELECT 1
+                          FROM memory_derivation_jobs AS prerequisite
+                          WHERE prerequisite.correction_id = dependent.correction_id
+                            AND prerequisite.target_key = dependent.target_key
+                            AND prerequisite.target_revision = dependent.target_revision
+                            AND prerequisite.job_kind = 'profile'
+                            AND prerequisite.status = 'failed'
+                            AND prerequisite.next_retry_at IS NULL
+                      )
+                    """,
+                    (claimed_at,),
+                )
                 async with db.execute(
                     """
-                    SELECT * FROM memory_derivation_jobs
-                    WHERE attempt_count < ?
+                    SELECT candidate.* FROM memory_derivation_jobs AS candidate
+                    WHERE candidate.attempt_count < ?
                       AND (
                           (
-                              status = 'pending'
-                              AND (next_retry_at IS NULL OR next_retry_at <= ?)
+                              candidate.status = 'pending'
+                              AND (
+                                  candidate.next_retry_at IS NULL
+                                  OR candidate.next_retry_at <= ?
+                              )
                           )
                           OR (
-                              status = 'failed'
-                              AND next_retry_at IS NOT NULL
-                              AND next_retry_at <= ?
+                              candidate.status = 'failed'
+                              AND candidate.next_retry_at IS NOT NULL
+                              AND candidate.next_retry_at <= ?
+                          )
+                      )
+                      AND (
+                          candidate.job_kind != 'portrait'
+                          OR NOT EXISTS (
+                              SELECT 1
+                              FROM memory_derivation_jobs AS prerequisite
+                              WHERE prerequisite.correction_id = candidate.correction_id
+                                AND prerequisite.target_key = candidate.target_key
+                                AND prerequisite.target_revision = candidate.target_revision
+                                AND prerequisite.job_kind = 'profile'
+                                AND prerequisite.status != 'completed'
                           )
                       )
                     ORDER BY
-                        CASE job_kind
+                        CASE candidate.job_kind
                             WHEN 'l1_audit' THEN 0
                             WHEN 'snapshot' THEN 1
                             WHEN 'profile' THEN 2
@@ -487,8 +523,8 @@ class MemoryCorrectionRepository:
                             WHEN 'l3_insight' THEN 4
                             ELSE 5
                         END,
-                        target_revision DESC,
-                        created_at ASC
+                        candidate.target_revision DESC,
+                        candidate.created_at ASC
                     LIMIT 1
                     """,
                     (bounded_attempts, claimed_at, claimed_at),

@@ -155,6 +155,103 @@ async def test_derivation_job_stops_after_maximum_attempts(
     }
 
 
+async def test_portrait_waits_for_profile_retry_before_rebuilding(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    correction_id = await _enqueue_correction(store, request_id="profile-before-portrait")
+    calls: list[str] = []
+    profile_attempt = 0
+
+    async def snapshot(_job) -> None:  # type: ignore[no-untyped-def]
+        calls.append("snapshot")
+
+    async def profile(_job) -> None:  # type: ignore[no-untyped-def]
+        nonlocal profile_attempt
+        profile_attempt += 1
+        calls.append(f"profile-{profile_attempt}")
+        if profile_attempt == 1:
+            raise RuntimeError("temporary profile failure")
+
+    async def portrait(_job) -> None:  # type: ignore[no-untyped-def]
+        calls.append("portrait")
+        assert profile_attempt == 2
+
+    runner = CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+        handlers={
+            "snapshot": snapshot,
+            "profile": profile,
+            "portrait": portrait,
+        },
+    )
+
+    first = await runner.run_pending(limit=10)
+    assert first == {"completed": 1, "failed": 1, "superseded": 0}
+    assert calls == ["snapshot", "profile-1"]
+    async with aiosqlite.connect(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT job_kind, status
+            FROM memory_derivation_jobs
+            WHERE correction_id = ? AND job_kind IN ('profile', 'portrait')
+            ORDER BY job_kind
+            """,
+            (correction_id,),
+        ) as cursor:
+            assert await cursor.fetchall() == [
+                ("portrait", "pending"),
+                ("profile", "pending"),
+            ]
+        await db.execute(
+            """
+            UPDATE memory_derivation_jobs
+            SET next_retry_at = 0
+            WHERE correction_id = ? AND job_kind = 'profile'
+            """,
+            (correction_id,),
+        )
+        await db.commit()
+
+    second = await runner.run_pending(limit=10)
+    assert second == {"completed": 2, "failed": 0, "superseded": 0}
+    assert calls == ["snapshot", "profile-1", "profile-2", "portrait"]
+
+
+async def test_terminal_profile_failure_marks_portrait_blocked(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    correction_id = await _enqueue_correction(store, request_id="profile-blocks-portrait")
+
+    async def profile(_job) -> None:  # type: ignore[no-untyped-def]
+        raise RuntimeError("profile cannot be rebuilt")
+
+    portrait = AsyncMock()
+    runner = CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+        handlers={"profile": profile, "portrait": portrait},
+    )
+
+    stats = await runner.run_pending(limit=10, max_attempts=1)
+    assert stats == {"completed": 1, "failed": 1, "superseded": 0}
+    portrait.assert_not_awaited()
+    async with aiosqlite.connect(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT status, next_retry_at, last_error
+            FROM memory_derivation_jobs
+            WHERE correction_id = ? AND job_kind = 'portrait'
+            """,
+            (correction_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+    assert row == ("failed", None, "Blocked by failed profile derivation")
+    assert await store.get_memory_correction_derivation_state(correction_id) == "failed"
+
+
 async def test_stale_running_job_is_recovered_but_exhausted_job_is_terminal(
     l2_store_with_schema,
 ) -> None:
