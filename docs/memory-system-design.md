@@ -826,7 +826,9 @@ temporal summary records. The API owns story grouping, summary-page visibility,
 featured ordering hints, display timestamps, preview text, detail lead text, and
 summary statistics. Frontend story surfaces may translate labels and choose
 visual treatment, but they should not reclassify raw `summary_category` values
-or recompute story-feed statistics from the raw records.
+or recompute story-feed statistics from the raw records. Story previews must
+remain concise even for legacy summaries without `essence_prose`; full summary
+content belongs to the detail reading surface rather than the feed card.
 The About You page presents the user-facing self portrait as an ordered
 world model: first a grouped view of identity, long-running projects,
 preferences, and working style; then reviewable items that need

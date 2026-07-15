@@ -110,37 +110,42 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
       <DialogContent
         data-testid="story-detail-rail"
         hideClose
-        className="flex max-h-[min(760px,calc(100vh-64px))] max-w-3xl flex-col overflow-hidden border-[hsl(var(--memory-border)/0.66)] bg-[hsl(var(--memory-panel-elevated)/0.98)] p-0"
+        className="flex max-h-[min(860px,calc(100vh-48px))] max-w-[min(920px,calc(100vw-32px))] flex-col overflow-hidden border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.99)] p-0 shadow-[0_28px_80px_hsl(var(--memory-shadow)/0.16)]"
       >
         <DialogTitle className="sr-only">
           {headerLabel}
         </DialogTitle>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onClose}
-          aria-label={t('memory.stories.detailRail.close')}
-          className="absolute right-4 top-4 z-10 h-8 w-8"
-        >
-          <X className="h-4 w-4" />
-        </Button>
 
         <div
-          data-testid="story-detail-scroll"
-          className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 pb-6 pt-5 text-sm leading-6 text-[hsl(var(--memory-body))]"
+          data-testid="story-detail-header"
+          className="flex shrink-0 items-center justify-between gap-4 px-6 pb-3 pt-5 sm:px-8"
         >
           <DialogDescription
             data-testid="story-detail-meta"
-            className="w-fit pr-10 text-xs leading-5 text-[hsl(var(--memory-muted))]"
+            className="w-fit text-xs font-medium leading-5 text-[hsl(var(--memory-muted))]"
           >
             {headerLabel}
           </DialogDescription>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            aria-label={t('memory.stories.detailRail.close')}
+            className="h-8 w-8 shrink-0 text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))]"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
 
-          <MarkdownBlock className="text-sm leading-6 text-[hsl(var(--memory-body))]">
+        <div
+          data-testid="story-detail-scroll"
+          className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-2 text-sm leading-7 text-[hsl(var(--memory-body))] sm:px-8"
+        >
+          <MarkdownBlock className="mx-auto max-w-[740px] text-[0.95rem] font-normal leading-7 text-[hsl(var(--memory-body))] [&_code]:rounded-sm [&_code]:border-0 [&_code]:bg-[hsl(var(--memory-panel-subtle)/0.62)] [&_code]:font-sans [&_code]:shadow-none [&_h1]:mb-6 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-2xl [&_h2]:mb-3 [&_h2]:mt-8 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:pl-0.5 [&_ol]:my-3 [&_ol]:space-y-2 [&_p]:leading-7 [&_ul]:my-3 [&_ul]:space-y-2">
             {story.content}
           </MarkdownBlock>
 
-          <div className="border-t border-[hsl(var(--memory-divider)/0.55)] pt-3">
+          <div className="mx-auto mt-8 max-w-[740px] border-t border-[hsl(var(--memory-divider)/0.42)] pt-4">
             <Button
               type="button"
               variant="ghost"
@@ -167,7 +172,7 @@ export const StoryDetailRail = ({ story, onClose }: StoryDetailRailProps) => {
                   {evidence.map((item) => (
                     <li
                       key={item.event_id}
-                      className="rounded-md border border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-subtle)/0.5)] px-3 py-2"
+                      className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.52)] px-3.5 py-3"
                     >
                       <div className="flex flex-wrap items-center gap-2 text-[10px] text-[hsl(var(--memory-muted))]">
                         <span>{formatEvidenceTimestamp(item.timestamp, i18n.language)}</span>

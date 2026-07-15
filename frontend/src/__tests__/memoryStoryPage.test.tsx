@@ -18,10 +18,13 @@ vi.mock('react-i18next', () => ({
         'memory.stories.loading': '正在整理总结。',
         'memory.stories.actions.archive': '收起',
         'memory.stories.actions.viewEvidence': '查看证据',
+        'memory.stories.actions.readFull': '阅读完整总结',
+        'memory.stories.detailRail.close': '关闭详情',
         'memory.stories.evidenceChip': '{{count}} 条证据',
         'memory.stories.heroLabel': '近期重点',
         'memory.stories.sortHint': '按重要程度和时间排序',
         'memory.stories.filters.all': '全部',
+        'memory.stories.filters.label': '总结分类',
         'memory.stories.filters.periodic': '时段总结',
         'memory.stories.filters.observations': '长期观察',
         'memory.stories.filters.tasks': '任务复盘',
@@ -31,11 +34,15 @@ vi.mock('react-i18next', () => ({
         'memory.stories.stats.highlights': '观察复盘',
         'memory.stories.stats.periodic': '时段总结',
         'memory.stories.stats.observations': '长期观察',
+        'memory.stories.stats.summaryCount': '{{count}} 条总结',
+        'memory.stories.stats.periodicCount': '{{count}} 条时段总结',
+        'memory.stories.stats.observationsCount': '{{count}} 条长期观察',
+        'memory.stories.stats.tasksCount': '{{count}} 条任务复盘',
         'memory.stories.meta.insight': '观察',
         'memory.stories.meta.periodic': '时段记录',
         'memory.stories.sections.reflections': 'Magi 的总结',
         'memory.stories.sections.reflectionsEmpty': '还没有新的总结',
-        'memory.stories.sections.feed': '总结流',
+        'memory.stories.sections.feed': '更早的总结',
         'memory.stories.sections.periodic': '时段记录',
         'memory.stories.sections.periodicEmpty': '还没有时段总结',
         'memory.stories.provenance': 'Magi 自动生成 · {{timestamp}}',
@@ -161,6 +168,7 @@ describe('MemoryStoryPage', () => {
       makeStory('ins-1', {
         title: 'an insight',
         content: 'trend body',
+        preview_text: 'trend body',
         period_end: 1700100000,
         updated_at: 1700100000,
       }),
@@ -184,12 +192,13 @@ describe('MemoryStoryPage', () => {
     expect(screen.queryByTestId('memory-stories-section-periodic')).not.toBeInTheDocument();
   });
 
-  it('renders markdown in the featured summary body', async () => {
+  it('keeps the featured preview concise and opens full markdown in detail', async () => {
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(makePayload([
         makeStory('week-md', {
           summary_type: 'temporal',
           summary_category: 'week',
           content: '## 要点\n本周 **magi** 工作推进。\n\n- 修复 CI\n- 梳理人格逻辑',
+          preview_text: '本周主要推进 Magi，并完成两项关键整理。',
           period_end: 1700300000,
           updated_at: 1700300000,
           evidence_event_count: 4,
@@ -199,11 +208,17 @@ describe('MemoryStoryPage', () => {
     renderPage();
 
     const featured = await screen.findByTestId('memory-stories-featured');
-    expect(featured.querySelector('h2')).toHaveTextContent('要点');
-    expect(featured.querySelector('strong')).toHaveTextContent('magi');
-    expect(featured.querySelectorAll('li')).toHaveLength(2);
-    expect(featured.textContent).not.toContain('## 要点');
-    expect(featured.textContent).not.toContain('**magi**');
+    expect(featured).toHaveTextContent('本周主要推进 Magi，并完成两项关键整理。');
+    expect(featured).not.toHaveTextContent('修复 CI');
+    expect(featured.querySelector('h2')).toBeNull();
+    expect(featured.querySelector('li')).toBeNull();
+
+    await userEvent.click(within(featured).getByRole('button', { name: '阅读完整总结' }));
+    const detail = await screen.findByTestId('story-detail-rail');
+    const detailScroll = within(detail).getByTestId('story-detail-scroll');
+    expect(detailScroll.querySelector('h2')).toHaveTextContent('要点');
+    expect(detailScroll.querySelector('strong')).toHaveTextContent('magi');
+    expect(detailScroll.querySelectorAll('li')).toHaveLength(2);
   });
 
   it('uses essence prose on cards while keeping full content in detail', async () => {
@@ -261,9 +276,10 @@ describe('MemoryStoryPage', () => {
     const user = userEvent.setup();
 
     expect(await screen.findByRole('button', { name: '全部' })).toBeInTheDocument();
-    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('观察复盘');
-    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('时段总结');
-    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('长期观察');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('1 条时段总结');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('1 条长期观察');
+    expect(screen.getByTestId('memory-stories-stats')).toHaveTextContent('1 条任务复盘');
+    expect(screen.getByTestId('memory-stories-stats')).not.toHaveTextContent('观察复盘');
     expect(screen.getByRole('button', { name: '时段总结' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '长期观察' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '任务复盘' })).toBeInTheDocument();
@@ -304,7 +320,7 @@ describe('MemoryStoryPage', () => {
       })
     ));
     const earlierStory = makeStory('story-30', {
-      content: '更早的总结',
+      content: '一条更早的总结',
       period_end: 1700000000,
       updated_at: 1700000000,
     });
@@ -331,7 +347,7 @@ describe('MemoryStoryPage', () => {
       surface: 'summary',
       group: undefined,
     });
-    expect(await screen.findByText('更早的总结')).toBeInTheDocument();
+    expect(await screen.findByText('一条更早的总结')).toBeInTheDocument();
     expect(screen.getByText('已经看到当前加载的全部总结')).toBeInTheDocument();
   });
 
@@ -370,13 +386,23 @@ describe('MemoryStoryPage', () => {
         insight_key: 'k',
         evidence_event_count: 5,
       }),
+      makeStory('s2', {
+        title: '你也开始更常在午后阅读',
+        content: '阅读节奏更稳定了',
+        period_start: 1699900000,
+        period_end: 1700000000,
+        updated_at: 1700000000,
+        insight_key: 'k2',
+        evidence_event_count: 3,
+      }),
     ], { limit: 20 }));
     renderPage();
     expect(await screen.findAllByText('你最近的播放变得更安静了')).not.toHaveLength(0);
-    expect(screen.getByTestId('story-card-s1')).toBeInTheDocument();
-    expect(screen.getByTestId('story-card-s1').textContent).not.toContain('待确认');
-    expect(screen.getByTestId('story-card-s1').textContent).toContain('5 条证据');
-    expect(screen.getByTestId('story-card-s1').textContent).not.toContain('Magi 自动生成');
+    expect(screen.queryByTestId('story-card-s1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('story-card-s2')).toBeInTheDocument();
+    expect(screen.getByTestId('story-card-s2').textContent).not.toContain('待确认');
+    expect(screen.getByTestId('story-card-s2').textContent).toContain('3 条证据');
+    expect(screen.getByTestId('story-card-s2').textContent).not.toContain('Magi 自动生成');
   });
 
   it('renders only an archive action on each card', async () => {

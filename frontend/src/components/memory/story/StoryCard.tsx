@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next';
 import { Archive, ChevronRight } from 'lucide-react';
 import type { StoryItem, StoryReviewState } from '@/api/modules/memoryStories';
 import { Button } from '@/components/ui/button';
-import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { cn } from '@/lib/utils';
 
 interface StoryCardProps {
@@ -18,21 +17,6 @@ const stateToneClass = (state: StoryReviewState): string => {
       return 'opacity-60';
     default:
       return '';
-  }
-};
-
-const groupToneClass = (group: StoryItem['feed_group']): string => {
-  switch (group) {
-    case 'observations':
-      return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-    case 'periodic':
-      return 'bg-sky-50 text-sky-700 border-sky-100';
-    case 'tasks':
-      return 'bg-amber-50 text-amber-700 border-amber-100';
-    case 'memory_update':
-      return 'bg-rose-50 text-rose-700 border-rose-100';
-    default:
-      return 'bg-[hsl(var(--memory-panel-subtle)/0.76)] text-[hsl(var(--memory-body))] border-[hsl(var(--memory-border)/0.35)]';
   }
 };
 
@@ -53,72 +37,41 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
   const { t, i18n } = useTranslation('app');
   const categoryLabel = t(`memory.stories.categories.${story.summary_category}`, { defaultValue: story.summary_category });
   const primaryText = String(story.preview_text || story.title || story.content).trim();
-  const secondaryText = String(story.detail_lead_text || '').trim();
   const dateLabel = formatStoryDate(story, i18n.language);
   const evidenceLabel = story.evidence_event_count > 0
     ? t('memory.stories.evidenceChip', { count: story.evidence_event_count })
     : null;
-  const sourceLabel = story.summary_type === 'insight'
-    ? t('memory.stories.meta.insight')
-    : t('memory.stories.meta.periodic');
 
   return (
     <article
       data-testid={`story-card-${story.summary_id}`}
       className={cn(
-        'group grid gap-4 border-b border-[hsl(var(--memory-divider)/0.58)] px-5 py-5 transition-colors last:border-b-0 hover:bg-[hsl(var(--memory-panel-subtle)/0.28)] md:grid-cols-[150px_minmax(0,1fr)_76px]',
+        'group grid gap-3 rounded-lg px-3 py-5 transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.42)] md:grid-cols-[120px_minmax(0,1fr)_72px] md:items-center md:gap-5',
         stateToneClass(story.review_state)
       )}
     >
-      <div className="flex flex-row items-center gap-3 md:flex-col md:items-start md:gap-2">
-        <span className={cn('inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium', groupToneClass(story.feed_group))}>
+      <div className="flex flex-row items-center gap-2 text-xs md:flex-col md:items-start md:gap-1.5">
+        <span className="font-medium text-[hsl(var(--memory-accent))]">
           {categoryLabel}
         </span>
-        {dateLabel ? <span className="text-xs font-medium text-[hsl(var(--memory-muted))]">{dateLabel}</span> : null}
+        {dateLabel ? <span className="text-[hsl(var(--memory-muted))]">{dateLabel}</span> : null}
       </div>
 
       <div className="min-w-0">
-        {story.title ? (
-          <button
-            type="button"
-            onClick={onOpenDetail}
-            className="block text-left text-base font-semibold leading-7 text-[hsl(var(--memory-title))] transition-colors hover:text-[hsl(var(--memory-accent))]"
-          >
+        <button
+          type="button"
+          onClick={onOpenDetail}
+          className="block w-full rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+        >
+          <p className="line-clamp-3 whitespace-pre-wrap text-[0.95rem] font-normal leading-7 text-[hsl(var(--memory-title))] transition-colors group-hover:text-[hsl(var(--memory-accent))]">
             {primaryText}
-          </button>
-        ) : (
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={onOpenDetail}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onOpenDetail();
-              }
-            }}
-            className="cursor-pointer text-left transition-colors hover:text-[hsl(var(--memory-accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.3)]"
-          >
-            <MarkdownBlock className="text-base font-semibold leading-7 text-[hsl(var(--memory-title))] [&_h1]:mb-2 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-base [&_h2]:mb-2 [&_h2]:mt-2 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:text-base [&_p]:text-base [&_p]:leading-7">
-              {primaryText}
-            </MarkdownBlock>
-          </div>
-        )}
-        {secondaryText ? (
-          <MarkdownBlock className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">
-            {secondaryText}
-          </MarkdownBlock>
-        ) : null}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {evidenceLabel ? (
-            <span className="rounded-full border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-muted))]">
-              {evidenceLabel}
-            </span>
-          ) : null}
-          <span className="rounded-full border border-[hsl(var(--memory-border)/0.42)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-muted))]">
-            {sourceLabel}
+          </p>
+        </button>
+        {evidenceLabel ? (
+          <span className="mt-2 block text-xs text-[hsl(var(--memory-muted))]">
+            {evidenceLabel}
           </span>
-        </div>
+        ) : null}
       </div>
 
       <div className="flex items-center justify-end gap-1 self-center">
@@ -127,7 +80,7 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
           size="icon"
           onClick={onArchive}
           aria-label={t('memory.stories.actions.archive')}
-          className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          className="h-8 w-8 text-[hsl(var(--memory-muted))] opacity-60 transition-[color,opacity] hover:text-[hsl(var(--memory-title))] md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
         >
           <Archive className="h-4 w-4" />
         </Button>
@@ -135,8 +88,8 @@ export const StoryCard = ({ story, onArchive, onOpenDetail }: StoryCardProps) =>
           variant="ghost"
           size="icon"
           onClick={onOpenDetail}
-          aria-label={t('memory.stories.actions.viewEvidence')}
-          className="h-8 w-8 text-[hsl(var(--memory-body))]"
+          aria-label={t('memory.stories.actions.readFull')}
+          className="h-8 w-8 text-[hsl(var(--memory-muted))] transition-colors hover:text-[hsl(var(--memory-accent))]"
         >
           <ChevronRight className="h-4 w-4" />
         </Button>

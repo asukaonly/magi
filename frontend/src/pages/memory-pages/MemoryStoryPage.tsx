@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ArrowRight } from 'lucide-react';
 import {
   memoryStoriesApi,
   type StoryFeedGroup,
@@ -10,7 +11,6 @@ import StoryCard from '@/components/memory/story/StoryCard';
 import StoryDetailRail from '@/components/memory/story/StoryDetailRail';
 import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS } from './MemoryPageFrame';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
-import { MarkdownBlock } from '@/components/ui/markdown-block';
 import { cn } from '@/lib/utils';
 
 type StoryFilter = 'all' | Exclude<StoryFeedGroup, 'memory_update'>;
@@ -31,17 +31,28 @@ const EMPTY_STATS: StoryFeedStats = {
   tasks: 0,
 };
 
-const storyTimestamp = (story: StoryItem): number => (
-  story.display_timestamp || 0
-);
-
-const formatStoryDate = (story: StoryItem, locale: string): string => {
-  const timestamp = storyTimestamp(story);
-  if (!timestamp) return '';
-  return new Intl.DateTimeFormat(locale, {
+const formatDate = (timestamp: number, locale: string): string => (
+  new Intl.DateTimeFormat(locale, {
     month: 'numeric',
     day: 'numeric',
-  }).format(new Date(timestamp * 1000));
+  }).format(new Date(timestamp * 1000))
+);
+
+const formatStoryPeriod = (story: StoryItem, locale: string): string => {
+  if (story.period_start != null && story.period_end != null) {
+    const endDate = new Date(story.period_end * 1000);
+    const endsAtMidnight = endDate.getHours() === 0
+      && endDate.getMinutes() === 0
+      && endDate.getSeconds() === 0
+      && endDate.getMilliseconds() === 0;
+    const adjustedEnd = story.period_end > story.period_start && endsAtMidnight
+      ? story.period_end - 1
+      : story.period_end;
+    const start = formatDate(story.period_start, locale);
+    const end = formatDate(adjustedEnd, locale);
+    return start === end ? start : `${start} – ${end}`;
+  }
+  return story.display_timestamp ? formatDate(story.display_timestamp, locale) : '';
 };
 
 const storyEssenceText = (story: StoryItem): string => (
@@ -50,10 +61,6 @@ const storyEssenceText = (story: StoryItem): string => (
 
 const storyPreviewText = (story: StoryItem): string => (
   String(story.preview_text || '').trim() || storyEssenceText(story) || story.title || story.content
-);
-
-const storyDetailLeadText = (story: StoryItem): string => (
-  String(story.detail_lead_text || '').trim()
 );
 
 const storyCategoryLabelKey = (story: StoryItem): string => (
@@ -158,22 +165,27 @@ export const MemoryStoryPage = () => {
   );
 
   const feedStories = useMemo(
-    () => {
-      const withoutFeatured = filteredItems.filter((story) => story.summary_id !== featuredStory?.summary_id);
-      return withoutFeatured.length > 0 ? withoutFeatured : filteredItems;
-    },
+    () => filteredItems.filter((story) => story.summary_id !== featuredStory?.summary_id),
     [featuredStory?.summary_id, filteredItems]
   );
+
+  const visibleStats = [
+    { count: stats.periodic, labelKey: 'memory.stories.stats.periodicCount' },
+    { count: stats.observations, labelKey: 'memory.stories.stats.observationsCount' },
+    { count: stats.tasks, labelKey: 'memory.stories.stats.tasksCount' },
+  ].filter((item) => item.count > 0);
+
+  const totalSummaryCount = stats.periodic + stats.observations + stats.tasks;
 
   return (
     <MemoryPageFrame
       title={t('memory.stories.title')}
       description={t('memory.stories.subtitle')}
       hideHeader
-      className="max-w-[900px] gap-3 px-4 pb-4 pt-3"
+      className="max-w-[1040px] gap-3 px-5 pb-5 pt-3"
       contentClassName="pb-6"
     >
-      <section data-testid="memory-stories-feed" className="space-y-4">
+      <section data-testid="memory-stories-feed" className="space-y-6">
         {loading ? (
           <div className={`${MEMORY_EMPTY_PANEL_CLASS} flex items-center gap-2`}>
             <LoadingSpinner className="h-4 w-4" />
@@ -181,45 +193,37 @@ export const MemoryStoryPage = () => {
           </div>
         ) : (
           <>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className="inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-lg border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.72)] p-0.5">
+            <div className="flex flex-col gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] sm:flex-row sm:items-end sm:justify-between">
+              <nav className="flex min-w-0 flex-wrap items-center gap-5" aria-label={t('memory.stories.filters.label')}>
                   {FILTERS.map((filter) => (
                     <button
                       key={filter.id}
                       type="button"
                       onClick={() => setActiveFilter(filter.id)}
+                      aria-pressed={activeFilter === filter.id}
                       className={cn(
-                        'inline-flex h-8 items-center whitespace-nowrap rounded-md px-2.5 text-sm font-medium transition-colors',
+                        'relative inline-flex h-10 items-center whitespace-nowrap px-0.5 text-sm transition-colors after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:rounded-sm after:bg-[hsl(var(--memory-accent))] after:transition-transform after:duration-200',
                         activeFilter === filter.id
-                          ? 'bg-[hsl(var(--memory-title))] text-[hsl(var(--memory-panel))]'
-                          : 'text-[hsl(var(--memory-body))] hover:bg-[hsl(var(--memory-panel-subtle)/0.62)]'
+                          ? 'font-semibold text-[hsl(var(--memory-title))] after:scale-x-100'
+                          : 'font-medium text-[hsl(var(--memory-muted))] after:scale-x-0 hover:text-[hsl(var(--memory-title))]'
                       )}
                     >
                       {t(filter.labelKey)}
                     </button>
                   ))}
-                </div>
-              </div>
+              </nav>
 
               <div
                 data-testid="memory-stories-stats"
-                className="inline-flex h-8 w-fit max-w-full items-center gap-2 rounded-lg border border-[hsl(var(--memory-border)/0.52)] bg-[hsl(var(--memory-panel-elevated)/0.58)] px-2.5 text-xs text-[hsl(var(--memory-muted))]"
+                className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1 pb-2 text-xs text-[hsl(var(--memory-muted))] sm:justify-end"
               >
-                <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.highlights}</span>
-                  <span>{t('memory.stories.stats.highlights')}</span>
-                </span>
-                <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
-                <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.periodic}</span>
-                  <span>{t('memory.stories.stats.periodic')}</span>
-                </span>
-                <span className="h-3 w-px bg-[hsl(var(--memory-divider)/0.78)]" aria-hidden="true" />
-                <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                  <span className="font-semibold text-[hsl(var(--memory-title))]">{stats.observations}</span>
-                  <span>{t('memory.stories.stats.observations')}</span>
-                </span>
+                {visibleStats.length > 0
+                  ? visibleStats.map((item) => (
+                    <span key={item.labelKey} className="whitespace-nowrap">
+                      {t(item.labelKey, { count: item.count })}
+                    </span>
+                  ))
+                  : <span>{t('memory.stories.stats.summaryCount', { count: totalSummaryCount })}</span>}
               </div>
             </div>
 
@@ -232,64 +236,61 @@ export const MemoryStoryPage = () => {
                 {featuredStory ? (
                   <article
                     data-testid="memory-stories-featured"
-                    className="rounded-lg border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)] px-4 py-4"
+                    className="rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.72)] px-6 py-7 shadow-[0_18px_48px_hsl(var(--memory-shadow)/0.035)] sm:px-8 sm:py-8"
                   >
-                    <div className="mb-2 inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700">
-                      {t(storyCategoryLabelKey(featuredStory), { defaultValue: featuredStory.summary_category })}
-                    </div>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setDetailStory(featuredStory)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          setDetailStory(featuredStory);
-                        }
-                      }}
-                      className="cursor-pointer text-left transition-colors hover:text-[hsl(var(--memory-accent))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.3)]"
-                    >
-                      <MarkdownBlock className="text-base font-semibold leading-7 text-[hsl(var(--memory-title))] [&_h1]:mb-3 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-lg [&_h2]:mb-2 [&_h2]:mt-3 [&_h2]:text-base [&_h2]:normal-case [&_h2]:tracking-normal [&_h2]:text-[hsl(var(--memory-title))] [&_li]:text-base [&_p]:text-base [&_p]:leading-7">
-                        {storyPreviewText(featuredStory)}
-                      </MarkdownBlock>
-                    </div>
-                    {storyDetailLeadText(featuredStory) ? (
-                      <MarkdownBlock className="mt-2 text-sm leading-6 text-[hsl(var(--memory-body))]">
-                        {storyDetailLeadText(featuredStory)}
-                      </MarkdownBlock>
-                    ) : null}
-                    <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
-                      {formatStoryDate(featuredStory, i18n.language) ? <span>{formatStoryDate(featuredStory, i18n.language)}</span> : null}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-[hsl(var(--memory-muted))]">
+                      <span className="inline-flex rounded-md bg-[hsl(var(--memory-accent-soft)/0.64)] px-2.5 py-1 font-medium text-[hsl(var(--memory-title))]">
+                        {t(storyCategoryLabelKey(featuredStory), { defaultValue: featuredStory.summary_category })}
+                      </span>
+                      {formatStoryPeriod(featuredStory, i18n.language) ? (
+                        <span>{formatStoryPeriod(featuredStory, i18n.language)}</span>
+                      ) : null}
                       {featuredStory.evidence_event_count > 0 ? (
-                        <>
-                          <span>·</span>
-                          <span>{t('memory.stories.evidenceChip', { count: featuredStory.evidence_event_count })}</span>
-                        </>
+                        <span>{t('memory.stories.evidenceChip', { count: featuredStory.evidence_event_count })}</span>
                       ) : null}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetailStory(featuredStory)}
+                      aria-label={t('memory.stories.actions.readFull')}
+                      className="group mt-5 block w-full rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.2)]"
+                    >
+                      <p
+                        data-testid="memory-stories-featured-preview"
+                        className="max-w-[760px] whitespace-pre-wrap text-[1.05rem] font-normal leading-8 text-[hsl(var(--memory-title))]"
+                      >
+                        {storyPreviewText(featuredStory)}
+                      </p>
+                      <span className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-[hsl(var(--memory-accent))] transition-colors group-hover:text-[hsl(var(--memory-title))]">
+                        {t('memory.stories.actions.readFull')}
+                        <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" aria-hidden="true" />
+                      </span>
+                    </button>
                   </article>
                 ) : null}
 
-                <section data-testid="memory-stories-section-feed" className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <h2 className="text-sm font-semibold text-[hsl(var(--memory-body))]">
-                      {t('memory.stories.sections.feed')}
-                    </h2>
-                    <span className="text-xs text-[hsl(var(--memory-muted))]">
-                      {t('memory.stories.sortHint')}
-                    </span>
-                  </div>
-                  <div className="overflow-hidden rounded-2xl border border-[hsl(var(--memory-border)/0.56)] bg-[hsl(var(--memory-panel-elevated)/0.72)]">
-                    {feedStories.map((story) => (
-                      <StoryCard
-                        key={story.summary_id}
-                        story={story}
-                        onArchive={() => void handleArchive(story)}
-                        onOpenDetail={() => setDetailStory(story)}
-                      />
-                    ))}
-                  </div>
-                </section>
+                {feedStories.length > 0 ? (
+                  <section data-testid="memory-stories-section-feed" className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between gap-3 px-2">
+                      <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">
+                        {t('memory.stories.sections.feed')}
+                      </h2>
+                      <span className="text-xs text-[hsl(var(--memory-muted))]">
+                        {t('memory.stories.sortHint')}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {feedStories.map((story) => (
+                        <StoryCard
+                          key={story.summary_id}
+                          story={story}
+                          onArchive={() => void handleArchive(story)}
+                          onOpenDetail={() => setDetailStory(story)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
 
                 <div className="flex justify-center pt-1">
                   {hasMore ? (

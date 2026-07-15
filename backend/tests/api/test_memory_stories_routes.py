@@ -95,6 +95,40 @@ def test_proposed_insights_float_to_top(app_factory):
     }
 
 
+def test_legacy_temporal_summary_gets_a_compact_plain_preview(app_factory):
+    temporal = [
+        {
+            "summary_id": "legacy-week",
+            "summary_type": "temporal",
+            "summary_category": "week",
+            "content": (
+                "## 要点\n"
+                "- 浏览重心转向 **AI 行业动态**。\n"
+                "- 查阅 `magi-plugins` 仓库并处理通知。\n\n"
+                "## 时间线\n"
+                "- 这段完整内容只应该出现在详情里。"
+            ),
+            "period_end": 200.0,
+            "updated_at": 200.0,
+            "review_state": "neutral",
+            "source_event_count": 14,
+        }
+    ]
+    unified = _stub_memory(insights=[], temporal=temporal)
+    with override_unified_memory_for_test(unified):
+        client = TestClient(app_factory())
+        resp = client.get("/api/memory/stories", params={"limit": 20})
+
+    body = resp.json()
+    item = body["items"][0]
+    assert item["preview_text"] == (
+        "浏览重心转向 AI 行业动态。 查阅 magi-plugins 仓库并处理通知。"
+    )
+    assert "##" not in item["preview_text"]
+    assert "这段完整内容只应该出现在详情里" not in item["preview_text"]
+    assert "这段完整内容只应该出现在详情里" in item["content"]
+
+
 def test_pagination_limits_results(app_factory):
     temporal = [
         {

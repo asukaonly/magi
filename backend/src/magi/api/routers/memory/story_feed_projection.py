@@ -34,6 +34,11 @@ _TASK_CATEGORIES = {"task_reflection", "goal_refinement", "milestone_review"}
 _MEMORY_UPDATE_CATEGORIES = {"state_change"}
 _FEATURED_PERIODIC_CATEGORIES = {"week", "month", "quarter", "year"}
 
+_STORY_PREVIEW_MAX_CHARS = 180
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s+")
+_MARKDOWN_LIST_PATTERN = re.compile(r"^\s*(?:[-*+] |\d+[.)]\s+)")
+_MARKDOWN_LINK_PATTERN = re.compile(r"!?\[([^\]]+)\]\([^)]*\)")
+
 _INTEREST_TREND_GROUP = "interest_profile"
 _INTEREST_PROFILE_CATEGORIES = {"state_change", "trend_shift"}
 
@@ -235,7 +240,35 @@ def _story_preview_text(
     title: str,
     content: str,
 ) -> str:
-    return str(essence_prose or title or content or "").strip()
+    preview = ""
+    for candidate in (essence_prose, title, content):
+        source = re.sub(r"```.*?```", " ", str(candidate or "").strip(), flags=re.DOTALL)
+        preview_lines: list[str] = []
+        for raw_line in source.splitlines():
+            if _MARKDOWN_HEADING_PATTERN.match(raw_line):
+                continue
+            line = _MARKDOWN_LIST_PATTERN.sub("", raw_line.strip())
+            line = _MARKDOWN_LINK_PATTERN.sub(r"\1", line)
+            line = re.sub(r"(?:\*\*|__|`)", "", line)
+            line = re.sub(r"\s+", " ", line).strip()
+            if not line or line in preview_lines:
+                continue
+            preview_lines.append(line)
+            if len(preview_lines) == 2:
+                break
+        preview = " ".join(preview_lines).strip()
+        if preview:
+            break
+
+    if len(preview) <= _STORY_PREVIEW_MAX_CHARS:
+        return preview
+
+    clipped = preview[:_STORY_PREVIEW_MAX_CHARS].rstrip()
+    sentence_ends = [clipped.rfind(mark) for mark in "。！？.!?"]
+    sentence_end = max(sentence_ends)
+    if sentence_end >= _STORY_PREVIEW_MAX_CHARS // 2:
+        return clipped[: sentence_end + 1]
+    return clipped.rstrip("，、；;：: ") + "…"
 
 
 def _salience_until(metadata: dict[str, Any]) -> float | None:

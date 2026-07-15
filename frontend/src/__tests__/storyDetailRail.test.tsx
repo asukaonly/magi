@@ -22,6 +22,7 @@ vi.mock('react-i18next', () => {
     'memory.stories.detailRail.savedNote': '备注已保存',
     'memory.stories.detailRail.evidenceLoading': '加载中…',
     'memory.stories.detailRail.evidenceEmpty': '没有找到关联的事件。',
+    'memory.stories.detailRail.close': '关闭详情',
     'memory.stories.actions.addNote': '备注',
     'memory.stories.evidenceChip': '{{count}} 条证据',
   };
@@ -154,6 +155,7 @@ describe('StoryDetailRail', () => {
     expect(screen.getByTestId('story-detail-rail')).not.toHaveClass('relative');
     expect(screen.getByTestId('story-detail-scroll')).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
     expect(screen.getByTestId('story-detail-meta')).toHaveClass('w-fit');
-    expect(screen.queryByTestId('story-detail-header')).not.toBeInTheDocument();
+    expect(screen.getByTestId('story-detail-header')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关闭详情' })).toBeInTheDocument();
   });
 });
