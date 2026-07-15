@@ -17,6 +17,7 @@ LARGE_CONTEXT_TRIGGER_RATIO = 0.50
 RECENT_TAIL_RATIO = 0.20
 ASCII_CHARS_PER_TOKEN_ESTIMATE = 4.0
 NON_ASCII_BYTES_PER_TOKEN_ESTIMATE = 2.5
+DEFAULT_IMAGE_INPUT_TOKEN_RESERVE = 4_096
 GENERAL_SUMMARY_OUTPUT_RATIO = 0.05
 PERSONA_SUMMARY_OUTPUT_RATIO = 0.02
 
@@ -165,6 +166,72 @@ def measure_context_window_usage(
     )
 
 
+def measure_provider_prompt_usage(
+    budget: ContextWindowBudget,
+    messages: list[dict[str, Any]],
+    *,
+    prompt_overhead: Any | None = None,
+    observed_input_tokens: int | None = None,
+    image_input_token_reserve: int = DEFAULT_IMAGE_INPUT_TOKEN_RESERVE,
+) -> ContextWindowUsage:
+    """Measure a provider prompt without treating encoded images as text."""
+    sanitized_messages, image_count = _sanitize_inline_images(messages)
+    prompt: dict[str, Any] = {"messages": sanitized_messages}
+    if prompt_overhead is not None:
+        prompt["overhead"] = prompt_overhead
+    estimated_tokens = estimate_context_tokens(prompt)
+    if image_count:
+        estimated_tokens += image_count * max(1, image_input_token_reserve)
+    if observed_input_tokens is not None and observed_input_tokens > 0:
+        estimated_tokens = max(estimated_tokens, observed_input_tokens)
+    return ContextWindowUsage(
+        estimated_tokens=estimated_tokens,
+        compaction_trigger_tokens=budget.compaction_trigger_tokens,
+        input_capacity=budget.input_capacity,
+    )
+
+
+def _sanitize_inline_images(
+    messages: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    sanitized_messages: list[dict[str, Any]] = []
+    image_count = 0
+    for message in messages:
+        sanitized_message = dict(message)
+        content = message.get("content")
+        if isinstance(content, list):
+            sanitized_blocks: list[Any] = []
+            for block in content:
+                if not isinstance(block, dict) or str(block.get("type") or "") not in {
+                    "image",
+                    "image_url",
+                    "input_image",
+                }:
+                    sanitized_blocks.append(block)
+                    continue
+                image_count += 1
+                sanitized_block = dict(block)
+                sanitized_block.pop("data", None)
+                source = sanitized_block.get("source")
+                if isinstance(source, dict):
+                    sanitized_source = dict(source)
+                    sanitized_source.pop("data", None)
+                    sanitized_block["source"] = sanitized_source
+                image_url = sanitized_block.get("image_url")
+                if isinstance(image_url, str) and image_url.startswith("data:"):
+                    sanitized_block["image_url"] = "data:[inline image omitted]"
+                elif isinstance(image_url, dict):
+                    sanitized_image_url = dict(image_url)
+                    url = sanitized_image_url.get("url")
+                    if isinstance(url, str) and url.startswith("data:"):
+                        sanitized_image_url["url"] = "data:[inline image omitted]"
+                    sanitized_block["image_url"] = sanitized_image_url
+                sanitized_blocks.append(sanitized_block)
+            sanitized_message["content"] = sanitized_blocks
+        sanitized_messages.append(sanitized_message)
+    return sanitized_messages, image_count
+
+
 __all__ = [
     "ContextWindowBudget",
     "ContextWindowUsage",
@@ -173,4 +240,5 @@ __all__ = [
     "estimate_context_tokens",
     "estimate_text_tokens",
     "measure_context_window_usage",
+    "measure_provider_prompt_usage",
 ]

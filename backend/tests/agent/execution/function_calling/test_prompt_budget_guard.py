@@ -85,6 +85,34 @@ async def test_prepare_context_never_truncates_oversized_current_request() -> No
 
 
 @pytest.mark.asyncio
+async def test_prepare_context_counts_inline_image_as_media_not_encoded_text() -> None:
+    orchestrator = _orchestrator({}, context_window=128_000, max_output_tokens=8_192)
+    image_data = "A" * 600_000
+    state = FunctionCallingStepState(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this image."},
+                    {
+                        "type": "image",
+                        "mime_type": "image/png",
+                        "data": image_data,
+                    },
+                ],
+            }
+        ],
+        effective_system_prompt="system",
+        tools=[],
+    )
+
+    failure = await orchestrator._prepare_context_for_model(state)
+
+    assert failure is None
+    assert state.messages[0]["content"][1]["data"] == image_data
+
+
+@pytest.mark.asyncio
 async def test_prepare_context_compacts_tool_payload_without_breaking_protocol() -> None:
     orchestrator = _orchestrator({}, context_window=40_000, max_output_tokens=4_000)
     current_request = "analyze the tool result"

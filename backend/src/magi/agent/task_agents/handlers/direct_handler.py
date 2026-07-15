@@ -13,7 +13,7 @@ from ....context.window_budget import (
     ContextWindowUsage,
     build_context_window_budget,
     estimate_context_tokens,
-    measure_context_window_usage,
+    measure_provider_prompt_usage,
 )
 from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
@@ -43,8 +43,6 @@ from ....runtime_trace import enrich_event_context_with_turn_trace
 
 IMAGE_VISION_UNSUPPORTED_RESPONSE_KEY = "chat.image_vision_unsupported"
 CONTEXT_WINDOW_EXCEEDED_RESPONSE_KEY = "chat.context_window_exceeded"
-_DIRECT_IMAGE_INPUT_TOKEN_RESERVE = 4_096
-
 logger = get_logger(__name__)
 
 
@@ -70,29 +68,6 @@ def _image_vision_unsupported_response() -> str:
 
 def _context_window_exceeded_response() -> str:
     return core_i18n.t(CONTEXT_WINDOW_EXCEEDED_RESPONSE_KEY)
-
-
-def _messages_without_inline_image_data(
-    messages: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], int]:
-    sanitized_messages: list[dict[str, Any]] = []
-    image_count = 0
-    for message in messages:
-        sanitized_message = dict(message)
-        content = message.get("content")
-        if isinstance(content, list):
-            sanitized_blocks: list[Any] = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "image":
-                    image_count += 1
-                    sanitized_block = dict(block)
-                    sanitized_block.pop("data", None)
-                    sanitized_blocks.append(sanitized_block)
-                else:
-                    sanitized_blocks.append(block)
-            sanitized_message["content"] = sanitized_blocks
-        sanitized_messages.append(sanitized_message)
-    return sanitized_messages, image_count
 
 
 def _build_llm_event_context(context: object, turn_id: object) -> dict[str, object]:
@@ -377,22 +352,10 @@ class DirectLLMHandler(BaseExecutionHandler):
         *,
         budget: ContextWindowBudget,
     ) -> ContextWindowUsage:
-        messages, image_count = _messages_without_inline_image_data(request.messages)
-        usage = measure_context_window_usage(
+        return measure_provider_prompt_usage(
             budget,
-            {
-                "system_prompt": request.system_prompt,
-                "messages": messages,
-            },
-        )
-        if image_count == 0:
-            return usage
-        return ContextWindowUsage(
-            estimated_tokens=(
-                usage.estimated_tokens + image_count * _DIRECT_IMAGE_INPUT_TOKEN_RESERVE
-            ),
-            compaction_trigger_tokens=usage.compaction_trigger_tokens,
-            input_capacity=usage.input_capacity,
+            request.messages,
+            prompt_overhead={"system_prompt": request.system_prompt},
         )
 
     @staticmethod

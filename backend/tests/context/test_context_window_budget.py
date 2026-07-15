@@ -6,6 +6,7 @@ from magi.context.window_budget import (
     build_context_window_budget,
     estimate_context_tokens,
     measure_context_window_usage,
+    measure_provider_prompt_usage,
     resolve_summary_output_tokens,
 )
 from magi.llm.model_context import ModelContextProfile
@@ -117,6 +118,40 @@ def test_context_usage_keeps_provider_count_as_lower_bound() -> None:
 
     assert usage.estimated_tokens == 1_500
     assert usage.requires_compaction is True
+
+
+def test_provider_prompt_usage_does_not_count_inline_image_bytes_as_text() -> None:
+    budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="local",
+            model_id="vision-model",
+            context_window=128_000,
+            max_output_tokens=8_192,
+        )
+    )
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Describe this image."},
+                {
+                    "type": "image",
+                    "mime_type": "image/png",
+                    "data": "A" * 600_000,
+                },
+            ],
+        }
+    ]
+
+    usage = measure_provider_prompt_usage(
+        budget,
+        messages,
+        prompt_overhead={"system_prompt": "system", "tools": []},
+    )
+
+    assert usage.estimated_tokens < 10_000
+    assert usage.requires_compaction is False
+    assert messages[0]["content"][1]["data"] == "A" * 600_000
 
 
 def test_summary_output_budget_uses_destination_capacity_and_purpose() -> None:

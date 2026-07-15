@@ -21,7 +21,7 @@ from ...context.window_budget import (
     GENERAL_SUMMARY_OUTPUT_PROFILE,
     build_context_window_budget,
     estimate_context_tokens,
-    measure_context_window_usage,
+    measure_provider_prompt_usage,
     resolve_summary_output_tokens,
 )
 from ...context.summary_generation import (
@@ -310,9 +310,10 @@ class ContextCompactor:
         prompt_overhead: Any | None = None,
     ) -> ContextWindowUsage:
         """Measure the complete provider-facing input against the active budget."""
-        return measure_context_window_usage(
+        return measure_provider_prompt_usage(
             self._current_budget(),
-            {"messages": messages, "overhead": prompt_overhead},
+            messages,
+            prompt_overhead=prompt_overhead,
             observed_input_tokens=self._last_input_tokens,
         )
 
