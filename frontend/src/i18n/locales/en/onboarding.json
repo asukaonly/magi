@@ -205,6 +205,16 @@
     "hideAdvanced": "Hide optional settings"
   },
   "personaPreview": {
+    "modeLabel": "Chat with or learn about {{name}}",
+    "talkWith": "Chat with {{name}}",
+    "learnAbout": "About {{name}}",
+    "profileLoading": "Loading {{name}}'s persona settings…",
+    "profileLoadFailed": "{{name}}'s persona settings are temporarily unavailable.",
+    "profileRetry": "Try again",
+    "profile": {
+      "eyebrow": "Persona settings",
+      "examples": "Conversation examples"
+    },
     "chip1": "How would you work with me if we just met?",
     "chip2": "How would you help when my thoughts are messy?",
     "chip3": "How would you nudge me through a hard choice?",

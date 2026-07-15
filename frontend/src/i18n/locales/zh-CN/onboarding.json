@@ -205,6 +205,16 @@
     "hideAdvanced": "收起可选设置"
   },
   "personaPreview": {
+    "modeLabel": "{{name}} 的试聊与设定",
+    "talkWith": "和{{name}}聊聊",
+    "learnAbout": "了解{{name}}",
+    "profileLoading": "正在读取{{name}}的人格设定…",
+    "profileLoadFailed": "暂时无法读取{{name}}的人格设定。",
+    "profileRetry": "重新读取",
+    "profile": {
+      "eyebrow": "人格设定",
+      "examples": "对话示例"
+    },
     "chip1": "第一次见面，你会怎么和我相处？",
     "chip2": "如果我状态很乱，你会怎么帮我理清？",
     "chip3": "我做决定时犹豫，你会怎么提醒我？",

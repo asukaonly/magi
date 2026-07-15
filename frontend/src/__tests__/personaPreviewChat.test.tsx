@@ -1,7 +1,7 @@
 import { useState, type ComponentProps } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PersonaPreviewChat,
   type CustomPersonaDraft,
@@ -96,6 +96,10 @@ describe('PersonaPreviewChat', () => {
     mockStream.mockImplementation(() => makeAsyncIter(['hello', ' ', 'world']));
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders a rail entry for every seed preview', () => {
     renderPersonaPreview({ previews });
     expect(screen.getByRole('button', { name: /Nova/i })).toBeInTheDocument();
@@ -113,6 +117,114 @@ describe('PersonaPreviewChat', () => {
       'aria-pressed',
       'false',
     );
+  });
+
+  it('keeps chat as the default and loads the selected builtin profile on demand', async () => {
+    const profileConfig: PersonalityConfig = {
+      ...makeGeneratedConfig(),
+      name: 'Nova',
+      description: 'Polished and precise',
+      identity_core: {
+        ...makeGeneratedConfig().identity_core,
+        identity_statement: 'A precise assistant with a guarded honest streak.',
+        values_loved: ['clarity'],
+      },
+      persona_layers: [
+        { layer_id: 'surface', unlock_condition: null, modifiers: {} },
+        {
+          layer_id: 'crack',
+          unlock_condition: { interaction_count_gte: 20 },
+          modifiers: { behavior_shifts: ['Shares a more candid observation.'] },
+        },
+      ],
+    };
+    const presetSpy = vi.spyOn(personasApi, 'getPresetConfig').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: profileConfig,
+    });
+
+    renderPersonaPreview({ previews });
+
+    expect(screen.getByTestId('persona-mode-chat')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByPlaceholderText(/composerPlaceholder/i)).toBeInTheDocument();
+    expect(presetSpy).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId('persona-mode-profile'));
+
+    expect(await screen.findByTestId('persona-profile-panel')).toBeInTheDocument();
+    expect(screen.getByText('A precise assistant with a guarded honest streak.')).toBeInTheDocument();
+    expect(presetSpy).toHaveBeenCalledWith('nova', 'en');
+    expect(screen.queryByPlaceholderText(/composerPlaceholder/i)).not.toBeInTheDocument();
+
+    const layersSummary = screen.getByText('personality.sections.personaLayers').closest('summary');
+    expect(layersSummary).not.toBeNull();
+    await userEvent.click(layersSummary as HTMLElement);
+    expect(screen.queryByText('Shares a more candid observation.')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('persona-profile-reveal-layers'));
+    expect(screen.getByText('Shares a more candid observation.')).toBeInTheDocument();
+  });
+
+  it('preserves the trial transcript while switching between chat and profile', async () => {
+    vi.spyOn(personasApi, 'getPresetConfig').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { ...makeGeneratedConfig(), name: 'Nova' },
+    });
+    renderPersonaPreview({ previews });
+
+    await userEvent.type(screen.getByPlaceholderText(/composerPlaceholder/i), 'keep-this');
+    await userEvent.click(screen.getByRole('button', { name: /^(personaPreview\.)?send$/i }));
+    await waitFor(() => expect(screen.getByText('keep-this')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTestId('persona-mode-profile'));
+    expect(await screen.findByTestId('persona-profile-panel')).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId('persona-mode-chat'));
+
+    expect(screen.getByText('keep-this')).toBeInTheDocument();
+    expect(screen.getByText('hello world')).toBeInTheDocument();
+  });
+
+  it('shows a custom persona profile from its existing draft without another request', async () => {
+    const presetSpy = vi.spyOn(personasApi, 'getPresetConfig');
+    const customDraft: CustomPersonaDraft = {
+      personaId: '11111111-1111-4111-8111-111111111111',
+      slug: 'custom-1',
+      name: 'Sage',
+      description: 'wise mentor',
+      config: makeGeneratedConfig(),
+    };
+
+    renderPersonaPreview({
+      previews,
+      initialActiveSeed: 'custom-1',
+      initialCustomPersonas: [customDraft],
+    });
+
+    await userEvent.click(screen.getByTestId('persona-mode-profile'));
+
+    expect(screen.getByTestId('persona-profile-panel')).toBeInTheDocument();
+    expect(screen.getByText('a patient mentor')).toBeInTheDocument();
+    expect(presetSpy).not.toHaveBeenCalled();
+  });
+
+  it('offers a retry when a builtin profile cannot be loaded', async () => {
+    const presetSpy = vi
+      .spyOn(personasApi, 'getPresetConfig')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({
+        success: true,
+        message: 'ok',
+        data: { ...makeGeneratedConfig(), name: 'Nova' },
+      });
+    renderPersonaPreview({ previews });
+
+    await userEvent.click(screen.getByTestId('persona-mode-profile'));
+    expect(await screen.findByTestId('persona-profile-error')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'personaPreview.profileRetry' }));
+    expect(await screen.findByTestId('persona-profile-panel')).toBeInTheDocument();
+    expect(presetSpy).toHaveBeenCalledTimes(2);
   });
 
   it('preserves a parent selection while previews are temporarily empty and after it loads', async () => {

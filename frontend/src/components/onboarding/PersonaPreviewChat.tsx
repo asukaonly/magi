@@ -12,6 +12,7 @@ import {
 } from '../../api/modules/personas';
 import type { LLMConfig } from '../../api/modules/config';
 import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
+import { PersonaProfilePanel } from './PersonaProfilePanel';
 
 const MAX_USER_TURNS_PER_PERSONA = 5;
 
@@ -69,6 +70,11 @@ interface RailItem {
   description: string;
   avatar?: string;
   isCustom: boolean;
+  config?: PersonalityConfig;
+}
+
+interface PresetProfileState {
+  status: 'loading' | 'success' | 'error';
   config?: PersonalityConfig;
 }
 
@@ -192,7 +198,8 @@ export function PersonaPreviewChat({
   const [busy, setBusy] = useState(false);
 
   // Custom-persona creation state.
-  const [mode, setMode] = useState<'chat' | 'create'>('chat');
+  const [mode, setMode] = useState<'chat' | 'profile' | 'create'>('chat');
+  const [presetProfiles, setPresetProfiles] = useState<Record<string, PresetProfileState>>({});
   const [customDescription, setCustomDescription] = useState('');
   const [generating, setGenerating] = useState(false);
   const [genStages, setGenStages] = useState<PersonaGenerationStage[]>([]);
@@ -219,6 +226,12 @@ export function PersonaPreviewChat({
   }, [generating]);
 
   const activeItem = railItems.find((i) => i.slug === activeSeed);
+  const profileLocale = locale || 'en';
+  const activeProfileKey = activeItem && !activeItem.isCustom
+    ? `${profileLocale}:${activeItem.slug}`
+    : null;
+  const activeProfileState = activeProfileKey ? presetProfiles[activeProfileKey] : undefined;
+  const activeProfileConfig = activeItem?.config ?? activeProfileState?.config;
   const activeTranscript = activeSeed ? transcripts[activeSeed] ?? [] : [];
   const userTurnCount = activeTranscript.filter((m) => m.role === 'user').length;
   const capReached = userTurnCount >= MAX_USER_TURNS_PER_PERSONA;
@@ -308,6 +321,34 @@ export function PersonaPreviewChat({
     setDraft(prompt);
   }, []);
 
+  const loadPresetProfile = useCallback(
+    async (item: RailItem, force = false) => {
+      if (item.isCustom || item.config) return;
+      const key = `${profileLocale}:${item.slug}`;
+      const cached = presetProfiles[key];
+      if (!force && (cached?.status === 'loading' || cached?.status === 'success')) return;
+
+      setPresetProfiles((prev) => ({ ...prev, [key]: { status: 'loading' } }));
+      try {
+        const response = await personasApi.getPresetConfig(item.slug, profileLocale);
+        if (!response.data) throw new Error('Persona profile is unavailable');
+        setPresetProfiles((prev) => ({
+          ...prev,
+          [key]: { status: 'success', config: response.data },
+        }));
+      } catch {
+        setPresetProfiles((prev) => ({ ...prev, [key]: { status: 'error' } }));
+      }
+    },
+    [presetProfiles, profileLocale],
+  );
+
+  const showActiveProfile = useCallback(() => {
+    if (!activeItem) return;
+    setMode('profile');
+    void loadPresetProfile(activeItem);
+  }, [activeItem, loadPresetProfile]);
+
   const handleGenerate = useCallback(async () => {
     const description = customDescription.trim();
     if (disabled || !description || generating) return;
@@ -387,9 +428,9 @@ export function PersonaPreviewChat({
               onActiveSeedChange(p.slug);
               setMode('chat');
             }}
-            aria-pressed={activeSeed === p.slug && mode === 'chat'}
+            aria-pressed={activeSeed === p.slug && mode !== 'create'}
             className={`flex items-center gap-3 rounded-lg px-3 py-2 text-left transition ${
-              activeSeed === p.slug && mode === 'chat'
+              activeSeed === p.slug && mode !== 'create'
                 ? 'bg-muted'
                 : 'hover:bg-muted/50'
             }`}
@@ -521,71 +562,151 @@ export function PersonaPreviewChat({
         </div>
       ) : (
         <div className="flex min-h-0 flex-col gap-3">
-          {/* Mirrors the real chat surface: bg-background scroll area with
-              bg-card bubbles, so the preview reads like the app you're about
-              to enter. */}
-          <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
-            {activeTranscript.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                {t('personaPreview.emptyHint')}
-              </p>
-            )}
-            {activeTranscript.map((turn, idx) => (
-              <div
-                key={idx}
-                className={`mb-2 flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <span
-                  className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm ${
-                    turn.role === 'user'
-                      ? 'rounded-xl rounded-tr-sm'
-                      : 'rounded-xl rounded-tl-sm'
-                  }`}
-                >
-                  {turn.role === 'assistant' && turn.content === '' ? (
-                    <TypingDots
-                      shouldReduceMotion={shouldReduceMotion}
-                      label={t('personaPreview.waiting')}
-                    />
-                  ) : (
-                    turn.content
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <PersonaPreviewStarterChips onPick={handleChipPick} />
-
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={t('personaPreview.composerPlaceholder')}
-              disabled={capReached}
-              className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-            />
+          <div
+            role="group"
+            aria-label={t('personaPreview.modeLabel', { name: activeItem?.name || '' })}
+            className="flex w-fit shrink-0 self-end items-center gap-1 rounded-lg border border-border/45 bg-muted/25 p-1"
+          >
             <button
               type="button"
-              onClick={send}
-              disabled={!draft.trim() || busy || capReached}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+              data-testid="persona-mode-chat"
+              aria-pressed={mode === 'chat'}
+              onClick={() => setMode('chat')}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors',
+                mode === 'chat'
+                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
             >
-              {t('personaPreview.send')}
+              {t('personaPreview.talkWith', { name: activeItem?.name || '' })}
+            </button>
+            <button
+              type="button"
+              data-testid="persona-mode-profile"
+              aria-pressed={mode === 'profile'}
+              onClick={showActiveProfile}
+              disabled={!activeItem}
+              className={cn(
+                'rounded-md px-3 py-1.5 text-sm transition-colors disabled:opacity-50',
+                mode === 'profile'
+                  ? 'bg-background font-medium text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {t('personaPreview.learnAbout', { name: activeItem?.name || '' })}
             </button>
           </div>
 
-          {capReached && (
-            <p className="text-xs text-muted-foreground">
-              {t('personaPreview.capReached')}
-            </p>
+          {mode === 'profile' ? (
+            activeProfileConfig ? (
+              <PersonaProfilePanel
+                key={activeItem?.slug}
+                config={activeProfileConfig}
+              />
+            ) : activeProfileState?.status === 'error' ? (
+              <div
+                data-testid="persona-profile-error"
+                role="alert"
+                className="flex flex-1 flex-col items-center justify-center rounded-lg border border-border/55 bg-background px-6 text-center"
+              >
+                <p className="text-sm text-muted-foreground">
+                  {t('personaPreview.profileLoadFailed', { name: activeItem?.name || '' })}
+                </p>
+                <button
+                  type="button"
+                  className="mt-3 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  onClick={() => {
+                    if (activeItem) void loadPresetProfile(activeItem, true);
+                  }}
+                >
+                  {t('personaPreview.profileRetry')}
+                </button>
+              </div>
+            ) : (
+              <div
+                data-testid="persona-profile-loading"
+                role="status"
+                className="flex flex-1 flex-col items-center justify-center rounded-lg border border-border/55 bg-background px-6 text-center"
+              >
+                <Loader2
+                  className={cn('h-5 w-5 text-primary', !shouldReduceMotion && 'animate-spin')}
+                  aria-hidden="true"
+                />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {t('personaPreview.profileLoading', { name: activeItem?.name || '' })}
+                </p>
+              </div>
+            )
+          ) : (
+            <>
+              {/* Mirrors the real chat surface: bg-background scroll area with
+                  bg-card bubbles, so the preview reads like the app you're about
+                  to enter. */}
+              <div className="flex-1 overflow-y-auto rounded-lg border border-border/55 bg-background p-4">
+                {activeTranscript.length === 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {t('personaPreview.emptyHint')}
+                  </p>
+                )}
+                {activeTranscript.map((turn, idx) => (
+                  <div
+                    key={idx}
+                    className={`mb-2 flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <span
+                      className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm ${
+                        turn.role === 'user'
+                          ? 'rounded-xl rounded-tr-sm'
+                          : 'rounded-xl rounded-tl-sm'
+                      }`}
+                    >
+                      {turn.role === 'assistant' && turn.content === '' ? (
+                        <TypingDots
+                          shouldReduceMotion={shouldReduceMotion}
+                          label={t('personaPreview.waiting')}
+                        />
+                      ) : (
+                        turn.content
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <PersonaPreviewStarterChips onPick={handleChipPick} />
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  placeholder={t('personaPreview.composerPlaceholder')}
+                  disabled={capReached}
+                  className="flex-1 rounded-md border border-border/55 bg-background px-3 py-2 text-sm text-foreground"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      send();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={send}
+                  disabled={!draft.trim() || busy || capReached}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {t('personaPreview.send')}
+                </button>
+              </div>
+
+              {capReached && (
+                <p className="text-xs text-muted-foreground">
+                  {t('personaPreview.capReached')}
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

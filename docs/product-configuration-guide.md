@@ -106,6 +106,7 @@ It focuses on:
 - a first-run LLM setup surface that asks for one provider, an API key when the provider requires one, and only the minimal endpoint/model fields needed for OpenAI-compatible relays; local or private OpenAI-compatible custom endpoints may be configured without authentication
 - model setup must verify the selected chat model before advancing; a successful manual verification is reused while the provider, API key, endpoint, billing plan, API format, and primary model remain unchanged, and any change to those connection settings requires verification again
 - AI persona selection or lightweight persona creation
+- persona selection defaults to the lightweight trial chat and offers an optional read-only detail view sourced from the same preset or generated persona config; switching views must preserve the trial transcript, and revealing deep relationship layers still requires explicit spoiler confirmation
 - the selected persona must be present in the registry and successfully activated before onboarding can leave the persona step; a failure keeps the user on that step with a retry path instead of silently selecting a default
 - onboarding-generated personas must keep one stable identity across timeouts and retries so repeated or late create requests resolve to the same persona instead of adding duplicates
 - a dedicated first-context step that offers optional user-approved data source cards so Magi can build its first useful context before the first chat
