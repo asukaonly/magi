@@ -66,3 +66,4 @@ class InstallableItem(BaseModel):
 
 class ListInstallableResponse(BaseModel):
     items: list[InstallableItem]
+    catalog_mode: Literal["full", "installed_only"]

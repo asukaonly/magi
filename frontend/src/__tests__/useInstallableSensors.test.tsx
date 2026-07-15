@@ -6,8 +6,9 @@ import * as api from "@/api/modules/systemSuggestions";
 describe("useInstallableSensors", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(api, "listInstallable").mockResolvedValue([
-      {
+    vi.spyOn(api, "listInstallable").mockResolvedValue({
+      catalog_mode: "full",
+      items: [{
         plugin_id: "chrome-history",
         name: "Chrome History",
         name_i18n: {},
@@ -20,8 +21,7 @@ describe("useInstallableSensors", () => {
         setup_time_estimate_seconds: 10,
         data_locality: "local_only",
         surfaces: { empty_state: { order: 10 } },
-      },
-      {
+      }, {
         plugin_id: "git-activity",
         name: "Git Activity",
         name_i18n: {},
@@ -34,14 +34,15 @@ describe("useInstallableSensors", () => {
         setup_time_estimate_seconds: 15,
         data_locality: "local_only",
         surfaces: { empty_state: { order: 20 } },
-      },
-    ]);
+      }],
+    });
   });
 
   it("populates items from listInstallable", async () => {
     const { result } = renderHook(() => useInstallableSensors());
     await waitFor(() => expect(result.current.items).toHaveLength(2));
     expect(result.current.loading).toBe(false);
+    expect(result.current.catalogMode).toBe("full");
     expect(result.current.items[0].plugin_id).toBe("chrome-history");
   });
 
@@ -50,6 +51,7 @@ describe("useInstallableSensors", () => {
     const { result } = renderHook(() => useInstallableSensors());
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.items).toEqual([]);
+    expect(result.current.catalogMode).toBeNull();
     expect(result.current.error).toBeInstanceOf(Error);
   });
 });

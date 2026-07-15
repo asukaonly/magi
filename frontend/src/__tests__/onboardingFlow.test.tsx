@@ -267,8 +267,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
       success: true,
       data: stubSeedPreviews(),
     } as any);
-    vi.spyOn(systemSuggestions, "listInstallable").mockResolvedValue([
-      {
+    vi.spyOn(systemSuggestions, "listInstallable").mockResolvedValue({
+      catalog_mode: "full",
+      items: [{
         plugin_id: "chrome-history",
         name: "Chrome History",
         name_i18n: { "zh-CN": "Chrome 浏览器历史" },
@@ -281,8 +282,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
         setup_time_estimate_seconds: 10,
         data_locality: "local_only",
         surfaces: { first_context: { order: 10 } },
-      },
-    ]);
+      }],
+    });
     vi.spyOn(personasApi, "seed").mockResolvedValue({
       success: true,
       data: { created_ids: [] },
@@ -1107,8 +1108,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
     localStorageMock.getItem.mockReturnValue(null);
     vi.mocked(systemSuggestions.listInstallable)
       .mockRejectedValueOnce(new Error("offline"))
-      .mockResolvedValueOnce([
-        {
+      .mockResolvedValueOnce({
+        catalog_mode: "full",
+        items: [{
           plugin_id: "chrome-history",
           name: "Chrome History",
           name_i18n: { "zh-CN": "Chrome 浏览器历史" },
@@ -1121,8 +1123,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
           setup_time_estimate_seconds: 10,
           data_locality: "local_only",
           surfaces: { first_context: { order: 10 } },
-        },
-      ]);
+        }],
+      });
 
     render(
       <StrictMode>
@@ -1142,6 +1144,9 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     expect(await screen.findByText("emptyState.loadError")).toBeInTheDocument();
     expect(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    ).toBeEnabled();
+    expect(
       screen.queryByTestId(/empty-state-connect-/),
     ).not.toBeInTheDocument();
     await user.click(screen.getByTestId("empty-state-retry"));
@@ -1149,6 +1154,35 @@ describe("OnboardingFlow (linear 5-step)", () => {
       await screen.findByTestId("empty-state-connect-chrome-history"),
     ).toBeInTheDocument();
     expect(systemSuggestions.listInstallable).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps onboarding skippable when only the local plugin catalog is available", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(systemSuggestions.listInstallable).mockResolvedValue({
+      items: [],
+      catalog_mode: "installed_only",
+    });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: /Ember/i }));
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    expect(
+      await screen.findByText("emptyState.marketplaceUnavailableTitle"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    ).toBeEnabled();
   });
 
   it("surfaces the embedding-fallback row when an Anthropic-style provider is picked", async () => {

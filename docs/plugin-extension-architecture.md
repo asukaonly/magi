@@ -161,6 +161,12 @@ This keeps normal marketplace browsing away from GitHub raw-file rate limits.
 Operators can still override the URL with `plugins.registry_url` for internal
 mirrors, staged registries, or future dedicated CDN endpoints.
 
+First-context and empty-source recommendations reuse this same registry client
+and cache rather than maintaining a separate catalog connection. When neither
+the remote index nor the disk cache is available, the installable-source API
+reports an installed-only catalog so product surfaces can keep local plugins
+usable while explaining that the marketplace is temporarily unreachable.
+
 ## Plugin Ingress Events
 
 Some plugin-backed capabilities depend on local host events that are produced outside the Python plugin package itself.

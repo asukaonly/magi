@@ -61,6 +61,7 @@ from magi.api.routers.system_suggestions_schemas import (
 )
 from magi.core.logger import get_logger
 from magi.system_suggestions.candidates import (
+    CandidateResolution,
     SuggestionCandidate,
     build_suggestion_candidates,
     partition_for_candidates,
@@ -70,9 +71,10 @@ from magi.system_suggestions.throttle import SuggestionThrottle
 
 logger = get_logger(__name__)
 
-# A candidates builder returns the installed∪registry union; production awaits
-# the registry, so the inner callable may return a list directly OR a coroutine.
-CandidatesResult = Union[list[SuggestionCandidate], Awaitable[list[SuggestionCandidate]]]
+# A candidates builder returns the installed∪registry union plus whether the
+# full catalog was available. Production awaits the registry, so the inner
+# callable may return the resolution directly or as a coroutine.
+CandidatesResult = Union[CandidateResolution, Awaitable[CandidateResolution]]
 CandidatesDep = Callable[[], Callable[[], CandidatesResult]]
 # Given the resolved candidate list, return a (plugin_id) -> bool adapter so the
 # engine can resolve availability per-candidate (installed vs registry-only).
@@ -101,7 +103,7 @@ class _SystemSuggestionsRouteHandlers:
     classify_dep: ClassifyDep
 
     async def check(self, request: CheckRequest) -> CheckResponse:
-        candidates = await self._resolve_candidates()
+        candidates = (await self._resolve_candidates()).candidates
         is_available = self.availability_dep()(candidates)
         proposals = await run_suggestion_check(
             recent_text=request.text,
@@ -132,17 +134,19 @@ class _SystemSuggestionsRouteHandlers:
         return ClearDismissalResponse(dedupe_key=dedupe_key, cleared=cleared)
 
     async def list_installable(self) -> ListInstallableResponse:
-        candidates = await self._resolve_candidates()
+        resolution = await self._resolve_candidates()
+        candidates = resolution.candidates
         is_available = self.availability_dep()(candidates)
         return ListInstallableResponse(
             items=[
                 _installable_item(candidate)
                 for candidate in candidates
                 if is_available(candidate.plugin_id)
-            ]
+            ],
+            catalog_mode=resolution.catalog_mode,
         )
 
-    async def _resolve_candidates(self) -> list[SuggestionCandidate]:
+    async def _resolve_candidates(self) -> CandidateResolution:
         result = self.candidates_dep()()
         return await result if inspect.isawaitable(result) else result
 
@@ -278,17 +282,19 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
     """
     from magi.api.routers.plugins_common import _get_registry_client, _try_plugin_manager
 
-    async def _build() -> list[SuggestionCandidate]:
+    async def _build() -> CandidateResolution:
         manager = _try_plugin_manager()
         packages = list(manager.list_packages()) if manager else []
 
         registry_entries: list = []
+        catalog_mode = "full"
         try:
             index = await _get_registry_client().fetch_index()
             registry_entries = list(index.plugins)
         except Exception as exc:  # degrade to installed-only
+            catalog_mode = "installed_only"
             logger.warning(
-                ("registry fetch failed for suggestion candidates; " "degrading to installed-only"),
+                ("registry fetch failed for suggestion candidates; degrading to installed-only"),
                 error=str(exc),
             )
             registry_entries = []
@@ -297,7 +303,13 @@ def _default_candidates() -> Callable[[], CandidatesResult]:
         installed_manifests, not_installed_registry = partition_for_candidates(
             packages, registry_entries, active_plugin_ids
         )
-        return build_suggestion_candidates(installed_manifests, not_installed_registry)
+        return CandidateResolution(
+            candidates=build_suggestion_candidates(
+                installed_manifests,
+                not_installed_registry,
+            ),
+            catalog_mode=catalog_mode,
+        )
 
     return _build
 

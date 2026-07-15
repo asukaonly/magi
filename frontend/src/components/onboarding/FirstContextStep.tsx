@@ -1,7 +1,10 @@
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { InstallableItem } from "@/api/modules/systemSuggestions";
+import type {
+  InstallableCatalogMode,
+  InstallableItem,
+} from "@/api/modules/systemSuggestions";
 import type { LLMConfig } from "@/api/modules/config";
 import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateAvailableSensors";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
@@ -11,6 +14,7 @@ import { getMemoryModelStatus } from "./memoryModelStatus";
 interface FirstContextStepProps {
   llmConfig: LLMConfig;
   installableItems?: InstallableItem[];
+  installableCatalogMode?: InstallableCatalogMode | null;
   installableLoading?: boolean;
   installableError?: Error | null;
   onRetryInstallable?: () => void;
@@ -22,6 +26,7 @@ interface FirstContextStepProps {
 export function FirstContextStep({
   llmConfig,
   installableItems,
+  installableCatalogMode,
   installableLoading,
   installableError,
   onRetryInstallable,
@@ -118,6 +123,7 @@ export function FirstContextStep({
           panelContext="first_context"
           excludePluginIds={connectedPluginIds}
           installableItems={installableItems}
+          installableCatalogMode={installableCatalogMode}
           installableLoading={installableLoading}
           installableError={installableError}
           onRetryInstallable={onRetryInstallable}

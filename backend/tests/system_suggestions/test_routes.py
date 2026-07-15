@@ -7,9 +7,20 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.system_suggestions_routes import (
+    _default_candidates,
     build_default_system_suggestions_router,
 )
-from magi.system_suggestions.candidates import build_suggestion_candidates
+from magi.system_suggestions.candidates import (
+    CandidateResolution,
+    build_suggestion_candidates,
+)
+
+
+def _resolution(candidates, *, catalog_mode="full"):
+    return CandidateResolution(
+        candidates=list(candidates),
+        catalog_mode=catalog_mode,
+    )
 
 
 def _availability_factory(available_ids: set[str]):
@@ -54,7 +65,7 @@ def app_with_suggestions(make_manifest_fixture):
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            candidates_dep=lambda: (lambda: list(candidates)),
+            candidates_dep=lambda: (lambda: _resolution(candidates)),
             availability_dep=_availability_factory({"chrome-history"}),
             is_dismissed_dep=lambda: is_dismissed,
             record_dismissal_dep=lambda: record_dismissal,
@@ -95,7 +106,7 @@ def app_with_dismissals():
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            candidates_dep=lambda: (lambda: []),
+            candidates_dep=lambda: (lambda: _resolution([])),
             availability_dep=lambda: (lambda _candidates: (lambda _p: True)),
             is_dismissed_dep=lambda: (lambda _k: False),
             record_dismissal_dep=lambda: (lambda _k, _kind, _title=None: None),
@@ -228,7 +239,7 @@ def app_with_installable():
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            candidates_dep=lambda: (lambda: list(candidates)),
+            candidates_dep=lambda: (lambda: _resolution(candidates)),
             # Registry-only candidate is available on this device.
             availability_dep=_availability_factory({"spotify-history"}),
             is_dismissed_dep=lambda: (lambda _k: False),
@@ -322,7 +333,7 @@ def app_with_installable_endpoint():
     app = FastAPI()
     app.include_router(
         build_default_system_suggestions_router(
-            candidates_dep=lambda: (lambda: list(candidates)),
+            candidates_dep=lambda: (lambda: _resolution(candidates)),
             # Only the installed candidate is available on this device.
             availability_dep=_availability_factory({"chrome-history"}),
             is_dismissed_dep=lambda: (lambda _k: False),
@@ -341,7 +352,9 @@ def test_list_installable_returns_only_available(
     client = TestClient(app_with_installable_endpoint)
     response = client.get("/system-suggestions/installable")
     assert response.status_code == 200
-    items = response.json()["items"]
+    payload = response.json()
+    assert payload["catalog_mode"] == "full"
+    items = payload["items"]
     # Only the available (installed) candidate is surfaced.
     assert len(items) == 1
     item = items[0]
@@ -354,6 +367,60 @@ def test_list_installable_returns_only_available(
     assert item["setup_time_estimate_seconds"] == 10
     assert item["data_locality"] == "local_only"
     assert item["surfaces"]["empty_state"]["order"] == 10
+
+
+def test_list_installable_reports_installed_only_catalog() -> None:
+    async def fake_classify(recent_text, cands, locale):
+        return {}
+
+    app = FastAPI()
+    app.include_router(
+        build_default_system_suggestions_router(
+            candidates_dep=lambda: lambda: _resolution([], catalog_mode="installed_only"),
+            availability_dep=lambda: lambda _candidates: lambda _p: True,
+            is_dismissed_dep=lambda: lambda _k: False,
+            record_dismissal_dep=lambda: lambda _k, _kind, _title=None: None,
+            list_dismissals_dep=lambda: lambda: [],
+            clear_dismissal_dep=lambda: lambda _k: True,
+            classify_dep=lambda: fake_classify,
+        ),
+    )
+
+    response = TestClient(app).get("/system-suggestions/installable")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "catalog_mode": "installed_only"}
+
+
+@pytest.mark.asyncio
+async def test_default_candidates_degrades_when_registry_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.api.routers import plugins_common, system_suggestions_routes
+
+    class UnreachableRegistry:
+        async def fetch_index(self):
+            raise OSError("offline")
+
+    async def no_active_sources() -> set[str]:
+        return set()
+
+    monkeypatch.setattr(plugins_common, "_try_plugin_manager", lambda: None)
+    monkeypatch.setattr(
+        plugins_common,
+        "_get_registry_client",
+        lambda: UnreachableRegistry(),
+    )
+    monkeypatch.setattr(
+        system_suggestions_routes,
+        "_active_sensor_plugin_ids",
+        no_active_sources,
+    )
+
+    resolution = await _default_candidates()()
+
+    assert resolution.catalog_mode == "installed_only"
+    assert resolution.candidates == []
 
 
 def test_list_dismissals_returns_active(app_with_dismissals) -> None:

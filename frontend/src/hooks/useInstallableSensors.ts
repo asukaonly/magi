@@ -10,11 +10,14 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   listInstallable,
+  type InstallableCatalogMode,
   type InstallableItem,
 } from "../api/modules/systemSuggestions";
 
 export function useInstallableSensors(enabled = true) {
   const [items, setItems] = useState<InstallableItem[]>([]);
+  const [catalogMode, setCatalogMode] =
+    useState<InstallableCatalogMode | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
 
@@ -22,9 +25,12 @@ export function useInstallableSensors(enabled = true) {
     setLoading(true);
     setError(null);
     try {
-      setItems(await listInstallable());
+      const result = await listInstallable();
+      setItems(result.items);
+      setCatalogMode(result.catalog_mode);
     } catch (caught) {
       setItems([]);
+      setCatalogMode(null);
       setError(
         caught instanceof Error
           ? caught
@@ -41,5 +47,5 @@ export function useInstallableSensors(enabled = true) {
     }
   }, [enabled, refresh]);
 
-  return { items, loading, error, refresh };
+  return { items, catalogMode, loading, error, refresh };
 }

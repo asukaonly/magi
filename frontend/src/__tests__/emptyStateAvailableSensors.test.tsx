@@ -50,6 +50,7 @@ describe("EmptyStateAvailableSensors", () => {
   beforeEach(() => {
     mockUseInstallableSensors.mockReturnValue({
       items: [],
+      catalogMode: "full",
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -166,6 +167,47 @@ describe("EmptyStateAvailableSensors", () => {
     expect(screen.getByText("最近 7 天")).toBeInTheDocument();
     expect(screen.getAllByTestId(/empty-state-connect-/)).toHaveLength(3);
     expect(screen.queryByTestId("empty-state-connect-photo-library")).not.toBeInTheDocument();
+  });
+
+  it("explains when the marketplace is unavailable and no local source exists", () => {
+    const retry = vi.fn();
+
+    render(
+      <EmptyStateAvailableSensors
+        variant="first_context"
+        showBrowseAll={false}
+        installableItems={[]}
+        installableCatalogMode="installed_only"
+        installableLoading={false}
+        onRetryInstallable={retry}
+      />,
+    );
+
+    expect(screen.getByTestId("marketplace-unavailable")).toHaveTextContent(
+      "emptyState.marketplaceUnavailableTitle",
+    );
+    expect(screen.queryByText("emptyState.noAvailable")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("empty-state-retry"));
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it("keeps local source cards visible when the marketplace is unavailable", () => {
+    render(
+      <EmptyStateAvailableSensors
+        variant="first_context"
+        showBrowseAll={false}
+        installableItems={[item({ installed: true })]}
+        installableCatalogMode="installed_only"
+        installableLoading={false}
+      />,
+    );
+
+    expect(screen.getByTestId("marketplace-unavailable")).toHaveTextContent(
+      "emptyState.marketplaceUnavailableWithLocal",
+    );
+    expect(
+      screen.getByTestId("empty-state-connect-chrome-history"),
+    ).toBeInTheDocument();
   });
 
   it("opens the shared panel with plugin-owned display metadata", () => {

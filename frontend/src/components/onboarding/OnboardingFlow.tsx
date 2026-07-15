@@ -23,6 +23,7 @@ import { personasApi } from "../../api/modules/personas";
 import type { SeedPreview } from "../../api/modules/personas";
 import {
   listInstallable,
+  type InstallableCatalogMode,
   type InstallableItem,
 } from "../../api/modules/systemSuggestions";
 import { cloneLLMConfig, cloneProvider } from "../config-forms/llm-form-state";
@@ -235,6 +236,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const [installableItems, setInstallableItems] = useState<InstallableItem[]>(
     [],
   );
+  const [installableCatalogMode, setInstallableCatalogMode] =
+    useState<InstallableCatalogMode | null>(null);
   const [installableLoading, setInstallableLoading] = useState(true);
   const [installableError, setInstallableError] = useState<Error | null>(null);
   const [firstContextPluginIds, setFirstContextPluginIds] = useState<string[]>(
@@ -260,13 +263,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setInstallableLoading(true);
     setInstallableError(null);
     try {
-      const items = await listInstallable();
+      const result = await listInstallable();
       if (mountedRef.current) {
-        setInstallableItems(items);
+        setInstallableItems(result.items);
+        setInstallableCatalogMode(result.catalog_mode);
       }
     } catch (caught) {
       if (mountedRef.current) {
         setInstallableItems([]);
+        setInstallableCatalogMode(null);
         setInstallableError(
           caught instanceof Error
             ? caught
@@ -1035,6 +1040,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         <FirstContextStep
           llmConfig={llmValue}
           installableItems={installableItems}
+          installableCatalogMode={installableCatalogMode}
           installableLoading={installableLoading}
           installableError={installableError}
           onRetryInstallable={loadInstallableSources}

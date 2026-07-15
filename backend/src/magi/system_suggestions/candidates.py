@@ -1,8 +1,9 @@
 """Union of installed plugin manifests + registry entries into suggestion candidates."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 
 @dataclass
@@ -15,6 +16,15 @@ class SuggestionCandidate:
     icon: str
     descriptor: Any  # SuggestionDescriptor
     installed: bool
+
+
+CatalogMode = Literal["full", "installed_only"]
+
+
+@dataclass
+class CandidateResolution:
+    candidates: list[SuggestionCandidate]
+    catalog_mode: CatalogMode
 
 
 def build_suggestion_candidates(

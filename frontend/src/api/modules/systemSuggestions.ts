@@ -152,13 +152,20 @@ export interface InstallableItem {
   surfaces: SuggestionSurfacesSpec;
 }
 
+export type InstallableCatalogMode = "full" | "installed_only";
+
+export interface InstallableSourcesResult {
+  items: InstallableItem[];
+  catalog_mode: InstallableCatalogMode;
+}
+
 /**
  * List the plugins the backend can install from the registry to fill data
  * gaps. Powers the registry-discovery empty state / install-first flow.
  */
-export async function listInstallable(): Promise<InstallableItem[]> {
-  const r = await api.get<{ items: InstallableItem[] }>(
+export async function listInstallable(): Promise<InstallableSourcesResult> {
+  const r = await api.get<InstallableSourcesResult>(
     "/system-suggestions/installable",
   );
-  return unwrapGatewayPayload(r).items;
+  return unwrapGatewayPayload(r);
 }

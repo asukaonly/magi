@@ -6017,6 +6017,11 @@ export interface components {
         };
         /** ListInstallableResponse */
         readonly ListInstallableResponse: {
+            /**
+             * Catalog Mode
+             * @enum {string}
+             */
+            readonly catalog_mode: "full" | "installed_only";
             /** Items */
             readonly items: readonly components["schemas"]["InstallableItem"][];
         };

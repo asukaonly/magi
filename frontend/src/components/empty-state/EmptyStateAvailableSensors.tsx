@@ -8,7 +8,10 @@ import {
   type PluginInstallPanelContext,
 } from "../../stores/pluginInstallPanel";
 import { useChatShellStore } from "../../stores/chat-shell";
-import type { InstallableItem } from "../../api/modules/systemSuggestions";
+import type {
+  InstallableCatalogMode,
+  InstallableItem,
+} from "../../api/modules/systemSuggestions";
 import { localizedPluginText } from "../../utils/plugin-display-groups";
 import { EmptyStateSensorCard } from "./EmptyStateSensorCard";
 
@@ -56,6 +59,7 @@ export interface EmptyStateAvailableSensorsProps {
    * completion page while the same suggestions are already being fetched.
    */
   installableItems?: InstallableItem[];
+  installableCatalogMode?: InstallableCatalogMode | null;
   installableLoading?: boolean;
   installableError?: Error | null;
   onRetryInstallable?: () => void;
@@ -91,6 +95,7 @@ export function EmptyStateAvailableSensors({
   i18nKeyPrefix,
   showBrowseAll = true,
   installableItems,
+  installableCatalogMode,
   installableLoading,
   installableError,
   onRetryInstallable,
@@ -104,12 +109,17 @@ export function EmptyStateAvailableSensors({
 
   const hookState = useInstallableSensors(installableItems === undefined);
   const items = installableItems ?? hookState.items ?? [];
+  const catalogMode =
+    installableCatalogMode === undefined
+      ? hookState.catalogMode
+      : installableCatalogMode;
   const loading = installableLoading ?? hookState.loading;
   const error =
     installableError === undefined ? hookState.error : installableError;
   const retryInstallable = onRetryInstallable ?? hookState.refresh;
   const firstContext = variant === "first_context";
   const sourcePage = variant === "source_page";
+  const marketplaceUnavailable = catalogMode === "installed_only";
   const language = i18n.resolvedLanguage ?? i18n.language;
   const localized = (
     text: { zh: string; en: string } | null | undefined,
@@ -196,7 +206,7 @@ export function EmptyStateAvailableSensors({
 
   if (firstContext && loading && visible.length === 0) {
     return (
-      <div className="rounded-xl border border-border/45 bg-muted/20 px-4 py-5 text-sm text-muted-foreground">
+      <div className="py-3 text-sm text-muted-foreground">
         {t(keyed("emptyState.checking"))}
       </div>
     );
@@ -253,6 +263,31 @@ export function EmptyStateAvailableSensors({
 
   if (visible.length === 0) {
     if (firstContext) {
+      if (marketplaceUnavailable) {
+        return (
+          <div
+            data-testid="marketplace-unavailable"
+            className="flex items-start justify-between gap-4 py-2"
+          >
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium text-foreground">
+                {t(keyed("emptyState.marketplaceUnavailableTitle"))}
+              </p>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t(keyed("emptyState.marketplaceUnavailable"))}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="empty-state-retry"
+              onClick={retryInstallable}
+              className="shrink-0 text-xs font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline"
+            >
+              {t(keyed("emptyState.retry"))}
+            </button>
+          </div>
+        );
+      }
       return (
         <div className="rounded-xl border border-border/45 bg-muted/20 px-4 py-4">
           <p className="text-sm font-medium text-foreground">
@@ -307,6 +342,22 @@ export function EmptyStateAvailableSensors({
         <h3 className="text-sm font-semibold text-foreground">
           {t(keyed("emptyState.firstContextHeading"))}
         </h3>
+        {marketplaceUnavailable ? (
+          <div
+            data-testid="marketplace-unavailable"
+            className="flex items-center justify-between gap-3 text-xs leading-5 text-muted-foreground"
+          >
+            <span>{t(keyed("emptyState.marketplaceUnavailableWithLocal"))}</span>
+            <button
+              type="button"
+              data-testid="empty-state-retry"
+              onClick={retryInstallable}
+              className="shrink-0 font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline"
+            >
+              {t(keyed("emptyState.retry"))}
+            </button>
+          </div>
+        ) : null}
         <EmptyStateSensorCard
           {...cardProps(featured)}
           variant="featured"
