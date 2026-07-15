@@ -39,16 +39,23 @@ export const TasksPageFrame: React.FC<TasksPageFrameProps> = ({
   return (
     <div className="h-full overflow-y-auto bg-background">
       {hasToolbar ? (
-        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-b border-border/60 bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex flex-1 flex-wrap items-center gap-3">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-4 border-b border-border/40 bg-background/95 px-6 py-3.5 backdrop-blur supports-[backdrop-filter]:bg-background/88">
+          <div className="flex flex-1 flex-wrap items-center gap-x-5 gap-y-2">
             {toolbar}
           </div>
           <div className="flex items-center gap-2">
             {actions}
             {onRefresh ? (
-              <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-                <RefreshCw className={cn('mr-2 h-3.5 w-3.5', refreshing && 'animate-spin')} />
-                {refreshing ? t('tasks.page.refreshing') : t('tasks.page.refresh')}
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={refreshing ? t('tasks.page.refreshing') : t('tasks.page.refresh')}
+                title={refreshing ? t('tasks.page.refreshing') : t('tasks.page.refresh')}
+                onClick={onRefresh}
+                disabled={refreshing}
+                className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-muted/45 hover:text-foreground"
+              >
+                <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
               </Button>
             ) : null}
           </div>

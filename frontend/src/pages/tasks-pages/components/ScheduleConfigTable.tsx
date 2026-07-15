@@ -1,7 +1,14 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Pencil, Power, PowerOff, Settings, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Power, PowerOff, Settings, Trash2 } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import type { ScheduleDTO } from '@/api';
 import {
@@ -40,7 +47,9 @@ export interface ScheduleConfigTableProps {
 }
 
 export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
+  const locale = i18n?.language;
+  const todayLabel = t('tasks.scheduled.filters.window.today');
   const {
     schedules, groups, loading, emptyMessage,
     editingScheduleId, runningScheduleId, togglingScheduleId, deletingScheduleId,
@@ -73,28 +82,29 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
       <tr
         key={schedule.schedule_id}
         className={cn(
-          'bg-background/60 transition-colors',
-          selected && 'bg-primary/5',
-          !selected && 'hover:bg-muted/35',
-          // Any non-sensor schedule is clickable: row click opens the
-          // read-only info drawer. Edit / run / toggle / delete are
-          // separate icon affordances so clicks don't conflict.
+          'transition-colors duration-200',
+          selected && 'bg-primary/[0.045]',
+          !selected && 'hover:bg-muted/25',
+          // Non-sensor rows open a read-only overview. Mutations stay in
+          // explicit controls so opening details never changes state.
           !sensorOwned && 'cursor-pointer',
         )}
         onClick={() => { if (!sensorOwned) onOpenInfo(schedule); }}
       >
-        <td className="px-4 py-3 align-middle">
+        <td className="px-4 py-3.5 align-middle">
           <div className="flex items-center gap-2">
-            <div className="truncate font-medium text-foreground" title={getScheduleTitle(schedule)}>
+            <div className="truncate text-sm font-semibold text-foreground" title={getScheduleTitle(schedule)}>
               {getScheduleTitle(schedule)}
             </div>
             {!schedule.enabled ? (
-              <span className="rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-[10px] uppercase tracking-wide">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                ·{' '}
                 {t('tasks.scheduled.status.disabled')}
               </span>
             ) : null}
             {scheduleRunning ? (
-              <span className="rounded-full bg-emerald-500/15 text-emerald-500 px-2 py-0.5 text-[10px] uppercase tracking-wide">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-current" />
                 {t('tasks.scheduled.status.running')}
               </span>
             ) : null}
@@ -103,58 +113,69 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
             {scheduleTypeLabel}
           </div>
         </td>
-        <td className="px-4 py-3 align-middle text-xs text-foreground" title={triggerText}>{triggerText}</td>
-        <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatScheduleTableTime(schedule.target_state?.last_run_at)}</td>
-        <td className="px-4 py-3 align-middle text-xs text-muted-foreground whitespace-nowrap">{formatScheduleTableTime(schedule.target_state?.next_run_at)}</td>
-        <td className="px-4 py-3 align-middle">
-          <div className="flex justify-end gap-1">
-            {/* ▶ → popover with "立即运行" / "带参运行…". Params dialog
-                lives inside this component so all run interactions stay
-                self-contained. Row click goes to the read-only drawer
-                instead — the play button no longer fires immediately. */}
+        <td className="px-4 py-3.5 align-middle text-xs font-medium text-foreground" title={triggerText}>{triggerText}</td>
+        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-xs tabular-nums text-muted-foreground">{formatScheduleTableTime(schedule.target_state?.last_run_at, locale, todayLabel)}</td>
+        <td className="whitespace-nowrap px-4 py-3.5 align-middle text-xs tabular-nums text-muted-foreground">{formatScheduleTableTime(schedule.target_state?.next_run_at, locale, todayLabel)}</td>
+        <td className="px-4 py-3.5 align-middle">
+          <div className="flex justify-end gap-0.5">
             <ScheduleRunButton
               schedule={schedule}
               disabled={runDisabled}
               pending={runPending}
               onRun={onRunSchedule}
             />
-            {!sensorOwned && !systemOwned ? (
-              <IconActionButton
-                variant="outline"
-                label={t('tasks.scheduled.actions.edit')}
-                icon={<Pencil className="h-3.5 w-3.5" />}
-                disabled={rowBusy}
-                onClick={(e) => { e.stopPropagation(); onSelectSchedule(schedule); }}
-              />
-            ) : null}
             {sensorOwned ? (
               <IconActionButton
-                variant="secondary"
+                variant="ghost"
                 label={t('tasks.scheduled.actions.openSettings')}
                 icon={<Settings className="h-3.5 w-3.5" />}
                 disabled={rowBusy}
                 onClick={(e) => { e.stopPropagation(); onOpenSettings(schedule); }}
+                className="text-muted-foreground hover:text-foreground"
               />
             ) : null}
-            <IconActionButton
-              variant="outline"
-              label={toggleLabel}
-              disabled={rowBusy || scheduleRunning}
-              icon={togglePending ? <LoadingSpinner className="h-3.5 w-3.5" /> : (
-                schedule.enabled ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />
-              )}
-              onClick={(e) => { e.stopPropagation(); onToggleSchedule(schedule); }}
-            />
-            {!sensorOwned && !systemOwned ? (
-              <IconActionButton
-                variant="ghost"
-                label={t('tasks.scheduled.actions.delete')}
-                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                disabled={rowBusy || scheduleRunning}
-                icon={deletePending ? <LoadingSpinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
-                onClick={(e) => { e.stopPropagation(); onDeleteSchedule(schedule); }}
-              />
-            ) : null}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconActionButton
+                  variant="ghost"
+                  label={t('tasks.scheduled.actions.more')}
+                  icon={<MoreHorizontal className="h-4 w-4" />}
+                  disabled={rowBusy}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-muted-foreground hover:text-foreground"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                {!sensorOwned && !systemOwned ? (
+                  <DropdownMenuItem onSelect={() => onSelectSchedule(schedule)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t('tasks.scheduled.actions.edit')}
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuItem
+                  disabled={rowBusy || scheduleRunning}
+                  onSelect={() => onToggleSchedule(schedule)}
+                >
+                  {togglePending ? <LoadingSpinner className="h-3.5 w-3.5" /> : (
+                    schedule.enabled ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />
+                  )}
+                  {toggleLabel}
+                </DropdownMenuItem>
+                {!sensorOwned && !systemOwned ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      destructive
+                      disabled={rowBusy || scheduleRunning}
+                      onSelect={() => onDeleteSchedule(schedule)}
+                    >
+                      {deletePending ? <LoadingSpinner className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      {t('tasks.scheduled.actions.delete')}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </td>
       </tr>
@@ -162,18 +183,18 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
   };
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/60">
+    <div className="overflow-x-auto">
       <table className="w-full table-fixed text-left text-sm">
-        <thead className="border-b border-border/60 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        <thead className="border-b border-border/45 text-xs text-muted-foreground">
           <tr>
-            <th className="w-[32%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.name')}</th>
+            <th className="w-[32%] px-4 py-3 font-semibold">{t('tasks.scheduled.columns.name')}</th>
             <th className="w-[18%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.rule')}</th>
             <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.lastRun')}</th>
             <th className="w-[17%] px-4 py-3 font-medium">{t('tasks.scheduled.columns.nextRun')}</th>
             <th className="w-[16%] px-4 py-3 text-right font-medium">{t('tasks.scheduled.columns.actions')}</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border/60">
+        <tbody className="divide-y divide-border/35">
           {groups ? (
             groups.length === 0 ? (
               <tr>
@@ -182,7 +203,7 @@ export const ScheduleConfigTable: React.FC<ScheduleConfigTableProps> = (props) =
             ) : (
               groups.map((group) => (
                 <React.Fragment key={group.pluginId}>
-                  <tr className="bg-muted/30">
+                  <tr className="bg-muted/20">
                     <td colSpan={5} className="px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {group.label}
                     </td>

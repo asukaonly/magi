@@ -16,7 +16,11 @@ export const CATEGORY_CHIPS: ReadonlyArray<CategoryFilter> = ['all', ...SCHEDULE
 export const CategoryChipBar: React.FC<CategoryChipBarProps> = ({ value, counts, onChange }) => {
   const { t } = useTranslation('app');
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="tablist">
+    <div
+      className="flex flex-wrap items-center gap-4"
+      role="tablist"
+      aria-label={t('tasks.scheduled.filters.category')}
+    >
       {CATEGORY_CHIPS.map((cat) => {
         const active = value === cat;
         const label = t(`tasks.scheduled.categories.${cat}`);
@@ -28,17 +32,14 @@ export const CategoryChipBar: React.FC<CategoryChipBarProps> = ({ value, counts,
             aria-selected={active}
             onClick={() => onChange(cat)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+              'relative inline-flex h-9 items-center gap-1.5 px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15',
               active
-                ? 'border-primary/50 bg-primary/10 text-foreground'
-                : 'border-border/60 bg-background hover:bg-muted/50 text-muted-foreground',
+                ? 'font-semibold text-foreground after:scale-x-100'
+                : 'font-medium text-muted-foreground after:scale-x-0 hover:text-foreground',
             )}
           >
             <span>{label}</span>
-            <span className={cn(
-              'inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1 text-[10px]',
-              active ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground',
-            )}>
+            <span className={cn('text-[11px] tabular-nums', active ? 'text-primary' : 'text-muted-foreground/70')}>
               {counts[cat] ?? 0}
             </span>
           </button>

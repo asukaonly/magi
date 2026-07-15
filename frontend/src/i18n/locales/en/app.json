@@ -248,6 +248,7 @@
         "other": "Other"
       },
       "filters": {
+        "category": "Task type",
         "showDisabled": "Show disabled",
         "window": {
           "today": "Today",
@@ -305,6 +306,7 @@
         "status": "Status",
         "plannedAt": "Planned",
         "startedAt": "Started",
+        "executedAt": "Executed",
         "duration": "Duration",
         "actions": "Actions"
       },
@@ -352,6 +354,7 @@
         "enable": "Enable",
         "disable": "Disable",
         "delete": "Delete",
+        "more": "More actions",
         "openSettings": "Open Settings",
         "openInfo": "Open info",
         "sensorEditTitle": "Sensor schedules are updated in Settings",
@@ -374,6 +377,7 @@
       "activity": {
         "manual": "Manual",
         "finishedAt": "Finished",
+        "plannedFor": "Planned for {{time}}",
         "resultMessage": "Result message",
         "stats": "Stats"
       },

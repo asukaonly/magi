@@ -7,15 +7,16 @@ export interface IconActionButtonProps extends Omit<ButtonProps, 'children' | 's
   icon: React.ReactNode;
 }
 
-export const IconActionButton: React.FC<IconActionButtonProps> = ({
+export const IconActionButton = React.forwardRef<HTMLButtonElement, IconActionButtonProps>(({
   label,
   icon,
   className,
   type = 'button',
   ...props
-}) => (
+}, ref) => (
   <Button
     {...props}
+    ref={ref}
     type={type}
     size="icon"
     aria-label={label}
@@ -24,4 +25,5 @@ export const IconActionButton: React.FC<IconActionButtonProps> = ({
   >
     {icon}
   </Button>
-);
+));
+IconActionButton.displayName = 'IconActionButton';

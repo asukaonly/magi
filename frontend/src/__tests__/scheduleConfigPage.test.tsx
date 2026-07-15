@@ -135,7 +135,8 @@ describe('ScheduleConfigPage', () => {
     const user = userEvent.setup();
     schedulesListMock.mockResolvedValue({ schedules: [makeAgentSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
-    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.disable' }));
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.more' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'tasks.scheduled.actions.disable' }));
     await waitFor(() => {
       expect(schedulesUpdateMock).toHaveBeenCalledWith('user-1', { enabled: false });
     });
@@ -145,7 +146,8 @@ describe('ScheduleConfigPage', () => {
     const user = userEvent.setup();
     schedulesListMock.mockResolvedValue({ schedules: [makeAgentSchedule()] });
     render(<MemoryRouter><ScheduleConfigPage /></MemoryRouter>);
-    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.delete' }));
+    await user.click(await screen.findByRole('button', { name: 'tasks.scheduled.actions.more' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'tasks.scheduled.actions.delete' }));
     await waitFor(() => {
       expect(schedulesRemoveMock).toHaveBeenCalledWith('user-1');
     });

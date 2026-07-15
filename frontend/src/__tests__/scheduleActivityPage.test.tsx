@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,13 +9,15 @@ import type { ScheduleActivityDTO } from '@/api';
 const {
   schedulesListMock,
   schedulesListActivityMock,
+  translateMock,
 } = vi.hoisted(() => ({
   schedulesListMock: vi.fn(),
   schedulesListActivityMock: vi.fn(),
+  translateMock: (k: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? k,
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? k }),
+  useTranslation: () => ({ t: translateMock }),
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
@@ -59,6 +62,9 @@ describe('ScheduleActivityPage', () => {
   it('renders activity rows from the API and calls listActivity with sinceSeconds', async () => {
     render(<MemoryRouter><ScheduleActivityPage /></MemoryRouter>);
     await screen.findByText('Test activity');
+    expect(screen.getByText('tasks.scheduled.columns.executedAt')).toBeInTheDocument();
+    expect(screen.queryByText('tasks.scheduled.columns.plannedAt')).not.toBeInTheDocument();
+    expect(screen.queryByText('tasks.scheduled.columns.startedAt')).not.toBeInTheDocument();
     await waitFor(() => {
       expect(schedulesListActivityMock).toHaveBeenCalled();
     });
@@ -68,6 +74,24 @@ describe('ScheduleActivityPage', () => {
       limit: 50,
       offset: 0,
     }));
+  });
+
+  it('filters activities with the compact status control', async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ScheduleActivityPage /></MemoryRouter>);
+    await screen.findByText('Test activity');
+
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'tasks.scheduled.columns.status' }),
+      'failed',
+    );
+
+    await waitFor(() => {
+      expect(schedulesListActivityMock).toHaveBeenLastCalledWith(expect.objectContaining({
+        statuses: ['failed'],
+        offset: 0,
+      }));
+    });
   });
 
   it('shows empty state message when activities is []', async () => {

@@ -5,6 +5,7 @@ import { CalendarClock, Plus } from 'lucide-react';
 
 import { schedulesApi, type ScheduleDTO } from '@/api';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { useChatShellStore } from '@/stores';
 import { useSchedulesStore } from '@/stores/schedules';
 
@@ -134,7 +135,11 @@ export const ScheduleConfigPage: React.FC = () => {
       onRefresh={() => void loadSchedules()}
       refreshing={loading}
       actions={
-        <Button size="sm" onClick={() => setCreating(true)}>
+        <Button
+          size="sm"
+          onClick={() => setCreating(true)}
+          className="h-9 rounded-lg px-4 shadow-none hover:shadow-none"
+        >
           <Plus className="mr-1.5 h-3.5 w-3.5" />
           {t('tasks.scheduled.actions.create')}
         </Button>
@@ -142,15 +147,21 @@ export const ScheduleConfigPage: React.FC = () => {
       toolbar={
         <>
           <CategoryChipBar value={category} counts={counts} onChange={setCategory} />
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-primary"
+          <div className="flex items-center gap-2.5 pl-1">
+            <Switch
+              id="show-disabled-schedules"
               checked={showDisabled}
-              onChange={(e) => setShowDisabled(e.target.checked)}
+              onCheckedChange={setShowDisabled}
+              aria-label={t('tasks.scheduled.filters.showDisabled')}
+              className="h-4 w-7 data-[state=checked]:shadow-none [&>span]:size-3 [&>span]:data-[state=checked]:translate-x-[14px]"
             />
-            {t('tasks.scheduled.filters.showDisabled')}
-          </label>
+            <label
+              htmlFor="show-disabled-schedules"
+              className="cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t('tasks.scheduled.filters.showDisabled')}
+            </label>
+          </div>
         </>
       }
     >

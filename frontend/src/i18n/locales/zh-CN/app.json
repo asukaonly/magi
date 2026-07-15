@@ -248,6 +248,7 @@
         "other": "其他"
       },
       "filters": {
+        "category": "任务类型",
         "showDisabled": "显示已禁用",
         "window": {
           "today": "今天",
@@ -305,6 +306,7 @@
         "status": "状态",
         "plannedAt": "计划时间",
         "startedAt": "开始时间",
+        "executedAt": "执行时间",
         "duration": "执行时长",
         "actions": "操作"
       },
@@ -352,6 +354,7 @@
         "enable": "启用",
         "disable": "停用",
         "delete": "删除",
+        "more": "更多操作",
         "openSettings": "去设置更新",
         "openInfo": "查看说明",
         "sensorEditTitle": "传感器调度请在设置中更新",
@@ -374,6 +377,7 @@
       "activity": {
         "manual": "手动触发",
         "finishedAt": "完成时间",
+        "plannedFor": "计划于 {{time}}",
         "resultMessage": "执行结果",
         "stats": "统计信息"
       },

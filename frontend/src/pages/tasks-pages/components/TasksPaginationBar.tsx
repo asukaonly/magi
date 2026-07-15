@@ -29,27 +29,29 @@ export const TasksPaginationBar: React.FC<TasksPaginationBarProps> = ({
   const rangeEnd = Math.min(offset + limit, total);
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background/90 px-4 py-3 shadow-sm">
-      <span className="text-sm text-muted-foreground">
+    <div className="flex items-center justify-between gap-4 px-1 py-1.5">
+      <span className="text-xs text-muted-foreground">
         {t('tasks.pagination.info', { from: rangeStart, to: rangeEnd, total })}
       </span>
       <div className="flex items-center gap-2">
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           disabled={!hasPrev || loading}
           onClick={() => onPageChange(Math.max(0, offset - limit))}
+          className="rounded-lg text-muted-foreground hover:text-foreground"
         >
           {t('tasks.pagination.prev')}
         </Button>
-        <span className="min-w-[4.5rem] text-center text-sm text-foreground">
+        <span className="min-w-[4rem] text-center text-xs font-medium tabular-nums text-foreground">
           {currentPage} / {totalPages}
         </span>
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           disabled={!hasNext || loading}
           onClick={() => onPageChange(offset + limit)}
+          className="rounded-lg text-muted-foreground hover:text-foreground"
         >
           {t('tasks.pagination.next')}
         </Button>

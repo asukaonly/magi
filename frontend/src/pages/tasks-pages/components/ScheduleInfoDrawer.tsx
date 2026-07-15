@@ -1,6 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import type { ScheduleDTO } from '@/api';
 import { getScheduleTitle } from '../utils/scheduleHelpers';
 import { formatUnixSeconds, getScheduleTriggerSummary } from '../utils/scheduleFormatters';
@@ -23,7 +29,8 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
   schedule,
   onClose,
 }) => {
-  const { t } = useTranslation('app');
+  const { t, i18n } = useTranslation('app');
+  const locale = i18n?.language;
   const open = Boolean(schedule);
 
   return (
@@ -37,6 +44,11 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
                   defaultValue: getScheduleTitle(schedule),
                 })}
               </SheetTitle>
+              <SheetDescription className="sr-only">
+                {t(`tasks.scheduled.systemJobs.${schedule.target_type}.description`, {
+                  defaultValue: t('tasks.scheduled.systemJobs.fallbackDescription'),
+                })}
+              </SheetDescription>
             </SheetHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6 text-sm">
               <p className="leading-6 text-muted-foreground">
@@ -51,11 +63,11 @@ export const ScheduleInfoDrawer: React.FC<ScheduleInfoDrawerProps> = ({
                 </div>
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('tasks.scheduled.columns.lastRun')}</dt>
-                  <dd className="mt-1 text-foreground">{formatUnixSeconds(schedule.target_state?.last_run_at)}</dd>
+                  <dd className="mt-1 text-foreground">{formatUnixSeconds(schedule.target_state?.last_run_at, locale)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{t('tasks.scheduled.columns.nextRun')}</dt>
-                  <dd className="mt-1 text-foreground">{formatUnixSeconds(schedule.target_state?.next_run_at)}</dd>
+                  <dd className="mt-1 text-foreground">{formatUnixSeconds(schedule.target_state?.next_run_at, locale)}</dd>
                 </div>
                 <div>
                   <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">

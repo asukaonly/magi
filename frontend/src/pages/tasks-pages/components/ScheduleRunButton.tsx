@@ -115,8 +115,8 @@ export const ScheduleRunButton: React.FC<ScheduleRunButtonProps> = ({
             aria-label={t('tasks.scheduled.actions.run', { defaultValue: '运行' })}
             title={t('tasks.scheduled.actions.run', { defaultValue: '运行' })}
             className={cn(
-              buttonVariants({ variant: 'outline', size: 'icon' }),
-              'h-8 w-8 shrink-0',
+              buttonVariants({ variant: 'ghost', size: 'icon' }),
+              'h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground',
             )}
             disabled={disabled}
             onClick={(e) => { e.stopPropagation(); }}

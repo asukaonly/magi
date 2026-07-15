@@ -1,18 +1,45 @@
 import type { ScheduleDTO } from '@/api';
 
-export const formatUnixSeconds = (ts: number | null | undefined): string => {
+export const formatUnixSeconds = (
+  ts: number | null | undefined,
+  locale?: string,
+): string => {
   if (!ts || !Number.isFinite(ts)) return '—';
-  return new Date(ts * 1000).toLocaleString();
+  return new Intl.DateTimeFormat(locale, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(ts * 1000));
 };
 
-export const formatScheduleTableTime = (ts: number | null | undefined): string => {
+export const formatScheduleTableTime = (
+  ts: number | null | undefined,
+  locale?: string,
+  todayLabel?: string,
+): string => {
   if (!ts || !Number.isFinite(ts)) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
+  const date = new Date(ts * 1000);
+  const now = new Date();
+  const time = new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
     minute: '2-digit',
-  }).format(new Date(ts * 1000));
+    hourCycle: 'h23',
+  }).format(date);
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (isToday && todayLabel) {
+    return `${todayLabel} ${time}`;
+  }
+  const day = new Intl.DateTimeFormat(locale, {
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  return `${day} ${time}`;
 };
 
 /**
