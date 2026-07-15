@@ -122,6 +122,7 @@ class ChatContextAssembler:
                 session_id=session_id,
                 limit=None,
             )
+            attachment_manifest = self._build_session_attachment_manifest(history)
             if active_summary is not None:
                 history = self._filter_history_from_first_kept_message(
                     history,
@@ -132,7 +133,6 @@ class ChatContextAssembler:
                 history=history,
                 active_persona_id=normalized_persona_id,
             )
-            attachment_manifest = self._build_session_attachment_manifest(history)
             cached_history = CachedConversationHistory(
                 version=durable_version,
                 messages=[item.to_prompt_message() for item in history],

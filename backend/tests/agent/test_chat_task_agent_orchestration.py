@@ -128,6 +128,13 @@ async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_
         user_id="u-chat",
         turn_id="turn-1",
         message_text="original topic",
+        attachment_payloads=[
+            {
+                "attachment_id": "attachment-old",
+                "kind": "pdf",
+                "original_name": "original.pdf",
+            }
+        ],
         created_at_ms=100,
     )
     second_message = await chat_store.create_user_turn(
@@ -192,7 +199,11 @@ async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_
     # manifest sections in the prompt.
     assert history_context.session_summary == (
         "# Rolling Token-Budget Summary\n"
-        "The first turn established the original topic."
+        "The first turn established the original topic.\n\n"
+        "# Session Attachment References\n"
+        "These are lightweight references to files attached in this session.\n"
+        "Use `read_chat_attachment` with an `attachment_id` when the user asks about an earlier attachment; do not guess attachment contents from memory.\n"
+        "- attachment_id=attachment-old; name=original.pdf; kind=pdf; turn_id=turn-1"
     )
     assert history_context.messages == [
         {"role": "user", "content": "tail starts here"},

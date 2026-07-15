@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -204,12 +205,12 @@ def test_transcript_summarizer_ignores_message_count_gate_under_token_pressure()
     messages = [
         TranscriptMessageForSummary(
             message_id=f"message-{index}",
-            role="user" if index == 0 else "assistant",
+            role="user" if index % 2 == 0 else "assistant",
             content="x" * 240_000,
             sequence_no=index,
             created_at_ms=index,
         )
-        for index in range(2)
+        for index in range(4)
     ]
 
     plan = summarizer._build_summary_plan(
@@ -218,7 +219,102 @@ def test_transcript_summarizer_ignores_message_count_gate_under_token_pressure()
     )
 
     assert not hasattr(plan, "reason")
-    assert len(plan.messages_to_summarize) == 1
+    assert [message.message_id for message in plan.messages_to_summarize] == [
+        "message-0",
+        "message-1",
+    ]
+
+
+def test_transcript_summarizer_keeps_complete_user_turn_at_summary_frontier() -> None:
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        summary_generator=lambda summary_input: "summary",
+        token_threshold=1,
+        tail_token_budget=100,
+        min_messages=2,
+    )
+    messages = [
+        TranscriptMessageForSummary("u1", "user", "first question", 1, 1),
+        TranscriptMessageForSummary("a1", "assistant", "first answer", 2, 2),
+        TranscriptMessageForSummary(
+            "u2",
+            "user",
+            "second question " + "x" * 5_000,
+            3,
+            3,
+        ),
+        TranscriptMessageForSummary("a2", "assistant", "short second answer", 4, 4),
+    ]
+
+    plan = summarizer._build_summary_plan(
+        active_summary=None,
+        transcript_messages=messages,
+    )
+
+    assert [message.message_id for message in plan.messages_to_summarize] == ["u1", "a1"]
+    assert messages[plan.tail_start_index].message_id == "u2"
+
+
+def test_transcript_summarizer_frontier_never_starts_inside_rhythm_segments() -> None:
+    summarizer = ChatTranscriptSummarizer(
+        chat_store=None,
+        summary_generator=lambda summary_input: "summary",
+        token_threshold=1,
+        tail_token_budget=50,
+        min_messages=2,
+    )
+    messages = [
+        TranscriptMessageForSummary("u1", "user", "old question", 1, 1, turn_id="t1"),
+        TranscriptMessageForSummary("a1", "assistant", "old answer", 2, 2, turn_id="t1"),
+        TranscriptMessageForSummary("u2", "user", "new question", 1, 3, turn_id="t2"),
+        TranscriptMessageForSummary("seg1", "assistant", "part one", 2, 4, turn_id="t2"),
+        TranscriptMessageForSummary("seg2", "assistant", "part two", 3, 5, turn_id="t2"),
+    ]
+
+    plan = summarizer._build_summary_plan(
+        active_summary=None,
+        transcript_messages=messages,
+    )
+
+    assert messages[plan.tail_start_index].message_id == "u2"
+
+
+def test_transcript_summary_keeps_full_message_and_attachment_references() -> None:
+    long_content = "start-" + "x" * 6_000 + "-end"
+    record = ChatMessageRecord(
+        message_id="message-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        user_id="user-1",
+        role="user",
+        message_kind="user_text",
+        content_text=long_content,
+        payload_json=json.dumps(
+            {
+                "attachments": [
+                    {
+                        "attachment_id": "attachment-1",
+                        "original_name": "report.pdf",
+                        "kind": "pdf",
+                    }
+                ]
+            }
+        ),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=1,
+        sequence_no=1,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+
+    messages = ChatTranscriptSummarizer._prompt_messages_from_records([record])
+    rendered = ChatTranscriptSummarizer._render_messages(messages)
+
+    assert "-end" in rendered
+    assert "[truncated]" not in rendered
+    assert "attachment-1" in rendered
+    assert "report.pdf" in rendered
 
 
 @pytest.mark.parametrize(

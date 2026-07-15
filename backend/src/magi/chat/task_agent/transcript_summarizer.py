@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import inspect
+import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
+from magi.chat.storage.serialization import extract_attachment_payloads
 from magi.config.models import LLMScenario, ThinkingDepth
 from magi.core.logger import get_logger
 from magi.llm.provider_bridge import LLMProviderBridge
@@ -50,9 +52,11 @@ class TranscriptMessageForSummary:
     content: str
     sequence_no: int
     created_at_ms: int
+    turn_id: str | None = None
+    attachments: list[dict[str, object]] = field(default_factory=list)
 
     def to_prompt_message(self) -> dict[str, str]:
-        return {"role": self.role, "content": self.content}
+        return {"role": self.role, "content": _render_message_content(self)}
 
 
 @dataclass(slots=True)
@@ -436,6 +440,8 @@ class ChatTranscriptSummarizer:
                     content=content,
                     sequence_no=record.sequence_no,
                     created_at_ms=record.created_at_ms,
+                    turn_id=str(record.turn_id or "").strip() or None,
+                    attachments=extract_attachment_payloads(record.payload_json),
                 )
             )
         return messages
@@ -459,17 +465,36 @@ class ChatTranscriptSummarizer:
         *,
         tail_token_budget: int,
     ) -> int:
+        groups = self._group_messages_by_user_turn(messages)
         total_tokens = 0
-        selected_count = 0
-        for message in reversed(messages):
-            message_tokens = self._estimate_prompt_messages_tokens([message.to_prompt_message()])
-            if selected_count and total_tokens + message_tokens > tail_token_budget:
+        selected_groups = 0
+        for start_index, end_index in reversed(groups):
+            group_tokens = self._estimate_prompt_messages_tokens(
+                [message.to_prompt_message() for message in messages[start_index:end_index]]
+            )
+            if selected_groups and total_tokens + group_tokens > tail_token_budget:
                 break
-            total_tokens += message_tokens
-            selected_count += 1
+            total_tokens += group_tokens
+            selected_groups += 1
             if total_tokens >= tail_token_budget:
                 break
-        return max(0, len(messages) - max(1, selected_count))
+        if not groups:
+            return 0
+        return groups[-max(1, selected_groups)][0]
+
+    @staticmethod
+    def _group_messages_by_user_turn(
+        messages: list[TranscriptMessageForSummary],
+    ) -> list[tuple[int, int]]:
+        groups: list[tuple[int, int]] = []
+        group_start = 0
+        for index, message in enumerate(messages):
+            if index > group_start and message.role == "user":
+                groups.append((group_start, index))
+                group_start = index
+        if messages:
+            groups.append((group_start, len(messages)))
+        return groups
 
     @staticmethod
     def _find_message_index(
@@ -520,6 +545,7 @@ class ChatTranscriptSummarizer:
 
 Rules:
 - Preserve user intent, decisions, constraints, names, IDs, file paths, code references, and unresolved tasks.
+- Preserve attachment IDs and names so earlier session files remain addressable.
 - If a previous summary is provided, merge it with the new transcript range into one cumulative summary.
 - Do not mention that older messages were hidden or deleted.
 - Write concise, structured plain text that can be inserted into a future prompt.
@@ -558,13 +584,36 @@ Rules:
     def _render_messages(messages: list[TranscriptMessageForSummary]) -> str:
         rendered: list[str] = []
         for message in messages:
-            content = message.content
-            if len(content) > 4_000:
-                content = content[:4_000].rstrip() + "\n... [truncated]"
             rendered.append(
-                f"[{message.sequence_no}] {message.role} ({message.message_id}):\n{content}"
+                f"[{message.sequence_no}] {message.role} ({message.message_id}):\n"
+                f"{_render_message_content(message)}"
             )
         return "\n\n".join(rendered)
+
+
+def _render_message_content(message: TranscriptMessageForSummary) -> str:
+    if not message.attachments:
+        return message.content
+    references = [
+        {
+            key: attachment[key]
+            for key in (
+                "attachment_id",
+                "original_name",
+                "kind",
+                "mime_type",
+                "page_count",
+                "character_count",
+                "parse_status",
+            )
+            if key in attachment
+        }
+        for attachment in message.attachments
+    ]
+    return (
+        f"{message.content}\n\nAttachment references:\n"
+        f"{json.dumps(references, ensure_ascii=False, default=str)}"
+    )
 
 
 __all__ = [
