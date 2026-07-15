@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,7 +90,18 @@ async def connect_aiosqlite(
     expanded = Path(db_path).expanduser()
     expanded.parent.mkdir(parents=True, exist_ok=True)
     db = await aiosqlite.connect(str(expanded), timeout=timeout_seconds)
-    return await configure_aiosqlite(db, profile=profile, use_row_factory=use_row_factory)
+    try:
+        return await configure_aiosqlite(
+            db,
+            profile=profile,
+            use_row_factory=use_row_factory,
+        )
+    except BaseException:
+        # Configuration performs worker-thread I/O. If the caller is cancelled
+        # during that work, close the partially opened connection before the
+        # event loop can go away.
+        await asyncio.shield(db.close())
+        raise
 
 
 def connect_sqlite(

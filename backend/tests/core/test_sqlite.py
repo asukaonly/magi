@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import sqlite3
+from typing import Any
 
 import aiosqlite
 import pytest
@@ -32,6 +34,44 @@ async def test_connect_aiosqlite_applies_shared_pragmas_and_row_factory(tmp_path
         assert int(sync_row[0]) in {1, 2}
     finally:
         await db.close()
+
+
+@pytest.mark.asyncio
+async def test_connect_aiosqlite_closes_partial_connection_when_cancelled(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    configuration_started = asyncio.Event()
+
+    class PartialConnection:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    connection = PartialConnection()
+
+    async def fake_connect(*args: Any, **kwargs: Any) -> PartialConnection:
+        del args, kwargs
+        return connection
+
+    async def blocked_configuration(*args: Any, **kwargs: Any) -> None:
+        del args, kwargs
+        configuration_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("magi.core.sqlite.aiosqlite.connect", fake_connect)
+    monkeypatch.setattr("magi.core.sqlite.configure_aiosqlite", blocked_configuration)
+
+    task = asyncio.create_task(connect_aiosqlite(tmp_path / "cancelled.db"))
+    await configuration_started.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert connection.closed is True
 
 
 def test_connect_sqlite_applies_shared_pragmas_and_row_factory(tmp_path) -> None:
