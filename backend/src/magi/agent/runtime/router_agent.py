@@ -98,6 +98,7 @@ class RouterAgent:
                                 payload=sensor_event.payload,
                                 timestamp=sensor_event.timestamp,
                                 correlation_id=sensor_event.correlation_id,
+                                user_message_generation=sensor_event.user_message_generation,
                             )
                             success = await self._task_agent_manager.add_fact_to_agent(target_type, target_id, fact)
                             if success:

@@ -63,6 +63,12 @@ class KnowledgeGraphWriteQueueStats:
 _STOP = object()
 
 
+@dataclass(frozen=True, slots=True)
+class _QueuedKnowledgeGraphEdgeWrite:
+    edge: KnowledgeGraphEdgeWrite
+    expected_epoch: int
+
+
 class KnowledgeGraphWriteQueue:
     """Serialize and batch high-volume graph edge writes from sensor events."""
 
@@ -79,7 +85,7 @@ class KnowledgeGraphWriteQueue:
         self._max_batch_size = max(1, int(max_batch_size))
         self._flush_interval_seconds = max(0.001, float(flush_interval_seconds))
         self._retry_attempts = max(0, int(retry_attempts))
-        self._queue: asyncio.Queue[KnowledgeGraphEdgeWrite | object] = asyncio.Queue(
+        self._queue: asyncio.Queue[_QueuedKnowledgeGraphEdgeWrite | object] = asyncio.Queue(
             maxsize=max(1, int(max_queue_size))
         )
         self._worker_task: asyncio.Task | None = None
@@ -121,7 +127,12 @@ class KnowledgeGraphWriteQueue:
     async def add_edge(self, edge: KnowledgeGraphEdgeWrite) -> None:
         if self._worker_task is None or self._worker_task.done():
             raise RuntimeError("KnowledgeGraphWriteQueue is not running")
-        await self._queue.put(edge)
+        await self._queue.put(
+            _QueuedKnowledgeGraphEdgeWrite(
+                edge=edge,
+                expected_epoch=int(self._memory.memory_operation_epoch()),
+            )
+        )
         self._enqueued_count += 1
 
     def get_stats(self) -> KnowledgeGraphWriteQueueStats:
@@ -173,18 +184,35 @@ class KnowledgeGraphWriteQueue:
             if should_stop:
                 return
 
-    async def _flush_batch(self, batch: list[KnowledgeGraphEdgeWrite | object]) -> None:
-        edges = [item for item in batch if isinstance(item, KnowledgeGraphEdgeWrite)]
-        if not edges:
-            return
+    async def _flush_batch(
+        self,
+        batch: list[_QueuedKnowledgeGraphEdgeWrite | object],
+    ) -> None:
+        grouped: dict[int, list[KnowledgeGraphEdgeWrite]] = {}
+        for item in batch:
+            if isinstance(item, _QueuedKnowledgeGraphEdgeWrite):
+                grouped.setdefault(item.expected_epoch, []).append(item.edge)
+        for expected_epoch, edges in grouped.items():
+            await self._flush_epoch_batch(edges, expected_epoch=expected_epoch)
+
+    async def _flush_epoch_batch(
+        self,
+        edges: list[KnowledgeGraphEdgeWrite],
+        *,
+        expected_epoch: int,
+    ) -> None:
 
         for attempt in range(self._retry_attempts + 1):
             started_at = time.perf_counter()
             try:
-                await self._write_edges(edges)
+                accepted_count = await self._write_edges(
+                    edges,
+                    expected_epoch=expected_epoch,
+                )
                 self._last_flush_latency_ms = (time.perf_counter() - started_at) * 1000.0
-                self._flushed_batch_count += 1
-                self._flushed_edge_count += len(edges)
+                if accepted_count > 0:
+                    self._flushed_batch_count += 1
+                    self._flushed_edge_count += accepted_count
                 return
             except Exception:
                 if attempt >= self._retry_attempts:
@@ -202,15 +230,31 @@ class KnowledgeGraphWriteQueue:
                 )
                 await asyncio.sleep(min(1.0, 0.05 * (2**attempt)))
 
-    async def _write_edges(self, edges: list[KnowledgeGraphEdgeWrite]) -> None:
+    async def _write_edges(
+        self,
+        edges: list[KnowledgeGraphEdgeWrite],
+        *,
+        expected_epoch: int,
+    ) -> int:
         batch_writer = getattr(self._memory, "upsert_user_graph_edges", None)
         if callable(batch_writer):
-            result = batch_writer([edge.to_kwargs() for edge in edges])
+            result = batch_writer(
+                [edge.to_kwargs() for edge in edges],
+                expected_epoch=expected_epoch,
+            )
             if inspect.isawaitable(result):
-                await result
-            return
+                result = await result
+            if isinstance(result, (list, tuple, set)):
+                return len(result)
+            return int(bool(result))
 
+        accepted_count = 0
         for edge in edges:
-            result = self._memory.upsert_user_graph_edge(**edge.to_kwargs())
+            result = self._memory.upsert_user_graph_edge(
+                **edge.to_kwargs(),
+                expected_epoch=expected_epoch,
+            )
             if inspect.isawaitable(result):
-                await result
+                result = await result
+            accepted_count += int(bool(result))
+        return accepted_count

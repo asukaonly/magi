@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -213,7 +214,13 @@ async def test_service_attaches_photo_structured_recall(tmp_path) -> None:
     await store.store(related_event)
 
     svc = HybridRetrievalService.__new__(HybridRetrievalService)
-    svc._memory = SimpleNamespace(l1=store)
+    svc._memory = SimpleNamespace(
+        l1=store,
+        l2=SimpleNamespace(
+            db_path=str(db_path),
+            active_correction_evidence_event_ids=AsyncMock(return_value=set()),
+        ),
+    )
 
     payload = await svc._apply_structured_recall(
         request=RetrievalQuery(query="我在天空之城拍过几次照片", query_mode="cross_session"),

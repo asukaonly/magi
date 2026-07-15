@@ -212,7 +212,8 @@ def _collect_l2_candidates(
 def _knowledge_edge_candidates(knowledge_edges: list[dict[str, Any]]) -> list[L2Candidate]:
     return [
         L2Candidate(
-            candidate_id=edge.get("triple_id", f"ke_{i}"),
+            candidate_id=edge.get("_governed_version_id")
+            or edge.get("triple_id", f"ke_{i}"),
             kind="knowledge_edge",
             payload=edge,
             text=edge.get("natural_summary", ""),

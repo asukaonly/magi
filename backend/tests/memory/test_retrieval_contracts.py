@@ -28,6 +28,7 @@ class TestTimeRange:
         tr = TimeRange()
         assert tr.start is None
         assert tr.end is None
+        assert tr.as_of is None
 
     def test_with_values(self):
         tr = TimeRange(start=1000.0, end=2000.0)
@@ -37,7 +38,7 @@ class TestTimeRange:
     def test_serialization(self):
         tr = TimeRange(start=100.0, end=200.0)
         d = asdict(tr)
-        assert d == {"start": 100.0, "end": 200.0}
+        assert d == {"start": 100.0, "end": 200.0, "as_of": None}
 
 
 class TestLayerConditions:

@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ...embedding.embedding_pipeline import EmbeddingPipelineItem
+from ...embedding.embedding_pipeline import EmbeddingPipelineItem, EmbeddingPipelineResult
 from ...embedding.embedding_service import MemoryEmbeddingService
 from ...embedding.sqlite_vec_index import SqliteVecIndex
+from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_vector_summaries
 from ..storage.schema import (
     EMBEDDING_STATUS_DISABLED,
@@ -23,11 +25,10 @@ from .summaries import (
     EMBEDDING_TEXT_BUILDER_VERSION,
     build_embedding_pipeline,
     build_summary_embedding_chunks,
+    chunk_id_for_summary,
     fetch_summary_chunk_rows_by_ids,
     fold_summary_chunk_hits,
     profile_from_embedding_result,
-    replace_summary_chunks,
-    update_summary_embedding_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,8 +42,11 @@ class _L3SummaryEmbeddingHostProtocol(Protocol):
     _embedding_active_count: int
     _embedding_batch_size: int
     _embedding_batch_wait_seconds: float
+    _operation_guard_factory: Callable[[], Any] | None
 
     async def initialize(self) -> None: ...
+
+    def embedding_mutation_guard(self) -> Any: ...
 
     def _vectors_enabled(self) -> bool: ...
 
@@ -124,13 +128,23 @@ class L3SummaryEmbeddingMixin:
         host = cast(_L3SummaryEmbeddingHostProtocol, self)
         if not host._vectors_enabled():
             return
+        summary_ids = list(
+            dict.fromkeys(
+                str(summary.get("summary_id") or "").strip()
+                for summary in summaries
+                if str(summary.get("summary_id") or "").strip()
+            )
+        )
+        current_summaries = await host.fetch_by_ids(summary_ids)
+        if not current_summaries:
+            return
         pipeline = build_embedding_pipeline(
             embedding_service=host._embedding_service,
             vector_index=host._vector_index,
         )
         if pipeline is None:
             return
-        results = await pipeline.upsert_items(
+        prepared_results = await pipeline.prepare_items(
             [
                 EmbeddingPipelineItem(
                     parent_id=str(summary["summary_id"]),
@@ -142,38 +156,181 @@ class L3SummaryEmbeddingMixin:
                     },
                     payload=summary,
                 )
-                for summary in summaries
+                for summary in current_summaries
             ]
         )
-        if not results:
+        if not prepared_results:
             return
-        embedded_at = results[0].embedded_at
-        await replace_summary_chunks(
-            db_path=host.db_path,
-            entries=[(result.payload, result.chunks) for result in results],
-            embedded_at=embedded_at,
+        async with optional_operation_guard(host._operation_guard_factory):
+            async with host.embedding_mutation_guard():
+                publishable_results = await self._current_prepared_embedding_results(
+                    prepared_results
+                )
+                results = await pipeline.persist_results(publishable_results)
+                if not results:
+                    return
+                cleanup_chunk_ids = await self._publish_summary_embedding_results(results)
+                for chunk_id in cleanup_chunk_ids:
+                    try:
+                        if host._vector_index is not None:
+                            await host._vector_index.delete_entity(entity_id=chunk_id)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to remove obsolete summary embedding chunk %s: %s",
+                            chunk_id,
+                            exc,
+                        )
+
+    async def _current_prepared_embedding_results(
+        self,
+        results: list[EmbeddingPipelineResult],
+    ) -> list[EmbeddingPipelineResult]:
+        """Drop results whose parent changed while the external model was running."""
+        host = cast(_L3SummaryEmbeddingHostProtocol, self)
+        current_summaries = await host.fetch_by_ids(
+            list(dict.fromkeys(result.parent_id for result in results))
         )
-        for result in results:
-            summary = result.payload
-            profile = profile_from_embedding_result(
-                embedding_service=host._embedding_service,
-                result=result.embeddings[0],
+        current_by_id = {
+            str(summary.get("summary_id") or ""): summary
+            for summary in current_summaries
+        }
+        return [
+            result
+            for result in results
+            if _embedded_parent_is_current(
+                current_by_id.get(result.parent_id),
+                result.payload,
             )
+        ]
+
+    async def _publish_summary_embedding_results(
+        self,
+        results: list[EmbeddingPipelineResult],
+    ) -> list[str]:
+        """Publish metadata only if the embedded parent version is still current."""
+        host = cast(_L3SummaryEmbeddingHostProtocol, self)
+        cleanup_chunk_ids: list[str] = []
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
             try:
-                await update_summary_embedding_state(
-                    db_path=host.db_path,
-                    summary_id=result.parent_id,
-                    status=EMBEDDING_STATUS_READY,
-                    profile_id=profile.profile_id,
-                    chunk_count=len(result.chunks),
-                    embedded_at=result.embedded_at,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to update summary embedding state for %s: %s",
-                    summary.get("summary_id"),
-                    exc,
-                )
+                for result in results:
+                    summary = result.payload
+                    async with db.execute(
+                        """
+                        SELECT content, source_revision, derivation_state, updated_at
+                        FROM summaries
+                        WHERE summary_id = ?
+                        """,
+                        (result.parent_id,),
+                    ) as cursor:
+                        current = await cursor.fetchone()
+                    new_chunk_ids = [
+                        chunk_id_for_summary(result.parent_id, chunk.chunk_index)
+                        for chunk in result.chunks
+                    ]
+                    if not _embedded_parent_is_current(current, summary):
+                        cleanup_chunk_ids.extend(new_chunk_ids)
+                        continue
+
+                    async with db.execute(
+                        f"SELECT chunk_id FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
+                        (result.parent_id,),
+                    ) as cursor:
+                        previous_rows = await cursor.fetchall()
+                    previous_chunk_ids = [str(row["chunk_id"]) for row in previous_rows]
+                    await db.execute(
+                        f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
+                        (result.parent_id,),
+                    )
+                    await db.executemany(
+                        f"""
+                        INSERT INTO {SUMMARY_CHUNKS_TABLE}(
+                            chunk_id, summary_id, chunk_index, chunk_text,
+                            char_start, char_end, token_estimate, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                chunk_id_for_summary(result.parent_id, chunk.chunk_index),
+                                result.parent_id,
+                                chunk.chunk_index,
+                                chunk.text,
+                                chunk.char_start,
+                                chunk.char_end,
+                                chunk.token_estimate,
+                                result.embedded_at,
+                                result.embedded_at,
+                            )
+                            for chunk in result.chunks
+                        ],
+                    )
+                    profile = profile_from_embedding_result(
+                        embedding_service=host._embedding_service,
+                        result=result.embeddings[0],
+                    )
+                    await db.execute(
+                        """
+                        UPDATE summaries
+                        SET embedding_status = ?, embedding_profile_id = ?,
+                            embedding_chunk_count = ?, last_embedded_at = ?
+                        WHERE summary_id = ?
+                        """,
+                        (
+                            EMBEDDING_STATUS_READY,
+                            profile.profile_id,
+                            len(result.chunks),
+                            result.embedded_at,
+                            result.parent_id,
+                        ),
+                    )
+                    new_chunk_id_set = set(new_chunk_ids)
+                    cleanup_chunk_ids.extend(
+                        chunk_id
+                        for chunk_id in previous_chunk_ids
+                        if chunk_id not in new_chunk_id_set
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return list(dict.fromkeys(cleanup_chunk_ids))
+
+    async def _detach_summary_embedding_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        summary_id: str,
+    ) -> list[str]:
+        """Detach chunk metadata inside a caller-owned correction transaction."""
+        async with db.execute(
+            f"SELECT chunk_id FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
+            (summary_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        chunk_ids = [str(row[0]) for row in rows]
+        await db.execute(
+            f"DELETE FROM {SUMMARY_CHUNKS_TABLE} WHERE summary_id = ?",
+            (summary_id,),
+        )
+        await db.execute(
+            """
+            UPDATE summaries
+            SET embedding_status = ?, embedding_profile_id = NULL,
+                embedding_chunk_count = 0, last_embedded_at = NULL
+            WHERE summary_id = ?
+            """,
+            (EMBEDDING_STATUS_DISABLED, summary_id),
+        )
+        return chunk_ids
+
+    async def _delete_summary_vectors_unlocked(self, chunk_ids: List[str]) -> None:
+        """Delete vector rows while the caller holds the embedding mutation guard."""
+        host = cast(_L3SummaryEmbeddingHostProtocol, self)
+        if host._vector_index is None:
+            return
+        for chunk_id in dict.fromkeys(chunk_ids):
+            await host._vector_index.delete_entity(entity_id=chunk_id)
 
     async def vector_search(
         self,
@@ -271,6 +428,21 @@ class L3SummaryEmbeddingMixin:
                     host._embedding_queue.task_done()
             if should_stop:
                 break
+
+
+def _embedded_parent_is_current(
+    current: Mapping[str, Any] | aiosqlite.Row | None,
+    embedded_summary: Dict[str, Any],
+) -> bool:
+    if current is None or str(current["derivation_state"]) != "current":
+        return False
+    return (
+        str(current["content"]) == str(embedded_summary.get("content") or "")
+        and int(current["source_revision"] or 0)
+        == int(embedded_summary.get("source_revision") or 0)
+        and float(current["updated_at"] or 0.0)
+        == float(embedded_summary.get("updated_at") or 0.0)
+    )
 
 
 __all__ = ["L3SummaryEmbeddingMixin"]

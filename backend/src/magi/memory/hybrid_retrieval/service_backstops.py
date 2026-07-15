@@ -12,6 +12,7 @@ from .models import (
     RetrievalPayload,
     RetrievalQuery,
 )
+from .service_plan_augmentation import _apply_request_constraints
 from .service_policy import comparison_backstop_queries, rule_backstop_reason
 
 
@@ -51,6 +52,11 @@ class HybridRetrievalBackstopMixin:
                     and self._plan_signature(plan) not in existing_signatures
                 ]
                 rule_primary_plans.extend(rule_l1_fallback_plans)
+            _apply_request_constraints(
+                rule_primary_plans,
+                request=request,
+                time_range=rule_decision.time_range,
+            )
             await self._execute_and_merge_plans(
                 rule_primary_plans, payload, l1=l1, request=request, label="Rule backstop plan",
             )
@@ -72,8 +78,10 @@ class HybridRetrievalBackstopMixin:
                         content_query=content_query,
                         source_filters=request.source_filters or None,
                         domain_filters=request.domain_filters or None,
+                        context_scope=dict(request.context_scope or {}),
                         limit=request.limit,
                     ),
+                    time_range=decision.time_range,
                     is_fallback=False,
                 )
                 for content_query in backstop_queries
@@ -115,6 +123,11 @@ class HybridRetrievalBackstopMixin:
 
         if should_fallback:
             fallback_plans = [p for p in decision.plans if p.is_fallback]
+            _apply_request_constraints(
+                fallback_plans,
+                request=request,
+                time_range=decision.time_range,
+            )
             await self._execute_and_merge_plans(
                 fallback_plans, payload, l1=l1, request=request, label="Fallback plan",
             )

@@ -15,6 +15,7 @@ from ....core.sqlite import sqlite_connection_async
 from ..graph.versions import append_knowledge_graph_version, list_knowledge_graph_versions
 from .cache_signals import mark_subject_changed
 from .fingerprints import (
+    SUPPORTED_SCOPE_FIELDS,
     canonical_scope_json,
     relationship_claim_fingerprint,
     relationship_slot_key,
@@ -412,6 +413,10 @@ def _validate_command(command: ApplyRelationshipCorrectionCommand) -> None:
     if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
         if command.replacement is None or not command.scope:
             raise MemoryCorrectionValidationError("scope_refinement requires replacement and scope")
+    unknown_scope_keys = set(command.scope or {}) - SUPPORTED_SCOPE_FIELDS
+    if unknown_scope_keys:
+        unknown = ", ".join(sorted(str(item) for item in unknown_scope_keys))
+        raise MemoryCorrectionValidationError(f"Unsupported scope fields: {unknown}")
 
 
 def _ensure_correctable(
@@ -487,7 +492,11 @@ async def _ensure_initial_version(
     now: float,
 ) -> None:
     async with db.execute(
-        "SELECT 1 FROM knowledge_graph_versions WHERE triple_id = ? LIMIT 1",
+        """
+        SELECT 1 FROM knowledge_graph_versions
+        WHERE triple_id = ? AND governance_complete = 1
+        LIMIT 1
+        """,
         (triple_id,),
     ) as cursor:
         exists = await cursor.fetchone()

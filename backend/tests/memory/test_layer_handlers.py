@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -316,6 +317,66 @@ def _make_l2_store(**overrides):
     s.search_edges_by_embedding.return_value = overrides.get("edge_vectors", [])
     s.list_episodes.return_value = overrides.get("episodes", [])
     s.search_episodes_fts.return_value = overrides.get("fts_episodes", [])
+
+    async def _current_assertions(**kwargs):
+        return await s.list_tom_assertions(
+            entity_id=kwargs.get("entity_id"),
+            entity_type=kwargs.get("entity_type"),
+            trait_families=kwargs.get("trait_families"),
+            validation_states=kwargs.get("validation_states"),
+            target_entity_id=kwargs.get("target_entity_id"),
+            limit=kwargs.get("limit", 100),
+        )
+
+    async def _current_relationships(**kwargs):
+        triple_ids = kwargs.get("triple_ids")
+        if triple_ids:
+            candidates = [
+                item
+                for item in overrides.get("edge_vectors", [])
+                if item.get("triple_id") in set(triple_ids)
+            ]
+            candidates.extend(
+                item
+                for item in overrides.get("rels", [])
+                if item.get("triple_id") in set(triple_ids)
+                and item not in candidates
+            )
+            return candidates
+        return await s.get_relationships(
+            subject_id=kwargs.get("subject_id"),
+            object_id=kwargs.get("object_id"),
+            predicates=kwargs.get("predicates"),
+            object_types=kwargs.get("object_types"),
+            evidence_classes=kwargs.get("evidence_classes"),
+            limit=kwargs.get("limit", 100),
+        )
+
+    async def _batch_current_assertions(**kwargs):
+        return await s.batch_list_tom_assertions(
+            entity_ids=kwargs["entity_ids"],
+            entity_type=kwargs.get("entity_type"),
+            trait_families=kwargs.get("trait_families"),
+            validation_states=kwargs.get("validation_states"),
+            target_entity_id=kwargs.get("target_entity_id"),
+            limit_per_entity=kwargs.get("limit_per_entity", 100),
+        )
+
+    async def _batch_current_relationships(**kwargs):
+        return await s.batch_get_relationships(
+            entity_ids=kwargs["entity_ids"],
+            direction=kwargs.get("direction", "outgoing"),
+            predicates=kwargs.get("predicates"),
+            target_object_id=kwargs.get("object_id"),
+            object_types=kwargs.get("object_types"),
+            limit_per_entity=kwargs.get("limit_per_entity", 100),
+            evidence_classes=kwargs.get("evidence_classes"),
+        )
+
+    s.batch_list_current_assertions = AsyncMock(side_effect=_batch_current_assertions)
+    s.batch_list_current_relationships = AsyncMock(side_effect=_batch_current_relationships)
+    s.list_current_assertions = AsyncMock(side_effect=_current_assertions)
+    s.list_current_relationships = AsyncMock(side_effect=_current_relationships)
     return s
 
 
@@ -541,7 +602,7 @@ class TestL2Handler:
             include_assertions=False,
         )
 
-        results = await handler.execute(conds, user_id="u1")
+        await handler.execute(conds, user_id="u1")
 
         # user:u1 should NOT be bound as subject via batch_get_relationships
         for call in store.batch_get_relationships.call_args_list:
@@ -1076,7 +1137,8 @@ class TestL2HandlerEdgeVectorSupplement:
         )
 
         embedding_service = AsyncMock()
-        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+        embedding_service.embed_text.return_value = SimpleNamespace(vector=[0.1] * 8)
+        embedding_service.result_for_index = lambda result, **_: result
         edge_index = AsyncMock()
 
         handler = L2Handler(
@@ -1109,7 +1171,7 @@ class TestL2HandlerEdgeVectorSupplement:
             include_relationships=True,
             content_query="what food does user like",
         )
-        results = await handler.execute(conds)
+        await handler.execute(conds)
         store.search_edges_by_embedding.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1124,7 +1186,8 @@ class TestL2HandlerEdgeVectorSupplement:
         )
 
         embedding_service = AsyncMock()
-        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+        embedding_service.embed_text.return_value = SimpleNamespace(vector=[0.1] * 8)
+        embedding_service.result_for_index = lambda result, **_: result
         edge_index = AsyncMock()
 
         handler = L2Handler(
@@ -1151,7 +1214,8 @@ class TestL2HandlerEdgeVectorSupplement:
         )
 
         embedding_service = AsyncMock()
-        embedding_service.embed_text.return_value = AsyncMock(vector=[0.1] * 8)
+        embedding_service.embed_text.return_value = SimpleNamespace(vector=[0.1] * 8)
+        embedding_service.result_for_index = lambda result, **_: result
         edge_index = AsyncMock()
 
         handler = L2Handler(

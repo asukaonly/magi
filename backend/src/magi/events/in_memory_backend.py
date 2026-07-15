@@ -38,6 +38,7 @@ class InMemoryMessageBusBackend(MessageBusBackend):
         broadcast_max_concurrency: int = 8,
         handler_timeout_seconds: float = 2.0,
     ) -> None:
+        super().__init__()
         self.max_queue_size = max_queue_size
         self.num_workers = num_workers
         self.broadcast_max_concurrency = broadcast_max_concurrency
@@ -53,7 +54,7 @@ class InMemoryMessageBusBackend(MessageBusBackend):
         self._active_dispatches = 0
         self._stats = InMemoryBackendStats(broadcast_parallelism=broadcast_max_concurrency)
 
-    async def publish(self, event: Event) -> bool:
+    async def _publish_bound(self, event: Event) -> bool:
         """Publish an event to the local in-process queue."""
         if not self._running or self._queue is None:
             logger.warning("Dropping event because message bus is not running", extra={"event_type": event.type})

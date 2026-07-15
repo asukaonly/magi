@@ -43,8 +43,14 @@ async def append_knowledge_graph_version(
             version_id, triple_id, previous_version_id, slot_key, claim_fingerprint,
             subject_id, subject_type, predicate, object_id, object_type, fact_kind,
             confidence, evidence_event_ids, evidence_text, status, valid_from, valid_to,
-            scope_key, scope_json, authority_ref, correction_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            scope_key, scope_json, authority_ref, correction_id, created_at,
+            natural_summary, observation_count, first_observed_at, last_observed_at,
+            last_confirmed_at, source_type, extraction_method, expires_at,
+            evidence_class, edge_created_at, governance_complete
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1
+        )
         """,
         (
             version_id,
@@ -69,6 +75,16 @@ async def append_knowledge_graph_version(
             row["authority_ref"],
             correction_id,
             float(created_at if created_at is not None else time.time()),
+            str(row["natural_summary"] or ""),
+            int(row["observation_count"] or 1),
+            row["first_observed_at"],
+            row["last_observed_at"],
+            row["last_confirmed_at"],
+            str(row["source_type"] or ""),
+            str(row["extraction_method"] or ""),
+            row["expires_at"],
+            row["evidence_class"],
+            row["created_at"],
         ),
     )
     return version_id

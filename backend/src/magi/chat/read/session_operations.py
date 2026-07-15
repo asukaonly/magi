@@ -10,7 +10,14 @@ from ...core.logger import get_logger
 from ...core.sqlite import connect_sqlite
 from ...memory.l1.chat_sessions import create_chat_session_record
 from .models import ChatSessionRenameResult, ChatSessionSummary, SessionWorkspaceUpdateResult
-from .schema import CHAT_ATTACHMENTS_TABLE, CHAT_MESSAGES_TABLE, CHAT_SESSIONS_TABLE, CHAT_TURNS_TABLE
+from .schema import (
+    CHAT_ATTACHMENTS_TABLE,
+    CHAT_CONTEXT_SUMMARIES_TABLE,
+    CHAT_MESSAGES_TABLE,
+    CHAT_RUN_CONSUMED_EVENTS_TABLE,
+    CHAT_SESSIONS_TABLE,
+    CHAT_TURNS_TABLE,
+)
 
 logger = get_logger(__name__)
 
@@ -32,6 +39,8 @@ class _ChatSessionOperationsHost(Protocol):
     def _delete_chat_session_assets(self, *, session_id: str) -> None: ...
 
     def _clear_all_chat_assets(self) -> None: ...
+
+    def _clear_all_runtime_trace_rows(self) -> None: ...
 
 
 class ChatSessionOperationsMixin:
@@ -282,6 +291,14 @@ class ChatSessionOperationsMixin:
             (normalized_user_id, normalized_session_id),
         )
         conn.execute(
+            f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+            (normalized_session_id,),
+        )
+        conn.execute(
+            f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE} WHERE session_id = ?",
+            (normalized_session_id,),
+        )
+        conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
             SET deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
@@ -299,7 +316,9 @@ class ChatSessionOperationsMixin:
     def clear_all_sessions(self) -> int:
         """Clear all chat session rows and return removed count."""
         host = cast(_ChatSessionOperationsHost, self)
+        host._clear_all_runtime_trace_rows()
         if not host._chat_db_path.exists():
+            host._clear_all_chat_assets()
             return 0
         conn = host._get_conn()
         row = conn.execute(
@@ -309,6 +328,8 @@ class ChatSessionOperationsMixin:
         conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_ATTACHMENTS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
+        conn.execute(f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE}")
+        conn.execute(f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_SESSIONS_TABLE}")
         conn.commit()
         host._clear_all_chat_assets()

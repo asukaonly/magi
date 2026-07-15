@@ -123,6 +123,7 @@ class RuleBasedIntentDecider:
                 content_query=inp.query,
                 source_filters=final_sources,
                 domain_filters=final_domains,
+                context_scope=dict(inp.context_scope or {}),
                 limit=inp.l1_limit,
             )
         elif layer == "L2":

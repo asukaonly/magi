@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -16,7 +19,55 @@ from magi.memory.event_contracts import (
     TomDepth,
 )
 from magi.memory.hybrid_retrieval import RetrievalPayload
+from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+
+
+@pytest.fixture(autouse=True)
+def _isolate_orchestration_store(monkeypatch):
+    store = SimpleNamespace(
+        clear_all=AsyncMock(
+            return_value={"orchestrations": 0, "worker_results": 0}
+        )
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_orchestration_store",
+        lambda: store,
+    )
+    return store
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_message_clear_boundary(monkeypatch):
+    class _FakeRuntimeCommandQueue:
+        def __init__(self) -> None:
+            self.barrier = AsyncOperationBarrier()
+            self.generation = 0
+            self.advance_calls = 0
+
+        @asynccontextmanager
+        async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
+            async with self.barrier.exclusive():
+                yield
+
+        async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
+            self.advance_calls += 1
+            self.generation += 1
+            return self.generation, 0
+
+    queue = _FakeRuntimeCommandQueue()
+    sensor_hub = SimpleNamespace(
+        discard_stale_user_messages=AsyncMock(return_value=0)
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_runtime_command_queue",
+        lambda: queue,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_sensor_hub",
+        lambda: sensor_hub,
+    )
+    return queue, sensor_hub
 
 
 class _FakeL0Store:
@@ -305,6 +356,7 @@ class _FakeL4Store:
 
 class _FakeUnifiedMemory:
     def __init__(self):
+        self._operation_barrier = AsyncOperationBarrier()
         self.l0 = _FakeL0Store()
         self.l1 = _FakeL1Store()
         self.l2 = _FakeL2Store()
@@ -315,6 +367,9 @@ class _FakeUnifiedMemory:
         self.flush_l2_microbatches_calls = 0
         self.drain_l2_edge_embedding_calls = 0
 
+    def memory_operation_guard(self):
+        return self._operation_barrier.operation()
+
     async def get_statistics(self):
         return {
             "l0": {"checkpoint_db_path": "/tmp/l0.db"},
@@ -322,6 +377,25 @@ class _FakeUnifiedMemory:
             "l2": {"db_path": "/tmp/l2.db"},
             "l3": {"db_path": "/tmp/l3.db"},
             "l4": {"db_path": "/tmp/l4.db"},
+        }
+
+    async def clear_all_memory(self, *, auxiliary_clearers=(), context_clearer=None):
+        l2_count = await self.l2.clear()
+        l2_count += await self.l2_entity_catalog.clear()
+        for clearer in auxiliary_clearers:
+            result = clearer()
+            if hasattr(result, "__await__"):
+                await result
+        chat_context_count = context_clearer() if context_clearer is not None else 0
+        if hasattr(chat_context_count, "__await__"):
+            chat_context_count = await chat_context_count
+        return {
+            "l0": await self.l0.clear(),
+            "l1": await self.l1.clear(),
+            "l2": l2_count,
+            "l3": await self.l3.clear(),
+            "l4": await self.l4.clear(),
+            "chat_context": int(chat_context_count or 0),
         }
 
     async def ingest_event(self, event):
@@ -511,6 +585,8 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
     app.include_router(memory_router, prefix="/api/memory")
 
     fake_memory = SimpleNamespace(l0=SimpleNamespace())
+    fake_barrier = AsyncOperationBarrier()
+    fake_memory.memory_operation_guard = fake_barrier.operation
     fake_memory.l0._sessions = {
         "379f666d-aee9-48fb-ab88-50690496297b": {
             "session_id": "379f666d-aee9-48fb-ab88-50690496297b",
@@ -1685,12 +1761,15 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     assert body["all_idle"] is False
 
 
-def test_memory_clear_api_clears_all_layers(monkeypatch):
+def test_memory_clear_api_clears_all_layers(
+    monkeypatch,
+    _isolate_orchestration_store,
+):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
     class _FakeChatReadService:
-        def clear_all_sessions(self) -> int:
+        async def aclear_all_sessions(self) -> int:
             return 4
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
@@ -1708,6 +1787,334 @@ def test_memory_clear_api_clears_all_layers(monkeypatch):
     assert body["results"]["l3"]["count"] == 2
     assert body["results"]["l4"]["count"] == 1
     assert body["results"]["chat_context"]["count"] == 4
+    _isolate_orchestration_store.clear_all.assert_awaited_once()
+
+
+def test_memory_clear_resumes_rebuild_starts_when_pause_fails(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    pause = AsyncMock(side_effect=RuntimeError("cancel persistence failed"))
+    resume = AsyncMock(side_effect=RuntimeError("rebuild resume failed"))
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(RuntimeError, match="cancel persistence failed"):
+        TestClient(app).delete("/api/memory/clear")
+
+    pause.assert_awaited_once()
+    resume.assert_awaited_once()
+    task_agent_manager.pause_chat_work_and_cancel_all.assert_not_awaited()
+    task_agent_manager.resume_chat_work.assert_not_awaited()
+
+
+def test_memory_clear_recovers_all_dependencies_when_chat_pause_fails(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(
+            side_effect=RuntimeError("chat pause failed")
+        ),
+        resume_chat_work=AsyncMock(side_effect=RuntimeError("chat resume failed")),
+    )
+    rebuild_pause = AsyncMock()
+    rebuild_resume = AsyncMock(side_effect=RuntimeError("rebuild resume failed"))
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(RuntimeError, match="chat pause failed"):
+        TestClient(app).delete("/api/memory/clear")
+
+    rebuild_pause.assert_awaited_once()
+    task_agent_manager.pause_chat_work_and_cancel_all.assert_awaited_once()
+    unified.clear_all_memory.assert_not_awaited()
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_resumes_services_when_queue_generation_advance_fails(
+    monkeypatch,
+    _isolate_user_message_clear_boundary,
+):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    queue, _ = _isolate_user_message_clear_boundary
+    queue.advance_user_message_generation_and_purge = AsyncMock(
+        side_effect=OSError("queue generation write failed")
+    )
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    rebuild_resume = AsyncMock()
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(OSError, match="queue generation write failed"):
+        TestClient(app).delete("/api/memory/clear")
+
+    unified.clear_all_memory.assert_not_awaited()
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
+    monkeypatch,
+    _isolate_user_message_clear_boundary,
+):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    _, sensor_hub = _isolate_user_message_clear_boundary
+    sensor_hub.discard_stale_user_messages = AsyncMock(
+        side_effect=RuntimeError("sensor queue cleanup failed")
+    )
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "l0": 0,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4": 0,
+            "chat_context": 0,
+        }
+    )
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(RuntimeError, match="sensor queue cleanup failed"):
+        TestClient(app).delete("/api/memory/clear")
+
+    unified.clear_all_memory.assert_awaited_once()
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+
+
+def test_memory_clear_keeps_clear_error_when_both_recovery_steps_fail(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    unified = _FakeUnifiedMemory()
+    unified.clear_all_memory = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("clear failed")
+    )
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(side_effect=RuntimeError("chat resume failed")),
+    )
+    rebuild_pause = AsyncMock()
+    rebuild_resume = AsyncMock(side_effect=RuntimeError("rebuild resume failed"))
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(RuntimeError, match="clear failed"):
+        TestClient(app).delete("/api/memory/clear")
+
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_fails_when_chat_resume_fails_and_resumes_rebuilds(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(side_effect=RuntimeError("chat resume failed")),
+    )
+    rebuild_pause = AsyncMock()
+    rebuild_resume = AsyncMock()
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to resume work after memory clear: chat",
+    ):
+        TestClient(app).delete("/api/memory/clear")
+
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_fails_when_rebuild_resume_fails_after_chat_resumes(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    rebuild_pause = AsyncMock()
+    rebuild_resume = AsyncMock(side_effect=RuntimeError("rebuild resume failed"))
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to resume work after memory clear: embedding_rebuild",
+    ):
+        TestClient(app).delete("/api/memory/clear")
+
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_recovers_services_when_orchestration_cleanup_fails(monkeypatch):
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FakeChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            return 1
+
+    orchestration_store = SimpleNamespace(
+        clear_all=AsyncMock(side_effect=OSError("orchestration disk full"))
+    )
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    rebuild_pause = AsyncMock()
+    rebuild_resume = AsyncMock()
+    monkeypatch.setattr(_embedding_rebuild_manager, "pause_starts_and_cancel_all", rebuild_pause)
+    monkeypatch.setattr(_embedding_rebuild_manager, "resume_starts", rebuild_resume)
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_orchestration_store",
+        lambda: orchestration_store,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    with pytest.raises(OSError, match="orchestration disk full"):
+        TestClient(app).delete("/api/memory/clear")
+
+    orchestration_store.clear_all.assert_awaited_once()
+    task_agent_manager.resume_chat_work.assert_awaited_once()
+    rebuild_resume.assert_awaited_once()
+
+
+def test_memory_clear_attempts_orchestration_cleanup_when_chat_cleanup_fails(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+
+    class _FailingChatReadService:
+        async def aclear_all_sessions(self) -> int:
+            raise OSError("chat database unavailable")
+
+    orchestration_store = SimpleNamespace(
+        clear_all=AsyncMock(return_value={"orchestrations": 2, "worker_results": 3})
+    )
+    task_agent_manager = SimpleNamespace(
+        pause_chat_work_and_cancel_all=AsyncMock(),
+        resume_chat_work=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory",
+        lambda: _FakeUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_task_agent_manager",
+        lambda: task_agent_manager,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_orchestration_store",
+        lambda: orchestration_store,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FailingChatReadService(),
+    )
+
+    with pytest.raises(OSError, match="chat database unavailable"):
+        TestClient(app).delete("/api/memory/clear")
+
+    orchestration_store.clear_all.assert_awaited_once()
+    task_agent_manager.resume_chat_work.assert_awaited_once()
 
 
 def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
@@ -1724,17 +2131,41 @@ def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
             clear_order.append(self.name)
             return self.count
 
-    unified = SimpleNamespace(
-        l0=_OrderedStore("l0", 1),
-        l1=_OrderedStore("l1", 1),
-        l2=_OrderedStore("l2", 1),
-        l2_entity_catalog=_OrderedStore("l2_entities", 1),
-        l3=_OrderedStore("l3", 1),
-        l4=_OrderedStore("l4", 1),
-    )
+    class _OrderedUnified:
+        def __init__(self) -> None:
+            self.l0 = _OrderedStore("l0", 1)
+            self.l1 = _OrderedStore("l1", 1)
+            self.l2 = _OrderedStore("l2", 1)
+            self.l2_entity_catalog = _OrderedStore("l2_entities", 1)
+            self.l3 = _OrderedStore("l3", 1)
+            self.l4 = _OrderedStore("l4", 1)
+
+        async def clear_all_memory(
+            self,
+            *,
+            auxiliary_clearers=(),
+            context_clearer=None,
+        ) -> dict[str, int]:
+            l2_count = await self.l2.clear()
+            l2_count += await self.l2_entity_catalog.clear()
+            for clearer in auxiliary_clearers:
+                clearer()
+            chat_context_count = context_clearer() if context_clearer is not None else 0
+            if hasattr(chat_context_count, "__await__"):
+                chat_context_count = await chat_context_count
+            return {
+                "l0": await self.l0.clear(),
+                "l1": await self.l1.clear(),
+                "l2": l2_count,
+                "l3": await self.l3.clear(),
+                "l4": await self.l4.clear(),
+                "chat_context": int(chat_context_count or 0),
+            }
+
+    unified = _OrderedUnified()
 
     class _FakeChatReadService:
-        def clear_all_sessions(self) -> int:
+        async def aclear_all_sessions(self) -> int:
             return 0
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
@@ -1754,7 +2185,7 @@ def test_registered_memory_clear_api_is_public(monkeypatch):
     register_api_routes(app)
 
     class _FakeChatReadService:
-        def clear_all_sessions(self) -> int:
+        async def aclear_all_sessions(self) -> int:
             return 4
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())

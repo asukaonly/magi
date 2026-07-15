@@ -56,40 +56,45 @@ async def handle_l3_summary(
         logger.debug("L3 summary skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
 
-    if unified.l3 is None or unified.l1 is None:
-        return ScheduledExecutionResult(success=True, message="l3_or_l1_uninitialized_skip", stats={})
+    async with unified.memory_operation_guard():
+        if unified.l3 is None or unified.l1 is None:
+            return ScheduledExecutionResult(
+                success=True,
+                message="l3_or_l1_uninitialized_skip",
+                stats={},
+            )
 
-    try:
-        summary = await unified.generate_summary(
-            period_type=period_type,
-            summary_category=summary_category,
-            source_filter=list(source_filter) if source_filter else None,
-            min_events=min_events,
-        )
-    except Exception as exc:
-        logger.error("L3 %s summary generation failed", period_type, error=str(exc))
+        try:
+            summary = await unified.generate_summary(
+                period_type=period_type,
+                summary_category=summary_category,
+                source_filter=list(source_filter) if source_filter else None,
+                min_events=min_events,
+            )
+        except Exception as exc:
+            logger.error("L3 %s summary generation failed", period_type, error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="generation_failed",
+                stats={
+                    "period_type": period_type,
+                    "summary_category": summary_category,
+                    "source_filter": source_filter,
+                    "error": str(exc),
+                },
+            )
+
+        generated = summary is not None
         return ScheduledExecutionResult(
-            success=False,
-            message="generation_failed",
+            success=True,
+            message="generated" if generated else "no_events",
             stats={
                 "period_type": period_type,
                 "summary_category": summary_category,
                 "source_filter": source_filter,
-                "error": str(exc),
+                "generated": generated,
             },
         )
-
-    generated = summary is not None
-    return ScheduledExecutionResult(
-        success=True,
-        message="generated" if generated else "no_events",
-        stats={
-            "period_type": period_type,
-            "summary_category": summary_category,
-            "source_filter": source_filter,
-            "generated": generated,
-        },
-    )
 
 
 def _activity_schedule_id(summary_category: str, window: str) -> str:

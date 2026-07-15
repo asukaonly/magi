@@ -133,6 +133,7 @@ class L1Conditions:
     event_types: Optional[List[str]] = None
     source_filters: Optional[List[str]] = None
     domain_filters: Optional[List[str]] = None
+    context_scope: Dict[str, Any] = field(default_factory=dict)
     importance_min: Optional[float] = None
     limit: int = 10
 

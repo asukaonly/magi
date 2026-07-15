@@ -729,3 +729,33 @@ async def test_cancel_run_marks_matching_orchestrations_cancelled() -> None:
     assert matching.status == "cancelled"
     assert matching.subtasks[0].status == "cancelled"
     assert other.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_strict_cancel_run_reports_live_worker_cancellation_failure() -> None:
+    class FailingWorkerManager:
+        async def cancel_run_workers(self, **_kwargs):
+            raise RuntimeError("worker cancellation failed")
+
+    registry = SimpleNamespace(
+        get_tool=lambda _name: SimpleNamespace(_manager=FailingWorkerManager())
+    )
+    orchestrator = TaskOrchestrator(
+        runtime_key="chat:user-1",
+        tool_registry=registry,  # type: ignore[arg-type]
+        plan_subtasks=_fake_plan_subtasks,
+        aggregate_orchestration=_fake_aggregate,
+        register_user_message=_fake_register_user_message,
+        parent_task_agent_type="chat",
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to cancel live worker tasks before destructive clear",
+    ):
+        await orchestrator.cancel_run(
+            session_id="session-1",
+            run_id="run-1",
+            run_revision=0,
+            strict_worker_cancellation=True,
+        )

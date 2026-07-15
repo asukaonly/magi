@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..memory.clear_generation import ensure_memory_clear_state
 from ..memory.derivation_revision import DerivationRevision
 from .models import UserPortraitProjection
 
@@ -28,6 +29,11 @@ class UserPortraitProjectionRepository:
                     revision INTEGER NOT NULL DEFAULT 0,
                     updated_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS memory_clear_state (
+                    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS user_portrait_projection (
                     user_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
@@ -40,6 +46,7 @@ class UserPortraitProjectionRepository:
                     source_counts_json TEXT NOT NULL DEFAULT '{}',
                     generated_by TEXT NOT NULL DEFAULT 'rule',
                     source_revision INTEGER NOT NULL DEFAULT 0,
+                    source_generation INTEGER NOT NULL DEFAULT 0,
                     generated_at REAL NOT NULL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
@@ -50,6 +57,7 @@ class UserPortraitProjectionRepository:
                     ON user_portrait_projection(updated_at DESC);
                 """
             )
+            await ensure_memory_clear_state(db)
             await db.commit()
 
     async def get(self, user_id: str) -> UserPortraitProjection | None:
@@ -62,8 +70,11 @@ class UserPortraitProjectionRepository:
                 FROM user_portrait_projection AS projection
                 LEFT JOIN memory_subject_revisions AS revision
                   ON revision.subject_key = projection.entity_id
+                JOIN memory_clear_state AS clear_state
+                  ON clear_state.singleton_id = 1
                 WHERE projection.user_id = ?
                   AND projection.source_revision = COALESCE(revision.revision, 0)
+                  AND projection.source_generation = clear_state.generation
                 """,
                 (user_id,),
             ) as cursor:
@@ -77,6 +88,7 @@ class UserPortraitProjectionRepository:
         revision = DerivationRevision(
             subject_key=projection.entity_id,
             source_revision=projection.source_revision,
+            clear_generation=projection.source_generation,
         )
         async with sqlite_connection_async(self._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
@@ -104,8 +116,8 @@ class UserPortraitProjectionRepository:
                     user_id, entity_id, entity_type,
                     world_json, review_json, recent_json, prompt_summary_json,
                     evidence_refs_json, source_counts_json, generated_by,
-                    source_revision, generated_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_revision, source_generation, generated_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     entity_type = excluded.entity_type,
@@ -117,6 +129,7 @@ class UserPortraitProjectionRepository:
                     source_counts_json = excluded.source_counts_json,
                     generated_by = excluded.generated_by,
                     source_revision = excluded.source_revision,
+                    source_generation = excluded.source_generation,
                     generated_at = excluded.generated_at,
                     updated_at = excluded.updated_at
                 """,
@@ -132,6 +145,7 @@ class UserPortraitProjectionRepository:
                         _dumps(payload["source_counts"]),
                         payload["generated_by"],
                         payload["source_revision"],
+                        payload["source_generation"],
                         payload["generated_at"],
                         payload["created_at"],
                         payload["updated_at"],
@@ -160,6 +174,7 @@ class UserPortraitProjectionRepository:
             },
             generated_by=str(row["generated_by"]),
             source_revision=int(row["source_revision"] or 0),
+            source_generation=int(row["source_generation"] or 0),
             generated_at=float(row["generated_at"] or 0.0),
             created_at=float(row["created_at"] or 0.0),
             updated_at=float(row["updated_at"] or 0.0),

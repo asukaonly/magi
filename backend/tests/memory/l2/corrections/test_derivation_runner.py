@@ -133,6 +133,79 @@ async def test_stale_views_fail_closed_then_rebuild_after_retry(
     assert dependency_count > 0
 
 
+async def test_portrait_read_failure_remains_retryable(
+    l2_store_with_schema,
+    monkeypatch,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_profile_assertion(store)
+    correction = await MemoryCorrectionService(store.db_path).apply_assertion_correction(
+        ApplyAssertionCorrectionCommand(
+            assertion_id=assertion_id,
+            request_id="portrait-read-retry",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement_value="New name",
+        )
+    )
+    assert correction is not None
+
+    prerequisites = await CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+    ).run_pending(limit=2)
+    assert prerequisites == {"completed": 2, "failed": 0, "superseded": 0}
+
+    original_list_assertions = store.list_current_assertions
+
+    async def _fail_assertion_read(**_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("temporary portrait source failure")
+
+    monkeypatch.setattr(store, "list_current_assertions", _fail_assertion_read)
+    failed = await CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+    ).run_pending(limit=1)
+    assert failed == {"completed": 0, "failed": 1, "superseded": 0}
+
+    async with aiosqlite.connect(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT status, attempt_count, next_retry_at, last_error
+            FROM memory_derivation_jobs
+            WHERE correction_id = ? AND job_kind = 'portrait'
+            """,
+            (correction.correction.correction_id,),
+        ) as cursor:
+            job = await cursor.fetchone()
+    assert job is not None
+    assert job[0] == "pending"
+    assert job[1] == 1
+    assert job[2] is not None
+    assert "temporary portrait source failure" in str(job[3])
+    assert await UserPortraitProjectionRepository(store.db_path).get("u1") is None
+
+    monkeypatch.setattr(store, "list_current_assertions", original_list_assertions)
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE memory_derivation_jobs
+            SET next_retry_at = 0
+            WHERE correction_id = ? AND job_kind = 'portrait'
+            """,
+            (correction.correction.correction_id,),
+        )
+        await db.commit()
+    retried = await CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+    ).run_pending(limit=1)
+    assert retried == {"completed": 1, "failed": 0, "superseded": 0}
+    portrait = await UserPortraitProjectionRepository(store.db_path).get("u1")
+    assert portrait is not None
+    assert "New name" in str(portrait.model_dump())
+
+
 async def test_chat_profile_cache_observes_correction_signal(
     l2_store_with_schema,
 ) -> None:

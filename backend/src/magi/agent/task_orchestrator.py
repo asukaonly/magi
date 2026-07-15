@@ -164,6 +164,7 @@ class TaskOrchestrator(
         session_id: str,
         run_id: str,
         run_revision: int,
+        strict_worker_cancellation: bool = False,
     ) -> list[str]:
         """Cancel persisted orchestrations that belong to the specified run."""
         cancelled_ids: list[str] = []
@@ -171,6 +172,7 @@ class TaskOrchestrator(
             session_id=session_id,
             run_id=run_id,
             run_revision=run_revision,
+            strict=strict_worker_cancellation,
         )
         candidate_states = await self._orchestration_store.list_orchestrations(
             session_id=session_id,
@@ -201,6 +203,7 @@ class TaskOrchestrator(
         session_id: str,
         run_id: str,
         run_revision: int,
+        strict: bool = False,
     ) -> list[str]:
         try:
             agent_tool = self._tool_registry.get_tool("agent")
@@ -222,6 +225,10 @@ class TaskOrchestrator(
                 run_revision=run_revision,
                 error=str(exc),
             )
+            if strict:
+                raise RuntimeError(
+                    "Failed to cancel live worker tasks before destructive clear"
+                ) from exc
             return []
 
     @staticmethod

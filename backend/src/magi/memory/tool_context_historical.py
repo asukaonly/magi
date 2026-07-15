@@ -168,6 +168,11 @@ def _render_single_finding(item: dict[str, Any], *, max_text_chars: int) -> str:
         ev_text, _ = truncate_statement(evidence, max_chars=min(max_text_chars, 120))
         meta_parts.append(f"evidence: {ev_text}")
 
+    if item.get("evidence_semantics") == "historical_record":
+        meta_parts.append("historical record; not a current fact")
+    if item.get("correction_status") == "later_corrected":
+        meta_parts.append("later corrected; do not repeat as fact")
+
     meta = f" ({', '.join(meta_parts)})" if meta_parts else ""
     return f"- {statement}{meta}"
 

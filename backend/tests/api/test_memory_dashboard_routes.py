@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -143,6 +145,10 @@ class _FakeUnifiedMemory:
         self.l2 = _FakeL2Store()
         self.l3 = _FakeL3Store()
         self.l4 = _FakeL4Store()
+
+    @asynccontextmanager
+    async def memory_operation_guard(self):  # type: ignore[no-untyped-def]
+        yield
 
     def get_l2_pipeline_stats(self):
         return {

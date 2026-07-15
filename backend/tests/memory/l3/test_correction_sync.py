@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 
 import aiosqlite
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from magi.memory.clear_generation import advance_memory_clear_generation
+from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.derivation_revision import DerivationRevisionChangedError
 from magi.memory.l2.models import ReconciledTraitOutcome
 from magi.memory.l2.corrections.derivations import CorrectionDerivationRunner
@@ -16,6 +19,7 @@ from magi.memory.l2.corrections.service import MemoryCorrectionService
 from magi.memory.l2.store import L2CognitionStore
 from magi.memory.l3.models import L3Candidate, StateChangePacket
 from magi.memory.l3.correction_derivation import L3CorrectionDerivationService
+from magi.memory.l3.dependency_validation import StaleL3CandidateError
 from magi.memory.l3.state_change_service import StateChangeService
 from magi.memory.l3.summary_store import L3SummaryStore
 from magi.memory.store_l3_insights import L3InsightsMixin
@@ -36,6 +40,79 @@ class _InsightHost(L3InsightsMixin):
         self.l1 = _L1()
         self.l2 = l2
         self.l3 = l3
+
+    @asynccontextmanager
+    async def memory_operation_guard(self):
+        yield
+
+
+class _SemanticEmbeddingService:
+    async def embed_text(self, text: str) -> EmbeddingResult:
+        return self._result(text)
+
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        return [self._result(text) for text in texts]
+
+    def result_for_index(
+        self,
+        result: EmbeddingResult,
+        *,
+        text_builder_version: str,
+    ) -> EmbeddingResult:
+        _ = text_builder_version
+        return result
+
+    def _result(self, text: str) -> EmbeddingResult:
+        lowered = text.lower()
+        if "low" in lowered:
+            vector = [0.0, 1.0, 0.0]
+        elif "high" in lowered:
+            vector = [1.0, 0.0, 0.0]
+        else:
+            vector = [0.0, 0.0, 1.0]
+        return EmbeddingResult(
+            model_name="correction-test-embedding",
+            dimension=3,
+            vector=vector,
+        )
+
+
+class _BlockingSemanticEmbeddingService(_SemanticEmbeddingService):
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        self.started.set()
+        await self.release.wait()
+        return await super().embed_texts(texts)
+
+
+class _ControllableSemanticEmbeddingService(_SemanticEmbeddingService):
+    def __init__(self) -> None:
+        self.block = False
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        if self.block:
+            self.started.set()
+            await self.release.wait()
+        return await super().embed_texts(texts)
+
+
+class _OutOfOrderSemanticEmbeddingService(_SemanticEmbeddingService):
+    def __init__(self) -> None:
+        self.call_count = 0
+        self.first_started = asyncio.Event()
+        self.release_first = asyncio.Event()
+
+    async def embed_texts(self, texts: list[str]) -> list[EmbeddingResult]:
+        self.call_count += 1
+        if self.call_count == 1:
+            self.first_started.set()
+            await self.release_first.wait()
+        return await super().embed_texts(texts)
 
 
 async def _seed_assertion(store: L2CognitionStore, *, now: float) -> str:
@@ -58,6 +135,40 @@ async def _seed_assertion(store: L2CognitionStore, *, now: float) -> str:
             "natural_summary": "Work stress has stayed high.",
         }
     )
+
+
+async def _candidate_for_assertion(
+    assertion_id: str,
+    *,
+    value: str = "high",
+    event_ids: list[str] | None = None,
+) -> L3Candidate:
+    evidence_event_ids = list(event_ids or ["evt-old-1", "evt-old-2"])
+    candidate = await StateChangeService().build_candidate(
+        StateChangePacket(
+            entity_id="user:u1",
+            entity_type="user",
+            outcomes=[
+                ReconciledTraitOutcome(
+                    entity_id="user:u1",
+                    entity_type="user",
+                    trait_name="stress_level",
+                    winning_value=value,
+                    status="stable",
+                    confidence=0.9,
+                    evidence_event_ids=evidence_event_ids,
+                    time_span_hours=72.0,
+                    stability_kind="stable_pattern",
+                    recommended_snapshot_field="core_traits",
+                    natural_summary=f"Work stress has stayed {value}.",
+                    trait_family="stress",
+                    source_assertion_id=assertion_id,
+                )
+            ],
+        )
+    )
+    assert candidate is not None
+    return candidate
 
 
 async def test_correction_only_rebuilds_dependent_l3_insight(tmp_path) -> None:
@@ -527,3 +638,714 @@ async def test_relationship_dependent_insight_is_retired_without_touching_others
             (insight["summary_id"],),
         ) as cursor:
             assert await cursor.fetchone() == ("retired",)
+
+
+async def test_initial_l3_persist_discards_candidate_corrected_after_revision_capture(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    now = time.time()
+    assertion_id = await _seed_assertion(l2, now=now)
+    candidate = await _candidate_for_assertion(assertion_id)
+    host = _InsightHost(l2=l2, l3=l3)
+
+    captured = asyncio.Event()
+    release = asyncio.Event()
+    original_capture = host._l3_candidate_dependencies
+
+    async def _pause_after_capture(pending_candidate):
+        context = await original_capture(pending_candidate)
+        captured.set()
+        await release.wait()
+        return context
+
+    monkeypatch.setattr(host, "_l3_candidate_dependencies", _pause_after_capture)
+    pending = asyncio.create_task(host.persist_l3_candidate(candidate=candidate))
+    await asyncio.wait_for(captured.wait(), timeout=2.0)
+    corrected = await l2.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="initial-l3-race",
+        actor_id="user:u1",
+        correction_kind="situation_changed",
+        replacement_value="low",
+        effective_at=now,
+        source_event_id="evt-new",
+    )
+    assert corrected is not None
+    release.set()
+    assert await pending is None
+
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
+            assert await cursor.fetchone() == (0,)
+        async with db.execute(
+            "SELECT COUNT(*) FROM memory_derivation_dependencies WHERE artifact_kind = 'l3_insight'"
+        ) as cursor:
+            assert await cursor.fetchone() == (0,)
+
+
+async def test_initial_l3_persist_rolls_back_summary_links_and_dependencies(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    assertion_id = await _seed_assertion(l2, now=time.time())
+    candidate = await _candidate_for_assertion(assertion_id)
+
+    async def _fail_dependency_write(self, db, **kwargs):
+        _ = (self, db, kwargs)
+        raise RuntimeError("injected dependency failure")
+
+    monkeypatch.setattr(
+        MemoryCorrectionRepository,
+        "replace_artifact_dependencies_on_connection",
+        _fail_dependency_write,
+    )
+    with pytest.raises(RuntimeError, match="injected dependency failure"):
+        await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+            candidate=candidate,
+            source_task_ids=["task-1"],
+        )
+
+    async with aiosqlite.connect(db_path) as db:
+        for table in (
+            "summaries",
+            "summary_event_links",
+            "summary_task_links",
+            "memory_derivation_dependencies",
+        ):
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,)
+
+
+async def test_initial_l3_persist_discards_candidate_crossing_clear_generation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    assertion_id = await _seed_assertion(l2, now=time.time())
+    candidate = await _candidate_for_assertion(assertion_id)
+    host = _InsightHost(l2=l2, l3=l3)
+
+    captured = asyncio.Event()
+    release = asyncio.Event()
+    original_capture = host._l3_candidate_dependencies
+
+    async def _pause_after_capture(pending_candidate):
+        context = await original_capture(pending_candidate)
+        captured.set()
+        await release.wait()
+        return context
+
+    monkeypatch.setattr(host, "_l3_candidate_dependencies", _pause_after_capture)
+    pending = asyncio.create_task(host.persist_l3_candidate(candidate=candidate))
+    await asyncio.wait_for(captured.wait(), timeout=2.0)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        await advance_memory_clear_generation(db)
+        await db.commit()
+    release.set()
+    assert await pending is None
+
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
+            assert await cursor.fetchone() == (0,)
+        async with db.execute(
+            "SELECT COUNT(*) FROM memory_derivation_dependencies WHERE artifact_kind = 'l3_insight'"
+        ) as cursor:
+            assert await cursor.fetchone() == (0,)
+
+
+async def test_l3_correction_replaces_chunk_vectors_and_old_event_links(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    embedding_service = _SemanticEmbeddingService()
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await l2.initialize()
+    await l3.initialize()
+    try:
+        now = time.time()
+        assertion_id = await _seed_assertion(l2, now=now)
+        candidate = await _candidate_for_assertion(assertion_id)
+        insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+            candidate=candidate
+        )
+        assert insight is not None
+        assert l3._vector_index is not None
+
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT chunk_id FROM l3_summary_chunks WHERE summary_id = ? ORDER BY chunk_index",
+                (insight["summary_id"],),
+            ) as cursor:
+                chunk_ids = [str(row[0]) for row in await cursor.fetchall()]
+        assert chunk_ids
+        before_vectors = await l3._vector_index.get_vectors(entity_ids=chunk_ids)
+        assert before_vectors[chunk_ids[0]] == pytest.approx([1.0, 0.0, 0.0])
+
+        corrected = await l2.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="l3-vector-rebuild",
+            actor_id="user:u1",
+            correction_kind="situation_changed",
+            replacement_value="low",
+            effective_at=now - 48 * 3600,
+            source_event_id="evt-new",
+        )
+        assert corrected is not None
+        await l2.process_memory_correction_jobs(l3_store=l3, limit=10)
+
+        current = await l3.get_summary_by_id(str(insight["summary_id"]))
+        assert current is not None
+        assert "low" in current["content"].lower()
+        assert "high" not in current["content"].lower()
+        assert current["source_event_ids"] == ["evt-new"]
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT chunk_id, chunk_text FROM l3_summary_chunks WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                current_chunks = await cursor.fetchall()
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunk_vectors WHERE chunk_id IN "
+                f"({', '.join('?' for _ in current_chunks)})",
+                tuple(str(row[0]) for row in current_chunks),
+            ) as cursor:
+                vector_registry_count = int((await cursor.fetchone())[0])
+            async with db.execute(
+                "SELECT event_id FROM summary_event_links WHERE summary_id = ? ORDER BY created_at",
+                (insight["summary_id"],),
+            ) as cursor:
+                event_links = [str(row[0]) for row in await cursor.fetchall()]
+        assert current_chunks
+        assert all("high" not in str(row[1]).lower() for row in current_chunks)
+        assert vector_registry_count == len(current_chunks)
+        assert event_links == ["evt-new"]
+        current_chunk_ids = [str(row[0]) for row in current_chunks]
+        after_vectors = await l3._vector_index.get_vectors(entity_ids=current_chunk_ids)
+        assert after_vectors[current_chunk_ids[0]] == pytest.approx([0.0, 1.0, 0.0])
+    finally:
+        await l3.shutdown()
+
+
+async def test_l3_correction_retire_removes_chunk_vectors(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=_SemanticEmbeddingService(),
+        async_embeddings=False,
+    )
+    await l2.initialize()
+    await l3.initialize()
+    try:
+        assertion_id = await _seed_assertion(l2, now=time.time())
+        insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+            candidate=await _candidate_for_assertion(assertion_id)
+        )
+        assert insight is not None
+        await l2.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="l3-vector-retire",
+            actor_id="user:u1",
+            correction_kind="record_error",
+        )
+        await l2.process_memory_correction_jobs(l3_store=l3, limit=10)
+
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT derivation_state, embedding_chunk_count FROM summaries WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == ("retired", 0)
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunk_vectors WHERE chunk_id LIKE ?",
+                (f"{insight['summary_id']}::%",),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+    finally:
+        await l3.shutdown()
+
+
+async def test_l3_retire_cannot_be_undone_by_inflight_old_embedding(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    embedding_service = _BlockingSemanticEmbeddingService()
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=embedding_service,
+        async_embeddings=True,
+    )
+    l3._embedding_batch_wait_seconds = 0.0
+    await l2.initialize()
+    await l3.initialize()
+    try:
+        assertion_id = await _seed_assertion(l2, now=time.time())
+        insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+            candidate=await _candidate_for_assertion(assertion_id)
+        )
+        assert insight is not None
+        await asyncio.wait_for(embedding_service.started.wait(), timeout=2.0)
+
+        await l2.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="l3-inflight-vector-retire",
+            actor_id="user:u1",
+            correction_kind="record_error",
+        )
+        correction_run = asyncio.create_task(
+            l2.process_memory_correction_jobs(l3_store=l3, limit=10)
+        )
+        await asyncio.wait_for(correction_run, timeout=3.0)
+
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT derivation_state FROM summaries WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == ("retired",)
+
+        embedding_service.release.set()
+        assert l3._embedding_queue is not None
+        await asyncio.wait_for(l3._embedding_queue.join(), timeout=2.0)
+
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT derivation_state FROM summaries WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == ("retired",)
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (insight["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunk_vectors WHERE chunk_id LIKE ?",
+                (f"{insight['summary_id']}::%",),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+    finally:
+        embedding_service.release.set()
+        await l3.shutdown()
+
+
+async def test_same_key_update_hides_old_vector_until_new_embedding_is_ready(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    embedding_service = _ControllableSemanticEmbeddingService()
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await l2.initialize()
+    await l3.initialize()
+    host = _InsightHost(l2=l2, l3=l3)
+    try:
+        first = await host.persist_l3_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="Work stress remains high.",
+                source_event_ids=["evt-high"],
+                insight_key="state_change:user:u1:fixed",
+            )
+        )
+        assert first is not None
+        assert await l3.vector_search(query="high", limit=10)
+
+        embedding_service.block = True
+        update = asyncio.create_task(
+            host.persist_l3_candidate(
+                candidate=L3Candidate(
+                    summary_type="insight",
+                    summary_category="state_change",
+                    content="Work stress is now low.",
+                    source_event_ids=["evt-low"],
+                    insight_key="state_change:user:u1:fixed",
+                )
+            )
+        )
+        await asyncio.wait_for(embedding_service.started.wait(), timeout=2.0)
+
+        visible = await l3.get_summary_by_id(str(first["summary_id"]))
+        assert visible is not None
+        assert "low" in visible["content"].lower()
+        assert await l3.vector_search(query="high", limit=10) == []
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (first["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+
+        embedding_service.release.set()
+        updated = await asyncio.wait_for(update, timeout=2.0)
+        assert updated is not None
+        assert [item["summary_id"] for item in await l3.vector_search(query="low", limit=10)] == [
+            first["summary_id"]
+        ]
+    finally:
+        embedding_service.release.set()
+        await l3.shutdown()
+
+
+async def test_direct_same_key_upsert_hides_old_vector_until_new_embedding_is_ready(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    embedding_service = _ControllableSemanticEmbeddingService()
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await l3.initialize()
+    try:
+        first = await l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="Work stress remains high.",
+                source_event_ids=["evt-high"],
+                insight_key="state_change:user:u1:direct",
+            )
+        )
+        assert await l3.vector_search(query="high", limit=10)
+
+        embedding_service.block = True
+        update = asyncio.create_task(
+            l3.upsert_candidate(
+                candidate=L3Candidate(
+                    summary_type="insight",
+                    summary_category="state_change",
+                    content="Work stress is now low.",
+                    source_event_ids=["evt-low"],
+                    insight_key="state_change:user:u1:direct",
+                )
+            )
+        )
+        await asyncio.wait_for(embedding_service.started.wait(), timeout=2.0)
+
+        visible = await l3.get_summary_by_id(str(first["summary_id"]))
+        assert visible is not None
+        assert "low" in visible["content"].lower()
+        assert await l3.vector_search(query="high", limit=10) == []
+        async with aiosqlite.connect(db_path) as db:
+            async with db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (first["summary_id"],),
+            ) as cursor:
+                assert await cursor.fetchone() == (0,)
+
+        embedding_service.release.set()
+        updated = await asyncio.wait_for(update, timeout=2.0)
+        assert updated["summary_id"] == first["summary_id"]
+        recalled = await l3.vector_search(query="low", limit=10)
+        assert [item["summary_id"] for item in recalled] == [first["summary_id"]]
+    finally:
+        embedding_service.release.set()
+        await l3.shutdown()
+
+
+async def test_late_old_embedding_cannot_overwrite_newer_same_key_vector(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    embedding_service = _OutOfOrderSemanticEmbeddingService()
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=embedding_service,
+        async_embeddings=False,
+    )
+    await l3.initialize()
+    l3._schedule_summary_embedding = lambda _summary: asyncio.sleep(0)  # type: ignore[method-assign]
+    try:
+        first = await l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="Work stress remains high.",
+                source_event_ids=["evt-high"],
+                insight_key="state_change:user:u1:out-of-order",
+            )
+        )
+        old_embedding = asyncio.create_task(
+            l3._maybe_upsert_summary_embeddings([first])
+        )
+        await asyncio.wait_for(embedding_service.first_started.wait(), timeout=2.0)
+
+        second = await l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="Work stress is now low.",
+                source_event_ids=["evt-low"],
+                insight_key="state_change:user:u1:out-of-order",
+            )
+        )
+        await asyncio.wait_for(
+            l3._maybe_upsert_summary_embeddings([second]),
+            timeout=2.0,
+        )
+
+        embedding_service.release_first.set()
+        await asyncio.wait_for(old_embedding, timeout=2.0)
+
+        chunk_ids = await _summary_chunk_ids(db_path, str(first["summary_id"]))
+        assert chunk_ids
+        assert l3._vector_index is not None
+        vectors = await l3._vector_index.get_vectors(entity_ids=chunk_ids)
+        assert vectors[chunk_ids[0]] == pytest.approx([0.0, 1.0, 0.0])
+        current = await l3.get_summary_by_id(str(first["summary_id"]))
+        assert current is not None
+        assert "low" in current["content"].lower()
+    finally:
+        embedding_service.release_first.set()
+        await l3.shutdown()
+
+
+async def test_superseded_l3_rebuild_cannot_delete_newer_vectors(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(
+        db_path=db_path,
+        embedding_service=_SemanticEmbeddingService(),
+        async_embeddings=False,
+    )
+    await l2.initialize()
+    await l3.initialize()
+    try:
+        now = time.time()
+        original_assertion_id = await _seed_assertion(l2, now=now)
+        insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+            candidate=await _candidate_for_assertion(original_assertion_id)
+        )
+        assert insight is not None
+
+        first = await l2.apply_assertion_correction(
+            assertion_id=original_assertion_id,
+            request_id="l3-vector-race-first",
+            actor_id="user:u1",
+            correction_kind="situation_changed",
+            replacement_value="medium",
+            effective_at=now - 72 * 3600,
+            source_event_id="evt-medium",
+        )
+        assert first is not None
+        service = L3CorrectionDerivationService(
+            db_path=db_path,
+            l2_store=l2,
+            l3_store=l3,
+        )
+        rev1_context = await service._rebuild_context(
+            str(insight["summary_id"]),
+            triggering_subject="user:u1",
+            expected_revision=1,
+        )
+        medium_assertion_id = str(first["current_assertion"]["assertion_id"])
+        medium_candidate = await _candidate_for_assertion(
+            medium_assertion_id,
+            value="medium",
+            event_ids=["evt-medium"],
+        )
+
+        second = await l2.apply_assertion_correction(
+            assertion_id=medium_assertion_id,
+            request_id="l3-vector-race-second",
+            actor_id="user:u1",
+            correction_kind="situation_changed",
+            replacement_value="low",
+            effective_at=now - 48 * 3600,
+            source_event_id="evt-low",
+        )
+        assert second is not None
+        await service.rebuild_subject("user:u1", expected_revision=2)
+
+        current = await l3.get_summary_by_id(str(insight["summary_id"]))
+        assert current is not None
+        assert "low" in current["content"].lower()
+        current_chunks = await _summary_chunk_ids(db_path, str(insight["summary_id"]))
+        assert current_chunks
+        assert l3._vector_index is not None
+        current_vectors = await l3._vector_index.get_vectors(entity_ids=current_chunks)
+        assert current_vectors[current_chunks[0]] == pytest.approx([0.0, 1.0, 0.0])
+
+        with pytest.raises(DerivationRevisionChangedError):
+            await service._persist_candidate(
+                insight=insight,
+                candidate=medium_candidate,
+                dependencies=[
+                    ("assertion", medium_assertion_id, "user:u1", 1),
+                ],
+                fence=rev1_context.fence,
+            )
+
+        surviving_chunks = await _summary_chunk_ids(db_path, str(insight["summary_id"]))
+        assert surviving_chunks == current_chunks
+        surviving_vectors = await l3._vector_index.get_vectors(entity_ids=surviving_chunks)
+        assert surviving_vectors[surviving_chunks[0]] == pytest.approx([0.0, 1.0, 0.0])
+        recalled = await l3.vector_search(query="low", limit=10)
+        assert [item["summary_id"] for item in recalled] == [insight["summary_id"]]
+    finally:
+        await l3.shutdown()
+
+
+async def test_l3_rebuild_rejects_dependency_superseded_without_revision_bump(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    now = time.time()
+    assertion_id = await _seed_assertion(l2, now=now)
+    insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+        candidate=await _candidate_for_assertion(assertion_id)
+    )
+    assert insight is not None
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE summaries SET derivation_state = 'stale', updated_at = ? WHERE summary_id = ?",
+            (now + 1.0, insight["summary_id"]),
+        )
+        await db.commit()
+
+    assertions_read = asyncio.Event()
+    continue_rebuild = asyncio.Event()
+    original_list_assertions = l2.list_current_assertions
+
+    async def _pause_after_assertion_read(**kwargs):  # type: ignore[no-untyped-def]
+        assertions = await original_list_assertions(**kwargs)
+        assertions_read.set()
+        await continue_rebuild.wait()
+        return assertions
+
+    monkeypatch.setattr(l2, "list_current_assertions", _pause_after_assertion_read)
+    service = L3CorrectionDerivationService(
+        db_path=db_path,
+        l2_store=l2,
+        l3_store=l3,
+    )
+    pending = asyncio.create_task(
+        service.rebuild_subject("user:u1", expected_revision=0)
+    )
+    await asyncio.wait_for(assertions_read.wait(), timeout=2.0)
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE tom_trait_assertions SET status = 'superseded' WHERE assertion_id = ?",
+            (assertion_id,),
+        )
+        await db.commit()
+    continue_rebuild.set()
+
+    with pytest.raises(StaleL3CandidateError):
+        await pending
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT content, derivation_state FROM summaries WHERE summary_id = ?",
+            (insight["summary_id"],),
+        ) as cursor:
+            row = await cursor.fetchone()
+    assert row is not None
+    assert "high" in str(row[0]).lower()
+    assert row[1] == "stale"
+
+
+async def test_same_revision_old_l3_rebuild_cannot_overwrite_or_retire_newer_result(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    l2 = L2CognitionStore(db_path=db_path)
+    l3 = L3SummaryStore(db_path=db_path, vector_enabled=False)
+    await l2.initialize()
+    await l3.initialize()
+    now = time.time()
+    assertion_id = await _seed_assertion(l2, now=now)
+    insight = await _InsightHost(l2=l2, l3=l3).persist_l3_candidate(
+        candidate=await _candidate_for_assertion(assertion_id)
+    )
+    assert insight is not None
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "UPDATE summaries SET derivation_state = 'stale', updated_at = ? WHERE summary_id = ?",
+            (now + 1.0, insight["summary_id"]),
+        )
+        await db.commit()
+
+    service = L3CorrectionDerivationService(
+        db_path=db_path,
+        l2_store=l2,
+        l3_store=l3,
+    )
+    stale = (await service._stale_insights("user:u1"))[0]
+    context = await service._rebuild_context(
+        str(insight["summary_id"]),
+        triggering_subject="user:u1",
+        expected_revision=0,
+    )
+    dependencies = [("assertion", assertion_id, "user:u1", 0)]
+    await service._persist_candidate(
+        insight=stale,
+        candidate=await _candidate_for_assertion(assertion_id, value="medium"),
+        dependencies=dependencies,
+        fence=context.fence,
+    )
+
+    await service._persist_candidate(
+        insight=stale,
+        candidate=await _candidate_for_assertion(assertion_id, value="low"),
+        dependencies=dependencies,
+        fence=context.fence,
+    )
+    await service._retire(stale, fence=context.fence)
+
+    current = await l3.get_summary_by_id(str(insight["summary_id"]))
+    assert current is not None
+    assert "medium" in current["content"].lower()
+    assert "low" not in current["content"].lower()
+    assert current["derivation_state"] == "current"
+
+
+async def _summary_chunk_ids(db_path: str, summary_id: str) -> list[str]:
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            "SELECT chunk_id FROM l3_summary_chunks WHERE summary_id = ? ORDER BY chunk_index",
+            (summary_id,),
+        ) as cursor:
+            return [str(row[0]) for row in await cursor.fetchall()]

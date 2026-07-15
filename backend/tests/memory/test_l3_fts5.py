@@ -7,6 +7,8 @@ import uuid
 import pytest
 
 from magi.memory.l3.summary_store import L3SummaryStore
+from magi.memory.l3.daily_mood.models import DailyMoodAggregate
+from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 
 
 def _make_summary(content: str, **overrides) -> dict:
@@ -133,6 +135,24 @@ class TestL3FTS5DeleteSync:
             async with db.execute("SELECT COUNT(*) FROM l3_summaries_fts") as cursor:
                 count = (await cursor.fetchone())[0]
         assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_clear_removes_daily_mood_aggregates(self, store):
+        mood_store = DailyMoodAggregateStore(store.db_path)
+        await mood_store.upsert_aggregate(
+            DailyMoodAggregate(
+                day_local_date="2026-07-15",
+                dominant_valence="positive",
+                volatility_score=0.2,
+                state_curve_compact=[0.2, 0.6],
+                event_count=3,
+                computed_at=time.time(),
+            )
+        )
+
+        await store.clear()
+
+        assert await mood_store.get_aggregate(day_local_date="2026-07-15") is None
 
 
 class TestL3BM25Search:

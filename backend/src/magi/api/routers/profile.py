@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from ...memory.provider import get_unified_memory
 from ...user_profile import (
@@ -16,14 +18,25 @@ from ...user_profile.portrait_projection_repository import UserPortraitProjectio
 from ...user_profile.projection_builder import UserProfileProjectionBuilder
 from ...user_profile.projection_repository import UserProfileProjectionRepository
 
-profile_router = APIRouter()
-
-
 def _resolve_unified_memory():
     try:
         return get_unified_memory()
     except RuntimeError:
         return None
+
+
+async def _profile_memory_operation_boundary() -> AsyncIterator[None]:
+    unified_memory = _resolve_unified_memory()
+    if unified_memory is None:
+        yield
+        return
+    async with unified_memory.memory_operation_guard():
+        yield
+
+
+profile_router = APIRouter(
+    dependencies=[Depends(_profile_memory_operation_boundary)]
+)
 
 
 def _build_services():

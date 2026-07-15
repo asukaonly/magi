@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Set
 
-from magi.events.events import Event, EventTypes
+from magi.events.events import Event, EventTypes, published_memory_epoch
 from magi.memory.event_translation import translate
 
 logger = logging.getLogger(__name__)
@@ -55,15 +55,26 @@ class MemoryIngestionSubscriber:
         await asyncio.gather(*list(self._inflight), return_exceptions=True)
 
     async def _on_event(self, event: Event) -> None:
+        expected_epoch = published_memory_epoch(event)
+        if expected_epoch is None:
+            logger.error(
+                "memory ingest rejected event without a valid publication epoch: "
+                "event_type=%s",
+                event.type,
+            )
+            return
         memory_event = translate(event)
         if memory_event is None:
             return
-        task = asyncio.create_task(self._safe_ingest(memory_event))
+        task = asyncio.create_task(self._safe_ingest(memory_event, expected_epoch))
         self._inflight.add(task)
         task.add_done_callback(self._inflight.discard)
 
-    async def _safe_ingest(self, memory_event) -> None:
+    async def _safe_ingest(self, memory_event, expected_epoch: int) -> None:
         try:
-            await self._unified.ingest_event(memory_event)
+            await self._unified.ingest_event(
+                memory_event,
+                expected_epoch=expected_epoch,
+            )
         except Exception:
             logger.exception("memory ingest failed for event_type=%s", memory_event.event_type)

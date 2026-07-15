@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, AsyncIterator
 from unittest.mock import MagicMock, patch
 
 import aiosqlite
@@ -23,6 +24,11 @@ from .test_derive_schedule import (
     _seed_canonical_name,
 )
 from .test_derived_assertion_rules import _EvidenceEventStore, _seed_edge
+
+
+@asynccontextmanager
+async def _memory_operation_guard() -> AsyncIterator[None]:
+    yield
 
 
 def _music_profile_spec(
@@ -205,6 +211,7 @@ async def test_derive_schedule_runs_plugin_derived_rules(tmp_path):
         l1=_EvidenceEventStore(),
         l2_entity_catalog=catalog_mock,
         l2_pipeline=pipeline_mock,
+        memory_operation_guard=_memory_operation_guard,
     )
     cfg_mock = _build_config(
         interest_aggregation_enabled=False,

@@ -170,3 +170,43 @@ async def test_embedding_pipeline_stamps_index_identity_with_text_builder_versio
     )
 
     assert vector_index.index_identities == ["test-embedding:2:l3_summary_v1"]
+
+
+@pytest.mark.asyncio
+async def test_embedding_pipeline_can_prepare_without_mutating_vector_index():
+    from magi.memory.embedding.embedding_pipeline import (
+        EmbeddingPipelineItem,
+        MemoryEmbeddingPipeline,
+    )
+
+    embedding_service = _RecordingEmbeddingService()
+    vector_index = _FallbackVectorIndex()
+    pipeline = MemoryEmbeddingPipeline(
+        embedding_service=embedding_service,
+        vector_index=vector_index,
+    )
+    item = EmbeddingPipelineItem(
+        parent_id="summary-prepare",
+        chunks=[
+            ChunkedText(
+                chunk_id="summary-prepare::chunk-0",
+                text="prepared outside mutation lock",
+                chunk_index=0,
+                char_start=0,
+                char_end=30,
+                token_estimate=5,
+            )
+        ],
+    )
+
+    prepared = await pipeline.prepare_items([item])
+
+    assert [result.parent_id for result in prepared] == ["summary-prepare"]
+    assert vector_index.upsert_many_calls == []
+    assert vector_index.upsert_calls == []
+
+    persisted = await pipeline.persist_results(prepared)
+
+    assert [result.parent_id for result in persisted] == ["summary-prepare"]
+    assert vector_index.upsert_many_calls == [["summary-prepare::chunk-0"]]
+    assert vector_index.upsert_calls == ["summary-prepare::chunk-0"]

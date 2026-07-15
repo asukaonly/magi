@@ -10,8 +10,15 @@ from __future__ import annotations
 import json
 import logging
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
+
+from .governed_l2_recall import (
+    GovernedL2RecallView,
+    GovernedTemporalBounds,
+    governed_temporal_bounds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +80,8 @@ class GraphSpreader:
         seed_entity_ids: List[str],
         *,
         exclude_event_ids: Optional[Set[str]] = None,
+        context_scope: Mapping[str, Any] | None = None,
+        temporal_bounds: GovernedTemporalBounds | None = None,
     ) -> SpreadingResult:
         """Run BFS spreading from *seed_entity_ids*.
 
@@ -88,11 +97,24 @@ class GraphSpreader:
             event_scores={},
             frontier=set(seed_entity_ids),
         )
+        bounds = temporal_bounds or governed_temporal_bounds(None)
+        relationship_store = GovernedL2RecallView(
+            self._store,
+            context_scope=context_scope,
+            effective_at=bounds.effective_at,
+            effective_range=bounds.effective_range,
+            include_relationship_history=bounds.include_history,
+        )
 
         for hop in range(self._max_hops):
             if not state.frontier:
                 break
-            if not await self._spread_hop(state, hop=hop, exclude=exclude):
+            if not await self._spread_hop(
+                state,
+                hop=hop,
+                exclude=exclude,
+                relationship_store=relationship_store,
+            ):
                 break
 
         return self._build_result(seed_entity_ids, state)
@@ -103,9 +125,14 @@ class GraphSpreader:
         *,
         hop: int,
         exclude: Set[str],
+        relationship_store: GovernedL2RecallView,
     ) -> bool:
         batch_ids = list(state.frontier)
-        batch_rels = await self._load_hop_relationships(batch_ids, hop)
+        batch_rels = await self._load_hop_relationships(
+            batch_ids,
+            hop,
+            relationship_store=relationship_store,
+        )
         if batch_rels is None:
             return False
 
@@ -128,9 +155,11 @@ class GraphSpreader:
         self,
         batch_ids: List[str],
         hop: int,
+        *,
+        relationship_store: GovernedL2RecallView,
     ) -> Dict[str, List[Dict[str, Any]]] | None:
         try:
-            return await self._store.batch_get_relationships(
+            return await relationship_store.batch_get_relationships(
                 entity_ids=batch_ids,
                 direction="both",
                 status="active",

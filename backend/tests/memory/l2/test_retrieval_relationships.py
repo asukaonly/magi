@@ -64,9 +64,7 @@ async def test_batch_get_relationships_filters_by_evidence_class(tmp_path):
 
 @pytest.mark.asyncio
 async def test_get_relationships_filters_by_evidence_class(tmp_path):
-    """Single-entity ``get_relationships`` mirrors the batch variant: when
-    ``evidence_classes`` is supplied, only edges with a matching class (or
-    NULL, for pre-backfill rows) are returned."""
+    """Single-entity retrieval returns only explicitly matching evidence."""
     store = await _make_store(tmp_path)
     now = time.time()
 
@@ -107,9 +105,8 @@ async def test_get_relationships_filters_by_evidence_class(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_get_relationships_does_not_exclude_null_evidence_class(tmp_path):
-    """NULL evidence_class rows pass through the single-entity filter too,
-    matching the batch variant's NULL-passthrough behavior."""
+async def test_get_relationships_excludes_unknown_evidence_class(tmp_path):
+    """Unknown evidence must not satisfy an explicit evidence-class filter."""
     store = await _make_store(tmp_path)
     now = time.time()
 
@@ -130,14 +127,12 @@ async def test_get_relationships_does_not_exclude_null_evidence_class(tmp_path):
         subject_id="user:u1",
         evidence_classes=[EvidenceClass.USER_SELF_REPORT.label],
     )
-    assert len(filtered) == 1, "NULL evidence_class row should pass through"
-    assert filtered[0]["evidence_class"] is None
+    assert filtered == []
 
 
 @pytest.mark.asyncio
-async def test_batch_get_relationships_does_not_exclude_null_evidence_class(tmp_path):
-    """NULL evidence_class (e.g., pre-backfill rows) must pass through any
-    evidence_class filter. Otherwise the filter would silently drop legacy edges."""
+async def test_batch_get_relationships_excludes_unknown_evidence_class(tmp_path):
+    """Batch retrieval applies the same exact evidence-class contract."""
     store = await _make_store(tmp_path)
     now = time.time()
 
@@ -158,6 +153,4 @@ async def test_batch_get_relationships_does_not_exclude_null_evidence_class(tmp_
         entity_ids=["user:u1"],
         evidence_classes=[EvidenceClass.USER_SELF_REPORT.label],
     )
-    rows = filtered["user:u1"]
-    assert len(rows) == 1, "NULL evidence_class row should pass through"
-    assert rows[0]["evidence_class"] is None
+    assert filtered["user:u1"] == []

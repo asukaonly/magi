@@ -77,6 +77,13 @@ class MemoryStoreModule(LifecycleModule):
         await self._context.memory.unified_memory.initialize()
         logger.info("UnifiedMemoryStore initialized (L0-L4)")
 
+        if self.start_memory_integration:
+            runtime_message_bus = require_initialized(message_bus, "message bus")
+            runtime_message_bus.bind_memory_operation_epoch(
+                self._context.memory.unified_memory.memory_operation_epoch
+            )
+            logger.info("MessageBus memory operation epoch bound")
+
         self._context.memory.hybrid_retrieval_service = self._build_hybrid_retrieval_service(
             scenario_llm_pool
         )
@@ -192,6 +199,12 @@ class MemoryStoreModule(LifecycleModule):
         if self._context.llm.llm_usage_store is not None:
             await self._context.llm.llm_usage_store.stop()
             self._context.llm.llm_usage_store = None
+
+        if (
+            self.start_memory_integration
+            and self._context.message_bus.message_bus is not None
+        ):
+            self._context.message_bus.message_bus.bind_memory_operation_epoch(None)
 
         self._context.memory.unified_memory = None
         self._context.memory.hybrid_retrieval_service = None

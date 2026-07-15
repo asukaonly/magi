@@ -49,6 +49,7 @@ class HybridRetrievalQueryExpansionMixin:
                     content_query=eq,
                     source_filters=request.source_filters or None,
                     domain_filters=request.domain_filters or None,
+                    context_scope=dict(request.context_scope or {}),
                     limit=request.limit,
                 ),
                 time_range=time_range,

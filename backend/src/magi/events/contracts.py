@@ -107,6 +107,7 @@ class RuntimeQueuedCommand:
     payload: dict[str, Any]
     correlation_id: str
     retry_count: int = 0
+    user_message_generation: int = 0
 
     def as_user_message(self) -> UserMessageCommand:
         """Convert the queued payload into a typed user-message command."""

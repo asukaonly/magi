@@ -26,8 +26,11 @@ class L2StoreSnapshotQueryMixin:
                 FROM tom_snapshots AS snapshot
                 LEFT JOIN memory_subject_revisions AS revision
                   ON revision.subject_key = snapshot.entity_id
+                JOIN memory_clear_state AS clear_state
+                  ON clear_state.singleton_id = 1
                 WHERE snapshot.entity_id = ? AND snapshot.entity_type = ?
                   AND snapshot.source_revision = COALESCE(revision.revision, 0)
+                  AND snapshot.source_generation = clear_state.generation
                 """,
                 (entity_id, entity_type),
             ) as cursor:
@@ -43,7 +46,10 @@ class L2StoreSnapshotQueryMixin:
             FROM tom_snapshots AS snapshot
             LEFT JOIN memory_subject_revisions AS revision
               ON revision.subject_key = snapshot.entity_id
+            JOIN memory_clear_state AS clear_state
+              ON clear_state.singleton_id = 1
             WHERE snapshot.source_revision = COALESCE(revision.revision, 0)
+              AND snapshot.source_generation = clear_state.generation
         """
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
@@ -94,7 +100,10 @@ class L2StoreSnapshotQueryMixin:
             FROM tom_snapshots AS snapshot
             LEFT JOIN memory_subject_revisions AS revision
               ON revision.subject_key = snapshot.entity_id
+            JOIN memory_clear_state AS clear_state
+              ON clear_state.singleton_id = 1
             WHERE snapshot.source_revision = COALESCE(revision.revision, 0)
+              AND snapshot.source_generation = clear_state.generation
         """
         args: list[Any] = []
         if entity_id:
@@ -161,8 +170,11 @@ class L2StoreSnapshotQueryMixin:
             FROM tom_snapshots AS snapshot
             LEFT JOIN memory_subject_revisions AS revision
               ON revision.subject_key = snapshot.entity_id
+            JOIN memory_clear_state AS clear_state
+              ON clear_state.singleton_id = 1
             WHERE ({' OR '.join(conditions)})
               AND snapshot.source_revision = COALESCE(revision.revision, 0)
+              AND snapshot.source_generation = clear_state.generation
         """
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row

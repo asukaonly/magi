@@ -87,6 +87,7 @@ async def test_sensor_ingest_lands_in_all_4_subscribers():
         l2_batch_flush_interval_seconds=0,
     )
     await store.initialize()
+    bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
     memory_sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await memory_sub.start()

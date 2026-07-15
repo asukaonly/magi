@@ -37,31 +37,36 @@ async def handle_l3_maintenance(
         logger.debug("L3 maintenance skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
 
-    if unified.l3 is None:
-        return ScheduledExecutionResult(success=True, message="l3_uninitialized_skip", stats={})
+    async with unified.memory_operation_guard():
+        if unified.l3 is None:
+            return ScheduledExecutionResult(
+                success=True,
+                message="l3_uninitialized_skip",
+                stats={},
+            )
 
-    try:
-        stats = await unified.cleanup_l3_data(
-            older_than_days=int(l3_cfg.retention_days),
-            history_behavior=getattr(
-                memory_cfg.history_behavior,
-                "value",
-                str(memory_cfg.history_behavior),
-            ),
-        )
-    except Exception as exc:
-        logger.error("L3 maintenance failed", error=str(exc))
+        try:
+            stats = await unified.cleanup_l3_data(
+                older_than_days=int(l3_cfg.retention_days),
+                history_behavior=getattr(
+                    memory_cfg.history_behavior,
+                    "value",
+                    str(memory_cfg.history_behavior),
+                ),
+            )
+        except Exception as exc:
+            logger.error("L3 maintenance failed", error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="l3_maintenance_failed",
+                stats={"error": str(exc)},
+            )
+
         return ScheduledExecutionResult(
-            success=False,
-            message="l3_maintenance_failed",
-            stats={"error": str(exc)},
+            success=True,
+            message="l3_maintenance_ok",
+            stats=stats,
         )
-
-    return ScheduledExecutionResult(
-        success=True,
-        message="l3_maintenance_ok",
-        stats=stats,
-    )
 
 
 class L3MaintenanceScheduleContrib:

@@ -69,6 +69,7 @@ class L1EventEmbeddingHostProtocol(Protocol):
     _embedding_active_count: int
     _embedding_batch_size: int
     _embedding_batch_wait_seconds: float
+    _operation_guard_factory: Any | None
 
     async def initialize(self) -> None: ...
 

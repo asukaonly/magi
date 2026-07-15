@@ -77,6 +77,7 @@ class L1EventStore(
         self._embedding_active_count = 0
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
+        self._operation_guard_factory: Callable[[], Any] | None = None
         self._initialized = False
         self._pinned_payload_store: Any | None = None
 

@@ -118,4 +118,17 @@ CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_session_status
     ON chat_context_summaries(session_id, status, updated_at_ms DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_context_summaries_frontier
     ON chat_context_summaries(session_id, summary_kind, persona_scope, covered_to_sequence_no DESC);
+
+CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
+    session_id TEXT NOT NULL,
+    run_id TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 0,
+    message_id TEXT NOT NULL,
+    recorded_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (session_id, run_id, revision, message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_crce_message
+    ON chat_run_consumed_events(session_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_crce_run
+    ON chat_run_consumed_events(session_id, run_id, revision);
 """

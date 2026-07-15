@@ -42,6 +42,10 @@ class NarrativeReducer:
                 "event_id": evt.get("event_id", ""),
                 "timestamp": evt.get("timestamp"),
                 "episode_id": evt.get("episode_id", ""),
+                "evidence_semantics": evt.get(
+                    "evidence_semantics", "historical_record"
+                ),
+                "correction_status": evt.get("correction_status"),
             })
 
         # Build narrative summary
@@ -67,6 +71,7 @@ class NarrativeReducer:
             "answering_hints": {
                 "episode_count": len(evidence.episodes),
                 "event_count": len(evidence.key_events),
+                "event_semantics": "historical_record",
             },
         }
 

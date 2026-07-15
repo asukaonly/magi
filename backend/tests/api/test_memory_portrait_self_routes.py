@@ -37,6 +37,7 @@ def _get(*, profile_repo=None, portrait_repo=None, l2=None) -> dict:
 def _empty_l2() -> MagicMock:
     l2 = MagicMock()
     l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(return_value=[])
     return l2
 
@@ -111,6 +112,7 @@ def test_rebuilds_portrait_when_newer_assertion_exists():
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
     l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
         return_value=[
             {
@@ -150,6 +152,7 @@ def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():
     portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
     l2 = MagicMock()
     l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
         return_value=[
             {
@@ -226,6 +229,7 @@ def test_returns_rebuilt_projection_when_cache_write_fails():
     portrait_repo.upsert = AsyncMock(side_effect=RuntimeError("disk unavailable"))
     l2 = MagicMock()
     l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
     l2.list_current_assertions = AsyncMock(
         return_value=[
             {

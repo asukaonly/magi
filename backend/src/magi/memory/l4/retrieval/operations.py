@@ -29,6 +29,7 @@ class L4ProceduralRetrievalMixin:
     """Public read/search surface for procedural skills and execution traces."""
 
     db_path: str
+    _initialized: bool
     _vector_index: Any | None
 
     async def initialize(self) -> None:
@@ -215,18 +216,22 @@ class L4ProceduralRetrievalMixin:
 
     async def clear(self) -> int:
         """Delete all procedural skills."""
-        await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
-                row = await cursor.fetchone()
-                count = int(row[0]) if row else 0
-            await db.execute("DELETE FROM procedural_skills")
-            await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
-            await db.execute(f"DELETE FROM {EXECUTION_TRACES_TABLE}")
-            await db.execute("DELETE FROM l4_skills_fts")
-            await db.commit()
-        if self._vector_index is not None:
-            await self._vector_index.clear()
+        if not self._initialized:
+            await self.initialize()
+        async with self.embedding_mutation_guard():
+            async with sqlite_connection_async(self.db_path) as db:
+                async with db.execute("SELECT COUNT(*) FROM procedural_skills") as cursor:
+                    row = await cursor.fetchone()
+                    count = int(row[0]) if row else 0
+                await db.execute("DELETE FROM procedural_skills")
+                await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
+                await db.execute(f"DELETE FROM {EXECUTION_TRACES_TABLE}")
+                await db.execute("DELETE FROM l4_skills_fts")
+                await db.commit()
+            if self._vector_index is not None:
+                await self._vector_index.clear()
+                if self._embedding_service is None:
+                    await self._vector_index.close()
         return count
 
     async def bm25_search(

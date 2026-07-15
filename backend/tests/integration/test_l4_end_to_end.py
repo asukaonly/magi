@@ -38,6 +38,7 @@ async def test_tool_invocation_lands_in_l4():
         l2_batch_flush_interval_seconds=0,
     )
     await store.initialize()
+    bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
     subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await subscriber.start()
@@ -100,6 +101,7 @@ async def test_failed_tool_invocation_also_lands_with_failure_flag():
         l2_batch_flush_interval_seconds=0,
     )
     await store.initialize()
+    bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
     subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await subscriber.start()
@@ -160,6 +162,7 @@ async def test_task_completed_event_lands_in_l4():
         l2_batch_flush_interval_seconds=0,
     )
     await store.initialize()
+    bus.bind_memory_operation_epoch(store.memory_operation_epoch)
 
     subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await subscriber.start()

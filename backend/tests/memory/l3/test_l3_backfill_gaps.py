@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import time
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -42,6 +43,10 @@ class _MixinHost(UnifiedMemorySummaryMixin):
         self.l1 = l1
         self.l3 = l3
         self._summary_semaphore = asyncio.Semaphore(3)
+
+    @asynccontextmanager
+    async def memory_operation_guard(self):  # type: ignore[no-untyped-def]
+        yield
 
 
 def _event(*, ts: float, source: str, content: str, event_id: str):

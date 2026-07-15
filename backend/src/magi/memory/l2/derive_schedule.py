@@ -82,21 +82,22 @@ async def handle_l2_derive(
     if isinstance(derive_context, ScheduledExecutionResult):
         return derive_context
 
-    interest_topics_aggregated = await _run_interest_aggregation(derive_context)
-    plugin_derived_assertions_written = await _run_plugin_derived_rules(derive_context)
-    shadow_notifications_emitted = await _run_shadow_conflict_notifications(derive_context)
-    if interest_topics_aggregated > 0 or plugin_derived_assertions_written > 0:
-        await _schedule_portrait_refresh(derive_context, portrait_refresh_scheduler)
+    async with derive_context.unified.memory_operation_guard():
+        interest_topics_aggregated = await _run_interest_aggregation(derive_context)
+        plugin_derived_assertions_written = await _run_plugin_derived_rules(derive_context)
+        shadow_notifications_emitted = await _run_shadow_conflict_notifications(derive_context)
+        if interest_topics_aggregated > 0 or plugin_derived_assertions_written > 0:
+            await _schedule_portrait_refresh(derive_context, portrait_refresh_scheduler)
 
-    return ScheduledExecutionResult(
-        success=True,
-        message="derive_ok",
-        stats={
-            "interest_topics_aggregated": interest_topics_aggregated,
-            "plugin_derived_assertions_written": plugin_derived_assertions_written,
-            "shadow_notifications_emitted": shadow_notifications_emitted,
-        },
-    )
+        return ScheduledExecutionResult(
+            success=True,
+            message="derive_ok",
+            stats={
+                "interest_topics_aggregated": interest_topics_aggregated,
+                "plugin_derived_assertions_written": plugin_derived_assertions_written,
+                "shadow_notifications_emitted": shadow_notifications_emitted,
+            },
+        )
 
 
 async def handle_memory_correction_derivations(
@@ -127,48 +128,49 @@ async def handle_memory_correction_derivations(
             stats={},
         )
 
-    try:
-        stats = await cognition_store.process_memory_correction_jobs(
-            limit=CORRECTION_DERIVATION_BATCH_SIZE,
-            recover_stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
-            max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
-        )
-        next_wakeup_at = await cognition_store.next_memory_correction_job_wakeup_at(
-            stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
-            max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
-        )
-    except Exception as exc:
-        logger.error("Memory correction derivation run failed", error=str(exc))
+    async with unified.memory_operation_guard():
+        try:
+            stats = await cognition_store.process_memory_correction_jobs(
+                l3_store=getattr(unified, "l3", None),
+                limit=CORRECTION_DERIVATION_BATCH_SIZE,
+                recover_stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+                max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
+            )
+            next_wakeup_at = await cognition_store.next_memory_correction_job_wakeup_at(
+                stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+                max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
+            )
+        except Exception as exc:
+            logger.error("Memory correction derivation run failed", error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="correction_derivation_failed",
+                stats={"error": str(exc)},
+            )
+        retry_scheduled = False
+        now = time.time()
+        if (
+            scheduler is not None
+            and next_wakeup_at is not None
+            and next_wakeup_at < now + CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS
+        ):
+            retry_scheduled = await _schedule_correction_retry(
+                scheduler,
+                run_at=max(
+                    float(next_wakeup_at),
+                    now + CORRECTION_DERIVATION_RETRY_SCHEDULE_DELAY_SECONDS,
+                ),
+            )
+
         return ScheduledExecutionResult(
-            success=False,
-            message="correction_derivation_failed",
-            stats={"error": str(exc)},
+            success=True,
+            message="correction_derivation_ok",
+            stats={
+                **stats,
+                "next_wakeup_at": next_wakeup_at,
+                "retry_scheduled": retry_scheduled,
+            },
         )
-
-    retry_scheduled = False
-    now = time.time()
-    if (
-        scheduler is not None
-        and next_wakeup_at is not None
-        and next_wakeup_at < now + CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS
-    ):
-        retry_scheduled = await _schedule_correction_retry(
-            scheduler,
-            run_at=max(
-                float(next_wakeup_at),
-                now + CORRECTION_DERIVATION_RETRY_SCHEDULE_DELAY_SECONDS,
-            ),
-        )
-
-    return ScheduledExecutionResult(
-        success=True,
-        message="correction_derivation_ok",
-        stats={
-            **stats,
-            "next_wakeup_at": next_wakeup_at,
-            "retry_scheduled": retry_scheduled,
-        },
-    )
 
 
 def _existing_cognition_store(unified: Any) -> Any | None:

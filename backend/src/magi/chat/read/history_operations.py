@@ -11,7 +11,9 @@ from ...core.logger import get_logger
 from .models import ChatDisplayMessage
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
+    CHAT_CONTEXT_SUMMARIES_TABLE,
     CHAT_MESSAGES_TABLE,
+    CHAT_RUN_CONSUMED_EVENTS_TABLE,
     CHAT_SESSIONS_TABLE,
     CHAT_TURNS_TABLE,
 )
@@ -591,6 +593,14 @@ class ChatHistoryOperationsMixin:
             conn.execute(
                 f"DELETE FROM {CHAT_TURNS_TABLE} WHERE user_id = ? AND session_id = ?",
                 (user_id, session_id),
+            )
+            conn.execute(
+                f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+                (session_id,),
+            )
+            conn.execute(
+                f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE} WHERE session_id = ?",
+                (session_id,),
             )
             conn.execute(
                 f"""

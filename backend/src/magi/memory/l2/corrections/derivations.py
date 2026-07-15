@@ -9,7 +9,11 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
-from ...derivation_revision import DerivationRevision, DerivationRevisionChangedError
+from ...derivation_revision import (
+    DerivationRevision,
+    DerivationRevisionChangedError,
+    MemoryClearGenerationChangedError,
+)
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_builder import UserProfileProjectionBuilder
@@ -32,10 +36,12 @@ class CorrectionDerivationRunner:
         *,
         db_path: str,
         l2_store: Any,
+        l3_store: Any | None = None,
         handlers: Mapping[str, DerivationHandler] | None = None,
     ) -> None:
         self._db_path = db_path
         self._l2_store = l2_store
+        self._l3_store = l3_store
         self._repository = MemoryCorrectionRepository(db_path)
         self._handlers = dict(handlers or {})
 
@@ -60,11 +66,13 @@ class CorrectionDerivationRunner:
                 str(job["target_key"])
             )
             if int(job["target_revision"]) != current_revision:
-                await self._repository.complete_derivation_job(
+                completed = await self._repository.complete_derivation_job(
                     str(job["job_id"]),
+                    attempt_count=int(job["attempt_count"]),
                     message=f"Superseded by revision {current_revision}",
                 )
-                stats["superseded"] += 1
+                if completed:
+                    stats["superseded"] += 1
                 continue
             try:
                 await self._run_job(job)
@@ -72,38 +80,50 @@ class CorrectionDerivationRunner:
                     str(job["target_key"])
                 )
                 if latest_revision != current_revision:
-                    await self._repository.complete_derivation_job(
+                    completed = await self._repository.complete_derivation_job(
                         str(job["job_id"]),
+                        attempt_count=int(job["attempt_count"]),
                         message=f"Superseded by revision {latest_revision}",
                     )
-                    stats["superseded"] += 1
+                    if completed:
+                        stats["superseded"] += 1
                     continue
-                await self._repository.complete_derivation_job(str(job["job_id"]))
-                stats["completed"] += 1
-            except DerivationRevisionChangedError as exc:
+                completed = await self._repository.complete_derivation_job(
+                    str(job["job_id"]),
+                    attempt_count=int(job["attempt_count"]),
+                )
+                if completed:
+                    stats["completed"] += 1
+            except (
+                DerivationRevisionChangedError,
+                MemoryClearGenerationChangedError,
+            ) as exc:
                 latest_revision = await self._repository.current_subject_revision(
                     str(job["target_key"])
                 )
-                await self._repository.complete_derivation_job(
+                completed = await self._repository.complete_derivation_job(
                     str(job["job_id"]),
+                    attempt_count=int(job["attempt_count"]),
                     message=f"Superseded by revision {latest_revision}: {exc}",
                 )
-                stats["superseded"] += 1
+                if completed:
+                    stats["superseded"] += 1
             except Exception as exc:  # pragma: no cover - exercised through behavior tests
-                await self._repository.fail_derivation_job(
+                failed = await self._repository.fail_derivation_job(
                     str(job["job_id"]),
                     error=str(exc),
                     attempt_count=int(job["attempt_count"]),
                     max_attempts=max_attempts,
                 )
-                stats["failed"] += 1
-                logger.warning(
-                    "Memory correction derivation failed",
-                    job_id=str(job["job_id"]),
-                    job_kind=str(job["job_kind"]),
-                    target_key=str(job["target_key"]),
-                    error=str(exc),
-                )
+                if failed:
+                    stats["failed"] += 1
+                    logger.warning(
+                        "Memory correction derivation failed",
+                        job_id=str(job["job_id"]),
+                        job_kind=str(job["job_kind"]),
+                        target_key=str(job["target_key"]),
+                        error=str(exc),
+                    )
         return stats
 
     async def _run_job(self, job: Mapping[str, Any]) -> None:
@@ -214,6 +234,7 @@ class CorrectionDerivationRunner:
         await L3CorrectionDerivationService(
             db_path=self._db_path,
             l2_store=self._l2_store,
+            l3_store=self._l3_store,
         ).rebuild_subject(
             str(job["target_key"]),
             expected_revision=int(job["target_revision"]),

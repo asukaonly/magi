@@ -13,12 +13,19 @@ from magi.memory.evidence import (
     EvidenceStatus,
     L1RetrievalScope,
 )
-from magi.memory.event_contracts import author_type_code, content_type_code
-from magi.memory.event_contracts import MemoryEvent
-from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
-from magi.memory.event_contracts import IngestTarget, MemoryDomain, RetentionClass, TomDepth, normalize_runtime_event, MemoryEvent
-from magi.memory.l1.embeddings.common import embedding_status_code
 from magi.memory.embedding.sqlite_vec_index import VectorSearchHit
+from magi.memory.event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+    author_type_code,
+    content_type_code,
+    normalize_runtime_event,
+)
+from magi.memory.l1.chat_sessions import CHAT_SESSIONS_TABLE
+from magi.memory.l1.embeddings.common import embedding_status_code
 
 
 def _migrated_l1_db_path(tmp_path):
@@ -1748,6 +1755,10 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
         for idx in range(3)
     ]
 
+    store._default_vector_enabled = False
+    for event in events:
+        await store.store(event)
+    store._default_vector_enabled = True
     await store._maybe_upsert_event_embeddings(events)
 
     assert recording_index.upsert_many_calls == [[

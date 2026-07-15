@@ -3,11 +3,46 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from itertools import combinations
 from typing import Any, Dict, Protocol
 
 import aiosqlite
 
-from ..corrections.fingerprints import scope_specificity
+from ..corrections.fingerprints import SUPPORTED_SCOPE_FIELDS, scope_specificity
+from ..corrections.fingerprints import scope_key as correction_scope_key
+
+SCOPED_QUERY_OVERFETCH_FACTOR = 8
+SCOPED_QUERY_MIN_CANDIDATES = 32
+SCOPED_QUERY_MAX_CANDIDATES = 512
+
+
+def bounded_scoped_candidate_limit(limit: int) -> int:
+    """Bound scope-aware SQL candidates while leaving room for slot de-dup."""
+    requested = max(1, int(limit))
+    if requested >= SCOPED_QUERY_MAX_CANDIDATES:
+        return requested
+    return min(
+        SCOPED_QUERY_MAX_CANDIDATES,
+        max(
+            SCOPED_QUERY_MIN_CANDIDATES,
+            requested * SCOPED_QUERY_OVERFETCH_FACTOR,
+        ),
+    )
+
+
+def matching_scope_keys(context_scope: Mapping[str, Any]) -> list[str]:
+    """Return indexed scope identities for every subset of a query context."""
+    items = sorted(
+        (str(key), value)
+        for key, value in context_scope.items()
+        if str(key) in SUPPORTED_SCOPE_FIELDS
+    )
+    keys = ["global"]
+    for size in range(1, len(items) + 1):
+        for subset in combinations(items, size):
+            keys.append(correction_scope_key(dict(subset)))
+    return keys
 
 
 def select_governed_range_rows(

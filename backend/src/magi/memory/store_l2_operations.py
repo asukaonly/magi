@@ -29,30 +29,34 @@ class UnifiedMemoryL2OperationsMixin:
 
     async def replay_l2_extraction(self, event_id: str) -> bool:
         """Replay L2 extraction for an already stored L1 event."""
-        if self.l1 is None or self.l2_pipeline is None:
-            return False
-        event = await self.l1.get_memory_event(event_id)
-        if event is None:
-            return False
-        return await self.l2_pipeline.enqueue_event(event)
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l1 is None or self.l2_pipeline is None:
+                return False
+            event = await self.l1.get_memory_event(event_id)
+            if event is None:
+                return False
+            return await self.l2_pipeline.enqueue_event(event)
 
     async def reconcile_entities(self, entity_ids: list[str]) -> bool:
         """Trigger entity-level reconcile for one or more entities."""
-        if self.l2_pipeline is None:
-            return False
-        return await self.l2_pipeline.enqueue_entities(entity_ids)
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l2_pipeline is None:
+                return False
+            return await self.l2_pipeline.enqueue_entities(entity_ids)
 
     async def refresh_l2_snapshots(self, entity_ids: list[str]) -> bool:
         """Trigger snapshot materialization for one or more entities."""
-        if self.l2_pipeline is None:
-            return False
-        return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l2_pipeline is None:
+                return False
+            return await self.l2_pipeline.enqueue_snapshot_refresh(entity_ids)
 
     async def flush_l2_microbatches(self) -> int:
         """Flush all currently staged L2 microbatches into extract jobs."""
-        if self.l2_pipeline is None:
-            return 0
-        return await self.l2_pipeline.flush_all_pending_batches()
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l2_pipeline is None:
+                return 0
+            return await self.l2_pipeline.flush_all_pending_batches()
 
     async def drain_l2_edge_embeddings(
         self,
@@ -61,17 +65,18 @@ class UnifiedMemoryL2OperationsMixin:
         max_batches: int = 1000,
     ) -> int:
         """Synchronously embed pending L2 knowledge-graph edges."""
-        drainer = getattr(self, "_edge_embedding_drainer", None)
-        if drainer is None:
-            return 0
-        total = 0
-        normalized_limit = max(1, int(batch_limit))
-        for _ in range(max(1, int(max_batches))):
-            count = int(await drainer.drain_once(batch_limit=normalized_limit) or 0)
-            total += count
-            if count < normalized_limit:
-                break
-        return total
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            drainer = getattr(self, "_edge_embedding_drainer", None)
+            if drainer is None:
+                return 0
+            total = 0
+            normalized_limit = max(1, int(batch_limit))
+            for _ in range(max(1, int(max_batches))):
+                count = int(await drainer.drain_once(batch_limit=normalized_limit) or 0)
+                total += count
+                if count < normalized_limit:
+                    break
+            return total
 
     async def get_l2_edge_embedding_backlog(self) -> dict[str, int]:
         """Return pending L2 edge embedding counts."""
@@ -91,9 +96,10 @@ class UnifiedMemoryL2OperationsMixin:
 
     async def on_session_end(self, session_id: str) -> list[str]:
         """Flush staged L2 session work and enqueue touched-entity reconciliation."""
-        if not session_id or self.l2_pipeline is None:
-            return []
-        return await self.l2_pipeline.flush_session(session_id)
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if not session_id or self.l2_pipeline is None:
+                return []
+            return await self.l2_pipeline.flush_session(session_id)
 
     async def upsert_user_graph_edge(
         self,
@@ -110,48 +116,77 @@ class UnifiedMemoryL2OperationsMixin:
         source_type: str,
         subject_attributes: Optional[Dict[str, Any]] = None,
         object_attributes: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        expected_epoch: int | None = None,
+    ) -> bool:
         """Write a knowledge-graph edge through the unified cognition store."""
-        _ = subject_attributes
-        _ = object_attributes
-        if self.l2 is None:
-            return
-        await self.l2.upsert_knowledge_edge(
-            subject_id=_canonicalize_user_entity_ref(subject_id),
-            subject_type=subject_type,
-            predicate=predicate,
-            object_id=_canonicalize_user_entity_ref(object_id),
-            object_type=object_type,
-            fact_kind=fact_kind,
-            evidence_event_ids=evidence_event_ids,
-            confidence=confidence,
-            observed_at=observed_at,
-            source_type=source_type,
+        captured_epoch = (
+            int(self.memory_operation_epoch())  # type: ignore[attr-defined]
+            if expected_epoch is None
+            else int(expected_epoch)
         )
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if captured_epoch != int(
+                self.memory_operation_epoch()  # type: ignore[attr-defined]
+            ):
+                return False
+            _ = subject_attributes
+            _ = object_attributes
+            if self.l2 is None:
+                return False
+            await self.l2.upsert_knowledge_edge(
+                subject_id=_canonicalize_user_entity_ref(subject_id),
+                subject_type=subject_type,
+                predicate=predicate,
+                object_id=_canonicalize_user_entity_ref(object_id),
+                object_type=object_type,
+                fact_kind=fact_kind,
+                evidence_event_ids=evidence_event_ids,
+                confidence=confidence,
+                observed_at=observed_at,
+                source_type=source_type,
+            )
+            return True
 
-    async def upsert_user_graph_edges(self, edges: Iterable[Mapping[str, Any]]) -> list[str]:
+    async def upsert_user_graph_edges(
+        self,
+        edges: Iterable[Mapping[str, Any]],
+        *,
+        expected_epoch: int | None = None,
+    ) -> list[str]:
         """Write multiple knowledge-graph edges through one cognition-store batch."""
-        if self.l2 is None:
-            return []
+        captured_epoch = (
+            int(self.memory_operation_epoch())  # type: ignore[attr-defined]
+            if expected_epoch is None
+            else int(expected_epoch)
+        )
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if captured_epoch != int(
+                self.memory_operation_epoch()  # type: ignore[attr-defined]
+            ):
+                return []
+            if self.l2 is None:
+                return []
 
-        edge_writes = [
-            {
-                "subject_id": _canonicalize_user_entity_ref(edge["subject_id"]),
-                "subject_type": str(edge["subject_type"]),
-                "predicate": str(edge["predicate"]),
-                "object_id": _canonicalize_user_entity_ref(edge["object_id"]),
-                "object_type": str(edge["object_type"]),
-                "fact_kind": edge.get("fact_kind"),
-                "evidence_event_ids": [str(item) for item in edge.get("evidence_event_ids", [])],
-                "confidence": float(edge["confidence"]),
-                "observed_at": float(edge["observed_at"]),
-                "source_type": str(edge["source_type"]),
-            }
-            for edge in edges
-        ]
-        if not edge_writes:
-            return []
-        return await self.l2.upsert_knowledge_edges(edge_writes)
+            edge_writes = [
+                {
+                    "subject_id": _canonicalize_user_entity_ref(edge["subject_id"]),
+                    "subject_type": str(edge["subject_type"]),
+                    "predicate": str(edge["predicate"]),
+                    "object_id": _canonicalize_user_entity_ref(edge["object_id"]),
+                    "object_type": str(edge["object_type"]),
+                    "fact_kind": edge.get("fact_kind"),
+                    "evidence_event_ids": [
+                        str(item) for item in edge.get("evidence_event_ids", [])
+                    ],
+                    "confidence": float(edge["confidence"]),
+                    "observed_at": float(edge["observed_at"]),
+                    "source_type": str(edge["source_type"]),
+                }
+                for edge in edges
+            ]
+            if not edge_writes:
+                return []
+            return await self.l2.upsert_knowledge_edges(edge_writes)
 
 
 __all__ = ["UnifiedMemoryL2OperationsMixin"]

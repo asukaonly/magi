@@ -16,7 +16,6 @@ import logging
 from typing import Any
 
 from .grounding import L2GroundingPlan
-from .live_l1_cooccurrence import live_l1_cooccurrence_edges
 from .soft_edges import SEMANTIC_EDGE_PREDICATE
 from .temporal import build_knowledge_temporal_clause, compute_temporal_score
 from .traversal import HopSpec, TraversalPlan, execute_graph_traversal
@@ -56,13 +55,6 @@ async def retrieve_knowledge(
         )
         topo_results = await _filter_edges_by_l1_user_scope(
             topo_results, l1_store, user_id
-        )
-
-    # Live L1 co-occurrence last-resort (RFC #65 P4): only when the structured
-    # channel (hard + P2 soft + P3 hop2) is empty.
-    if not graph_results and l1_store is not None and plan.subject_entity_ids:
-        graph_results = await live_l1_cooccurrence_edges(
-            list(plan.subject_entity_ids), l1_store, limit=limit,
         )
 
     merged = _merge_channels(graph_results, vector_results, topo_results)
@@ -323,11 +315,13 @@ def _merge_channels(
     seen: dict[str, dict[str, Any]] = {}
     for channel in channel_results:
         for edge in channel:
-            tid = edge.get("triple_id", "")
-            if not tid:
+            candidate_id = str(
+                edge.get("_governed_version_id") or edge.get("triple_id") or ""
+            )
+            if not candidate_id:
                 continue
-            if tid in seen:
-                existing = seen[tid]
+            if candidate_id in seen:
+                existing = seen[candidate_id]
                 existing.setdefault("_channels", [])
                 new_channel = edge.get("_channel", "")
                 if new_channel and new_channel not in existing["_channels"]:
@@ -338,7 +332,7 @@ def _merge_channels(
                         existing["vector_distance"] = edge["vector_distance"]
             else:
                 edge.setdefault("_channels", [edge.get("_channel", "structured_graph")])
-                seen[tid] = edge
+                seen[candidate_id] = edge
     return list(seen.values())
 
 
@@ -352,12 +346,8 @@ async def _filter_edges_by_l1_user_scope(
     l1_store: Any,
     user_id: str,
 ) -> list[dict[str, Any]]:
-    """Keep only L2 edges backed by L1 evidence inside the current user scope."""
+    """Keep only L2 edges owned by the current user or a governed correction."""
     if not edges:
-        return []
-
-    filter_ids_by_user = getattr(l1_store, "filter_ids_by_user", None)
-    if not callable(filter_ids_by_user):
         return []
 
     edge_evidence: list[tuple[dict[str, Any], list[str]]] = []
@@ -369,20 +359,47 @@ async def _filter_edges_by_l1_user_scope(
 
     unique_event_ids = list(dict.fromkeys(all_event_ids))
     if not unique_event_ids:
-        return []
+        return _governed_evidence_free_corrections(edge_evidence)
+
+    filter_ids_by_user = getattr(l1_store, "filter_ids_by_user", None)
+    if not callable(filter_ids_by_user):
+        return _governed_evidence_free_corrections(edge_evidence)
 
     try:
         scoped_ids = await filter_ids_by_user(unique_event_ids, user_id)
     except Exception:
         logger.warning("Failed to filter L2 edges by L1 user scope", exc_info=True)
-        return []
+        return _governed_evidence_free_corrections(edge_evidence)
 
     scoped = set(scoped_ids)
     return [
         edge
         for edge, evidence_ids in edge_evidence
-        if any(event_id in scoped for event_id in evidence_ids)
+        if (not evidence_ids and _is_evidence_free_governed_user_correction(edge))
+        or any(event_id in scoped for event_id in evidence_ids)
     ]
+
+
+def _governed_evidence_free_corrections(
+    edge_evidence: list[tuple[dict[str, Any], list[str]]],
+) -> list[dict[str, Any]]:
+    """Keep only locally governed corrections when ordinary ownership is unknown."""
+    return [
+        edge
+        for edge, evidence_ids in edge_evidence
+        if not evidence_ids and _is_evidence_free_governed_user_correction(edge)
+    ]
+
+
+def _is_evidence_free_governed_user_correction(edge: dict[str, Any]) -> bool:
+    """Recognize authoritative local corrections that legitimately have no L1 event."""
+    return (
+        edge.get("_governed_valid_at") is not None
+        and str(edge.get("source_type") or "") == "user_correction"
+        and str(edge.get("extraction_method") or "") == "explicit"
+        and str(edge.get("evidence_class") or "") == "user_self_report"
+        and str(edge.get("authority_ref") or "").startswith("correction:")
+    )
 
 
 def _parse_evidence_ids(raw: Any) -> list[str]:

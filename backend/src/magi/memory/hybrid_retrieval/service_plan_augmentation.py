@@ -11,7 +11,15 @@ from .evidence_routing import (
     infer_evidence_focus_heuristic,
 )
 from .intent_decider import enrich_l2_conditions
-from .models import L1Conditions, L2Conditions, LayerQueryPlan, RetrievalPayload, RetrievalQuery
+from .intent_time import parse_time_range
+from .models import (
+    L1Conditions,
+    L2Conditions,
+    LayerQueryPlan,
+    RetrievalPayload,
+    RetrievalQuery,
+    TimeRange,
+)
 from .service_policy import plan_signature
 
 
@@ -29,8 +37,19 @@ class HybridRetrievalPlanAugmentationMixin:
         *,
         request: RetrievalQuery,
         payload: RetrievalPayload,
+        time_range: TimeRange | None = None,
     ) -> list[LayerQueryPlan]:
         """Add service-level evidence plans for semantic affinity queries when needed."""
+        resolved_time_range = _resolved_augmentation_time_range(
+            primary_plans,
+            request=request,
+            time_range=time_range,
+        )
+        _apply_request_constraints(
+            primary_plans,
+            request=request,
+            time_range=resolved_time_range,
+        )
         seen_signatures = {self._plan_signature(plan) for plan in primary_plans}
         augmented_plans = list(primary_plans)
         if self._add_joint_l1_evidence_plans(
@@ -41,10 +60,18 @@ class HybridRetrievalPlanAugmentationMixin:
         ):
             payload.trace["joint_l1_affinity_evidence"] = True
 
-        if self._ensure_l1_plan(augmented_plans, request=request):
+        if self._ensure_l1_plan(
+            augmented_plans,
+            request=request,
+            time_range=resolved_time_range,
+        ):
             payload.trace["l1_always_injected"] = True
 
-        if self._inject_temporal_l2_plan(augmented_plans, request=request):
+        if self._inject_temporal_l2_plan(
+            augmented_plans,
+            request=request,
+            time_range=resolved_time_range,
+        ):
             payload.trace["l2_temporal_injected"] = True
 
         return augmented_plans
@@ -75,10 +102,11 @@ class HybridRetrievalPlanAugmentationMixin:
         augmented_plans: list[LayerQueryPlan],
         *,
         request: RetrievalQuery,
+        time_range: TimeRange | None,
     ) -> bool:
         if any(plan.layer == "L1" for plan in augmented_plans):
             return False
-        augmented_plans.append(_base_l1_plan(request))
+        augmented_plans.append(_base_l1_plan(request, time_range=time_range))
         return True
 
     @staticmethod
@@ -86,12 +114,15 @@ class HybridRetrievalPlanAugmentationMixin:
         augmented_plans: list[LayerQueryPlan],
         *,
         request: RetrievalQuery,
+        time_range: TimeRange | None,
     ) -> bool:
         if any(plan.layer == "L2" for plan in augmented_plans):
             return False
-        if not has_temporal_anchor(request.query):
+        if time_range is None and not request.time_range and not has_temporal_anchor(
+            request.query
+        ):
             return False
-        augmented_plans.append(_temporal_l2_plan(request))
+        augmented_plans.append(_temporal_l2_plan(request, time_range=time_range))
         return True
 
     @staticmethod
@@ -120,6 +151,7 @@ class HybridRetrievalPlanAugmentationMixin:
                 content_query=request.query,
                 source_filters=request.source_filters or None,
                 domain_filters=request.domain_filters or None,
+                context_scope=dict(request.context_scope or {}),
                 limit=request.limit,
             ),
             time_range=plan.time_range,
@@ -127,20 +159,44 @@ class HybridRetrievalPlanAugmentationMixin:
         )
 
 
-def _base_l1_plan(request: RetrievalQuery) -> LayerQueryPlan:
+def _base_l1_plan(
+    request: RetrievalQuery,
+    *,
+    time_range: TimeRange | None,
+) -> LayerQueryPlan:
     return LayerQueryPlan(
         layer="L1",
         conditions=L1Conditions(
             content_query=request.query,
             source_filters=request.source_filters or None,
             domain_filters=request.domain_filters or None,
+            context_scope=dict(request.context_scope or {}),
             limit=request.limit,
         ),
+        time_range=time_range,
         is_fallback=False,
     )
 
 
-def _temporal_l2_plan(request: RetrievalQuery) -> LayerQueryPlan:
+def _apply_request_constraints(
+    plans: list[LayerQueryPlan],
+    *,
+    request: RetrievalQuery,
+    time_range: TimeRange | None,
+) -> None:
+    """Apply caller-owned time and correction scope to every primary plan."""
+    for plan in plans:
+        if plan.time_range is None:
+            plan.time_range = time_range
+        if isinstance(plan.conditions, (L1Conditions, L2Conditions)):
+            plan.conditions.context_scope = dict(request.context_scope or {})
+
+
+def _temporal_l2_plan(
+    request: RetrievalQuery,
+    *,
+    time_range: TimeRange | None,
+) -> LayerQueryPlan:
     l2_conditions = L2Conditions(
         content_query=request.query,
         subject_hint="self",
@@ -154,8 +210,25 @@ def _temporal_l2_plan(request: RetrievalQuery) -> LayerQueryPlan:
     return LayerQueryPlan(
         layer="L2",
         conditions=l2_conditions,
+        time_range=time_range,
         is_fallback=False,
     )
+
+
+def _resolved_augmentation_time_range(
+    primary_plans: list[LayerQueryPlan],
+    *,
+    request: RetrievalQuery,
+    time_range: TimeRange | None,
+) -> TimeRange | None:
+    if time_range is not None:
+        return time_range
+    for plan in primary_plans:
+        if plan.time_range is not None:
+            return plan.time_range
+    if request.time_range:
+        return parse_time_range(request.query, request.time_range)
+    return None
 
 
 def _apply_l2_evidence_focus_fallback(

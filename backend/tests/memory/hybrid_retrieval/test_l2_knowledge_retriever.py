@@ -410,51 +410,29 @@ async def test_two_hop_end_to_end_albums_of_liked_artists():
 
 
 @pytest.mark.asyncio
-async def test_live_l1_fallback_when_structured_empty():
-    """structured empty + l1_store + subject → synthetic live_l1 soft edges surface."""
+async def test_live_l1_cooccurrence_never_becomes_answer_facing_relationships():
+    """Raw co-occurrence is discovery data, not a governed relationship."""
     from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
 
     class _FakeL1:
+        def __init__(self):
+            self.cooccurrence_reads = 0
+
         async def get_entity_event_ids(self, seed_ids, **kw):
+            self.cooccurrence_reads += 1
             return {seed_ids[0]: ["e1"]}
+
         async def get_event_entity_ids(self, event_ids):
+            self.cooccurrence_reads += 1
             return {"e1": ["user:u1", "topic:rust"]} if event_ids else {}
 
     store = _make_store()  # all channels return empty
     plan = _plan_with_subject()
-    merged = await retrieve_knowledge(plan, store, l1_store=_FakeL1())
-    assert any(e.get("_channel") == "live_l1" and e["object_id"] == "topic:rust" for e in merged)
+    l1 = _FakeL1()
+    merged = await retrieve_knowledge(plan, store, l1_store=l1)
 
-
-@pytest.mark.asyncio
-async def test_no_live_l1_when_structured_nonempty():
-    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
-    called = {"l1": False}
-
-    class _FakeL1:
-        async def get_entity_event_ids(self, seed_ids, **kw):
-            called["l1"] = True
-            return {}
-        async def get_event_entity_ids(self, event_ids):
-            return {}
-
-    store = _make_store()
-    store.batch_get_relationships = AsyncMock(return_value={"user:u1": [
-        {"triple_id": "h1", "subject_id": "user:u1", "predicate": "LIKES",
-         "object_id": "topic:go", "object_type": "topic"}]})
-    plan = _plan_with_subject()
-    await retrieve_knowledge(plan, store, l1_store=_FakeL1())
-    assert called["l1"] is False  # structured non-empty → live L1 not invoked
-
-
-@pytest.mark.asyncio
-async def test_no_live_l1_when_l1_store_none():
-    """Existing behavior: l1_store defaults None → no live L1 (regression)."""
-    from magi.memory.hybrid_retrieval.l2_knowledge_retriever import retrieve_knowledge
-    store = _make_store()
-    plan = _plan_with_subject()
-    merged = await retrieve_knowledge(plan, store)  # no l1_store
-    assert all(e.get("_channel") != "live_l1" for e in merged)
+    assert merged == []
+    assert l1.cooccurrence_reads == 0
 
 
 @pytest.mark.asyncio
@@ -491,6 +469,30 @@ async def test_filters_knowledge_edges_to_current_user_evidence_scope():
                     "status": "active",
                     "evidence_event_ids": ["evt-foreign"],
                 },
+                {
+                    "triple_id": "ungoverned-empty",
+                    "subject_id": "person:caroline",
+                    "predicate": "LIKES",
+                    "object_id": "topic:unverified",
+                    "object_type": "topic",
+                    "status": "active",
+                    "evidence_event_ids": [],
+                    "source_type": "external_sensor",
+                },
+                {
+                    "triple_id": "governed-correction",
+                    "subject_id": "person:caroline",
+                    "predicate": "LIKES",
+                    "object_id": "topic:painting",
+                    "object_type": "topic",
+                    "status": "active",
+                    "evidence_event_ids": [],
+                    "source_type": "user_correction",
+                    "extraction_method": "explicit",
+                    "evidence_class": "user_self_report",
+                    "authority_ref": "correction:correction-1",
+                    "_governed_valid_at": 123.0,
+                },
             ]
         }
     )
@@ -514,7 +516,10 @@ async def test_filters_knowledge_edges_to_current_user_evidence_scope():
         user_id="benchmark/locomo/run/conv-26",
     )
 
-    assert [edge["triple_id"] for edge in merged] == ["local"]
+    assert [edge["triple_id"] for edge in merged] == [
+        "local",
+        "governed-correction",
+    ]
     assert l1.calls == [
         (["evt-local", "evt-foreign"], "benchmark/locomo/run/conv-26")
     ]

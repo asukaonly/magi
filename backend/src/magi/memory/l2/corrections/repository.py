@@ -22,6 +22,7 @@ from .models import (
 
 DEFAULT_DERIVATION_MAX_ATTEMPTS = 5
 DEFAULT_DERIVATION_STALE_RUNNING_SECONDS = 300.0
+_FAIL_CLOSED_EVIDENCE_EVENT_ID = "*"
 
 
 class MemoryCorrectionRepository:
@@ -113,6 +114,24 @@ class MemoryCorrectionRepository:
                 correction.created_at,
             ),
         )
+        evidence_event_ids = _correction_evidence_event_ids(correction)
+        if evidence_event_ids:
+            await db.executemany(
+                """
+                INSERT INTO memory_correction_evidence_events(
+                    correction_id, event_id, target_kind, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                [
+                    (
+                        correction.correction_id,
+                        event_id,
+                        correction.target_kind.value,
+                        correction.created_at,
+                    )
+                    for event_id in evidence_event_ids
+                ],
+            )
 
     async def insert_rule(
         self,
@@ -209,6 +228,44 @@ class MemoryCorrectionRepository:
             ) as cursor:
                 rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+    async def active_correction_evidence_event_ids(
+        self,
+        event_ids: Iterable[str],
+    ) -> set[str]:
+        """Return candidate L1 events governed by any active correction."""
+        normalized = list(
+            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
+        )
+        if not normalized:
+            return set()
+        candidate_json = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT DISTINCT evidence.event_id
+                FROM memory_correction_evidence_events AS evidence
+                JOIN memory_corrections AS corrections
+                  ON corrections.correction_id = evidence.correction_id
+                WHERE (
+                    evidence.event_id IN (
+                        SELECT CAST(value AS TEXT) FROM json_each(?)
+                    )
+                    OR evidence.event_id = ?
+                )
+                  AND corrections.state = 'active'
+                """,
+                (candidate_json, _FAIL_CLOSED_EVIDENCE_EVENT_ID),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        matched = {str(row[0]) for row in rows}
+        if _FAIL_CLOSED_EVIDENCE_EVENT_ID in matched:
+            return set(normalized)
+        return matched
 
     async def current_subject_revision(self, subject_key: str) -> int:
         async with sqlite_connection_async(self.db_path) as db:
@@ -395,12 +452,14 @@ class MemoryCorrectionRepository:
                         ELSE NULL
                     END AS ready_at
                     FROM memory_derivation_jobs
-                    WHERE attempt_count < ?
-                      AND (
-                          status = 'pending'
-                          OR (status = 'failed' AND next_retry_at IS NOT NULL)
-                          OR status = 'running'
-                      )
+                    WHERE (
+                        attempt_count < ?
+                        AND (
+                            status = 'pending'
+                            OR (status = 'failed' AND next_retry_at IS NOT NULL)
+                        )
+                    )
+                    OR status = 'running'
                 )
                 WHERE ready_at IS NOT NULL
                 """,
@@ -559,21 +618,23 @@ class MemoryCorrectionRepository:
         self,
         job_id: str,
         *,
+        attempt_count: int,
         message: str | None = None,
-    ) -> None:
-        """Mark a claimed derivation job as completed."""
+    ) -> bool:
+        """Complete only the running attempt that still owns the job lease."""
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
+            cursor = await db.execute(
                 """
                 UPDATE memory_derivation_jobs
                 SET status = 'completed', next_retry_at = NULL,
                     last_error = ?, updated_at = ?
-                WHERE job_id = ?
+                WHERE job_id = ? AND status = 'running' AND attempt_count = ?
                 """,
-                (_optional_text(message), now, job_id),
+                (_optional_text(message), now, job_id, int(attempt_count)),
             )
             await db.commit()
+        return int(cursor.rowcount or 0) == 1
 
     async def fail_derivation_job(
         self,
@@ -584,23 +645,30 @@ class MemoryCorrectionRepository:
         max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
         now: float | None = None,
     ) -> bool:
-        """Record a recoverable failure with bounded exponential backoff."""
+        """Fail only the running attempt that still owns the job lease."""
         failed_at = float(now if now is not None else time.time())
         terminal = int(attempt_count) >= max(1, int(max_attempts))
         delay_seconds = min(300.0, 2.0 ** max(0, int(attempt_count) - 1))
         next_retry_at = None if terminal else failed_at + delay_seconds
         status = "failed" if terminal else "pending"
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
+            cursor = await db.execute(
                 """
                 UPDATE memory_derivation_jobs
                 SET status = ?, next_retry_at = ?, last_error = ?, updated_at = ?
-                WHERE job_id = ?
+                WHERE job_id = ? AND status = 'running' AND attempt_count = ?
                 """,
-                (status, next_retry_at, str(error)[:1000], failed_at, job_id),
+                (
+                    status,
+                    next_retry_at,
+                    str(error)[:1000],
+                    failed_at,
+                    job_id,
+                    int(attempt_count),
+                ),
             )
             await db.commit()
-        return terminal
+        return int(cursor.rowcount or 0) == 1
 
     async def replace_dependencies(
         self,
@@ -767,6 +835,31 @@ def _json_mapping(value: Mapping[str, Any] | None) -> str | None:
     if value is None:
         return None
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _correction_evidence_event_ids(correction: NewMemoryCorrection) -> list[str]:
+    key = (
+        "evidence_events"
+        if correction.target_kind == CorrectionTargetKind.ASSERTION
+        else "evidence_event_ids"
+    )
+    parsed: Any = correction.before.get(key)
+    if parsed is None:
+        return []
+    for _ in range(2):
+        if not isinstance(parsed, str):
+            break
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError:
+            return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
+    if isinstance(parsed, (list, tuple, set)):
+        parsed = list(parsed)
+    else:
+        return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
+    if any(not isinstance(event_id, str) or not event_id.strip() for event_id in parsed):
+        return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
+    return list(dict.fromkeys(event_id.strip() for event_id in parsed))
 
 
 def _optional_text(value: str | None) -> str | None:

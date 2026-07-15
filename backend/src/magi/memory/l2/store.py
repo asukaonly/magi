@@ -13,6 +13,11 @@ from typing import Any, Dict, List, Mapping
 from ...core.sqlite import sqlite_connection_async
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
+from ..clear_generation import (
+    advance_memory_clear_generation,
+    current_memory_clear_generation,
+    ensure_memory_clear_state,
+)
 from .graph_conflicts import (
     GraphConflictRule,
     build_exclusive_group_index,
@@ -24,6 +29,7 @@ from .corrections.repository import (
     DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
     MemoryCorrectionRepository,
 )
+from .corrections.cache_signals import mark_all_subjects_changed
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -93,7 +99,9 @@ class L2CognitionStore(
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
+            await ensure_memory_clear_state(db)
             await self._reload_graph_conflict_rules(db)
+            await db.commit()
         self._initialized = True
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
@@ -172,6 +180,21 @@ class L2CognitionStore(
             subject_key
         )
 
+    async def active_correction_evidence_event_ids(
+        self,
+        event_ids: List[str],
+    ) -> set[str]:
+        """Return L1 evidence IDs deferred to active correction-governed claims."""
+        await self.initialize()
+        return await MemoryCorrectionRepository(
+            self.db_path
+        ).active_correction_evidence_event_ids(event_ids)
+
+    async def current_clear_generation(self) -> int:
+        """Return the durable generation advanced by destructive clears."""
+        await self.initialize()
+        return await current_memory_clear_generation(self.db_path)
+
     def register_memory_correction_job_handler(
         self,
         job_kind: str,
@@ -217,6 +240,7 @@ class L2CognitionStore(
     async def process_memory_correction_jobs(
         self,
         *,
+        l3_store: Any | None = None,
         limit: int = 50,
         recover_interrupted: bool = False,
         recover_stale_after_seconds: float | None = None,
@@ -234,6 +258,7 @@ class L2CognitionStore(
             return await CorrectionDerivationRunner(
                 db_path=self.db_path,
                 l2_store=self,
+                l3_store=l3_store,
                 handlers=self._memory_correction_job_handlers,
             ).run_pending(
                 limit=limit,
@@ -264,33 +289,58 @@ class L2CognitionStore(
         await self.initialize()
         async with self.memory_correction_job_guard():
             async with sqlite_connection_async(self.db_path) as db:
-                async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
-                    row = await cursor.fetchone()
-                    count = int(row[0]) if row else 0
-                await db.executescript("""
-                    DELETE FROM memory_derivation_jobs;
-                    DELETE FROM memory_derivation_dependencies;
-                    DELETE FROM memory_correction_rules;
-                    DELETE FROM memory_corrections;
-                    DELETE FROM memory_subject_revisions;
-                    DELETE FROM knowledge_graph_versions;
-                    DELETE FROM knowledge_graph;
-                    DELETE FROM entity_facets;
-                    DELETE FROM tom_trait_assertions;
-                    DELETE FROM tom_snapshots;
-                    DELETE FROM user_profile_projection;
-                    DELETE FROM user_portrait_projection;
-                    DELETE FROM experience_seed_evidence;
-                    DELETE FROM experience_seeds;
-                    DELETE FROM experience_key_events;
-                    DELETE FROM experience_members;
-                    DELETE FROM experiences;
-                    DELETE FROM episodes;
-                    DELETE FROM episode_events;
-                    """)
-                await db.commit()
-            await self._projection_queue.clear_all()
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    async with db.execute(
+                        "SELECT COUNT(*) FROM tom_trait_assertions"
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                        count = int(row[0]) if row else 0
+                    await advance_memory_clear_generation(db)
+                    async with db.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    ) as cursor:
+                        existing_tables = {str(row[0]) for row in await cursor.fetchall()}
+                    for table in _SHARED_USER_MEMORY_TABLES:
+                        if table not in existing_tables:
+                            continue
+                        await db.execute(f"DELETE FROM {table}")
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+        mark_all_subjects_changed(self.db_path)
         return count
+
+
+_SHARED_USER_MEMORY_TABLES = (
+    "memory_derivation_jobs",
+    "memory_derivation_dependencies",
+    "memory_correction_evidence_events",
+    "memory_correction_rules",
+    "memory_corrections",
+    "memory_subject_revisions",
+    "knowledge_graph_versions",
+    "knowledge_graph",
+    "entity_facets",
+    "tom_trait_assertions",
+    "tom_snapshots",
+    "user_profile_projection",
+    "user_portrait_projection",
+    "experience_seed_evidence",
+    "experience_seeds",
+    "experience_key_events",
+    "experience_members",
+    "experience_chapters",
+    "experience_drafts",
+    "experiences",
+    "episodes_fts",
+    "episode_events",
+    "episodes",
+    "l2_projection_jobs",
+    "l2_promotion_seen",
+    "l2_promotion_counter",
+)
 
 
 __all__ = ["L2CognitionStore"]

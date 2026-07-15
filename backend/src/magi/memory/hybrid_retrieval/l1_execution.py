@@ -147,6 +147,8 @@ class L1ExecutionMixin:
             fetch_k=fetch_k,
             user_id=user_id,
             l1_retrieval_scopes=l1_retrieval_scopes,
+            time_range=time_range,
+            context_scope=conditions.context_scope,
         )
         ranked_lists, weights, path_names = self._build_l1_ranked_lists(
             base_paths,
@@ -335,6 +337,8 @@ class L1ExecutionMixin:
         fetch_k: int,
         user_id: Optional[str],
         l1_retrieval_scopes: Optional[List[str]],
+        time_range: Optional[TimeRange],
+        context_scope: Dict[str, Any],
     ) -> _L1ExpansionPathResults:
         entity_ids = await self._entity_expansion_path(
             seed_ids=seed_ids,
@@ -347,6 +351,8 @@ class L1ExecutionMixin:
             fetch_k=fetch_k,
             user_id=user_id,
             l1_retrieval_scopes=l1_retrieval_scopes,
+            time_range=time_range,
+            context_scope=context_scope,
         )
         return _L1ExpansionPathResults(entity_ids=entity_ids, graph_ids=graph_ids)
 
@@ -378,12 +384,19 @@ class L1ExecutionMixin:
         fetch_k: int,
         user_id: Optional[str],
         l1_retrieval_scopes: Optional[List[str]],
+        time_range: Optional[TimeRange],
+        context_scope: Dict[str, Any],
     ) -> List[str]:
         cfg = self._config
         if not cfg.graph_spreading_enabled or self._l2_store is None or not seed_ids:
             return []
         try:
-            graph_ids = await self._graph_spreading_path(seed_ids, fetch_k)
+            graph_ids = await self._graph_spreading_path(
+                seed_ids,
+                fetch_k,
+                time_range=time_range,
+                context_scope=context_scope,
+            )
             return await self._filter_ids_by_l1_retrieval_scope(
                 graph_ids,
                 l1_retrieval_scopes,

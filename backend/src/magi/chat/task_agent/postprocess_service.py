@@ -123,6 +123,15 @@ class ChatPostProcessService:
         )
         self._wire_delivery(deliver_final_response)
 
+    async def cancel_background_tasks(self) -> None:
+        """Cancel detached post-processing created before a destructive clear."""
+        tasks = [task for task in self._background_tasks if not task.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._background_tasks.clear()
+
     def _wire_core_dependencies(
         self,
         *,

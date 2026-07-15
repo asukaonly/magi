@@ -37,31 +37,36 @@ async def handle_l1_maintenance(
         logger.debug("L1 maintenance skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
 
-    if unified.l1 is None:
-        return ScheduledExecutionResult(success=True, message="l1_uninitialized_skip", stats={})
+    async with unified.memory_operation_guard():
+        if unified.l1 is None:
+            return ScheduledExecutionResult(
+                success=True,
+                message="l1_uninitialized_skip",
+                stats={},
+            )
 
-    try:
-        stats = await unified.cleanup_l1_data(
-            older_than_days=int(l1_cfg.retention_days),
-            history_behavior=getattr(
-                memory_cfg.history_behavior,
-                "value",
-                str(memory_cfg.history_behavior),
-            ),
-        )
-    except Exception as exc:
-        logger.error("L1 maintenance failed", error=str(exc))
+        try:
+            stats = await unified.cleanup_l1_data(
+                older_than_days=int(l1_cfg.retention_days),
+                history_behavior=getattr(
+                    memory_cfg.history_behavior,
+                    "value",
+                    str(memory_cfg.history_behavior),
+                ),
+            )
+        except Exception as exc:
+            logger.error("L1 maintenance failed", error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="l1_maintenance_failed",
+                stats={"error": str(exc)},
+            )
+
         return ScheduledExecutionResult(
-            success=False,
-            message="l1_maintenance_failed",
-            stats={"error": str(exc)},
+            success=True,
+            message="l1_maintenance_ok",
+            stats=stats,
         )
-
-    return ScheduledExecutionResult(
-        success=True,
-        message="l1_maintenance_ok",
-        stats=stats,
-    )
 
 
 class L1MaintenanceScheduleContrib:

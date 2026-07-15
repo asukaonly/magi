@@ -64,6 +64,33 @@ def test_projection_preserves_structured_exhaustive_coverage() -> None:
     assert "source and time scope" in formatted
 
 
+def test_event_stream_is_rendered_as_historical_record_not_current_fact() -> None:
+    projected = project_historical_recall(
+        payload=RetrievalPayload(
+            l1_events=[
+                {
+                    "event_id": "evt-old-location",
+                    "content": "I live in Hangzhou.",
+                    "timestamp": 1_702_000_000.0,
+                    "correction_status": "later_corrected",
+                }
+            ]
+        ),
+        request={"query": "Where was I living?", "query_mode": "event_stream"},
+    )
+
+    assert projected.summary == "当时记录：I live in Hangzhou."
+    assert projected.findings[0]["evidence_semantics"] == "historical_record"
+    assert projected.findings[0]["correction_status"] == "later_corrected"
+    formatted = compact_historical_recall(
+        asdict(projected),
+        max_items=6,
+        max_text_chars=500,
+    )
+    assert "historical record; not a current fact" in formatted
+    assert "later corrected; do not repeat as fact" in formatted
+
+
 def test_compaction_renders_generic_structured_totals() -> None:
     projected = project_historical_recall(
         payload=RetrievalPayload(

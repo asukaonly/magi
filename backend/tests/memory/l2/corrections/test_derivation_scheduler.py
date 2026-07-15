@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -304,6 +305,129 @@ async def test_stale_running_job_is_recovered_but_exhausted_job_is_terminal(
     assert last_error == "Interrupted after maximum attempts"
 
 
+async def test_exhausted_running_job_still_reports_stale_recovery_deadline(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    correction_id = await _enqueue_correction(store, request_id="exhausted-running-wakeup")
+    await _isolate_snapshot_job(store.db_path, correction_id)
+    updated_at = 1_000.0
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE memory_derivation_jobs
+            SET status = 'running', attempt_count = 5, updated_at = ?
+            WHERE correction_id = ? AND job_kind = 'snapshot'
+            """,
+            (updated_at, correction_id),
+        )
+        await db.commit()
+
+    wakeup_at = await MemoryCorrectionRepository(
+        store.db_path
+    ).next_derivation_wakeup_at(
+        stale_after_seconds=300.0,
+        max_attempts=5,
+        now=2_000.0,
+    )
+
+    assert wakeup_at == updated_at + 300.0
+
+
+async def test_late_worker_failure_cannot_reopen_completed_reclaimed_attempt(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    correction_id = await _enqueue_correction(store, request_id="late-worker-failure")
+    await _isolate_snapshot_job(store.db_path, correction_id)
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+
+    async def late_failure(_job) -> None:  # type: ignore[no-untyped-def]
+        first_started.set()
+        await release_first.wait()
+        raise RuntimeError("late first-attempt failure")
+
+    first_run = asyncio.create_task(
+        CorrectionDerivationRunner(
+            db_path=store.db_path,
+            l2_store=store,
+            handlers={"snapshot": late_failure},
+        ).run_pending(limit=1, max_attempts=5)
+    )
+    await asyncio.wait_for(first_started.wait(), timeout=2)
+
+    repository = MemoryCorrectionRepository(store.db_path)
+    recovery = await repository.recover_stale_running_jobs(
+        stale_after_seconds=0,
+        max_attempts=5,
+        now=time.time() + 1,
+    )
+    assert recovery == {"requeued": 1, "terminal_failed": 0}
+
+    second_stats = await CorrectionDerivationRunner(
+        db_path=store.db_path,
+        l2_store=store,
+        handlers={"snapshot": AsyncMock()},
+    ).run_pending(limit=1, max_attempts=5)
+    assert second_stats == {"completed": 1, "failed": 0, "superseded": 0}
+
+    release_first.set()
+    assert await first_run == {"completed": 0, "failed": 0, "superseded": 0}
+    status, attempt_count, next_retry_at, last_error = await _snapshot_job(
+        store.db_path,
+        correction_id,
+    )
+    assert (status, attempt_count, next_retry_at, last_error) == (
+        "completed",
+        2,
+        None,
+        None,
+    )
+
+
+async def test_late_worker_completion_cannot_override_terminal_retry_limit(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    correction_id = await _enqueue_correction(store, request_id="late-worker-completion")
+    await _isolate_snapshot_job(store.db_path, correction_id)
+    repository = MemoryCorrectionRepository(store.db_path)
+
+    first_attempt = await repository.claim_next_derivation_job(max_attempts=2)
+    assert first_attempt is not None and first_attempt["attempt_count"] == 1
+    recovery = await repository.recover_stale_running_jobs(
+        stale_after_seconds=0,
+        max_attempts=2,
+        now=time.time() + 1,
+    )
+    assert recovery == {"requeued": 1, "terminal_failed": 0}
+    second_attempt = await repository.claim_next_derivation_job(max_attempts=2)
+    assert second_attempt is not None and second_attempt["attempt_count"] == 2
+
+    assert await repository.fail_derivation_job(
+        str(second_attempt["job_id"]),
+        error="second attempt exhausted",
+        attempt_count=2,
+        max_attempts=2,
+    )
+    assert not await repository.complete_derivation_job(
+        str(first_attempt["job_id"]),
+        attempt_count=1,
+    )
+
+    status, attempt_count, next_retry_at, last_error = await _snapshot_job(
+        store.db_path,
+        correction_id,
+    )
+    assert (status, attempt_count, next_retry_at, last_error) == (
+        "failed",
+        2,
+        None,
+        "second attempt exhausted",
+    )
+
+
 async def test_user_correction_only_wakes_scheduler_and_leaves_backlog_pending(
     l2_store_with_schema,
 ) -> None:
@@ -380,9 +504,15 @@ async def test_runtime_scheduler_retries_failed_derivation_when_due(
             raise RuntimeError("temporary failure")
 
     store.register_memory_correction_job_handler("snapshot", fail_once)
+
+    @asynccontextmanager
+    async def memory_operation_guard():
+        yield
+
     unified = SimpleNamespace(
         l2=store,
         l2_pipeline=SimpleNamespace(_cognition_store=store),
+        memory_operation_guard=memory_operation_guard,
     )
     l2_cfg = MemoryL2Settings(derive_schedule_interval_seconds=21_600.0)
     config = SimpleNamespace(agent=SimpleNamespace(memory=SimpleNamespace(l2=l2_cfg)))

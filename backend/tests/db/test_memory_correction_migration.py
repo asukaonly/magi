@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import sqlite_vec
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
+from magi.memory.l2.store import L2CognitionStore
 
 
 def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -> None:
@@ -74,6 +76,17 @@ def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -
         assert connection.execute(
             "SELECT COUNT(*) FROM memory_correction_rules WHERE rule_kind = 'block_claim'"
         ).fetchone() == (2,)
+        correction_evidence = connection.execute(
+            """
+            SELECT target_kind, event_id
+            FROM memory_correction_evidence_events
+            ORDER BY target_kind
+            """
+        ).fetchall()
+        assert correction_evidence == [
+            ("assertion", "event-1"),
+            ("edge", "event-1"),
+        ]
         edge_governance = connection.execute(
             """
             SELECT corrections.slot_key, corrections.claim_fingerprint,
@@ -98,6 +111,185 @@ def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -
         assert connection.execute(
             "SELECT revision FROM memory_subject_revisions WHERE subject_key = 'user:local_user'"
         ).fetchone() == (1,)
+
+
+def test_relationship_version_snapshot_migration_quarantines_incomplete_history(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v9_memory_clear_generation")
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO knowledge_graph(
+                triple_id, subject_id, subject_type, predicate, object_id, object_type,
+                fact_kind, confidence, evidence_event_ids, first_observed_at,
+                last_observed_at, source_type, extraction_method, valid_from, status,
+                created_at, updated_at, evidence_class, slot_key, claim_fingerprint,
+                scope_key, scope_json
+            ) VALUES (
+                'triple-legacy', 'user:u1', 'user', 'CURRENT_LIVES_IN',
+                'place:shanghai', 'place', 'explicit_fact', 0.8, '["event-1"]',
+                10, 100, 'conversation', 'explicit', 100, 'active', 10, 100,
+                'observed_activity', 'slot-city', 'claim-current',
+                'global', '{}'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO knowledge_graph_versions(
+                version_id, triple_id, previous_version_id, slot_key,
+                claim_fingerprint, subject_id, subject_type, predicate, object_id,
+                object_type, fact_kind, confidence, evidence_event_ids,
+                evidence_text, status, valid_from, valid_to, scope_key, scope_json,
+                authority_ref, correction_id, created_at
+            ) VALUES (
+                'version-legacy', 'triple-legacy', NULL, 'slot-city',
+                'claim-global', 'user:u1', 'user', 'CURRENT_LIVES_IN',
+                'place:shanghai', 'place', 'explicit_fact', 0.8, '["event-1"]',
+                '', 'active', 10, NULL, 'global', '{}', NULL, NULL, 20
+            )
+            """
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            """
+            SELECT governance_complete, evidence_class, expires_at
+            FROM knowledge_graph_versions
+            WHERE version_id = 'version-legacy'
+            """
+        ).fetchone() == (0, None, None)
+
+    store = L2CognitionStore(db_path=str(db_path))
+    historical = asyncio.run(
+        store.list_current_relationships(
+            subject_id="user:u1",
+            evidence_classes=["calendar_commitment"],
+            effective_at=50,
+        )
+    )
+    assert historical == []
+
+    asyncio.run(store.reject_edge(triple_id="triple-legacy"))
+    assert asyncio.run(
+        store.active_correction_evidence_event_ids(["event-1"])
+    ) == {"event-1"}
+    unavailable_legacy_history = asyncio.run(
+        store.list_current_relationships(
+            subject_id="user:u1",
+            evidence_classes=["observed_activity"],
+            effective_at=50,
+        )
+    )
+    assert unavailable_legacy_history == []
+    historical_after_new_write = asyncio.run(
+        store.list_current_relationships(
+            subject_id="user:u1",
+            evidence_classes=["observed_activity"],
+            effective_at=150,
+        )
+    )
+    assert [item["triple_id"] for item in historical_after_new_write] == [
+        "triple-legacy"
+    ]
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            """
+            SELECT COUNT(*) FROM knowledge_graph_versions
+            WHERE triple_id = 'triple-legacy' AND governance_complete = 1
+            """
+        ).fetchone() == (2,)
+
+
+def test_correction_evidence_migration_fails_closed_on_malformed_json(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v10_relationship_version_snapshot")
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO memory_corrections(
+                correction_id, request_id, actor_id, target_kind, target_id,
+                slot_key, claim_fingerprint, correction_kind, before_json,
+                state, created_at
+            ) VALUES (
+                'correction-invalid-evidence', 'request-invalid-evidence',
+                'user:u1', 'assertion', 'assert-invalid', 'slot-invalid',
+                'claim-invalid', 'record_error',
+                '{"evidence_events":"[broken"}', 'active', 100
+            )
+            """
+        )
+        connection.executemany(
+            """
+            INSERT INTO memory_corrections(
+                correction_id, request_id, actor_id, target_kind, target_id,
+                slot_key, claim_fingerprint, correction_kind, before_json,
+                state, created_at
+            ) VALUES (?, ?, 'user:u1', 'assertion', ?, ?, ?, 'record_error', ?, 'active', 100)
+            """,
+            [
+                (
+                    "correction-object-evidence",
+                    "request-object-evidence",
+                    "assert-object",
+                    "slot-object",
+                    "claim-object",
+                    '{"evidence_events":{"event_id":"candidate-object"}}',
+                ),
+                (
+                    "correction-number-evidence",
+                    "request-number-evidence",
+                    "assert-number",
+                    "slot-number",
+                    "claim-number",
+                    '{"evidence_events":123}',
+                ),
+                (
+                    "correction-array-object-evidence",
+                    "request-array-object-evidence",
+                    "assert-array-object",
+                    "slot-array-object",
+                    "claim-array-object",
+                    '{"evidence_events":["candidate-valid",{"event_id":"candidate-bad"}]}',
+                ),
+            ],
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as connection:
+        sentinels = connection.execute(
+            """
+            SELECT correction_id
+            FROM memory_correction_evidence_events
+            WHERE event_id = '*'
+            ORDER BY correction_id
+            """
+        ).fetchall()
+        assert sentinels == [
+            ("correction-array-object-evidence",),
+            ("correction-invalid-evidence",),
+            ("correction-number-evidence",),
+            ("correction-object-evidence",),
+        ]
+    store = L2CognitionStore(db_path=str(db_path))
+    assert asyncio.run(
+        store.active_correction_evidence_event_ids(["candidate-a", "candidate-b"])
+    ) == {"candidate-a", "candidate-b"}
 
 
 def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path) -> None:

@@ -8,10 +8,12 @@ import pytest
 
 from magi.memory.embedding import vector_admin
 from magi.memory.embedding.vector_admin import (
+    EmbeddingRebuildPausedError,
     EmbeddingRebuildManager,
     build_embedding_config_preflight,
 )
 from magi.memory.embedding.embedding_service import EmbeddingResult
+from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.utils.runtime import RuntimePaths
 
 
@@ -314,7 +316,9 @@ async def test_embedding_rebuild_job_persists_running_batch_progress(
     monkeypatch.setattr(vector_admin, "_run_rebuild_layer", fake_run_rebuild_layer)
 
     manager = EmbeddingRebuildManager()
-    started_job = await manager.start_rebuild(unified_memory=object(), layers=["l1"])
+    barrier = AsyncOperationBarrier()
+    unified_memory = SimpleNamespace(memory_operation_guard=barrier.operation)
+    started_job = await manager.start_rebuild(unified_memory=unified_memory, layers=["l1"])
     await asyncio.wait_for(progress_seen.wait(), timeout=1)
 
     running_job = await manager.get_job(started_job["job_id"])
@@ -376,3 +380,154 @@ async def test_embedding_rebuild_job_normalizes_legacy_low_totals(
     assert job["processed_items"] == 3
     assert job["layers"][0]["total_items"] == 3
     assert job["layers"][0]["processed_items"] == 3
+
+
+@pytest.mark.asyncio
+async def test_pause_cancels_active_rebuild_before_exclusive_clear(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    rebuild_entered = asyncio.Event()
+
+    async def fake_source_counts() -> dict[str, int]:
+        return {"l1": 1, "l2_entities": 0, "l2_edges": 0, "l3": 0, "l4": 0}
+
+    async def blocked_rebuild(_memory, _layer, *, progress_callback=None) -> int:
+        rebuild_entered.set()
+        await asyncio.Event().wait()
+        return 1
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(vector_admin, "collect_vector_rebuild_source_counts", fake_source_counts)
+    monkeypatch.setattr(vector_admin, "_run_rebuild_layer", blocked_rebuild)
+
+    manager = EmbeddingRebuildManager()
+    barrier = AsyncOperationBarrier()
+    memory = SimpleNamespace(memory_operation_guard=barrier.operation)
+    job = await manager.start_rebuild(unified_memory=memory, layers=["l1"])
+    await asyncio.wait_for(rebuild_entered.wait(), timeout=1)
+
+    cancelled_count = await asyncio.wait_for(
+        manager.pause_starts_and_cancel_all(),
+        timeout=1,
+    )
+    async with barrier.exclusive():
+        pass
+
+    cancelled_job = await manager.get_job(job["job_id"])
+    assert cancelled_count == 1
+    assert cancelled_job is not None
+    assert cancelled_job["status"] == "cancelled"
+    assert manager._tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_pause_wins_against_start_waiting_for_manager_lock(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+
+    manager = EmbeddingRebuildManager()
+    await manager._lock.acquire()
+    pause_task = asyncio.create_task(manager.pause_starts_and_cancel_all())
+    await asyncio.sleep(0)
+    start_task = asyncio.create_task(
+        manager.start_rebuild(
+            unified_memory=SimpleNamespace(
+                memory_operation_guard=AsyncOperationBarrier().operation
+            ),
+            layers=["l1"],
+        )
+    )
+    await asyncio.sleep(0)
+    manager._lock.release()
+
+    assert await asyncio.wait_for(pause_task, timeout=1) == 0
+    with pytest.raises(EmbeddingRebuildPausedError):
+        await asyncio.wait_for(start_task, timeout=1)
+    assert manager._tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_pause_cancels_job_created_immediately_before_pause(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    run_started = asyncio.Event()
+
+    async def fake_source_counts() -> dict[str, int]:
+        return {"l1": 0, "l2_entities": 0, "l2_edges": 0, "l3": 0, "l4": 0}
+
+    async def blocked_run(_job_id, _memory, _layers) -> None:
+        run_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(vector_admin, "collect_vector_rebuild_source_counts", fake_source_counts)
+    manager = EmbeddingRebuildManager()
+    monkeypatch.setattr(manager, "_run_job", blocked_run)
+    memory = SimpleNamespace(memory_operation_guard=AsyncOperationBarrier().operation)
+
+    start_task = asyncio.create_task(manager.start_rebuild(unified_memory=memory, layers=["l1"]))
+    await asyncio.wait_for(run_started.wait(), timeout=1)
+    pause_task = asyncio.create_task(manager.pause_starts_and_cancel_all())
+    job = await asyncio.wait_for(start_task, timeout=1)
+
+    assert await asyncio.wait_for(pause_task, timeout=1) == 1
+    cancelled_job = await manager.get_job(job["job_id"])
+    assert cancelled_job is not None
+    assert cancelled_job["status"] == "cancelled"
+    assert manager._tasks == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_pause_can_be_resumed_and_accepts_a_new_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+
+    async def fake_source_counts() -> dict[str, int]:
+        return {"l1": 0, "l2_entities": 0, "l2_edges": 0, "l3": 0, "l4": 0}
+
+    monkeypatch.setattr(vector_admin, "get_runtime_paths", lambda: runtime_paths)
+    monkeypatch.setattr(
+        vector_admin,
+        "collect_vector_rebuild_source_counts",
+        fake_source_counts,
+    )
+    manager = EmbeddingRebuildManager()
+    original_await_cancelled = manager._await_cancelled_tasks
+    pause_attempts = 0
+
+    async def fail_first_pause(active) -> None:  # type: ignore[no-untyped-def]
+        nonlocal pause_attempts
+        pause_attempts += 1
+        if pause_attempts == 1:
+            raise RuntimeError("pause cleanup failed")
+        await original_await_cancelled(active)
+
+    monkeypatch.setattr(manager, "_await_cancelled_tasks", fail_first_pause)
+
+    with pytest.raises(RuntimeError, match="pause cleanup failed"):
+        await manager.pause_starts_and_cancel_all()
+
+    await manager.resume_starts()
+    job = await manager.start_rebuild(
+        unified_memory=SimpleNamespace(
+            memory_operation_guard=AsyncOperationBarrier().operation,
+        ),
+        layers=["l1"],
+    )
+    for _ in range(50):
+        current = await manager.get_job(job["job_id"])
+        if current is not None and current["terminal"]:
+            break
+        await asyncio.sleep(0.01)
+
+    assert current is not None
+    assert current["status"] == "succeeded"

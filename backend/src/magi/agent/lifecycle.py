@@ -41,6 +41,7 @@ class _AgentRuntimeDependencies:
     chat_store: Any
     chat_projector: Any
     message_bus: Any
+    runtime_command_queue: Any
     sensor_hub: Any
     event_emitter: Any
     plugin_manager: Any
@@ -63,6 +64,7 @@ class AgentRuntimeModule(LifecycleModule):
             name="runtime_agent_core",
             dependencies=(
                 "runtime_sensor_hub",
+                "runtime_command_queue",
                 "runtime_context",
                 "runtime_personality",
                 "runtime_memory",
@@ -140,6 +142,9 @@ class AgentRuntimeModule(LifecycleModule):
             create_default_agent=self._build_default_agent_factory(deps),
             idle_ttl_seconds=runtime_settings.task_agent_manager_idle_ttl_seconds,
             max_dynamic_instances=runtime_settings.task_agent_manager_max_dynamic_instances,
+            user_message_generation_getter=(
+                deps.runtime_command_queue.current_user_message_generation
+            ),
         )
 
     def _build_chat_agent_factory(
@@ -305,6 +310,10 @@ def _load_agent_runtime_dependencies(
         chat_store=require_initialized(context.chat.store, "chat store"),
         chat_projector=require_initialized(context.chat.projector, "chat projector"),
         message_bus=require_initialized(context.message_bus.message_bus, "message bus"),
+        runtime_command_queue=require_initialized(
+            context.runtime_commands.runtime_command_queue,
+            "runtime command queue",
+        ),
         sensor_hub=require_initialized(context.agent_runtime.sensor_hub, "sensor hub"),
         event_emitter=require_initialized(
             context.agent_runtime.event_emitter,

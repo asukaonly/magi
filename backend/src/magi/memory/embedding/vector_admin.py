@@ -38,6 +38,10 @@ _LAYER_TEXT_BUILDERS: dict[str, str] = {
 }
 _TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
 
+
+class EmbeddingRebuildPausedError(RuntimeError):
+    """Raised when a destructive clear has paused new rebuild jobs."""
+
 _ADMIN_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS embedding_rebuild_jobs (
     job_id TEXT PRIMARY KEY,
@@ -212,6 +216,7 @@ class EmbeddingRebuildManager:
     def __init__(self) -> None:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
+        self._pause_depth = 0
 
     async def start_rebuild(
         self, *, unified_memory: Any, layers: Iterable[str] | None = None
@@ -220,6 +225,10 @@ class EmbeddingRebuildManager:
         await self._ensure_schema()
         await self._mark_abandoned_jobs()
         async with self._lock:
+            if self._pause_depth > 0:
+                raise EmbeddingRebuildPausedError(
+                    "Embedding rebuild is paused while memory is being cleared"
+                )
             active_job = await self._get_active_job()
             if active_job is not None:
                 return active_job
@@ -303,7 +312,56 @@ class EmbeddingRebuildManager:
             await db.commit()
         return await self.get_job(job_id)
 
+    async def cancel_all_and_wait(self) -> int:
+        """Cancel and await every in-process rebuild before destructive clear."""
+        async with self._lock:
+            active = self._cancel_active_tasks_locked()
+        await self._await_cancelled_tasks(active)
+        return len(active)
+
+    async def pause_starts_and_cancel_all(self) -> int:
+        """Atomically reject new jobs and cancel every existing rebuild."""
+        async with self._lock:
+            self._pause_depth += 1
+            active = self._cancel_active_tasks_locked()
+        await self._await_cancelled_tasks(active)
+        return len(active)
+
+    async def resume_starts(self) -> None:
+        """Allow rebuild requests after destructive clear finishes."""
+        async with self._lock:
+            self._pause_depth = max(0, self._pause_depth - 1)
+
+    def _cancel_active_tasks_locked(self) -> dict[str, asyncio.Task[None]]:
+        active = {
+            job_id: task
+            for job_id, task in self._tasks.items()
+            if not task.done()
+        }
+        for task in active.values():
+            task.cancel()
+        return active
+
+    async def _await_cancelled_tasks(
+        self,
+        active: dict[str, asyncio.Task[None]],
+    ) -> None:
+        if not active:
+            return
+        await asyncio.gather(*active.values(), return_exceptions=True)
+        for job_id in active:
+            await self._finish_job(job_id=job_id, status="cancelled")
+
     async def _run_job(self, job_id: str, unified_memory: Any, layers: list[str]) -> None:
+        async with unified_memory.memory_operation_guard():
+            await self._run_job_guarded(job_id, unified_memory, layers)
+
+    async def _run_job_guarded(
+        self,
+        job_id: str,
+        unified_memory: Any,
+        layers: list[str],
+    ) -> None:
         now = time.time()
         await self._update_job(job_id=job_id, status="running", started_at=now, updated_at=now)
         processed_total = 0
@@ -1073,6 +1131,7 @@ def _json_list(value: str) -> list[str]:
 
 
 __all__ = [
+    "EmbeddingRebuildPausedError",
     "EmbeddingRebuildManager",
     "VECTOR_LAYERS",
     "build_embedding_config_preflight",

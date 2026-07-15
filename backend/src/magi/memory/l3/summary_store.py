@@ -7,9 +7,10 @@ import asyncio
 import re
 import time
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 import aiosqlite
 
@@ -427,16 +428,30 @@ class L3SummaryStore(
         self._embedding_active_count = 0
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
+        self._embedding_mutation_lock = asyncio.Lock()
+        self._operation_guard_factory: Callable[[], Any] | None = None
         self._initialized = False
+
+    def set_operation_guard_factory(self, factory: Callable[[], Any]) -> None:
+        """Bind the unified clear barrier used by embedding batches."""
+        self._operation_guard_factory = factory
+
+    @asynccontextmanager
+    async def embedding_mutation_guard(self) -> AsyncIterator[None]:
+        """Serialize summary embedding writes with correction cleanup."""
+        async with self._embedding_mutation_lock:
+            yield
 
     async def initialize(self) -> None:
         """Create the summaries schema."""
         if self._initialized:
+            if self._embedding_queue is not None and self._embedding_worker is None:
+                self._embedding_worker = asyncio.create_task(self._run_embedding_worker())
             return
 
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         async with sqlite_connection_async(self.db_path) as db:
-            if self._vector_index is not None:
+            if self._vector_index is not None and self._embedding_service is not None:
                 await self._vector_index.initialize()
             await ensure_l3_summary_schema(db)
             await db.commit()
@@ -451,6 +466,18 @@ class L3SummaryStore(
             self._embedding_worker = None
         if self._vector_index is not None:
             await self._vector_index.close()
+
+    async def abort_for_clear(self) -> None:
+        """Cancel embedding work and discard queued pre-clear summaries."""
+        worker = self._embedding_worker
+        if worker is not None and not worker.done():
+            worker.cancel()
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+        self._embedding_worker = None
+        if self._embedding_queue is not None:
+            self._embedding_queue = asyncio.Queue(maxsize=self._embedding_queue.maxsize)
+        self._embedding_active_count = 0
 
     def _current_memory_config(self) -> Any | None:
         if self._memory_config_getter is None:

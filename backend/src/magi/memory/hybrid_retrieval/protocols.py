@@ -116,6 +116,21 @@ class L2StoreProtocol(Protocol):
         limit_per_entity: int = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
 
+    async def batch_list_current_assertions(
+        self,
+        *,
+        entity_ids: List[str],
+        entity_type: str | None = ...,
+        trait_families: List[str] | None = ...,
+        validation_states: List[str] | None = ...,
+        target_entity_id: str | None = ...,
+        context_scope: Dict[str, Any] | None = ...,
+        effective_at: float | None = ...,
+        effective_range: tuple[float | None, float | None] | None = ...,
+        include_expired: bool = ...,
+        limit_per_entity: int = ...,
+    ) -> Dict[str, List[Dict[str, Any]]]: ...
+
     async def list_tom_assertions(
         self,
         trait_families: List[str] | None = ...,
@@ -136,6 +151,22 @@ class L2StoreProtocol(Protocol):
         object_types: List[str] | None = ...,
         limit_per_entity: int = ...,
         evidence_classes: List[str] | None = ...,
+    ) -> Dict[str, List[Dict[str, Any]]]: ...
+
+    async def batch_list_current_relationships(
+        self,
+        *,
+        entity_ids: List[str],
+        direction: str = ...,
+        object_id: str | None = ...,
+        predicates: List[str] | None = ...,
+        object_types: List[str] | None = ...,
+        evidence_classes: List[str] | None = ...,
+        context_scope: Dict[str, Any] | None = ...,
+        effective_at: float | None = ...,
+        effective_range: tuple[float | None, float | None] | None = ...,
+        include_history: bool | None = ...,
+        limit_per_entity: int = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
 
     async def get_relationships(

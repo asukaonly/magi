@@ -50,6 +50,8 @@ class _L2PipelineWorkerHostProtocol(Protocol):
 
     def _resolve_self_entity_id(self, event: MemoryEvent) -> str | None: ...
 
+    def _memory_operation_guard(self) -> Any: ...
+
 
 class L2PipelineWorkerMixin:
     """Own the extract, reconcile, snapshot, and callback worker loops."""
@@ -64,11 +66,20 @@ class L2PipelineWorkerMixin:
             try:
                 if job is None:
                     break
-                await self._process_extract_job(job)
+                async with host._memory_operation_guard():
+                    await self._process_extract_job(job)
             finally:
                 host._extract_queue.task_done()
 
     async def _process_extract_job(self, job: L2BatchJob) -> None:
+        host = self._worker_host()
+        if host._cognition_store is None:
+            await self._process_extract_job_locked(job)
+            return
+        async with host._cognition_store.memory_correction_job_guard():
+            await self._process_extract_job_locked(job)
+
+    async def _process_extract_job_locked(self, job: L2BatchJob) -> None:
         host = self._worker_host()
         host._stats.extract_active += 1
         try:
@@ -239,40 +250,31 @@ class L2PipelineWorkerMixin:
             try:
                 if entity_ids is None:
                     break
-                host._stats.reconcile_active += 1
-                active_counted = True
-                logger.info(
-                    "L2 reconcile started",
-                    entity_ids=entity_ids,
-                    queue_size=host._reconcile_queue.qsize(),
-                )
-                snapshot_candidates: set[str] = set()
-                total_outcomes = 0
-                if host._cognition_store is not None:
-                    for entity_id in entity_ids:
-                        outcomes = await host._cognition_store.reconcile_entity(
-                            entity_id=entity_id,
-                            entity_type=host._entity_type_from_id(entity_id),
-                            evidence_timestamps=await host._load_evidence_timestamps(entity_id),
-                        )
-                        total_outcomes += len(outcomes)
-                        if outcomes:
-                            snapshot_candidates.add(entity_id)
-                            await self._emit_state_change_insight(
-                                entity_id=entity_id,
-                                entity_type=host._entity_type_from_id(entity_id),
-                                outcomes=outcomes,
+                async with host._memory_operation_guard():
+                    host._stats.reconcile_active += 1
+                    active_counted = True
+                    logger.info(
+                        "L2 reconcile started",
+                        entity_ids=entity_ids,
+                        queue_size=host._reconcile_queue.qsize(),
+                    )
+                    if host._cognition_store is not None:
+                        async with host._cognition_store.memory_correction_job_guard():
+                            snapshot_candidates, total_outcomes = (
+                                await self._reconcile_entities(entity_ids)
                             )
-                if snapshot_candidates:
-                    await host.enqueue_snapshot_refresh(sorted(snapshot_candidates))
-                host._stats.reconcile_completed += 1
-                logger.info(
-                    "L2 reconcile completed",
-                    entity_ids=entity_ids,
-                    outcome_count=total_outcomes,
-                    snapshot_candidate_count=len(snapshot_candidates),
-                    queue_size=host._reconcile_queue.qsize(),
-                )
+                    else:
+                        snapshot_candidates, total_outcomes = set(), 0
+                    if snapshot_candidates:
+                        await host.enqueue_snapshot_refresh(sorted(snapshot_candidates))
+                    host._stats.reconcile_completed += 1
+                    logger.info(
+                        "L2 reconcile completed",
+                        entity_ids=entity_ids,
+                        outcome_count=total_outcomes,
+                        snapshot_candidate_count=len(snapshot_candidates),
+                        queue_size=host._reconcile_queue.qsize(),
+                    )
             except Exception:
                 host._stats.reconcile_failed += 1
                 logger.exception(
@@ -284,6 +286,31 @@ class L2PipelineWorkerMixin:
                 if active_counted:
                     host._stats.reconcile_active = max(host._stats.reconcile_active - 1, 0)
                 host._reconcile_queue.task_done()
+
+    async def _reconcile_entities(
+        self,
+        entity_ids: list[str],
+    ) -> tuple[set[str], int]:
+        host = self._worker_host()
+        snapshot_candidates: set[str] = set()
+        total_outcomes = 0
+        if host._cognition_store is None:
+            return snapshot_candidates, total_outcomes
+        for entity_id in entity_ids:
+            outcomes = await host._cognition_store.reconcile_entity(
+                entity_id=entity_id,
+                entity_type=host._entity_type_from_id(entity_id),
+                evidence_timestamps=await host._load_evidence_timestamps(entity_id),
+            )
+            total_outcomes += len(outcomes)
+            if outcomes:
+                snapshot_candidates.add(entity_id)
+                await self._emit_state_change_insight(
+                    entity_id=entity_id,
+                    entity_type=host._entity_type_from_id(entity_id),
+                    outcomes=outcomes,
+                )
+        return snapshot_candidates, total_outcomes
 
     async def _emit_state_change_insight(
         self,
@@ -340,29 +367,26 @@ class L2PipelineWorkerMixin:
             try:
                 if entity_ids is None:
                     break
-                host._stats.snapshot_active += 1
-                active_counted = True
-                logger.info(
-                    "L2 snapshot started",
-                    entity_ids=entity_ids,
-                    queue_size=host._snapshot_queue.qsize(),
-                )
-                refreshed_count = 0
-                if host._cognition_store is not None:
-                    for entity_id in entity_ids:
-                        snapshot = await host._cognition_store.refresh_entity_snapshot(
-                            entity_id=entity_id,
-                            entity_type=host._entity_type_from_id(entity_id),
-                        )
-                        if snapshot is not None:
-                            refreshed_count += 1
-                host._stats.snapshot_completed += 1
-                logger.info(
-                    "L2 snapshot completed",
-                    entity_ids=entity_ids,
-                    refreshed_count=refreshed_count,
-                    queue_size=host._snapshot_queue.qsize(),
-                )
+                async with host._memory_operation_guard():
+                    host._stats.snapshot_active += 1
+                    active_counted = True
+                    logger.info(
+                        "L2 snapshot started",
+                        entity_ids=entity_ids,
+                        queue_size=host._snapshot_queue.qsize(),
+                    )
+                    if host._cognition_store is not None:
+                        async with host._cognition_store.memory_correction_job_guard():
+                            refreshed_count = await self._refresh_snapshots(entity_ids)
+                    else:
+                        refreshed_count = 0
+                    host._stats.snapshot_completed += 1
+                    logger.info(
+                        "L2 snapshot completed",
+                        entity_ids=entity_ids,
+                        refreshed_count=refreshed_count,
+                        queue_size=host._snapshot_queue.qsize(),
+                    )
             except Exception:
                 host._stats.snapshot_failed += 1
                 logger.exception(
@@ -374,6 +398,20 @@ class L2PipelineWorkerMixin:
                 if active_counted:
                     host._stats.snapshot_active = max(host._stats.snapshot_active - 1, 0)
                 host._snapshot_queue.task_done()
+
+    async def _refresh_snapshots(self, entity_ids: list[str]) -> int:
+        host = self._worker_host()
+        if host._cognition_store is None:
+            return 0
+        refreshed_count = 0
+        for entity_id in entity_ids:
+            snapshot = await host._cognition_store.refresh_entity_snapshot(
+                entity_id=entity_id,
+                entity_type=host._entity_type_from_id(entity_id),
+            )
+            if snapshot is not None:
+                refreshed_count += 1
+        return refreshed_count
 
     def _worker_host(self) -> _L2PipelineWorkerHostProtocol:
         return self  # type: ignore[return-value]

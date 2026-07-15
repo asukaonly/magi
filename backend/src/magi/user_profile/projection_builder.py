@@ -77,6 +77,7 @@ class UserProfileProjectionBuilder:
         )
         await derivation_revision.ensure_current(self._l2_store)
         projection.source_revision = derivation_revision.source_revision
+        projection.source_generation = int(derivation_revision.clear_generation or 0)
         return projection
 
     async def _list_profile_assertions(self, entity_id: str) -> list[dict[str, Any]]:

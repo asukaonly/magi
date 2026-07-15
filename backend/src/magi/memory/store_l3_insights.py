@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 import logging
+import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+import aiosqlite
+
+from ..core.sqlite import sqlite_connection_async
+from .derivation_revision import (
+    DerivationRevisionChangedError,
+    MemoryClearGenerationChangedError,
+)
 from .l2.corrections.repository import MemoryCorrectionRepository
 from .l2.models import L2FocalEntityRef, ReconciledTraitOutcome
+from .l3.derivation_fence import L3DerivationFence
+from .l3.dependency_validation import (
+    StaleL3CandidateError,
+    ensure_l3_dependencies_current,
+)
 from .l3.models import (
     ContradictionPacket,
     L3Candidate,
@@ -22,6 +36,12 @@ if __name__ != "__main__":  # always True – guard for TYPE_CHECKING-like lazy 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True, slots=True)
+class _L3CandidateDependencyContext:
+    dependencies: list[tuple[str, str, str, int]]
+    fence: L3DerivationFence
+
+
 class L3InsightsMixin:
     """Extracted methods for building / persisting L3 insight candidates."""
 
@@ -35,6 +55,28 @@ class L3InsightsMixin:
         source_task_ids: list[str] | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Validate and persist an explicit L3 candidate."""
+        async with self.memory_operation_guard():
+            try:
+                return await self._persist_l3_candidate_guarded(
+                    candidate=candidate,
+                    task_outcome=task_outcome,
+                    source_task_ids=source_task_ids,
+                )
+            except (
+                DerivationRevisionChangedError,
+                MemoryClearGenerationChangedError,
+                StaleL3CandidateError,
+            ) as exc:
+                logger.info("Discarded stale L3 candidate: %s", exc)
+                return None
+
+    async def _persist_l3_candidate_guarded(
+        self,
+        *,
+        candidate: L3Candidate,
+        task_outcome: TaskOutcomePacket | None,
+        source_task_ids: list[str] | None,
+    ) -> Optional[Dict[str, Any]]:
         if self.l1 is None or self.l3 is None:  # type: ignore[attr-defined]
             return None
 
@@ -57,27 +99,60 @@ class L3InsightsMixin:
         task_ids = list(source_task_ids or [])
         if task_outcome is not None and task_outcome.task_id not in task_ids:
             task_ids.append(task_outcome.task_id)
-        dependencies = await self._l3_candidate_dependencies(candidate)
-        source_revision = max(
-            (dependency[3] for dependency in dependencies),
-            default=0,
-        )
-        summary = await self.l3.upsert_candidate(  # type: ignore[attr-defined]
-            candidate=candidate,
-            source_task_ids=task_ids,
-            summary_overrides={
-                "source_revision": source_revision,
-                "derivation_state": "current",
-            },
-        )
-        if dependencies:
-            await MemoryCorrectionRepository(
-                self.l2.db_path  # type: ignore[attr-defined]
-            ).replace_artifact_dependencies(
-                artifact_kind="l3_insight",
-                artifact_id=str(summary["summary_id"]),
-                dependencies=dependencies,
-            )
+        dependency_context = await self._l3_candidate_dependencies(candidate)
+        l3_store = self.l3  # type: ignore[attr-defined]
+        await l3_store.initialize()
+        repository = MemoryCorrectionRepository(l3_store.db_path)
+        detached_chunk_ids: list[str] = []
+        async with l3_store.embedding_mutation_guard():
+            async with sqlite_connection_async(l3_store.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    await dependency_context.fence.ensure_current_on_connection(db)
+                    await ensure_l3_dependencies_current(
+                        db,
+                        dependency_context.dependencies,
+                        effective_at=time.time(),
+                    )
+                    insight_key = (candidate.insight_key or "").strip() or None
+                    existing_summary = (
+                        await l3_store._find_summary_by_insight_key_on_connection(
+                            db,
+                            insight_key,
+                        )
+                        if insight_key is not None
+                        else None
+                    )
+                    if existing_summary is not None:
+                        detached_chunk_ids = (
+                            await l3_store._detach_summary_embedding_on_connection(
+                                db,
+                                summary_id=str(existing_summary["summary_id"]),
+                            )
+                        )
+                    summary = await l3_store.upsert_candidate_on_connection(
+                        db,
+                        candidate=candidate,
+                        source_task_ids=task_ids,
+                        summary_overrides={
+                            "source_revision": dependency_context.fence.source_revision,
+                            "derivation_state": "current",
+                        },
+                        resolved_existing_summary=existing_summary,
+                    )
+                    await repository.replace_artifact_dependencies_on_connection(
+                        db,
+                        artifact_kind="l3_insight",
+                        artifact_id=str(summary["summary_id"]),
+                        dependencies=dependency_context.dependencies,
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+            await l3_store._delete_summary_vectors_unlocked(detached_chunk_ids)
+        await l3_store._schedule_summary_embedding(summary)
         return summary
 
     async def persist_task_outcome_reflection(
@@ -194,38 +269,53 @@ class L3InsightsMixin:
     async def _l3_candidate_dependencies(
         self,
         candidate: L3Candidate,
-    ) -> list[tuple[str, str, str, int]]:
+    ) -> _L3CandidateDependencyContext:
         l2 = self.l2  # type: ignore[attr-defined]
-        if l2 is None or candidate.summary_type != "insight":
-            return []
-        metadata = candidate.insight_metadata or {}
-        default_subject = str(metadata.get("entity_id") or "").strip()
-        raw_outcomes = metadata.get("outcomes")
-        if not isinstance(raw_outcomes, list):
-            raw_outcomes = []
-        repository = MemoryCorrectionRepository(l2.db_path)
-        revisions: dict[str, int] = {}
-        dependencies: list[tuple[str, str, str, int]] = []
-        for raw_dependency in candidate.claim_dependencies:
-            source_kind = str(raw_dependency.get("source_kind") or "").strip()
-            source_id = str(raw_dependency.get("source_id") or "").strip()
-            subject_key = str(raw_dependency.get("subject_key") or "").strip()
-            if source_kind not in {"assertion", "edge"} or not source_id or not subject_key:
-                continue
-            if subject_key not in revisions:
-                revisions[subject_key] = await repository.current_subject_revision(subject_key)
-            dependencies.append((source_kind, source_id, subject_key, revisions[subject_key]))
-        for raw_outcome in raw_outcomes:
-            if not isinstance(raw_outcome, dict):
-                continue
-            subject_key = str(raw_outcome.get("entity_id") or default_subject).strip()
-            assertion_id = str(raw_outcome.get("source_assertion_id") or "").strip()
-            if not subject_key or not assertion_id:
-                continue
-            if subject_key not in revisions:
-                revisions[subject_key] = await repository.current_subject_revision(subject_key)
-            dependencies.append(("assertion", assertion_id, subject_key, revisions[subject_key]))
-        return list(dict.fromkeys(dependencies))
+        l3 = self.l3  # type: ignore[attr-defined]
+        dependency_refs: list[tuple[str, str, str]] = []
+        if l2 is not None and candidate.summary_type == "insight":
+            metadata = candidate.insight_metadata or {}
+            default_subject = str(metadata.get("entity_id") or "").strip()
+            raw_outcomes = metadata.get("outcomes")
+            if not isinstance(raw_outcomes, list):
+                raw_outcomes = []
+            for raw_dependency in candidate.claim_dependencies:
+                source_kind = str(raw_dependency.get("source_kind") or "").strip()
+                source_id = str(raw_dependency.get("source_id") or "").strip()
+                subject_key = str(raw_dependency.get("subject_key") or "").strip()
+                if (
+                    source_kind in {"assertion", "edge"}
+                    and source_id
+                    and subject_key
+                ):
+                    dependency_refs.append((source_kind, source_id, subject_key))
+            for raw_outcome in raw_outcomes:
+                if not isinstance(raw_outcome, dict):
+                    continue
+                subject_key = str(raw_outcome.get("entity_id") or default_subject).strip()
+                assertion_id = str(raw_outcome.get("source_assertion_id") or "").strip()
+                if subject_key and assertion_id:
+                    dependency_refs.append(("assertion", assertion_id, subject_key))
+
+        dependency_refs = list(dict.fromkeys(dependency_refs))
+        db_path = l2.db_path if l2 is not None else l3.db_path
+        if str(db_path) != str(l3.db_path):
+            raise RuntimeError("L2 and L3 must share one database for atomic insight writes")
+        async with sqlite_connection_async(db_path) as db:
+            await db.execute("BEGIN")
+            fence = await L3DerivationFence.capture_on_connection(
+                db,
+                (subject_key for _, _, subject_key in dependency_refs),
+            )
+            await db.commit()
+        dependencies = [
+            (source_kind, source_id, subject_key, fence.revisions[subject_key])
+            for source_kind, source_id, subject_key in dependency_refs
+        ]
+        return _L3CandidateDependencyContext(
+            dependencies=dependencies,
+            fence=fence,
+        )
 
     async def _handle_l2_active_entities(
         self,

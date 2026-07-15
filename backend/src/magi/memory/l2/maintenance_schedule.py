@@ -57,57 +57,66 @@ async def handle_l2_entity_maintenance(
         logger.debug("L2 maintenance skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
 
-    if unified.l2_entity_catalog is None:
-        return ScheduledExecutionResult(success=True, message="l2_catalog_uninitialized_skip", stats={})
+    async with unified.memory_operation_guard():
+        if unified.l2_entity_catalog is None:
+            return ScheduledExecutionResult(
+                success=True,
+                message="l2_catalog_uninitialized_skip",
+                stats={},
+            )
 
-    l2_cfg = memory_cfg.l2
-    catalog = unified.l2_entity_catalog
-    db_path = str(catalog.db_path)
-    # Maintenance still needs the embedding infra for `_clean_non_active_edge_embeddings`
-    # (pruning vectors of de-activated edges). Embedding *pending* edges is no longer
-    # maintenance's job — that moved to the dedicated EdgeEmbeddingDrainer (#86).
-    embedding_service = catalog.embedding_service
-    edge_vector_index = catalog.edge_vector_index
-    maint = L2EntityMaintenance(
-        db_path=db_path,
-        embedding_service=embedding_service,
-        edge_vector_index=edge_vector_index,
-        cognition_store=getattr(getattr(unified, "l2_pipeline", None), "_cognition_store", None),
-        lifecycle=_lifecycle_from_config(l2_cfg),
-    )
-    try:
-        stats = await maint.run(
-            min_mentions_to_keep=int(l2_cfg.maintenance_min_mentions),
-            consolidate_episodes=False,
+        l2_cfg = memory_cfg.l2
+        catalog = unified.l2_entity_catalog
+        db_path = str(catalog.db_path)
+        # Maintenance still needs the embedding infra for `_clean_non_active_edge_embeddings`
+        # (pruning vectors of de-activated edges). Embedding *pending* edges is no longer
+        # maintenance's job — that moved to the dedicated EdgeEmbeddingDrainer (#86).
+        embedding_service = catalog.embedding_service
+        edge_vector_index = catalog.edge_vector_index
+        maint = L2EntityMaintenance(
+            db_path=db_path,
+            embedding_service=embedding_service,
+            edge_vector_index=edge_vector_index,
+            cognition_store=getattr(
+                getattr(unified, "l2_pipeline", None),
+                "_cognition_store",
+                None,
+            ),
+            lifecycle=_lifecycle_from_config(l2_cfg),
         )
-    except Exception as exc:
-        logger.error("L2 entity maintenance run failed", error=str(exc))
-        return ScheduledExecutionResult(
-            success=False,
-            message="maintenance_failed",
-            stats={"error": str(exc)},
-        )
-
-    # P2 frequency gate: prune stale non-promoted promotion-counter keys (one-off noise that
-    # never crossed threshold); promoted keys are kept. Bounds the counter table over time.
-    pruned = 0
-    counter = getattr(unified, "l2_promotion_counter", None)
-    if counter is not None:
         try:
-            pruned = await counter.prune_stale(
-                retention_seconds=l2_cfg.lifecycle.promotion_counter_retention_seconds
+            stats = await maint.run(
+                min_mentions_to_keep=int(l2_cfg.maintenance_min_mentions),
+                consolidate_episodes=False,
             )
         except Exception as exc:
-            logger.warning("L2 promotion-counter prune failed", error=str(exc))
+            logger.error("L2 entity maintenance run failed", error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="maintenance_failed",
+                stats={"error": str(exc)},
+            )
 
-    return ScheduledExecutionResult(
-        success=True,
-        message="maintenance_ok",
-        stats={
-            **asdict(stats),
-            "promotion_counter_pruned": pruned,
-        },
-    )
+        # P2 frequency gate: prune stale non-promoted promotion-counter keys (one-off noise that
+        # never crossed threshold); promoted keys are kept. Bounds the counter table over time.
+        pruned = 0
+        counter = getattr(unified, "l2_promotion_counter", None)
+        if counter is not None:
+            try:
+                pruned = await counter.prune_stale(
+                    retention_seconds=l2_cfg.lifecycle.promotion_counter_retention_seconds
+                )
+            except Exception as exc:
+                logger.warning("L2 promotion-counter prune failed", error=str(exc))
+
+        return ScheduledExecutionResult(
+            success=True,
+            message="maintenance_ok",
+            stats={
+                **asdict(stats),
+                "promotion_counter_pruned": pruned,
+            },
+        )
 
 
 class L2MaintenanceScheduleContrib:

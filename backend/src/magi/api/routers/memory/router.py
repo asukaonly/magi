@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
-memory_router = APIRouter()
+from .operation_boundary import memory_operation_boundary
+
+memory_router = APIRouter(dependencies=[Depends(memory_operation_boundary)])

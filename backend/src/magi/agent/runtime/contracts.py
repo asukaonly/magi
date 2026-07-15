@@ -18,3 +18,4 @@ class FactRecord:
     agent_instance_id: Optional[str] = None
     timestamp: float = field(default_factory=time.time)
     correlation_id: Optional[str] = None
+    user_message_generation: Optional[int] = None

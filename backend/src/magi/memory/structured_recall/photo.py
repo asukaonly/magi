@@ -15,6 +15,7 @@ from ..l1.source_facets import (
     extract_source_facets,
     normalize_facet_text,
 )
+from .governance import EventIdBlocklist, exclude_governed_events
 
 PHOTO_QUERY_LOCATION_FACETS = (*PHOTO_LOCATION_FACETS, "photo.retrieval_term")
 
@@ -25,6 +26,7 @@ async def expand_photo_structured_recall(
     request: RetrievalQuery,
     recall_shape: RecallShape,
     payload: RetrievalPayload,
+    event_id_blocklist: EventIdBlocklist | None = None,
 ) -> dict[str, Any] | None:
     """Expand a photo seed result into complete source-backed photo stats."""
     if recall_shape.domain_hint != "photo" or recall_shape.desired_coverage != "exhaustive":
@@ -49,6 +51,10 @@ async def expand_photo_structured_recall(
         time_start=_coerce_float((request.time_range or {}).get("start")),
         time_end=_coerce_float((request.time_range or {}).get("end")),
         limit=max(int(request.limit or 10) * 20, 1000),
+    )
+    events = await exclude_governed_events(
+        events,
+        event_id_blocklist=event_id_blocklist,
     )
     if not events:
         return None

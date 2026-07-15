@@ -6,12 +6,17 @@ from dataclasses import dataclass
 import logging
 from typing import Any, Dict, List, Protocol, cast
 
+from .correction_evidence_governance import decide_l1_correction_evidence
 from .debug_detail import DETAIL_LIMIT, event_records, log_detail
 from .models import RetrievalPayload, RetrievalQuery
 from .service_policy import count_payload_results
 from .timeline_condense import build_timeline_summary
 
 logger = logging.getLogger(__name__)
+
+_HISTORICAL_L1_EVENT_MODES = frozenset(
+    {"event_stream", "episode_recall", "experience_recall"}
+)
 
 
 @dataclass(frozen=True)
@@ -135,6 +140,16 @@ class HybridRetrievalPostProcessingMixin:
     ) -> RetrievalPayload:
         """Apply fusion, manifest selection, evidence bundling, and timeline summary."""
         host = cast(_HybridRetrievalPostProcessingHostProtocol, self)
+        await self._apply_l1_event_semantics(
+            payload,
+            mode_plan=mode_plan,
+            host=host,
+        )
+        await self._apply_l1_correction_governance(
+            payload,
+            mode_plan=mode_plan,
+            host=host,
+        )
         payload, fusion_audit = self._apply_result_fusion(
             payload,
             request=request,
@@ -155,6 +170,94 @@ class HybridRetrievalPostProcessingMixin:
         self._apply_mode_reducer(payload, request=request, mode_plan=mode_plan)
         self._log_post_processing_completed(payload, request=request)
         return payload
+
+    async def _apply_l1_event_semantics(
+        self,
+        payload: RetrievalPayload,
+        *,
+        mode_plan: Any,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+    ) -> None:
+        """Mark narrative L1 evidence as a historical record, not a current fact."""
+        mode = str(getattr(mode_plan, "mode", "") or "")
+        if mode not in _HISTORICAL_L1_EVENT_MODES or not payload.l1_events:
+            return
+        corrected_event_ids: frozenset[str] = frozenset()
+        l2_store = getattr(host._memory, "l2", None)
+        db_path = getattr(l2_store, "db_path", None)
+        lookup = getattr(l2_store, "active_correction_evidence_event_ids", None)
+        if (
+            l2_store is not None
+            and isinstance(db_path, str)
+            and db_path.strip()
+            and callable(lookup)
+        ):
+            decision = await decide_l1_correction_evidence(
+                l2_store,
+                [str(event.get("event_id") or "") for event in payload.l1_events],
+            )
+            if not decision.drop_all:
+                corrected_event_ids = decision.blocked_event_ids
+                payload.trace["l1_historical_correction_annotation"] = "applied"
+            else:
+                payload.trace["l1_historical_correction_annotation"] = "unavailable"
+        else:
+            payload.trace["l1_historical_correction_annotation"] = "unavailable"
+        payload.l1_events = [
+            {
+                **event,
+                "evidence_semantics": "historical_record",
+                **(
+                    {"correction_status": "later_corrected"}
+                    if str(event.get("event_id") or "").strip()
+                    in corrected_event_ids
+                    else {}
+                ),
+            }
+            for event in payload.l1_events
+        ]
+        payload.trace["l1_event_semantics"] = "historical_record"
+        payload.trace["l1_historical_corrected_event_count"] = sum(
+            1
+            for event in payload.l1_events
+            if event.get("correction_status") == "later_corrected"
+        )
+
+    async def _apply_l1_correction_governance(
+        self,
+        payload: RetrievalPayload,
+        *,
+        mode_plan: Any,
+        host: _HybridRetrievalPostProcessingHostProtocol,
+    ) -> None:
+        """Defer corrected fact evidence to the governed L2 interpretation."""
+        retrieval_scopes = set(getattr(mode_plan, "l1_retrieval_scopes", None) or [])
+        if "fact_authoritative" not in retrieval_scopes or not payload.l1_events:
+            return
+        original_count = len(payload.l1_events)
+        decision = await decide_l1_correction_evidence(
+            getattr(host._memory, "l2", None),
+            [str(event.get("event_id") or "") for event in payload.l1_events],
+        )
+        payload.trace["l1_correction_governance"] = decision.status
+        if decision.reason is not None:
+            payload.trace["l1_correction_governance_reason"] = decision.reason
+        if not decision.blocked_event_ids and not decision.missing_event_id_count:
+            return
+        payload.trace["l1_correction_governance_granularity"] = "event"
+        if decision.drop_all:
+            payload.l1_events = []
+        else:
+            payload.l1_events = [
+                event
+                for event in payload.l1_events
+                if str(event.get("event_id") or "").strip()
+                and str(event.get("event_id") or "").strip()
+                not in decision.blocked_event_ids
+            ]
+        payload.trace["l1_correction_governance_dropped_count"] = (
+            original_count - len(payload.l1_events)
+        )
 
     def _apply_result_fusion(
         self,

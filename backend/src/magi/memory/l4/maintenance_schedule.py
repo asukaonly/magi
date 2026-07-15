@@ -50,37 +50,42 @@ async def handle_l4_maintenance(context: ScheduledExecutionContext) -> Scheduled
     except RuntimeError:
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
 
-    if unified.l4 is None:
-        return ScheduledExecutionResult(success=True, message="l4_uninitialized_skip", stats={})
+    async with unified.memory_operation_guard():
+        if unified.l4 is None:
+            return ScheduledExecutionResult(
+                success=True,
+                message="l4_uninitialized_skip",
+                stats={},
+            )
 
-    db_path = str(unified.l4.db_path)
-    stats = _MaintenanceStats()
-    now = time.time()
+        db_path = str(unified.l4.db_path)
+        stats = _MaintenanceStats()
+        now = time.time()
 
-    try:
-        async with sqlite_connection_async(db_path) as db:
-            await _decay_breakers(db, now=now, cfg=cfg, stats=stats)
-            await _check_pending_traces(db, cfg=cfg, stats=stats)
-            await _soft_delete_inactive(db, now=now, cfg=cfg, stats=stats)
-            await db.commit()
-    except Exception as exc:
-        logger.error("L4 maintenance failed", error=str(exc))
+        try:
+            async with sqlite_connection_async(db_path) as db:
+                await _decay_breakers(db, now=now, cfg=cfg, stats=stats)
+                await _check_pending_traces(db, cfg=cfg, stats=stats)
+                await _soft_delete_inactive(db, now=now, cfg=cfg, stats=stats)
+                await db.commit()
+        except Exception as exc:
+            logger.error("L4 maintenance failed", error=str(exc))
+            return ScheduledExecutionResult(
+                success=False,
+                message="l4_maintenance_failed",
+                stats={"error": str(exc)},
+            )
+
         return ScheduledExecutionResult(
-            success=False,
-            message="l4_maintenance_failed",
-            stats={"error": str(exc)},
+            success=True,
+            message="l4_maintenance_ok",
+            stats={
+                "breakers_decayed_to_halfopen": stats.breakers_decayed_to_halfopen,
+                "breakers_closed_from_halfopen": stats.breakers_closed_from_halfopen,
+                "skills_soft_deleted": stats.skills_soft_deleted,
+                "pending_warnings": stats.pending_warnings,
+            },
         )
-
-    return ScheduledExecutionResult(
-        success=True,
-        message="l4_maintenance_ok",
-        stats={
-            "breakers_decayed_to_halfopen": stats.breakers_decayed_to_halfopen,
-            "breakers_closed_from_halfopen": stats.breakers_closed_from_halfopen,
-            "skills_soft_deleted": stats.skills_soft_deleted,
-            "pending_warnings": stats.pending_warnings,
-        },
-    )
 
 
 async def _decay_breakers(db, *, now, cfg, stats) -> None:

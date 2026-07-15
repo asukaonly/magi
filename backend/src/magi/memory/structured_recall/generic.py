@@ -16,6 +16,7 @@ from ..l1.source_facets import (
     extract_source_facets,
     normalize_facet_text,
 )
+from .governance import EventIdBlocklist, exclude_governed_events
 
 
 @dataclass(frozen=True)
@@ -54,6 +55,7 @@ async def expand_generic_structured_recall(
     request: RetrievalQuery,
     recall_shape: RecallShape,
     payload: RetrievalPayload,
+    event_id_blocklist: EventIdBlocklist | None = None,
 ) -> dict[str, Any] | None:
     """Expand a seed result into complete source-facet-backed stats."""
     spec = _eligible_structured_recall_spec(
@@ -73,6 +75,10 @@ async def expand_generic_structured_recall(
         spec=spec,
         seed=seed,
         request=request,
+    )
+    events = await exclude_governed_events(
+        events,
+        event_id_blocklist=event_id_blocklist,
     )
     if not events:
         return None

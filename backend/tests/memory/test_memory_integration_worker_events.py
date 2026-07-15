@@ -32,6 +32,9 @@ class _FakeUnifiedMemory:
         _ = period_type
         return None
 
+    def get_l2_pipeline_stats(self):
+        return {}
+
 
 class _FakeBus:
     async def subscribe(self, *args, **kwargs):  # pragma: no cover - not used in this unit test
@@ -64,6 +67,30 @@ class TestMemoryIntegrationWorkerEvents(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(event_type, cfg.subscribed_events)
         self.assertNotIn(EventTypes.USER_MESSAGE, cfg.subscribed_events)
         self.assertNotIn(EventTypes.AI_RESPONSE, cfg.subscribed_events)
+
+    async def test_bus_handler_rejects_event_without_publication_epoch(self):
+        memory = _FakeUnifiedMemory()
+        integration = MemoryIntegrationModule(
+            unified_memory=memory,
+            message_bus=_FakeBus(),
+            config=MemoryIntegrationConfig(),
+        )
+
+        await integration._handle_event(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "task-1",
+                    "success": True,
+                },
+                source="runtime",
+            )
+        )
+
+        self.assertEqual(memory.ingested, [])
+        self.assertEqual(integration.get_statistics()["events_failed"], 1)
 
     async def test_worker_progress_event_is_not_stored_in_l1(self):
         integration = MemoryIntegrationModule(

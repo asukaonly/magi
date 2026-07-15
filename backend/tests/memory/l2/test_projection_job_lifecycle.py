@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import AsyncIterator
 
 import pytest
 
@@ -13,6 +15,10 @@ class _RecordingCognitionStore:
         self.running_calls: list[tuple[list[str], str]] = []
         self.completed_calls: list[list[str]] = []
         self.failed_calls: list[tuple[list[str], str | None, bool]] = []
+
+    @asynccontextmanager
+    async def memory_correction_job_guard(self) -> AsyncIterator[None]:
+        yield
 
     async def mark_projection_jobs_running(self, event_ids, *, consumer_name: str) -> int:  # type: ignore[no-untyped-def]
         ids = list(event_ids)

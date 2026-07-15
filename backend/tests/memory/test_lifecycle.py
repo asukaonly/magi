@@ -27,7 +27,7 @@ class _FakeUsageStore:
         self.started = False
         self.message_bus = None
 
-    async def start(self, message_bus) -> None:  # type: ignore[no-untyped-def]
+    async def start(self, message_bus=None) -> None:  # type: ignore[no-untyped-def]
         self.started = True
         self.message_bus = message_bus
 
@@ -44,6 +44,9 @@ class _FakeUnifiedMemoryStore:
 
     async def shutdown(self) -> None:
         return None
+
+    def memory_operation_epoch(self) -> int:
+        return 0
 
 
 class _FakeHybridRetrievalService:
@@ -146,7 +149,11 @@ class _FakeMessageBus:
     def __init__(self) -> None:
         self.subscriptions: list[tuple[str, object]] = []
         self.unsubscribed: list[str] = []
+        self.bound_epoch_getters: list[object | None] = []
         self._next = 0
+
+    def bind_memory_operation_epoch(self, getter) -> None:  # type: ignore[no-untyped-def]
+        self.bound_epoch_getters.append(getter)
 
     async def subscribe(self, event_type, handler):  # type: ignore[no-untyped-def]
         self._next += 1
@@ -156,6 +163,103 @@ class _FakeMessageBus:
 
     async def unsubscribe(self, sid):  # type: ignore[no-untyped-def]
         self.unsubscribed.append(sid)
+
+
+@pytest.mark.asyncio
+async def test_memory_store_binds_epoch_before_subscribing_and_unbinds_on_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from magi.bootstrap.context import RuntimeBootstrapContext
+    from magi.config.models import EmbeddingBackend
+    from magi.memory.lifecycle import MemoryStoreModule
+
+    usage_store = _FakeUsageStore()
+    bus = _FakeMessageBus()
+    integration_state: dict[str, object] = {}
+
+    class _FakeIntegration:
+        def __init__(self, *, unified_memory, message_bus, config) -> None:  # type: ignore[no-untyped-def]
+            assert message_bus.bound_epoch_getters
+            assert message_bus.bound_epoch_getters[-1] is not None
+            integration_state["instance"] = self
+            integration_state["memory"] = unified_memory
+            integration_state["config"] = config
+            self.started = False
+            self.stopped = False
+
+        async def start(self) -> None:
+            self.started = True
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+    monkeypatch.setattr("magi.memory.lifecycle.get_llm_usage_store", lambda: usage_store)
+    monkeypatch.setattr(
+        "magi.memory.lifecycle.UnifiedMemoryStore",
+        _FakeUnifiedMemoryStore,
+    )
+    monkeypatch.setattr(
+        "magi.memory.lifecycle.HybridRetrievalService",
+        _FakeHybridRetrievalService,
+    )
+    monkeypatch.setattr(
+        "magi.memory.lifecycle.MemoryIntegrationModule",
+        _FakeIntegration,
+    )
+
+    context = RuntimeBootstrapContext()
+    context.core.config = SimpleNamespace(
+        agent=SimpleNamespace(
+            memory=SimpleNamespace(
+                archive_path=str(tmp_path / "archive"),
+                embedding=SimpleNamespace(backend=EmbeddingBackend.OPENAI),
+                async_embeddings=False,
+                l0=SimpleNamespace(enabled=True, checkpoint_interval_seconds=60),
+                l1=SimpleNamespace(enabled=True, vectors_enabled=False),
+                l2=SimpleNamespace(
+                    enabled=True,
+                    vectors_enabled=False,
+                    batch_flush_interval_seconds=0,
+                    conflict_arbitration_enabled=False,
+                    conflict_arbitration_min_confidence=0.85,
+                ),
+                l3=SimpleNamespace(
+                    enabled=True,
+                    vectors_enabled=False,
+                    llm_summary_enabled=False,
+                    temporal_llm_timeout_seconds=30,
+                    temporal_llm_min_event_count=5,
+                    summary_interval_minutes=60,
+                ),
+                l4=SimpleNamespace(enabled=True, vectors_enabled=False),
+            )
+        )
+    )
+    context.core.runtime_paths = SimpleNamespace(
+        l1_memory_db_path=tmp_path / "l1.db",
+        memory_db_path=tmp_path / "memory.db",
+        memory_dir=tmp_path / "memory",
+    )
+    context.core.db_initializer = _FakeDBInitializer()
+    context.llm.scenario_llm_pool = _FakeScenarioPool()
+    context.plugins.plugin_projection_service = SimpleNamespace(
+        build_temporal_summary_features=lambda *args, **kwargs: {},
+        iter_extraction_profiles=lambda: [],
+    )
+    context.message_bus.message_bus = bus
+
+    module = MemoryStoreModule(context, start_memory_integration=True)
+    await module.init()
+
+    integration = integration_state["instance"]
+    assert integration.started is True
+    assert callable(bus.bound_epoch_getters[0])
+
+    await module.shutdown()
+
+    assert integration.stopped is True
+    assert bus.bound_epoch_getters[-1] is None
 
 
 @pytest.mark.asyncio

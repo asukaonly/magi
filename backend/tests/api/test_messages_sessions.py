@@ -9,19 +9,21 @@ BACKEND_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(BACKEND_SRC) not in sys.path:
     sys.path.insert(0, str(BACKEND_SRC))
 
-from magi.api.routers import messages, messages_sessions
-from magi.chat import ChatStore
-from magi.chat.read_service import (
+from magi.api.routers import messages, messages_sessions  # noqa: E402
+from magi.chat import ChatStore  # noqa: E402
+from magi.chat.read_service import (  # noqa: E402
     ChatReadService,
     ChatSessionRenameResult,
     ChatSessionSummary,
 )
-from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService
+from magi.runtime_trace.chat_trace.read_service import ChatTraceReadService  # noqa: E402
 
 FACT_EVENTS_TABLE = "fact_events"
 CHAT_SESSIONS_TABLE = "chat_sessions"
 CHAT_TURNS_TABLE = "chat_turns"
 CHAT_MESSAGES_TABLE = "chat_messages"
+CHAT_CONTEXT_SUMMARIES_TABLE = "chat_context_summaries"
+CHAT_RUN_CONSUMED_EVENTS_TABLE = "chat_run_consumed_events"
 
 
 def _init_event_store(db_path: Path) -> None:
@@ -123,6 +125,26 @@ def _insert_chat_turn(db_path: Path, **values) -> None:
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         tuple(payload.values()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_consumed_event(
+    db_path: Path,
+    *,
+    session_id: str,
+    run_id: str,
+    message_id: str,
+) -> None:
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        f"""
+        INSERT INTO {CHAT_RUN_CONSUMED_EVENTS_TABLE} (
+            session_id, run_id, revision, message_id, recorded_at_ms
+        ) VALUES (?, ?, 0, ?, 1)
+        """,
+        (session_id, run_id, message_id),
     )
     conn.commit()
     conn.close()
@@ -413,10 +435,14 @@ def _insert_event(db_path: Path, event_type: str, data: dict, timestamp: float) 
 
 
 def _build_service(tmp_path: Path) -> ChatReadService:
+    from magi.chat.asset_gc import ChatAssetGC
+    from magi.utils.runtime import RuntimePaths
+
     service = ChatReadService()
     db_path = tmp_path / "chat.sqlite3"
     service._chat_db_path = db_path
     service._l1_db_path = db_path
+    service._asset_gc = ChatAssetGC(runtime_paths=RuntimePaths(tmp_path / "runtime"))
 
     # Hermeticity: display-history now joins chat-trace data through the
     # container's ChatTraceReadService singleton, whose db paths freeze at
@@ -429,6 +455,7 @@ def _build_service(tmp_path: Path) -> ChatReadService:
     trace_db = tmp_path / "runtime_trace.db"
     apply_chain_schema("runtime_trace", trace_db)
     apply_chain_schema("l1", tmp_path / "l1_events.db")
+    service._runtime_trace_db_path = trace_db
     trace_service = ChatTraceReadService()
     trace_service._runtime_trace_db_path = trace_db
     trace_service._l1_db_path = tmp_path / "l1_events.db"
@@ -438,6 +465,232 @@ def _build_service(tmp_path: Path) -> ChatReadService:
 
     container.chat_trace_read_service.override(_providers.Object(trace_service))
     return service
+
+
+def _count_table_rows(db_path: Path, table: str) -> int:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        return int(row[0] if row is not None else 0)
+    finally:
+        conn.close()
+
+
+def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data(
+    tmp_path,
+    monkeypatch,
+):
+    service = _build_service(tmp_path)
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Chat",
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        trace_id="trace-1",
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="message-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="text",
+        content_text="hello",
+    )
+    _insert_consumed_event(
+        service._chat_db_path,
+        session_id="s1",
+        run_id="run-1",
+        message_id="message-1",
+    )
+    chat_conn = sqlite3.connect(str(service._chat_db_path))
+    chat_conn.execute(
+        f"""
+        INSERT INTO {CHAT_CONTEXT_SUMMARIES_TABLE} (
+            summary_id, session_id, status, summary_kind, summary_text,
+            prompt_profile, created_at_ms, updated_at_ms
+        ) VALUES ('summary-1', 's1', 'active', 'rolling',
+                  'private conversation summary', 'general_chat', 1, 1)
+        """
+    )
+    chat_conn.commit()
+    chat_conn.close()
+
+    conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    conn.execute(
+        """
+        INSERT INTO trace_turns (
+            trace_id, turn_id, session_id, user_id, status, mode,
+            started_at_ms, created_at_ms, updated_at_ms
+        ) VALUES ('trace-1', 'turn-1', 's1', 'u1', 'completed', 'chat', 1, 1, 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO trace_spans (
+            span_id, trace_id, turn_id, node_type, name, status,
+            started_at_ms, created_at_ms, updated_at_ms
+        ) VALUES ('span-1', 'trace-1', 'turn-1', 'llm', 'model', 'completed', 1, 1, 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO trace_intent_resolutions (
+            span_id, trace_id, turn_id, intent, execution_mode, selected_tools_json
+        ) VALUES ('span-1', 'trace-1', 'turn-1', 'chat', 'direct', '[]')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO trace_llm_calls (
+            span_id, trace_id, turn_id, provider, model
+        ) VALUES ('span-1', 'trace-1', 'turn-1', 'test', 'test-model')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO trace_tools (
+            span_id, trace_id, turn_id, tool_name, arguments_json, success
+        ) VALUES ('span-1', 'trace-1', 'turn-1', 'test-tool', '{}', 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO runtime_notifications (
+            channel, user_id, session_id, payload_json, created_at_ms
+        ) VALUES ('chat_message_upserted', 'u1', 's1', '{}', 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO runtime_notifications (
+            channel, user_id, session_id, turn_id, payload_json, created_at_ms
+        ) VALUES ('global_control', 'u1', '', NULL, '{}', 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO plugin_ingress_events (
+            source_kind, producer, plugin_target, event_type, occurred_at_ms,
+            payload_json, status, created_at_ms
+        ) VALUES ('sensor', 'plugin', 'calendar', 'event', 1, '{}', 'pending', 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO user_notifications (
+            user_id, kind, dedupe_key, title, body, created_at_ms
+        ) VALUES ('u1', 'suggestion', 'keep-me', 'title', 'body', 1)
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO user_notifications (
+            user_id, kind, dedupe_key, title, body, created_at_ms
+        ) VALUES (
+            'u1', 'suggestion', 'profile_conflict:identity.name:',
+            'Private conflict', 'Private memory conflict', 1
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    removed = service.clear_all_sessions()
+
+    assert removed == 1
+    for table in (
+        CHAT_SESSIONS_TABLE,
+        CHAT_TURNS_TABLE,
+        CHAT_MESSAGES_TABLE,
+        CHAT_CONTEXT_SUMMARIES_TABLE,
+        CHAT_RUN_CONSUMED_EVENTS_TABLE,
+    ):
+        assert _count_table_rows(service._chat_db_path, table) == 0
+    for table in (
+        "trace_turns",
+        "trace_spans",
+        "trace_intent_resolutions",
+        "trace_llm_calls",
+        "trace_tools",
+    ):
+        assert _count_table_rows(service._runtime_trace_db_path, table) == 0
+    assert _count_table_rows(service._runtime_trace_db_path, "runtime_notifications") == 1
+    runtime_conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    try:
+        remaining_channel = runtime_conn.execute(
+            "SELECT channel FROM runtime_notifications"
+        ).fetchone()[0]
+    finally:
+        runtime_conn.close()
+    assert remaining_channel == "global_control"
+    assert _count_table_rows(service._runtime_trace_db_path, "plugin_ingress_events") == 1
+    assert _count_table_rows(service._runtime_trace_db_path, "user_notifications") == 1
+    notification_conn = sqlite3.connect(str(service._runtime_trace_db_path))
+    try:
+        remaining_dedupe_key = notification_conn.execute(
+            "SELECT dedupe_key FROM user_notifications"
+        ).fetchone()[0]
+    finally:
+        notification_conn.close()
+    assert remaining_dedupe_key == "keep-me"
+
+
+def test_clear_all_sessions_keeps_chat_rows_when_trace_cleanup_fails(
+    tmp_path,
+    monkeypatch,
+):
+    service = _build_service(tmp_path)
+    monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Chat",
+    )
+
+    def _fail_trace_cleanup() -> None:
+        raise RuntimeError("trace cleanup failed")
+
+    monkeypatch.setattr(service, "_clear_all_runtime_trace_rows", _fail_trace_cleanup)
+
+    with pytest.raises(RuntimeError, match="trace cleanup failed"):
+        service.clear_all_sessions()
+
+    assert _count_table_rows(service._chat_db_path, CHAT_SESSIONS_TABLE) == 1
+
+
+def test_clear_all_sessions_removes_traces_when_chat_database_is_absent(
+    tmp_path,
+    monkeypatch,
+):
+    service = _build_service(tmp_path)
+    service._runtime_trace_db_path = tmp_path / "runtime_trace.db"
+    monkeypatch.setattr(service, "_clear_all_chat_assets", lambda: None)
+    assert not service._chat_db_path.exists()
+    _insert_trace_turn(
+        service._runtime_trace_db_path,
+        trace_id="trace-orphan",
+        turn_id="turn-orphan",
+        session_id="session-orphan",
+        user_id="u1",
+    )
+
+    removed = service.clear_all_sessions()
+
+    assert removed == 0
+    assert _count_table_rows(service._runtime_trace_db_path, "trace_turns") == 0
 
 
 def test_list_sessions_reads_from_canonical_session_rows(tmp_path):
@@ -759,6 +1012,18 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
         {"user_id": "u1", "session_id": "s2", "content": "需要一起删掉"},
         2010,
     )
+    _insert_consumed_event(
+        service._chat_db_path,
+        session_id="s1",
+        run_id="run-keep",
+        message_id="message-keep",
+    )
+    _insert_consumed_event(
+        service._chat_db_path,
+        session_id="s2",
+        run_id="run-delete",
+        message_id="message-delete",
+    )
 
     service.delete_session("u1", "s2")
 
@@ -767,6 +1032,13 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
 
     history = service.get_conversation_history("u1", "s2", limit=20)
     assert history == []
+    consumed_sessions = {
+        str(row[0])
+        for row in service._get_conn()
+        .execute(f"SELECT session_id FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
+        .fetchall()
+    }
+    assert consumed_sessions == {"s1"}
 
 
 def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path):
@@ -1098,8 +1370,24 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
         created_at_ms=1000,
         sequence_no=1,
     )
+    _insert_consumed_event(
+        service._chat_db_path,
+        session_id="s-chat",
+        run_id="run-delete",
+        message_id="msg-user",
+    )
 
     conn = service._get_conn()
+    conn.execute(
+        f"""
+        INSERT INTO {CHAT_CONTEXT_SUMMARIES_TABLE} (
+            summary_id, session_id, status, summary_kind, summary_text,
+            prompt_profile, created_at_ms, updated_at_ms
+        ) VALUES ('summary-delete', 's-chat', 'active', 'rolling',
+                  'private summary', 'general_chat', 1, 1)
+        """
+    )
+    conn.commit()
     before_version = int(
         conn.execute(
             f"SELECT history_version FROM {CHAT_SESSIONS_TABLE} WHERE session_id = ?",
@@ -1117,6 +1405,20 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
     )
 
     assert after_version == before_version + 1
+    assert (
+        conn.execute(
+            f"SELECT COUNT(*) FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            f"SELECT COUNT(*) FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE} WHERE session_id = ?",
+            ("s-chat",),
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_update_message_label_persists_and_display_history_returns_label(tmp_path, monkeypatch):

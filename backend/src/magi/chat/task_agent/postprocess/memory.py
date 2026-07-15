@@ -140,27 +140,37 @@ class ChatPostprocessMemoryMixin:
     ) -> None:
         """Run memory/reflection updates off the AI_RESPONSE critical path."""
         host = cast(_MemoryPostprocessHostProtocol, self)
+        scheduled_epoch = (
+            host._unified_memory.memory_operation_epoch()
+            if host._unified_memory is not None
+            else None
+        )
 
         async def _runner() -> None:
             t0 = time.monotonic()
             try:
-                if user_message:
-                    await self._record_memory_updates(
-                        user_id=user_id,
+                if host._unified_memory is None or scheduled_epoch is None:
+                    return
+                async with host._unified_memory.memory_operation_guard():
+                    if host._unified_memory.memory_operation_epoch() != scheduled_epoch:
+                        return
+                    if user_message:
+                        await self._record_memory_updates(
+                            user_id=user_id,
+                            user_message=user_message,
+                            response_text=response_text,
+                            incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
+                            execution_mode=self._enum_value(result.mode),
+                            session_id=context.session_id,
+                            turn_id=result.turn_id,
+                            persona_id=context.active_persona_id,
+                        )
+                    await self._record_task_reflection(
+                        context=context,
+                        result=result,
                         user_message=user_message,
                         response_text=response_text,
-                        incoming_fact_kind=self._enum_value(context.incoming_fact_kind),
-                        execution_mode=self._enum_value(result.mode),
-                        session_id=context.session_id,
-                        turn_id=result.turn_id,
-                        persona_id=context.active_persona_id,
                     )
-                await self._record_task_reflection(
-                    context=context,
-                    result=result,
-                    user_message=user_message,
-                    response_text=response_text,
-                )
             except Exception:
                 logger.exception(
                     "Background memory update failed user_id=%s session_id=%s",

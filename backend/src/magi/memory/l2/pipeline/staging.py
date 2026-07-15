@@ -43,6 +43,8 @@ class _L2PipelineStagingHostProtocol(Protocol):
 
     def _increment_bucket(self, bucket: dict[str, int], key: str | None) -> None: ...
 
+    def _memory_operation_guard(self) -> Any: ...
+
 
 class L2PipelineStagingMixin(L2PipelineProjectionMixin):
     """Own event staging, projection claiming, and queue enqueue helpers."""
@@ -224,8 +226,9 @@ class L2PipelineStagingMixin(L2PipelineProjectionMixin):
                 await asyncio.sleep(poll_interval)
             except asyncio.CancelledError:
                 break
-            await self._claim_pending_projection_jobs()
-            await self._flush_ready_buckets()
+            async with host._memory_operation_guard():
+                await self._claim_pending_projection_jobs()
+                await self._flush_ready_buckets()
 
     async def _flush_ready_buckets(self) -> None:
         host = self._staging_host()

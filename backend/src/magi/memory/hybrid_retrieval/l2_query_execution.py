@@ -10,8 +10,7 @@ from typing import Any, Optional, cast
 from .grounding import L2GroundingPlan, build_grounding_plan
 from .governed_l2_recall import (
     GovernedL2RecallView,
-    effective_at_for_context,
-    effective_range_for_context,
+    governed_temporal_bounds,
 )
 from .l2_fusion import fuse_l2_candidates, project_candidates
 from .l2_knowledge_retriever import retrieve_knowledge
@@ -68,6 +67,7 @@ class L2QueryExecutionMixin:
             host,
             plan,
             conditions,
+            time_range=time_range,
             user_id=user_id,
         )
 
@@ -115,13 +115,16 @@ async def _retrieve_l2_channels(
     plan: L2GroundingPlan,
     conditions: L2Conditions,
     *,
+    time_range: Optional[TimeRange],
     user_id: Optional[str],
 ) -> _L2ChannelResults:
+    temporal_bounds = governed_temporal_bounds(time_range)
     claim_store = GovernedL2RecallView(
         host._store,
         context_scope=plan.context_scope,
-        effective_at=effective_at_for_context(plan.temporal_context),
-        effective_range=effective_range_for_context(plan.temporal_context),
+        effective_at=temporal_bounds.effective_at,
+        effective_range=temporal_bounds.effective_range,
+        include_relationship_history=temporal_bounds.include_history,
     )
     knowledge_task = (
         retrieve_knowledge(

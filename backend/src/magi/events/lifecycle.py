@@ -157,6 +157,24 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             return
 
         self._mark_command_started()
+        if command.command_type is RuntimeCommandType.USER_MESSAGE:
+            async with queue.user_message_operation():
+                if (
+                    int(command.user_message_generation)
+                    != queue.current_user_message_generation()
+                ):
+                    logger.info(
+                        "Discarding stale user-message runtime command",
+                        command_id=command.command_id,
+                        command_generation=command.user_message_generation,
+                        current_generation=queue.current_user_message_generation(),
+                    )
+                    await queue.ack(command.command_id)
+                    self._mark_command_finished()
+                    return
+                published = await self._execute_runtime_command(command, message_bus)
+                await self._complete_runtime_command(queue, command, published)
+            return
         published = await self._execute_runtime_command(command, message_bus)
         await self._complete_runtime_command(queue, command, published)
 
@@ -226,6 +244,7 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                     "timestamp": float(user_message.created_at),
                     "metadata": dict(user_message.metadata),
                     "source": user_message.source,
+                    "user_message_generation": int(command.user_message_generation),
                 },
                 source=user_message.source,
                 level=EventLevel.INFO,

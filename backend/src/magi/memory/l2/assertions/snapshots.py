@@ -204,8 +204,12 @@ class L2StoreSnapshotMixin(
                 existing_snapshot = host._snapshot_row_to_dict(existing) if existing else None
                 if (
                     existing_snapshot is not None
-                    and int(existing_snapshot.get("source_revision") or 0)
-                    != derivation_revision.source_revision
+                    and (
+                        int(existing_snapshot.get("source_revision") or 0)
+                        != derivation_revision.source_revision
+                        or int(existing_snapshot.get("source_generation") or 0)
+                        != int(derivation_revision.clear_generation or 0)
+                    )
                 ):
                     existing_snapshot = None
 
@@ -237,6 +241,7 @@ class L2StoreSnapshotMixin(
                     evolution_payload=evolution_payload,
                     mood_trajectory=mood_trajectory,
                     source_revision=derivation_revision.source_revision,
+                    source_generation=int(derivation_revision.clear_generation or 0),
                     now=now,
                 )
                 async with db.execute(

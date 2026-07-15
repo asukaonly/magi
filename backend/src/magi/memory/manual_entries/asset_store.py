@@ -21,6 +21,7 @@ Adding HEIC support is a Phase B follow-up that pulls in pillow-heif.
 from __future__ import annotations
 
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -99,6 +100,16 @@ class ManualEntryAssetStore:
         except OSError:
             return None
         return data, content_type
+
+    def clear(self) -> int:
+        """Delete every manual-entry asset while preserving the owned root directory."""
+        if not self._root.exists():
+            self._root.mkdir(parents=True, exist_ok=True)
+            return 0
+        removed = sum(1 for path in self._root.rglob("*") if path.is_file())
+        shutil.rmtree(self._root)
+        self._root.mkdir(parents=True, exist_ok=True)
+        return removed
 
     def _path_for(self, digest: str, ext: str) -> Path:
         return self._root / digest[:2] / f"{digest}.{ext}"

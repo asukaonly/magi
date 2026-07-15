@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ....memory.embedding.vector_admin import (
+    EmbeddingRebuildPausedError,
     EmbeddingRebuildManager,
     build_embedding_vector_status,
 )
@@ -30,10 +31,13 @@ async def start_embedding_rebuild(body: StartEmbeddingRebuildRequest | None = No
     unified_memory = _resolve_unified_memory()
     if unified_memory is None:
         raise HTTPException(status_code=503, detail="Memory runtime is not available")
-    return await _embedding_rebuild_manager.start_rebuild(
-        unified_memory=unified_memory,
-        layers=body.layers if body is not None else None,
-    )
+    try:
+        return await _embedding_rebuild_manager.start_rebuild(
+            unified_memory=unified_memory,
+            layers=body.layers if body is not None else None,
+        )
+    except EmbeddingRebuildPausedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @memory_router.get("/embeddings/rebuild/{job_id}")

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional, Protocol
 
@@ -105,6 +106,7 @@ class _L2PipelineLifecycleHostProtocol(Protocol):
     _projection_claim_limit: int
     _projection_stale_queued_timeout_seconds: float
     _projection_stale_running_timeout_seconds: float
+    _operation_guard_factory: Callable[[], Any] | None
 
     async def _run_extract_worker(self) -> None: ...
 
@@ -180,6 +182,20 @@ class L2PipelineLifecycleMixin:
         host._projection_stale_running_timeout_seconds = (
             DEFAULT_L2_PROJECTION_STALE_RUNNING_TIMEOUT_SECONDS
         )
+        host._operation_guard_factory = None
+
+    def set_operation_guard_factory(self, factory: Callable[[], Any]) -> None:
+        """Bind the unified clear barrier used by every pipeline job."""
+        self._lifecycle_host()._operation_guard_factory = factory
+
+    @asynccontextmanager
+    async def _memory_operation_guard(self) -> AsyncIterator[None]:
+        factory = self._lifecycle_host()._operation_guard_factory
+        if factory is None:
+            yield
+            return
+        async with factory():
+            yield
 
     async def start(self) -> None:
         host = self._lifecycle_host()
@@ -231,6 +247,45 @@ class L2PipelineLifecycleMixin:
         host._flush_worker = None
         host._reconcile_worker = None
         host._snapshot_worker = None
+
+    async def abort_for_clear(self) -> None:
+        """Cancel workers and discard pending work without flushing it."""
+        host = self._lifecycle_host()
+        host._stats.is_running = False
+        workers = [
+            *host._extract_workers,
+            host._flush_worker,
+            host._reconcile_worker,
+            host._snapshot_worker,
+        ]
+        for worker in workers:
+            if worker is not None and not worker.done():
+                worker.cancel()
+        await asyncio.gather(
+            *(worker for worker in workers if worker is not None),
+            return_exceptions=True,
+        )
+        host._extract_workers = []
+        host._flush_worker = None
+        host._reconcile_worker = None
+        host._snapshot_worker = None
+
+    async def reset_after_clear(self) -> None:
+        """Discard all process-local pipeline state after a destructive clear."""
+        host = self._lifecycle_host()
+        if host._stats.is_running:
+            raise RuntimeError("L2 pipeline must be stopped before reset")
+        async with host._staging_lock:
+            host._staging_buckets = {}
+        host._extract_queue = asyncio.Queue()
+        host._reconcile_queue = asyncio.Queue()
+        host._snapshot_queue = asyncio.Queue()
+        host._entity_locks = {}
+        host._entity_locks_guard = asyncio.Lock()
+        host._session_touched_entities = {}
+        host._entity_resolution_cache = {}
+        host._stats = L2PipelineStats()
+        host._projection_consumer_name = f"l2-pipeline:{uuid.uuid4().hex[:8]}"
 
     async def _acquire_entity_locks(self, entity_ids: list[str]) -> list[asyncio.Lock]:
         """Acquire per-entity locks in sorted order to prevent deadlocks.

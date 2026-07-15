@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, cast
@@ -12,7 +13,12 @@ from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
 from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
-from .common import L2RetrievalQueryHostProtocol, select_governed_range_rows
+from .common import (
+    L2RetrievalQueryHostProtocol,
+    bounded_scoped_candidate_limit,
+    matching_scope_keys,
+    select_governed_range_rows,
+)
 
 CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
 
@@ -105,10 +111,19 @@ class L2StoreAssertionQueryMixin:
                     args.append(float(range_start))
         if not requested_scope:
             query += " AND scope_key = 'global'"
-        query += " ORDER BY updated_at DESC"
-        if not requested_scope:
+            query += " ORDER BY updated_at DESC"
             query += " LIMIT ?"
             args.append(max(1, int(limit)) * 4)
+        else:
+            eligible_scope_keys = matching_scope_keys(requested_scope)
+            placeholders = ", ".join("?" for _ in eligible_scope_keys)
+            query += f" AND scope_key IN ({placeholders})"
+            args.extend(eligible_scope_keys)
+            query += (
+                " ORDER BY (SELECT COUNT(*) FROM json_each(scope_json)) DESC,"
+                " updated_at DESC LIMIT ?"
+            )
+            args.append(bounded_scoped_candidate_limit(limit))
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -153,6 +168,150 @@ class L2StoreAssertionQueryMixin:
             if len(current_by_slot) >= limit:
                 break
         return list(current_by_slot.values())
+
+    async def batch_list_current_assertions(
+        self,
+        *,
+        entity_ids: List[str],
+        entity_type: str | None = None,
+        trait_families: List[str] | None = None,
+        validation_states: List[str] | None = None,
+        target_entity_id: str | None = None,
+        context_scope: Mapping[str, Any] | None = None,
+        effective_at: float | None = None,
+        effective_range: tuple[float | None, float | None] | None = None,
+        include_expired: bool = False,
+        limit_per_entity: int = 100,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return governed assertions for many entities using one SQL query."""
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        unique_ids = list(dict.fromkeys(str(item) for item in entity_ids if item))
+        if not unique_ids:
+            return {}
+
+        at = float(effective_at if effective_at is not None else time.time())
+        requested_scope = dict(context_scope or {})
+        requested_limit = max(1, int(limit_per_entity))
+        query = "SELECT assertions.* FROM tom_trait_assertions AS assertions WHERE 1=1"
+        args: list[Any] = []
+        query += " AND assertions.entity_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))"
+        args.append(json.dumps(unique_ids, ensure_ascii=False, separators=(",", ":")))
+        if entity_type:
+            query += " AND assertions.entity_type = ?"
+            args.append(entity_type)
+        if trait_families:
+            placeholders = ", ".join("?" for _ in trait_families)
+            query += f" AND assertions.trait_family IN ({placeholders})"
+            args.extend(str(item).strip().lower() for item in trait_families)
+        if validation_states:
+            placeholders = ", ".join("?" for _ in validation_states)
+            query += f" AND assertions.validation_state IN ({placeholders})"
+            args.extend(str(item).strip() for item in validation_states)
+        if target_entity_id:
+            query += " AND assertions.target_entity_id = ?"
+            args.append(target_entity_id)
+        status_sql, status_args = _excluded_status_clause(include_superseded=True)
+        query += status_sql
+        args.extend(status_args)
+        query += " AND (assertions.status != 'superseded' OR assertions.valid_to IS NOT NULL)"
+        if effective_range is None:
+            query += " AND (assertions.valid_from IS NULL OR assertions.valid_from <= ?)"
+            query += " AND (assertions.valid_to IS NULL OR assertions.valid_to > ?)"
+            args.extend((at, at))
+            if not include_expired:
+                query += " AND (assertions.expires_at IS NULL OR assertions.expires_at > ?)"
+                args.append(at)
+        else:
+            range_start, range_end = effective_range
+            if range_end is not None:
+                query += " AND (assertions.valid_from IS NULL OR assertions.valid_from <= ?)"
+                args.append(float(range_end))
+            if range_start is not None:
+                query += " AND (assertions.valid_to IS NULL OR assertions.valid_to > ?)"
+                args.append(float(range_start))
+                if not include_expired:
+                    query += " AND (assertions.expires_at IS NULL OR assertions.expires_at > ?)"
+                    args.append(float(range_start))
+        if not requested_scope:
+            query += " AND assertions.scope_key = 'global'"
+            ordering = "assertions.updated_at DESC"
+            candidate_limit = requested_limit * 4
+        else:
+            eligible_scope_keys = matching_scope_keys(requested_scope)
+            placeholders = ", ".join("?" for _ in eligible_scope_keys)
+            query += f" AND assertions.scope_key IN ({placeholders})"
+            args.extend(eligible_scope_keys)
+            ordering = (
+                "(SELECT COUNT(*) FROM json_each(assertions.scope_json)) DESC, "
+                "assertions.updated_at DESC"
+            )
+            candidate_limit = bounded_scoped_candidate_limit(requested_limit)
+
+        ranked_query = f"""
+            WITH ranked_assertions AS (
+                SELECT candidates.*,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY candidates.entity_id
+                           ORDER BY {ordering.replace('assertions.', 'candidates.')}
+                       ) AS governed_entity_rank
+                FROM ({query}) AS candidates
+            )
+            SELECT *
+            FROM ranked_assertions
+            WHERE governed_entity_rank <= ?
+            ORDER BY entity_id, governed_entity_rank
+        """
+        args.append(candidate_limit)
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(ranked_query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        candidates: Dict[str, List[Dict[str, Any]]] = {entity_id: [] for entity_id in unique_ids}
+        for row in rows:
+            assertion = host._assertion_row_to_dict(row)
+            candidates[str(assertion["entity_id"])].append(assertion)
+
+        result: Dict[str, List[Dict[str, Any]]] = {}
+        for entity_id, assertions in candidates.items():
+            assertions = [
+                assertion
+                for assertion in assertions
+                if scope_matches(assertion.get("scope"), requested_scope)
+            ]
+            assertions.sort(
+                key=lambda assertion: (
+                    scope_specificity(assertion.get("scope")),
+                    float(assertion.get("updated_at") or 0.0),
+                ),
+                reverse=True,
+            )
+            if effective_range is not None:
+                result[entity_id] = select_governed_range_rows(
+                    assertions,
+                    identity_field="assertion_id",
+                    range_start=effective_range[0],
+                    range_end=effective_range[1],
+                    include_expired=include_expired,
+                    limit=requested_limit,
+                )
+                continue
+            current_by_slot: dict[str, Dict[str, Any]] = {}
+            for assertion in assertions:
+                slot = assertion["slot_key"] or "\x1f".join(
+                    (
+                        assertion["entity_type"],
+                        assertion["entity_id"],
+                        assertion["trait_name"],
+                        assertion["target_entity_id"],
+                    )
+                )
+                current_by_slot.setdefault(slot, assertion)
+                if len(current_by_slot) >= requested_limit:
+                    break
+            result[entity_id] = list(current_by_slot.values())
+        return result
 
     async def count_tom_assertions(
         self,

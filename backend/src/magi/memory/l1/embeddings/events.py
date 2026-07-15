@@ -17,6 +17,7 @@ from ...embedding.embedding_pipeline import (
 )
 from ...embedding.embedding_service import EmbeddingProfile
 from ...event_contracts import MemoryDomain, MemoryEvent
+from ...operation_barrier import optional_operation_guard
 from .chunks import L1EventEmbeddingChunkMixin
 from .common import (
     EMBEDDING_PROFILES_TABLE,
@@ -134,20 +135,64 @@ class L1EventEmbeddingMixin(
         eligible_events = [event for event in events if self._embedding_eligible(event)]
         if not eligible_events:
             return
-        results = await pipeline.upsert_items(
+        prepared_results = await pipeline.prepare_items(
             self._event_embedding_pipeline_items(eligible_events)
         )
-        if not results:
-            await self._mark_event_embeddings_failed(eligible_events)
-            return
-        outcome = self._event_embedding_upsert_outcome(eligible_events, results)
-        if outcome.successful_events:
-            await self._replace_event_chunks(outcome.successful_events)
-        if outcome.state_updates:
-            await self._update_event_embedding_states(
-                outcome.state_updates,
-                profiles_by_id=outcome.profiles_by_id,
+        async with optional_operation_guard(host._operation_guard_factory):
+            current_events = await self._current_embedding_events(eligible_events)
+            if not current_events:
+                return
+            current_event_ids = {event.event_id for event in current_events}
+            results = await pipeline.persist_results(
+                [
+                    result
+                    for result in prepared_results
+                    if result.parent_id in current_event_ids
+                ]
             )
+            outcome = self._event_embedding_upsert_outcome(current_events, results)
+            if outcome.successful_events:
+                await self._replace_event_chunks(outcome.successful_events)
+            if outcome.state_updates:
+                await self._update_event_embedding_states(
+                    outcome.state_updates,
+                    profiles_by_id=outcome.profiles_by_id,
+                )
+
+    async def _current_embedding_events(
+        self,
+        events: list[MemoryEvent],
+    ) -> list[MemoryEvent]:
+        """Keep only event snapshots that still match their persisted parent."""
+        host = cast(L1EventEmbeddingHostProtocol, self)
+        event_ids = list(dict.fromkeys(event.event_id for event in events))
+        if not event_ids:
+            return []
+        placeholders = ", ".join("?" for _ in event_ids)
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"""
+                SELECT *
+                FROM {FACT_EVENTS_TABLE}
+                WHERE event_id IN ({placeholders}) AND deleted_at IS NULL
+                """,
+                tuple(event_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        current_by_id = {
+            str(row["event_id"]): host._row_to_memory_event(row)
+            for row in rows
+        }
+        return [
+            event
+            for event in events
+            if _event_embedding_parent_is_current(
+                host,
+                current=current_by_id.get(event.event_id),
+                embedded=event,
+            )
+        ]
 
     def _event_embedding_pipeline_items(
         self,
@@ -279,3 +324,19 @@ class L1EventEmbeddingMixin(
 
 
 __all__ = ["L1EventEmbeddingMixin"]
+
+
+def _event_embedding_parent_is_current(
+    host: L1EventEmbeddingHostProtocol,
+    *,
+    current: MemoryEvent | None,
+    embedded: MemoryEvent,
+) -> bool:
+    if current is None:
+        return False
+    return (
+        current.event_type == embedded.event_type
+        and current.source == embedded.source
+        and current.user_id == embedded.user_id
+        and host.get_embedding_text(current) == host.get_embedding_text(embedded)
+    )

@@ -13,7 +13,6 @@ from magi.awareness.sensor_output import (
     SensorActivity,
     SensorMemoryPolicy,
     SensorNarration,
-    SensorOutput,
     SensorOutputMetadata,
 )
 from magi.config import AppConfig
@@ -33,8 +32,19 @@ class _FakeUnifiedMemory:
     def __init__(self) -> None:
         self.l1 = _FakeL1Store()
         self.edges: list[dict] = []
+        self.epoch = 0
 
-    async def ingest_event(self, event) -> dict:  # type: ignore[no-untyped-def]
+    def memory_operation_epoch(self) -> int:
+        return self.epoch
+
+    async def ingest_event(  # type: ignore[no-untyped-def]
+        self,
+        event,
+        *,
+        expected_epoch: int,
+    ) -> dict:
+        if expected_epoch != self.epoch:
+            return {"event_id": None, "l1_written": False, "skipped": True}
         self.l1.timeline_events.append(event)
         correlation_id = (
             event.get("correlation_id")
@@ -117,6 +127,7 @@ async def test_runtime_timeline_handler_persists_photo_library_entry_and_user_gr
     memory = _FakeUnifiedMemory()
     bus = InMemoryMessageBusBackend()
     await bus.start()
+    bus.bind_memory_operation_epoch(memory.memory_operation_epoch)
 
     memory_sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=memory)
     await memory_sub.start()

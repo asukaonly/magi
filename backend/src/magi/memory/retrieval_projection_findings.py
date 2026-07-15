@@ -22,6 +22,9 @@ from .retrieval_projection_summary import split_relationship_statement
 _DEFAULT_LAYER_QUOTA: dict[str, int] = {"L1": 8, "L2": 6, "L3": 3, "L4": 2}
 # Floor so a layer that has candidates is never fully starved by a small quota.
 _LAYER_QUOTA_FLOOR = 1
+_HISTORICAL_EVENT_MODES = frozenset(
+    {"event_stream", "episode_recall", "experience_recall"}
+)
 
 
 def _resolve_layer_quota(mode: str) -> dict[str, int]:
@@ -776,6 +779,14 @@ def _project_events(
             "updated_at": item.get("timestamp") or item.get("created_at"),
             "_retrieval_score": float(item.get("score") or item.get("retrieval_score") or 0.0),
         }
+        evidence_semantics = str(item.get("evidence_semantics") or "").strip()
+        if evidence_semantics:
+            finding["evidence_semantics"] = evidence_semantics
+        elif mode in _HISTORICAL_EVENT_MODES:
+            finding["evidence_semantics"] = "historical_record"
+        correction_status = str(item.get("correction_status") or "").strip()
+        if correction_status:
+            finding["correction_status"] = correction_status
         feedback_ref = _feedback_ref("event", item, "event_id", "id")
         if feedback_ref is not None:
             finding["feedback_ref"] = feedback_ref

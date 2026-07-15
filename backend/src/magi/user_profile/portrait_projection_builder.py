@@ -76,6 +76,9 @@ class UserPortraitProjectionBuilder:
         derivation_revision = await DerivationRevision.capture(self._l2_store, entity_id)
         if self._profile_projection is not None:
             derivation_revision.ensure_matches(self._profile_projection.source_revision)
+            derivation_revision.ensure_generation_matches(
+                self._profile_projection.source_generation
+            )
         assertions = await self._list_assertions(entity_id)
         profile_world = self._profile_world_items(self._profile_projection)
         world = self._build_world(assertions, profile_world)
@@ -115,6 +118,7 @@ class UserPortraitProjectionBuilder:
             source_counts=source_counts,
             generated_by=generated_by,
             source_revision=derivation_revision.source_revision,
+            source_generation=int(derivation_revision.clear_generation or 0),
             generated_at=time.time(),
         )
 
@@ -124,20 +128,17 @@ class UserPortraitProjectionBuilder:
         list_assertions = getattr(self._l2_store, "list_current_assertions", None)
         if list_assertions is None:
             return []
-        try:
-            assertions = await list_assertions(
-                entity_id=entity_id,
-                entity_type="user",
-                context_scope=None,
-                limit=500,
-            )
-            return [
-                assertion
-                for assertion in assertions
-                if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
-            ][:200]
-        except Exception:
-            return []
+        assertions = await list_assertions(
+            entity_id=entity_id,
+            entity_type="user",
+            context_scope=None,
+            limit=500,
+        )
+        return [
+            assertion
+            for assertion in assertions
+            if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
+        ][:200]
 
     def _build_world(
         self,

@@ -15,7 +15,9 @@ from ..derivation_revision import DerivationRevision
 from ..l2.corrections.repository import MemoryCorrectionRepository
 from ..l2.models import ReconciledTraitOutcome
 from .contradiction_service import ContradictionInsightService
+from .dependency_validation import ensure_l3_dependencies_current
 from .models import ContradictionPacket, L3Candidate, StateChangePacket, TrendShiftPacket
+from .derivation_fence import L3DerivationFence
 from .state_change_service import StateChangeService
 from .summary_store import L3SummaryStore
 from .trend_shift_service import TrendShiftService
@@ -24,11 +26,18 @@ from .trend_shift_service import TrendShiftService
 class L3CorrectionDerivationService:
     """Re-evaluate only stale insights linked to one corrected subject."""
 
-    def __init__(self, *, db_path: str, l2_store: Any) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str,
+        l2_store: Any,
+        l3_store: L3SummaryStore | None = None,
+    ) -> None:
         self._db_path = db_path
         self._l2_store = l2_store
         self._repository = MemoryCorrectionRepository(db_path)
-        self._l3_store = L3SummaryStore(db_path=db_path, vector_enabled=False)
+        self._owns_l3_store = l3_store is None
+        self._l3_store = l3_store or L3SummaryStore(db_path=db_path)
 
     async def rebuild_subject(
         self,
@@ -37,13 +46,17 @@ class L3CorrectionDerivationService:
         expected_revision: int | None = None,
     ) -> None:
         """Rebuild or retire stale insights that depend on one subject."""
-        await self._l3_store.initialize()
-        for insight in await self._stale_insights(subject_key):
-            await self._rebuild_insight(
-                insight,
-                triggering_subject=subject_key,
-                expected_revision=expected_revision,
-            )
+        try:
+            await self._l3_store.initialize()
+            for insight in await self._stale_insights(subject_key):
+                await self._rebuild_insight(
+                    insight,
+                    triggering_subject=subject_key,
+                    expected_revision=expected_revision,
+                )
+        finally:
+            if self._owns_l3_store:
+                await self._l3_store.shutdown()
 
     async def _rebuild_insight(
         self,
@@ -73,13 +86,13 @@ class L3CorrectionDerivationService:
         metadata = _json_dict(insight.get("insight_metadata"))
         candidate = await self._candidate_from_current_state(metadata, outcomes)
         if candidate is None:
-            await self._retire(summary_id, revisions=context.revisions)
+            await self._retire(insight, fence=context.fence)
             return
 
         dependencies: list[tuple[str, str, str, int]] = []
         for outcome in outcomes:
             subject_key = str(outcome.entity_id)
-            source_revision = context.revisions.get(subject_key)
+            source_revision = context.fence.revisions.get(subject_key)
             if source_revision is None:
                 raise RuntimeError(f"Missing captured revision for {subject_key}")
             dependencies.append(
@@ -91,9 +104,10 @@ class L3CorrectionDerivationService:
                 )
             )
         await self._persist_candidate(
+            insight=insight,
             candidate=candidate,
             dependencies=dependencies,
-            revisions=context.revisions,
+            fence=context.fence,
         )
 
     async def _candidate_from_current_state(
@@ -191,108 +205,170 @@ class L3CorrectionDerivationService:
                     ]
                 )
             )
-            placeholders = ", ".join("?" for _ in subjects)
-            async with db.execute(
-                f"""
-                SELECT subject_key, revision
-                FROM memory_subject_revisions
-                WHERE subject_key IN ({placeholders})
-                """,
-                tuple(subjects),
-            ) as cursor:
-                revision_rows = await cursor.fetchall()
-        revisions = {subject_key: 0 for subject_key in subjects}
-        revisions.update({str(row[0]): int(row[1]) for row in revision_rows})
+            fence = await L3DerivationFence.capture_on_connection(db, subjects)
+            await db.commit()
         if expected_revision is not None:
             DerivationRevision(
                 subject_key=triggering_subject,
                 source_revision=int(expected_revision),
-            ).ensure_matches(revisions[triggering_subject])
+            ).ensure_matches(fence.revisions[triggering_subject])
         claim_slots: dict[str, set[str]] = {}
         for subject_key, trait_name in rows:
             if trait_name is None:
                 continue
             claim_slots.setdefault(str(subject_key), set()).add(str(trait_name))
-        return _RebuildContext(claim_slots=claim_slots, revisions=revisions)
+        return _RebuildContext(claim_slots=claim_slots, fence=fence)
 
     async def _persist_candidate(
         self,
         *,
+        insight: Mapping[str, Any],
         candidate: L3Candidate,
         dependencies: list[tuple[str, str, str, int]],
-        revisions: Mapping[str, int],
+        fence: L3DerivationFence,
     ) -> None:
         """Publish one rebuilt insight and its dependency ledger atomically."""
+        summary_id = str(insight["summary_id"])
         stored: dict[str, Any]
-        async with sqlite_connection_async(self._db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
-            try:
-                await _ensure_revisions_current(db, revisions)
-                stored = await self._l3_store.upsert_candidate_on_connection(
-                    db,
-                    candidate=candidate,
-                    source_task_ids=[],
-                    summary_overrides={
-                        "source_revision": max(revisions.values(), default=0),
-                        "derivation_state": "current",
-                    },
-                )
-                await self._repository.replace_artifact_dependencies_on_connection(
-                    db,
-                    artifact_kind="l3_insight",
-                    artifact_id=str(stored["summary_id"]),
-                    dependencies=dependencies,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
+        detached_chunk_ids: list[str] = []
+        async with self._l3_store.embedding_mutation_guard():
+            async with sqlite_connection_async(self._db_path) as db:
+                db.row_factory = aiosqlite.Row
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    await fence.ensure_current_on_connection(db)
+                    if not await _stale_insight_snapshot_matches_on_connection(
+                        db,
+                        insight=insight,
+                    ):
+                        await db.rollback()
+                        return
+                    await ensure_l3_dependencies_current(
+                        db,
+                        dependencies,
+                        effective_at=time.time(),
+                    )
+                    source_task_ids = await _summary_task_ids_on_connection(
+                        db,
+                        summary_id=summary_id,
+                    )
+                    detached_chunk_ids = (
+                        await self._l3_store._detach_summary_embedding_on_connection(
+                            db,
+                            summary_id=summary_id,
+                        )
+                    )
+                    stored = await self._l3_store.upsert_candidate_on_connection(
+                        db,
+                        candidate=candidate,
+                        source_task_ids=source_task_ids,
+                        summary_overrides={
+                            "summary_id": summary_id,
+                            "period_start": float(insight["period_start"]),
+                            "created_at": float(insight["created_at"]),
+                            "source_event_ids": list(candidate.source_event_ids),
+                            "source_event_count": len(candidate.source_event_ids),
+                            "insight_metadata": dict(candidate.insight_metadata or {}),
+                            "source_revision": fence.source_revision,
+                            "derivation_state": "current",
+                        },
+                    )
+                    await self._repository.replace_artifact_dependencies_on_connection(
+                        db,
+                        artifact_kind="l3_insight",
+                        artifact_id=summary_id,
+                        dependencies=dependencies,
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+            await self._l3_store._delete_summary_vectors_unlocked(detached_chunk_ids)
         await self._l3_store._schedule_summary_embedding(stored)
 
     async def _retire(
         self,
-        summary_id: str,
+        insight: Mapping[str, Any],
         *,
-        revisions: Mapping[str, int],
+        fence: L3DerivationFence,
     ) -> None:
-        async with sqlite_connection_async(self._db_path) as db:
-            await db.execute("BEGIN IMMEDIATE")
-            try:
-                await _ensure_revisions_current(db, revisions)
-                await db.execute(
-                    """
-                    UPDATE summaries
-                    SET derivation_state = 'retired', updated_at = ?
-                    WHERE summary_id = ?
-                    """,
-                    (time.time(), summary_id),
-                )
-                await db.execute(
-                    "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
-                    (summary_id,),
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
+        summary_id = str(insight["summary_id"])
+        detached_chunk_ids: list[str] = []
+        async with self._l3_store.embedding_mutation_guard():
+            async with sqlite_connection_async(self._db_path) as db:
+                await db.execute("BEGIN IMMEDIATE")
+                try:
+                    await fence.ensure_current_on_connection(db)
+                    if not await _stale_insight_snapshot_matches_on_connection(
+                        db,
+                        insight=insight,
+                    ):
+                        await db.rollback()
+                        return
+                    detached_chunk_ids = (
+                        await self._l3_store._detach_summary_embedding_on_connection(
+                            db,
+                            summary_id=summary_id,
+                        )
+                    )
+                    await db.execute(
+                        """
+                        UPDATE summaries
+                        SET derivation_state = 'retired', updated_at = ?
+                        WHERE summary_id = ?
+                        """,
+                        (time.time(), summary_id),
+                    )
+                    await db.execute(
+                        "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
+                        (summary_id,),
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
+            await self._l3_store._delete_summary_vectors_unlocked(detached_chunk_ids)
 
 
 @dataclass(frozen=True, slots=True)
 class _RebuildContext:
     claim_slots: dict[str, set[str]]
-    revisions: dict[str, int]
+    fence: L3DerivationFence
 
 
-async def _ensure_revisions_current(
+async def _summary_task_ids_on_connection(
     db: aiosqlite.Connection,
-    revisions: Mapping[str, int],
-) -> None:
-    for subject_key, source_revision in revisions.items():
-        await DerivationRevision(
-            subject_key=subject_key,
-            source_revision=source_revision,
-        ).ensure_current_on_connection(db)
+    *,
+    summary_id: str,
+) -> list[str]:
+    async with db.execute(
+        "SELECT task_id FROM summary_task_links WHERE summary_id = ? ORDER BY created_at",
+        (summary_id,),
+    ) as cursor:
+        return [str(row[0]) for row in await cursor.fetchall()]
+
+
+async def _stale_insight_snapshot_matches_on_connection(
+    db: aiosqlite.Connection,
+    *,
+    insight: Mapping[str, Any],
+) -> bool:
+    """Return whether a scanned stale insight still names the same rebuild epoch."""
+    async with db.execute(
+        """
+        SELECT derivation_state, source_revision, updated_at
+        FROM summaries
+        WHERE summary_id = ? AND summary_type = 'insight'
+        """,
+        (str(insight["summary_id"]),),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None or str(row[0]) != "stale":
+        return False
+    return (
+        int(row[1] or 0) == int(insight.get("source_revision") or 0)
+        and float(row[2] or 0.0) == float(insight.get("updated_at") or 0.0)
+    )
 
 
 def _outcome_from_assertion(assertion: Mapping[str, Any]) -> ReconciledTraitOutcome:

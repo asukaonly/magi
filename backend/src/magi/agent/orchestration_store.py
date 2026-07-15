@@ -79,6 +79,20 @@ class OrchestrationStore:
             }
             self._write_payload(payload)
 
+    async def clear_all(self) -> dict[str, int]:
+        """Remove every persisted orchestration and worker result atomically."""
+        async with self._lock:
+            payload = self._load_payload()
+            orchestration_count = len(payload.get("orchestrations", {}))
+            worker_result_count = len(payload.get("worker_results", {}))
+            self._write_payload_or_raise(
+                {"orchestrations": {}, "worker_results": {}}
+            )
+        return {
+            "orchestrations": orchestration_count,
+            "worker_results": worker_result_count,
+        }
+
     async def get_worker_result(self, worker_id: str) -> Optional[WorkerResult]:
         async with self._lock:
             payload = self._load_payload()
@@ -113,13 +127,17 @@ class OrchestrationStore:
 
     def _write_payload(self, payload: Dict[str, Any]) -> None:
         try:
-            from ..utils.file_io import atomic_write_text
-            atomic_write_text(
-                self._file_path,
-                json.dumps(payload, ensure_ascii=False, indent=2),
-            )
+            self._write_payload_or_raise(payload)
         except Exception as exc:
             logger.warning("Failed to write orchestration store | path=%s error=%s", self._file_path, exc)
+
+    def _write_payload_or_raise(self, payload: Dict[str, Any]) -> None:
+        from ..utils.file_io import atomic_write_text
+
+        atomic_write_text(
+            self._file_path,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+        )
 
 
 _orchestration_store: Optional[OrchestrationStore] = None

@@ -21,6 +21,7 @@ class SensorHub:
         self._message_bus = message_bus
         self._subscription_id: Optional[str] = None
         self._queue: asyncio.Queue[SensorEvent] = asyncio.Queue()
+        self._queue_mutation_lock = asyncio.Lock()
 
     async def start(self) -> None:
         if self._subscription_id:
@@ -40,7 +41,8 @@ class SensorHub:
         logger.info("SensorHub unsubscribed from USER_MESSAGE")
 
     async def push_sensor_event(self, sensor_event: SensorEvent) -> None:
-        await self._queue.put(sensor_event)
+        async with self._queue_mutation_lock:
+            self._queue.put_nowait(sensor_event)
 
     async def get_batch(self, max_items: int = 16, timeout_seconds: float = 0.2) -> list[SensorEvent]:
         batch: list[SensorEvent] = []
@@ -50,12 +52,37 @@ class SensorHub:
             return batch
 
         batch.append(first)
-        while len(batch) < max_items:
-            try:
-                batch.append(self._queue.get_nowait())
-            except asyncio.QueueEmpty:
-                break
+        async with self._queue_mutation_lock:
+            while len(batch) < max_items:
+                try:
+                    batch.append(self._queue.get_nowait())
+                except asyncio.QueueEmpty:
+                    break
         return batch
+
+    async def discard_stale_user_messages(self, current_generation: int) -> int:
+        """Remove queued user messages from generations older than a clear boundary."""
+        discarded = 0
+        retained: list[SensorEvent] = []
+        async with self._queue_mutation_lock:
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if (
+                    item.event_type == EventTypes.USER_MESSAGE
+                    and (
+                        item.user_message_generation is None
+                        or int(item.user_message_generation) < int(current_generation)
+                    )
+                ):
+                    discarded += 1
+                    continue
+                retained.append(item)
+            for item in retained:
+                self._queue.put_nowait(item)
+        return discarded
 
     async def _on_user_message(self, event: Event) -> None:
         data = event.data if isinstance(event.data, dict) else {}
@@ -104,5 +131,10 @@ class SensorHub:
             },
             timestamp=float(data.get("timestamp") or event.timestamp),
             correlation_id=event.correlation_id,
+            user_message_generation=(
+                int(data["user_message_generation"])
+                if data.get("user_message_generation") is not None
+                else None
+            ),
         )
         await self.push_sensor_event(sensor_event)

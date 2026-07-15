@@ -14,6 +14,7 @@ from ...sql_search import build_like_search_clause
 from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
+from ...operation_barrier import optional_operation_guard
 from ..evidence.links import (
     build_summary_event_link_rows,
     build_summary_task_link_rows,
@@ -25,12 +26,28 @@ from ..models import L3Candidate
 from .schema import SUMMARY_CHUNKS_TABLE
 from .serialization import decode_optional_json, encode_optional_json, row_to_summary_dict
 
+_UNRESOLVED_EXISTING_SUMMARY = object()
+
 
 class _L3SummaryPersistenceHostProtocol(Protocol):
     db_path: str
+    _embedding_service: Any | None
+    _initialized: bool
+    _operation_guard_factory: Any | None
     _vector_index: SqliteVecIndex | None
 
     async def initialize(self) -> None: ...
+
+    def embedding_mutation_guard(self) -> Any: ...
+
+    async def _detach_summary_embedding_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        summary_id: str,
+    ) -> list[str]: ...
+
+    async def _delete_summary_vectors_unlocked(self, chunk_ids: List[str]) -> None: ...
 
     async def _schedule_summary_embedding(self, summary: Dict[str, Any]) -> None: ...
 
@@ -259,19 +276,24 @@ class L3SummaryPersistenceMixin:
     async def clear(self) -> int:
         """Delete all summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
-        await host.initialize()
-        async with sqlite_connection_async(host.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
-                row = await cursor.fetchone()
-                count = int(row[0]) if row else 0
-            await db.execute("DELETE FROM summary_event_links")
-            await db.execute("DELETE FROM summary_task_links")
-            await db.execute("DELETE FROM summaries")
-            await db.execute(f"DELETE FROM {SUMMARY_CHUNKS_TABLE}")
-            await db.execute("DELETE FROM l3_summaries_fts")
-            await db.commit()
-        if host._vector_index is not None:
-            await host._vector_index.clear()
+        if not host._initialized:
+            await host.initialize()
+        async with host.embedding_mutation_guard():
+            async with sqlite_connection_async(host.db_path) as db:
+                async with db.execute("SELECT COUNT(*) FROM summaries") as cursor:
+                    row = await cursor.fetchone()
+                    count = int(row[0]) if row else 0
+                await db.execute("DELETE FROM summary_event_links")
+                await db.execute("DELETE FROM summary_task_links")
+                await db.execute("DELETE FROM summaries")
+                await db.execute(f"DELETE FROM {SUMMARY_CHUNKS_TABLE}")
+                await db.execute("DELETE FROM l3_summaries_fts")
+                await db.execute("DELETE FROM daily_mood_aggregate")
+                await db.commit()
+            if host._vector_index is not None:
+                await host._vector_index.clear()
+                if host._embedding_service is None:
+                    await host._vector_index.close()
         return count
 
     async def upsert_candidate(
@@ -291,21 +313,42 @@ class L3SummaryPersistenceMixin:
         instead of producing a new row each time the gate fires.
         """
         host = cast(_L3SummaryPersistenceHostProtocol, self)
-        await host.initialize()
-        async with sqlite_connection_async(host.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            await db.execute("BEGIN IMMEDIATE")
-            try:
-                summary = await self.upsert_candidate_on_connection(
-                    db,
-                    candidate=candidate,
-                    source_task_ids=source_task_ids or [],
-                    summary_overrides=summary_overrides,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
+        detached_chunk_ids: list[str] = []
+        async with optional_operation_guard(host._operation_guard_factory):
+            await host.initialize()
+            async with host.embedding_mutation_guard():
+                async with sqlite_connection_async(host.db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    await db.execute("BEGIN IMMEDIATE")
+                    try:
+                        insight_key = (candidate.insight_key or "").strip() or None
+                        existing_summary = (
+                            await self._find_summary_by_insight_key_on_connection(
+                                db,
+                                insight_key,
+                            )
+                            if insight_key is not None
+                            else None
+                        )
+                        if existing_summary is not None:
+                            detached_chunk_ids = (
+                                await host._detach_summary_embedding_on_connection(
+                                    db,
+                                    summary_id=str(existing_summary["summary_id"]),
+                                )
+                            )
+                        summary = await self.upsert_candidate_on_connection(
+                            db,
+                            candidate=candidate,
+                            source_task_ids=source_task_ids or [],
+                            summary_overrides=summary_overrides,
+                            resolved_existing_summary=existing_summary,
+                        )
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        raise
+                await host._delete_summary_vectors_unlocked(detached_chunk_ids)
         await host._schedule_summary_embedding(summary)
         return summary
 
@@ -316,15 +359,21 @@ class L3SummaryPersistenceMixin:
         candidate: L3Candidate,
         source_task_ids: list[str],
         summary_overrides: Optional[Dict[str, Any]] = None,
+        resolved_existing_summary: Optional[Dict[str, Any]] | object = (
+            _UNRESOLVED_EXISTING_SUMMARY
+        ),
     ) -> Dict[str, Any]:
         """Persist a candidate and evidence links in the caller transaction."""
         now = time.time()
         insight_key = (candidate.insight_key or "").strip() or None
-        existing_summary = (
-            await self._find_summary_by_insight_key_on_connection(db, insight_key)
-            if insight_key is not None
-            else None
-        )
+        if resolved_existing_summary is _UNRESOLVED_EXISTING_SUMMARY:
+            existing_summary = (
+                await self._find_summary_by_insight_key_on_connection(db, insight_key)
+                if insight_key is not None
+                else None
+            )
+        else:
+            existing_summary = cast(Optional[Dict[str, Any]], resolved_existing_summary)
         summary = self._build_candidate_summary(
             candidate=candidate,
             existing_summary=existing_summary,

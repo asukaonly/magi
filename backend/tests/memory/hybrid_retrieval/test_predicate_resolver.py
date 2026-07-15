@@ -98,6 +98,7 @@ async def test_end_to_end_listening_populates_predicates_via_handler():
 
     store = AsyncMock()
     store.batch_get_relationships = AsyncMock(return_value={})
+    store.batch_list_current_relationships = AsyncMock(return_value={})
     store.get_relationships = AsyncMock(return_value=[])
     store.search_edges_by_embedding = AsyncMock(return_value=[])
     store.list_episodes = AsyncMock(return_value=[])

@@ -138,6 +138,11 @@ class L2StoreRowMappingMixin:
                 if "source_revision" in columns
                 else 0
             ),
+            "source_generation": (
+                int(row["source_generation"] or 0)
+                if "source_generation" in columns
+                else 0
+            ),
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }

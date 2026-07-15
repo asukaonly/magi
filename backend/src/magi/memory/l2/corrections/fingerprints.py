@@ -11,6 +11,9 @@ from typing import Any
 
 _WHITESPACE_RE = re.compile(r"\s+")
 GLOBAL_SCOPE_KEY = "global"
+SUPPORTED_SCOPE_FIELDS = frozenset(
+    {"project", "activity", "place", "person", "time_range"}
+)
 
 
 def _normalized_text(value: Any) -> str:
@@ -149,6 +152,7 @@ def relationship_claim_fingerprint(
 
 __all__ = [
     "GLOBAL_SCOPE_KEY",
+    "SUPPORTED_SCOPE_FIELDS",
     "assertion_claim_fingerprint",
     "assertion_slot_key",
     "canonical_claim_value",

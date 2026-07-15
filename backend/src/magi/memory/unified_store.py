@@ -23,6 +23,7 @@ from .l3.summary_store import L3SummaryStore
 from .l3.task_reflection_service import TaskReflectionService
 from .l3.trend_shift_service import TrendShiftService
 from .l4.procedural_memory import L4ProceduralMemoryStore
+from .operation_barrier import AsyncOperationBarrier
 from .store_ingestion import MemoryIngestionMixin
 from .store_corrections import UnifiedMemoryCorrectionMixin
 from .store_l2_operations import UnifiedMemoryL2OperationsMixin
@@ -214,6 +215,16 @@ class UnifiedMemoryStore(
 
         self._initialized = False
         self._write_lock = asyncio.Lock()
+        self._clear_barrier = AsyncOperationBarrier()
+        self._clear_epoch = 0
+        if self.l2_pipeline is not None:
+            self.l2_pipeline.set_operation_guard_factory(self.memory_operation_guard)
+        for store in (self.l1, self.l3, self.l4):
+            if store is not None:
+                store.set_operation_guard_factory(self.memory_operation_guard)
+        self._edge_embedding_worker.set_operation_guard_factory(
+            self.memory_operation_guard
+        )
 
     def _initialize_layer_slots(
         self,

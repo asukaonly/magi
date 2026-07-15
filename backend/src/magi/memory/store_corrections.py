@@ -26,6 +26,10 @@ class UnifiedMemoryCorrectionMixin:
 
     async def write_l1_correction_audit(self, job: Mapping[str, Any]) -> None:
         """Write one non-cognitive, idempotent L1 audit event."""
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            await self._write_l1_correction_audit_guarded(job)
+
+    async def _write_l1_correction_audit_guarded(self, job: Mapping[str, Any]) -> None:
         if self.l1 is None:
             raise RuntimeError("L1 memory is unavailable for correction audit")
         correction = await MemoryCorrectionRepository(self.memory_db_path).get(

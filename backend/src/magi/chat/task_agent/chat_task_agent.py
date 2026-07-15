@@ -203,6 +203,11 @@ class ChatTaskAgent(
         """Expose the chat post-process service for external wiring."""
         return self._postprocess_service
 
+    async def stop(self) -> None:
+        """Stop the active run and every detached post-process task."""
+        await super().stop()
+        await self._postprocess_service.cancel_background_tasks()
+
     async def _deliver_final_response_from_postprocess(self, context, *, content):
         coordinator = getattr(self, "_coordinator", None)
         deliver = getattr(coordinator, "deliver_final_chat_response", None)

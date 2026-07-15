@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
 from magi.chat import ingress as service
+from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.i18n import language_context
 from magi.utils.runtime import get_runtime_paths, set_runtime_dir
 
@@ -28,6 +31,10 @@ class _FakeRuntimeCommandQueue:
         self.queue_size = queue_size
         self.commands: list[object] = []
         self.next_command_id = 1
+
+    @asynccontextmanager
+    async def user_message_operation(self):  # type: ignore[no-untyped-def]
+        yield
 
     async def enqueue_user_message(self, command) -> int:
         self.commands.append(command)
@@ -657,3 +664,147 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
     assert outcome.success is False
     assert outcome.error_code == service.CHAT_STORE_PERSIST_FAILED
     assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_and_clear_share_one_linear_boundary_without_partial_turns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BoundaryRuntimeCommandQueue(_FakeRuntimeCommandQueue):
+        def __init__(self) -> None:
+            super().__init__()
+            self._barrier = AsyncOperationBarrier()
+            self.generation = 0
+
+        @asynccontextmanager
+        async def user_message_operation(self):  # type: ignore[no-untyped-def]
+            async with self._barrier.operation():
+                yield
+
+        @asynccontextmanager
+        async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
+            async with self._barrier.exclusive():
+                yield
+
+        async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
+            self.generation += 1
+            purged = len(self.commands)
+            self.commands.clear()
+            return self.generation, purged
+
+    memory_barrier = AsyncOperationBarrier()
+    projection_started = asyncio.Event()
+    projection_release = asyncio.Event()
+
+    class _BlockingProjector(_FakeChatProjector):
+        async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
+            async with memory_barrier.operation():
+                self.user_messages.append(dict(kwargs))
+                projection_started.set()
+                await projection_release.wait()
+
+    queue = _BoundaryRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    chat_projector = _BlockingProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
+
+    dispatch_task = asyncio.create_task(
+        service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="clear me atomically",
+            session_id="session-for-u1",
+        )
+    )
+    await asyncio.wait_for(projection_started.wait(), timeout=1)
+    assert len(chat_store.created_turns) == 1
+    assert len(chat_projector.user_messages) == 1
+    assert queue.commands == []
+
+    clear_waiting = asyncio.Event()
+    clear_entered = asyncio.Event()
+
+    async def _clear() -> None:
+        clear_waiting.set()
+        async with queue.user_message_clear_boundary():
+            clear_entered.set()
+            await queue.advance_user_message_generation_and_purge()
+            async with memory_barrier.exclusive():
+                chat_store.created_turns.clear()
+                chat_projector.user_messages.clear()
+
+    clear_task = asyncio.create_task(_clear())
+    await asyncio.wait_for(clear_waiting.wait(), timeout=1)
+    await asyncio.sleep(0)
+    assert not clear_entered.is_set()
+
+    projection_release.set()
+    outcome, _ = await asyncio.wait_for(
+        asyncio.gather(dispatch_task, clear_task),
+        timeout=2,
+    )
+
+    assert outcome.success is True
+    assert chat_store.created_turns == []
+    assert chat_projector.user_messages == []
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_dispatch_started_during_clear_waits_and_is_fully_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BoundaryRuntimeCommandQueue(_FakeRuntimeCommandQueue):
+        def __init__(self) -> None:
+            super().__init__()
+            self._barrier = AsyncOperationBarrier()
+
+        @asynccontextmanager
+        async def user_message_operation(self):  # type: ignore[no-untyped-def]
+            async with self._barrier.operation():
+                yield
+
+        @asynccontextmanager
+        async def user_message_clear_boundary(self):  # type: ignore[no-untyped-def]
+            async with self._barrier.exclusive():
+                yield
+
+    queue = _BoundaryRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    chat_projector = _FakeChatProjector()
+    clear_entered = asyncio.Event()
+    clear_release = asyncio.Event()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
+
+    async def _hold_clear() -> None:
+        async with queue.user_message_clear_boundary():
+            clear_entered.set()
+            await clear_release.wait()
+
+    clear_task = asyncio.create_task(_hold_clear())
+    await asyncio.wait_for(clear_entered.wait(), timeout=1)
+    dispatch_task = asyncio.create_task(
+        service.dispatch_user_message(
+            source="api",
+            user_id="u1",
+            message="keep me completely",
+            session_id="session-for-u1",
+        )
+    )
+    await asyncio.sleep(0)
+    assert chat_store.created_turns == []
+    assert chat_projector.user_messages == []
+    assert queue.commands == []
+
+    clear_release.set()
+    await asyncio.wait_for(clear_task, timeout=1)
+    outcome = await asyncio.wait_for(dispatch_task, timeout=1)
+
+    assert outcome.success is True
+    assert len(chat_store.created_turns) == 1
+    assert len(chat_projector.user_messages) == 1
+    assert len(queue.commands) == 1

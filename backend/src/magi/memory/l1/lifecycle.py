@@ -45,23 +45,26 @@ class L1EventLifecycleMixin:
     _embedding_queue: asyncio.Queue[MemoryEvent | None] | None
     _embedding_workers: list[asyncio.Task[None]]
     _vector_index: SqliteVecIndex | None
+    _operation_guard_factory: Any | None
 
-    async def initialize(self) -> None:
+    def set_operation_guard_factory(self, factory: Any) -> None:
+        """Bind the unified clear barrier used by embedding batches."""
+        self._operation_guard_factory = factory
+
+    async def initialize(self, *, start_workers: bool = True) -> None:
         """Verify L1 schema (alembic-managed) and start embedding workers."""
-        if self._initialized:
-            return
+        if not self._initialized:
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+            await self._ensure_schema()
+            if self._vector_index is not None and self._embedding_service is not None:
+                await self._vector_index.initialize()
+            self._initialized = True
 
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        await self._ensure_schema()
-        if self._vector_index is not None:
-            await self._vector_index.initialize()
-
-        if self._embedding_queue is not None and not self._embedding_workers:
+        if start_workers and self._embedding_queue is not None and not self._embedding_workers:
             self._embedding_workers = [
                 asyncio.create_task(getattr(self, "_run_embedding_worker")())
                 for _ in range(self._embedding_worker_count)
             ]
-        self._initialized = True
 
     async def _ensure_schema(self) -> None:
         async with sqlite_connection_async(self.db_path, profile="hot_write") as db:
@@ -74,6 +77,21 @@ class L1EventLifecycleMixin:
                 await self._embedding_queue.put(None)
             await asyncio.gather(*self._embedding_workers)
             self._embedding_workers = []
+        if self._vector_index is not None:
+            await self._vector_index.close()
+
+    async def abort_for_clear(self) -> None:
+        """Cancel embedding work and discard queued pre-clear events."""
+        workers = list(self._embedding_workers)
+        for worker in workers:
+            if not worker.done():
+                worker.cancel()
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
+        self._embedding_workers = []
+        if self._embedding_queue is not None:
+            self._embedding_queue = asyncio.Queue(maxsize=self._embedding_queue.maxsize)
+        self._embedding_active_count = 0
         if self._vector_index is not None:
             await self._vector_index.close()
 

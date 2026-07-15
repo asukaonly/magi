@@ -62,23 +62,24 @@ class UnifiedMemorySummaryMixin:
         min_events: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """Generate a temporal L3 summary for a time window."""
-        if self.l1 is None or self.l3 is None:
-            return None
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l1 is None or self.l3 is None:
+                return None
 
-        now = time.time()
-        if period_end is None:
-            period_end = now
-        if period_start is None:
-            period_start = period_end - self._period_seconds(period_type)
-        async with self._summary_semaphore:
-            return await self.l3.generate_temporal_summary(
-                l1_store=self.l1,
-                summary_category=summary_category or period_type,
-                period_start=period_start,
-                period_end=period_end,
-                source_filter=source_filter,
-                min_events=min_events,
-            )
+            now = time.time()
+            if period_end is None:
+                period_end = now
+            if period_start is None:
+                period_start = period_end - self._period_seconds(period_type)
+            async with self._summary_semaphore:
+                return await self.l3.generate_temporal_summary(
+                    l1_store=self.l1,
+                    summary_category=summary_category or period_type,
+                    period_start=period_start,
+                    period_end=period_end,
+                    source_filter=source_filter,
+                    min_events=min_events,
+                )
 
     async def backfill_l3_gaps(
         self,
@@ -177,15 +178,16 @@ class UnifiedMemorySummaryMixin:
         min_source_count: int = 2,
     ) -> Optional[Dict[str, Any]]:
         """Generate a topic-oriented thematic L3 summary."""
-        if self.l1 is None or self.l3 is None:
-            return None
-        return await self.l3.generate_thematic_summary(
-            l1_store=self.l1,
-            topic=topic,
-            period_start=period_start,
-            period_end=period_end,
-            min_source_count=min_source_count,
-        )
+        async with self.memory_operation_guard():  # type: ignore[attr-defined]
+            if self.l1 is None or self.l3 is None:
+                return None
+            return await self.l3.generate_thematic_summary(
+                l1_store=self.l1,
+                topic=topic,
+                period_start=period_start,
+                period_end=period_end,
+                min_source_count=min_source_count,
+            )
 
     def _period_seconds(self, period_type: str) -> int:
         return {

@@ -14,6 +14,12 @@ def test_enumerate_mode_gets_more_l1_l2_than_single_point():
     assert cross.get("L2", 0) >= state.get("L2", 0)
 
 
+def test_cross_session_uses_fact_governed_l1_evidence():
+    assert MODE_REGISTRY["cross_session"].l1_retrieval_scopes == [
+        "fact_authoritative"
+    ]
+
+
 def test_event_stream_is_l1_heavy():
     q = MODE_REGISTRY["event_stream"].layer_quota
     assert q.get("L1", 0) >= 12

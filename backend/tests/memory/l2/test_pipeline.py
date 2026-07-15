@@ -654,8 +654,6 @@ async def test_shutdown_drains_l2_pipeline_workers_cleanly():
 
 @pytest.mark.asyncio
 async def test_l2_pipeline_starts_with_five_extract_workers():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -705,8 +703,6 @@ def test_unified_memory_store_wires_l2_batch_flush_interval_into_pipeline():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_stages_session_owned_events_before_extraction():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -725,8 +721,6 @@ async def test_enqueue_event_stages_session_owned_events_before_extraction():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_reuses_same_bucket_for_matching_session():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         now = time.time()
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
@@ -743,8 +737,6 @@ async def test_enqueue_event_reuses_same_bucket_for_matching_session():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_falls_back_to_user_bucket_without_session():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -758,8 +750,6 @@ async def test_enqueue_event_falls_back_to_user_bucket_without_session():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -776,8 +766,6 @@ async def test_enqueue_event_without_session_or_user_uses_direct_fallback_job():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_uses_explicit_l2_batch_owner_without_session_or_user():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -826,8 +814,6 @@ async def test_enqueue_event_separates_sensor_sources_for_same_user():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -862,7 +848,6 @@ async def test_enqueue_event_uses_owner_batch_size_hint_for_flush():
 @pytest.mark.asyncio
 async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
     from magi.memory.l2.models import L2PendingBatchBucket
-    from magi.memory.l2.pipeline import L2Pipeline
 
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
@@ -889,7 +874,7 @@ async def test_flush_ready_buckets_enqueues_interval_elapsed_batch_job():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
-    from magi.memory.l2.pipeline import DEFAULT_L2_MAX_EVENTS_PER_BATCH, L2Pipeline
+    from magi.memory.l2.pipeline import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 
     with tempfile.TemporaryDirectory() as temp_dir:
         now = time.time()
@@ -916,8 +901,6 @@ async def test_enqueue_event_flushes_when_bucket_hits_event_cap():
 
 @pytest.mark.asyncio
 async def test_enqueue_event_does_not_flush_immediately_for_historical_business_timestamp():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -939,8 +922,6 @@ async def test_enqueue_event_does_not_flush_immediately_for_historical_business_
 
 @pytest.mark.asyncio
 async def test_enqueue_event_flushes_when_bucket_hits_token_cap():
-    from magi.memory.l2.pipeline import L2Pipeline
-
     with tempfile.TemporaryDirectory() as temp_dir:
         pipeline = await _build_pipeline(temp_dir=temp_dir, batch_flush_interval_seconds=60)
         try:
@@ -1043,7 +1024,6 @@ async def test_batch_entity_resolution_single_item_delegates():
     from magi.memory.l2.models import (
         L2BatchEntityResolutionItem,
         L2EntityCandidate,
-        L2EntityResolution,
         L2EntityResolutionMention,
     )
 
@@ -3452,7 +3432,8 @@ async def test_reconcile_worker_promotes_assertions_and_refreshes_snapshots(capl
             assert store.l2 is not None
             assert store.l2_pipeline is not None
 
-            timestamps = [1710000000.0, 1710090000.0, 1710185000.0]
+            now = time.time()
+            timestamps = [now - 49 * 3600, now - 25 * 3600, now]
             with caplog.at_level(logging.INFO, logger="magi.memory.l2.pipeline"), caplog.at_level(
                 logging.INFO, logger="magi.memory.l2.store"
             ):

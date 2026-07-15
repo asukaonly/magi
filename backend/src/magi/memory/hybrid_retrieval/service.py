@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, replace as dc_replace
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ...config import AppConfig
+from .correction_evidence_governance import decide_l1_correction_evidence
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler
 from .evidence.session_bundles import EvidenceBundleMixin
 from .indexical_resolver import resolve as resolve_indexical
@@ -470,6 +471,10 @@ class HybridRetrievalService(
             payload.trace["structured_recall"] = "skipped:l1_missing"
             return payload
         try:
+            event_id_blocklist = self._structured_recall_event_id_blocklist(
+                payload,
+                query_mode=request.query_mode,
+            )
             if recall_shape.domain_hint == "photo":
                 from ..structured_recall.photo import expand_photo_structured_recall
 
@@ -478,6 +483,7 @@ class HybridRetrievalService(
                     request=request,
                     recall_shape=recall_shape,
                     payload=payload,
+                    event_id_blocklist=event_id_blocklist,
                 )
             else:
                 from ..structured_recall.generic import expand_generic_structured_recall
@@ -487,6 +493,7 @@ class HybridRetrievalService(
                     request=request,
                     recall_shape=recall_shape,
                     payload=payload,
+                    event_id_blocklist=event_id_blocklist,
                 )
         except Exception as exc:  # noqa: BLE001
             logger.warning("structured recall failed: %s", exc, exc_info=True)
@@ -498,6 +505,54 @@ class HybridRetrievalService(
         payload.structured_results.append(result)
         payload.trace["structured_recall"] = recall_shape.domain_hint
         return payload
+
+    def _structured_recall_event_id_blocklist(
+        self,
+        payload: RetrievalPayload,
+        *,
+        query_mode: str | None,
+    ) -> Callable[[list[str]], Awaitable[set[str]]] | None:
+        mode = str(
+            payload.trace.get("resolved_query_mode")
+            or payload.trace.get("query_mode")
+            or normalize_query_mode(query_mode)
+            or ""
+        )
+        mode_plan = MODE_REGISTRY.get(mode)
+        retrieval_scopes = set(
+            getattr(mode_plan, "l1_retrieval_scopes", None) or []
+        )
+        if "fact_authoritative" not in retrieval_scopes:
+            return None
+        l2_store = getattr(self._memory, "l2", None)
+
+        async def blocklist(event_ids: list[str]) -> set[str]:
+            decision = await decide_l1_correction_evidence(
+                l2_store,
+                event_ids,
+            )
+            payload.trace["structured_recall_correction_governance"] = decision.status
+            if decision.reason is not None:
+                payload.trace["structured_recall_correction_governance_reason"] = (
+                    decision.reason
+                )
+            payload.trace["structured_recall_correction_governance_dropped_count"] = (
+                len(event_ids)
+                if decision.drop_all
+                else sum(
+                    1
+                    for event_id in event_ids
+                    if not str(event_id).strip()
+                    or str(event_id).strip() in decision.blocked_event_ids
+                )
+            )
+            if decision.drop_all:
+                raise RuntimeError(
+                    "Structured recall correction governance failed closed"
+                )
+            return set(decision.blocked_event_ids)
+
+        return blocklist
 
     def _refresh_handlers(self) -> None:
         """Rebuild layer handlers only when the underlying stores change.

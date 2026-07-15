@@ -5,8 +5,7 @@ Each mode controls routing, retrieval, evidence assembly, and answer synthesis.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +143,7 @@ MODE_REGISTRY: dict[str, QueryModePlan] = {
         },
         evidence_shape="grouped_list",
         reducer_type="enumerate",
+        l1_retrieval_scopes=["fact_authoritative"],
         allow_query_expansion=True,
         time_decay_enabled=False,
         layer_quota={"L1": 12, "L2": 8, "L3": 3, "L4": 1},

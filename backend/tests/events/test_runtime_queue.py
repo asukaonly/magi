@@ -232,3 +232,153 @@ async def test_concurrent_enqueue_and_claim_do_not_raise(tmp_path: Path) -> None
         assert len(set(claimed)) == total, "a command was claimed more than once"
     finally:
         await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_user_message_clear_boundary_purges_every_old_payload_and_preserves_other_commands(
+    tmp_path: Path,
+) -> None:
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.events.contracts import (
+        RefreshLLMConfigCommand,
+        RuntimeCommandType,
+        UserMessageCommand,
+    )
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    async def _enqueue(message: str) -> int:
+        return await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id=f"turn-{message}",
+                message=message,
+            )
+        )
+
+    try:
+        await _enqueue("completed secret")
+        completed = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert completed is not None
+        await queue.ack(completed.command_id)
+
+        await _enqueue("failed secret")
+        failed = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert failed is not None
+        async with sqlite_connection_async(queue.db_path) as db:
+            await db.execute(
+                "UPDATE runtime_commands SET status = 'failed' WHERE command_id = ?",
+                (failed.command_id,),
+            )
+            await db.commit()
+
+        await _enqueue("claimed secret")
+        claimed = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert claimed is not None
+        await _enqueue("pending secret")
+        await queue.enqueue_refresh_llm_config(
+            RefreshLLMConfigCommand(source="api", reason="keep me")
+        )
+
+        async with queue.user_message_clear_boundary():
+            generation, purged_count = (
+                await queue.advance_user_message_generation_and_purge()
+            )
+
+        assert generation == 1
+        assert purged_count == 4
+        async with sqlite_connection_async(queue.db_path) as db:
+            async with db.execute(
+                "SELECT command_type, payload_json FROM runtime_commands ORDER BY command_id"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        assert [(row[0], "keep me" in str(row[1])) for row in rows] == [
+            (RuntimeCommandType.REFRESH_LLM_CONFIG.value, True)
+        ]
+        assert all("secret" not in str(row[1]) for row in rows)
+
+        await _enqueue("new generation")
+        next_command = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert next_command is not None
+        assert next_command.user_message_generation == 1
+    finally:
+        await queue.stop()
+
+    reloaded = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await reloaded.start()
+    try:
+        assert reloaded.current_user_message_generation() == 1
+    finally:
+        await reloaded.stop()
+
+
+@pytest.mark.asyncio
+async def test_first_clear_purges_legacy_user_message_migrated_from_v1(
+    tmp_path: Path,
+) -> None:
+    import json
+    import sqlite3
+    import time
+
+    from alembic import command
+
+    from magi.db.runner import MIGRATION_TARGETS, _build_config
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    db_path = tmp_path / "legacy_message_queue.db"
+    target = next(target for target in MIGRATION_TARGETS if target.name == "message_queue")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v1")
+    now = time.time()
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status, retry_count,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                "user_message",
+                json.dumps({"message": "legacy private text"}),
+                "legacy-command",
+                "completed",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+    command.upgrade(config, "head")
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+    try:
+        assert queue.current_user_message_generation() == 0
+        async with queue.user_message_clear_boundary():
+            generation, purged = (
+                await queue.advance_user_message_generation_and_purge()
+            )
+        assert generation == 1
+        assert purged == 1
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM runtime_commands WHERE command_type = 'user_message'"
+            ).fetchone() == (0,)
+    finally:
+        await queue.stop()

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from magi.config.models import AppConfig
+from magi.memory.hybrid_retrieval.mode_registry import MODE_REGISTRY
 from magi.memory.hybrid_retrieval.models import (
     IntentDecision,
     L1Conditions,
@@ -28,6 +30,27 @@ def _make_memory(**stores):
     mem.l0 = stores.get("l0")
     mem.l1 = stores.get("l1")
     mem.l2 = stores.get("l2")
+    if mem.l2 is not None and hasattr(mem.l2, "batch_list_tom_assertions"):
+        async def _batch_current_assertions(**kwargs):
+            rows = mem.l2.list_current_assertions.return_value
+            if isinstance(rows, list) and rows:
+                return {entity_id: list(rows) for entity_id in kwargs["entity_ids"]}
+            grouped = mem.l2.batch_list_tom_assertions.return_value
+            return grouped if isinstance(grouped, dict) else {}
+
+        async def _batch_current_relationships(**kwargs):
+            rows = mem.l2.list_current_relationships.return_value
+            if isinstance(rows, list) and rows:
+                return {entity_id: list(rows) for entity_id in kwargs["entity_ids"]}
+            grouped = mem.l2.batch_get_relationships.return_value
+            return grouped if isinstance(grouped, dict) else {}
+
+        mem.l2.batch_list_current_assertions = AsyncMock(
+            side_effect=_batch_current_assertions
+        )
+        mem.l2.batch_list_current_relationships = AsyncMock(
+            side_effect=_batch_current_relationships
+        )
     mem.l2_entity_catalog = stores.get("l2_entity_catalog")
     mem.l3 = stores.get("l3")
     mem.l4 = stores.get("l4")
@@ -49,6 +72,24 @@ def _make_l1_store(events=None):
     l1.filter_ids_by_user.return_value = []
     l1.fetch_events.return_value = events or []
     return l1
+
+
+def _make_governance_l2_store(l2=None):
+    """Build an empty L2 mock whose correction governance is available."""
+    import tempfile
+
+    store = l2 or AsyncMock()
+    store.db_path = tempfile.mktemp(suffix=".db")
+    store.active_correction_evidence_event_ids = AsyncMock(return_value=set())
+    store.get_tom_snapshot.return_value = None
+    store.list_tom_assertions.return_value = []
+    store.list_current_assertions.return_value = []
+    store.list_current_relationships.return_value = []
+    store.get_relationships.return_value = []
+    store.batch_get_tom_snapshots.return_value = []
+    store.batch_list_tom_assertions.return_value = {}
+    store.batch_get_relationships.return_value = {}
+    return store
 
 
 def _make_l3_store(tmp_path, summaries=None):
@@ -166,6 +207,228 @@ def test_build_retrieval_config_reads_memory_reranker_settings():
     assert retrieval_config.cross_encoder_enabled is True
     assert retrieval_config.cross_encoder_model_id == "bge-reranker-v2-m3"
     assert retrieval_config.query_expansion_enabled is True
+
+
+@pytest.mark.asyncio
+async def test_comparison_backstop_preserves_request_scope_and_decision_time():
+    svc = HybridRetrievalService(
+        _make_memory(),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    time_range = TimeRange(as_of=1_700_000_000.0)
+    decision = IntentDecision(source="llm", time_range=time_range)
+    request = _make_request(context_scope={"project": "magi", "activity": "coding"})
+    svc._rule_backstop_reason = MagicMock(return_value=None)
+    svc._comparison_backstop_queries = MagicMock(return_value=["expanded comparison"])
+    svc._execute_and_merge_plans = AsyncMock()
+
+    await svc._run_backstops(
+        request,
+        decision,
+        MagicMock(),
+        RetrievalPayload(),
+        l1=None,
+        primary_plans=[],
+    )
+
+    plans = svc._execute_and_merge_plans.await_args.args[0]
+    assert len(plans) == 1
+    assert plans[0].conditions.context_scope == {
+        "project": "magi",
+        "activity": "coding",
+    }
+    assert plans[0].time_range == time_range
+
+
+@pytest.mark.asyncio
+async def test_query_expansion_preserves_request_scope_and_time():
+    svc = HybridRetrievalService(
+        _make_memory(),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    time_range = TimeRange(start=1_700_000_000.0, end=1_700_086_400.0)
+    request = _make_request(context_scope={"project": "magi", "place": "home"})
+    with (
+        patch(
+            "magi.memory.hybrid_retrieval.query_expander.QueryExpander.expand",
+            new=AsyncMock(return_value=["expanded query"]),
+        ),
+        patch(
+            "magi.memory.hybrid_retrieval.service_query_expansion.execute_layer_plan",
+            new=AsyncMock(return_value=[]),
+        ) as execute_mock,
+    ):
+        await svc._run_query_expansion(
+            original_query=request.query,
+            request=request,
+            payload=RetrievalPayload(),
+            time_range=time_range,
+            l1=MagicMock(),
+        )
+
+    plan = execute_mock.await_args.args[0]
+    assert plan.conditions.context_scope == {"project": "magi", "place": "home"}
+    assert plan.time_range == time_range
+
+
+@pytest.mark.asyncio
+async def test_fact_authoritative_l1_fails_closed_when_correction_lookup_breaks(
+    tmp_path,
+):
+    l2 = MagicMock()
+    l2.db_path = str(tmp_path / "memory.db")
+    l2.active_correction_evidence_event_ids = AsyncMock(
+        side_effect=RuntimeError("correction evidence index unavailable")
+    )
+    service = HybridRetrievalService(
+        _make_memory(l2=l2),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = RetrievalPayload(
+        l1_events=[
+            {"event_id": "evt-1", "content": "first fact"},
+            {"event_id": "evt-2", "content": "second fact"},
+        ]
+    )
+
+    await service._apply_l1_correction_governance(
+        payload,
+        mode_plan=MODE_REGISTRY["exact_fact"],
+        host=service,
+    )
+
+    assert payload.l1_events == []
+    assert payload.trace["l1_correction_governance"] == "failed_closed"
+    assert payload.trace["l1_correction_governance_granularity"] == "event"
+    assert payload.trace["l1_correction_governance_dropped_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_fact_authoritative_l1_fails_closed_without_l2_governance():
+    service = HybridRetrievalService(
+        _make_memory(l2=None),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = RetrievalPayload(
+        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
+    )
+
+    await service._apply_l1_correction_governance(
+        payload,
+        mode_plan=MODE_REGISTRY["exact_fact"],
+        host=service,
+    )
+
+    assert payload.l1_events == []
+    assert payload.trace["l1_correction_governance"] == "failed_closed"
+    assert payload.trace["l1_correction_governance_reason"] == (
+        "l2_governance_unavailable"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fact_authoritative_l1_drops_only_unknown_id_when_lookup_succeeds(
+    tmp_path,
+):
+    l2 = MagicMock()
+    l2.db_path = str(tmp_path / "memory.db")
+    l2.active_correction_evidence_event_ids = AsyncMock(return_value=set())
+    service = HybridRetrievalService(
+        _make_memory(l2=l2),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = RetrievalPayload(
+        l1_events=[
+            {"content": "unknown evidence identity"},
+            {"event_id": "evt-known", "content": "governable record"},
+        ]
+    )
+
+    await service._apply_l1_correction_governance(
+        payload,
+        mode_plan=MODE_REGISTRY["exact_fact"],
+        host=service,
+    )
+
+    assert payload.l1_events == [
+        {"event_id": "evt-known", "content": "governable record"}
+    ]
+    assert payload.trace["l1_correction_governance"] == "failed_closed"
+    assert payload.trace["l1_correction_governance_reason"] == "missing_event_id"
+    assert payload.trace["l1_correction_governance_dropped_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("l2_factory", "expected_reason"),
+    [
+        (lambda _path: SimpleNamespace(db_path=object()), "l2_governance_unavailable"),
+        (lambda path: SimpleNamespace(db_path=str(path)), "lookup_unavailable"),
+    ],
+)
+async def test_fact_authoritative_l1_fails_closed_on_invalid_l2_contract(
+    tmp_path,
+    l2_factory,
+    expected_reason,
+):
+    l2 = l2_factory(tmp_path / "memory.db")
+    service = HybridRetrievalService(
+        _make_memory(l2=l2),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = RetrievalPayload(
+        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
+    )
+
+    await service._apply_l1_correction_governance(
+        payload,
+        mode_plan=MODE_REGISTRY["exact_fact"],
+        host=service,
+    )
+
+    assert payload.l1_events == []
+    assert payload.trace["l1_correction_governance"] == "failed_closed"
+    assert payload.trace["l1_correction_governance_reason"] == expected_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "lookup_result",
+    [
+        None,
+        "evt-1",
+        {"evt-1": True},
+        [None],
+        [""],
+        ["evt-outside-candidate-batch"],
+    ],
+)
+async def test_fact_authoritative_l1_fails_closed_on_invalid_lookup_result(
+    tmp_path,
+    lookup_result,
+):
+    l2 = MagicMock()
+    l2.db_path = str(tmp_path / "memory.db")
+    l2.active_correction_evidence_event_ids = AsyncMock(return_value=lookup_result)
+    service = HybridRetrievalService(
+        _make_memory(l2=l2),
+        config=RetrievalConfig(intent_decider_llm_enabled=False),
+    )
+    payload = RetrievalPayload(
+        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
+    )
+
+    await service._apply_l1_correction_governance(
+        payload,
+        mode_plan=MODE_REGISTRY["exact_fact"],
+        host=service,
+    )
+
+    assert payload.l1_events == []
+    assert payload.trace["l1_correction_governance"] == "failed_closed"
+    assert payload.trace["l1_correction_governance_reason"] == (
+        "lookup_invalid_result"
+    )
 
 
 class TestServiceBasicFlow:
@@ -291,6 +554,8 @@ class TestServiceLayerRouting:
         assert result.trace.get("resolved_query_mode") == "event_stream"
         assert result.trace.get("executed_layers") == ["L1"]
         assert result.trace.get("layer_result_counts", {}).get("L1", 0) >= 1
+        assert result.trace.get("l1_event_semantics") == "historical_record"
+        assert result.l1_events[0]["evidence_semantics"] == "historical_record"
 
     @pytest.mark.asyncio
     async def test_summary_mode_queries_l3(self, tmp_path):
@@ -358,7 +623,7 @@ class TestServiceLayerRouting:
         result = await svc.query(_make_request(query_mode="graph"))
 
         assert len(result.l2_assertions) == 1
-        l2.list_current_assertions.assert_called()
+        l2.batch_list_current_assertions.assert_called()
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
@@ -386,7 +651,7 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) >= 1
-        first_call_kwargs = l2.list_current_relationships.call_args_list[0][1]
+        first_call_kwargs = l2.batch_list_current_relationships.call_args_list[0][1]
         assert first_call_kwargs["predicates"] == ["DISLIKES", "FOLLOWS", "INTERESTED_IN", "LIKES"]
         assert first_call_kwargs["context_scope"] == {}
 
@@ -432,7 +697,7 @@ class TestServiceLayerRouting:
         entity_catalog.resolve_query_entities.assert_called_once()
         first_call_kwargs = next(
             call.kwargs
-            for call in l2.list_current_relationships.call_args_list
+            for call in l2.batch_list_current_relationships.call_args_list
             if call.kwargs.get("entity_ids")
         )
         assert "user:u1" in first_call_kwargs["entity_ids"]
@@ -463,7 +728,7 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) >= 1
-        first_call_kwargs = l2.list_current_relationships.call_args_list[0][1]
+        first_call_kwargs = l2.batch_list_current_relationships.call_args_list[0][1]
         assert "user:u1" in first_call_kwargs["entity_ids"]
         assert first_call_kwargs["direction"] == "incoming"
 
@@ -494,7 +759,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.list_current_assertions.call_args
+        _, kwargs = l2.batch_list_current_assertions.call_args
         assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
 
     @pytest.mark.asyncio
@@ -563,7 +828,10 @@ class TestServiceLayerRouting:
 
     @pytest.mark.asyncio
     async def test_interaction_scoped_place_affinity_with_time_range_adds_l1_primary_plan(self):
-        mem = _make_memory(l1=_make_l1_store([]), l2=AsyncMock())
+        mem = _make_memory(
+            l1=_make_l1_store([]),
+            l2=_make_governance_l2_store(),
+        )
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         semantic_frame = L2SemanticFrame(
             query_family="affinity",
@@ -628,7 +896,10 @@ class TestServiceLayerRouting:
 
     @pytest.mark.asyncio
     async def test_interaction_scoped_creator_affinity_with_time_range_adds_l1_primary_plan(self):
-        mem = _make_memory(l1=_make_l1_store([]), l2=AsyncMock())
+        mem = _make_memory(
+            l1=_make_l1_store([]),
+            l2=_make_governance_l2_store(),
+        )
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         semantic_frame = L2SemanticFrame(
             query_family="affinity",
@@ -719,7 +990,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.list_current_relationships.call_args
+        _, kwargs = l2.batch_list_current_relationships.call_args
         assert "user:local_user" in kwargs["entity_ids"]
 
     @pytest.mark.asyncio
@@ -764,7 +1035,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        first_rel_kwargs = l2.list_current_relationships.call_args_list[0][1]
+        first_rel_kwargs = l2.batch_list_current_relationships.call_args_list[0][1]
         assert "user:local_user" in first_rel_kwargs["entity_ids"]
         assert len(result.l2_relationships) >= 1
 
@@ -832,7 +1103,11 @@ class TestServiceFallback:
 
             l3 = AsyncMock()
             l3.search_summaries.return_value = []
-            mem = _make_memory(l1=real_l1, l3=l3)
+            mem = _make_memory(
+                l1=real_l1,
+                l2=_make_governance_l2_store(),
+                l3=l3,
+            )
             config = RetrievalConfig(
                 intent_decider_llm_enabled=False,
                 fallback_trigger_threshold=1,
@@ -844,7 +1119,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_rule_backstop_runs_when_llm_primary_returns_no_results(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -903,7 +1178,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_rule_backstop_runs_when_llm_primary_misses_a_quoted_candidate(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -980,7 +1255,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_rule_backstop_runs_when_llm_primary_misses_an_unquoted_comparison_candidate(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -1049,7 +1324,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_rule_backstop_runs_when_unquoted_comparison_spans_only_appear_in_one_noisy_event(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -1131,7 +1406,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_comparison_backstop_runs_candidate_queries_when_rule_backstop_still_misses_coverage(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -1255,7 +1530,7 @@ class TestServiceFallback:
 
     @pytest.mark.asyncio
     async def test_comparison_backstop_runs_for_rule_fallback_when_primary_is_empty(self):
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         rule_plan = LayerQueryPlan(
             layer="L1",
@@ -1314,7 +1589,7 @@ class TestServiceFallback:
     async def test_comparison_backstop_uses_quoted_spans_for_single_quoted_entities(self):
         """When entities are single-quoted ('The Crown' or 'Game of Thrones'),
         extract_comparison_spans returns [] but extract_quoted_spans succeeds."""
-        mem = _make_memory()
+        mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
@@ -1448,7 +1723,7 @@ class TestServiceEvidencePackaging:
         ]
         l1 = _make_l1_store(session_events)
         l1.query_events = AsyncMock(return_value=list(reversed(session_events)))
-        mem = _make_memory(l1=l1)
+        mem = _make_memory(l1=l1, l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
@@ -1492,7 +1767,7 @@ class TestServiceEvidencePackaging:
         ]
         l1 = _make_l1_store(session_events)
         l1.query_events = AsyncMock(side_effect=[session_events[:1], session_events[1:]])
-        mem = _make_memory(l1=l1)
+        mem = _make_memory(l1=l1, l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
@@ -1568,7 +1843,7 @@ class TestServiceEvidencePackaging:
         ]
         l1 = _make_l1_store(service_session_events + issue_session_events)
         l1.query_events = AsyncMock(side_effect=[service_session_events, issue_session_events])
-        mem = _make_memory(l1=l1)
+        mem = _make_memory(l1=l1, l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
@@ -1616,12 +1891,14 @@ class TestL2TemporalInjection:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         payload = RetrievalPayload(trace={})
         request = _make_request(query="What did I buy 10 days ago?")
+        parsed_range = TimeRange(start=100.0, end=200.0)
 
         # Simulate LLM routing to L1 only (no L2 plan)
         l1_only_plans = [
             LayerQueryPlan(
                 layer="L1",
                 conditions=L1Conditions(content_query=request.query, limit=10),
+                time_range=parsed_range,
                 is_fallback=False,
             )
         ]
@@ -1630,7 +1907,46 @@ class TestL2TemporalInjection:
         l2_plans = [p for p in augmented if p.layer == "L2"]
         assert len(l2_plans) == 1
         assert l2_plans[0].conditions.subject_hint == "self"
+        assert l2_plans[0].time_range is parsed_range
         assert payload.trace.get("l2_temporal_injected") is True
+
+    def test_explicit_time_range_injects_l2_without_temporal_words(self):
+        mem = _make_memory(l1=_make_l1_store([]), l2=AsyncMock())
+        svc = HybridRetrievalService(
+            mem,
+            config=RetrievalConfig(intent_decider_llm_enabled=False),
+        )
+        as_of = 1_700_000_000.0
+        request = _make_request(
+            query="Summarize my activity",
+            time_range={"as_of": as_of},
+            context_scope={"project": "magi", "activity": "coding"},
+        )
+        decision = IntentDecision(
+            plans=[
+                LayerQueryPlan(
+                    layer="L1",
+                    conditions=L1Conditions(content_query=request.query),
+                )
+            ],
+            time_range=TimeRange(as_of=as_of),
+        )
+        payload = RetrievalPayload(trace={})
+
+        prepared = svc._prepare_primary_plans(
+            decision,
+            request=request,
+            payload=payload,
+        )
+
+        l1_plan = next(plan for plan in prepared if plan.layer == "L1")
+        l2_plan = next(plan for plan in prepared if plan.layer == "L2")
+        assert l1_plan.time_range is decision.time_range
+        assert l1_plan.conditions.context_scope == request.context_scope
+        assert l2_plan.time_range is decision.time_range
+        assert l2_plan.conditions.context_scope == request.context_scope
+        assert l2_plan.time_range.as_of == as_of
+        assert payload.trace["l2_temporal_injected"] is True
 
     @pytest.mark.asyncio
     async def test_non_temporal_query_does_not_inject_l2_when_l2_already_present(self):

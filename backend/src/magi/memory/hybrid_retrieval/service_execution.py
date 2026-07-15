@@ -100,6 +100,7 @@ class HybridRetrievalExecutionMixin(
             [p for p in decision.plans if not p.is_fallback],
             request=request,
             payload=payload,
+            time_range=decision.time_range,
         )
         logger.debug(
             "Primary plans prepared | plan_count=%d layers=%s",

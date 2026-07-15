@@ -379,17 +379,19 @@ async def test_entity_catalog_exposes_embedding_status_and_profile_id():
         embedding_service = _RecordingEmbeddingService()
         catalog = L2EntityCatalog(db_path=db_path, embedding_service=embedding_service)
         await catalog.initialize()
+        try:
+            await catalog.upsert_entity(
+                canonical_name="OpenAI",
+                entity_type="organization",
+                entity_id="org:openai",
+            )
 
-        await catalog.upsert_entity(
-            canonical_name="OpenAI",
-            entity_type="organization",
-            entity_id="org:openai",
-        )
+            entities = await catalog.list_entities(limit=10)
 
-        entities = await catalog.list_entities(limit=10)
-
-        assert entities[0]["embedding_status"] == "ready"
-        assert entities[0]["embedding_profile_id"] is not None
+            assert entities[0]["embedding_status"] == "ready"
+            assert entities[0]["embedding_profile_id"] is not None
+        finally:
+            await catalog.close()
 
 
 @pytest.mark.asyncio

@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Iterable
 
+from ..core.operation_barrier import AsyncOperationBarrier
 from ..core.sqlite import sqlite_connection_async
 from .contracts import (
     RefreshChannelsCommand,
@@ -24,9 +27,11 @@ STATUS_CLAIMED = "claimed"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 
+_USER_MESSAGE_CLEAR_STATE_ID = 1
+
 
 class SQLiteRuntimeCommandQueue:
-    """Persisted command queue used between API and runtime worker processes."""
+    """Persisted queue shared by API ingress and the lifecycle-owned runtime worker."""
 
     def __init__(self, *, db_path: str = "~/.magi/runtime/message_queue.db", poll_interval_seconds: float = 0.1) -> None:
         self.db_path = str(Path(db_path).expanduser())
@@ -39,23 +44,31 @@ class SQLiteRuntimeCommandQueue:
         # concurrent writers can still intermittently raise "database is locked"
         # under load (CI). An asyncio.Lock makes in-process writes strictly serial.
         self._write_lock = asyncio.Lock()
+        self._user_message_barrier = AsyncOperationBarrier()
+        self._user_message_generation: int | None = None
+        self._user_message_generation_load_lock = asyncio.Lock()
+        self._user_message_clear_owner: asyncio.Task[object] | None = None
 
     async def start(self) -> None:
         if self._started:
             return
         await self._initialize()
+        await self._ensure_user_message_generation_loaded()
         self._started = True
 
     async def stop(self) -> None:
         self._started = False
 
     async def enqueue_user_message(self, command: UserMessageCommand) -> int:
-        return await self._enqueue_command(
-            command_type=RuntimeCommandType.USER_MESSAGE,
-            payload=command.to_payload(),
-            correlation_id=command.correlation_id,
-            created_at=command.created_at,
-        )
+        async with self.user_message_operation():
+            await self._ensure_user_message_generation_loaded()
+            return await self._enqueue_command(
+                command_type=RuntimeCommandType.USER_MESSAGE,
+                payload=command.to_payload(),
+                correlation_id=command.correlation_id,
+                created_at=command.created_at,
+                user_message_generation=self.current_user_message_generation(),
+            )
 
     async def enqueue_refresh_llm_config(self, command: RefreshLLMConfigCommand) -> int:
         return await self._enqueue_command(
@@ -96,6 +109,7 @@ class SQLiteRuntimeCommandQueue:
         payload: dict[str, object],
         correlation_id: str,
         created_at: float,
+        user_message_generation: int = 0,
     ) -> int:
         await self._initialize()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
@@ -107,15 +121,17 @@ class SQLiteRuntimeCommandQueue:
                     correlation_id,
                     status,
                     retry_count,
+                    user_message_generation,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
                 """,
                 (
                     command_type.value,
                     json.dumps(payload, ensure_ascii=False),
                     correlation_id,
                     STATUS_PENDING,
+                    int(user_message_generation),
                     float(created_at),
                     float(created_at),
                 ),
@@ -149,7 +165,8 @@ class SQLiteRuntimeCommandQueue:
                     ORDER BY created_at ASC
                     LIMIT 1
                 )
-                RETURNING command_id, command_type, payload_json, correlation_id, retry_count
+                RETURNING command_id, command_type, payload_json, correlation_id,
+                          retry_count, user_message_generation
                 """,
                 (
                     STATUS_CLAIMED,
@@ -175,7 +192,80 @@ class SQLiteRuntimeCommandQueue:
             payload=payload,
             correlation_id=str(row[3]),
             retry_count=int(row[4] or 0),
+            user_message_generation=int(row[5] or 0),
         )
+
+    @asynccontextmanager
+    async def user_message_operation(self) -> AsyncIterator[None]:
+        """Protect one end-to-end user-message ingress or dispatch operation."""
+        async with self._user_message_barrier.operation():
+            yield
+
+    @asynccontextmanager
+    async def user_message_clear_boundary(self) -> AsyncIterator[None]:
+        """Block new user-message work while a destructive clear is in progress."""
+        async with self._user_message_barrier.exclusive():
+            task = asyncio.current_task()
+            if task is None:
+                raise RuntimeError("User-message clear boundary requires an asyncio task")
+            self._user_message_clear_owner = task
+            try:
+                yield
+            finally:
+                self._user_message_clear_owner = None
+
+    def current_user_message_generation(self) -> int:
+        """Return the durable generation loaded for this queue instance."""
+        if self._user_message_generation is None:
+            raise RuntimeError("Runtime user-message generation is not initialized")
+        return int(self._user_message_generation)
+
+    async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
+        """Advance the clear generation and remove every older user-message payload."""
+        task = asyncio.current_task()
+        if task is None or task is not self._user_message_clear_owner:
+            raise RuntimeError(
+                "User-message generation can only advance inside its clear boundary"
+            )
+        await self._ensure_user_message_generation_loaded()
+        now = time.time()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.execute(
+                    """
+                    UPDATE runtime_user_message_clear_state
+                    SET generation = generation + 1, updated_at = ?
+                    WHERE singleton_id = ?
+                    """,
+                    (now, _USER_MESSAGE_CLEAR_STATE_ID),
+                )
+                async with db.execute(
+                    """
+                    SELECT generation
+                    FROM runtime_user_message_clear_state
+                    WHERE singleton_id = ?
+                    """,
+                    (_USER_MESSAGE_CLEAR_STATE_ID,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    raise RuntimeError("Runtime user-message clear state is missing")
+                next_generation = int(row[0])
+                cursor = await db.execute(
+                    """
+                    DELETE FROM runtime_commands
+                    WHERE command_type = ?
+                    """,
+                    (RuntimeCommandType.USER_MESSAGE.value,),
+                )
+                purged_count = int(cursor.rowcount or 0)
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        self._user_message_generation = next_generation
+        return next_generation, purged_count
 
     async def ack(self, command_id: int) -> None:
         await self._update_status(command_id=command_id, status=STATUS_COMPLETED, clear_claim=True)
@@ -223,6 +313,26 @@ class SQLiteRuntimeCommandQueue:
 
     async def _initialize(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    async def _ensure_user_message_generation_loaded(self) -> None:
+        if self._user_message_generation is not None:
+            return
+        async with self._user_message_generation_load_lock:
+            if self._user_message_generation is not None:
+                return
+            async with sqlite_connection_async(self.db_path) as db:
+                async with db.execute(
+                    """
+                    SELECT generation
+                    FROM runtime_user_message_clear_state
+                    WHERE singleton_id = ?
+                    """,
+                    (_USER_MESSAGE_CLEAR_STATE_ID,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+            if row is None:
+                raise RuntimeError("Runtime user-message clear state is missing")
+            self._user_message_generation = int(row[0])
 
     async def _update_status(self, *, command_id: int, status: str, clear_claim: bool) -> None:
         await self._initialize()

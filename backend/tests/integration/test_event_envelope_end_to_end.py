@@ -27,6 +27,7 @@ async def _setup():
         l2_batch_flush_interval_seconds=0,
     )
     await store.initialize()
+    bus.bind_memory_operation_epoch(store.memory_operation_epoch)
     sub = MemoryIngestionSubscriber(event_bus=bus, unified_memory=store)
     await sub.start()
     return bus, store, sub, tmp, base

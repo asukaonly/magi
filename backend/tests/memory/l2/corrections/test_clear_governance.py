@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
 
 import aiosqlite
+import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
+from magi.context.user_profile_service import UserProfileService
+from magi.memory.derivation_revision import MemoryClearGenerationChangedError
+from magi.memory.embedding.embedding_service import EmbeddingResult
 from magi.memory.l2.corrections.models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
@@ -13,7 +18,16 @@ from magi.memory.l2.corrections.models import (
 )
 from magi.memory.l2.corrections.relationship_service import RelationshipCorrectionService
 from magi.memory.l2.corrections.service import MemoryCorrectionService
+from magi.memory.l2.batch_models import L2BatchJob
+from magi.memory.l2.entities.catalog import L2EntityCatalog
+from magi.memory.l2.pipeline import L2Pipeline
 from magi.memory.l2.store import L2CognitionStore
+from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+from magi.memory.shared_clear import clear_shared_auxiliary_memory
+from magi.memory.unified_store import UnifiedMemoryStore
+from magi.user_profile.models import UserProfileProjection
+from magi.user_profile.projection_repository import UserProfileProjectionRepository
+from magi.user_profile.projection_builder import UserProfileProjectionBuilder
 
 
 def _assertion_candidate(*, now: float) -> dict[str, object]:
@@ -92,6 +106,7 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
     governed_tables = (
         "memory_derivation_dependencies",
         "memory_derivation_jobs",
+        "memory_correction_evidence_events",
         "memory_correction_rules",
         "memory_corrections",
         "memory_subject_revisions",
@@ -158,3 +173,553 @@ async def test_clear_waits_for_running_correction_work(tmp_path) -> None:
             assert await cursor.fetchone() == (0,)
         async with db.execute("SELECT COUNT(*) FROM memory_derivation_jobs") as cursor:
             assert await cursor.fetchone() == (0,)
+
+
+async def test_clear_removes_all_l2_user_memory_tables(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+    now = time.time()
+
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS l2_promotion_counter (
+                source_type TEXT NOT NULL,
+                key TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                promoted INTEGER NOT NULL DEFAULT 0,
+                first_seen REAL NOT NULL,
+                last_seen REAL NOT NULL,
+                promoted_at REAL,
+                PRIMARY KEY (source_type, key)
+            )
+            """
+        )
+        await db.execute(
+            "CREATE TABLE IF NOT EXISTS l2_promotion_seen "
+            "(event_id TEXT PRIMARY KEY, seen_at REAL NOT NULL)"
+        )
+        await db.execute(
+            "INSERT INTO l2_promotion_counter VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("private-source", "private.example", 2, 1, now, now, now),
+        )
+        await db.execute(
+            "INSERT INTO l2_promotion_seen VALUES (?, ?)",
+            ("private-event", now),
+        )
+        await db.execute(
+            """
+            INSERT INTO experience_drafts(
+                draft_id, status, query_text, title, one_sentence_review,
+                time_start, time_end, chapters_json, possible_evidence_json,
+                excluded_evidence_json, created_at, updated_at
+            ) VALUES (?, 'editing', ?, ?, ?, ?, ?, '[]', '[]', '[]', ?, ?)
+            """,
+            (
+                "private-draft",
+                "private query",
+                "Private title",
+                "Private recap",
+                now,
+                now,
+                now,
+                now,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO experience_chapters(
+                experience_id, chapter_id, position, title, summary,
+                episode_ids_json, event_ids_json, created_at, updated_at
+            ) VALUES (?, ?, 0, ?, ?, '[]', ?, ?, ?)
+            """,
+            (
+                "private-experience",
+                "private-chapter",
+                "Private chapter",
+                "Private summary",
+                '["private-event"]',
+                now,
+                now,
+            ),
+        )
+        await db.execute(
+            "INSERT INTO episodes_fts(episode_id, summary, label, user_label) "
+            "VALUES ('private-episode', 'Private summary', 'Private label', 'Private user label')"
+        )
+        await db.commit()
+
+    await store.clear()
+
+    tables = (
+        "l2_promotion_counter",
+        "l2_promotion_seen",
+        "experience_drafts",
+        "experience_chapters",
+        "episodes_fts",
+    )
+    async with aiosqlite.connect(db_path) as db:
+        for table in tables:
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+
+
+async def test_clear_invalidates_existing_chat_profile_cache(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+    repository = UserProfileProjectionRepository(db_path)
+    await repository.upsert(
+        UserProfileProjection(
+            user_id="u1",
+            entity_id="user:u1",
+            display_name="Private Name",
+            refreshed_at=time.time(),
+        )
+    )
+    service = UserProfileService(
+        unified_memory=SimpleNamespace(l2=store, l2_entity_catalog=None),
+        cache_ttl=300,
+    )
+    assert await service.get_display_name("u1") == "Private Name"
+
+    await store.clear()
+
+    assert await service.get_display_name("u1") == "unknown"
+
+
+async def test_clear_waits_for_running_l2_pipeline_writeback(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+    pipeline = L2Pipeline(
+        store,
+        entity_catalog=object(),
+        llm_service=object(),
+        batch_flush_interval_seconds=0,
+    )
+    event_id = "event-before-clear"
+    await store.enqueue_projection_job(
+        event_id=event_id,
+        source="conversation",
+        event_type="USER_MESSAGE",
+    )
+    claimed = await store.claim_projection_jobs(consumer_name="test-consumer", limit=1)
+    assert [row["event_id"] for row in claimed] == [event_id]
+    pipeline._projection_consumer_name = "test-consumer"
+    job = L2BatchJob(
+        job_id="job-before-clear",
+        bucket_key="event:event-before-clear",
+        events=[
+            {
+                "event_id": event_id,
+                "timestamp": time.time(),
+                "event_type": "USER_MESSAGE",
+            }
+        ],
+        flush_reason="immediate",
+        estimated_tokens=1,
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def delayed_writeback(_job: L2BatchJob) -> dict[str, object]:
+        started.set()
+        await release.wait()
+        await store.upsert_assertion_candidate(_assertion_candidate(now=time.time()))
+        return {
+            "relation_count": 0,
+            "assertion_count": 1,
+            "touched_entity_ids": [],
+            "touched_place_ids": [],
+            "touched_topic_keys": [],
+            "skipped": True,
+        }
+
+    pipeline._extract_and_persist = delayed_writeback  # type: ignore[method-assign]
+    worker = asyncio.create_task(pipeline._process_extract_job(job))
+    await asyncio.wait_for(started.wait(), timeout=2)
+    clearing = asyncio.create_task(store.clear())
+    await asyncio.sleep(0.05)
+    assert not clearing.done()
+
+    release.set()
+    await asyncio.gather(worker, clearing)
+
+    assert await store.count_tom_assertions() == 0
+
+
+async def test_rev_zero_profile_built_before_clear_cannot_be_written_back(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    store = L2CognitionStore(db_path=db_path)
+    await store.initialize()
+    await store.upsert_assertion_candidate(
+        {
+            **_assertion_candidate(now=time.time()),
+            "trait_name": "identity.real_name",
+            "trait_value": "Private Name",
+            "trait_family": "identity_profile",
+        }
+    )
+    projection = await UserProfileProjectionBuilder(store).build("u1")
+    assert projection.source_revision == 0
+    assert projection.source_generation == 0
+
+    await store.clear()
+
+    with pytest.raises(MemoryClearGenerationChangedError):
+        await UserProfileProjectionRepository(db_path).upsert(projection)
+    assert await UserProfileProjectionRepository(db_path).get("u1") is None
+
+
+async def test_catalog_clear_removes_entity_and_relationship_vectors(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, embedding_service=object())  # type: ignore[arg-type]
+    await catalog.initialize()
+    entity_index = catalog._vector_index
+    edge_index = catalog.edge_vector_index
+    assert entity_index is not None and edge_index is not None
+    embedding = EmbeddingResult(
+        model_name="test-embedding",
+        dimension=2,
+        vector=[1.0, 0.0],
+    )
+    await entity_index.upsert(entity_id="user:u1", embedding=embedding)
+    await edge_index.upsert(entity_id="private-edge", embedding=embedding)
+
+    await catalog.clear()
+
+    async with aiosqlite.connect(db_path) as db:
+        for table in ("l2_entity_vectors", "l2_edge_vectors"):
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+    await catalog.close()
+
+
+async def test_catalog_clear_closes_cleanup_only_indexes_without_embedding_model(
+    tmp_path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    seeded = L2EntityCatalog(db_path=db_path, embedding_service=object())  # type: ignore[arg-type]
+    entity_index = seeded._vector_index
+    edge_index = seeded.edge_vector_index
+    assert entity_index is not None and edge_index is not None
+    embedding = EmbeddingResult(
+        model_name="test-embedding",
+        dimension=2,
+        vector=[1.0, 0.0],
+    )
+    await entity_index.upsert(entity_id="user:u1", embedding=embedding)
+    await edge_index.upsert(entity_id="private-edge", embedding=embedding)
+    await seeded.close()
+
+    catalog = L2EntityCatalog(db_path=db_path)
+    assert catalog._vector_index is not None and catalog._vector_index._db is None
+
+    await catalog.clear()
+
+    assert catalog._vector_index._db is None
+    assert catalog._edge_vector_index._db is None
+    async with aiosqlite.connect(db_path) as db:
+        for table in ("l2_entity_vectors", "l2_edge_vectors"):
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+
+
+async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await apply_memory_shared_schema(db_path)
+    now = time.time()
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT INTO manual_entries(entry_id, created_at, event_at, body) "
+            "VALUES ('private-entry', ?, ?, 'Private note')",
+            (now, now),
+        )
+        await db.execute(
+            "INSERT INTO location_samples(sample_id, source, sampled_at, city, created_at) "
+            "VALUES ('private-location', 'sensor', ?, 'Private City', ?)",
+            (now, now),
+        )
+        await db.execute(
+            "INSERT INTO place_labels(label_id, center_lat, center_lng, user_label, created_at) "
+            "VALUES ('private-label', 1, 2, 'Private Home', ?)",
+            (now,),
+        )
+        await db.execute(
+            "INSERT INTO place_geocode_cache(grid_key, city, cached_at) "
+            "VALUES ('private-grid', 'Private City', ?)",
+            (now,),
+        )
+        await db.execute(
+            """
+            INSERT INTO embedding_rebuild_jobs(
+                job_id, status, requested_layers_json, created_at, updated_at
+            ) VALUES ('private-job', 'running', '["l2"]', ?, ?)
+            """,
+            (now, now),
+        )
+        await db.execute(
+            """
+            INSERT INTO embedding_rebuild_job_layers(job_id, layer, status, updated_at)
+            VALUES ('private-job', 'l2', 'running', ?)
+            """,
+            (now,),
+        )
+        await db.execute(
+            """
+            CREATE TABLE timeline_cover_preferences (
+                scope_key TEXT PRIMARY KEY,
+                asset_ref TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            "INSERT INTO timeline_cover_preferences(scope_key, asset_ref) "
+            "VALUES ('private-period', 'manual-entry-asset://private.jpg')"
+        )
+        await db.commit()
+
+    await clear_shared_auxiliary_memory(db_path)
+
+    tables = (
+        "manual_entries",
+        "location_samples",
+        "place_labels",
+        "place_geocode_cache",
+        "embedding_rebuild_job_layers",
+        "embedding_rebuild_jobs",
+        "timeline_cover_preferences",
+    )
+    async with aiosqlite.connect(db_path) as db:
+        for table in tables:
+            async with db.execute(f"SELECT COUNT(*) FROM {table}") as cursor:
+                assert await cursor.fetchone() == (0,), table
+
+
+async def test_unified_clear_removes_archives_and_manual_assets_only(tmp_path) -> None:
+    memory_root = tmp_path / "memory"
+    archive_dir = memory_root / "archive"
+    archive_dir.mkdir(parents=True)
+    for name in ("2026-07-14.db", "2026-07-14.db-wal", "2026-07-14.db-shm"):
+        (archive_dir / name).write_bytes(b"private archive")
+    keep_archive_file = archive_dir / "README.txt"
+    keep_archive_file.write_text("keep")
+
+    media_root = tmp_path / "media"
+    asset_store = ManualEntryAssetStore(media_root=media_root)
+    asset_ref = asset_store.store_bytes(b"private image", content_type="image/png")
+    unrelated_media = media_root / "other" / "keep.bin"
+    unrelated_media.parent.mkdir(parents=True)
+    unrelated_media.write_bytes(b"keep")
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(memory_root),
+        archive_dir_path=str(archive_dir),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    await unified.clear_all_memory(auxiliary_clearers=[asset_store.clear])
+
+    assert asset_store.resolve(asset_ref) is None
+    assert (media_root / "manual_entries").is_dir()
+    assert unrelated_media.read_bytes() == b"keep"
+    assert archive_dir.is_dir()
+    assert keep_archive_file.read_text() == "keep"
+    assert not list(archive_dir.glob("*.db*"))
+
+
+async def test_unified_clear_restarts_pipeline_when_later_quiesce_step_fails(
+    tmp_path,
+) -> None:
+    class Pipeline:
+        def __init__(self) -> None:
+            self._stats = SimpleNamespace(is_running=True)
+            self.abort_calls = 0
+            self.start_calls = 0
+
+        async def abort_for_clear(self) -> None:
+            self.abort_calls += 1
+            self._stats.is_running = False
+
+        async def start(self) -> None:
+            self.start_calls += 1
+            self._stats.is_running = True
+
+    class ProjectionScheduler:
+        async def shutdown(self) -> None:
+            raise RuntimeError("projection shutdown failed")
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    pipeline = Pipeline()
+    unified.l2_pipeline = pipeline  # type: ignore[assignment]
+    unified._portrait_projection_scheduler = ProjectionScheduler()
+
+    with pytest.raises(RuntimeError, match="projection shutdown failed"):
+        await unified.clear_all_memory()
+
+    assert pipeline.abort_calls == 1
+    assert pipeline.start_calls == 1
+    assert pipeline._stats.is_running is True
+
+
+async def test_unified_clear_reports_writer_restart_failure(tmp_path) -> None:
+    class Pipeline:
+        def __init__(self) -> None:
+            self._stats = SimpleNamespace(is_running=True)
+            self.abort_calls = 0
+            self.reset_calls = 0
+            self.start_calls = 0
+
+        async def abort_for_clear(self) -> None:
+            self.abort_calls += 1
+            self._stats.is_running = False
+
+        async def reset_after_clear(self) -> None:
+            self.reset_calls += 1
+
+        async def start(self) -> None:
+            self.start_calls += 1
+            raise RuntimeError("pipeline restart failed")
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    pipeline = Pipeline()
+    unified.l2_pipeline = pipeline  # type: ignore[assignment]
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to resume memory writers after clear: l2_pipeline",
+    ):
+        await unified.clear_all_memory()
+
+    assert pipeline.abort_calls == 1
+    assert pipeline.reset_calls == 1
+    assert pipeline.start_calls == 1
+
+
+async def test_unified_clear_keeps_clear_failure_when_writer_restart_also_fails(
+    tmp_path,
+) -> None:
+    class L2Store:
+        async def clear(self) -> int:
+            raise RuntimeError("l2 clear failed")
+
+    class Pipeline:
+        def __init__(self) -> None:
+            self._stats = SimpleNamespace(is_running=True)
+            self.abort_calls = 0
+            self.start_calls = 0
+
+        async def abort_for_clear(self) -> None:
+            self.abort_calls += 1
+            self._stats.is_running = False
+
+        async def start(self) -> None:
+            self.start_calls += 1
+            raise RuntimeError("pipeline restart failed")
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    pipeline = Pipeline()
+    unified.l2 = L2Store()  # type: ignore[assignment]
+    unified.l2_pipeline = pipeline  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="l2 clear failed"):
+        await unified.clear_all_memory()
+
+    assert pipeline.abort_calls == 1
+    assert pipeline.start_calls == 1
+
+
+async def test_unified_clear_attempts_later_writer_restarts_after_one_fails(
+    tmp_path,
+) -> None:
+    class RunningWorker:
+        @staticmethod
+        def done() -> bool:
+            return False
+
+    class L4Store:
+        def __init__(self) -> None:
+            self._embedding_worker = RunningWorker()
+            self.abort_calls = 0
+            self.initialize_calls = 0
+
+        async def abort_for_clear(self) -> None:
+            self.abort_calls += 1
+
+        async def clear(self) -> int:
+            return 0
+
+        async def initialize(self) -> None:
+            self.initialize_calls += 1
+            raise RuntimeError("l4 restart failed")
+
+    class Pipeline:
+        def __init__(self) -> None:
+            self._stats = SimpleNamespace(is_running=True)
+            self.start_calls = 0
+
+        async def abort_for_clear(self) -> None:
+            self._stats.is_running = False
+
+        async def reset_after_clear(self) -> None:
+            return None
+
+        async def start(self) -> None:
+            self.start_calls += 1
+            self._stats.is_running = True
+
+    unified = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        enable_l0=False,
+        enable_l1=False,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+    )
+    l4 = L4Store()
+    pipeline = Pipeline()
+    unified.l4 = l4  # type: ignore[assignment]
+    unified.l2_pipeline = pipeline  # type: ignore[assignment]
+
+    with pytest.raises(
+        RuntimeError,
+        match="Failed to resume memory writers after clear: l4_embedding",
+    ):
+        await unified.clear_all_memory()
+
+    assert l4.abort_calls == 1
+    assert l4.initialize_calls == 1
+    assert pipeline.start_calls == 1
+    assert pipeline._stats.is_running is True

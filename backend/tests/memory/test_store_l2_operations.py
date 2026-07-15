@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from magi.core.operation_barrier import AsyncOperationBarrier
 from magi.memory.store_l2_operations import UnifiedMemoryL2OperationsMixin
 
 
@@ -14,6 +15,14 @@ class _Harness(UnifiedMemoryL2OperationsMixin):
         self.l1 = None
         self.l2 = l2
         self.l2_pipeline = None
+        self._memory_epoch = 0
+        self._memory_barrier = AsyncOperationBarrier()
+
+    def memory_operation_epoch(self) -> int:
+        return self._memory_epoch
+
+    def memory_operation_guard(self):
+        return self._memory_barrier.operation()
 
 
 @pytest.mark.asyncio

@@ -51,6 +51,24 @@ class TimelineModule(LifecycleModule):
 logger_schedulers = get_logger("magi.timeline.lifecycle.schedulers")
 
 
+class _MemoryGuardedScheduler:
+    """Wrap timeline handlers in the unified memory clear barrier."""
+
+    def __init__(self, scheduler: Any, memory_operation_guard: Any) -> None:
+        self._scheduler = scheduler
+        self._memory_operation_guard = memory_operation_guard
+
+    def register_handler(self, target_type: Any, handler: Any) -> None:
+        async def guarded_handler(context: Any) -> Any:
+            async with self._memory_operation_guard():
+                return await handler(context)
+
+        self._scheduler.register_handler(target_type, guarded_handler)
+
+    async def schedule_interval(self, **kwargs: Any) -> Any:
+        return await self._scheduler.schedule_interval(**kwargs)
+
+
 @dataclass(frozen=True)
 class TimelineSchedulerDependencies:
     """Resolved collaborators for timeline scheduler registration."""
@@ -110,6 +128,14 @@ class TimelineSchedulersModule(LifecycleModule):
     def _resolve_dependencies(self) -> TimelineSchedulerDependencies:
         scheduler_service = getattr(self._context.scheduler, "scheduler_service", None)
         unified = getattr(self._context.memory, "unified_memory", None)
+        if scheduler_service is not None:
+            if unified is None:
+                scheduler_service = None
+            else:
+                scheduler_service = _MemoryGuardedScheduler(
+                    scheduler_service,
+                    unified.memory_operation_guard,
+                )
         loc = self._context.location
         return TimelineSchedulerDependencies(
             scheduler_service=scheduler_service,

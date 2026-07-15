@@ -69,6 +69,8 @@ class EpisodeBundleAssembler:
                 "timestamp": evt.get("timestamp"),
                 "episode_id": ep.get("episode_id", ""),
                 "membership_role": evt.get("membership_role", "member"),
+                "evidence_semantics": "historical_record",
+                "correction_status": evt.get("correction_status"),
             }
             for evt in ordered[:8]
         ]
@@ -83,6 +85,10 @@ class EpisodeBundleAssembler:
                 "timestamp": evt.get("timestamp"),
                 "episode_id": "",
                 "membership_role": "fallback",
+                "evidence_semantics": str(
+                    evt.get("evidence_semantics") or "historical_record"
+                ),
+                "correction_status": evt.get("correction_status"),
             }
             for evt in sorted_events[:10]
         ]

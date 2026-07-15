@@ -43,6 +43,7 @@ class UserProfileProjection(BaseModel):
     field_conflicts: dict[str, Any] = Field(default_factory=dict)
     completeness_score: float = 0.0
     source_revision: int = 0
+    source_generation: int = 0
     refreshed_at: float = 0.0
     created_at: float = 0.0
     updated_at: float = 0.0
@@ -62,6 +63,7 @@ class UserPortraitProjection(BaseModel):
     source_counts: dict[str, int] = Field(default_factory=dict)
     generated_by: str = "rule"
     source_revision: int = 0
+    source_generation: int = 0
     generated_at: float = 0.0
     created_at: float = 0.0
     updated_at: float = 0.0

@@ -2,48 +2,50 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
-from .models import TemporalContext
+from .models import TimeRange
+
+_EDGE_VECTOR_OVERFETCH_FACTOR = 8
+_EDGE_VECTOR_CANDIDATE_CAP = 256
 
 
-def effective_at_for_context(
-    temporal_context: TemporalContext | None,
+@dataclass(frozen=True)
+class GovernedTemporalBounds:
+    """One normalized point/range contract for governed claim reads."""
+
+    effective_at: float
+    effective_range: tuple[float | None, float | None] | None
+    include_history: bool
+
+
+def governed_temporal_bounds(
+    time_range: TimeRange | None,
     *,
     now: float | None = None,
-) -> float:
-    """Resolve a temporal retrieval intent to the governed claim point."""
-    tc = temporal_context
-    if tc is not None:
-        if tc.mode == "as_of" and tc.anchor is not None:
-            return float(tc.anchor)
-        if tc.mode in {"during", "before"} and tc.end is not None:
-            return float(tc.end)
-    return float(now if now is not None else time.time())
-
-
-def effective_range_for_context(
-    temporal_context: TemporalContext | None,
-    *,
-    now: float | None = None,
-) -> tuple[float | None, float | None] | None:
-    """Return an interval for range intent without collapsing its history."""
-    tc = temporal_context
+) -> GovernedTemporalBounds:
+    """Normalize a product ``TimeRange`` once for L2 and graph retrieval."""
     current = float(now if now is not None else time.time())
-    if tc is None:
-        return None
-    if tc.mode == "during":
-        return tc.start, tc.end
-    if tc.mode == "since":
-        return tc.start, current
-    if tc.mode == "before":
-        return None, tc.end
-    if tc.mode == "after":
-        return tc.start, current
-    return None
+    if time_range is None:
+        return GovernedTemporalBounds(current, None, False)
+    if time_range.as_of is not None:
+        return GovernedTemporalBounds(float(time_range.as_of), None, True)
+    if time_range.start is not None and time_range.end is not None:
+        start = float(time_range.start)
+        end = float(time_range.end)
+        return GovernedTemporalBounds(end, (start, end), True)
+    if time_range.start is not None:
+        start = float(time_range.start)
+        if start > current:
+            return GovernedTemporalBounds(start, (start, None), True)
+        return GovernedTemporalBounds(current, (start, current), True)
+    if time_range.end is not None:
+        end = float(time_range.end)
+        return GovernedTemporalBounds(end, (None, end), True)
+    return GovernedTemporalBounds(current, None, False)
 
 
 class GovernedL2RecallView:
@@ -61,11 +63,13 @@ class GovernedL2RecallView:
         context_scope: Mapping[str, Any] | None,
         effective_at: float,
         effective_range: tuple[float | None, float | None] | None = None,
+        include_relationship_history: bool = False,
     ) -> None:
         self._store = store
         self._context_scope = dict(context_scope or {})
         self._effective_at = float(effective_at)
         self._effective_range = effective_range
+        self._include_relationship_history = bool(include_relationship_history)
 
     async def list_tom_assertions(
         self,
@@ -117,25 +121,20 @@ class GovernedL2RecallView:
         unique_ids = list(dict.fromkeys(str(item) for item in entity_ids if item))
         if not unique_ids:
             return {}
-        per_entity = await asyncio.gather(
-            *(
-                self._store.list_current_assertions(
-                    entity_id=entity_id,
-                    entity_type=entity_type,
-                    trait_families=trait_families,
-                    validation_states=validation_states,
-                    target_entity_id=target_entity_id,
-                    context_scope=self._context_scope,
-                    effective_at=self._effective_at,
-                    effective_range=self._effective_range,
-                    limit=limit_per_entity,
-                )
-                for entity_id in unique_ids
-            )
+        per_entity = await self._store.batch_list_current_assertions(
+            entity_ids=unique_ids,
+            entity_type=entity_type,
+            trait_families=trait_families,
+            validation_states=validation_states,
+            target_entity_id=target_entity_id,
+            context_scope=self._context_scope,
+            effective_at=self._effective_at,
+            effective_range=self._effective_range,
+            limit_per_entity=limit_per_entity,
         )
         return {
-            entity_id: [self._mark_governed(item) for item in assertions]
-            for entity_id, assertions in zip(unique_ids, per_entity)
+            entity_id: [self._mark_governed(item) for item in per_entity.get(entity_id, [])]
+            for entity_id in unique_ids
         }
 
     async def get_relationships(
@@ -164,6 +163,7 @@ class GovernedL2RecallView:
             context_scope=self._context_scope,
             effective_at=self._effective_at,
             effective_range=self._effective_range,
+            include_history=self._include_relationship_history,
             limit=limit,
         )
         return [self._mark_governed(item) for item in relationships]
@@ -187,26 +187,22 @@ class GovernedL2RecallView:
         unique_ids = list(dict.fromkeys(str(item) for item in entity_ids if item))
         if not unique_ids:
             return {}
-        per_entity = await asyncio.gather(
-            *(
-                self._store.list_current_relationships(
-                    entity_ids=[entity_id],
-                    direction=direction,
-                    object_id=target_object_id,
-                    predicates=predicates,
-                    object_types=object_types,
-                    evidence_classes=evidence_classes,
-                    context_scope=self._context_scope,
-                    effective_at=self._effective_at,
-                    effective_range=self._effective_range,
-                    limit=limit_per_entity,
-                )
-                for entity_id in unique_ids
-            )
+        per_entity = await self._store.batch_list_current_relationships(
+            entity_ids=unique_ids,
+            direction=direction,
+            object_id=target_object_id,
+            predicates=predicates,
+            object_types=object_types,
+            evidence_classes=evidence_classes,
+            context_scope=self._context_scope,
+            effective_at=self._effective_at,
+            effective_range=self._effective_range,
+            include_history=self._include_relationship_history,
+            limit_per_entity=limit_per_entity,
         )
         return {
-            entity_id: [self._mark_governed(item) for item in relationships]
-            for entity_id, relationships in zip(unique_ids, per_entity)
+            entity_id: [self._mark_governed(item) for item in per_entity.get(entity_id, [])]
+            for entity_id in unique_ids
         }
 
     async def search_edges_by_embedding(
@@ -219,14 +215,53 @@ class GovernedL2RecallView:
     ) -> list[dict[str, Any]]:
         """Hydrate vector candidates through the governed relationship read."""
         del status_filters
-        candidates = await self._store.search_edges_by_embedding(
-            vector_index=vector_index,
-            embedding=embedding,
-            limit=limit,
-            status_filters=["active", "deprecated"],
-            predicates=predicates,
+        requested_limit = max(1, int(limit))
+        candidate_limit = (
+            requested_limit
+            if requested_limit >= _EDGE_VECTOR_CANDIDATE_CAP
+            else min(
+                _EDGE_VECTOR_CANDIDATE_CAP,
+                max(
+                    requested_limit * _EDGE_VECTOR_OVERFETCH_FACTOR,
+                    requested_limit + _EDGE_VECTOR_OVERFETCH_FACTOR,
+                ),
+            )
         )
-        triple_ids = [str(item.get("triple_id")) for item in candidates if item.get("triple_id")]
+        while True:
+            candidates = await self._store.search_edges_by_embedding(
+                vector_index=vector_index,
+                embedding=embedding,
+                limit=candidate_limit,
+                status_filters=["active", "deprecated"],
+                predicates=predicates,
+            )
+            results = await self._hydrate_vector_candidates(
+                candidates,
+                predicates=predicates,
+                requested_limit=requested_limit,
+            )
+            if (
+                len(results) >= requested_limit
+                or len(candidates) < candidate_limit
+                or candidate_limit >= _EDGE_VECTOR_CANDIDATE_CAP
+            ):
+                return results
+            candidate_limit = min(_EDGE_VECTOR_CANDIDATE_CAP, candidate_limit * 2)
+
+    async def _hydrate_vector_candidates(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        predicates: list[str] | None,
+        requested_limit: int,
+    ) -> list[dict[str, Any]]:
+        triple_ids = list(
+            dict.fromkeys(
+                str(item.get("triple_id"))
+                for item in candidates
+                if item.get("triple_id")
+            )
+        )
         if not triple_ids:
             return []
         governed = await self._store.list_current_relationships(
@@ -235,20 +270,23 @@ class GovernedL2RecallView:
             context_scope=self._context_scope,
             effective_at=self._effective_at,
             effective_range=self._effective_range,
-            limit=len(triple_ids),
+            include_history=self._include_relationship_history,
+            limit=max(len(triple_ids), requested_limit),
         )
-        governed_by_id = {
-            str(item.get("triple_id")): self._mark_governed(item) for item in governed
-        }
+        governed_by_id: dict[str, list[dict[str, Any]]] = {}
+        for item in governed:
+            governed_by_id.setdefault(str(item.get("triple_id")), []).append(
+                self._mark_governed(item)
+            )
         results: list[dict[str, Any]] = []
         for candidate in candidates:
             triple_id = str(candidate.get("triple_id") or "")
-            relationship = governed_by_id.get(triple_id)
-            if relationship is None:
-                continue
-            # Vector metadata may be stale across a concurrent correction. The
-            # governed row must win for lifecycle, validity, and scope fields.
-            results.append({**candidate, **relationship})
+            for relationship in governed_by_id.get(triple_id, []):
+                # Vector metadata may be stale across a concurrent correction.
+                # Governed lifecycle, validity, and scope fields always win.
+                results.append({**candidate, **relationship})
+                if len(results) >= requested_limit:
+                    return results
         return results
 
     def _mark_governed(self, item: Mapping[str, Any]) -> dict[str, Any]:
@@ -259,6 +297,6 @@ class GovernedL2RecallView:
 
 __all__ = [
     "GovernedL2RecallView",
-    "effective_at_for_context",
-    "effective_range_for_context",
+    "GovernedTemporalBounds",
+    "governed_temporal_bounds",
 ]

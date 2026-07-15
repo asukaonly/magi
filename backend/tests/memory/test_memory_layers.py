@@ -1270,6 +1270,7 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
 
         self.bus = InMemoryMessageBusBackend(num_workers=1)
         await self.bus.start()
+        self.bus.bind_memory_operation_epoch(self.memory.memory_operation_epoch)
 
         self.integration = MemoryIntegrationModule(
             unified_memory=self.memory,
@@ -1341,6 +1342,52 @@ class TestMemoryIntegrationModule(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(l1_count, 2)
         self.assertEqual(workbench["session"]["user_id"], "u1")
         self.assertGreaterEqual(stats["l2_assertions_written"], 1)
+
+    async def test_pre_clear_runtime_event_backlog_does_not_repopulate_memory(self):
+        blocker_started = asyncio.Event()
+        blocker_release = asyncio.Event()
+
+        async def _blocker(_event: Event) -> None:
+            blocker_started.set()
+            await blocker_release.wait()
+
+        await self.bus.subscribe("BlockerEvent", _blocker)
+        await self.bus.publish(Event(type="BlockerEvent", data={}))
+        await asyncio.wait_for(blocker_started.wait(), timeout=1.0)
+
+        await self.bus.publish(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "before-clear",
+                    "success": True,
+                },
+                source="runtime",
+            )
+        )
+        await self.memory.clear_all_memory()
+
+        blocker_release.set()
+        self.assertIsNotNone(self.bus._queue)
+        await asyncio.wait_for(self.bus._queue.join(), timeout=2.0)
+        self.assertEqual(await self.memory.l1.count_events(), 0)
+
+        await self.bus.publish(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "after-clear",
+                    "success": True,
+                },
+                source="runtime",
+            )
+        )
+        await asyncio.wait_for(self.bus._queue.join(), timeout=2.0)
+        self.assertEqual(await self.memory.l1.count_events(), 1)
 
 
 if __name__ == "__main__":

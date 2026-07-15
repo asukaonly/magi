@@ -74,7 +74,7 @@ class L1EventWriteHostProtocol(Protocol):
     _initialized: bool
     _vector_index: SqliteVecIndex | None
 
-    async def initialize(self) -> None: ...
+    async def initialize(self, *, start_workers: bool = True) -> None: ...
 
     def get_search_text(self, event: MemoryEvent) -> str: ...
 
@@ -660,7 +660,7 @@ class L1EventWriteMixin:
             event.event_id,
         )
 
-    async def clear(self) -> int:
+    async def clear(self, *, restart_workers: bool = True) -> int:
         """Delete all events by dropping and recreating the DB file."""
         host = cast(L1EventWriteHostProtocol, self)
         logger.info("L1EventStore.clear: counting events before wipe")
@@ -688,7 +688,7 @@ class L1EventWriteMixin:
         host._initialized = False
         logger.info("L1EventStore.clear: reinitializing schema at %s", db_path)
 
-        await host.initialize()
+        await host.initialize(start_workers=restart_workers)
         logger.info("L1EventStore.clear: done, removed %d events", count)
 
         return count

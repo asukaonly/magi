@@ -11,6 +11,7 @@ from .tracing import TraceContext
 
 
 REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY = "require_subscriber_delivery"
+PUBLISHED_MEMORY_EPOCH_METADATA_KEY = "_magi_published_memory_epoch"
 
 
 class EventLevel(IntEnum):
@@ -128,6 +129,15 @@ class Event:
             trace_context=tc,
             metadata=data.get("metadata", {}),
         )
+
+
+def published_memory_epoch(event: Event) -> int | None:
+    """Return the process-local memory epoch attached when an event was published."""
+    metadata = event.metadata if isinstance(event.metadata, dict) else {}
+    value = metadata.get(PUBLISHED_MEMORY_EPOCH_METADATA_KEY)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 # Core event type definitions

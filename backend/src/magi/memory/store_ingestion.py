@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from ..events.events import Event, EventLevel, EventTypes
 from .event_contracts import MemoryEvent, normalize_runtime_event
@@ -30,10 +30,39 @@ class MemoryIngestionMixin:
     l2_pipeline: Any
     l4: Any
     _write_lock: Any
+    _clear_barrier: Any
+    _clear_epoch: int
 
-    async def ingest_event(self, event: Dict[str, Any] | Event | MemoryEvent) -> Dict[str, Any]:
+    async def ingest_event(
+        self,
+        event: Dict[str, Any] | Event | MemoryEvent,
+        *,
+        expected_epoch: int | None = None,
+    ) -> Dict[str, Any]:
         """Ingest an event through the new L0-L4 pipeline."""
         memory_event = self._normalize_event(event)
+        captured_epoch = (
+            int(self._clear_epoch)
+            if expected_epoch is None
+            else int(expected_epoch)
+        )
+        async with self._clear_barrier.operation():
+            if captured_epoch != int(self._clear_epoch):
+                return {
+                    "event_id": memory_event.event_id,
+                    "ingest_target": memory_event.ingest_target.label,
+                    "l1_written": False,
+                    "l2_job_enqueued": False,
+                    "l2_relation_count": 0,
+                    "l2_assertion_count": 0,
+                    "l4_skill_id": None,
+                    "skipped": True,
+                    "skip_reason": "memory_clear_epoch_changed",
+                }
+            return await self._ingest_memory_event(memory_event)
+
+    async def _ingest_memory_event(self, memory_event: MemoryEvent) -> Dict[str, Any]:
+        """Fan one normalized event out while destructive clears are excluded."""
         if memory_event.event_type in MEMORY_INGEST_DIAGNOSTIC_EVENT_TYPES:
             logger.info(
                 "UnifiedMemory normalized event | event_id=%s type=%s ingest_target=%s memory_domain=%s session_id=%s user_id=%s correlation_id=%s",

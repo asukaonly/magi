@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import pytest
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -224,6 +225,13 @@ class _FakeUnifiedMemory:
         self.l2 = None
         self.l4 = _RecordingL4Store()
         self.task_packets = []
+
+    def memory_operation_epoch(self) -> int:
+        return 0
+
+    @asynccontextmanager
+    async def memory_operation_guard(self):  # type: ignore[no-untyped-def]
+        yield
 
     async def persist_task_outcome_reflection(self, packet):  # type: ignore[no-untyped-def]
         self.task_packets.append(packet)

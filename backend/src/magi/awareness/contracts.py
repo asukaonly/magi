@@ -17,3 +17,4 @@ class SensorEvent:
     payload: Dict[str, Any]
     timestamp: float = field(default_factory=time.time)
     correlation_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    user_message_generation: int | None = None

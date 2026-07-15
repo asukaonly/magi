@@ -60,6 +60,14 @@ class MemoryEmbeddingPipeline:
         self, items: list[EmbeddingPipelineItem]
     ) -> list[EmbeddingPipelineResult]:
         """Embed *items* and write all chunk vectors, with single-row fallback."""
+        results = await self.prepare_items(items)
+        return await self.persist_results(results)
+
+    async def prepare_items(
+        self,
+        items: list[EmbeddingPipelineItem],
+    ) -> list[EmbeddingPipelineResult]:
+        """Compute embeddings without mutating the vector index."""
         prepared_items = [item for item in items if item.chunks]
         if not prepared_items:
             return []
@@ -68,33 +76,24 @@ class MemoryEmbeddingPipeline:
         embeddings = await self._embed_texts(texts)
         if not embeddings:
             return []
-
-        write_batch = self._build_write_batch(
+        return self._build_successful_results(
             items=prepared_items,
             embeddings=embeddings,
             embedded_at=time.time(),
         )
+
+    async def persist_results(
+        self,
+        results: list[EmbeddingPipelineResult],
+    ) -> list[EmbeddingPipelineResult]:
+        """Persist previously computed results through the vector index."""
+        write_batch = _EmbeddingWriteBatch(
+            results=list(results),
+            vector_items=self._batch_vector_items(results),
+        )
         if not write_batch.vector_items:
             return []
-
         return await self._persist_write_batch(write_batch)
-
-    def _build_write_batch(
-        self,
-        *,
-        items: list[EmbeddingPipelineItem],
-        embeddings: list[EmbeddingResult | None],
-        embedded_at: float,
-    ) -> _EmbeddingWriteBatch:
-        successful_results = self._build_successful_results(
-            items=items,
-            embeddings=embeddings,
-            embedded_at=embedded_at,
-        )
-        return _EmbeddingWriteBatch(
-            results=successful_results,
-            vector_items=self._batch_vector_items(successful_results),
-        )
 
     def _build_successful_results(
         self,

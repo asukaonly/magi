@@ -8,7 +8,12 @@ from typing import Any, Callable, TypeVar
 from fastapi import HTTPException, status
 
 from magi.chat import get_chat_read_service as _get_chat_read_service
+from magi.agent.orchestration import get_orchestration_store
 from magi.core.logger import get_logger
+from magi.core.runtime_bindings import (
+    get_optional_agent_runtime,
+    require_runtime_command_queue,
+)
 from magi.llm.provider import get_scenario_llm_pool
 from magi.memory.eval_support.answer_synthesis import synthesize_eval_answer
 from magi.memory.provider import (
@@ -116,6 +121,49 @@ def _resolve_hybrid_retrieval_service():
         return get_hybrid_retrieval_service()
     except RuntimeError:
         return None
+
+
+def _resolve_task_agent_manager():
+    override = _package_override(
+        "_resolve_task_agent_manager",
+        _resolve_task_agent_manager,
+    )
+    if override is not None:
+        return override()
+    runtime = get_optional_agent_runtime()
+    if runtime is None:
+        return None
+    return runtime.get_task_agent_manager()
+
+
+def _resolve_runtime_command_queue():
+    override = _package_override(
+        "_resolve_runtime_command_queue",
+        _resolve_runtime_command_queue,
+    )
+    if override is not None:
+        return override()
+    return require_runtime_command_queue()
+
+
+def _resolve_sensor_hub():
+    override = _package_override("_resolve_sensor_hub", _resolve_sensor_hub)
+    if override is not None:
+        return override()
+    runtime = get_optional_agent_runtime()
+    if runtime is None:
+        return None
+    return runtime.get_sensor_hub()
+
+
+def _resolve_orchestration_store():
+    override = _package_override(
+        "_resolve_orchestration_store",
+        _resolve_orchestration_store,
+    )
+    if override is not None:
+        return override()
+    return get_orchestration_store()
 
 
 def _resolve_scenario_llm_pool():

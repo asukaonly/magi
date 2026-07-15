@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
 from ..core.logger import get_logger
 from ..events.backend import MessageBusBackend
-from ..events.events import Event, EventTypes
+from ..events.events import Event, EventTypes, published_memory_epoch
 from . import UnifiedMemoryStore
-from .event_contracts import IngestTarget, normalize_runtime_event
+from .event_contracts import IngestTarget
 
 logger = get_logger(__name__)
 
@@ -128,6 +127,17 @@ class MemoryIntegrationModule:
 
     async def _handle_event(self, event: Event) -> None:
         self._stats.events_received += 1
+        expected_epoch = published_memory_epoch(event)
+        if expected_epoch is None:
+            self._stats.events_failed += 1
+            logger.error(
+                "MemoryIntegration rejected event without a valid publication epoch | "
+                "type=%s correlation_id=%s source=%s",
+                event.type,
+                event.correlation_id,
+                event.source,
+            )
+            return
         if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
             payload = event.data if isinstance(event.data, dict) else {}
             logger.info(
@@ -140,7 +150,10 @@ class MemoryIntegrationModule:
                 event.source,
             )
         try:
-            result = await self.unified_memory.ingest_event(event)
+            result = await self.unified_memory.ingest_event(
+                event,
+                expected_epoch=expected_epoch,
+            )
             if event.type in MEMORY_DIAGNOSTIC_EVENT_TYPES:
                 logger.info(
                     "MemoryIntegration ingested event | type=%s correlation_id=%s event_id=%s ingest_target=%s l1_written=%s",

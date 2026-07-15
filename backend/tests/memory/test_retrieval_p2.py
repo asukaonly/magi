@@ -10,21 +10,19 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import replace
+import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from magi.memory.hybrid_retrieval.graph_spreader import (
     GraphSpreader,
-    SpreadingResult,
     _parse_evidence_ids,
 )
 from magi.memory.hybrid_retrieval.models import (
     L1Conditions,
     RetrievalConfig,
-    RetrievalPayload,
+    TimeRange,
 )
 
 
@@ -59,16 +57,15 @@ def _make_edge(
 
 
 def _mock_l2_store(edge_map: dict[str, list[dict]]) -> AsyncMock:
-    """Create a mock L2 store with batch_get_relationships returning *edge_map*."""
+    """Create a mock L2 store with governed relationship reads."""
     store = AsyncMock()
 
-    async def batch_get_relationships(*, entity_ids, **kwargs):
-        result = {}
-        for eid in entity_ids:
-            result[eid] = edge_map.get(eid, [])
-        return result
+    async def batch_list_current_relationships(*, entity_ids, **kwargs):
+        return {entity_id: list(edge_map.get(entity_id, [])) for entity_id in entity_ids}
 
-    store.batch_get_relationships = AsyncMock(side_effect=batch_get_relationships)
+    store.batch_list_current_relationships = AsyncMock(
+        side_effect=batch_list_current_relationships
+    )
     return store
 
 
@@ -192,12 +189,13 @@ class TestGraphSpreader:
     @pytest.mark.asyncio
     async def test_store_error_handled_gracefully(self):
         store = AsyncMock()
-        store.batch_get_relationships = AsyncMock(side_effect=RuntimeError("db error"))
+        store.batch_list_current_relationships = AsyncMock(
+            side_effect=RuntimeError("db error")
+        )
         spreader = GraphSpreader(store, max_hops=1)
         result = await spreader.spread(["entity_a"])
         assert result.scored_event_ids == {}
         assert result.edges_traversed == 0
-
 
 class TestParseEvidenceIds:
     def test_json_string(self):
@@ -292,8 +290,32 @@ class TestL1HandlerGraphSpreading:
             {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
         ])
 
-        results = await handler.execute(L1Conditions(content_query="test", limit=5))
+        results = await handler.execute(
+            L1Conditions(
+                content_query="test",
+                context_scope={"project": "magi"},
+                limit=5,
+            ),
+            TimeRange(as_of=123.0),
+        )
         assert len(results) >= 1
+        graph_kwargs = l2_store.batch_list_current_relationships.await_args.kwargs
+        assert graph_kwargs["context_scope"] == {"project": "magi"}
+        assert graph_kwargs["effective_at"] == 123.0
+        assert graph_kwargs["include_history"] is True
+
+        future_start = time.time() + 3_600
+        await handler.execute(
+            L1Conditions(
+                content_query="test",
+                context_scope={"project": "magi"},
+                limit=5,
+            ),
+            TimeRange(start=future_start),
+        )
+        future_graph_kwargs = l2_store.batch_list_current_relationships.await_args.kwargs
+        assert future_graph_kwargs["effective_at"] == future_start
+        assert future_graph_kwargs["effective_range"] == (future_start, None)
 
 
 # ---------------------------------------------------------------------------

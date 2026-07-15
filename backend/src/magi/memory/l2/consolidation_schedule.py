@@ -23,6 +23,7 @@ TARGET_KEY_L2_CONSOLIDATE = "memory_l2_consolidate"
 
 @dataclass(slots=True)
 class _L2ConsolidationStores:
+    unified: Any
     cognition_store: Any
     l1_store: Any | None
     l3_store: Any | None
@@ -59,20 +60,23 @@ async def handle_l2_consolidation(
         return stores_or_skip
     stores = stores_or_skip
 
-    episode_result = await _run_episode_consolidation(stores.cognition_store)
-    if isinstance(episode_result, ScheduledExecutionResult):
-        return episode_result
+    async with stores.unified.memory_operation_guard():
+        episode_result = await _run_episode_consolidation(stores.cognition_store)
+        if isinstance(episode_result, ScheduledExecutionResult):
+            return episode_result
 
-    episodic_summary_stats = await _generate_episodic_summaries(
-        stores=stores,
-        promoted_episode_ids=list(getattr(episode_result, "promoted_episode_ids", []) or []),
-    )
-    experience_stats = await _promote_experiences_and_summaries(stores)
-    return _l2_consolidation_success_result(
-        episode_stats=episode_result,
-        episodic_summary_stats=episodic_summary_stats,
-        experience_stats=experience_stats,
-    )
+        episodic_summary_stats = await _generate_episodic_summaries(
+            stores=stores,
+            promoted_episode_ids=list(
+                getattr(episode_result, "promoted_episode_ids", []) or []
+            ),
+        )
+        experience_stats = await _promote_experiences_and_summaries(stores)
+        return _l2_consolidation_success_result(
+            episode_stats=episode_result,
+            episodic_summary_stats=episodic_summary_stats,
+            experience_stats=experience_stats,
+        )
 
 
 def _l2_consolidation_skip_result() -> ScheduledExecutionResult | None:
@@ -113,6 +117,7 @@ def _resolve_l2_consolidation_stores() -> _L2ConsolidationStores | ScheduledExec
             stats={},
         )
     return _L2ConsolidationStores(
+        unified=unified,
         cognition_store=cognition_store,
         l1_store=getattr(unified, "l1", None),
         l3_store=getattr(unified, "l3", None),

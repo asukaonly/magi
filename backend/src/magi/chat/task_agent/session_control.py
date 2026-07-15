@@ -108,6 +108,13 @@ class ChatSessionControlMixin:
                 event_type=EventTypes.USER_MESSAGE,
                 payload=payload,
                 correlation_id=reinjected_turn_id,
+                user_message_generation=(
+                    manager.current_user_message_generation()
+                    if callable(
+                        getattr(manager, "current_user_message_generation", None)
+                    )
+                    else None
+                ),
             )
             try:
                 await manager.add_fact_to_agent(
@@ -145,6 +152,7 @@ class ChatSessionControlMixin:
             session_id=session_id,
             run_id=active_run.run_id,
             run_revision=active_run.revision,
+            strict_worker_cancellation=reason == "memory_clear",
         )
         self._session_run_coordinator.complete_run(
             session_id=session_id,

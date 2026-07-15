@@ -139,42 +139,47 @@ async def dispatch_user_message(
         return early_outcome
     assert dependencies is not None and validated is not None
 
-    submission = await _prepare_user_message_submission(
-        source=source,
-        user_id=user_id,
-        validated=validated,
-        reply_to_message_id=reply_to_message_id,
-        workspace_path=workspace_path,
-        client_turn_id=client_turn_id,
-        metadata=metadata,
-        runtime_namespace=runtime_namespace,
-    )
-    hook_error = await _apply_user_prompt_submit_hook(submission)
-    if hook_error is not None:
-        return hook_error
+    # This shared boundary makes attachment preparation, chat persistence, L1
+    # projection, and runtime enqueue one indivisible operation relative to a
+    # destructive memory clear. The clear path acquires the matching exclusive
+    # boundary before it enters the memory barrier, preserving lock order.
+    async with dependencies.runtime_command_queue.user_message_operation():
+        submission = await _prepare_user_message_submission(
+            source=source,
+            user_id=user_id,
+            validated=validated,
+            reply_to_message_id=reply_to_message_id,
+            workspace_path=workspace_path,
+            client_turn_id=client_turn_id,
+            metadata=metadata,
+            runtime_namespace=runtime_namespace,
+        )
+        hook_error = await _apply_user_prompt_submit_hook(submission)
+        if hook_error is not None:
+            return hook_error
 
-    persisted, persist_error = await _persist_user_message_turn(
-        dependencies.chat_store,
-        submission,
-    )
-    if persist_error is not None:
-        return persist_error
-    assert persisted is not None
+        persisted, persist_error = await _persist_user_message_turn(
+            dependencies.chat_store,
+            submission,
+        )
+        if persist_error is not None:
+            return persist_error
+        assert persisted is not None
 
-    await _project_user_message(submission, persisted)
-    enqueue_error = await _enqueue_runtime_user_message(
-        dependencies.runtime_command_queue,
-        submission,
-        persisted,
-    )
-    if enqueue_error is not None:
-        return enqueue_error
+        await _project_user_message(submission, persisted)
+        enqueue_error = await _enqueue_runtime_user_message(
+            dependencies.runtime_command_queue,
+            submission,
+            persisted,
+        )
+        if enqueue_error is not None:
+            return enqueue_error
 
-    return await _build_successful_dispatch_outcome(
-        dependencies.runtime_command_queue,
-        submission,
-        persisted,
-    )
+        return await _build_successful_dispatch_outcome(
+            dependencies.runtime_command_queue,
+            submission,
+            persisted,
+        )
 
 
 async def _prepare_ingress_start(

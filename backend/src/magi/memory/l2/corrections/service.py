@@ -18,6 +18,7 @@ from ..assertions.settings import (
 )
 from .cache_signals import mark_subject_changed
 from .fingerprints import (
+    SUPPORTED_SCOPE_FIELDS,
     assertion_claim_fingerprint,
     assertion_slot_key,
     canonical_scope_json,
@@ -44,7 +45,7 @@ _INACTIVE_ASSERTION_STATUSES = {
     "superseded",
     "user_rejected",
 }
-_ALLOWED_SCOPE_KEYS = {"project", "activity", "place", "person", "time_range"}
+_ALLOWED_SCOPE_KEYS = SUPPORTED_SCOPE_FIELDS
 _RESTORABLE_ASSERTION_COLUMNS = (
     "entity_id",
     "entity_type",

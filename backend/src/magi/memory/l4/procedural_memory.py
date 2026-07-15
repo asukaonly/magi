@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
@@ -67,9 +68,17 @@ class L4ProceduralMemoryStore(
         )
         self._embedding_worker: asyncio.Task[None] | None = None
         self._embedding_active_count = 0
+        self._embedding_mutation_lock = asyncio.Lock()
+        self._operation_guard_factory: Callable[[], Any] | None = None
         self.breaker_failure_threshold = int(breaker_failure_threshold)
         self.breaker_recovery_successes = int(breaker_recovery_successes)
         self._initialized = False
+
+    @asynccontextmanager
+    async def embedding_mutation_guard(self) -> AsyncIterator[None]:
+        """Serialize skill vector publication and destructive cleanup."""
+        async with self._embedding_mutation_lock:
+            yield
 
 
 __all__ = [

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Callable
 
 from ...core.logger import get_logger
 from ...core.sqlite import sqlite_connection_async
@@ -13,6 +13,7 @@ from ..embedding.embedding_text_builders import (
     L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
     build_l2_edge_embedding_text,
 )
+from ..operation_barrier import optional_operation_guard
 
 logger = get_logger(__name__)
 
@@ -164,6 +165,11 @@ class L2EdgeEmbeddingWorker:
         self._batch_limit = int(batch_limit)
         self._running = False
         self._task: asyncio.Task | None = None
+        self._operation_guard_factory: Callable[[], Any] | None = None
+
+    def set_operation_guard_factory(self, factory: Callable[[], Any]) -> None:
+        """Bind the unified clear barrier used by each drain batch."""
+        self._operation_guard_factory = factory
 
     async def start(self) -> None:
         if self._running:
@@ -185,7 +191,8 @@ class L2EdgeEmbeddingWorker:
         backoff = self._idle_interval
         while self._running:
             try:
-                n = await self._drainer.drain_once(batch_limit=self._batch_limit)
+                async with optional_operation_guard(self._operation_guard_factory):
+                    n = await self._drainer.drain_once(batch_limit=self._batch_limit)
                 backoff = self._idle_interval
                 if n >= self._batch_limit:
                     continue  # likely more pending — drain again immediately

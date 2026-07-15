@@ -288,6 +288,50 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         except Exception as exc:
             logger.exception(f"Failed to delete runtime trace rows: {exc}")
 
+    def _clear_all_runtime_trace_rows(self) -> None:
+        """Delete all chat execution traces and live chat notifications."""
+        if not self._runtime_trace_db_path.exists():
+            return
+        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
+        try:
+            existing_tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            for table in (
+                "trace_intent_resolutions",
+                "trace_llm_calls",
+                "trace_tools",
+                "trace_spans",
+                "trace_turns",
+            ):
+                if table in existing_tables:
+                    conn.execute(f"DELETE FROM {table}")
+            if "runtime_notifications" in existing_tables:
+                conn.execute(
+                    """
+                    DELETE FROM runtime_notifications
+                    WHERE TRIM(session_id) <> '' OR turn_id IS NOT NULL
+                    """
+                )
+            if "user_notifications" in existing_tables:
+                conn.execute(
+                    """
+                    DELETE FROM user_notifications
+                    WHERE kind = 'suggestion'
+                      AND dedupe_key LIKE 'profile_conflict:%'
+                    """
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            logger.exception("Failed to clear runtime trace rows")
+            raise
+        finally:
+            conn.close()
+
     def _delete_chat_session_assets(self, *, session_id: str) -> None:
         if not get_config().lifecycle.chat_assets.delete_on_session_delete:
             return

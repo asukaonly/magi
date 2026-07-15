@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -225,7 +226,13 @@ async def test_service_attaches_generic_structured_recall(tmp_path) -> None:
     await store.store(related)
 
     svc = HybridRetrievalService.__new__(HybridRetrievalService)
-    svc._memory = SimpleNamespace(l1=store)
+    svc._memory = SimpleNamespace(
+        l1=store,
+        l2=SimpleNamespace(
+            db_path=str(db_path),
+            active_correction_evidence_event_ids=AsyncMock(return_value=set()),
+        ),
+    )
 
     payload = await svc._apply_structured_recall(
         request=RetrievalQuery(query="example.com 浏览过几次", query_mode="cross_session"),
@@ -235,3 +242,47 @@ async def test_service_attaches_generic_structured_recall(tmp_path) -> None:
 
     assert payload.trace["structured_recall"] == "browser"
     assert payload.structured_results[0]["summary"]["metric_total"] == 5
+
+
+@pytest.mark.asyncio
+async def test_service_structured_recall_excludes_corrected_l1_events(tmp_path) -> None:
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    corrected = _event(
+        "evt-browser-corrected",
+        source="browser_history",
+        content="Visited Example docs.",
+        timestamp=1_710_000_000.0,
+        metadata_json={
+            "source_facets": [
+                {"name": "browser.domain", "text": "example.com"},
+                {"name": "browser.visit_count", "numeric": 3},
+            ]
+        },
+    )
+    await store.store(corrected)
+    svc = HybridRetrievalService.__new__(HybridRetrievalService)
+    svc._memory = SimpleNamespace(
+        l1=store,
+        l2=SimpleNamespace(
+            db_path=str(db_path),
+            active_correction_evidence_event_ids=AsyncMock(
+                return_value={"evt-browser-corrected"}
+            ),
+        ),
+    )
+
+    payload = await svc._apply_structured_recall(
+        request=RetrievalQuery(
+            query="example.com 浏览过几次",
+            query_mode="cross_session",
+        ),
+        recall_shape=classify_recall_shape("example.com 浏览过几次"),
+        payload=RetrievalPayload(l1_events=[]),
+    )
+
+    assert payload.structured_results == []
+    assert payload.trace["structured_recall"] == "miss"
+    assert payload.trace["structured_recall_correction_governance"] == "applied"
+    assert payload.trace["structured_recall_correction_governance_dropped_count"] == 1

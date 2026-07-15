@@ -12,13 +12,12 @@ _on_user_message`` copied a hand-picked subset of fields onto
 """
 from __future__ import annotations
 
-import asyncio
 import time
-from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
+from magi.awareness.contracts import SensorEvent
 from magi.awareness.sensor_hub import SensorHub
 from magi.events.events import Event, EventLevel, EventTypes
 
@@ -99,3 +98,44 @@ async def test_on_user_message_defaults_source_to_api_when_event_lacks_one():
     batch = await hub.get_batch(max_items=1, timeout_seconds=0.5)
     assert len(batch) == 1
     assert batch[0].payload.get("source") == "api"
+
+
+@pytest.mark.asyncio
+async def test_clear_boundary_discards_stale_queued_user_messages_only():
+    bus = AsyncMock()
+    hub = SensorHub(message_bus=bus)
+    await hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="user_input_sensor",
+            event_type=EventTypes.USER_MESSAGE,
+            payload={"session_id": "old-session", "content": "old secret"},
+            user_message_generation=0,
+        )
+    )
+    await hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="calendar",
+            event_type="CALENDAR_EVENT",
+            payload={"title": "keep event"},
+        )
+    )
+    await hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="user_input_sensor",
+            event_type=EventTypes.USER_MESSAGE,
+            payload={"session_id": "new-session", "content": "new message"},
+            user_message_generation=1,
+        )
+    )
+
+    discarded = await hub.discard_stale_user_messages(1)
+    batch = await hub.get_batch(max_items=8, timeout_seconds=0.2)
+
+    assert discarded == 1
+    assert [(item.event_type, item.payload) for item in batch] == [
+        ("CALENDAR_EVENT", {"title": "keep event"}),
+        (
+            EventTypes.USER_MESSAGE,
+            {"session_id": "new-session", "content": "new message"},
+        ),
+    ]

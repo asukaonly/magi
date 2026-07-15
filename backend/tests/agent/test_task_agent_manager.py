@@ -197,3 +197,277 @@ async def test_does_not_evict_busy_instance_and_rejects_explicitly_when_full():
     assert manager.get_stats()["enqueue_rejected_count"] >= 1
 
     await manager.stop_all()
+
+
+class _BlockedResponseAgent(TaskAgent):
+    def __init__(
+        self,
+        agent_id: str,
+        *,
+        response_gate: asyncio.Event,
+        response_started: asyncio.Event,
+        chat_rows: list[str],
+        memory_rows: list[str],
+    ) -> None:
+        super().__init__(agent_type=TaskAgentType.CHAT, agent_id=agent_id)
+        self._response_gate = response_gate
+        self._response_started = response_started
+        self._chat_rows = chat_rows
+        self._memory_rows = memory_rows
+
+    async def call_llm(self, context, llm_params):
+        self._response_started.set()
+        await self._response_gate.wait()
+        return context
+
+    async def parse_result(self, context, raw_result) -> None:
+        content = str(context.latest_fact.payload.get("content") or "")
+        self._chat_rows.append(content)
+        self._memory_rows.append(content)
+
+
+@pytest.mark.asyncio
+async def test_memory_clear_pause_cancels_old_chat_work_and_admits_new_work_after_resume():
+    response_gate = asyncio.Event()
+    response_started = asyncio.Event()
+    chat_rows: list[str] = []
+    memory_rows: list[str] = []
+
+    def create_agent(agent_id: str) -> _BlockedResponseAgent:
+        return _BlockedResponseAgent(
+            agent_id,
+            response_gate=response_gate,
+            response_started=response_started,
+            chat_rows=chat_rows,
+            memory_rows=memory_rows,
+        )
+
+    manager = TaskAgentManager(create_chat_agent=create_agent)
+    await manager.start_all(event_emitter=None)
+    before = FactRecord(
+        agent_id="chat:session-clear",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="session-clear",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"content": "before clear"},
+    )
+    queued = FactRecord(
+        agent_id="chat:session-clear",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="session-clear",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"content": "queued before clear"},
+    )
+    assert await manager.add_fact_to_agent(TaskAgentType.CHAT, "session-clear", before)
+    await asyncio.wait_for(response_started.wait(), timeout=1)
+    assert await manager.add_fact_to_agent(TaskAgentType.CHAT, "session-clear", queued)
+
+    cancelled_count = await manager.pause_chat_work_and_cancel_all()
+    assert cancelled_count == 2
+    chat_rows.clear()
+    memory_rows.clear()
+    response_gate.set()
+
+    after = FactRecord(
+        agent_id="chat:session-clear",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="session-clear",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"content": "after clear"},
+    )
+    after_task = asyncio.create_task(
+        manager.add_fact_to_agent(TaskAgentType.CHAT, "session-clear", after)
+    )
+    await asyncio.sleep(0)
+    assert not after_task.done()
+
+    await manager.resume_chat_work()
+    assert await asyncio.wait_for(after_task, timeout=1) is True
+    for _ in range(50):
+        if chat_rows:
+            break
+        await asyncio.sleep(0.01)
+
+    assert chat_rows == ["after clear"]
+    assert memory_rows == ["after clear"]
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_memory_clear_resume_can_retry_default_agent_after_start_failure():
+    start_attempts = 0
+
+    class FailsOnceAgent(_CollectTaskAgent):
+        async def start(self, *args, **kwargs) -> None:
+            nonlocal start_attempts
+            start_attempts += 1
+            if start_attempts == 2:
+                raise RuntimeError("restart failed")
+            await super().start(*args, **kwargs)
+
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: FailsOnceAgent(
+            TaskAgentType.CHAT,
+            agent_id,
+        )
+    )
+    await manager.start_all(event_emitter=None)
+    await manager.pause_chat_work_and_cancel_all()
+
+    with pytest.raises(RuntimeError, match="restart failed"):
+        await manager.resume_chat_work()
+
+    assert manager.get_agent(TaskAgentType.CHAT, "default") is None
+    recovered = await manager.ensure_agent(TaskAgentType.CHAT, "default")
+    assert recovered is manager.get_agent(TaskAgentType.CHAT, "default")
+    assert start_attempts == 3
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_chat_admission_recovers_after_quiesce_failure():
+    creation_count = 0
+
+    class StopFailsOnceAgent(_CollectTaskAgent):
+        def __init__(self, agent_id: str, *, fail_stop: bool) -> None:
+            super().__init__(TaskAgentType.CHAT, agent_id)
+            self._fail_stop = fail_stop
+
+        async def stop(self) -> None:
+            await super().stop()
+            if self._fail_stop:
+                self._fail_stop = False
+                raise RuntimeError("stop failed")
+
+    def create_agent(agent_id: str) -> StopFailsOnceAgent:
+        nonlocal creation_count
+        creation_count += 1
+        return StopFailsOnceAgent(agent_id, fail_stop=creation_count == 1)
+
+    manager = TaskAgentManager(create_chat_agent=create_agent)
+    await manager.start_all(event_emitter=None)
+
+    with pytest.raises(RuntimeError, match="Failed to stop 1 chat agent"):
+        await manager.pause_chat_work_and_cancel_all()
+
+    await manager.resume_chat_work()
+    accepted = await asyncio.wait_for(
+        manager.add_fact_to_agent(
+            TaskAgentType.CHAT,
+            "after-failed-clear",
+            _user_fact("after-failed-clear"),
+        ),
+        timeout=1,
+    )
+
+    assert accepted is True
+    assert manager.get_agent(TaskAgentType.CHAT, "default") is not None
+    assert manager.get_agent(TaskAgentType.CHAT, "after-failed-clear") is not None
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_sensor_fact_waiting_at_clear_boundary_is_rejected_after_generation_changes():
+    generation = 0
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(
+            TaskAgentType.CHAT,
+            agent_id,
+        ),
+        user_message_generation_getter=lambda: generation,
+    )
+    await manager.start_all(event_emitter=None)
+    await manager.pause_chat_work_and_cancel_all()
+
+    stale_fact = FactRecord(
+        agent_id="chat:stale-session",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="stale-session",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"session_id": "stale-session", "content": "old queued message"},
+        user_message_generation=0,
+    )
+    waiting_add = asyncio.create_task(
+        manager.add_fact_to_agent(TaskAgentType.CHAT, "stale-session", stale_fact)
+    )
+    await asyncio.sleep(0)
+    assert not waiting_add.done()
+
+    generation = 1
+    await manager.resume_chat_work()
+
+    assert await asyncio.wait_for(waiting_add, timeout=1) is False
+    assert manager.get_agent(TaskAgentType.CHAT, "stale-session") is None
+    assert manager.get_stats()["stale_user_message_rejected_count"] == 1
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_router_fact_without_generation_is_fail_closed_when_generation_is_active():
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(
+            TaskAgentType.CHAT,
+            agent_id,
+        ),
+        user_message_generation_getter=lambda: 1,
+    )
+    await manager.start_all(event_emitter=None)
+    router_fact_missing_generation = FactRecord(
+        agent_id="chat:legacy-session",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="legacy-session",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={"session_id": "legacy-session", "content": "legacy queued message"},
+        user_message_generation=None,
+    )
+
+    accepted = await manager.add_fact_to_agent(
+        TaskAgentType.CHAT,
+        "legacy-session",
+        router_fact_missing_generation,
+    )
+
+    assert accepted is False
+    assert manager.get_agent(TaskAgentType.CHAT, "legacy-session") is None
+    assert manager.get_stats()["stale_user_message_rejected_count"] == 1
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_reinjected_fact_uses_current_generation_and_old_reinject_is_rejected():
+    generation = 3
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _CollectTaskAgent(
+            TaskAgentType.CHAT,
+            agent_id,
+        ),
+        user_message_generation_getter=lambda: generation,
+    )
+    await manager.start_all(event_emitter=None)
+    current_reinject = FactRecord(
+        agent_id="chat:reinject-session",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="reinject-session",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "session_id": "reinject-session",
+            "content": "deferred turn",
+            "metadata": {"reinjected_from": "deferred_pending_turn"},
+        },
+        user_message_generation=manager.current_user_message_generation(),
+    )
+
+    assert await manager.add_fact_to_agent(
+        TaskAgentType.CHAT,
+        "reinject-session",
+        current_reinject,
+    ) is True
+
+    generation = 4
+    assert await manager.add_fact_to_agent(
+        TaskAgentType.CHAT,
+        "reinject-session",
+        current_reinject,
+    ) is False
+    assert manager.get_stats()["stale_user_message_rejected_count"] == 1
+    await manager.stop_all()

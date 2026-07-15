@@ -27,6 +27,9 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v5_assertion_scope_uniqueness.py",
     "v6_relationship_governance_slots.py",
     "v7_l3_derivation_state.py",
+    "v9_memory_clear_generation.py",
+    "v10_relationship_version_snapshot.py",
+    "v11_correction_evidence_governance.py",
 )
 
 

@@ -168,3 +168,10 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         assert builtin_seed_index is not None
         assert "WHERE is_builtin = 1" in builtin_seed_index[0]
         assert "deleted_at IS NULL" in builtin_seed_index[0]
+
+    message_queue_db_path = next(
+        target for target in MIGRATION_TARGETS if target.name == "message_queue"
+    ).db_path(runtime_paths)
+    with sqlite3.connect(message_queue_db_path) as conn:
+        assert "runtime_user_message_clear_state" in _table_names(conn)
+        assert "user_message_generation" in _columns(conn, "runtime_commands")

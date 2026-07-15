@@ -9,9 +9,10 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ...embedding.embedding_pipeline import EmbeddingPipelineItem
+from ...embedding.embedding_pipeline import EmbeddingPipelineItem, EmbeddingPipelineResult
 from ...embedding.embedding_service import MemoryEmbeddingService
 from ...embedding.sqlite_vec_index import SqliteVecIndex
+from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_semantic_skills
 from ..storage.schema import (
     EMBEDDING_STATUS_DISABLED,
@@ -26,8 +27,6 @@ from .skills import (
     fetch_skill_chunk_rows_by_ids,
     fold_skill_chunk_hits,
     profile_from_embedding_result,
-    replace_skill_chunks,
-    update_skill_embedding_state,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +41,7 @@ class L4SkillEmbeddingMixin:
     _embedding_worker: asyncio.Task[None] | None
     _embedding_active_count: int
     _vector_index: SqliteVecIndex | None
+    _operation_guard_factory: Callable[[], Any] | None
 
     async def initialize(self) -> None:
         raise NotImplementedError
@@ -50,6 +50,9 @@ class L4SkillEmbeddingMixin:
         raise NotImplementedError
 
     def _async_embeddings_enabled(self) -> bool:
+        raise NotImplementedError
+
+    def embedding_mutation_guard(self) -> Any:
         raise NotImplementedError
 
     async def rebuild_embeddings(
@@ -136,6 +139,12 @@ class L4SkillEmbeddingMixin:
     ) -> None:
         if not self._vectors_enabled():
             return
+        snapshot = await self._skill_embedding_snapshot(
+            skill_id=skill_id,
+            display_skill_name=skill_name,
+        )
+        if snapshot is None:
+            return
         pipeline = build_embedding_pipeline(
             embedding_service=self._embedding_service,
             vector_index=self._vector_index,
@@ -143,11 +152,11 @@ class L4SkillEmbeddingMixin:
         if pipeline is None:
             return
         text = build_skill_embedding_text(
-            skill_name=skill_name,
-            skill_category=skill_category,
-            optimized_prompt=optimized_prompt,
+            skill_name=str(snapshot["display_skill_name"]),
+            skill_category=str(snapshot["skill_category"]),
+            optimized_prompt=snapshot.get("optimized_prompt"),
         )
-        results = await pipeline.upsert_items(
+        prepared_results = await pipeline.prepare_items(
             [
                 EmbeddingPipelineItem(
                     parent_id=skill_id,
@@ -157,36 +166,146 @@ class L4SkillEmbeddingMixin:
                     ),
                     metadata={
                         "skill_id": skill_id,
-                        "skill_name": skill_name,
-                        "skill_category": skill_category,
+                        "skill_name": str(snapshot["display_skill_name"]),
+                        "skill_category": str(snapshot["skill_category"]),
                     },
-                    payload={
-                        "skill_id": skill_id,
-                    },
+                    payload=snapshot,
                 )
             ]
         )
-        if not results:
+        if not prepared_results:
             return
-        result = results[0]
+        async with optional_operation_guard(self._operation_guard_factory):
+            async with self.embedding_mutation_guard():
+                if not await self._skill_embedding_snapshot_is_current(snapshot):
+                    return
+                results = await pipeline.persist_results(prepared_results)
+                if not results:
+                    return
+                result = results[0]
+                published = await self._publish_skill_embedding_result(result)
+                if published:
+                    return
+                if self._vector_index is not None:
+                    for chunk in result.chunks:
+                        await self._vector_index.delete_entity(entity_id=chunk.chunk_id)
+
+    async def _skill_embedding_snapshot(
+        self,
+        *,
+        skill_id: str,
+        display_skill_name: str,
+    ) -> dict[str, Any] | None:
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT skill_id, skill_name, skill_category, optimized_prompt, updated_at
+                FROM procedural_skills
+                WHERE skill_id = ? AND deleted_at IS NULL
+                """,
+                (skill_id,),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None:
+            return None
+        return {
+            "skill_id": str(row["skill_id"]),
+            "stored_skill_name": str(row["skill_name"]),
+            "display_skill_name": str(display_skill_name),
+            "skill_category": str(row["skill_category"]),
+            "optimized_prompt": row["optimized_prompt"],
+            "updated_at": float(row["updated_at"]),
+        }
+
+    async def _skill_embedding_snapshot_is_current(
+        self,
+        snapshot: dict[str, Any],
+    ) -> bool:
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                """
+                SELECT skill_name, skill_category, optimized_prompt, updated_at
+                FROM procedural_skills
+                WHERE skill_id = ? AND deleted_at IS NULL
+                """,
+                (str(snapshot["skill_id"]),),
+            ) as cursor:
+                row = await cursor.fetchone()
+        return _skill_embedding_parent_is_current(row, snapshot)
+
+    async def _publish_skill_embedding_result(
+        self,
+        result: EmbeddingPipelineResult,
+    ) -> bool:
+        snapshot = dict(result.payload)
         profile = profile_from_embedding_result(
             embedding_service=self._embedding_service,
             result=result.embeddings[0],
         )
-        await replace_skill_chunks(
-            db_path=self.db_path,
-            skill_id=skill_id,
-            chunks=result.chunks,
-            embedded_at=result.embedded_at,
-        )
-        await update_skill_embedding_state(
-            db_path=self.db_path,
-            skill_id=skill_id,
-            status=EMBEDDING_STATUS_READY,
-            profile_id=profile.profile_id,
-            chunk_count=len(result.chunks),
-            embedded_at=result.embedded_at,
-        )
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    """
+                    SELECT skill_name, skill_category, optimized_prompt, updated_at
+                    FROM procedural_skills
+                    WHERE skill_id = ? AND deleted_at IS NULL
+                    """,
+                    (result.parent_id,),
+                ) as cursor:
+                    current = await cursor.fetchone()
+                if not _skill_embedding_parent_is_current(current, snapshot):
+                    await db.rollback()
+                    return False
+                await db.execute(
+                    f"DELETE FROM {SKILL_CHUNKS_TABLE} WHERE skill_id = ?",
+                    (result.parent_id,),
+                )
+                await db.executemany(
+                    f"""
+                    INSERT INTO {SKILL_CHUNKS_TABLE}(
+                        chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end,
+                        token_estimate, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            chunk.chunk_id,
+                            result.parent_id,
+                            chunk.chunk_index,
+                            chunk.text,
+                            chunk.char_start,
+                            chunk.char_end,
+                            chunk.token_estimate,
+                            result.embedded_at,
+                            result.embedded_at,
+                        )
+                        for chunk in result.chunks
+                    ],
+                )
+                await db.execute(
+                    """
+                    UPDATE procedural_skills
+                    SET embedding_status = ?, embedding_profile_id = ?,
+                        embedding_chunk_count = ?, last_embedded_at = ?
+                    WHERE skill_id = ?
+                    """,
+                    (
+                        EMBEDDING_STATUS_READY,
+                        profile.profile_id,
+                        len(result.chunks),
+                        result.embedded_at,
+                        result.parent_id,
+                    ),
+                )
+                await db.commit()
+                return True
+            except Exception:
+                await db.rollback()
+                raise
 
     async def _semantic_query_strategies(self, *, query: str, limit: int) -> List[Dict[str, Any]]:
         if (
@@ -281,3 +400,17 @@ class L4SkillEmbeddingMixin:
 
 
 __all__ = ["L4SkillEmbeddingMixin"]
+
+
+def _skill_embedding_parent_is_current(
+    current: aiosqlite.Row | None,
+    snapshot: dict[str, Any],
+) -> bool:
+    if current is None:
+        return False
+    return (
+        str(current["skill_name"]) == str(snapshot["stored_skill_name"])
+        and str(current["skill_category"]) == str(snapshot["skill_category"])
+        and current["optimized_prompt"] == snapshot.get("optimized_prompt")
+        and float(current["updated_at"]) == float(snapshot["updated_at"])
+    )

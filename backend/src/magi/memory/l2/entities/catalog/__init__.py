@@ -103,6 +103,9 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
     async def close(self) -> None:
         if self._vector_index is not None:
             await self._vector_index.close()
+        edge_vector_index = getattr(self, "_edge_vector_index", None)
+        if edge_vector_index is not None:
+            await edge_vector_index.close()
         self._initialized = False
 
     async def upsert_entity(
@@ -304,7 +307,33 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
                 """
             )
             await db.commit()
+        vector_indexes = self._all_vector_indexes_for_clear()
+        for vector_index in vector_indexes:
+            await vector_index.clear()
+        if self._embedding_service is None:
+            for vector_index in vector_indexes:
+                await vector_index.close()
         return count
+
+    def _all_vector_indexes_for_clear(self) -> list[SqliteVecIndex]:
+        """Return both L2 indexes even when vectors are disabled at runtime."""
+        if self._vector_index is None:
+            self._vector_index = SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l2_entity_vectors",
+                entity_column="entity_id",
+                vec_table_prefix="l2_entity_vec",
+            )
+        edge_index = getattr(self, "_edge_vector_index", None)
+        if edge_index is None:
+            edge_index = SqliteVecIndex(
+                db_path=self.db_path,
+                registry_table="l2_edge_vectors",
+                entity_column="entity_id",
+                vec_table_prefix="l2_edge_vec",
+            )
+            self._edge_vector_index = edge_index
+        return [self._vector_index, edge_index]
 
 
 __all__ = [

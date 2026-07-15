@@ -48,7 +48,7 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
     await processor.init()
 
     try:
-        await store.append_plugin_ingress_event(
+        event_id = await store.append_plugin_ingress_event(
             StoredPluginIngressEventRecord(
                 event_id=0,
                 source_kind="desktop",
@@ -61,8 +61,10 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
             )
         )
 
+        processed = None
         for _ in range(100):
-            if handler.events:
+            processed = await store.get_plugin_ingress_event(event_id)
+            if handler.events and processed is not None and processed.status == "completed":
                 break
             await asyncio.sleep(0.02)
 
@@ -72,6 +74,8 @@ async def test_plugin_ingress_processor_routes_matching_events(tmp_path) -> None
                 {"foo": "bar"},
             )
         ]
+        assert processed is not None
+        assert processed.status == "completed"
     finally:
         await processor.shutdown()
         await store.shutdown()

@@ -389,7 +389,7 @@ async def test_call_llm_emits_error_chunk_on_failure(monkeypatch) -> None:
     agent._coordinator = _FakeCoordinator()
 
     from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
-    from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
+    from magi.agent.task_agents.common.contracts import IncomingFactKind
 
     ctx = ChatRuntimeContext(
         latest_fact=None,
@@ -488,7 +488,7 @@ async def test_call_llm_skips_emit_when_no_turn_id(monkeypatch) -> None:
     agent._coordinator = _FakeCoordinator()
 
     from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext
-    from magi.agent.task_agents.common.contracts import IncomingFactKind, GenericFactPayload
+    from magi.agent.task_agents.common.contracts import IncomingFactKind
 
     ctx = ChatRuntimeContext(
         latest_fact=None,
@@ -697,6 +697,9 @@ async def test_drain_deferred_turns_mints_fresh_turn_id_for_reinjection() -> Non
     captured_facts: list[FactRecord] = []
 
     class _CapturingManager:
+        def current_user_message_generation(self) -> int:
+            return 7
+
         async def add_fact_to_agent(self, agent_type, instance_id, fact):  # type: ignore[no-untyped-def]
             _ = (agent_type, instance_id)
             captured_facts.append(fact)
@@ -734,5 +737,4 @@ async def test_drain_deferred_turns_mints_fresh_turn_id_for_reinjection() -> Non
     assert metadata["reinjected_from"] == "deferred_pending_turn"
     assert metadata["source_turn_id"] == "turn-deferred-original"
     assert fact.payload["content"] == "And also draft the release notes after."
-
-
+    assert fact.user_message_generation == 7
