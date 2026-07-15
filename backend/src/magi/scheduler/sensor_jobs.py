@@ -122,6 +122,31 @@ class SensorSyncJobRepositoryMixin:
             return None
         return self._row_to_sensor_sync_job(row)
 
+    async def get_latest_sensor_sync_job(
+        self,
+        target_type: ScheduledTargetType,
+        target_key: str,
+    ) -> Optional[dict[str, object]]:
+        """Return the most recently created sync job for one sensor target."""
+
+        host = cast(_SensorJobRepositoryHost, self)
+        async with host._connect() as db:
+            cursor = await db.execute(
+                """
+                SELECT *
+                FROM sensor_sync_jobs
+                WHERE target_type = ?
+                  AND target_key = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (target_type.value, target_key),
+            )
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        return self._row_to_sensor_sync_job(row)
+
     async def claim_next_sensor_sync_job(self, *, claimed_by: str) -> Optional[dict[str, object]]:
         host = cast(_SensorJobRepositoryHost, self)
         now = time.time()

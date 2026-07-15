@@ -207,6 +207,48 @@ async def test_complete_sensor_sync_job_success_persists_result_fields(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_latest_sensor_sync_job_keeps_completed_backfill_details(tmp_path):
+    repository = ScheduleRepository(tmp_path / "scheduler.db")
+    await repository.initialize()
+    schedule = _build_sensor_schedule()
+    schedule.target_payload["sync_request"] = {
+        "mode": "backfill",
+        "backfill_scope": "custom",
+        "backfill_start_date": "2026-06-01",
+        "backfill_end_date": "2026-06-30",
+    }
+    await repository.upsert_schedule(schedule)
+    execution_id = await repository.create_execution_record(
+        schedule_id=schedule.schedule_id,
+        target_type=schedule.target_type,
+        target_key=schedule.target_key,
+        manual=True,
+        started_at=time.time(),
+    )
+    job_id = await repository.enqueue_sensor_sync_job(
+        schedule=schedule,
+        execution_id=execution_id,
+        manual=True,
+    )
+    assert job_id is not None
+    await repository.complete_sensor_sync_job_success(
+        job_id,
+        result=ScheduledExecutionResult(success=True, stats={"items": 3}),
+        finished_at=time.time(),
+    )
+
+    latest = await repository.get_latest_sensor_sync_job(
+        schedule.target_type,
+        schedule.target_key,
+    )
+
+    assert latest is not None
+    assert latest["job_id"] == job_id
+    assert latest["status"] == "success"
+    assert dict(latest["payload"])["sync_request"] == schedule.target_payload["sync_request"]
+
+
+@pytest.mark.asyncio
 async def test_update_target_cursor_persists_partial_cursor(tmp_path):
     """update_target_cursor saves cursor without clearing the running flag."""
     repository = ScheduleRepository(tmp_path / "scheduler.db")

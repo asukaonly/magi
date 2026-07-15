@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -43,6 +43,7 @@ import {
   sensorsApi,
   type SensorSourceStatusItem,
   type SensorSourceStatusResponse,
+  type SensorSyncActivity,
   type SensorTodaySummaryResponse,
 } from '@/api/modules/sensors';
 import { useChatShellStore } from '@/stores';
@@ -70,6 +71,7 @@ interface SourceLedgerRow extends SourceCoverageRow {
   syncMode: string | null;
   storageMode: string | null;
   nextRunAt: number | string | null;
+  syncActivity: SensorSyncActivity | null;
 }
 
 const normalizeSourceKey = (value: string | null | undefined): string => (
@@ -140,6 +142,7 @@ const rowFromSource = (
     syncMode: sensor?.sync_mode ?? null,
     storageMode: sensor?.storage_mode ?? null,
     nextRunAt: sensor?.next_run_at ?? null,
+    syncActivity: sensor?.sync_activity ?? null,
   };
 };
 
@@ -218,6 +221,77 @@ const sourceSyncModeLabel = (syncMode: string | null, t: OverviewTranslateFn): s
   const key = `memory.sourcesPage.syncModes.${normalized}`;
   const translated = t(key);
   return translated === key ? String(syncMode) : translated;
+};
+
+const isActiveBackfill = (activity: SensorSyncActivity | null | undefined): boolean => (
+  activity?.mode === 'backfill'
+  && ['queued', 'running', 'continuing'].includes(activity.status)
+);
+
+const backfillRangeLabel = (
+  activity: SensorSyncActivity | null | undefined,
+  t: OverviewTranslateFn,
+): string | null => {
+  if (!isActiveBackfill(activity)) {
+    return null;
+  }
+  if (
+    activity?.backfill_scope === 'custom'
+    && activity.backfill_start_date
+    && activity.backfill_end_date
+  ) {
+    return `${activity.backfill_start_date} – ${activity.backfill_end_date}`;
+  }
+  const scope = activity?.backfill_scope;
+  if (!scope) {
+    return null;
+  }
+  const key = `sourceBackfill.ranges.${scope === 'last_7_days' ? 'last7Days' : scope === 'last_30_days' ? 'last30Days' : scope}`;
+  const translated = t(key);
+  return translated === key ? null : translated;
+};
+
+const sourceStatusPresentation = (
+  row: SourceLedgerRow,
+  t: OverviewTranslateFn,
+): { label: string; dotStatus: string; range: string | null } => {
+  if (isActiveBackfill(row.syncActivity)) {
+    return {
+      label: t(
+        row.syncActivity?.status === 'queued'
+          ? 'memory.sourcesPage.backfillStatus.queued'
+          : 'memory.sourcesPage.backfillStatus.running',
+      ),
+      dotStatus: row.syncActivity?.status === 'queued' ? 'stale' : 'running',
+      range: backfillRangeLabel(row.syncActivity, t),
+    };
+  }
+  return {
+    label: sourceStatusLabel(row.status, t),
+    dotStatus: row.status,
+    range: null,
+  };
+};
+
+const findSensorByName = (
+  status: SensorSourceStatusResponse,
+  sourceName: string,
+): SensorSourceStatusItem | undefined => findSensorForSource(sourceName, status.sources || []);
+
+const notifyBackfillResult = (
+  sensor: SensorSourceStatusItem | undefined,
+  sourceLabel: string,
+  t: OverviewTranslateFn,
+): void => {
+  const activity = sensor?.sync_activity;
+  if (activity?.status === 'failed' || sensor?.status === 'error') {
+    toast.error(t('memory.sourcesPage.feedback.backfillFailed', {
+      source: sourceLabel,
+      message: activity?.error || sensor?.last_error || t('memory.sourcesPage.unknown'),
+    }));
+    return;
+  }
+  toast.success(t('memory.sourcesPage.feedback.backfillCompleted', { source: sourceLabel }));
 };
 
 const sourceEnabledSettingKey = (
@@ -678,7 +752,7 @@ function SourceLedgerSection({
           <div className="text-right">{t('memory.sourcesPage.columns.action')}</div>
         </div>
         {rows.map((row) => {
-          const statusLabel = sourceStatusLabel(row.status, t);
+          const status = sourceStatusPresentation(row, t);
           const syncLabel = sourceSyncLabel(row, i18n.language, t);
           return (
             <Link
@@ -695,9 +769,14 @@ function SourceLedgerSection({
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2 text-xs text-[hsl(var(--memory-body))]">
-                <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                <span>{statusLabel}</span>
+              <div className="flex items-start gap-2 text-xs text-[hsl(var(--memory-body))]">
+                <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${sourceStatusDotClassName(status.dotStatus)}`} aria-hidden="true" />
+                <span className="min-w-0">
+                  <span className="block">{status.label}</span>
+                  {status.range ? (
+                    <span className="mt-0.5 block truncate text-[11px] text-[hsl(var(--memory-muted))]">{status.range}</span>
+                  ) : null}
+                </span>
               </div>
               <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
                 <div>{syncLabel}</div>
@@ -736,6 +815,7 @@ export const MemorySourcesPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sourceRefreshVersion, setSourceRefreshVersion] = useState(0);
+  const notifiedBackfillJobsRef = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
@@ -771,6 +851,69 @@ export const MemorySourcesPage = () => {
     () => buildSourceLedgerRows(dashboard?.source_counts || [], sensorStatus, t),
     [dashboard?.source_counts, sensorStatus, t],
   );
+  const activeBackfillJobs = useMemo(() => rows.filter((row) => isActiveBackfill(row.syncActivity)), [rows]);
+  const activeBackfillKey = activeBackfillJobs
+    .map((row) => `${row.key}:${row.syncActivity?.job_id || ''}`)
+    .sort()
+    .join('|');
+
+  useEffect(() => {
+    if (!activeBackfillKey) {
+      return undefined;
+    }
+    let cancelled = false;
+    let polling = false;
+    const tracked = activeBackfillJobs.map((row) => ({
+      sourceName: row.key,
+      label: row.label,
+      jobId: row.syncActivity?.job_id || '',
+    }));
+    const poll = async () => {
+      if (polling) {
+        return;
+      }
+      polling = true;
+      try {
+        const nextStatus = await sensorsApi.getStatus();
+        if (cancelled) {
+          return;
+        }
+        let finished = false;
+        tracked.forEach((item) => {
+          const nextSensor = findSensorByName(nextStatus, item.sourceName);
+          const nextActivity = nextSensor?.sync_activity;
+          if (isActiveBackfill(nextActivity)) {
+            return;
+          }
+          const notificationKey = item.jobId || `${item.sourceName}:backfill`;
+          if (!notifiedBackfillJobsRef.current.has(notificationKey)) {
+            notifiedBackfillJobsRef.current.add(notificationKey);
+            notifyBackfillResult(nextSensor, item.label, t);
+          }
+          finished = true;
+        });
+        setSensorStatus(nextStatus);
+        if (finished) {
+          const payload = await loadSourceOverview();
+          if (!cancelled) {
+            setDashboard(payload.dashboard);
+            setSensorStatus(payload.sensorStatus);
+            setTodaySummary(payload.todaySummary);
+            setTodayEvents(payload.todayEvents);
+          }
+        }
+      } catch {
+        // Keep the last known state and try again on the next poll.
+      } finally {
+        polling = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeBackfillKey]);
 
   const openSourceMarketplace = () => {
     setSettingsNavigationIntent({ section: 'pluginsMarketplace' });
@@ -830,6 +973,7 @@ const fallbackSourceRow = (sourceName: string, t: OverviewTranslateFn): SourceLe
   syncMode: null,
   storageMode: null,
   nextRunAt: null,
+  syncActivity: null,
 });
 
 function SourceDetailHeader({
@@ -852,7 +996,7 @@ function SourceDetailHeader({
   onToggleEnabled: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
-  const statusLabel = sourceStatusLabel(row.status, t);
+  const status = sourceStatusPresentation(row, t);
   return (
     <section className="rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.64)] px-5 py-5 shadow-[0_16px_42px_hsl(var(--memory-shadow)/0.035)] sm:px-6">
       <Link
@@ -869,8 +1013,8 @@ function SourceDetailHeader({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-[1.8rem] font-semibold tracking-[-0.025em] text-[hsl(var(--memory-title))]">{row.label}</h1>
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
-                <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
-                {statusLabel}
+                <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(status.dotStatus)}`} aria-hidden="true" />
+                {status.label}
               </span>
             </div>
             <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">
@@ -880,6 +1024,12 @@ function SourceDetailHeader({
               <span>{t('memory.sourcesPage.localOnly')}</span>
               <span className="h-1 w-1 rounded-full bg-[hsl(var(--memory-divider))]" aria-hidden="true" />
               <span>{t('memory.sourcesPage.detail.lastSync', { value: sourceSyncLabel(row, i18n.language, t) })}</span>
+              {status.range ? (
+                <>
+                  <span className="h-1 w-1 rounded-full bg-[hsl(var(--memory-divider))]" aria-hidden="true" />
+                  <span>{t('memory.sourcesPage.detail.backfillRange', { range: status.range })}</span>
+                </>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1284,17 +1434,22 @@ export const MemorySourceDetailPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [backfilling, setBackfilling] = useState(false);
+  const [trackingBackfill, setTrackingBackfill] = useState(false);
   const [backfillDialogOpen, setBackfillDialogOpen] = useState(false);
   const [togglingEnabled, setTogglingEnabled] = useState(false);
   const [timeRange, setTimeRange] = useState<SourceDetailTimeRange>('all');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [queryDraft, setQueryDraft] = useState('');
   const [query, setQuery] = useState('');
+  const observedBackfillJobRef = useRef<string | null>(null);
+  const backfillBaselineJobRef = useRef<string | null>(null);
 
-  const loadMetadata = async (cancelledRef?: { cancelled: boolean }) => {
-    setLoading(true);
-    setMetadataReady(false);
-    setError(null);
+  const loadMetadata = async (cancelledRef?: { cancelled: boolean }, silent = false) => {
+    if (!silent) {
+      setLoading(true);
+      setMetadataReady(false);
+      setError(null);
+    }
     try {
       const [dashboardPayload, sensorPayload, todayPayload] = await Promise.all([
         memoryApi.getDashboard({ pending_limit: 8 }),
@@ -1309,12 +1464,12 @@ export const MemorySourceDetailPage = () => {
       setTodaySummary(todayPayload);
       setMetadataReady(true);
     } catch (err) {
-      if (!cancelledRef?.cancelled) {
+      if (!cancelledRef?.cancelled && !silent) {
         setError(err instanceof Error ? err.message : String(err));
         setMetadataReady(false);
       }
     } finally {
-      if (!cancelledRef?.cancelled) {
+      if (!cancelledRef?.cancelled && !silent) {
         setLoading(false);
       }
     }
@@ -1390,8 +1545,71 @@ export const MemorySourceDetailPage = () => {
   const row = rows.find((item) => normalizeSourceKey(item.key) === normalizeSourceKey(sourceName))
     || fallbackSourceRow(sourceName, t);
   const sourceSensor = findSensorForSource(sourceName, sensorStatus?.sources || []);
+  const sourceSyncActivity = sourceSensor?.sync_activity ?? null;
+  const activeBackfill = isActiveBackfill(sourceSyncActivity);
   const todayCount = getTodayCountMap(todaySummary).get(normalizeSourceKey(row.key)) || 0;
   const hasMore = events.length < eventsTotal;
+
+  useEffect(() => {
+    if (!activeBackfill) {
+      return;
+    }
+    observedBackfillJobRef.current = sourceSyncActivity?.job_id || null;
+    setTrackingBackfill(true);
+  }, [activeBackfill, sourceSyncActivity?.job_id]);
+
+  useEffect(() => {
+    if (!trackingBackfill) {
+      return undefined;
+    }
+    let cancelled = false;
+    let polling = false;
+    const poll = async () => {
+      if (polling) {
+        return;
+      }
+      polling = true;
+      try {
+        const nextStatus = await sensorsApi.getStatus();
+        if (cancelled) {
+          return;
+        }
+        const nextSensor = findSensorByName(nextStatus, sourceName);
+        const nextActivity = nextSensor?.sync_activity;
+        setSensorStatus(nextStatus);
+        if (isActiveBackfill(nextActivity)) {
+          observedBackfillJobRef.current = nextActivity?.job_id || observedBackfillJobRef.current;
+          return;
+        }
+        const terminalBackfill = nextActivity?.mode === 'backfill'
+          && ['success', 'failed'].includes(nextActivity.status);
+        const observedJob = observedBackfillJobRef.current;
+        const isNewRequestedJob = Boolean(
+          terminalBackfill
+          && nextActivity?.job_id
+          && nextActivity.job_id !== backfillBaselineJobRef.current
+        );
+        if (!observedJob && !isNewRequestedJob) {
+          return;
+        }
+        notifyBackfillResult(nextSensor, row.label, t);
+        observedBackfillJobRef.current = null;
+        backfillBaselineJobRef.current = nextActivity?.job_id || null;
+        setTrackingBackfill(false);
+        void loadMetadata(undefined, true);
+        void loadEvents();
+      } catch {
+        // Keep polling without replacing a usable page with a transient error.
+      } finally {
+        polling = false;
+      }
+    };
+    const intervalId = window.setInterval(() => void poll(), 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [trackingBackfill, sourceName, row.label]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -1405,6 +1623,8 @@ export const MemorySourceDetailPage = () => {
 
   const handleBackfill = async (selection: SourceBackfillSelection) => {
     setBackfilling(true);
+    setTrackingBackfill(true);
+    backfillBaselineJobRef.current = sourceSyncActivity?.job_id || null;
     try {
       await sensorsApi.requestSync(sourceName, {
         mode: 'backfill',
@@ -1416,6 +1636,7 @@ export const MemorySourceDetailPage = () => {
       setBackfillDialogOpen(false);
       await loadMetadata();
     } catch (err) {
+      setTrackingBackfill(false);
       toast.error(t('memory.sourcesPage.feedback.syncFailed', {
         message: err instanceof Error ? err.message : String(err),
       }));
@@ -1484,7 +1705,7 @@ export const MemorySourceDetailPage = () => {
           <SourceDetailHeader
             row={row}
             syncing={syncing}
-            backfilling={backfilling}
+            backfilling={backfilling || trackingBackfill || activeBackfill}
             togglingEnabled={togglingEnabled}
             onSync={handleSync}
             onBackfill={() => setBackfillDialogOpen(true)}

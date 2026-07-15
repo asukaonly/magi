@@ -2669,14 +2669,22 @@
         "manual": "手动同步",
         "event": "事件触发"
       },
+      "backfillStatus": {
+        "queued": "等待补数据",
+        "running": "补数据中"
+      },
       "feedback": {
         "pauseSuccess": "{{source}} 已暂停",
         "resumeSuccess": "{{source}} 已恢复",
         "backfillQueued": "{{source}} 已开始在后台补旧数据",
+        "backfillCompleted": "{{source}} 补数据已完成",
+        "backfillFailed": "{{source}} 补数据失败：{{message}}",
+        "syncFailed": "同步请求失败：{{message}}",
         "toggleFailed": "更新来源状态失败：{{message}}"
       },
       "detail": {
         "lastSync": "最近同步：{{value}}",
+        "backfillRange": "补数据范围：{{range}}",
         "recentTitle": "最近进入记忆的内容",
         "recentCount": "{{count}} 条",
         "recentCountDetailed": "已显示 {{shown}} / 共 {{total}} 条",
@@ -2713,6 +2721,7 @@
       "heroLabel": "近期重点",
       "sortHint": "按重要程度和时间排序",
       "filters": {
+        "label": "总结分类",
         "all": "全部",
         "periodic": "时段总结",
         "observations": "长期观察",
@@ -2726,7 +2735,11 @@
       "stats": {
         "highlights": "观察复盘",
         "periodic": "时段总结",
-        "observations": "长期观察"
+        "observations": "长期观察",
+        "summaryCount": "{{count}} 条总结",
+        "periodicCount": "{{count}} 条时段总结",
+        "observationsCount": "{{count}} 条长期观察",
+        "tasksCount": "{{count}} 条任务复盘"
       },
       "meta": {
         "insight": "观察",
@@ -2735,7 +2748,7 @@
       "sections": {
         "reflections": "Magi 的总结",
         "reflectionsEmpty": "Magi 还没有从你的记忆里整理出新的总结。",
-        "feed": "总结流",
+        "feed": "更早的总结",
         "periodic": "时段记录",
         "periodicEmpty": "还没有时段总结。"
       },
@@ -2749,7 +2762,8 @@
       },
       "actions": {
         "archive": "收起",
-        "viewEvidence": "查看证据"
+        "viewEvidence": "查看证据",
+        "readFull": "阅读完整总结"
       },
       "categories": {
         "state_change": "记忆更新",

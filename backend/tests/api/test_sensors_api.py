@@ -1,5 +1,6 @@
 import asyncio
 import tempfile
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -227,6 +228,65 @@ def test_get_sensor_source_status(monkeypatch):
     assert body["sources"][0]["supports_state_flush"] is True
     assert body["sources"][0]["settings_actions"][0]["action_id"] == "connect_github"
     assert body["sources"][0]["settings_actions"][0]["button_label"] == "Connect GitHub"
+
+
+def test_get_sensor_source_status_includes_queued_backfill(monkeypatch):
+    client, _, repository = _build_client(monkeypatch)
+
+    async def _seed_backfill_job() -> str:
+        schedule = ScheduleDefinition(
+            schedule_id="sensor-sync-backfill:screen-time:screen_time:custom",
+            target_type=ScheduledTargetType.SENSOR_SYNC,
+            target_key="screen-time:screen_time",
+            trigger=TriggerDefinition(
+                trigger_type=TriggerType.INTERVAL,
+                config={"minutes": 5},
+            ),
+            target_payload={
+                "plugin_id": "screen-time",
+                "source_type": "screen_time",
+                "sync_request": {
+                    "mode": "backfill",
+                    "backfill_scope": "custom",
+                    "backfill_start_date": "2026-06-01",
+                    "backfill_end_date": "2026-06-30",
+                },
+            },
+            metadata={"manual": True},
+        )
+        await repository.upsert_schedule(schedule)
+        execution_id = await repository.create_execution_record(
+            schedule_id=schedule.schedule_id,
+            target_type=schedule.target_type,
+            target_key=schedule.target_key,
+            manual=True,
+            started_at=time.time(),
+        )
+        job_id = await repository.enqueue_sensor_sync_job(
+            schedule=schedule,
+            execution_id=execution_id,
+            manual=True,
+        )
+        assert job_id is not None
+        return job_id
+
+    job_id = asyncio.run(_seed_backfill_job())
+    response = client.get("/api/sensors/status")
+
+    assert response.status_code == 200
+    activity = response.json()["sources"][0]["sync_activity"]
+    assert activity["created_at"] is not None
+    assert {key: value for key, value in activity.items() if key != "created_at"} == {
+        "job_id": job_id,
+        "mode": "backfill",
+        "status": "queued",
+        "backfill_scope": "custom",
+        "backfill_start_date": "2026-06-01",
+        "backfill_end_date": "2026-06-30",
+        "started_at": None,
+        "finished_at": None,
+        "error": None,
+    }
 
 
 def test_derive_sensor_status_prioritizes_operator_states():

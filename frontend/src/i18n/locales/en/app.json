@@ -2670,14 +2670,22 @@
         "manual": "Manual sync",
         "event": "Event-triggered"
       },
+      "backfillStatus": {
+        "queued": "Backfill queued",
+        "running": "Backfilling"
+      },
       "feedback": {
         "pauseSuccess": "{{source}} paused",
         "resumeSuccess": "{{source}} resumed",
         "backfillQueued": "{{source}} history backfill queued",
+        "backfillCompleted": "{{source}} history backfill completed",
+        "backfillFailed": "{{source}} history backfill failed: {{message}}",
+        "syncFailed": "Failed to queue sync: {{message}}",
         "toggleFailed": "Could not update source status: {{message}}"
       },
       "detail": {
         "lastSync": "Last sync: {{value}}",
+        "backfillRange": "Backfill range: {{range}}",
         "recentTitle": "Recently added to memory",
         "recentCount": "{{count}} item(s)",
         "recentCountDetailed": "Showing {{shown}} of {{total}}",
@@ -2715,6 +2723,7 @@
       "heroLabel": "Recent highlight",
       "sortHint": "Sorted by importance and time",
       "filters": {
+        "label": "Summary categories",
         "all": "All",
         "periodic": "Period summaries",
         "observations": "Long-term observations",
@@ -2728,7 +2737,11 @@
       "stats": {
         "highlights": "Insights",
         "periodic": "Period summaries",
-        "observations": "Long-term observations"
+        "observations": "Long-term observations",
+        "summaryCount": "{{count}} summaries",
+        "periodicCount": "{{count}} period summaries",
+        "observationsCount": "{{count}} long-term observations",
+        "tasksCount": "{{count}} task reviews"
       },
       "meta": {
         "insight": "Observation",
@@ -2737,7 +2750,7 @@
       "sections": {
         "reflections": "Magi summaries",
         "reflectionsEmpty": "Magi hasn't shaped new summaries from your memory yet.",
-        "feed": "Summary feed",
+        "feed": "Earlier summaries",
         "periodic": "Periodic digests",
         "periodicEmpty": "No periodic summaries yet."
       },
@@ -2751,7 +2764,8 @@
       },
       "actions": {
         "archive": "Archive",
-        "viewEvidence": "View evidence"
+        "viewEvidence": "View evidence",
+        "readFull": "Read full summary"
       },
       "categories": {
         "state_change": "Memory update",

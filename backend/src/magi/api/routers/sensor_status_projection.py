@@ -25,6 +25,8 @@ from .plugins_common import (
 
 _SENSOR_INTERNAL_ERROR_MARKERS = ("<Queue at ", "MemoryEvent(", " is bound to a different event loop")
 _INTERVAL_STALE_FLOOR_SECONDS = 6 * 60 * 60
+_SYNC_CONTINUATION_GRACE_SECONDS = 5.0
+_SYNC_CONTINUATION_STATS_KEYS = ("has_more", "continue_sync", "backfill_has_more")
 
 
 def _get_nested_value(payload: dict[str, Any], path: str, default: Any) -> Any:
@@ -181,7 +183,7 @@ async def _build_source_status(
     entry_id_for_translation = str(item.metadata.get("entry_id") or source_name)
     resolved = sensor_registry.resolve_source_sensor(source_name)
     sensor = resolved[2] if resolved is not None else None
-    state, schedule, recurring_binding = await _load_scheduler_state(
+    state, schedule, recurring_binding, latest_sync_job = await _load_scheduler_state(
         repository,
         plugin_id=item.plugin_id,
         source_name=source_name,
@@ -206,6 +208,7 @@ async def _build_source_status(
             source_settings=source_settings,
             capabilities=capabilities,
         ),
+        "sync_activity": _serialize_sensor_sync_activity(latest_sync_job),
         **_source_schedule_payload(
             recurring_binding=recurring_binding,
             schedule=schedule,
@@ -364,7 +367,7 @@ async def _load_scheduler_state(
     *,
     plugin_id: str,
     source_name: str,
-) -> tuple[Any, Any, Any]:
+) -> tuple[Any, Any, Any, Any]:
     target_key = build_sensor_target_key(plugin_id, source_name)
     schedule_id = build_sensor_schedule_id(plugin_id, source_name)
     state = await repository.get_target_state(ScheduledTargetType.SENSOR_SYNC, target_key)
@@ -373,7 +376,61 @@ async def _load_scheduler_state(
         ScheduledTargetType.SENSOR_SYNC,
         target_key,
     )
-    return state, schedule, recurring_binding
+    latest_sync_job = await repository.get_latest_sensor_sync_job(
+        ScheduledTargetType.SENSOR_SYNC,
+        target_key,
+    )
+    return state, schedule, recurring_binding, latest_sync_job
+
+
+def _serialize_sensor_sync_activity(
+    job: dict[str, object] | None,
+    *,
+    now: float | None = None,
+) -> dict[str, Any] | None:
+    if job is None:
+        return None
+    payload = job.get("payload")
+    sync_request = (
+        payload.get("sync_request")
+        if isinstance(payload, dict) and isinstance(payload.get("sync_request"), dict)
+        else None
+    )
+    mode = "backfill" if sync_request is not None else "latest"
+    status = str(job.get("status") or "")
+    stats = job.get("stats")
+    finished_at = _coerce_timestamp_seconds(job.get("finished_at"))
+    current_time = time.time() if now is None else now
+    continuation_requested = bool(
+        isinstance(stats, dict)
+        and any(_coerce_bool(stats.get(key)) for key in _SYNC_CONTINUATION_STATS_KEYS)
+    )
+    if (
+        status == "success"
+        and continuation_requested
+        and finished_at is not None
+        and current_time - finished_at < _SYNC_CONTINUATION_GRACE_SECONDS
+    ):
+        status = "continuing"
+    request = sync_request or {}
+    return {
+        "job_id": str(job.get("job_id") or ""),
+        "mode": mode,
+        "status": status,
+        "backfill_scope": request.get("backfill_scope"),
+        "backfill_start_date": request.get("backfill_start_date"),
+        "backfill_end_date": request.get("backfill_end_date"),
+        "created_at": _coerce_timestamp_seconds(job.get("created_at")),
+        "started_at": _coerce_timestamp_seconds(job.get("started_at")),
+        "finished_at": finished_at,
+        "error": _sanitize_sensor_error(job.get("error")),
+    }
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
 
 
 def _resolve_scheduler_job_id(*, recurring_binding: Any, schedule: Any, state: Any) -> Any:
@@ -557,5 +614,6 @@ def _serialize_settings_actions_payload(item: Any, i18n: Any) -> list[Any]:
 __all__ = [
     "_derive_sensor_status",
     "_get_nested_value",
+    "_serialize_sensor_sync_activity",
     "build_sensor_source_status_payload",
 ]

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { toast } from 'sonner';
 
 import { memoryApi } from '@/api/modules/memory';
 import { pluginsApi } from '@/api/modules/plugins';
@@ -49,6 +50,11 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.add': '添加来源',
         'memory.sourcesPage.pulseEmpty': '今天还没有来源活动；有新内容进入记忆后会显示在这里。',
         'memory.sourcesPage.feedback.backfillQueued': '{{source}} 已开始在后台补旧数据',
+        'memory.sourcesPage.feedback.backfillCompleted': '{{source}} 补数据已完成',
+        'memory.sourcesPage.feedback.backfillFailed': '{{source}} 补数据失败：{{message}}',
+        'memory.sourcesPage.backfillStatus.queued': '等待补数据',
+        'memory.sourcesPage.backfillStatus.running': '补数据中',
+        'memory.sourcesPage.detail.backfillRange': '补数据范围：{{range}}',
         'sourceBackfill.title': '补回历史',
         'sourceBackfill.description': '选择 {{source}} 要补回的范围。',
         'sourceBackfill.rangeLabel': '时间范围',
@@ -600,6 +606,89 @@ describe('MemorySourcesPage', () => {
         backfillEndDate: '2026-06-30',
       })
     );
+  });
+
+  it('keeps an active backfill status and selected range visible', async () => {
+    vi.mocked(sensorsApi.getStatus).mockResolvedValue({
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              sync_activity: {
+                job_id: 'backfill-job-1',
+                mode: 'backfill',
+                status: 'queued',
+                backfill_scope: 'custom',
+                backfill_start_date: '2026-06-01',
+                backfill_end_date: '2026-06-30',
+              },
+            }
+          : source
+      )),
+    } as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('等待补数据')).toBeInTheDocument();
+    expect(screen.getByText('补数据范围：2026-06-01 – 2026-06-30')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '补旧数据' })).toBeDisabled();
+  });
+
+  it('polls an active backfill and reports completion', async () => {
+    const activePayload = {
+      sources: sensorPayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              sync_activity: {
+                job_id: 'backfill-job-2',
+                mode: 'backfill',
+                status: 'running',
+                backfill_scope: 'last_30_days',
+              },
+            }
+          : source
+      )),
+    };
+    const completedPayload = {
+      sources: activePayload.sources.map((source) => (
+        source.source_name === 'chrome_history'
+          ? {
+              ...source,
+              sync_activity: {
+                job_id: 'backfill-job-2',
+                mode: 'backfill',
+                status: 'success',
+                backfill_scope: 'last_30_days',
+              },
+            }
+          : source
+      )),
+    };
+    vi.mocked(sensorsApi.getStatus)
+      .mockResolvedValueOnce(activePayload as never)
+      .mockResolvedValue(completedPayload as never);
+
+    render(
+      <MemoryRouter initialEntries={['/memory/sources/chrome_history']}>
+        <Routes>
+          <Route path="/memory/sources/:sourceName" element={<MemorySourceDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(await screen.findByText('补数据中')).toBeInTheDocument();
+    await waitFor(
+      () => expect(toast.success).toHaveBeenCalledWith('Chrome 历史 补数据已完成'),
+      { timeout: 2500 },
+    );
+    expect(await screen.findByText('正常')).toBeInTheDocument();
   });
 
   it('loads additional source detail events without replacing the first page', async () => {

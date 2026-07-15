@@ -11,6 +11,19 @@ import type {
 /** Honest memory-readiness signal for one sensor source (see backend GET /sensors/{source}/memory-readiness). */
 export type MemoryReadinessResponse = components['schemas']['MemoryReadinessResponse'];
 
+export interface SensorSyncActivity {
+  job_id: string;
+  mode: 'latest' | 'backfill';
+  status: 'queued' | 'running' | 'continuing' | 'success' | 'failed' | string;
+  backfill_scope?: SensorBackfillScope | null;
+  backfill_start_date?: string | null;
+  backfill_end_date?: string | null;
+  created_at?: number | null;
+  started_at?: number | null;
+  finished_at?: number | null;
+  error?: string | null;
+}
+
 export interface SensorSourceStatusItem {
   source_name: string;
   plugin_id: string;
@@ -68,6 +81,7 @@ export interface SensorSourceStatusItem {
   next_run_at?: number | string | null;
   scheduler_job_id?: string | null;
   runtime_base_dir?: string | null;
+  sync_activity?: SensorSyncActivity | null;
 }
 
 export interface SensorSourceStatusResponse {
