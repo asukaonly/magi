@@ -404,9 +404,12 @@ class ContextCompactor:
             )
 
         # Split: older groups → summarise, recent groups → keep verbatim.
-        recent_group_count = min(_KEEP_RECENT_ROUNDS, len(groups) - 1)
-        older_groups = groups[:-recent_group_count]
-        recent_groups = groups[-recent_group_count:]
+        max_recent_groups = min(_KEEP_RECENT_ROUNDS, len(groups) - 1)
+        recent_groups = self._select_recent_groups(
+            groups,
+            max_groups=max_recent_groups,
+        )
+        older_groups = groups[: -len(recent_groups)]
         older_messages = _flatten_groups(older_groups)
         recent_messages = _flatten_groups(recent_groups)
         latest_user_message = _latest_user_message(messages)
@@ -612,6 +615,20 @@ class ContextCompactor:
         self,
         groups: list[list[dict[str, Any]]],
     ) -> list[dict[str, Any]]:
+        return _flatten_groups(
+            self._select_recent_groups(
+                groups,
+                max_messages=_RULE_KEEP_RECENT_MESSAGES,
+            )
+        )
+
+    def _select_recent_groups(
+        self,
+        groups: list[list[dict[str, Any]]],
+        *,
+        max_groups: int | None = None,
+        max_messages: int | None = None,
+    ) -> list[list[dict[str, Any]]]:
         if not groups:
             return []
         tail_token_budget = self._current_budget().recent_tail_tokens
@@ -621,13 +638,16 @@ class ContextCompactor:
             candidate_groups = list(reversed([*selected_reversed, group]))
             candidate_messages = _flatten_groups(candidate_groups)
             if selected_reversed and (
-                selected_count + len(group) > _RULE_KEEP_RECENT_MESSAGES
+                (max_groups is not None and len(selected_reversed) >= max_groups)
+                or (max_messages is not None and selected_count + len(group) > max_messages)
                 or _estimate_message_tokens(candidate_messages) > tail_token_budget
             ):
                 break
             selected_reversed.append(group)
             selected_count += len(group)
-        return _flatten_groups(list(reversed(selected_reversed)))
+            if _estimate_message_tokens(candidate_messages) >= tail_token_budget:
+                break
+        return list(reversed(selected_reversed))
 
     # -- helpers --------------------------------------------------------------
 

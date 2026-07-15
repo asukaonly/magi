@@ -533,6 +533,42 @@ class TestLLMCompact:
         assert "user message 4" not in summary_prompt
 
     @pytest.mark.asyncio
+    async def test_llm_summary_retains_only_complete_rounds_that_fit_tail_budget(self) -> None:
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        compactor = ContextCompactor(context_window=32_000, scenario_llm_pool=fake_pool)
+        messages: list[dict[str, Any]] = [{"role": "user", "content": "inspect"}]
+        for index in range(5):
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"id": f"call-{index}", "name": "demo"}],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": f"call-{index}",
+                        "content": f"result-{index}-" + ("x" * 8_000),
+                    },
+                ]
+            )
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages)
+
+        assert result.compacted is True
+        assert result.messages[1] is messages[0]
+        assert result.messages[2:] == messages[-2:]
+        summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
+        assert "result-3" in summary_prompt
+        assert "result-4" not in summary_prompt
+
+    @pytest.mark.asyncio
     async def test_single_long_user_turn_keeps_its_tool_sequence_in_fallback(self) -> None:
         fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
         compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
