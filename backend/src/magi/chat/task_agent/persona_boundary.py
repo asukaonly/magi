@@ -150,12 +150,19 @@ class PersonaBoundarySummarizer:
         if not self._history_has_foreign_persona(prefix, normalized_persona_id):
             return history, None
         tail = history[boundary_index:]
-        summary_text = await self._get_or_create_summary(
-            session_id=session_id,
-            active_persona_id=normalized_persona_id,
-            summarized_messages=prefix,
-            retained_messages=tail,
-        )
+        try:
+            summary_text = await self._get_or_create_summary(
+                session_id=session_id,
+                active_persona_id=normalized_persona_id,
+                summarized_messages=prefix,
+                retained_messages=tail,
+            )
+        except Exception:
+            logger.exception(
+                "Persona boundary summary failed; preserving original history session_id=%s",
+                session_id,
+            )
+            return history, None
         if not summary_text:
             logger.warning(
                 "Persona boundary summary unavailable; preserving original history session_id=%s",

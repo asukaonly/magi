@@ -126,12 +126,10 @@ class ChatContextAssembler:
                 limit=None,
                 start_message_id=first_kept_message_id,
             )
-            attachment_manifest = self._build_attachment_manifest_from_references(
-                read_service.get_session_attachment_references(
-                    user_id=user_id,
-                    session_id=session_id,
-                    limit=_SESSION_ATTACHMENT_MANIFEST_LIMIT,
-                )
+            attachment_manifest = self._load_attachment_manifest(
+                read_service=read_service,
+                user_id=user_id,
+                session_id=session_id,
             )
             history, persona_boundary_summary = await self._persona_boundary.summarize(
                 session_id=session_id,
@@ -334,6 +332,29 @@ class ChatContextAssembler:
         if omitted:
             lines.append(f"- {omitted} older attachment reference(s) omitted from this prompt manifest.")
         return "\n".join(lines).strip()
+
+    def _load_attachment_manifest(
+        self,
+        *,
+        read_service: Any,
+        user_id: str,
+        session_id: str,
+    ) -> str | None:
+        try:
+            references = read_service.get_session_attachment_references(
+                user_id=user_id,
+                session_id=session_id,
+                limit=_SESSION_ATTACHMENT_MANIFEST_LIMIT,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to load optional session attachment references | user=%s session=%s error=%s",
+                user_id,
+                session_id,
+                exc,
+            )
+            return None
+        return self._build_attachment_manifest_from_references(references)
 
     @staticmethod
     def _normalize_persona_id(persona_id: str | None) -> str | None:

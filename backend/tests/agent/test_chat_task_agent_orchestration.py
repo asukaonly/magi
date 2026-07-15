@@ -300,6 +300,53 @@ async def test_chat_context_assembler_keeps_complete_tail_beyond_legacy_limit(
 
 
 @pytest.mark.asyncio
+async def test_chat_context_assembler_keeps_history_when_attachment_manifest_fails(
+    tmp_path: Path,
+) -> None:
+    class _AttachmentFailureReadService:
+        def get_conversation_history(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            limit: int | None = 200,
+            start_message_id: str | None = None,
+        ) -> list[ChatDisplayMessage]:
+            _ = (user_id, session_id, limit, start_message_id)
+            return [
+                ChatDisplayMessage(
+                    role="user",
+                    content="history remains available",
+                    timestamp=100,
+                    kind="user",
+                    message_id="message-1",
+                    message_kind="user_text",
+                )
+            ]
+
+        def get_session_attachment_references(
+            self,
+            user_id: str,
+            session_id: str,
+            limit: int = 40,
+        ) -> list[dict[str, object]]:
+            _ = (user_id, session_id, limit)
+            raise RuntimeError("attachment metadata unavailable")
+
+    service = ChatContextAssembler(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        chat_read_service_factory=_AttachmentFailureReadService,
+    )
+
+    history_context = await service.get_or_load_history_context("u-chat", "s-chat")
+
+    assert history_context.messages == [
+        {"role": "user", "content": "history remains available"}
+    ]
+    assert history_context.session_summary is None
+
+
+@pytest.mark.asyncio
 async def test_chat_context_assembler_summarizes_previous_persona_segment(tmp_path: Path, runtime_paths_with_schema) -> None:
     chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
