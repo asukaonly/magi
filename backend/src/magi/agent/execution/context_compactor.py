@@ -166,6 +166,22 @@ def _flatten_groups(groups: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     return [msg for group in groups for msg in group]
 
 
+def _latest_user_message(
+    messages: List[Dict[str, Any]],
+) -> Dict[str, Any] | None:
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            return message
+    return None
+
+
+def _contains_message(
+    messages: List[Dict[str, Any]],
+    target: Dict[str, Any] | None,
+) -> bool:
+    return target is not None and any(message is target for message in messages)
+
+
 # ---------------------------------------------------------------------------
 # Token estimation
 # ---------------------------------------------------------------------------
@@ -368,6 +384,18 @@ class ContextCompactor:
         recent_groups = groups[-recent_group_count:]
         older_messages = _flatten_groups(older_groups)
         recent_messages = _flatten_groups(recent_groups)
+        latest_user_message = _latest_user_message(messages)
+        if _contains_message(older_messages, latest_user_message):
+            older_messages = [
+                message for message in older_messages if message is not latest_user_message
+            ]
+            assert latest_user_message is not None
+            recent_messages = [latest_user_message, *recent_messages]
+        if not older_messages:
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
 
         # Build human-readable conversation text for the summariser.
         conversation_text = self._render_messages_for_summary(older_messages)
@@ -501,25 +529,18 @@ class ContextCompactor:
                 kept_message_count=len(messages),
             )
 
-        if len(messages) <= _RULE_KEEP_RECENT_MESSAGES:
-            kept = list(messages)
-        else:
-            groups = (
-                _group_messages_by_user_turn(messages)
-                if preserve_user_turns
-                else _group_messages_by_round(messages)
-            )
-            selected_groups: list[list[dict[str, Any]]] = []
-            selected_count = 0
-            for group in reversed(groups):
-                if selected_groups and selected_count + len(group) > _RULE_KEEP_RECENT_MESSAGES:
-                    break
-                selected_groups.append(group)
-                selected_count += len(group)
-                if selected_count >= _RULE_KEEP_RECENT_MESSAGES:
-                    break
-            kept = _flatten_groups(list(reversed(selected_groups)))
-        kept = self._truncate_messages_to_tail_budget(kept)
+        groups = (
+            _group_messages_by_user_turn(messages)
+            if preserve_user_turns
+            else _group_messages_by_round(messages)
+        )
+        kept = self._select_recent_group_suffix(groups)
+        latest_user_message = _latest_user_message(messages)
+        if latest_user_message is not None and not _contains_message(
+            kept,
+            latest_user_message,
+        ):
+            kept = [latest_user_message, *kept]
         boundary: Dict[str, Any] = {
             "role": _CONTEXT_BOUNDARY_ROLE,
             "content": (
@@ -542,33 +563,26 @@ class ContextCompactor:
             kept_message_count=len(compacted),
         )
 
-    def _truncate_messages_to_tail_budget(
+    def _select_recent_group_suffix(
         self,
-        messages: list[dict[str, Any]],
+        groups: list[list[dict[str, Any]]],
     ) -> list[dict[str, Any]]:
-        if not messages:
+        if not groups:
             return []
         tail_token_budget = self._current_budget().recent_tail_tokens
-        if _estimate_message_tokens(messages) <= tail_token_budget:
-            return list(messages)
-        per_message_chars = max(
-            1_000,
-            tail_token_budget * _CHARS_PER_TOKEN_ESTIMATE // len(messages),
-        )
-        compacted: list[dict[str, Any]] = []
-        for message in messages:
-            copied = dict(message)
-            content = copied.get("content")
-            if isinstance(content, str) and len(content) > per_message_chars:
-                marker = "\n... [truncated] ...\n"
-                side_chars = max(1, (per_message_chars - len(marker)) // 2)
-                copied["content"] = (
-                    content[:side_chars].rstrip()
-                    + marker
-                    + content[-side_chars:].lstrip()
-                )
-            compacted.append(copied)
-        return compacted
+        selected_reversed: list[list[dict[str, Any]]] = []
+        selected_count = 0
+        for group in reversed(groups):
+            candidate_groups = list(reversed([*selected_reversed, group]))
+            candidate_messages = _flatten_groups(candidate_groups)
+            if selected_reversed and (
+                selected_count + len(group) > _RULE_KEEP_RECENT_MESSAGES
+                or _estimate_message_tokens(candidate_messages) > tail_token_budget
+            ):
+                break
+            selected_reversed.append(group)
+            selected_count += len(group)
+        return _flatten_groups(list(reversed(selected_reversed)))
 
     # -- helpers --------------------------------------------------------------
 

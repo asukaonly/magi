@@ -392,21 +392,68 @@ class TestRuleBasedCompact:
         assert result.messages[1]["role"] != "tool"
 
     @pytest.mark.asyncio
-    async def test_rule_fallback_truncates_few_oversized_messages(self) -> None:
+    async def test_rule_fallback_never_truncates_latest_user_message(self) -> None:
         compactor = ContextCompactor(context_window=32_000)
         compactor.record_input_tokens(30_000)
+        current_request = "begin " + "x" * 120_000 + " end"
         messages = [
-            {"role": "user", "content": "begin " + "x" * 120_000 + " end"},
+            {"role": "user", "content": current_request},
             {"role": "assistant", "content": "answer"},
         ]
 
         result = await compactor.compact(messages)
 
         assert result.compacted is True
-        assert len(str(result.messages[1]["content"])) < 120_000
-        assert "[truncated]" in str(result.messages[1]["content"])
+        assert any(message.get("content") == current_request for message in result.messages)
+        assert all("[truncated]" not in str(message.get("content")) for message in result.messages)
         assert result.messages[-1]["role"] == "assistant"
         assert compactor._last_input_tokens is None
+
+    @pytest.mark.asyncio
+    async def test_rule_fallback_drops_oversized_old_turn_as_a_whole(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        compactor.record_input_tokens(30_000)
+        messages = [
+            {"role": "user", "content": "old question " + "x" * 120_000},
+            {"role": "assistant", "content": "old answer"},
+            {"role": "user", "content": "current question"},
+        ]
+
+        result = await compactor.compact(messages, preserve_user_turns=True)
+
+        assert result.messages[-1] == {"role": "user", "content": "current question"}
+        assert all("old question" not in str(message.get("content")) for message in result.messages)
+        assert all("old answer" not in str(message.get("content")) for message in result.messages)
+
+    @pytest.mark.asyncio
+    async def test_tool_round_fallback_keeps_latest_user_request_verbatim(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        current_request = "inspect the repository exactly as requested"
+        messages: list[dict[str, Any]] = [{"role": "user", "content": current_request}]
+        for index in range(6):
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"id": f"call-{index}", "name": "demo"}],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": f"call-{index}",
+                        "content": f"result-{index}",
+                    },
+                ]
+            )
+
+        result = await compactor.compact(messages)
+
+        assert result.messages[1]["content"] == current_request
+        assert [
+            message.get("content")
+            for message in result.messages
+            if message.get("role") == "user" and message is not result.messages[0]
+        ] == [current_request]
 
 
 # ---------------------------------------------------------------------------
@@ -481,6 +528,44 @@ class TestLLMCompact:
         result = await compactor.compact(messages, preserve_user_turns=True)
 
         assert result.messages[1:] == messages
+
+    @pytest.mark.asyncio
+    async def test_tool_round_summary_keeps_latest_user_request_verbatim(self) -> None:
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
+        current_request = "inspect the repository exactly as requested"
+        messages: list[dict[str, Any]] = [{"role": "user", "content": current_request}]
+        for index in range(6):
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"id": f"call-{index}", "name": "demo"}],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": f"call-{index}",
+                        "content": f"result-{index}",
+                    },
+                ]
+            )
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages)
+
+        assert [
+            message.get("content")
+            for message in result.messages
+            if message.get("content") == current_request
+        ] == [current_request]
+        summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
+        assert current_request not in summary_prompt
 
     @pytest.mark.asyncio
     async def test_llm_failure_falls_back_to_rule_based(self) -> None:

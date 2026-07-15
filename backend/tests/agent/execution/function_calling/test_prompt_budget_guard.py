@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -64,6 +65,70 @@ async def test_prepare_context_fails_when_fixed_prompt_still_exceeds_capacity() 
     assert failure.status == "failed"
     assert failure.failure_reason == "Context window exceeded"
     assert state.messages[-1]["content"] == "keep this current request"
+
+
+@pytest.mark.asyncio
+async def test_prepare_context_never_truncates_oversized_current_request() -> None:
+    orchestrator = _orchestrator({}, context_window=1_000, max_output_tokens=100)
+    current_request = "critical request " + "x" * 5_000
+    state = FunctionCallingStepState(
+        messages=[{"role": "user", "content": current_request}],
+        effective_system_prompt="system",
+        tools=[],
+    )
+
+    failure = await orchestrator._prepare_context_for_model(state)
+
+    assert failure is not None
+    assert failure.failure_reason == "Context window exceeded"
+    assert state.messages[-1]["content"] == current_request
+
+
+@pytest.mark.asyncio
+async def test_prepare_context_compacts_tool_payload_without_breaking_protocol() -> None:
+    orchestrator = _orchestrator({}, context_window=40_000, max_output_tokens=4_000)
+    current_request = "analyze the tool result"
+    tool_call = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call-1",
+                "type": "function",
+                "function": {"name": "demo", "arguments": "{}"},
+            }
+        ],
+    }
+    state = FunctionCallingStepState(
+        messages=[
+            {"role": "user", "content": current_request},
+            tool_call,
+            {
+                "role": "tool",
+                "tool_call_id": "call-1",
+                "content": json.dumps(
+                    {
+                        "success": True,
+                        "data": {"rows": ["x" * 2_000 for _ in range(60)]},
+                        "error": None,
+                        "error_code": None,
+                    }
+                ),
+            },
+        ],
+        effective_system_prompt="system",
+        tools=[],
+    )
+
+    failure = await orchestrator._prepare_context_for_model(state)
+
+    assert failure is None
+    assert state.messages[0]["content"] == current_request
+    assert state.messages[1] == tool_call
+    assert state.messages[2]["tool_call_id"] == "call-1"
+    compacted_payload = json.loads(state.messages[2]["content"])
+    assert compacted_payload["success"] is True
+    assert compacted_payload["data"]["__context_truncated__"] is True
 
 
 @pytest.mark.asyncio

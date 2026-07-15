@@ -439,32 +439,30 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
         """Compact and re-measure the full prompt before a provider request."""
         usage = self._measure_context_usage(state)
         if usage.requires_compaction:
-            result = await self._context_compactor.compact(
-                state.messages,
-                state.effective_system_prompt,
-                preserve_user_turns=state.iteration == 0,
-            )
-            if result.compacted:
-                state.messages[:] = result.messages
-            usage = self._measure_context_usage(state)
+            compacted_tool_messages = self._compact_existing_tool_messages(state)
+            if compacted_tool_messages:
+                self._context_compactor.invalidate_recorded_usage()
+                usage = self._measure_context_usage(state)
+                await self._emit_loop_event(
+                    {
+                        "stage": "tool_message_context_compacted",
+                        "iteration": state.iteration,
+                        "message_count": compacted_tool_messages,
+                        "estimated_tokens": usage.estimated_tokens,
+                    }
+                )
+            if usage.requires_compaction:
+                result = await self._context_compactor.compact(
+                    state.messages,
+                    state.effective_system_prompt,
+                    preserve_user_turns=state.iteration == 0,
+                )
+                if result.compacted:
+                    state.messages[:] = result.messages
+                usage = self._measure_context_usage(state)
 
         if usage.fits_input_capacity:
             return None
-
-        compacted_tool_messages = self._compact_existing_tool_messages(state)
-        if compacted_tool_messages:
-            self._context_compactor.invalidate_recorded_usage()
-            usage = self._measure_context_usage(state)
-            await self._emit_loop_event(
-                {
-                    "stage": "tool_message_context_compacted",
-                    "iteration": state.iteration,
-                    "message_count": compacted_tool_messages,
-                    "estimated_tokens": usage.estimated_tokens,
-                }
-            )
-            if usage.fits_input_capacity:
-                return None
 
         removed_tools = self._drop_lower_priority_optional_tools_until_fit(state)
         if removed_tools:
