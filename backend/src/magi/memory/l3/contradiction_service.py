@@ -85,4 +85,6 @@ class ContradictionInsightService:
             "winning_value": str(outcome.winning_value),
             "status": str(outcome.status),
             "trait_family": str(outcome.trait_family or ""),
+            "entity_id": str(outcome.entity_id or ""),
+            "source_assertion_id": str(outcome.source_assertion_id or ""),
         }

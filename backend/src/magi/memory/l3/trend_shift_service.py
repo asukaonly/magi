@@ -151,6 +151,8 @@ class TrendShiftService:
             "evidence_count": len(outcome.evidence_event_ids),
             "time_span_hours": float(outcome.time_span_hours),
             "stability_kind": str(outcome.stability_kind),
+            "entity_id": str(outcome.entity_id or ""),
+            "source_assertion_id": str(outcome.source_assertion_id or ""),
         }
 
     def _passes_generation_gate(

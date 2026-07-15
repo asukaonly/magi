@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS summaries (
 	embedding_profile_id TEXT,
 	embedding_chunk_count INTEGER NOT NULL DEFAULT 0,
 	last_embedded_at REAL,
+	source_revision INTEGER NOT NULL DEFAULT 0,
+	derivation_state TEXT NOT NULL DEFAULT 'current'
+		CHECK(derivation_state IN ('current', 'stale', 'retired')),
 	created_at REAL NOT NULL,
 	updated_at REAL NOT NULL
 );
@@ -48,6 +51,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_summaries_insight_key
 	ON summaries(insight_key) WHERE insight_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_summaries_narrative_style
 	ON summaries(narrative_style, summary_type, period_start DESC);
+CREATE INDEX IF NOT EXISTS idx_summaries_derivation_state
+	ON summaries(derivation_state, summary_type, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS summary_event_links (
 	link_id TEXT PRIMARY KEY,

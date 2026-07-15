@@ -35,7 +35,10 @@ def build_keyword_search_query(
         "change_and_pattern",
     )
     predicates = " OR ".join(f"{column} LIKE ? ESCAPE '\\'" for column in searchable_columns)
-    sql = f"SELECT summary_id FROM summaries WHERE ({predicates})"
+    sql = f"""
+        SELECT summary_id FROM summaries
+        WHERE derivation_state = 'current' AND ({predicates})
+    """
     args: list[Any] = [like_value for _column in searchable_columns]
     if summary_type:
         sql += " AND summary_type = ?"
@@ -55,7 +58,10 @@ def build_fetch_by_ids_query(
     summary_category: str | None,
 ) -> tuple[str, tuple[Any, ...]]:
     placeholders = ", ".join("?" for _ in summary_ids)
-    sql = f"SELECT * FROM summaries WHERE summary_id IN ({placeholders})"
+    sql = f"""
+        SELECT * FROM summaries
+        WHERE derivation_state = 'current' AND summary_id IN ({placeholders})
+    """
     args: list[Any] = list(summary_ids)
     if summary_type:
         sql += " AND summary_type = ?"

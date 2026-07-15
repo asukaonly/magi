@@ -100,6 +100,7 @@ class L3SummaryEmbeddingMixin:
                     """
                     SELECT *
                     FROM summaries
+                    WHERE derivation_state = 'current'
                     ORDER BY updated_at DESC, summary_id ASC
                     LIMIT ? OFFSET ?
                     """,

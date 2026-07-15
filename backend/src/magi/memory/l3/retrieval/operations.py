@@ -136,6 +136,7 @@ class L3SummarySearchMixin:
                     FROM l3_summaries_fts
                     JOIN summaries ON summaries.summary_id = l3_summaries_fts.summary_id
                     WHERE l3_summaries_fts MATCH ?
+                      AND summaries.derivation_state = 'current'
                       AND (? IS NULL OR summaries.summary_type = ?)
                       AND (? IS NULL OR summaries.summary_category = ?)
                     ORDER BY score
@@ -166,7 +167,8 @@ class L3SummarySearchMixin:
             async with db.execute(
                 """
                 SELECT * FROM summaries
-                WHERE summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
+                WHERE derivation_state = 'current'
+                  AND summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
                 """
             ) as cursor:
                 batch: list[tuple[str, str]] = []

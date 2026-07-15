@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from .l2.corrections.repository import MemoryCorrectionRepository
 from .l2.models import L2FocalEntityRef, ReconciledTraitOutcome
 from .l3.models import (
     ContradictionPacket,
@@ -41,7 +42,9 @@ class L3InsightsMixin:
         for event_id in candidate.source_event_ids:
             event = await self.l1.get_memory_event(event_id)  # type: ignore[attr-defined]
             if event is not None:
-                evidence_events.append(event.to_dict() if hasattr(event, "to_dict") else dict(event))
+                evidence_events.append(
+                    event.to_dict() if hasattr(event, "to_dict") else dict(event)
+                )
 
         decision = validate_candidate(
             candidate,
@@ -54,7 +57,28 @@ class L3InsightsMixin:
         task_ids = list(source_task_ids or [])
         if task_outcome is not None and task_outcome.task_id not in task_ids:
             task_ids.append(task_outcome.task_id)
-        return await self.l3.upsert_candidate(candidate=candidate, source_task_ids=task_ids)  # type: ignore[attr-defined]
+        dependencies = await self._l3_candidate_dependencies(candidate)
+        source_revision = max(
+            (dependency[3] for dependency in dependencies),
+            default=0,
+        )
+        summary = await self.l3.upsert_candidate(  # type: ignore[attr-defined]
+            candidate=candidate,
+            source_task_ids=task_ids,
+            summary_overrides={
+                "source_revision": source_revision,
+                "derivation_state": "current",
+            },
+        )
+        if dependencies:
+            await MemoryCorrectionRepository(
+                self.l2.db_path  # type: ignore[attr-defined]
+            ).replace_artifact_dependencies(
+                artifact_kind="l3_insight",
+                artifact_id=str(summary["summary_id"]),
+                dependencies=dependencies,
+            )
+        return summary
 
     async def persist_task_outcome_reflection(
         self,
@@ -108,6 +132,7 @@ class L3InsightsMixin:
         entity_type: str,
         outcomes: list[ReconciledTraitOutcome],
     ) -> None:
+        await self._attach_source_assertion_ids(entity_id, outcomes)
         await self.persist_state_change_insight(
             StateChangePacket(
                 entity_id=entity_id,
@@ -136,6 +161,71 @@ class L3InsightsMixin:
                 outcomes=outcomes,
             )
         )
+
+    async def _attach_source_assertion_ids(
+        self,
+        entity_id: str,
+        outcomes: list[ReconciledTraitOutcome],
+    ) -> None:
+        l2 = self.l2  # type: ignore[attr-defined]
+        if l2 is None:
+            return
+        assertions = await l2.list_current_assertions(
+            entity_id=entity_id,
+            context_scope=None,
+            limit=500,
+        )
+        by_trait: dict[str, list[dict[str, Any]]] = {}
+        for assertion in assertions:
+            by_trait.setdefault(str(assertion.get("trait_name") or ""), []).append(assertion)
+        for outcome in outcomes:
+            if outcome.source_assertion_id:
+                continue
+            candidates = by_trait.get(str(outcome.trait_name), [])
+            matching = [
+                assertion
+                for assertion in candidates
+                if str(assertion.get("trait_value") or "") == str(outcome.winning_value or "")
+            ]
+            selected = (matching or candidates)[:1]
+            if selected:
+                outcome.source_assertion_id = str(selected[0]["assertion_id"])
+
+    async def _l3_candidate_dependencies(
+        self,
+        candidate: L3Candidate,
+    ) -> list[tuple[str, str, str, int]]:
+        l2 = self.l2  # type: ignore[attr-defined]
+        if l2 is None or candidate.summary_type != "insight":
+            return []
+        metadata = candidate.insight_metadata or {}
+        default_subject = str(metadata.get("entity_id") or "").strip()
+        raw_outcomes = metadata.get("outcomes")
+        if not isinstance(raw_outcomes, list):
+            raw_outcomes = []
+        repository = MemoryCorrectionRepository(l2.db_path)
+        revisions: dict[str, int] = {}
+        dependencies: list[tuple[str, str, str, int]] = []
+        for raw_dependency in candidate.claim_dependencies:
+            source_kind = str(raw_dependency.get("source_kind") or "").strip()
+            source_id = str(raw_dependency.get("source_id") or "").strip()
+            subject_key = str(raw_dependency.get("subject_key") or "").strip()
+            if source_kind not in {"assertion", "edge"} or not source_id or not subject_key:
+                continue
+            if subject_key not in revisions:
+                revisions[subject_key] = await repository.current_subject_revision(subject_key)
+            dependencies.append((source_kind, source_id, subject_key, revisions[subject_key]))
+        for raw_outcome in raw_outcomes:
+            if not isinstance(raw_outcome, dict):
+                continue
+            subject_key = str(raw_outcome.get("entity_id") or default_subject).strip()
+            assertion_id = str(raw_outcome.get("source_assertion_id") or "").strip()
+            if not subject_key or not assertion_id:
+                continue
+            if subject_key not in revisions:
+                revisions[subject_key] = await repository.current_subject_revision(subject_key)
+            dependencies.append(("assertion", assertion_id, subject_key, revisions[subject_key]))
+        return list(dict.fromkeys(dependencies))
 
     async def _handle_l2_active_entities(
         self,

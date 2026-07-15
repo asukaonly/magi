@@ -448,12 +448,39 @@ class MemoryCorrectionRepository:
         sources: Iterable[tuple[str, str]],
     ) -> None:
         """Replace the source ledger for one rebuilt derived artifact."""
+        await self.replace_artifact_dependencies(
+            artifact_kind=artifact_kind,
+            artifact_id=artifact_id,
+            dependencies=[
+                (
+                    str(source_kind),
+                    str(source_id),
+                    subject_key,
+                    int(source_revision),
+                )
+                for source_kind, source_id in sources
+            ],
+        )
+
+    async def replace_artifact_dependencies(
+        self,
+        *,
+        artifact_kind: str,
+        artifact_id: str,
+        dependencies: Iterable[tuple[str, str, str, int]],
+    ) -> None:
+        """Replace all possibly multi-subject dependencies for one artifact."""
         now = time.time()
         normalized = list(
             dict.fromkeys(
-                (str(source_kind), str(source_id))
-                for source_kind, source_id in sources
-                if str(source_id).strip()
+                (
+                    str(source_kind),
+                    str(source_id),
+                    str(subject_key),
+                    int(source_revision),
+                )
+                for source_kind, source_id, subject_key, source_revision in dependencies
+                if str(source_id).strip() and str(subject_key).strip()
             )
         )
         async with sqlite_connection_async(self.db_path) as db:
@@ -481,10 +508,56 @@ class MemoryCorrectionRepository:
                         int(source_revision),
                         now,
                     )
-                    for source_kind, source_id in normalized
+                    for source_kind, source_id, subject_key, source_revision in normalized
                 ],
             )
             await db.commit()
+
+    async def invalidate_l3_insights_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        source_kind: str,
+        source_ids: Iterable[str],
+        updated_at: float | None = None,
+    ) -> set[str]:
+        """Hide L3 insights that explicitly depend on corrected claims."""
+        normalized_ids = list(
+            dict.fromkeys(str(source_id).strip() for source_id in source_ids if str(source_id).strip())
+        )
+        if not normalized_ids:
+            return set()
+        placeholders = ", ".join("?" for _ in normalized_ids)
+        async with db.execute(
+            f"""
+            SELECT DISTINCT artifact_id, subject_key
+            FROM memory_derivation_dependencies
+            WHERE artifact_kind = 'l3_insight'
+              AND source_kind = ?
+              AND source_id IN ({placeholders})
+            """,
+            (source_kind, *normalized_ids),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        if not rows:
+            return set()
+        artifact_ids = [str(row[0]) for row in rows]
+        artifact_placeholders = ", ".join("?" for _ in artifact_ids)
+        now = float(updated_at if updated_at is not None else time.time())
+        await db.execute(
+            f"""
+            UPDATE summaries
+            SET derivation_state = 'stale', updated_at = ?
+            WHERE summary_id IN ({artifact_placeholders})
+              AND summary_type = 'insight'
+            """,
+            (now, *artifact_ids),
+        )
+        await db.execute(
+            f"DELETE FROM l3_summaries_fts WHERE summary_id IN ({artifact_placeholders})",
+            tuple(artifact_ids),
+        )
+        return {str(row[1]) for row in rows if str(row[1]).strip()}
 
 
 def _json_mapping(value: Mapping[str, Any] | None) -> str | None:

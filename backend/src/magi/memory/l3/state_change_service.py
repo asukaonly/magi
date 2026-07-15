@@ -9,7 +9,6 @@ from ..l2.models import ReconciledTraitOutcome
 from .insight_renderer import render_insight_content
 from .insight_utils import (
     decode_value,
-    normalized_value_for_key,
     trait_group,
     wants_zh,
 )
@@ -125,5 +124,5 @@ class StateChangeService:
             "time_span_hours": float(outcome.time_span_hours),
             "stability_kind": str(outcome.stability_kind),
             "recommended_snapshot_field": str(outcome.recommended_snapshot_field),
+            "source_assertion_id": str(outcome.source_assertion_id or ""),
         }
-

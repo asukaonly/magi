@@ -64,6 +64,8 @@ def _summary_from_new_candidate(
         "insight_metadata": dict(candidate.insight_metadata or {}),
         "narrative_style": "default",
         "essence_prose": None,
+        "source_revision": 0,
+        "derivation_state": "current",
         "created_at": now,
         "updated_at": now,
     }
@@ -83,7 +85,7 @@ class L3SummaryPersistenceMixin:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
         search_query = query
-        sql = "SELECT COUNT(*) FROM summaries WHERE 1=1"
+        sql = "SELECT COUNT(*) FROM summaries WHERE derivation_state = 'current'"
         args: list[Any] = []
         if start_time is not None:
             sql += " AND created_at >= ?"
@@ -130,7 +132,7 @@ class L3SummaryPersistenceMixin:
         """List most recent summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
-        sql = "SELECT * FROM summaries WHERE 1=1"
+        sql = "SELECT * FROM summaries WHERE derivation_state = 'current'"
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
             [
@@ -179,7 +181,11 @@ class L3SummaryPersistenceMixin:
         if not normalized:
             return []
         placeholders = ", ".join("?" for _ in normalized)
-        sql = f"SELECT * FROM summaries WHERE summary_category IN ({placeholders})"
+        sql = f"""
+            SELECT * FROM summaries
+            WHERE derivation_state = 'current'
+              AND summary_category IN ({placeholders})
+        """
         args: List[Any] = list(normalized)
         if period_start is not None:
             sql += " AND period_end >= ?"
@@ -210,7 +216,7 @@ class L3SummaryPersistenceMixin:
                 """
                 SELECT *
                 FROM summaries
-                WHERE period_end < ?
+                WHERE derivation_state = 'current' AND period_end < ?
                 ORDER BY period_end ASC, updated_at ASC
                 LIMIT ?
                 """,
@@ -377,6 +383,8 @@ class L3SummaryPersistenceMixin:
             "insight_metadata": merged_metadata,
             "narrative_style": str(existing_summary.get("narrative_style") or "default"),
             "essence_prose": existing_summary.get("essence_prose"),
+            "source_revision": int(existing_summary.get("source_revision") or 0),
+            "derivation_state": "current",
             "created_at": float(existing_summary.get("created_at") or now),
             "updated_at": now,
         }
@@ -474,7 +482,8 @@ class L3SummaryPersistenceMixin:
             async with db.execute(
                 """
                 SELECT * FROM summaries
-                WHERE summary_category = 'episodic'
+                WHERE derivation_state = 'current'
+                  AND summary_category = 'episodic'
                   AND json_extract(insight_metadata, '$.source_episode_id') = ?
                 ORDER BY updated_at DESC
                 LIMIT 1
@@ -495,7 +504,8 @@ class L3SummaryPersistenceMixin:
             async with db.execute(
                 """
                 SELECT * FROM summaries
-                WHERE summary_category = 'episodic'
+                WHERE derivation_state = 'current'
+                  AND summary_category = 'episodic'
                   AND json_extract(insight_metadata, '$.source_experience_id') = ?
                 ORDER BY updated_at DESC
                 LIMIT 1
@@ -518,8 +528,10 @@ class L3SummaryPersistenceMixin:
             async with db.execute(
                 f"""
                 SELECT DISTINCT event_id
-                FROM summary_event_links
-                WHERE event_id IN ({placeholders})
+                FROM summary_event_links AS links
+                JOIN summaries ON summaries.summary_id = links.summary_id
+                WHERE summaries.derivation_state = 'current'
+                  AND links.event_id IN ({placeholders})
                 """,
                 tuple(normalized_ids),
             ) as cursor:
@@ -551,8 +563,9 @@ class L3SummaryPersistenceMixin:
                     generated_by_model, generation_prompt, generation_reason,
                     insight_key, review_state, insight_metadata,
                     narrative_style, essence_prose,
-                    embedding_chunk_count, last_embedded_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    embedding_chunk_count, last_embedded_at, source_revision,
+                    derivation_state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     summary["summary_id"],
@@ -583,6 +596,8 @@ class L3SummaryPersistenceMixin:
                         if summary.get("last_embedded_at") is not None
                         else None
                     ),
+                    int(summary.get("source_revision") or 0),
+                    str(summary.get("derivation_state") or "current"),
                     float(summary["created_at"]),
                     float(summary["updated_at"]),
                 ),

@@ -172,7 +172,17 @@ class RelationshipCorrectionService:
                     now=now,
                 ):
                     await self.repository.insert_rule(db, rule)
-                affected_subjects = _affected_subject_keys(before, replacement)
+                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                    db,
+                    source_kind="edge",
+                    source_ids=[command.triple_id],
+                    updated_at=now,
+                )
+                affected_subjects = list(
+                    dict.fromkeys(
+                        [*_affected_subject_keys(before, replacement), *l3_subjects]
+                    )
+                )
                 subject_revisions: dict[str, int] = {}
                 for subject_key in affected_subjects:
                     revision = await self.repository.bump_subject_revision(
@@ -186,6 +196,7 @@ class RelationshipCorrectionService:
                         correction_id=correction_id,
                         subject_key=subject_key,
                         target_revision=revision,
+                        include_l3=subject_key in l3_subjects,
                         now=now,
                     )
                 subject_revision = subject_revisions[str(before["subject_id"])]
@@ -279,9 +290,21 @@ class RelationshipCorrectionService:
                     """,
                     (now, f"{actor_id}:{request_id}", correction_id),
                 )
+                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                    db,
+                    source_kind="edge",
+                    source_ids=[
+                        correction.target_id,
+                        correction.replacement_target_id or "",
+                    ],
+                    updated_at=now,
+                )
                 affected_subjects = _affected_subject_keys(
                     correction.before,
                     correction.replacement,
+                )
+                affected_subjects = list(
+                    dict.fromkeys([*affected_subjects, *l3_subjects])
                 )
                 subject_revisions: dict[str, int] = {}
                 for subject_key in affected_subjects:
@@ -296,6 +319,7 @@ class RelationshipCorrectionService:
                         correction_id=correction_id,
                         subject_key=subject_key,
                         target_revision=revision,
+                        include_l3=subject_key in l3_subjects,
                         now=now,
                     )
                 subject_revision = subject_revisions[str(correction.before["subject_id"])]

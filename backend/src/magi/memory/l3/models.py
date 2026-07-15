@@ -96,6 +96,7 @@ class L3Candidate:
     insight_key: str | None = None
     review_state: str | None = None
     insight_metadata: dict[str, object] = field(default_factory=dict)
+    claim_dependencies: list[dict[str, str]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.summary_type is None:

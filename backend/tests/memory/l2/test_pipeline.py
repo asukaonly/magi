@@ -425,6 +425,7 @@ def test_contradiction_hint_and_reconcile_outcome_serialize_deterministically():
         "stability_kind": "stable_trait",
         "recommended_snapshot_field": "preferences",
         "expires_at": None,
+        "source_assertion_id": "",
     }
 
 

@@ -104,6 +104,9 @@ class CorrectionDerivationRunner:
         if job_kind == "portrait":
             await self._rebuild_portrait(job)
             return
+        if job_kind == "l3_insight":
+            await self._rebuild_l3_insights(job)
+            return
         raise RuntimeError(f"No derivation handler registered for {job_kind}")
 
     async def _rebuild_snapshot(self, job: Mapping[str, Any]) -> None:
@@ -184,6 +187,14 @@ class CorrectionDerivationRunner:
             source_revision=int(job["target_revision"]),
             sources=sources,
         )
+
+    async def _rebuild_l3_insights(self, job: Mapping[str, Any]) -> None:
+        from ...l3.correction_derivation import L3CorrectionDerivationService
+
+        await L3CorrectionDerivationService(
+            db_path=self._db_path,
+            l2_store=self._l2_store,
+        ).rebuild_subject(str(job["target_key"]))
 
     async def _entity_type(self, entity_id: str) -> str:
         async with sqlite_connection_async(self._db_path) as db:

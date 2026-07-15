@@ -167,6 +167,7 @@ class L2StoreReconcileMixin(
                 float(assertion["expires_at"]) if assertion.get("expires_at") is not None else None
             ),
             trait_family=str(assertion.get("trait_family") or "").strip(),
+            source_assertion_id=str(assertion.get("assertion_id") or "").strip(),
         )
 
     async def _write_reconciled_assertions(

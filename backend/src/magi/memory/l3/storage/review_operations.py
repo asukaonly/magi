@@ -92,7 +92,10 @@ class L3ReviewOperationsMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM summaries WHERE summary_id = ?",
+                """
+                SELECT * FROM summaries
+                WHERE summary_id = ? AND derivation_state = 'current'
+                """,
                 (summary_id,),
             ) as cursor:
                 row = await cursor.fetchone()

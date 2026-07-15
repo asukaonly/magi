@@ -248,6 +248,12 @@ class MemoryCorrectionService:
                     now=now,
                 ):
                     await self.repository.insert_rule(db, rule)
+                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                    db,
+                    source_kind="assertion",
+                    source_ids=[command.assertion_id],
+                    updated_at=now,
+                )
                 subject_revision = await self.repository.bump_subject_revision(
                     db,
                     subject_key=str(before["entity_id"]),
@@ -258,6 +264,7 @@ class MemoryCorrectionService:
                     correction_id=correction_id,
                     subject_key=str(before["entity_id"]),
                     target_revision=subject_revision,
+                    include_l3=str(before["entity_id"]) in l3_subjects,
                     now=now,
                 )
                 await db.commit()
@@ -335,6 +342,15 @@ class MemoryCorrectionService:
                     """,
                     (now, f"{actor_id}:{request_id}", correction_id),
                 )
+                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                    db,
+                    source_kind="assertion",
+                    source_ids=[
+                        correction.target_id,
+                        correction.replacement_target_id or "",
+                    ],
+                    updated_at=now,
+                )
                 subject_revision = await self.repository.bump_subject_revision(
                     db,
                     subject_key=str(correction.before["entity_id"]),
@@ -345,6 +361,7 @@ class MemoryCorrectionService:
                     correction_id=correction_id,
                     subject_key=str(correction.before["entity_id"]),
                     target_revision=subject_revision,
+                    include_l3=str(correction.before["entity_id"]) in l3_subjects,
                     now=now,
                 )
                 await db.commit()

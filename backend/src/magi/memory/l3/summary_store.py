@@ -696,7 +696,8 @@ class L3SummaryStore(
             async with db.execute(
                 """
                 SELECT * FROM summaries
-                WHERE summary_type = 'temporal'
+                WHERE derivation_state = 'current'
+                  AND summary_type = 'temporal'
                   AND summary_category = ?
                   AND period_end <= ?
                 ORDER BY period_end DESC, updated_at DESC
@@ -728,7 +729,8 @@ class L3SummaryStore(
             async with db.execute(
                 f"""
                 SELECT * FROM summaries
-                WHERE summary_type = 'temporal'
+                WHERE derivation_state = 'current'
+                  AND summary_type = 'temporal'
                   AND summary_category IN ({placeholders})
                   AND period_end >= ?
                   AND period_start <= ?

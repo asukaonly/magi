@@ -91,6 +91,7 @@ class ReconciledTraitOutcome:
     natural_summary: str = ""
     expires_at: float | None = None
     trait_family: str = ""  # closed enum from L2 Phase 2; e.g. "state_profile", "mood"
+    source_assertion_id: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

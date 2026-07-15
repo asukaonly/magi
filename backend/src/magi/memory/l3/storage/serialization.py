@@ -37,6 +37,8 @@ def row_to_summary_dict(row: aiosqlite.Row) -> Dict[str, Any]:
         "embedding_profile_id": row["embedding_profile_id"],
         "embedding_chunk_count": int(row["embedding_chunk_count"] or 0),
         "last_embedded_at": float(row["last_embedded_at"]) if row["last_embedded_at"] is not None else None,
+        "source_revision": int(row["source_revision"] or 0),
+        "derivation_state": str(row["derivation_state"] or "current"),
         "created_at": float(row["created_at"]),
         "updated_at": float(row["updated_at"]),
     }
