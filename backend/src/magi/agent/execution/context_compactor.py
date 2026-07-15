@@ -186,6 +186,24 @@ def _contains_message(
     return target is not None and any(message is target for message in messages)
 
 
+def _render_tool_call_for_summary(call: Any) -> str | None:
+    if not isinstance(call, dict):
+        return None
+    function = call.get("function")
+    function_payload = function if isinstance(function, dict) else {}
+    tool_name = str(function_payload.get("name") or call.get("name") or "?")
+    tool_input = function_payload.get("arguments")
+    if tool_input is None:
+        tool_input = call.get("input", {})
+    if isinstance(tool_input, str):
+        rendered_input = tool_input
+    else:
+        rendered_input = json.dumps(tool_input, ensure_ascii=False, default=str)
+    call_id = str(call.get("id") or "").strip()
+    id_suffix = f" id={call_id}" if call_id else ""
+    return f"[call {tool_name}({rendered_input}){id_suffix}]"
+
+
 # ---------------------------------------------------------------------------
 # Token estimation
 # ---------------------------------------------------------------------------
@@ -673,16 +691,21 @@ class ContextCompactor:
                             if block.get("type") == "text":
                                 text_parts.append(block.get("text", ""))
                             elif block.get("type") == "tool_use":
-                                tool_name = block.get("name", "?")
-                                tool_input = json.dumps(
-                                    block.get("input", {}),
-                                    ensure_ascii=False,
-                                    default=str,
-                                )
-                                text_parts.append(f"[call {tool_name}({tool_input})]")
+                                rendered_call = _render_tool_call_for_summary(block)
+                                if rendered_call:
+                                    text_parts.append(rendered_call)
                     text = "\n".join(text_parts)
                 else:
                     text = str(content)
+                tool_calls = msg.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    rendered_calls = [
+                        rendered
+                        for call in tool_calls
+                        if (rendered := _render_tool_call_for_summary(call)) is not None
+                    ]
+                    if rendered_calls:
+                        text = "\n".join(part for part in [text, *rendered_calls] if part)
                 parts.append(f"assistant: {text}")
             else:
                 parts.append(f"{role}: {content}")

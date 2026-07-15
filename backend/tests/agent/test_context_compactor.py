@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
@@ -830,6 +831,32 @@ class TestRenderMessagesForSummary:
         assert long_query in rendered
         assert "query-start" in rendered
         assert "query-end" in rendered
+
+    def test_openai_style_tool_call_is_included_in_summary_input(self) -> None:
+        long_query = "query-start-" + ("x" * 1200) + "-query-end"
+        msgs = [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call-1",
+                        "type": "function",
+                        "function": {
+                            "name": "search",
+                            "arguments": json.dumps({"query": long_query}),
+                        },
+                    }
+                ],
+            }
+        ]
+        c = ContextCompactor()
+
+        rendered = c._render_messages_for_summary(msgs)
+
+        assert "search" in rendered
+        assert "call-1" in rendered
+        assert long_query in rendered
 
     def test_multi_block_assistant(self) -> None:
         msgs = [
