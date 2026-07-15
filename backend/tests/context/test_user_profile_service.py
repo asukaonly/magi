@@ -40,7 +40,7 @@ class _FakeL2Store:
             }
         return None
 
-    async def list_tom_assertions(self, entity_id=None, entity_type=None, **kwargs):
+    async def list_current_assertions(self, entity_id=None, entity_type=None, **kwargs):
         self.assertion_call_count += 1
         if entity_id == "user:portrait":
             return [

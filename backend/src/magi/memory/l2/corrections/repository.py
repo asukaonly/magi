@@ -275,6 +275,217 @@ class MemoryCorrectionRepository:
         )
         return job_id
 
+    async def enqueue_subject_derivations(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        correction_id: str,
+        subject_key: str,
+        target_revision: int,
+        include_l3: bool = False,
+        now: float | None = None,
+    ) -> list[str]:
+        """Queue the latest derived views affected by one subject correction."""
+        job_kinds = ["snapshot"]
+        if subject_key.startswith("user:"):
+            job_kinds.extend(("profile", "portrait"))
+        if include_l3:
+            job_kinds.append("l3_insight")
+
+        created_at = float(now if now is not None else time.time())
+        job_ids: list[str] = []
+        for job_kind in job_kinds:
+            await db.execute(
+                """
+                UPDATE memory_derivation_jobs
+                SET status = 'completed', next_retry_at = NULL,
+                    last_error = ?, updated_at = ?
+                WHERE job_kind = ? AND target_key = ?
+                  AND target_revision < ? AND status IN ('pending', 'failed')
+                """,
+                (
+                    f"Superseded by revision {int(target_revision)}",
+                    created_at,
+                    job_kind,
+                    subject_key,
+                    int(target_revision),
+                ),
+            )
+            job_ids.append(
+                await self.enqueue_derivation_job(
+                    db,
+                    correction_id=correction_id,
+                    job_kind=job_kind,
+                    target_key=subject_key,
+                    target_revision=target_revision,
+                    now=created_at,
+                )
+            )
+        return job_ids
+
+    async def requeue_running_jobs(self) -> int:
+        """Return jobs interrupted by process shutdown to the pending state."""
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                UPDATE memory_derivation_jobs
+                SET status = 'pending', next_retry_at = NULL,
+                    last_error = 'Interrupted before completion', updated_at = ?
+                WHERE status = 'running'
+                """,
+                (now,),
+            )
+            await db.commit()
+            return int(cursor.rowcount or 0)
+
+    async def claim_next_derivation_job(
+        self,
+        *,
+        now: float | None = None,
+    ) -> dict[str, Any] | None:
+        """Atomically claim the next ready derivation job."""
+        claimed_at = float(now if now is not None else time.time())
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    """
+                    SELECT * FROM memory_derivation_jobs
+                    WHERE status = 'pending'
+                       OR (status = 'failed' AND COALESCE(next_retry_at, 0) <= ?)
+                    ORDER BY
+                        CASE job_kind
+                            WHEN 'l1_audit' THEN 0
+                            WHEN 'snapshot' THEN 1
+                            WHEN 'profile' THEN 2
+                            WHEN 'portrait' THEN 3
+                            WHEN 'l3_insight' THEN 4
+                            ELSE 5
+                        END,
+                        target_revision DESC,
+                        created_at ASC
+                    LIMIT 1
+                    """,
+                    (claimed_at,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is None:
+                    await db.commit()
+                    return None
+                job = dict(row)
+                cursor = await db.execute(
+                    """
+                    UPDATE memory_derivation_jobs
+                    SET status = 'running', attempt_count = attempt_count + 1,
+                        next_retry_at = NULL, updated_at = ?
+                    WHERE job_id = ? AND status IN ('pending', 'failed')
+                    """,
+                    (claimed_at, job["job_id"]),
+                )
+                if int(cursor.rowcount or 0) != 1:
+                    await db.rollback()
+                    return None
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        job["status"] = "running"
+        job["attempt_count"] = int(job["attempt_count"]) + 1
+        job["updated_at"] = claimed_at
+        return job
+
+    async def complete_derivation_job(
+        self,
+        job_id: str,
+        *,
+        message: str | None = None,
+    ) -> None:
+        """Mark a claimed derivation job as completed."""
+        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE memory_derivation_jobs
+                SET status = 'completed', next_retry_at = NULL,
+                    last_error = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (_optional_text(message), now, job_id),
+            )
+            await db.commit()
+
+    async def fail_derivation_job(
+        self,
+        job_id: str,
+        *,
+        error: str,
+        attempt_count: int,
+        now: float | None = None,
+    ) -> None:
+        """Record a recoverable failure with bounded exponential backoff."""
+        failed_at = float(now if now is not None else time.time())
+        delay_seconds = min(300.0, 2.0 ** max(0, int(attempt_count) - 1))
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE memory_derivation_jobs
+                SET status = 'failed', next_retry_at = ?, last_error = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (failed_at + delay_seconds, str(error)[:1000], failed_at, job_id),
+            )
+            await db.commit()
+
+    async def replace_dependencies(
+        self,
+        *,
+        artifact_kind: str,
+        artifact_id: str,
+        subject_key: str,
+        source_revision: int,
+        sources: Iterable[tuple[str, str]],
+    ) -> None:
+        """Replace the source ledger for one rebuilt derived artifact."""
+        now = time.time()
+        normalized = list(
+            dict.fromkeys(
+                (str(source_kind), str(source_id))
+                for source_kind, source_id in sources
+                if str(source_id).strip()
+            )
+        )
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute(
+                """
+                DELETE FROM memory_derivation_dependencies
+                WHERE artifact_kind = ? AND artifact_id = ?
+                """,
+                (artifact_kind, artifact_id),
+            )
+            await db.executemany(
+                """
+                INSERT INTO memory_derivation_dependencies(
+                    artifact_kind, artifact_id, source_kind, source_id,
+                    subject_key, source_revision, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        artifact_kind,
+                        artifact_id,
+                        source_kind,
+                        source_id,
+                        subject_key,
+                        int(source_revision),
+                        now,
+                    )
+                    for source_kind, source_id in normalized
+                ],
+            )
+            await db.commit()
+
 
 def _json_mapping(value: Mapping[str, Any] | None) -> str | None:
     if value is None:

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict
 
 from ..core.logger import get_logger
+from ..memory.l2.corrections.cache_signals import subject_change_signal
 from ..user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ..user_profile.portrait_projection_freshness import portrait_projection_is_stale
 from ..user_profile.portrait_projection_repository import UserPortraitProjectionRepository
@@ -37,6 +38,7 @@ class _CacheEntry:
     display_name: str = "unknown"
     preferences: Dict[str, Any] = field(default_factory=dict)
     prompt_summary: list[str] = field(default_factory=list)
+    correction_signal: int = 0
     fetched_at: float = 0.0
 
 
@@ -96,15 +98,24 @@ class UserProfileService:
 
         now = time.monotonic()
         entry = self._cache.get(user_id)
-        if entry is not None and (now - entry.fetched_at) < self._ttl_for_entry(entry):
+        current_signal = subject_change_signal(
+            self._memory_db_path(),
+            f"user:{user_id}",
+        )
+        if (
+            entry is not None
+            and entry.correction_signal == current_signal
+            and (now - entry.fetched_at) < self._ttl_for_entry(entry)
+        ):
             return entry
 
-        entry = _CacheEntry(fetched_at=now)
+        entry = _CacheEntry(fetched_at=now, correction_signal=current_signal)
         prompt_summary = await self._fetch_portrait_prompt_summary(user_id)
         projection_entry = await self._fetch_projection_entry(user_id)
         if projection_entry is not None:
             entry = projection_entry
             entry.fetched_at = now
+            entry.correction_signal = current_signal
         else:
             entry.preferences = await self._fetch_preferences(user_id)
             entry.display_name = await self._fetch_display_name(user_id, preferences=entry.preferences)
@@ -252,7 +263,7 @@ class UserProfileService:
         return merged
 
     async def _fetch_assertion_preferences(self, *, l2: Any, entity_id: str) -> Dict[str, Any]:
-        list_assertions = getattr(l2, "list_tom_assertions", None)
+        list_assertions = getattr(l2, "list_current_assertions", None)
         if list_assertions is None:
             return {}
 
@@ -260,10 +271,8 @@ class UserProfileService:
             assertions = await list_assertions(
                 entity_id=entity_id,
                 entity_type="user",
-                trait_families=_PROFILE_ASSERTION_FAMILIES,
-                validation_states=_PROFILE_ASSERTION_STATES,
-                include_expired=False,
-                limit=50,
+                context_scope=None,
+                limit=200,
             )
         except Exception:
             logger.debug("Failed to get preference assertions for %s", entity_id)
@@ -271,6 +280,10 @@ class UserProfileService:
 
         preferences: Dict[str, Any] = {}
         for assertion in assertions:
+            if assertion.get("trait_family") not in _PROFILE_ASSERTION_FAMILIES:
+                continue
+            if assertion.get("validation_state") not in _PROFILE_ASSERTION_STATES:
+                continue
             raw_trait_name = str(assertion.get("trait_name") or "").strip()
             if not raw_trait_name:
                 continue

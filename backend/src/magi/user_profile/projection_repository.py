@@ -22,6 +22,11 @@ class UserProfileProjectionRepository:
         async with sqlite_connection_async(self._db_path) as db:
             await db.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS memory_subject_revisions (
+                    subject_key TEXT PRIMARY KEY,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS user_profile_projection (
                     user_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
@@ -40,6 +45,7 @@ class UserProfileProjectionRepository:
                     field_sources_json TEXT NOT NULL DEFAULT '{}',
                     field_conflicts_json TEXT NOT NULL DEFAULT '{}',
                     completeness_score REAL NOT NULL DEFAULT 0,
+                    source_revision INTEGER NOT NULL DEFAULT 0,
                     refreshed_at REAL NOT NULL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
@@ -57,7 +63,14 @@ class UserProfileProjectionRepository:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM user_profile_projection WHERE user_id = ?",
+                """
+                SELECT projection.*
+                FROM user_profile_projection AS projection
+                LEFT JOIN memory_subject_revisions AS revision
+                  ON revision.subject_key = projection.entity_id
+                WHERE projection.user_id = ?
+                  AND projection.source_revision = COALESCE(revision.revision, 0)
+                """,
                 (user_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -85,8 +98,9 @@ class UserProfileProjectionRepository:
                     real_name, birth_date, birth_year, age_years, age_as_of,
                     home_location, communication_json,
                     identity_json, preferences_json, state_json, field_sources_json,
-                    field_conflicts_json, completeness_score, refreshed_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    field_conflicts_json, completeness_score, source_revision,
+                    refreshed_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     display_name = excluded.display_name,
@@ -104,6 +118,7 @@ class UserProfileProjectionRepository:
                     field_sources_json = excluded.field_sources_json,
                     field_conflicts_json = excluded.field_conflicts_json,
                     completeness_score = excluded.completeness_score,
+                    source_revision = excluded.source_revision,
                     refreshed_at = excluded.refreshed_at,
                     updated_at = excluded.updated_at
                 """,
@@ -125,6 +140,7 @@ class UserProfileProjectionRepository:
                     json.dumps(payload["field_sources"], ensure_ascii=False, sort_keys=True),
                     json.dumps(payload["field_conflicts"], ensure_ascii=False, sort_keys=True),
                     payload["completeness_score"],
+                    payload["source_revision"],
                     payload["refreshed_at"],
                     payload["created_at"],
                     payload["updated_at"],
@@ -161,6 +177,7 @@ class UserProfileProjectionRepository:
             field_sources=cls._json_field(row, "field_sources_json"),
             field_conflicts=cls._json_field(row, "field_conflicts_json"),
             completeness_score=float(row["completeness_score"] or 0.0),
+            source_revision=int(row["source_revision"] or 0),
             refreshed_at=float(row["refreshed_at"] or 0.0),
             created_at=float(row["created_at"] or 0.0),
             updated_at=float(row["updated_at"] or 0.0),

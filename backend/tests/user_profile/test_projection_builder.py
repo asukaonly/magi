@@ -6,7 +6,7 @@ from magi.user_profile.projection_builder import UserProfileProjectionBuilder
 
 
 class _FakeL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-real-name",
@@ -42,7 +42,7 @@ class _FakeL2:
 
 
 class _ConflictingSourceL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-external-name",

@@ -13,6 +13,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..graph.versions import append_knowledge_graph_version, list_knowledge_graph_versions
+from .cache_signals import mark_subject_changed
 from .fingerprints import (
     canonical_scope_json,
     relationship_claim_fingerprint,
@@ -171,15 +172,30 @@ class RelationshipCorrectionService:
                     now=now,
                 ):
                     await self.repository.insert_rule(db, rule)
-                subject_revision = await self.repository.bump_subject_revision(
-                    db,
-                    subject_key=str(before["subject_id"]),
-                    updated_at=now,
-                )
+                affected_subjects = _affected_subject_keys(before, replacement)
+                subject_revisions: dict[str, int] = {}
+                for subject_key in affected_subjects:
+                    revision = await self.repository.bump_subject_revision(
+                        db,
+                        subject_key=subject_key,
+                        updated_at=now,
+                    )
+                    subject_revisions[subject_key] = revision
+                    await self.repository.enqueue_subject_derivations(
+                        db,
+                        correction_id=correction_id,
+                        subject_key=subject_key,
+                        target_revision=revision,
+                        now=now,
+                    )
+                subject_revision = subject_revisions[str(before["subject_id"])]
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
+
+        for subject_key in affected_subjects:
+            mark_subject_changed(self.db_path, subject_key)
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
@@ -263,15 +279,33 @@ class RelationshipCorrectionService:
                     """,
                     (now, f"{actor_id}:{request_id}", correction_id),
                 )
-                subject_revision = await self.repository.bump_subject_revision(
-                    db,
-                    subject_key=str(correction.before["subject_id"]),
-                    updated_at=now,
+                affected_subjects = _affected_subject_keys(
+                    correction.before,
+                    correction.replacement,
                 )
+                subject_revisions: dict[str, int] = {}
+                for subject_key in affected_subjects:
+                    revision = await self.repository.bump_subject_revision(
+                        db,
+                        subject_key=subject_key,
+                        updated_at=now,
+                    )
+                    subject_revisions[subject_key] = revision
+                    await self.repository.enqueue_subject_derivations(
+                        db,
+                        correction_id=correction_id,
+                        subject_key=subject_key,
+                        target_revision=revision,
+                        now=now,
+                    )
+                subject_revision = subject_revisions[str(correction.before["subject_id"])]
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
+
+        for subject_key in affected_subjects:
+            mark_subject_changed(self.db_path, subject_key)
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
@@ -679,6 +713,22 @@ def _existing_result(correction: MemoryCorrection) -> RelationshipCorrectionResu
         current_triple_id=current_id,
         subject_revision=None,
     )
+
+
+def _affected_subject_keys(
+    before: Mapping[str, Any],
+    replacement: Mapping[str, Any] | None,
+) -> list[str]:
+    """Return entity keys whose derived relationship views changed."""
+    keys: list[str] = []
+    for payload in (before, replacement or {}):
+        subject_id = str(payload.get("subject_id") or "").strip()
+        object_id = str(payload.get("object_id") or "").strip()
+        if subject_id:
+            keys.append(subject_id)
+        if ":" in object_id:
+            keys.append(object_id)
+    return list(dict.fromkeys(keys))
 
 
 __all__ = ["RelationshipCorrectionService"]

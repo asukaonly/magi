@@ -11,7 +11,7 @@ from magi.user_profile.projection_repository import UserProfileProjectionReposit
 
 
 class _FakeL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-interest-rag",
@@ -96,7 +96,7 @@ class _FakeL2:
 
 
 class _PassiveProfileSignalL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-weak-passive",
@@ -149,7 +149,7 @@ class _PassiveProfileSignalL2:
 
 
 class _ConfirmedPassiveSignalL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-confirmed-passive",
@@ -170,7 +170,7 @@ class _ConfirmedPassiveSignalL2:
 
 
 class _FragmentedProfileSignalL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-project",
@@ -351,7 +351,7 @@ async def test_portrait_projection_uses_profile_projection_as_strong_input_and_c
 
 
 class _GraphSignalL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return [
             {
                 "assertion_id": "a-tool",
@@ -396,7 +396,7 @@ class _GraphSignalL2:
 
 
 class _RicherGraphSignalL2:
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return []
 
     async def list_tom_snapshots(self, **kwargs):

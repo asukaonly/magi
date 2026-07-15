@@ -34,7 +34,7 @@ class _FakeL2:
     async def apply_user_feedback(self, assertion_id, feedback):
         self.feedback.append((assertion_id, feedback))
 
-    async def list_tom_assertions(self, **kwargs):
+    async def list_current_assertions(self, **kwargs):
         return self.assertions
 
 

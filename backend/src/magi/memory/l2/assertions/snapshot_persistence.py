@@ -14,6 +14,7 @@ def _snapshot_payload(
     state: dict[str, Any],
     evolution_payload: Dict[str, Any],
     mood_trajectory: list[dict[str, Any]],
+    source_revision: int,
     now: float,
 ) -> tuple[Any, ...]:
     return (
@@ -38,6 +39,7 @@ def _snapshot_payload(
         json.dumps(evolution_payload["superseded_record_ids"], ensure_ascii=False),
         json.dumps(state["emerging_signals"], ensure_ascii=False),
         json.dumps(mood_trajectory, ensure_ascii=False),
+        int(source_revision),
     )
 
 
@@ -58,6 +60,7 @@ async def _update_snapshot_payload(
             core_traits_history = ?, preferences_history = ?, relationship_history = ?,
             last_evolution_at = ?, active_record_ids = ?, superseded_record_ids = ?,
             emerging_signals = ?, mood_trajectory = ?,
+            source_revision = ?,
             snapshot_version = snapshot_version + 1
         WHERE snapshot_id = ?
         """,
@@ -83,8 +86,8 @@ async def _insert_snapshot_payload(
             update_source_assertion_ids, core_traits_history, preferences_history,
             relationship_history, last_evolution_at, active_record_ids,
             superseded_record_ids, emerging_signals, mood_trajectory,
-            snapshot_version, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            source_revision, snapshot_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (f"snapshot_{uuid.uuid4().hex}", entity_id, entity_type) + payload + (1, now),
     )
@@ -103,12 +106,14 @@ class L2SnapshotPersistenceMixin:
         state: dict[str, Any],
         evolution_payload: Dict[str, Any],
         mood_trajectory: list[dict[str, Any]],
+        source_revision: int,
         now: float,
     ) -> None:
         payload = _snapshot_payload(
             state=state,
             evolution_payload=evolution_payload,
             mood_trajectory=mood_trajectory,
+            source_revision=source_revision,
             now=now,
         )
         if existing:

@@ -21,7 +21,14 @@ class L2StoreSnapshotQueryMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
+                """
+                SELECT snapshot.*
+                FROM tom_snapshots AS snapshot
+                LEFT JOIN memory_subject_revisions AS revision
+                  ON revision.subject_key = snapshot.entity_id
+                WHERE snapshot.entity_id = ? AND snapshot.entity_type = ?
+                  AND snapshot.source_revision = COALESCE(revision.revision, 0)
+                """,
                 (entity_id, entity_type),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -31,7 +38,13 @@ class L2StoreSnapshotQueryMixin:
         """Count all ToM snapshots."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
-        sql = "SELECT COUNT(*) FROM tom_snapshots WHERE 1=1"
+        sql = """
+            SELECT COUNT(*)
+            FROM tom_snapshots AS snapshot
+            LEFT JOIN memory_subject_revisions AS revision
+              ON revision.subject_key = snapshot.entity_id
+            WHERE snapshot.source_revision = COALESCE(revision.revision, 0)
+        """
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
             [
@@ -76,7 +89,13 @@ class L2StoreSnapshotQueryMixin:
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         search_query = query
-        query = "SELECT * FROM tom_snapshots WHERE 1=1"
+        query = """
+            SELECT snapshot.*
+            FROM tom_snapshots AS snapshot
+            LEFT JOIN memory_subject_revisions AS revision
+              ON revision.subject_key = snapshot.entity_id
+            WHERE snapshot.source_revision = COALESCE(revision.revision, 0)
+        """
         args: list[Any] = []
         if entity_id:
             query += " AND entity_id = ?"
@@ -137,7 +156,14 @@ class L2StoreSnapshotQueryMixin:
             args.append(str(entity["entity_id"]))
             args.append(str(entity["entity_type"]))
 
-        query = f"SELECT * FROM tom_snapshots WHERE {' OR '.join(conditions)}"
+        query = f"""
+            SELECT snapshot.*
+            FROM tom_snapshots AS snapshot
+            LEFT JOIN memory_subject_revisions AS revision
+              ON revision.subject_key = snapshot.entity_id
+            WHERE ({' OR '.join(conditions)})
+              AND snapshot.source_revision = COALESCE(revision.revision, 0)
+        """
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:

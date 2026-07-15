@@ -10,6 +10,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..corrections.repository import MemoryCorrectionRepository
 from .snapshot_assembly import L2SnapshotAssemblyMixin
 from .snapshot_persistence import L2SnapshotPersistenceMixin
 from .snapshot_protocols import _SnapshotHostProtocol
@@ -34,11 +35,23 @@ class _SnapshotRefreshAssertions:
 
 
 class _SnapshotRefreshHostProtocol(_SnapshotHostProtocol, Protocol):
-    async def list_tom_assertions(
+    async def list_current_assertions(
         self,
         *,
         entity_id: str | None = None,
         entity_type: str | None = None,
+        context_scope: dict[str, Any] | None = None,
+        effective_at: float | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]: ...
+
+    async def list_current_relationships(
+        self,
+        *,
+        subject_id: str | None = None,
+        object_id: str | None = None,
+        context_scope: dict[str, Any] | None = None,
+        effective_at: float | None = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]: ...
 
@@ -66,9 +79,10 @@ class L2StoreSnapshotMixin(
     ) -> Dict[str, Any] | None:
         """Rebuild one snapshot from reconciled assertions and graph edges."""
         host = cast(_SnapshotRefreshHostProtocol, self)
-        assertions = await host.list_tom_assertions(
+        assertions = await host.list_current_assertions(
             entity_id=entity_id,
             entity_type=entity_type,
+            context_scope=None,
             limit=500,
         )
         relations = await self._snapshot_refresh_relations(
@@ -115,15 +129,33 @@ class L2StoreSnapshotMixin(
         host: _SnapshotRefreshHostProtocol,
         entity_id: str,
     ) -> _SnapshotRefreshRelations:
+        outgoing = await host.list_current_relationships(
+            subject_id=entity_id,
+            context_scope=None,
+            limit=400,
+        )
+        incoming = await host.list_current_relationships(
+            object_id=entity_id,
+            context_scope=None,
+            limit=400,
+        )
         batch_result = await host.batch_get_relationships(
             entity_ids=[entity_id],
             direction="both",
-            status_filters=["active", "deprecated", "conflicted"],
+            status_filters=["deprecated", "conflicted"],
             limit_per_entity=400,
         )
         return _group_snapshot_refresh_relations(
             entity_id=entity_id,
-            all_edges=batch_result.get(entity_id, []),
+            all_edges=[
+                *outgoing,
+                *incoming,
+                *(
+                    item
+                    for item in batch_result.get(entity_id, [])
+                    if item.get("status_reason") != "user_correction"
+                ),
+            ],
         )
 
     async def _upsert_snapshot(
@@ -161,6 +193,13 @@ class L2StoreSnapshotMixin(
             ) as cursor:
                 existing = await cursor.fetchone()
             existing_snapshot = host._snapshot_row_to_dict(existing) if existing else None
+            source_revision = await MemoryCorrectionRepository(
+                host.db_path
+            ).current_subject_revision(entity_id)
+            if existing_snapshot is not None and int(
+                existing_snapshot.get("source_revision") or 0
+            ) != source_revision:
+                existing_snapshot = None
 
             mood_trajectory = self._build_mood_trajectory(
                 existing_snapshot=existing_snapshot,
@@ -189,6 +228,7 @@ class L2StoreSnapshotMixin(
                 state=state,
                 evolution_payload=evolution_payload,
                 mood_trajectory=mood_trajectory,
+                source_revision=source_revision,
                 now=now,
             )
             await db.commit()

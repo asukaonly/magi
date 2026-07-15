@@ -28,20 +28,24 @@ async def portrait_projection_is_stale(
 
 
 async def _latest_assertion_timestamp(l2_store: Any, entity_id: str) -> float:
-    list_assertions = getattr(l2_store, "list_tom_assertions", None)
+    list_assertions = getattr(l2_store, "list_current_assertions", None)
     if list_assertions is None:
         return 0.0
     try:
         assertions = await list_assertions(
             entity_id=entity_id,
             entity_type="user",
-            trait_families=list(PORTRAIT_ASSERTION_FAMILIES),
-            include_expired=False,
-            limit=1,
+            context_scope=None,
+            limit=500,
         )
     except Exception:
         return 0.0
-    return _records_timestamp(assertions, ("updated_at", "last_validated_at", "created_at"))
+    current = [
+        assertion
+        for assertion in assertions
+        if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
+    ]
+    return _records_timestamp(current, ("updated_at", "last_validated_at", "created_at"))
 
 
 def _profile_timestamp(profile: UserProfileProjection | None) -> float:

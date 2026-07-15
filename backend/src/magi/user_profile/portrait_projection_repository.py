@@ -22,6 +22,11 @@ class UserPortraitProjectionRepository:
         async with sqlite_connection_async(self._db_path) as db:
             await db.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS memory_subject_revisions (
+                    subject_key TEXT PRIMARY KEY,
+                    revision INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS user_portrait_projection (
                     user_id TEXT PRIMARY KEY,
                     entity_id TEXT NOT NULL,
@@ -33,6 +38,7 @@ class UserPortraitProjectionRepository:
                     evidence_refs_json TEXT NOT NULL DEFAULT '[]',
                     source_counts_json TEXT NOT NULL DEFAULT '{}',
                     generated_by TEXT NOT NULL DEFAULT 'rule',
+                    source_revision INTEGER NOT NULL DEFAULT 0,
                     generated_at REAL NOT NULL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
@@ -50,7 +56,14 @@ class UserPortraitProjectionRepository:
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM user_portrait_projection WHERE user_id = ?",
+                """
+                SELECT projection.*
+                FROM user_portrait_projection AS projection
+                LEFT JOIN memory_subject_revisions AS revision
+                  ON revision.subject_key = projection.entity_id
+                WHERE projection.user_id = ?
+                  AND projection.source_revision = COALESCE(revision.revision, 0)
+                """,
                 (user_id,),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -79,8 +92,8 @@ class UserPortraitProjectionRepository:
                     user_id, entity_id, entity_type,
                     world_json, review_json, recent_json, prompt_summary_json,
                     evidence_refs_json, source_counts_json, generated_by,
-                    generated_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_revision, generated_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(user_id) DO UPDATE SET
                     entity_id = excluded.entity_id,
                     entity_type = excluded.entity_type,
@@ -91,6 +104,7 @@ class UserPortraitProjectionRepository:
                     evidence_refs_json = excluded.evidence_refs_json,
                     source_counts_json = excluded.source_counts_json,
                     generated_by = excluded.generated_by,
+                    source_revision = excluded.source_revision,
                     generated_at = excluded.generated_at,
                     updated_at = excluded.updated_at
                 """,
@@ -105,6 +119,7 @@ class UserPortraitProjectionRepository:
                     _dumps(payload["evidence_refs"]),
                     _dumps(payload["source_counts"]),
                     payload["generated_by"],
+                    payload["source_revision"],
                     payload["generated_at"],
                     payload["created_at"],
                     payload["updated_at"],
@@ -129,6 +144,7 @@ class UserPortraitProjectionRepository:
                 for key, value in cls._json_dict(row, "source_counts_json").items()
             },
             generated_by=str(row["generated_by"]),
+            source_revision=int(row["source_revision"] or 0),
             generated_at=float(row["generated_at"] or 0.0),
             created_at=float(row["created_at"] or 0.0),
             updated_at=float(row["updated_at"] or 0.0),

@@ -109,23 +109,34 @@ class UserPortraitProjectionBuilder:
             evidence_refs=evidence_refs,
             source_counts=source_counts,
             generated_by=generated_by,
+            source_revision=await self._current_source_revision(entity_id),
             generated_at=time.time(),
         )
+
+    async def _current_source_revision(self, entity_id: str) -> int:
+        getter = getattr(self._l2_store, "current_subject_revision", None)
+        if getter is None:
+            return 0
+        return int(await getter(entity_id))
 
     async def _list_assertions(self, entity_id: str) -> list[dict[str, Any]]:
         if self._l2_store is None:
             return []
-        list_assertions = getattr(self._l2_store, "list_tom_assertions", None)
+        list_assertions = getattr(self._l2_store, "list_current_assertions", None)
         if list_assertions is None:
             return []
         try:
-            return await list_assertions(
+            assertions = await list_assertions(
                 entity_id=entity_id,
                 entity_type="user",
-                trait_families=PORTRAIT_ASSERTION_FAMILIES,
-                include_expired=False,
-                limit=200,
+                context_scope=None,
+                limit=500,
             )
+            return [
+                assertion
+                for assertion in assertions
+                if assertion.get("trait_family") in PORTRAIT_ASSERTION_FAMILIES
+            ][:200]
         except Exception:
             return []
 

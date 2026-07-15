@@ -16,6 +16,7 @@ from ..assertions.settings import (
     USER_REJECTED_CONFIDENCE,
     assertion_float_setting,
 )
+from .cache_signals import mark_subject_changed
 from .fingerprints import (
     assertion_claim_fingerprint,
     assertion_slot_key,
@@ -252,10 +253,19 @@ class MemoryCorrectionService:
                     subject_key=str(before["entity_id"]),
                     updated_at=now,
                 )
+                await self.repository.enqueue_subject_derivations(
+                    db,
+                    correction_id=correction_id,
+                    subject_key=str(before["entity_id"]),
+                    target_revision=subject_revision,
+                    now=now,
+                )
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
+
+        mark_subject_changed(self.db_path, str(before["entity_id"]))
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
@@ -330,10 +340,19 @@ class MemoryCorrectionService:
                     subject_key=str(correction.before["entity_id"]),
                     updated_at=now,
                 )
+                await self.repository.enqueue_subject_derivations(
+                    db,
+                    correction_id=correction_id,
+                    subject_key=str(correction.before["entity_id"]),
+                    target_revision=subject_revision,
+                    now=now,
+                )
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
+
+        mark_subject_changed(self.db_path, str(correction.before["entity_id"]))
 
         stored = await self.repository.get(correction_id)
         assert stored is not None

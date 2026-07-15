@@ -133,6 +133,11 @@ class L2StoreRowMappingMixin:
             ),
             "emerging_signals": json.loads(row["emerging_signals"] or "[]") if "emerging_signals" in columns else [],
             "mood_trajectory": json.loads(row["mood_trajectory"] or "[]") if "mood_trajectory" in columns else [],
+            "source_revision": (
+                int(row["source_revision"] or 0)
+                if "source_revision" in columns
+                else 0
+            ),
             "snapshot_version": int(row["snapshot_version"] or 1),
             "created_at": float(row["created_at"]),
         }

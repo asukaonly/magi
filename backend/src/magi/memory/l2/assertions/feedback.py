@@ -63,6 +63,13 @@ class _FeedbackHostProtocol(Protocol):
 
     async def _notify_assertion_changed(self, assertion: Dict[str, Any]) -> None: ...
 
+    async def process_memory_correction_jobs(
+        self,
+        *,
+        limit: int = 50,
+        recover_interrupted: bool = False,
+    ) -> Dict[str, int]: ...
+
 
 class L2StoreFeedbackMixin:
     """Apply user feedback and user-initiated assertion corrections."""
@@ -224,6 +231,7 @@ class L2StoreFeedbackMixin:
         )
         if result is None:
             return None
+        await host.process_memory_correction_jobs()
         changed_assertion_id = result.current_assertion_id or assertion_id
         current_assertion = await host.get_tom_assertion(assertion_id=changed_assertion_id)
         await _notify_feedback_assertion_changed(host, current_assertion)
@@ -259,6 +267,7 @@ class L2StoreFeedbackMixin:
         )
         if result is None:
             return None
+        await host.process_memory_correction_jobs()
         current_assertion = await host.get_tom_assertion(
             assertion_id=result.current_assertion_id or result.correction.target_id
         )

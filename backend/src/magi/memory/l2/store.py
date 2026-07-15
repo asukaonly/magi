@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
 from ...core.sqlite import sqlite_connection_async
+from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
 from .graph_conflicts import (
     GraphConflictRule,
@@ -16,6 +17,7 @@ from .graph_conflicts import (
     build_graph_conflict_matrix,
 )
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
+from .corrections.repository import MemoryCorrectionRepository
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -34,6 +36,8 @@ from .graph.writes import L2StoreGraphWriteMixin
 from .projection.jobs import L2ProjectionJobStoreMixin
 from .retrieval.queries import L2StoreQueryMixin
 from .storage.rows import L2StoreRowMappingMixin
+
+logger = get_logger(__name__)
 
 
 class L2CognitionStore(
@@ -80,6 +84,13 @@ class L2CognitionStore(
         async with sqlite_connection_async(self.db_path) as db:
             await self._reload_graph_conflict_rules(db)
         self._initialized = True
+        try:
+            await self.process_memory_correction_jobs(recover_interrupted=True)
+        except Exception as exc:
+            logger.warning(
+                "Memory correction recovery deferred",
+                error=str(exc),
+            )
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
         """List graph conflict rules from the persisted matrix."""
@@ -150,6 +161,29 @@ class L2CognitionStore(
         if callback is None:
             return
         await callback(assertion)
+
+    async def current_subject_revision(self, subject_key: str) -> int:
+        """Return the correction revision governing derived views for a subject."""
+        return await MemoryCorrectionRepository(self.db_path).current_subject_revision(
+            subject_key
+        )
+
+    async def process_memory_correction_jobs(
+        self,
+        *,
+        limit: int = 50,
+        recover_interrupted: bool = False,
+    ) -> Dict[str, int]:
+        """Rebuild correction-sensitive derived views from durable jobs."""
+        from .corrections.derivations import CorrectionDerivationRunner
+
+        return await CorrectionDerivationRunner(
+            db_path=self.db_path,
+            l2_store=self,
+        ).run_pending(
+            limit=limit,
+            recover_interrupted=recover_interrupted,
+        )
 
     def get_statistics(self) -> Dict[str, Any]:
         """Return lightweight counts for API reporting."""
