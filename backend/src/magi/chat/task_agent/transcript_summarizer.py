@@ -432,8 +432,9 @@ class ChatTranscriptSummarizer:
                 continue
             if record.message_kind not in _PROMPT_MESSAGE_KINDS:
                 continue
+            attachments = extract_attachment_payloads(record.payload_json)
             content = str(record.content_text or "").strip()
-            if not content:
+            if not content and not attachments:
                 continue
             role = str(record.role or "").strip()
             if role not in {"user", "assistant"}:
@@ -446,7 +447,7 @@ class ChatTranscriptSummarizer:
                     sequence_no=record.sequence_no,
                     created_at_ms=record.created_at_ms,
                     turn_id=str(record.turn_id or "").strip() or None,
-                    attachments=extract_attachment_payloads(record.payload_json),
+                    attachments=attachments,
                 )
             )
         return messages

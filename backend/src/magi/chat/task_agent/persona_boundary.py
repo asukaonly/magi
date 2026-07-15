@@ -98,6 +98,15 @@ def _message_id(item: Any) -> str | None:
     return str(getattr(item, "message_id", "") or "").strip() or None
 
 
+def _message_content(item: Any) -> str:
+    to_prompt_message = getattr(item, "to_prompt_message", None)
+    if callable(to_prompt_message):
+        prompt_message = to_prompt_message()
+        if isinstance(prompt_message, dict):
+            return str(prompt_message.get("content") or "").strip()
+    return str(getattr(item, "content", "") or "").strip()
+
+
 class PersonaBoundarySummarizer:
     """Computes (and caches) the neutral continuity summary for a persona switch.
 
@@ -390,7 +399,7 @@ class PersonaBoundarySummarizer:
     def _build_messages(history: list[Any]) -> list[PersonaBoundarySummaryMessage]:
         messages: list[PersonaBoundarySummaryMessage] = []
         for item in history:
-            content = str(getattr(item, "content", "") or "").strip()
+            content = _message_content(item)
             if not content:
                 continue
             messages.append(

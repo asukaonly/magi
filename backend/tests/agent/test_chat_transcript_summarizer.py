@@ -322,6 +322,43 @@ def test_transcript_summary_keeps_full_message_and_attachment_references() -> No
     assert "report.pdf" in rendered
 
 
+def test_transcript_summary_keeps_attachment_only_user_turn() -> None:
+    record = ChatMessageRecord(
+        message_id="message-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        user_id="user-1",
+        role="user",
+        message_kind="user_text",
+        content_text="",
+        payload_json=json.dumps(
+            {
+                "attachments": [
+                    {
+                        "attachment_id": "attachment-only",
+                        "original_name": "diagram.png",
+                        "kind": "image",
+                    }
+                ]
+            }
+        ),
+        is_final=True,
+        is_visible=True,
+        created_at_ms=1,
+        sequence_no=1,
+        replaces_message_id=None,
+        replaced_by_message_id=None,
+    )
+
+    messages = ChatTranscriptSummarizer._prompt_messages_from_records([record])
+    rendered = ChatTranscriptSummarizer._render_messages(messages)
+
+    assert len(messages) == 1
+    assert messages[0].role == "user"
+    assert "attachment-only" in rendered
+    assert "diagram.png" in rendered
+
+
 @pytest.mark.parametrize(
     ("context_window", "max_output_tokens", "expected_summary_tokens"),
     [

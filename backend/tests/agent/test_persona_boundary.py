@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from magi.chat.read.models import ChatDisplayMessage
 from magi.chat.task_agent.persona_boundary import (
     PersonaBoundarySummarizer,
     PersonaBoundarySummaryInput,
@@ -102,6 +103,33 @@ async def test_persona_summary_exception_preserves_original_history() -> None:
 
     assert retained == history
     assert summary is None
+
+
+def test_persona_summary_includes_attachment_only_message_content() -> None:
+    history = [
+        ChatDisplayMessage(
+            role="user",
+            content="",
+            timestamp=100,
+            kind="user",
+            attachments=[
+                {
+                    "attachment_id": "attachment-only",
+                    "original_name": "diagram.png",
+                    "kind": "image",
+                }
+            ],
+            message_id="message-1",
+            message_kind="user_text",
+            persona_id="persona-a",
+        )
+    ]
+
+    messages = PersonaBoundarySummarizer._build_messages(history)
+
+    assert len(messages) == 1
+    assert "attachment-only" in messages[0].content
+    assert "diagram.png" in messages[0].content
 
 
 @pytest.mark.asyncio
