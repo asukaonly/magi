@@ -345,6 +345,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     ],
     [t, activeLanguage],
   );
+  const guidedSteps = steps.slice(LLM_SETUP_STEP);
 
   const isLastStep = current === steps.length - 1;
   const onboardingLanguage = renderLanguage.startsWith("zh") ? "zh" : "en";
@@ -1102,7 +1103,12 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           className="h-full"
           layoutClassName="h-full"
           sidebarClassName="lg:w-44"
-          sidebar={<StepIndicator steps={steps} current={current} />}
+          sidebar={
+            <StepIndicator
+              steps={guidedSteps}
+              current={current - LLM_SETUP_STEP}
+            />
+          }
           footer={
             hideFooter ? null : (
               <div className="flex items-center justify-between gap-3">

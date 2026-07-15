@@ -22,7 +22,13 @@ describe('onboarding visual controls', () => {
     );
 
     const primaryAction = screen.getByRole('button', { name: 'welcome.getStarted' });
-    expect(primaryAction).toHaveClass('h-12', 'min-w-[9.5rem]', 'rounded-xl', 'bg-[#7b4d33]');
+    expect(primaryAction).toHaveClass(
+      'h-12',
+      'min-w-[9.5rem]',
+      'rounded-xl',
+      'bg-primary',
+      'text-primary-foreground',
+    );
     expect(primaryAction).not.toHaveClass('bg-foreground');
     expect(primaryAction).not.toHaveClass('rounded-[14px]');
     expect(document.querySelector('img')?.parentElement).toHaveClass('mb-8');
@@ -42,15 +48,17 @@ describe('onboarding visual controls', () => {
   it('presents progress as a quiet ordered list instead of numbered circles', () => {
     render(
       <StepIndicator
-        steps={['欢迎', '配置模型', '选择人格', '首次上下文', '完成']}
-        current={1}
+        steps={['配置模型', '选择人格', '首次上下文', '完成']}
+        current={0}
       />,
     );
 
     const activeStep = screen.getByText('配置模型').closest('li');
     expect(activeStep).toHaveAttribute('aria-current', 'step');
     expect(activeStep).toHaveClass('bg-accent/70');
-    expect(screen.getByText('03')).toBeInTheDocument();
+    expect(screen.getByText('01')).toBeInTheDocument();
+    expect(screen.getByText('04')).toBeInTheDocument();
+    expect(screen.queryByText('欢迎')).not.toBeInTheDocument();
     expect(document.querySelector('.rounded-full')).not.toBeInTheDocument();
   });
 });

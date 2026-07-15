@@ -376,6 +376,27 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toBeNull();
   });
 
+  it("starts guided progress at model setup without counting welcome", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+
+    await user.click(
+      screen.getByRole("button", { name: /welcome\.getStarted/ }),
+    );
+
+    const modelStep = await screen.findByText("steps.llmSetup");
+    expect(modelStep.closest("li")).toHaveAttribute("aria-current", "step");
+    expect(screen.queryByText("steps.welcome")).not.toBeInTheDocument();
+    expect(screen.getByText("01")).toBeInTheDocument();
+    expect(screen.getByText("04")).toBeInTheDocument();
+
+    const nextButton = screen.getByRole("button", { name: /actions\.next/ });
+    expect(nextButton).toBeDisabled();
+    expect(nextButton).toHaveClass("bg-primary", "disabled:bg-muted");
+  });
+
   it("returns legacy recovered progress to model setup before later steps", async () => {
     localStorageMock.getItem.mockImplementation((key: string) => {
       if (key !== "magi_onboarding_state") {

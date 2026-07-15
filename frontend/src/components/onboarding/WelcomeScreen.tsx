@@ -70,7 +70,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
           className={cn(
             'group mt-10 inline-flex items-center justify-center gap-2.5',
             ONBOARDING_PRIMARY_ACTION_CLASS,
-            'h-12 min-w-[9.5rem] bg-[#7b4d33] px-6 text-[#fff8f0] shadow-[0_14px_30px_-20px_rgba(91,53,31,0.68)] hover:bg-[#6d422c] hover:shadow-[0_18px_34px_-20px_rgba(91,53,31,0.76)] focus-visible:ring-[#8b5737]/30 dark:bg-[#d39166] dark:text-[#241914] dark:hover:bg-[#dda57a] dark:focus-visible:ring-[#efb084]/35',
+            'h-12 min-w-[9.5rem] px-6',
           )}
           whileHover={shouldReduceMotion ? undefined : { y: -1 }}
           whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
