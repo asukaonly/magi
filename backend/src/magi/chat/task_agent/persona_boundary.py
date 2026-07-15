@@ -101,9 +101,9 @@ def _message_id(item: Any) -> str | None:
 class PersonaBoundarySummarizer:
     """Computes (and caches) the neutral continuity summary for a persona switch.
 
-    Owns the summarization LLM call, the cache read/write against the
-    chat context-summary table, and the fallback continuity text used
-    when no summarizer adapter is available.
+    Owns the summarization LLM call and the cache read/write against the
+    chat context-summary table. If generation is unavailable, callers keep
+    the original history so continuity is never replaced by a lossy fallback.
 
     A ``persona_boundary_summary_generator`` callable may be injected
     for unit tests; when set, it bypasses the LLM call entirely.
@@ -156,6 +156,12 @@ class PersonaBoundarySummarizer:
             summarized_messages=prefix,
             retained_messages=tail,
         )
+        if not summary_text:
+            logger.warning(
+                "Persona boundary summary unavailable; preserving original history session_id=%s",
+                session_id,
+            )
+            return history, None
         return tail, summary_text
 
     # === summary cache + generation ===
@@ -193,8 +199,6 @@ class PersonaBoundarySummarizer:
             messages=self._build_messages(summarized_messages),
         )
         summary_text = await self._generate(summary_input)
-        if not summary_text:
-            summary_text = self._build_fallback(summary_input)
         if self._chat_store is None or not summary_text:
             return summary_text or None
 
@@ -392,32 +396,6 @@ class PersonaBoundarySummarizer:
                 )
             )
         return messages
-
-    # === fallback continuity text ===
-
-    @staticmethod
-    def _build_fallback(summary_input: PersonaBoundarySummaryInput) -> str:
-        lines = [
-            "Previous transcript range before the current active persona segment:",
-        ]
-        for message in summary_input.messages[:24]:
-            content = message.content.replace("\n", " ").strip()
-            if len(content) > 320:
-                content = content[:320].rstrip() + "..."
-            if message.role == "user":
-                lines.append(f"- User request/context: {content}")
-            elif message.persona_id and message.persona_id != summary_input.active_persona_id:
-                lines.append(
-                    f"- Previous assistant turn content, neutralized for continuity: {content}"
-                )
-            else:
-                lines.append(f"- Prior {message.role} context: {content}")
-        if len(summary_input.messages) > 24:
-            lines.append(
-                f"- {len(summary_input.messages) - 24} additional older messages were omitted from fallback detail."
-            )
-        return "\n".join(lines).strip()
-
 
 # === LLM prompt builders (module-level so they remain pure / testable) ===
 

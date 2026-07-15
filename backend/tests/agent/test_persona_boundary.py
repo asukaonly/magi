@@ -16,6 +16,55 @@ from magi.llm.model_context import ModelContextProfile, ResolvedModel
 
 
 @pytest.mark.asyncio
+async def test_persona_summary_failure_preserves_original_history() -> None:
+    history = [
+        SimpleNamespace(
+            message_id="message-1",
+            role="user",
+            content="Keep the original user request in full.",
+            persona_id=None,
+            message_kind="user_text",
+        ),
+        SimpleNamespace(
+            message_id="message-2",
+            role="assistant",
+            content="Previous persona response.",
+            persona_id="persona-a",
+            message_kind="assistant_final",
+        ),
+        SimpleNamespace(
+            message_id="message-3",
+            role="user",
+            content="Continue with the new persona.",
+            persona_id=None,
+            message_kind="user_text",
+        ),
+        SimpleNamespace(
+            message_id="message-4",
+            role="assistant",
+            content="Current persona response.",
+            persona_id="persona-b",
+            message_kind="assistant_final",
+        ),
+    ]
+    summarizer = PersonaBoundarySummarizer(
+        chat_store=None,
+        scenario_llm_pool=None,
+        llm_adapter=None,
+        persona_boundary_summary_generator=lambda summary_input: "",
+    )
+
+    retained, summary = await summarizer.summarize(
+        session_id="session-1",
+        history=history,
+        active_persona_id="persona-b",
+    )
+
+    assert retained == history
+    assert summary is None
+
+
+@pytest.mark.asyncio
 async def test_persona_summary_output_budget_tracks_active_model_capacity() -> None:
     summary_adapter = SimpleNamespace()
     core_adapter = SimpleNamespace()
