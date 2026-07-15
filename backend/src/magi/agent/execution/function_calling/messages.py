@@ -17,16 +17,17 @@ class FunctionCallingMessageHistoryMixin:
     def _append_message(self, messages: list[dict[str, Any]], message: dict[str, Any]) -> None:
         """Append a message and compact old tool interactions."""
         messages.append(message)
-        self._compact_message_history(messages)
+        if self._compact_message_history(messages):
+            self._invalidate_recorded_context_usage()
 
-    def _compact_message_history(self, messages: list[dict[str, Any]]) -> None:
-        """Keep only a few raw tool turns and summarize older ones."""
+    def _compact_message_history(self, messages: list[dict[str, Any]]) -> bool:
+        """Keep only a few raw tool turns and report whether history changed."""
         completed_blocks = self._collect_completed_tool_blocks(messages)
         # Hysteresis: leave the history append-only (cache-preserving) until raw
         # tool blocks reach the high-water mark; then summarize down to the floor
         # in one batch (#100/P2b).
         if len(completed_blocks) < self._COMPACT_TRIGGER:
-            return
+            return False
 
         blocks_to_summarize = completed_blocks[:-self._RAW_TOOL_HISTORY_LIMIT]
         summary_lines: list[str] = []
@@ -34,7 +35,7 @@ class FunctionCallingMessageHistoryMixin:
             summary_lines.extend(self._build_block_summaries(block))
 
         if not summary_lines:
-            return
+            return False
 
         drop_start = blocks_to_summarize[0].start
         drop_end = blocks_to_summarize[-1].end
@@ -49,6 +50,13 @@ class FunctionCallingMessageHistoryMixin:
         }
         del messages[drop_start:drop_end]
         messages.insert(drop_start, summary_message)
+        return True
+
+    def _invalidate_recorded_context_usage(self) -> None:
+        context_compactor = getattr(self, "_context_compactor", None)
+        invalidate = getattr(context_compactor, "invalidate_recorded_usage", None)
+        if callable(invalidate):
+            invalidate()
 
     def _collect_completed_tool_blocks(self, messages: list[dict[str, Any]]) -> list[ToolMessageBlock]:
         """Collect protocol-complete assistant tool-call blocks from message history."""

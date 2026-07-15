@@ -63,3 +63,23 @@ def test_append_only_between_triggers() -> None:
     # No re-compaction: still a single summary, raw blocks just grew by one.
     assert _summary_count(msgs) == 1
     assert len(host._collect_completed_tool_blocks(msgs)) == 3
+
+
+def test_compaction_invalidates_provider_usage_snapshot() -> None:
+    class _UsageTracker:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def invalidate_recorded_usage(self) -> None:
+            self.calls += 1
+
+    host = _History()
+    usage_tracker = _UsageTracker()
+    host._context_compactor = usage_tracker  # type: ignore[attr-defined]
+    msgs = _build(3)
+
+    for message in _tool_block(99):
+        host._append_message(msgs, message)
+
+    assert _summary_count(msgs) == 1
+    assert usage_tracker.calls == 1
