@@ -187,6 +187,32 @@ def _render_tool_call_for_summary(call: Any) -> str | None:
     return f"[call {tool_name}({rendered_input}){id_suffix}]"
 
 
+def _render_content_for_summary(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+    rendered_blocks: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            rendered_blocks.append(str(block))
+            continue
+        block_type = str(block.get("type") or "")
+        if block_type == "text":
+            rendered_blocks.append(str(block.get("text") or ""))
+        elif block_type in {"image", "image_url", "input_image"}:
+            mime_type = str(block.get("mime_type") or "").strip()
+            suffix = f" mime_type={mime_type}" if mime_type else ""
+            rendered_blocks.append(f"[image input{suffix}]")
+        elif block_type == "tool_use":
+            rendered_call = _render_tool_call_for_summary(block)
+            if rendered_call:
+                rendered_blocks.append(rendered_call)
+        else:
+            rendered_blocks.append(json.dumps(block, ensure_ascii=False, default=str))
+    return "\n".join(part for part in rendered_blocks if part)
+
+
 # ---------------------------------------------------------------------------
 # Token estimation
 # ---------------------------------------------------------------------------
@@ -663,24 +689,11 @@ class ContextCompactor:
 
             if role == "tool":
                 tool_id = msg.get("tool_call_id", "?")
-                parts.append(f"[tool result {tool_id}]: {content}")
+                parts.append(
+                    f"[tool result {tool_id}]: {_render_content_for_summary(content)}"
+                )
             elif role == "assistant":
-                if isinstance(content, str):
-                    text = content
-                elif isinstance(content, list):
-                    # Multi-block assistant messages (tool_use + text).
-                    text_parts = []
-                    for block in content:
-                        if isinstance(block, dict):
-                            if block.get("type") == "text":
-                                text_parts.append(block.get("text", ""))
-                            elif block.get("type") == "tool_use":
-                                rendered_call = _render_tool_call_for_summary(block)
-                                if rendered_call:
-                                    text_parts.append(rendered_call)
-                    text = "\n".join(text_parts)
-                else:
-                    text = str(content)
+                text = _render_content_for_summary(content)
                 tool_calls = msg.get("tool_calls")
                 if isinstance(tool_calls, list):
                     rendered_calls = [
@@ -692,7 +705,7 @@ class ContextCompactor:
                         text = "\n".join(part for part in [text, *rendered_calls] if part)
                 parts.append(f"assistant: {text}")
             else:
-                parts.append(f"{role}: {content}")
+                parts.append(f"{role}: {_render_content_for_summary(content)}")
 
         return "\n\n".join(parts)
 

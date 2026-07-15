@@ -142,6 +142,29 @@ class TestEstimateMessageTokens:
         assert _estimate_message_tokens([]) >= 1
 
 
+def test_summary_renderer_replaces_inline_image_bytes_with_marker() -> None:
+    image_data = "A" * 600_000
+    rendered = ContextCompactor._render_messages_for_summary(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Describe this."},
+                    {
+                        "type": "image",
+                        "mime_type": "image/png",
+                        "data": image_data,
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert "Describe this." in rendered
+    assert "[image input mime_type=image/png]" in rendered
+    assert image_data not in rendered
+
+
 # ---------------------------------------------------------------------------
 # ContextCompactor unit tests
 # ---------------------------------------------------------------------------
