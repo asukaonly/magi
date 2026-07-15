@@ -45,6 +45,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.actions.settings': '打开设置',
         'memory.sourcesPage.actions.pause': '暂停',
         'memory.sourcesPage.actions.resume': '恢复',
+        'memory.sourcesPage.actions.more': '更多操作',
         'memory.sourcesPage.actions.add': '添加来源',
         'memory.sourcesPage.pulseEmpty': '今天还没有来源活动；有新内容进入记忆后会显示在这里。',
         'memory.sourcesPage.feedback.backfillQueued': '{{source}} 已开始在后台补旧数据',
@@ -65,7 +66,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.syncModes.interval': '定时同步',
         'memory.sourcesPage.syncModes.manual': '手动同步',
         'memory.sourcesPage.detail.recentTitle': '最近进入记忆的内容',
-        'memory.sourcesPage.detail.recentCountDetailed': '共 {{total}} 条 / 当前 {{shown}} 条',
+        'memory.sourcesPage.detail.recentCountDetailed': '已显示 {{shown}} / 共 {{total}} 条',
         'memory.sourcesPage.detail.searchPlaceholder': '搜索内容',
         'memory.sourcesPage.detail.searchAction': '搜索',
         'memory.sourcesPage.detail.loadMore': '加载更多',
@@ -78,6 +79,7 @@ vi.mock('react-i18next', () => ({
         'memory.sourcesPage.detail.customStart': '开始日期',
         'memory.sourcesPage.detail.customEnd': '结束日期',
         'memory.sourcesPage.detail.applyCustomRange': '应用',
+        'memory.sourcesPage.detail.visitCount': '访问 {{count}} 次',
         'memory.sourcesPage.localOnly': '数据只保存在本机',
         'memory.sourcesPage.pulseStats.today': '今日事件',
         'memory.sourcesPage.pulseStats.backlog': '待处理',
@@ -328,11 +330,18 @@ beforeEach(() => {
         event_type: 'SENSOR_EVENT',
         source: 'chrome_history',
         timestamp: 1783049000,
-        content: 'Opened docs about Magi memory sources',
+        content: 'Chrome 浏览 Opened docs about Magi memory sources',
         memory_domain: 'activity',
         retention_class: 'normal',
         importance_score: 0.6,
         cognition_eligible: true,
+        metadata_json: {
+          source_facets: [
+            { name: 'browser.title', text: 'Opened docs about Magi memory sources' },
+            { name: 'browser.domain', text: 'docs.example.com' },
+            { name: 'browser.visit_count', numeric: 3 },
+          ],
+        },
       },
       {
         event_id: 'evt-2',
@@ -511,12 +520,17 @@ describe('MemorySourcesPage', () => {
     expect(screen.getByText('36')).toBeInTheDocument();
     expect(screen.getByText('定时同步')).toBeInTheDocument();
     expect(screen.queryByText('interval')).not.toBeInTheDocument();
-    expect(screen.getByText('共 2 条 / 当前 2 条')).toBeInTheDocument();
+    expect(screen.getByText('已显示 2 / 共 2 条')).toBeInTheDocument();
+    expect(screen.getByTestId('source-detail-facts')).toBeInTheDocument();
+    expect(screen.getByText('docs.example.com')).toBeInTheDocument();
+    expect(screen.getByText('访问 3 次')).toBeInTheDocument();
+    expect(screen.queryByText('Chrome 浏览 Opened docs about Magi memory sources')).not.toBeInTheDocument();
     expect(screen.queryByText('这个来源如何使用')).not.toBeInTheDocument();
     expect(screen.queryByText('memory.sourcesPage.detail.usageTitle')).not.toBeInTheDocument();
     expect(screen.queryByTestId('memory-source-detail-drawer')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '打开设置' }));
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    await user.click(screen.getByRole('menuitem', { name: '打开设置' }));
 
     expect(useChatShellStore.getState().activePanel).toBe('settings');
     expect(useChatShellStore.getState().settingsNavigationIntent).toEqual({
@@ -524,7 +538,8 @@ describe('MemorySourcesPage', () => {
       source: 'chrome_history',
     });
 
-    await user.click(screen.getByRole('button', { name: '暂停' }));
+    await user.click(screen.getByRole('button', { name: '更多操作' }));
+    await user.click(screen.getByRole('menuitem', { name: '暂停' }));
 
     await waitFor(() => expect(pluginsApi.updateSettings).toHaveBeenCalledWith('chrome-history', {
       'sensors.chrome_history.enabled': false,
@@ -606,12 +621,12 @@ describe('MemorySourcesPage', () => {
       </MemoryRouter>
     );
 
-    expect(await screen.findByText('共 75 条 / 当前 50 条')).toBeInTheDocument();
+    expect(await screen.findByText('已显示 50 / 共 75 条')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '加载更多' }));
 
     expect(await screen.findByText('Chrome event 75')).toBeInTheDocument();
-    expect(screen.getByText('共 75 条 / 当前 75 条')).toBeInTheDocument();
+    expect(screen.getByText('已显示 75 / 共 75 条')).toBeInTheDocument();
     expect(memoryApi.getL1Events).toHaveBeenCalledWith({ source: 'chrome_history', limit: 50, offset: 50 });
   });
 

@@ -2661,6 +2661,7 @@
         "settings": "Open settings",
         "pause": "Pause",
         "resume": "Resume",
+        "more": "More actions",
         "back": "Back to sources",
         "add": "Add source"
       },
@@ -2679,7 +2680,7 @@
         "lastSync": "Last sync: {{value}}",
         "recentTitle": "Recently added to memory",
         "recentCount": "{{count}} item(s)",
-        "recentCountDetailed": "{{shown}} of {{total}} shown",
+        "recentCountDetailed": "Showing {{shown}} of {{total}}",
         "timeRangeLabel": "Time range",
         "searchPlaceholder": "Search content",
         "searchAction": "Search",
@@ -2698,6 +2699,8 @@
         "eventsLoading": "Loading recent items.",
         "eventsEmpty": "This source has not added anything to memory yet.",
         "stored": "Stored",
+        "visitCount_one": "{{count}} visit",
+        "visitCount_other": "{{count}} visits",
         "nextRun": "Next sync",
         "syncMode": "Sync mode"
       }

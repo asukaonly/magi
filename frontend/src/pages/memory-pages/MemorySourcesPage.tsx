@@ -1,11 +1,30 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, CalendarDays, ChevronDown, ChevronRight, Plus, RefreshCw, Search } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { EmptyStateAvailableSensors } from '@/components/empty-state/EmptyStateAvailableSensors';
 import { PluginIcon } from '@/components/plugins/PluginIcon';
 import {
@@ -34,7 +53,6 @@ import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
   MEMORY_EMPTY_PANEL_CLASS,
   MEMORY_FILTER_INPUT_CLASS,
-  MEMORY_SECTION_CARD_CLASS,
   MEMORY_SECTION_SURFACE_CLASS,
 } from './MemoryPageFrame';
 import {
@@ -836,39 +854,42 @@ function SourceDetailHeader({
   const { t, i18n } = useTranslation('app');
   const statusLabel = sourceStatusLabel(row.status, t);
   return (
-    <section className={MEMORY_SECTION_CARD_CLASS}>
+    <section className="rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.64)] px-5 py-5 shadow-[0_16px_42px_hsl(var(--memory-shadow)/0.035)] sm:px-6">
       <Link
         to="/memory/sources"
-        className="mb-4 inline-flex items-center gap-1 text-xs font-medium text-[hsl(var(--memory-muted))] transition-colors hover:text-[hsl(var(--memory-title))]"
+        className="mb-5 inline-flex items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] transition-colors duration-200 hover:text-[hsl(var(--memory-title))]"
       >
         <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
         {t('memory.sourcesPage.actions.back')}
       </Link>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="flex min-w-0 gap-4">
-          <SourceIcon row={row} className="h-16 w-16 rounded-xl" iconClassName="h-8 w-8" />
-          <div className="min-w-0 space-y-2">
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-start gap-4">
+          <SourceIcon row={row} className="h-14 w-14 rounded-lg" iconClassName="h-7 w-7" />
+          <div className="min-w-0 space-y-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[1.75rem] font-semibold text-[hsl(var(--memory-title))]">{row.label}</h1>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.72)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
-                <span className={`h-2 w-2 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
+              <h1 className="text-[1.8rem] font-semibold tracking-[-0.025em] text-[hsl(var(--memory-title))]">{row.label}</h1>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(var(--memory-panel-subtle)/0.68)] px-2.5 py-1 text-xs text-[hsl(var(--memory-body))]">
+                <span className={`h-1.5 w-1.5 rounded-full ${sourceStatusDotClassName(row.status)}`} aria-hidden="true" />
                 {statusLabel}
               </span>
             </div>
             <p className="max-w-3xl text-sm leading-6 text-[hsl(var(--memory-body))]">
               {row.description || t('memory.sourcesPage.descriptionFallback')}
             </p>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs text-[hsl(var(--memory-muted))]">
               <span>{t('memory.sourcesPage.localOnly')}</span>
-              <span className="text-[hsl(var(--memory-divider))]">/</span>
+              <span className="h-1 w-1 rounded-full bg-[hsl(var(--memory-divider))]" aria-hidden="true" />
               <span>{t('memory.sourcesPage.detail.lastSync', { value: sourceSyncLabel(row, i18n.language, t) })}</span>
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 lg:justify-end">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <button
             type="button"
-            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-2', syncing && 'opacity-70')}
+            className={cn(
+              'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-accent))] px-4 text-sm font-medium text-[hsl(var(--memory-accent-foreground))] shadow-[0_10px_24px_-18px_hsl(var(--memory-shadow)/0.7)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-px hover:bg-[hsl(var(--memory-accent)/0.92)] hover:shadow-[0_14px_28px_-18px_hsl(var(--memory-shadow)/0.8)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.28)] disabled:pointer-events-none disabled:opacity-50',
+              syncing && 'opacity-70'
+            )}
             onClick={onSync}
             disabled={syncing || !row.supportsPullSync}
           >
@@ -877,26 +898,52 @@ function SourceDetailHeader({
           </button>
           <button
             type="button"
-            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center gap-2', backfilling && 'opacity-70')}
+            className={cn(
+              'inline-flex h-10 items-center gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-4 text-sm font-medium text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.9)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] disabled:pointer-events-none disabled:opacity-50',
+              backfilling && 'opacity-70'
+            )}
             onClick={onBackfill}
             disabled={backfilling || !row.supportsPullSync}
           >
             {backfilling ? <LoadingSpinner className="h-3.5 w-3.5" /> : <CalendarDays className="h-3.5 w-3.5" aria-hidden="true" />}
             {t('memory.sourcesPage.actions.backfill')}
           </button>
-          <button type="button" className={MEMORY_ACTION_BUTTON_CLASS} onClick={onOpenSettings}>
-            {t('memory.sourcesPage.actions.settings')}
-          </button>
-          <button
-            type="button"
-            className={cn(MEMORY_ACTION_BUTTON_CLASS, togglingEnabled && 'opacity-70')}
-            onClick={onToggleEnabled}
-            disabled={togglingEnabled || !row.pluginId}
-          >
-            {row.enabled === false
-              ? t('memory.sourcesPage.actions.resume')
-              : t('memory.sourcesPage.actions.pause')}
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={t('memory.sourcesPage.actions.more')}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+              >
+                <MoreHorizontal className="h-4.5 w-4.5" aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="border-[hsl(var(--memory-input-border)/0.58)] bg-[hsl(var(--memory-panel-elevated))] p-1.5 text-[hsl(var(--memory-title))] shadow-[0_18px_36px_rgba(15,23,42,0.08)]"
+            >
+              <DropdownMenuItem className="h-9 rounded-sm px-2.5" onSelect={onOpenSettings}>
+                <Settings className="h-4 w-4 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
+                {t('memory.sourcesPage.actions.settings')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-[hsl(var(--memory-divider)/0.72)]" />
+              <DropdownMenuItem
+                destructive={row.enabled !== false}
+                className="h-9 rounded-sm px-2.5"
+                onSelect={onToggleEnabled}
+                disabled={togglingEnabled || !row.pluginId}
+              >
+                {row.enabled === false ? (
+                  <Play className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Pause className="h-4 w-4" aria-hidden="true" />
+                )}
+                {row.enabled === false
+                  ? t('memory.sourcesPage.actions.resume')
+                  : t('memory.sourcesPage.actions.pause')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </section>
@@ -912,16 +959,71 @@ function SourceDetailStats({ row, todayCount }: { row: SourceLedgerRow; todayCou
     { label: t('memory.sourcesPage.detail.syncMode'), value: sourceSyncModeLabel(row.syncMode, t) },
   ];
   return (
-    <section className="grid gap-3 md:grid-cols-4">
+    <dl
+      data-testid="source-detail-facts"
+      className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.42)] px-5 py-3.5"
+    >
       {stats.map((stat) => (
-        <div key={stat.label} className="rounded-lg border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel-elevated)/0.68)] px-4 py-3">
-          <div className="text-xs text-[hsl(var(--memory-muted))]">{stat.label}</div>
-          <div className="mt-1.5 truncate text-lg font-semibold text-[hsl(var(--memory-title))]">{stat.value}</div>
+        <div
+          key={stat.label}
+          className="flex min-w-0 items-baseline gap-2 after:ml-3 after:h-1 after:w-1 after:shrink-0 after:rounded-full after:bg-[hsl(var(--memory-divider))] after:content-[''] last:after:hidden"
+        >
+          <dt className="text-xs text-[hsl(var(--memory-muted))]">{stat.label}</dt>
+          <dd className="truncate text-sm font-semibold text-[hsl(var(--memory-title))]">{stat.value}</dd>
         </div>
       ))}
-    </section>
+    </dl>
   );
 }
+
+interface SourceEventPresentation {
+  title: string;
+  domain: string | null;
+  visitCount: number | null;
+}
+
+const recordValue = (value: unknown): Record<string, unknown> | null => (
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+);
+
+const stringValue = (value: unknown): string | null => {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || null;
+};
+
+const sourceEventPresentation = (event: L1Event): SourceEventPresentation => {
+  const metadata = recordValue(event.metadata_json);
+  const facets = Array.isArray(metadata?.source_facets)
+    ? metadata.source_facets.map(recordValue).filter((facet): facet is Record<string, unknown> => Boolean(facet))
+    : [];
+  const facetText = (suffix: string) => stringValue(
+    facets.find((facet) => stringValue(facet.name)?.endsWith(suffix))?.text
+  );
+  const facetNumber = (suffix: string) => {
+    const value = facets.find((facet) => stringValue(facet.name)?.endsWith(suffix))?.numeric;
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  };
+  const activitySnapshot = recordValue(metadata?.activity_snapshot);
+  const provenance = recordValue(activitySnapshot?.provenance);
+  const snapshotTitle = stringValue(activitySnapshot?.title);
+  const snapshotContentTitle = snapshotTitle?.includes(' · ')
+    ? snapshotTitle.split(' · ').slice(1).join(' · ').trim()
+    : null;
+  const visitCountValue = provenance?.merged_visit_count ?? provenance?.visit_count;
+  const visitCount = facetNumber('.visit_count')
+    ?? (typeof visitCountValue === 'number' && Number.isFinite(visitCountValue) ? visitCountValue : null)
+    ?? (typeof visitCountValue === 'string' && visitCountValue.trim() && Number.isFinite(Number(visitCountValue))
+      ? Number(visitCountValue)
+      : null);
+
+  return {
+    title: facetText('.title') || snapshotContentTitle || event.content,
+    domain: facetText('.domain') || stringValue(provenance?.domain),
+    visitCount,
+  };
+};
 
 function SourceRecentEvents({
   events,
@@ -1003,27 +1105,25 @@ function SourceRecentEvents({
     onSearch();
   };
   return (
-    <section className={MEMORY_SECTION_CARD_CLASS}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">
-          {t('memory.sourcesPage.detail.recentTitle')}
-        </h2>
-        <span className="text-xs text-[hsl(var(--memory-muted))]">
-          {t('memory.sourcesPage.detail.recentCountDetailed', {
-            total: formatInteger(total),
-            shown: formatInteger(events.length),
-          })}
-        </span>
-      </div>
-      <form className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between" onSubmit={submitSearch}>
+    <section className="rounded-2xl bg-[hsl(var(--memory-panel-elevated)/0.58)] px-5 py-5 shadow-[0_16px_42px_hsl(var(--memory-shadow)/0.035)] sm:px-6">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-[-0.015em] text-[hsl(var(--memory-title))]">
+            {t('memory.sourcesPage.detail.recentTitle')}
+          </h2>
+          <span className="text-xs text-[hsl(var(--memory-muted))]">
+            {t('memory.sourcesPage.detail.recentCountDetailed', {
+              total: formatInteger(total),
+              shown: formatInteger(events.length),
+            })}
+          </span>
+        </div>
+        <form className="flex flex-col gap-2 sm:flex-row sm:items-center" onSubmit={submitSearch}>
         <Popover open={timePickerOpen} onOpenChange={handleTimePickerOpenChange}>
           <PopoverTrigger asChild>
             <button
               type="button"
-              className={cn(
-                MEMORY_ACTION_BUTTON_CLASS,
-                'inline-flex w-fit min-w-[10rem] items-center justify-between gap-2 px-3'
-              )}
+              className="inline-flex h-10 w-full min-w-[9.5rem] items-center justify-between gap-2 rounded-md bg-[hsl(var(--memory-panel-subtle)/0.58)] px-3 text-sm text-[hsl(var(--memory-title))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.88)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)] sm:w-fit"
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <CalendarDays className="h-3.5 w-3.5 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
@@ -1089,26 +1189,25 @@ function SourceRecentEvents({
             </div>
           </PopoverContent>
         </Popover>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative min-w-0 sm:w-[260px]">
+          <div className="relative min-w-0 sm:w-[300px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[hsl(var(--memory-muted))]" aria-hidden="true" />
             <input
               value={queryDraft}
               onChange={(event) => onQueryDraftChange(event.target.value)}
               placeholder={t('memory.sourcesPage.detail.searchPlaceholder')}
-              className="h-9 w-full rounded-sm border border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] pl-9 pr-3 text-sm text-[hsl(var(--memory-title))] outline-none transition-colors placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.55)]"
+              className="h-10 w-full rounded-md border border-[hsl(var(--memory-input-border)/0.54)] bg-[hsl(var(--memory-input-bg)/0.76)] pl-9 pr-11 text-sm text-[hsl(var(--memory-title))] outline-none transition-[border-color,background-color,box-shadow] duration-200 placeholder:text-[hsl(var(--memory-muted))] focus:border-[hsl(var(--memory-accent)/0.42)] focus:bg-[hsl(var(--memory-input-bg))] focus:shadow-[0_0_0_3px_hsl(var(--memory-accent)/0.08)]"
             />
+            <button
+              type="submit"
+              aria-label={t('memory.sourcesPage.detail.searchAction')}
+              className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-sm text-[hsl(var(--memory-muted))] transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.82)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+            >
+              <Search className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
           </div>
-          <button
-            type="submit"
-            className={cn(MEMORY_ACTION_BUTTON_CLASS, 'inline-flex items-center justify-center gap-2')}
-          >
-            <Search className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('memory.sourcesPage.detail.searchAction')}
-          </button>
-        </div>
-      </form>
-      <div className="mt-4 divide-y divide-[hsl(var(--memory-divider)/0.58)]">
+        </form>
+      </div>
+      <div className="mt-5 divide-y divide-[hsl(var(--memory-divider)/0.56)]">
         {loading ? (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>
             <div className="flex items-center gap-2">
@@ -1117,19 +1216,35 @@ function SourceRecentEvents({
             </div>
           </div>
         ) : events.length > 0 ? (
-          events.map((event) => (
-            <article key={event.event_id} className="grid gap-2 py-3 md:grid-cols-[160px_minmax(0,1fr)_110px] md:items-start">
-              <div className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                {formatOverviewTimestamp(event.timestamp, i18n.language) || t('memory.sourcesPage.unknownTime')}
-              </div>
-              <div className="min-w-0">
-                <div className="line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-title))]">{event.content}</div>
-              </div>
-              <div className="text-xs text-[hsl(var(--memory-muted))] md:text-right">
-                {t('memory.sourcesPage.detail.stored')}
-              </div>
-            </article>
-          ))
+          events.map((event) => {
+            const presentation = sourceEventPresentation(event);
+            return (
+              <article
+                key={event.event_id}
+                className="grid gap-1.5 py-4 transition-colors duration-200 md:grid-cols-[132px_minmax(0,1fr)] md:gap-5 md:px-2 md:hover:bg-[hsl(var(--memory-panel-subtle)/0.28)]"
+              >
+                <time className="text-xs leading-6 text-[hsl(var(--memory-muted))]">
+                  {formatOverviewTimestamp(event.timestamp, i18n.language) || t('memory.sourcesPage.unknownTime')}
+                </time>
+                <div className="min-w-0">
+                  <div className="line-clamp-2 text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">
+                    {presentation.title}
+                  </div>
+                  {presentation.domain || presentation.visitCount ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[hsl(var(--memory-muted))]">
+                      {presentation.domain ? <span>{presentation.domain}</span> : null}
+                      {presentation.domain && presentation.visitCount ? (
+                        <span className="h-1 w-1 rounded-full bg-[hsl(var(--memory-divider))]" aria-hidden="true" />
+                      ) : null}
+                      {presentation.visitCount ? (
+                        <span>{t('memory.sourcesPage.detail.visitCount', { count: presentation.visitCount })}</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })
         ) : (
           <div className={MEMORY_EMPTY_PANEL_CLASS}>{t('memory.sourcesPage.detail.eventsEmpty')}</div>
         )}

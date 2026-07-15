@@ -2660,6 +2660,7 @@
         "settings": "打开设置",
         "pause": "暂停",
         "resume": "恢复",
+        "more": "更多操作",
         "back": "返回来源",
         "add": "添加来源"
       },
@@ -2678,7 +2679,7 @@
         "lastSync": "最近同步：{{value}}",
         "recentTitle": "最近进入记忆的内容",
         "recentCount": "{{count}} 条",
-        "recentCountDetailed": "共 {{total}} 条 / 当前 {{shown}} 条",
+        "recentCountDetailed": "已显示 {{shown}} / 共 {{total}} 条",
         "timeRangeLabel": "时间范围",
         "searchPlaceholder": "搜索内容",
         "searchAction": "搜索",
@@ -2697,6 +2698,7 @@
         "eventsLoading": "正在加载最近内容。",
         "eventsEmpty": "这个来源还没有进入记忆的内容。",
         "stored": "已入记忆",
+        "visitCount": "访问 {{count}} 次",
         "nextRun": "下次同步",
         "syncMode": "同步方式"
       }
