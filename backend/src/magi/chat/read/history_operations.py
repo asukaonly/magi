@@ -361,7 +361,7 @@ class ChatHistoryOperationsMixin:
             )
         except Exception as exc:
             logger.exception(f"Failed to query chat history: {exc}")
-            return []
+            raise
 
         selected_rows = rows if safe_limit is None else rows[-safe_limit:]
         selected_message_rows: list[sqlite3.Row] = []

@@ -22,6 +22,10 @@ FACT_EVENTS_TABLE = "fact_events"
 _SESSION_ATTACHMENT_MANIFEST_LIMIT = 40
 
 
+class ChatHistoryUnavailableError(RuntimeError):
+    """Raised when a chat turn cannot load any reliable conversation history."""
+
+
 @dataclass(slots=True)
 class CachedConversationHistory:
     """In-memory conversation history paired with the durable transcript version."""
@@ -159,11 +163,9 @@ class ChatContextAssembler:
             )
             if cached_entry is not None and cached_entry.active_persona_id == normalized_persona_id:
                 return cached_entry
-            return CachedConversationHistory(
-                version=durable_version,
-                messages=[],
-                active_persona_id=normalized_persona_id,
-            )
+            raise ChatHistoryUnavailableError(
+                f"Conversation history is unavailable for session '{session_id}'"
+            ) from exc
 
     def require_session_id(self, user_id: str, session_id: Optional[str] = None) -> str:
         _ = user_id

@@ -896,6 +896,20 @@ def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
     ]
 
 
+def test_get_conversation_history_does_not_hide_query_failure(tmp_path, monkeypatch):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+
+    def _raise_query_failure(**kwargs):
+        _ = kwargs
+        raise sqlite3.OperationalError("database is unavailable")
+
+    monkeypatch.setattr(service, "_query_chat_message_rows", _raise_query_failure)
+
+    with pytest.raises(sqlite3.OperationalError, match="database is unavailable"):
+        service.get_conversation_history("u1", "s1")
+
+
 def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

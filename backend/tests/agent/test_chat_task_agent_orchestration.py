@@ -441,7 +441,10 @@ async def test_chat_context_assembler_summarizes_previous_persona_segment(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_chat_context_assembler_retries_reload_after_transient_read_failure(tmp_path: Path, runtime_paths_with_schema) -> None:
+async def test_chat_context_assembler_never_treats_read_failure_as_empty_history(
+    tmp_path: Path,
+    runtime_paths_with_schema,
+) -> None:
     chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
     await chat_store.initialize()
     await chat_store.create_user_turn(
@@ -501,10 +504,10 @@ async def test_chat_context_assembler_retries_reload_after_transient_read_failur
         chat_read_service_factory=lambda: flaky_read_service,
     )
 
-    first_history = await service.get_or_load_history("u-chat", "s-chat")
+    with pytest.raises(RuntimeError, match="Conversation history is unavailable"):
+        await service.get_or_load_history("u-chat", "s-chat")
     second_history = await service.get_or_load_history("u-chat", "s-chat")
 
-    assert first_history == []
     assert second_history == [{"role": "user", "content": "hello"}]
 
 
