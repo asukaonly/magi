@@ -17,6 +17,7 @@ from magi.agent.execution.context_compactor import (
     _RULE_KEEP_RECENT_MESSAGES,
     _estimate_message_tokens,
     _group_messages_by_round,
+    _group_messages_by_user_turn,
 )
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator
 
@@ -92,6 +93,34 @@ class TestGroupMessagesByRound:
             {"role": "assistant", "content": "call tool"},
             {"role": "tool", "content": "result"},
         ]
+
+
+class TestGroupMessagesByUserTurn:
+    def test_alternating_messages_keep_questions_with_answers(self) -> None:
+        messages = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+            {"role": "assistant", "content": "a2"},
+        ]
+
+        groups = _group_messages_by_user_turn(messages)
+
+        assert groups == [messages[:2], messages[2:]]
+
+    def test_tool_sequence_stays_with_its_user_request(self) -> None:
+        messages = [
+            {"role": "user", "content": "inspect"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "call-1", "name": "demo"}],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+            {"role": "assistant", "content": "done"},
+        ]
+
+        assert _group_messages_by_user_turn(messages) == [messages]
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +347,21 @@ class TestRuleBasedCompact:
         assert 2 <= len(result.messages) <= _RULE_KEEP_RECENT_MESSAGES + 1
 
     @pytest.mark.asyncio
+    async def test_initial_history_fallback_keeps_complete_user_turns(self) -> None:
+        compactor = ContextCompactor(context_window=32_000)
+        messages = _make_messages(30)
+
+        result = await compactor.compact(messages, preserve_user_turns=True)
+
+        retained = result.messages[1:]
+        assert len(retained) % 2 == 0
+        assert all(
+            retained[index]["role"] == "user"
+            and retained[index + 1]["role"] == "assistant"
+            for index in range(0, len(retained), 2)
+        )
+
+    @pytest.mark.asyncio
     async def test_no_pool_falls_back_to_rule_based(self) -> None:
         c = ContextCompactor(context_window=200_000, scenario_llm_pool=None)
         msgs = _make_messages(30)
@@ -391,6 +435,52 @@ class TestLLMCompact:
         assert "[context compacted]" in result.messages[0]["content"]
         assert "summary" in result.summary_text
         assert c._consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_initial_history_summary_keeps_recent_user_turns_complete(self) -> None:
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
+        messages = _make_messages(10)
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            result = await compactor.compact(messages, preserve_user_turns=True)
+
+        assert result.compacted is True
+        assert result.messages[1:] == messages[-6:]
+        summary_prompt = mock_bridge.chat.await_args.kwargs["messages"][0]["content"]
+        assert "user message 0" in summary_prompt
+        assert "assistant reply 3" in summary_prompt
+        assert "user message 4" not in summary_prompt
+
+    @pytest.mark.asyncio
+    async def test_single_long_user_turn_keeps_its_tool_sequence_in_fallback(self) -> None:
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        compactor = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
+        messages: list[dict[str, Any]] = [{"role": "user", "content": "inspect"}]
+        for index in range(6):
+            messages.extend(
+                [
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [{"id": f"call-{index}", "name": "demo"}],
+                    },
+                    {
+                        "role": "tool",
+                        "tool_call_id": f"call-{index}",
+                        "content": f"result-{index}",
+                    },
+                ]
+            )
+
+        result = await compactor.compact(messages, preserve_user_turns=True)
+
+        assert result.messages[1:] == messages
 
     @pytest.mark.asyncio
     async def test_llm_failure_falls_back_to_rule_based(self) -> None:

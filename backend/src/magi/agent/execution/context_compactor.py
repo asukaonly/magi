@@ -143,6 +143,25 @@ def _group_messages_by_round(messages: List[Dict[str, Any]]) -> List[List[Dict[s
     return groups
 
 
+def _group_messages_by_user_turn(
+    messages: List[Dict[str, Any]],
+) -> List[List[Dict[str, Any]]]:
+    """Group initial conversation history into complete user-led turns."""
+    groups: List[List[Dict[str, Any]]] = []
+    current: List[Dict[str, Any]] = []
+
+    for message in messages:
+        if message.get("role") == "user" and current:
+            groups.append(current)
+            current = []
+        current.append(message)
+
+    if current:
+        groups.append(current)
+
+    return groups
+
+
 def _flatten_groups(groups: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
     return [msg for group in groups for msg in group]
 
@@ -189,10 +208,6 @@ class ContextCompactor:
     @property
     def compact_threshold(self) -> int:
         return self._current_budget().compaction_trigger_tokens
-
-    @property
-    def history_token_budget(self) -> int:
-        return self.compact_threshold
 
     def _current_budget(self) -> ContextWindowBudget:
         if self._budget_provider is not None:
@@ -288,6 +303,8 @@ class ContextCompactor:
         self,
         messages: List[Dict[str, Any]],
         system_prompt: str = "",
+        *,
+        preserve_user_turns: bool = False,
     ) -> CompactionResult:
         """Run compaction and return the replacement message list."""
         if self._consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
@@ -295,21 +312,34 @@ class ContextCompactor:
                 "[ContextCompactor] Summary circuit breaker open (%d consecutive failures), using rule fallback",
                 self._consecutive_failures,
             )
-            return self._rule_based_compact(messages)
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
 
         if self._scenario_llm_pool is None:
             logger.warning("[ContextCompactor] No scenario LLM pool configured, falling back to rule-based compaction")
-            return self._rule_based_compact(messages)
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
 
         try:
-            return await self._llm_compact(messages, system_prompt)
+            return await self._llm_compact(
+                messages,
+                system_prompt,
+                preserve_user_turns=preserve_user_turns,
+            )
         except Exception:
             self._consecutive_failures += 1
             logger.exception(
                 "[ContextCompactor] LLM compaction failed (consecutive=%d), falling back to rule-based",
                 self._consecutive_failures,
             )
-            return self._rule_based_compact(messages)
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
 
     # -- LLM-based compaction -------------------------------------------------
 
@@ -317,11 +347,20 @@ class ContextCompactor:
         self,
         messages: List[Dict[str, Any]],
         system_prompt: str,
+        *,
+        preserve_user_turns: bool,
     ) -> CompactionResult:
         """Summarise older messages via LLM and replace them."""
-        groups = _group_messages_by_round(messages)
+        groups = (
+            _group_messages_by_user_turn(messages)
+            if preserve_user_turns
+            else _group_messages_by_round(messages)
+        )
         if len(groups) <= 1:
-            return self._rule_based_compact(messages)
+            return self._rule_based_compact(
+                messages,
+                preserve_user_turns=preserve_user_turns,
+            )
 
         # Split: older groups → summarise, recent groups → keep verbatim.
         recent_group_count = min(_KEEP_RECENT_ROUNDS, len(groups) - 1)
@@ -449,6 +488,8 @@ class ContextCompactor:
     def _rule_based_compact(
         self,
         messages: List[Dict[str, Any]],
+        *,
+        preserve_user_turns: bool = False,
     ) -> CompactionResult:
         """Drop oldest messages, keeping only the most recent ones."""
         under_token_pressure = self._current_token_estimate(messages) >= self.compact_threshold
@@ -463,7 +504,11 @@ class ContextCompactor:
         if len(messages) <= _RULE_KEEP_RECENT_MESSAGES:
             kept = list(messages)
         else:
-            groups = _group_messages_by_round(messages)
+            groups = (
+                _group_messages_by_user_turn(messages)
+                if preserve_user_turns
+                else _group_messages_by_round(messages)
+            )
             selected_groups: list[list[dict[str, Any]]] = []
             selected_count = 0
             for group in reversed(groups):

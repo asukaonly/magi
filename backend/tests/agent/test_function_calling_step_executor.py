@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.execution.function_calling import FunctionCallingOrchestrator, ToolCall, ToolCallResult
+from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 from magi.agent.turn_input import UserTurnInput
 
@@ -43,6 +44,42 @@ def test_build_step_state_does_not_duplicate_latest_user_message_from_history() 
     )
 
     assert step_state.messages == [{"role": "user", "content": "Inspect the repository."}]
+
+
+def test_build_step_state_keeps_complete_raw_tail_before_compaction() -> None:
+    adapter = SimpleNamespace(model_name="small-model", provider_name="fake-provider")
+    orchestrator = FunctionCallingOrchestrator(
+        tool_registry=_FakeToolRegistry(),
+        active_model_provider=lambda: ResolvedModel(
+            adapter=adapter,
+            context=ModelContextProfile(
+                provider_id="fake-provider",
+                model_id="small-model",
+                context_window=1_000,
+                max_output_tokens=100,
+            ),
+        ),
+    )
+    old_question = "old question " + "x" * 1_800
+    old_answer = "old answer " + "y" * 700
+
+    step_state = orchestrator.build_step_state(
+        turn=UserTurnInput(text="current question", attachments=[], user_id=None, session_id=None),
+        system_prompt="system prompt",
+        selected_tools=[],
+        conversation_history=[
+            {"role": "user", "content": old_question},
+            {"role": "assistant", "content": old_answer},
+            {"role": "user", "content": "recent question"},
+            {"role": "assistant", "content": "recent answer"},
+        ],
+        session_summary="summary before the raw tail",
+        session_origin="session origin",
+    )
+
+    assert any(message.get("content") == old_question for message in step_state.messages)
+    assert any(message.get("content") == old_answer for message in step_state.messages)
+    assert step_state.messages[-1] == {"role": "user", "content": "current question"}
 
 
 def test_build_tools_parameter_includes_array_items_schema_for_openai_tools() -> None:

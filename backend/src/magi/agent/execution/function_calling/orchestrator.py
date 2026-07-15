@@ -195,7 +195,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             conversation_history,
             turn,
             resolver=self._attachment_resolver,
-            history_token_budget=self._context_compactor.history_token_budget,
+            history_token_budget=None,
             session_summary=session_summary,
             session_origin=session_origin,
             reply_context=reply_context,
@@ -442,6 +442,7 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
             result = await self._context_compactor.compact(
                 state.messages,
                 state.effective_system_prompt,
+                preserve_user_turns=state.iteration == 0,
             )
             if result.compacted:
                 state.messages[:] = result.messages
