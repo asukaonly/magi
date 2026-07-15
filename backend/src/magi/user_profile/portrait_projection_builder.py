@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
+from ..memory.derivation_revision import DerivationRevision
 from .models import (
     DEFAULT_USER_ID,
     PROFILE_ASSERTION_FAMILIES,
@@ -72,6 +73,9 @@ class UserPortraitProjectionBuilder:
 
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserPortraitProjection:
         entity_id = f"user:{user_id}"
+        derivation_revision = await DerivationRevision.capture(self._l2_store, entity_id)
+        if self._profile_projection is not None:
+            derivation_revision.ensure_matches(self._profile_projection.source_revision)
         assertions = await self._list_assertions(entity_id)
         profile_world = self._profile_world_items(self._profile_projection)
         world = self._build_world(assertions, profile_world)
@@ -99,6 +103,7 @@ class UserPortraitProjectionBuilder:
             prompt_summary = llm_summary[:4]
             generated_by = "llm"
 
+        await derivation_revision.ensure_current(self._l2_store)
         return UserPortraitProjection(
             user_id=user_id,
             entity_id=entity_id,
@@ -109,15 +114,9 @@ class UserPortraitProjectionBuilder:
             evidence_refs=evidence_refs,
             source_counts=source_counts,
             generated_by=generated_by,
-            source_revision=await self._current_source_revision(entity_id),
+            source_revision=derivation_revision.source_revision,
             generated_at=time.time(),
         )
-
-    async def _current_source_revision(self, entity_id: str) -> int:
-        getter = getattr(self._l2_store, "current_subject_revision", None)
-        if getter is None:
-            return 0
-        return int(await getter(entity_id))
 
     async def _list_assertions(self, entity_id: str) -> list[dict[str, Any]]:
         if self._l2_store is None:

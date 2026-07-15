@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..memory.derivation_revision import DerivationRevision
 from .models import UserPortraitProjection
 
 
@@ -73,21 +74,32 @@ class UserPortraitProjectionRepository:
 
     async def upsert(self, projection: UserPortraitProjection) -> UserPortraitProjection:
         await self.initialize()
-        existing = await self.get(projection.user_id)
-        now = time.time()
-        created_at = existing.created_at if existing is not None else now
-        generated_at = projection.generated_at or now
-        updated = projection.model_copy(
-            update={
-                "created_at": created_at,
-                "updated_at": now,
-                "generated_at": generated_at,
-            }
+        revision = DerivationRevision(
+            subject_key=projection.entity_id,
+            source_revision=projection.source_revision,
         )
-        payload = updated.model_dump()
         async with sqlite_connection_async(self._db_path) as db:
-            await db.execute(
-                """
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await revision.ensure_current_on_connection(db)
+                async with db.execute(
+                    "SELECT created_at FROM user_portrait_projection WHERE user_id = ?",
+                    (projection.user_id,),
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                now = time.time()
+                created_at = float(existing[0]) if existing is not None else now
+                generated_at = projection.generated_at or now
+                updated = projection.model_copy(
+                    update={
+                        "created_at": created_at,
+                        "updated_at": now,
+                        "generated_at": generated_at,
+                    }
+                )
+                payload = updated.model_dump()
+                await db.execute(
+                    """
                 INSERT INTO user_portrait_projection(
                     user_id, entity_id, entity_type,
                     world_json, review_json, recent_json, prompt_summary_json,
@@ -108,24 +120,27 @@ class UserPortraitProjectionRepository:
                     generated_at = excluded.generated_at,
                     updated_at = excluded.updated_at
                 """,
-                (
-                    payload["user_id"],
-                    payload["entity_id"],
-                    payload["entity_type"],
-                    _dumps(payload["world"]),
-                    _dumps(payload["review"]),
-                    _dumps(payload["recent"]),
-                    _dumps(payload["prompt_summary"]),
-                    _dumps(payload["evidence_refs"]),
-                    _dumps(payload["source_counts"]),
-                    payload["generated_by"],
-                    payload["source_revision"],
-                    payload["generated_at"],
-                    payload["created_at"],
-                    payload["updated_at"],
-                ),
-            )
-            await db.commit()
+                    (
+                        payload["user_id"],
+                        payload["entity_id"],
+                        payload["entity_type"],
+                        _dumps(payload["world"]),
+                        _dumps(payload["review"]),
+                        _dumps(payload["recent"]),
+                        _dumps(payload["prompt_summary"]),
+                        _dumps(payload["evidence_refs"]),
+                        _dumps(payload["source_counts"]),
+                        payload["generated_by"],
+                        payload["source_revision"],
+                        payload["generated_at"],
+                        payload["created_at"],
+                        payload["updated_at"],
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         return updated
 
     @classmethod

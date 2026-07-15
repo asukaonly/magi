@@ -7,6 +7,7 @@ import time
 from datetime import date, datetime
 from typing import Any
 
+from ..memory.derivation_revision import DerivationRevision
 from .derivation import derive_age_years, derive_birth_year, parse_iso_date
 from .models import (
     DEFAULT_USER_ID,
@@ -44,6 +45,7 @@ class UserProfileProjectionBuilder:
 
     async def build(self, user_id: str = DEFAULT_USER_ID) -> UserProfileProjection:
         entity_id = f"user:{user_id}"
+        derivation_revision = await DerivationRevision.capture(self._l2_store, entity_id)
         assertions = await self._list_profile_assertions(entity_id)
         selected, conflicts = self._select_current_assertions(assertions)
         projection = _new_projection(user_id=user_id, entity_id=entity_id)
@@ -73,14 +75,9 @@ class UserProfileProjectionBuilder:
             field_sources=field_sources,
             conflicts=conflicts,
         )
-        projection.source_revision = await self._current_source_revision(entity_id)
+        await derivation_revision.ensure_current(self._l2_store)
+        projection.source_revision = derivation_revision.source_revision
         return projection
-
-    async def _current_source_revision(self, entity_id: str) -> int:
-        getter = getattr(self._l2_store, "current_subject_revision", None)
-        if getter is None:
-            return 0
-        return int(await getter(entity_id))
 
     async def _list_profile_assertions(self, entity_id: str) -> list[dict[str, Any]]:
         if self._l2_store is None:

@@ -9,6 +9,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ...derivation_revision import DerivationRevision, DerivationRevisionChangedError
 from ....user_profile.portrait_projection_builder import UserPortraitProjectionBuilder
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_builder import UserProfileProjectionBuilder
@@ -73,6 +74,15 @@ class CorrectionDerivationRunner:
                     continue
                 await self._repository.complete_derivation_job(str(job["job_id"]))
                 stats["completed"] += 1
+            except DerivationRevisionChangedError as exc:
+                latest_revision = await self._repository.current_subject_revision(
+                    str(job["target_key"])
+                )
+                await self._repository.complete_derivation_job(
+                    str(job["job_id"]),
+                    message=f"Superseded by revision {latest_revision}: {exc}",
+                )
+                stats["superseded"] += 1
             except Exception as exc:  # pragma: no cover - exercised through behavior tests
                 await self._repository.fail_derivation_job(
                     str(job["job_id"]),
@@ -117,7 +127,10 @@ class CorrectionDerivationRunner:
             entity_type=entity_type,
         )
         if snapshot is None:
-            await self._delete_snapshot(entity_id)
+            await self._delete_snapshot(
+                entity_id,
+                expected_revision=int(job["target_revision"]),
+            )
             return
         assertions = await self._l2_store.list_current_assertions(
             entity_id=entity_id,
@@ -214,23 +227,47 @@ class CorrectionDerivationRunner:
             return str(row[0])
         return entity_id.split(":", 1)[0] if ":" in entity_id else "entity"
 
-    async def _delete_snapshot(self, entity_id: str) -> None:
+    async def _delete_snapshot(
+        self,
+        entity_id: str,
+        *,
+        expected_revision: int,
+    ) -> None:
+        revision = DerivationRevision(
+            subject_key=entity_id,
+            source_revision=expected_revision,
+        )
         async with sqlite_connection_async(self._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT snapshot_id FROM tom_snapshots WHERE entity_id = ?",
-                (entity_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-            await db.execute("DELETE FROM tom_snapshots WHERE entity_id = ?", (entity_id,))
-            await db.executemany(
-                """
-                DELETE FROM memory_derivation_dependencies
-                WHERE artifact_kind = 'snapshot' AND artifact_id = ?
-                """,
-                [(str(row["snapshot_id"]),) for row in rows],
-            )
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await revision.ensure_current_on_connection(db)
+                async with db.execute(
+                    """
+                    SELECT snapshot_id FROM tom_snapshots
+                    WHERE entity_id = ? AND source_revision <= ?
+                    """,
+                    (entity_id, expected_revision),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                await db.execute(
+                    """
+                    DELETE FROM tom_snapshots
+                    WHERE entity_id = ? AND source_revision <= ?
+                    """,
+                    (entity_id, expected_revision),
+                )
+                await db.executemany(
+                    """
+                    DELETE FROM memory_derivation_dependencies
+                    WHERE artifact_kind = 'snapshot' AND artifact_id = ?
+                    """,
+                    [(str(row["snapshot_id"]),) for row in rows],
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
 
 def _user_id(subject_key: str) -> str | None:

@@ -10,7 +10,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
-from ..corrections.repository import MemoryCorrectionRepository
+from ...derivation_revision import DerivationRevision
 from .snapshot_assembly import L2SnapshotAssemblyMixin
 from .snapshot_persistence import L2SnapshotPersistenceMixin
 from .snapshot_protocols import _SnapshotHostProtocol
@@ -42,6 +42,7 @@ class _SnapshotRefreshHostProtocol(_SnapshotHostProtocol, Protocol):
         entity_type: str | None = None,
         context_scope: dict[str, Any] | None = None,
         effective_at: float | None = None,
+        include_expired: bool = False,
         limit: int = 100,
     ) -> List[Dict[str, Any]]: ...
 
@@ -79,10 +80,12 @@ class L2StoreSnapshotMixin(
     ) -> Dict[str, Any] | None:
         """Rebuild one snapshot from reconciled assertions and graph edges."""
         host = cast(_SnapshotRefreshHostProtocol, self)
+        derivation_revision = await DerivationRevision.capture(host, entity_id)
         assertions = await host.list_current_assertions(
             entity_id=entity_id,
             entity_type=entity_type,
             context_scope=None,
+            include_expired=True,
             limit=500,
         )
         relations = await self._snapshot_refresh_relations(
@@ -90,6 +93,7 @@ class L2StoreSnapshotMixin(
             entity_id=entity_id,
         )
         if _snapshot_refresh_is_empty(assertions=assertions, relations=relations):
+            await derivation_revision.ensure_current(host)
             return None
 
         assertion_groups = _group_snapshot_refresh_assertions(
@@ -113,6 +117,7 @@ class L2StoreSnapshotMixin(
             incoming_relations=relations.incoming,
             superseded_outgoing_relations=relations.superseded_outgoing,
             superseded_incoming_relations=relations.superseded_incoming,
+            derivation_revision=derivation_revision,
         )
         _log_snapshot_refreshed(
             entity_id=entity_id,
@@ -172,6 +177,7 @@ class L2StoreSnapshotMixin(
         incoming_relations: List[Dict[str, Any]],
         superseded_outgoing_relations: List[Dict[str, Any]],
         superseded_incoming_relations: List[Dict[str, Any]],
+        derivation_revision: DerivationRevision,
     ) -> Dict[str, Any]:
         host = cast(_SnapshotHostProtocol, self)
         now = time.time()
@@ -187,54 +193,63 @@ class L2StoreSnapshotMixin(
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
-                (entity_id, entity_type),
-            ) as cursor:
-                existing = await cursor.fetchone()
-            existing_snapshot = host._snapshot_row_to_dict(existing) if existing else None
-            source_revision = await MemoryCorrectionRepository(
-                host.db_path
-            ).current_subject_revision(entity_id)
-            if existing_snapshot is not None and int(
-                existing_snapshot.get("source_revision") or 0
-            ) != source_revision:
-                existing_snapshot = None
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await derivation_revision.ensure_current_on_connection(db)
+                async with db.execute(
+                    "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
+                    (entity_id, entity_type),
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                existing_snapshot = host._snapshot_row_to_dict(existing) if existing else None
+                if (
+                    existing_snapshot is not None
+                    and int(existing_snapshot.get("source_revision") or 0)
+                    != derivation_revision.source_revision
+                ):
+                    existing_snapshot = None
 
-            mood_trajectory = self._build_mood_trajectory(
-                existing_snapshot=existing_snapshot,
-                assertions=assertions,
-                all_raw_assertions=all_raw_assertions,
-            )
+                mood_trajectory = self._build_mood_trajectory(
+                    existing_snapshot=existing_snapshot,
+                    assertions=assertions,
+                    all_raw_assertions=all_raw_assertions,
+                )
 
-            evolution_payload = host._build_snapshot_evolution_payload(
-                existing_snapshot=existing_snapshot,
-                core_traits=state["core_traits"],
-                preferences=state["preferences"],
-                relationship_topology=state["relationship_topology"],
-                assertions=assertions,
-                outgoing_relations=outgoing_relations,
-                incoming_relations=incoming_relations,
-                superseded_outgoing_relations=superseded_outgoing_relations,
-                superseded_incoming_relations=superseded_incoming_relations,
-                fallback_updated_at=now,
-            )
+                evolution_payload = host._build_snapshot_evolution_payload(
+                    existing_snapshot=existing_snapshot,
+                    core_traits=state["core_traits"],
+                    preferences=state["preferences"],
+                    relationship_topology=state["relationship_topology"],
+                    assertions=assertions,
+                    outgoing_relations=outgoing_relations,
+                    incoming_relations=incoming_relations,
+                    superseded_outgoing_relations=superseded_outgoing_relations,
+                    superseded_incoming_relations=superseded_incoming_relations,
+                    fallback_updated_at=now,
+                )
 
-            await self._persist_snapshot_payload(
-                db=db,
-                existing=existing,
-                entity_id=entity_id,
-                entity_type=entity_type,
-                state=state,
-                evolution_payload=evolution_payload,
-                mood_trajectory=mood_trajectory,
-                source_revision=source_revision,
-                now=now,
-            )
-            await db.commit()
-
-        snapshot = await host.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
-        assert snapshot is not None
+                await self._persist_snapshot_payload(
+                    db=db,
+                    existing=existing,
+                    entity_id=entity_id,
+                    entity_type=entity_type,
+                    state=state,
+                    evolution_payload=evolution_payload,
+                    mood_trajectory=mood_trajectory,
+                    source_revision=derivation_revision.source_revision,
+                    now=now,
+                )
+                async with db.execute(
+                    "SELECT * FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
+                    (entity_id, entity_type),
+                ) as cursor:
+                    stored = await cursor.fetchone()
+                assert stored is not None
+                snapshot = host._snapshot_row_to_dict(stored)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         return snapshot
 
 

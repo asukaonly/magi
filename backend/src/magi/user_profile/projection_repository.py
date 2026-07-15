@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 
 from ..core.sqlite import sqlite_connection_async
+from ..memory.derivation_revision import DerivationRevision
 from .models import UserProfileProjection
 
 
@@ -78,21 +79,32 @@ class UserProfileProjectionRepository:
 
     async def upsert(self, projection: UserProfileProjection) -> UserProfileProjection:
         await self.initialize()
-        existing = await self.get(projection.user_id)
-        now = time.time()
-        created_at = existing.created_at if existing is not None else now
-        refreshed_at = projection.refreshed_at or now
-        updated = projection.model_copy(
-            update={
-                "created_at": created_at,
-                "updated_at": now,
-                "refreshed_at": refreshed_at,
-            }
+        revision = DerivationRevision(
+            subject_key=projection.entity_id,
+            source_revision=projection.source_revision,
         )
-        payload = updated.model_dump()
         async with sqlite_connection_async(self._db_path) as db:
-            await db.execute(
-                """
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await revision.ensure_current_on_connection(db)
+                async with db.execute(
+                    "SELECT created_at FROM user_profile_projection WHERE user_id = ?",
+                    (projection.user_id,),
+                ) as cursor:
+                    existing = await cursor.fetchone()
+                now = time.time()
+                created_at = float(existing[0]) if existing is not None else now
+                refreshed_at = projection.refreshed_at or now
+                updated = projection.model_copy(
+                    update={
+                        "created_at": created_at,
+                        "updated_at": now,
+                        "refreshed_at": refreshed_at,
+                    }
+                )
+                payload = updated.model_dump()
+                await db.execute(
+                    """
                 INSERT INTO user_profile_projection(
                     user_id, entity_id, display_name, preferred_form_of_address,
                     real_name, birth_date, birth_year, age_years, age_as_of,
@@ -122,31 +134,34 @@ class UserProfileProjectionRepository:
                     refreshed_at = excluded.refreshed_at,
                     updated_at = excluded.updated_at
                 """,
-                (
-                    payload["user_id"],
-                    payload["entity_id"],
-                    payload["display_name"],
-                    payload["preferred_form_of_address"],
-                    payload["real_name"],
-                    payload["birth_date"],
-                    payload["birth_year"],
-                    payload["age_years"],
-                    payload["age_as_of"],
-                    payload["home_location"],
-                    json.dumps(payload["communication"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(payload["identity"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(payload["preferences"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(payload["state"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(payload["field_sources"], ensure_ascii=False, sort_keys=True),
-                    json.dumps(payload["field_conflicts"], ensure_ascii=False, sort_keys=True),
-                    payload["completeness_score"],
-                    payload["source_revision"],
-                    payload["refreshed_at"],
-                    payload["created_at"],
-                    payload["updated_at"],
-                ),
-            )
-            await db.commit()
+                    (
+                        payload["user_id"],
+                        payload["entity_id"],
+                        payload["display_name"],
+                        payload["preferred_form_of_address"],
+                        payload["real_name"],
+                        payload["birth_date"],
+                        payload["birth_year"],
+                        payload["age_years"],
+                        payload["age_as_of"],
+                        payload["home_location"],
+                        json.dumps(payload["communication"], ensure_ascii=False, sort_keys=True),
+                        json.dumps(payload["identity"], ensure_ascii=False, sort_keys=True),
+                        json.dumps(payload["preferences"], ensure_ascii=False, sort_keys=True),
+                        json.dumps(payload["state"], ensure_ascii=False, sort_keys=True),
+                        json.dumps(payload["field_sources"], ensure_ascii=False, sort_keys=True),
+                        json.dumps(payload["field_conflicts"], ensure_ascii=False, sort_keys=True),
+                        payload["completeness_score"],
+                        payload["source_revision"],
+                        payload["refreshed_at"],
+                        payload["created_at"],
+                        payload["updated_at"],
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         return updated
 
     @staticmethod
