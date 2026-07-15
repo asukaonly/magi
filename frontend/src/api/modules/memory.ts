@@ -214,6 +214,65 @@ export interface L2Assertion {
   conflict_context?: L2AssertionConflictContext | null;
 }
 
+export type MemoryCorrectionTargetKind = 'assertion' | 'edge';
+export type MemoryCorrectionKind = 'record_error' | 'situation_changed' | 'scope_refinement';
+export type MemoryCorrectionState = 'active' | 'reverted';
+export type MemoryCorrectionDerivationState = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface MemoryCorrectionTarget {
+  kind: MemoryCorrectionTargetKind;
+  id: string;
+}
+
+export interface MemoryCorrectionRequest {
+  request_id: string;
+  target: MemoryCorrectionTarget;
+  correction_kind: MemoryCorrectionKind;
+  replacement?: Record<string, unknown> | null;
+  reason?: string | null;
+  effective_at?: number | null;
+  scope?: Record<string, unknown> | null;
+  source_event_id?: string | null;
+  expected_updated_at?: number | null;
+}
+
+export interface MemoryCorrectionRecord {
+  correction_id: string;
+  request_id: string;
+  actor_id: string;
+  target_kind: MemoryCorrectionTargetKind;
+  target_id: string;
+  slot_key: string;
+  claim_fingerprint: string;
+  correction_kind: MemoryCorrectionKind;
+  before: Record<string, unknown>;
+  created_at: number;
+  state: MemoryCorrectionState;
+  reason?: string | null;
+  replacement?: Record<string, unknown> | null;
+  effective_at?: number | null;
+  scope?: Record<string, unknown> | null;
+  source_event_id?: string | null;
+  audit_event_id?: string | null;
+  replacement_target_id?: string | null;
+  reverted_at?: number | null;
+  reverted_by?: string | null;
+}
+
+export interface MemoryCorrectionCommandResponse {
+  correction: MemoryCorrectionRecord;
+  current_claim?: Record<string, unknown> | null;
+  subject_revision?: number | null;
+  derivation_state: MemoryCorrectionDerivationState;
+  created: boolean;
+}
+
+export interface MemoryCorrectionHistoryResponse {
+  target: MemoryCorrectionTarget;
+  versions: Array<Record<string, unknown>>;
+  corrections: MemoryCorrectionRecord[];
+}
+
 export interface L2Entity {
   entity_id: string;
   canonical_name: string;
@@ -856,6 +915,20 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
   correctAssertion: async (assertionId: string, newValue: string, reason?: string): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.post<L2Assertion>(`/memory/l2/assertions/${assertionId}/correct`, { new_value: newValue, reason })),
+  applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> =>
+    unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>('/memory/l2/corrections', payload)),
+  getCorrectionHistory: async (
+    targetKind: MemoryCorrectionTargetKind,
+    targetId: string,
+  ): Promise<MemoryCorrectionHistoryResponse> =>
+    unwrapMemoryResponse(await api.get<MemoryCorrectionHistoryResponse>('/memory/l2/corrections', {
+      params: { target_kind: targetKind, target_id: targetId },
+    })),
+  revertCorrection: async (correctionId: string, requestId: string): Promise<MemoryCorrectionCommandResponse> =>
+    unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>(
+      `/memory/l2/corrections/${encodeURIComponent(correctionId)}/revert`,
+      { request_id: requestId },
+    )),
   getL2Entities: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Entity>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Entity>>('/memory/l2/entities', { params })),
   getL2Mentions: async (params?: PaginationParams): Promise<PaginatedResponse<L2Mention>> =>

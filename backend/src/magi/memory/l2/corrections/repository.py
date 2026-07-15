@@ -339,6 +339,28 @@ class MemoryCorrectionRepository:
             await db.commit()
             return int(cursor.rowcount or 0)
 
+    async def derivation_state_for_correction(self, correction_id: str) -> str:
+        """Return the aggregate follow-up state for one correction."""
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT status, COUNT(*)
+                FROM memory_derivation_jobs
+                WHERE correction_id = ?
+                GROUP BY status
+                """,
+                (correction_id,),
+            ) as cursor:
+                rows = await cursor.fetchall()
+        counts = {str(status): int(count) for status, count in rows}
+        if counts.get("failed"):
+            return "failed"
+        if counts.get("running"):
+            return "running"
+        if counts.get("pending"):
+            return "pending"
+        return "completed"
+
     async def claim_next_derivation_job(
         self,
         *,

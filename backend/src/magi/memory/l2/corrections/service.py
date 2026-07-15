@@ -211,6 +211,7 @@ class MemoryCorrectionService:
                     ),
                     scope=(replacement_scope or None),
                     source_event_id=command.source_event_id,
+                    audit_event_id=command.audit_event_id,
                     replacement_target_id=replacement_id,
                     created_at=now,
                 )
@@ -267,6 +268,15 @@ class MemoryCorrectionService:
                     include_l3=str(before["entity_id"]) in l3_subjects,
                     now=now,
                 )
+                if command.audit_event_id is not None:
+                    await self.repository.enqueue_derivation_job(
+                        db,
+                        correction_id=correction_id,
+                        job_kind="l1_audit",
+                        target_key=command.audit_event_id,
+                        target_revision=0,
+                        now=now,
+                    )
                 await db.commit()
             except Exception:
                 await db.rollback()

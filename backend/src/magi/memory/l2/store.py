@@ -74,6 +74,9 @@ class L2CognitionStore(
         self._graph_conflict_rules = dict(self._seed_graph_conflict_rules)
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)
         self._assertion_change_callback: Callable[[Dict[str, Any]], Awaitable[None]] | None = None
+        self._memory_correction_job_handlers: Dict[
+            str, Callable[[Mapping[str, Any]], Awaitable[None]]
+        ] = {}
 
     async def initialize(self) -> None:
         """Verify cognition schema (alembic-managed) is reachable."""
@@ -168,6 +171,20 @@ class L2CognitionStore(
             subject_key
         )
 
+    def register_memory_correction_job_handler(
+        self,
+        job_kind: str,
+        handler: Callable[[Mapping[str, Any]], Awaitable[None]],
+    ) -> None:
+        """Register a composed runtime handler for a durable correction follow-up."""
+        self._memory_correction_job_handlers[str(job_kind)] = handler
+
+    async def get_memory_correction_derivation_state(self, correction_id: str) -> str:
+        """Return whether all durable correction follow-ups have completed."""
+        return await MemoryCorrectionRepository(self.db_path).derivation_state_for_correction(
+            correction_id
+        )
+
     async def process_memory_correction_jobs(
         self,
         *,
@@ -180,6 +197,7 @@ class L2CognitionStore(
         return await CorrectionDerivationRunner(
             db_path=self.db_path,
             l2_store=self,
+            handlers=self._memory_correction_job_handlers,
         ).run_pending(
             limit=limit,
             recover_interrupted=recover_interrupted,

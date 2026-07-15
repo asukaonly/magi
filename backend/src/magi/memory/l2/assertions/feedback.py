@@ -79,6 +79,7 @@ class L2StoreFeedbackMixin:
         *,
         assertion_id: str,
         feedback: str,
+        audit_event_id: str | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Apply user confirmation or rejection to an assertion."""
         if feedback not in {"confirmed", "rejected"}:
@@ -97,6 +98,7 @@ class L2StoreFeedbackMixin:
                 request_id=f"feedback_{uuid.uuid4().hex}",
                 actor_id="local_user",
                 correction_kind=CorrectionKind.RECORD_ERROR,
+                audit_event_id=audit_event_id,
             )
             if correction_result is None:
                 return None
@@ -176,6 +178,7 @@ class L2StoreFeedbackMixin:
         effective_at: float | None = None,
         scope: Dict[str, Any] | None = None,
         source_event_id: str | None = None,
+        audit_event_id: str | None = None,
         expected_updated_at: float | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Apply a user-provided corrected value through correction governance."""
@@ -191,6 +194,7 @@ class L2StoreFeedbackMixin:
             effective_at=effective_at,
             scope=scope,
             source_event_id=source_event_id,
+            audit_event_id=audit_event_id,
             expected_updated_at=expected_updated_at,
         )
         if result is None or result["current_assertion"] is None:
@@ -209,6 +213,7 @@ class L2StoreFeedbackMixin:
         effective_at: float | None = None,
         scope: Dict[str, Any] | None = None,
         source_event_id: str | None = None,
+        audit_event_id: str | None = None,
         expected_updated_at: float | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Apply one governed assertion correction and return its current claim."""
@@ -226,6 +231,7 @@ class L2StoreFeedbackMixin:
                 effective_at=effective_at,
                 scope=scope,
                 source_event_id=source_event_id,
+                audit_event_id=audit_event_id,
                 expected_updated_at=expected_updated_at,
             )
         )

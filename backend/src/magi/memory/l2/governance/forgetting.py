@@ -56,6 +56,7 @@ class L2StoreForgettingMixin:
         self,
         *,
         triple_id: str,
+        audit_event_id: str | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Reject a KG edge through durable correction governance."""
         host = cast(_ForgettingHostProtocol, self)
@@ -70,6 +71,7 @@ class L2StoreForgettingMixin:
             request_id=f"edge_rejection_{uuid.uuid4().hex}",
             actor_id="local_user",
             correction_kind=CorrectionKind.RECORD_ERROR,
+            audit_event_id=audit_event_id,
         )
         return await host.get_relationship(triple_id=triple_id)
 
@@ -85,6 +87,7 @@ class L2StoreForgettingMixin:
         effective_at: float | None = None,
         scope: Dict[str, Any] | None = None,
         source_event_id: str | None = None,
+        audit_event_id: str | None = None,
         expected_updated_at: float | None = None,
     ) -> Optional[Dict[str, Any]]:
         """Apply a governed correction to one relationship."""
@@ -114,6 +117,7 @@ class L2StoreForgettingMixin:
                 effective_at=effective_at,
                 scope=scope,
                 source_event_id=source_event_id,
+                audit_event_id=audit_event_id,
                 expected_updated_at=expected_updated_at,
             )
         )

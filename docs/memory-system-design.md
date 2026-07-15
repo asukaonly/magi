@@ -787,9 +787,9 @@ Controlled facets: `platform`, `located_in`, `category`. Parsed constraints are 
 
 Users can interact with L2 artifacts directly:
 
-- **Assertion feedback**: `apply_user_feedback(assertion_id, "confirmed"/"rejected")` — adjusts confidence and validation state
-- **Assertion correction**: `correct_assertion(assertion_id, new_value)` — supersedes old assertion, creates a corrected one at high confidence
-- **Edge rejection**: `reject_edge(triple_id)` — marks a knowledge graph edge as `user_rejected`
+- **Assertion confirmation**: `apply_user_feedback(assertion_id, "confirmed")` strengthens the current evidence-backed interpretation without creating a correction.
+- **Assertion or relationship correction**: the unified correction service records `record_error`, `situation_changed`, or `scope_refinement` and applies the same governance rules regardless of whether the caller is About You, Manage Memory, or a future chat flow.
+- **Correction history and revert**: immutable versions and the user action that changed them remain queryable; only the latest applicable correction can be reverted.
 - **Episode annotation**: `update_episode()` supports `user_label`, `user_note`, `user_pinned` fields
 - **Episode review curation**: active episodes can regenerate their L3 recap,
   add or remove suggested member events, merge with a suggested active episode,
@@ -805,6 +805,29 @@ Users can interact with L2 artifacts directly:
 - **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs
+
+Durable correction is separate from chat answer rechecking. The public correction
+surface is `POST /api/memory/l2/corrections`, with history at
+`GET /api/memory/l2/corrections` and revert at
+`POST /api/memory/l2/corrections/{correction_id}/revert`. Older assertion and
+edge feedback endpoints delegate to the same correction service rather than
+updating rows directly.
+
+Each correction persists the previous claim, the user's reason, any replacement,
+its time or scope, and an executable rule that guards future writes. An incorrect
+claim is blocked from becoming current again when old events are replayed or a
+source is resynchronized. A changed situation closes the previous time range;
+a scoped refinement is only current when the query scope matches. Replacement
+claims do not inherit evidence that supported the rejected value.
+
+Correction-sensitive derived views use a monotonically increasing subject
+revision. Snapshots, profile projections, portrait projections, and dependent L3
+insights are hidden as soon as their source revision is stale, then rebuilt by
+durable retryable jobs. Failed rebuilds therefore reduce available context instead
+of leaking a known-wrong view. Page-originated corrections also create a permanent
+L1 audit event with `cognition_eligible=false`; a chat-originated correction points
+to its existing L1 source event instead. These audit records explain the user
+action but can never become evidence for a new user fact.
 
 Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every durable L2 object (assertions, edges, facets, episodes, experiences).
 
@@ -896,6 +919,14 @@ The gate must be rule-based and inspect structured state such as:
 LLMs may rewrite accepted insight content for readability, but must not decide whether an insight exists, what confidence/status it has, or which evidence supports it. Template text must remain available as a fallback.
 
 Each recurring insight carries a stable `insight_key`. State-change and trend-shift keys are scoped to the entity and reviewable trait group, not to every currently observed value or every exact low-level trait in the packet, so an accumulating preference signal updates one reviewable card instead of creating a new row every time another value or adjacent preference facet appears. Writes are upserts by that key: repeated reconciliation of the same state updates evidence metadata or returns the existing record instead of creating another row. User-review fields such as `review_state` and `insight_metadata` belong to the L3 record so the frontend can present insights as reviewable cards rather than raw debug logs.
+
+Insight-style L3 records also register the exact L2 assertions or relationships
+they depend on. A correction immediately marks only those dependent insights
+stale and removes them from list, search, and embedding rebuild inputs. The
+correction worker rebuilds an insight from the new current claim when possible,
+or retires it when no valid replacement exists. Temporal summaries, episodes,
+experiences, and unrelated insights are not rewritten merely because one L2
+interpretation changed.
 
 Trend-shift insights are reserved for durable long-span signals. Sparse or volatile outcomes should remain L2 evidence and should not become L3 trend cards until they have enough evidence, enough elapsed time, and a non-volatile stability kind.
 

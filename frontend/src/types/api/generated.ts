@@ -1632,6 +1632,50 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/corrections": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get Memory Correction History
+         * @description Return immutable versions and correction records for one target.
+         */
+        readonly get: operations["get_memory_correction_history_api_memory_l2_corrections_get"];
+        readonly put?: never;
+        /**
+         * Apply Memory Correction
+         * @description Apply one assertion or relationship correction through the shared service.
+         */
+        readonly post: operations["apply_memory_correction_api_memory_l2_corrections_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/memory/l2/corrections/{correction_id}/revert": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly get?: never;
+        readonly put?: never;
+        /**
+         * Revert Memory Correction
+         * @description Revert the latest active correction for an assertion or relationship.
+         */
+        readonly post: operations["revert_memory_correction_api_memory_l2_corrections__correction_id__revert_post"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/edges/{triple_id}/reject": {
         readonly parameters: {
             readonly query?: never;
@@ -6241,6 +6285,133 @@ export interface components {
              */
             readonly retention_days: number;
         };
+        /** MemoryCorrectionCommandResponse */
+        readonly MemoryCorrectionCommandResponse: {
+            readonly correction: components["schemas"]["MemoryCorrectionRecord"];
+            /** Created */
+            readonly created: boolean;
+            /** Current Claim */
+            readonly current_claim?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /**
+             * Derivation State
+             * @enum {string}
+             */
+            readonly derivation_state: "pending" | "running" | "completed" | "failed";
+            /** Subject Revision */
+            readonly subject_revision?: number | null;
+        };
+        /** MemoryCorrectionHistoryResponse */
+        readonly MemoryCorrectionHistoryResponse: {
+            /** Corrections */
+            readonly corrections?: readonly components["schemas"]["MemoryCorrectionRecord"][];
+            readonly target: components["schemas"]["MemoryCorrectionTarget"];
+            /** Versions */
+            readonly versions?: readonly {
+                readonly [key: string]: unknown;
+            }[];
+        };
+        /** MemoryCorrectionRecord */
+        readonly MemoryCorrectionRecord: {
+            /** Actor Id */
+            readonly actor_id: string;
+            /** Audit Event Id */
+            readonly audit_event_id?: string | null;
+            /** Before */
+            readonly before: {
+                readonly [key: string]: unknown;
+            };
+            /** Claim Fingerprint */
+            readonly claim_fingerprint: string;
+            /** Correction Id */
+            readonly correction_id: string;
+            /**
+             * Correction Kind
+             * @enum {string}
+             */
+            readonly correction_kind: "record_error" | "situation_changed" | "scope_refinement";
+            /** Created At */
+            readonly created_at: number;
+            /** Effective At */
+            readonly effective_at?: number | null;
+            /** Reason */
+            readonly reason?: string | null;
+            /** Replacement */
+            readonly replacement?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /** Replacement Target Id */
+            readonly replacement_target_id?: string | null;
+            /** Request Id */
+            readonly request_id: string;
+            /** Reverted At */
+            readonly reverted_at?: number | null;
+            /** Reverted By */
+            readonly reverted_by?: string | null;
+            /** Scope */
+            readonly scope?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /** Slot Key */
+            readonly slot_key: string;
+            /** Source Event Id */
+            readonly source_event_id?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            readonly state: "active" | "reverted";
+            /** Target Id */
+            readonly target_id: string;
+            /**
+             * Target Kind
+             * @enum {string}
+             */
+            readonly target_kind: "assertion" | "edge";
+        };
+        /** MemoryCorrectionRequest */
+        readonly MemoryCorrectionRequest: {
+            /**
+             * Correction Kind
+             * @enum {string}
+             */
+            readonly correction_kind: "record_error" | "situation_changed" | "scope_refinement";
+            /** Effective At */
+            readonly effective_at?: number | null;
+            /** Expected Updated At */
+            readonly expected_updated_at?: number | null;
+            /** Reason */
+            readonly reason?: string | null;
+            /** Replacement */
+            readonly replacement?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /** Request Id */
+            readonly request_id: string;
+            /** Scope */
+            readonly scope?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /** Source Event Id */
+            readonly source_event_id?: string | null;
+            readonly target: components["schemas"]["MemoryCorrectionTarget"];
+        };
+        /** MemoryCorrectionRevertRequest */
+        readonly MemoryCorrectionRevertRequest: {
+            /** Request Id */
+            readonly request_id: string;
+        };
+        /** MemoryCorrectionTarget */
+        readonly MemoryCorrectionTarget: {
+            /** Id */
+            readonly id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            readonly kind: "assertion" | "edge";
+        };
         /** MemoryL0ConfigModel */
         readonly MemoryL0ConfigModel: {
             /**
@@ -8476,6 +8647,11 @@ export interface components {
              * @default 0
              */
             readonly refreshed_at: number;
+            /**
+             * Source Revision
+             * @default 0
+             */
+            readonly source_revision: number;
             /** State */
             readonly state?: {
                 readonly [key: string]: unknown;
@@ -11577,6 +11753,106 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_memory_correction_history_api_memory_l2_corrections_get: {
+        readonly parameters: {
+            readonly query: {
+                readonly target_kind: "assertion" | "edge";
+                readonly target_id: string;
+            };
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["MemoryCorrectionHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly apply_memory_correction_api_memory_l2_corrections_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["MemoryCorrectionRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["MemoryCorrectionCommandResponse"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly revert_memory_correction_api_memory_l2_corrections__correction_id__revert_post: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path: {
+                readonly correction_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody: {
+            readonly content: {
+                readonly "application/json": components["schemas"]["MemoryCorrectionRevertRequest"];
+            };
+        };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["MemoryCorrectionCommandResponse"];
                 };
             };
             /** @description Validation Error */

@@ -136,6 +136,7 @@ class ApplyAssertionCorrectionCommand:
     effective_at: float | None = None
     scope: Mapping[str, Any] | None = None
     source_event_id: str | None = None
+    audit_event_id: str | None = None
     expected_updated_at: float | None = None
 
 
@@ -160,6 +161,7 @@ class ApplyRelationshipCorrectionCommand:
     effective_at: float | None = None
     scope: Mapping[str, Any] | None = None
     source_event_id: str | None = None
+    audit_event_id: str | None = None
     expected_updated_at: float | None = None
 
 

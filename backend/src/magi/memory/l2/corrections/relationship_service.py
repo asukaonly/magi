@@ -130,6 +130,7 @@ class RelationshipCorrectionService:
                     ),
                     scope=(dict(command.scope) if command.scope else None),
                     source_event_id=command.source_event_id,
+                    audit_event_id=command.audit_event_id,
                     replacement_target_id=replacement_id,
                     created_at=now,
                 )
@@ -200,6 +201,15 @@ class RelationshipCorrectionService:
                         now=now,
                     )
                 subject_revision = subject_revisions[str(before["subject_id"])]
+                if command.audit_event_id is not None:
+                    await self.repository.enqueue_derivation_job(
+                        db,
+                        correction_id=correction_id,
+                        job_kind="l1_audit",
+                        target_key=command.audit_event_id,
+                        target_revision=0,
+                        now=now,
+                    )
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -343,17 +353,43 @@ class RelationshipCorrectionService:
     async def history(self, *, triple_id: str) -> dict[str, Any]:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            versions = await list_knowledge_graph_versions(db, triple_id=triple_id)
+            async with db.execute(
+                "SELECT slot_key FROM knowledge_graph WHERE triple_id = ?",
+                (triple_id,),
+            ) as cursor:
+                edge_row = await cursor.fetchone()
+            slot_key_value = str(edge_row["slot_key"] or "") if edge_row else ""
             async with db.execute(
                 """
                 SELECT * FROM memory_corrections
                 WHERE target_kind = 'edge'
-                  AND (target_id = ? OR replacement_target_id = ?)
+                  AND (
+                    (? != '' AND slot_key = ?)
+                    OR target_id = ?
+                    OR replacement_target_id = ?
+                  )
                 ORDER BY created_at
                 """,
-                (triple_id, triple_id),
+                (slot_key_value, slot_key_value, triple_id, triple_id),
             ) as cursor:
                 rows = await cursor.fetchall()
+            triple_ids = [triple_id]
+            for row in rows:
+                triple_ids.extend(
+                    [
+                        str(row["target_id"]),
+                        str(row["replacement_target_id"] or ""),
+                    ]
+                )
+            versions: list[dict[str, Any]] = []
+            for versioned_triple_id in dict.fromkeys(item for item in triple_ids if item):
+                versions.extend(
+                    await list_knowledge_graph_versions(
+                        db,
+                        triple_id=versioned_triple_id,
+                    )
+                )
+            versions.sort(key=lambda item: float(item.get("created_at") or 0.0))
         return {
             "versions": versions,
             "corrections": [MemoryCorrection.from_row(dict(row)) for row in rows],

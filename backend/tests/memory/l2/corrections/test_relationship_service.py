@@ -230,6 +230,8 @@ async def test_relationship_replacement_is_idempotent_and_revertible(
         "active",
         "user_rejected",
         "active",
+        "archived",
+        "active",
     ]
 
 

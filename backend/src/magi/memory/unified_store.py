@@ -24,6 +24,7 @@ from .l3.task_reflection_service import TaskReflectionService
 from .l3.trend_shift_service import TrendShiftService
 from .l4.procedural_memory import L4ProceduralMemoryStore
 from .store_ingestion import MemoryIngestionMixin
+from .store_corrections import UnifiedMemoryCorrectionMixin
 from .store_l2_operations import UnifiedMemoryL2OperationsMixin
 from .store_l3_insights import L3InsightsMixin
 from .store_lifecycle import UnifiedMemoryLifecycleMixin
@@ -89,6 +90,7 @@ class _MemoryStoreBuildContext:
 
 class UnifiedMemoryStore(
     MemoryIngestionMixin,
+    UnifiedMemoryCorrectionMixin,
     L3InsightsMixin,
     MonitoringMixin,
     UnifiedMemoryLifecycleMixin,
@@ -256,6 +258,11 @@ class UnifiedMemoryStore(
 
     def _build_l2_stack(self, context: _MemoryStoreBuildContext) -> None:
         self.l2 = L2CognitionStore(db_path=context.paths.shared_memory_db_path)
+        if self.l1 is not None:
+            self.l2.register_memory_correction_job_handler(
+                "l1_audit",
+                self.write_l1_correction_audit,
+            )
         self.l2_entity_catalog = L2EntityCatalog(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,

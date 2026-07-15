@@ -196,7 +196,7 @@ class _FakeL2Store:
             "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
         }
 
-    async def reject_edge(self, *, triple_id: str):
+    async def reject_edge(self, *, triple_id: str, audit_event_id: str | None = None):
         self.rejected_edges.append(triple_id)
         if triple_id != "rel-1":
             return None

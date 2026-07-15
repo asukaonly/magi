@@ -153,6 +153,64 @@ class AssertionCorrectionRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
 
 
+class MemoryCorrectionTarget(BaseModel):
+    kind: Literal["assertion", "edge"]
+    id: str = Field(..., min_length=1, max_length=200)
+
+
+class MemoryCorrectionRequest(BaseModel):
+    request_id: str = Field(..., min_length=1, max_length=200)
+    target: MemoryCorrectionTarget
+    correction_kind: Literal["record_error", "situation_changed", "scope_refinement"]
+    replacement: Optional[Dict[str, Any]] = None
+    reason: Optional[str] = Field(default=None, max_length=2000)
+    effective_at: Optional[float] = None
+    scope: Optional[Dict[str, Any]] = None
+    source_event_id: Optional[str] = Field(default=None, max_length=200)
+    expected_updated_at: Optional[float] = None
+
+
+class MemoryCorrectionRevertRequest(BaseModel):
+    request_id: str = Field(..., min_length=1, max_length=200)
+
+
+class MemoryCorrectionRecord(BaseModel):
+    correction_id: str
+    request_id: str
+    actor_id: str
+    target_kind: Literal["assertion", "edge"]
+    target_id: str
+    slot_key: str
+    claim_fingerprint: str
+    correction_kind: Literal["record_error", "situation_changed", "scope_refinement"]
+    before: Dict[str, Any]
+    created_at: float
+    state: Literal["active", "reverted"]
+    reason: Optional[str] = None
+    replacement: Optional[Dict[str, Any]] = None
+    effective_at: Optional[float] = None
+    scope: Optional[Dict[str, Any]] = None
+    source_event_id: Optional[str] = None
+    audit_event_id: Optional[str] = None
+    replacement_target_id: Optional[str] = None
+    reverted_at: Optional[float] = None
+    reverted_by: Optional[str] = None
+
+
+class MemoryCorrectionCommandResponse(BaseModel):
+    correction: MemoryCorrectionRecord
+    current_claim: Optional[Dict[str, Any]] = None
+    subject_revision: Optional[int] = None
+    derivation_state: Literal["pending", "running", "completed", "failed"]
+    created: bool
+
+
+class MemoryCorrectionHistoryResponse(BaseModel):
+    target: MemoryCorrectionTarget
+    versions: List[Dict[str, Any]] = Field(default_factory=list)
+    corrections: List[MemoryCorrectionRecord] = Field(default_factory=list)
+
+
 class EpisodeAnnotationRequest(BaseModel):
     user_label: Optional[str] = Field(default=None, max_length=500)
     user_note: Optional[str] = Field(default=None, max_length=2000)

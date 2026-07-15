@@ -13,6 +13,7 @@ from ..schemas import AssertionCorrectionRequest, AssertionFeedbackRequest, Grap
 from .....user_profile.portrait_projection_scheduler import (
     schedule_portrait_projection_refresh_after_assertion_change,
 )
+from .....memory.event_contracts import generate_event_id
 
 
 @memory_router.get("/l2/relations")
@@ -58,7 +59,17 @@ async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRe
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
-    result = await unified_memory.l2.apply_user_feedback(assertion_id=assertion_id, feedback=body.feedback)
+    if body.feedback == "rejected":
+        result = await unified_memory.l2.apply_user_feedback(
+            assertion_id=assertion_id,
+            feedback=body.feedback,
+            audit_event_id=generate_event_id(prefix="correction_audit"),
+        )
+    else:
+        result = await unified_memory.l2.apply_user_feedback(
+            assertion_id=assertion_id,
+            feedback=body.feedback,
+        )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))
     await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
@@ -78,6 +89,7 @@ async def correct_assertion(assertion_id: str, body: AssertionCorrectionRequest)
         assertion_id=assertion_id,
         new_value=body.new_value,
         reason=body.reason,
+        audit_event_id=generate_event_id(prefix="correction_audit"),
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))

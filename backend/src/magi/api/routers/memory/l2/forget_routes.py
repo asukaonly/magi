@@ -8,6 +8,7 @@ from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
 from ..router import memory_router
 from ..schemas import ForgetEntityRequest, ForgetEpisodeRequest, ForgetTimeRangeRequest
+from .....memory.event_contracts import generate_event_id
 
 
 @memory_router.patch("/l2/edges/{triple_id}/reject")
@@ -19,7 +20,10 @@ async def reject_l2_edge(triple_id: str):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
-    result = await unified_memory.l2.reject_edge(triple_id=triple_id)
+    result = await unified_memory.l2.reject_edge(
+        triple_id=triple_id,
+        audit_event_id=generate_event_id(prefix="correction_audit"),
+    )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.edge_not_found", "Edge not found"))
     return result

@@ -58,7 +58,16 @@ export { hooksApi } from './modules/hooks';
 export type { HookEntry, HooksListResponse } from './modules/hooks';
 
 export { memoryApi } from './modules/memory';
-export type { ModelDownloadStatus } from './modules/memory';
+export type {
+  MemoryCorrectionCommandResponse,
+  MemoryCorrectionHistoryResponse,
+  MemoryCorrectionKind,
+  MemoryCorrectionRecord,
+  MemoryCorrectionRequest,
+  MemoryCorrectionTarget,
+  MemoryCorrectionTargetKind,
+  ModelDownloadStatus,
+} from './modules/memory';
 
 export { profileApi } from './modules/profile';
 export type { UserProfilePatch, UserProfileProjection } from './modules/profile';
