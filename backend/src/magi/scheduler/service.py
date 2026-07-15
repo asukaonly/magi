@@ -203,7 +203,11 @@ class SchedulerService:
             existing = await self._repository.get_schedule(schedule_id)
             if existing is not None and existing.trigger.trigger_type is TriggerType.ONCE:
                 existing_run_at = await self._repository.get_schedule_next_run_at(existing)
-                if existing_run_at is not None and existing_run_at <= float(run_at):
+                if (
+                    existing_run_at is not None
+                    and existing_run_at > time.time()
+                    and existing_run_at <= float(run_at)
+                ):
                     return existing
             if existing is not None:
                 await self._unschedule_locked(schedule_id)
@@ -609,7 +613,7 @@ class SchedulerService:
                 finished_at=time.time(),
             )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
-                await self._repository.delete_schedule(schedule.schedule_id)
+                await self._consume_once_schedule(schedule)
             return result
         except Exception as exc:
             await self._repository.record_target_failure(
@@ -625,8 +629,25 @@ class SchedulerService:
                 finished_at=time.time(),
             )
             if schedule.trigger.trigger_type == TriggerType.ONCE:
-                await self._repository.delete_schedule(schedule.schedule_id)
+                await self._consume_once_schedule(schedule)
             raise
+
+    async def _consume_once_schedule(self, executed: ScheduleDefinition) -> None:
+        """Delete only the exact one-off definition that just finished.
+
+        A handler may schedule the same identifier for a future retry before it
+        returns.  In that case the replacement must survive completion of the
+        currently executing definition.
+        """
+        async with self._schedule_lock:
+            current = await self._repository.get_schedule(executed.schedule_id)
+            if current is None or not _same_once_trigger(current, executed):
+                return
+            try:
+                self._scheduler.remove_job(current.job_id or current.schedule_id)
+            except Exception:
+                pass
+            await self._repository.delete_schedule(executed.schedule_id)
 
     async def get_target_state(
         self,
@@ -704,3 +725,12 @@ class SchedulerService:
         if isinstance(value, datetime):
             return value
         return datetime.fromtimestamp(float(value), tz=timezone.utc)
+
+
+def _same_once_trigger(left: ScheduleDefinition, right: ScheduleDefinition) -> bool:
+    """Return whether two definitions represent the same one-off firing."""
+    return (
+        left.trigger.trigger_type is TriggerType.ONCE
+        and right.trigger.trigger_type is TriggerType.ONCE
+        and left.trigger.config == right.trigger.config
+    )

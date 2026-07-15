@@ -255,6 +255,53 @@ async def test_schedule_once_earliest_is_atomic_under_concurrency(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_consumed_once_handler_can_reschedule_same_identifier(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    replacement_run_at = 0.0
+
+    async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+        nonlocal replacement_run_at
+        replacement_run_at = time.time() + 60.0
+        await service.schedule_once_earliest(
+            schedule_id=context.schedule.schedule_id,
+            target_type=context.schedule.target_type,
+            target_key=context.schedule.target_key,
+            run_at=replacement_run_at,
+            target_payload=context.schedule.target_payload,
+        )
+        return ScheduledExecutionResult(success=True, message="retry_scheduled")
+
+    service.register_handler(ScheduledTargetType.MEMORY_L2_MAINTENANCE, handler)
+    await service.start()
+    try:
+        await service.schedule_once(
+            schedule_id="self-rescheduling-once",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="self-rescheduling-once",
+            run_at=time.time() + 30.0,
+            target_payload={},
+        )
+        # APScheduler removes a date job before dispatching it. Keep the durable
+        # definition to reproduce the state observed by the running handler.
+        service._scheduler.remove_job("self-rescheduling-once")
+
+        result = await service.execute_schedule("self-rescheduling-once")
+
+        assert result.message == "retry_scheduled"
+        replacement = await service.repository.get_schedule("self-rescheduling-once")
+        assert replacement is not None
+        next_run_at = await service.repository.get_schedule_next_run_at(replacement)
+        assert next_run_at is not None
+        assert abs(next_run_at - replacement_run_at) < 1.0
+        assert service._scheduler.get_job("self-rescheduling-once") is not None
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_unschedule_clears_stale_target_errors(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"
