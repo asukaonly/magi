@@ -48,7 +48,6 @@ def create_chat_agent_factory(
             hybrid_retrieval_service=hybrid_retrieval_service,
             memory_integration=memory_integration,
             history_cache_max_sessions=config.agent.runtime.chat_history_cache_max_sessions,
-            history_fetch_limit=config.agent.runtime.chat_history_fetch_limit,
             skill_runner=skill_runner,
             runtime_trace_store=runtime_trace_store,
             chat_store=chat_store,

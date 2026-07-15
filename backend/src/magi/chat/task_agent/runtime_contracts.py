@@ -46,7 +46,6 @@ class ChatTaskAgentRuntimeConfig:
     unified_memory: Any | None = None
     hybrid_retrieval_service: Any | None = None
     history_cache_max_sessions: int = 500
-    history_fetch_limit: int = 1000
     skill_runner: Any | None = None
     runtime_trace_store: RuntimeTraceStore | None = None
     chat_store: ChatStore | None = None

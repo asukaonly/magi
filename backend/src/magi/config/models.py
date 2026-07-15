@@ -397,7 +397,6 @@ class RuntimeSettings(BaseModel):
     task_agent_manager_idle_ttl_seconds: float = Field(default=1800.0, ge=60.0)
     task_agent_manager_max_dynamic_instances: int = Field(default=100, ge=1)
     chat_history_cache_max_sessions: int = Field(default=500, ge=1)
-    chat_history_fetch_limit: int = Field(default=200, ge=1)
 
 
 class BackgroundTasksSettings(BaseModel):

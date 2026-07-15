@@ -12,7 +12,6 @@ if str(BACKEND_SRC) not in sys.path:
 from magi.api.routers import messages, messages_sessions
 from magi.chat import ChatStore
 from magi.chat.read_service import (
-    ChatDisplayMessage,
     ChatReadService,
     ChatSessionRenameResult,
     ChatSessionSummary,
@@ -830,6 +829,58 @@ def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path
     assert [item.content for item in messages] == ["chat-store user", "chat-store reply"]
     assert messages[0].message_id == "msg-user"
     assert messages[1].message_kind == "assistant_final"
+
+
+def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-long",
+        user_id="u1",
+        title="Long Chat",
+        created_at=1000,
+        updated_at=2100,
+        message_count=1005,
+    )
+    conn = sqlite3.connect(str(service._chat_db_path))
+    conn.executemany(
+        f"""
+        INSERT INTO {CHAT_MESSAGES_TABLE} (
+            message_id, session_id, turn_id, user_id, role, message_kind, content_text,
+            payload_json, is_final, is_visible, created_at_ms, sequence_no,
+            replaces_message_id, replaced_by_message_id, reply_to_message_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                f"msg-{index}",
+                "s-long",
+                None,
+                "u1",
+                "user",
+                "user_text",
+                f"message-{index}",
+                "{}",
+                1,
+                1,
+                1000 + index,
+                index,
+                None,
+                None,
+                None,
+            )
+            for index in range(1, 1006)
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    history = service.get_conversation_history("u1", "s-long", limit=None)
+
+    assert len(history) == 1005
+    assert history[0].message_id == "msg-1"
+    assert history[-1].message_id == "msg-1005"
 
 
 def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):

@@ -43,7 +43,6 @@ class ChatContextAssembler:
         l1_db_path: Path,
         runtime_trace_db_path: Optional[Path] = None,
         history_cache_max_sessions: int = 500,
-        history_fetch_limit: int = 1000,
         chat_store: ChatStore | None = None,
         chat_read_service_factory: Callable[[], Any] | None = None,
         scenario_llm_pool: Any | None = None,
@@ -54,7 +53,6 @@ class ChatContextAssembler:
         self._l1_db_path = l1_db_path
         self._runtime_trace_db_path = runtime_trace_db_path or runtime_paths.runtime_trace_db_path
         self._history_cache_max_sessions = history_cache_max_sessions
-        self._history_fetch_limit = history_fetch_limit
         self._conversation_history: dict[str, CachedConversationHistory] = {}
         self._history_cache_order: list[str] = []
         # Recent tool interaction view used during prompt assembly.
@@ -122,7 +120,7 @@ class ChatContextAssembler:
             history = read_service.get_conversation_history(
                 user_id=user_id,
                 session_id=session_id,
-                limit=self._history_fetch_limit,
+                limit=None,
             )
             if active_summary is not None:
                 history = self._filter_history_from_first_kept_message(
@@ -404,4 +402,3 @@ class ChatContextAssembler:
             require_session_id=self.require_session_id,
             build_history_key=self.history_key,
         )
-

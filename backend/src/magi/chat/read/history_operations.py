@@ -335,12 +335,12 @@ class ChatHistoryOperationsMixin:
         self,
         user_id: str,
         session_id: str,
-        limit: int = 200,
+        limit: int | None = 200,
     ) -> list[ChatDisplayMessage]:
         host = cast(_ChatHistoryOperationsHost, self)
         if not host._chat_db_path.exists():
             return []
-        safe_limit = max(1, min(limit, 1000))
+        safe_limit = None if limit is None else max(1, min(limit, 1000))
         try:
             rows = host._query_chat_message_rows(
                 user_id=user_id,
@@ -357,7 +357,7 @@ class ChatHistoryOperationsMixin:
             logger.exception(f"Failed to query chat history: {exc}")
             return []
 
-        selected_rows = rows[-safe_limit:]
+        selected_rows = rows if safe_limit is None else rows[-safe_limit:]
         selected_message_rows: list[sqlite3.Row] = []
         messages: list[ChatDisplayMessage] = []
         for row in selected_rows:

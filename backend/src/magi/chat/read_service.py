@@ -131,7 +131,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         self,
         user_id: str,
         session_id: str,
-        limit: int = 200,
+        limit: int | None = 200,
     ) -> list[ChatDisplayMessage]:
         """Load conversation history without blocking the event loop."""
         return await self._run_threaded(

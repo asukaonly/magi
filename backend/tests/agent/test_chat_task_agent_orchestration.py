@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from magi.chat import ChatContextSummaryRecord, ChatMessageRecord, ChatStore
+from magi.chat.read.models import ChatDisplayMessage
 from magi.agent.orchestration import (
     OrchestrationStore,
     PlannedSubtask,
@@ -197,6 +198,80 @@ async def test_chat_context_assembler_loads_active_summary_context_and_tail(tmp_
         {"role": "user", "content": "tail starts here"},
         {"role": "user", "content": "latest tail"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_chat_context_assembler_keeps_complete_tail_beyond_legacy_limit(
+    tmp_path: Path,
+) -> None:
+    all_messages = [
+        ChatDisplayMessage(
+            role="user",
+            content=f"message-{index}",
+            timestamp=index,
+            kind="user",
+            message_id=f"msg-{index}",
+            message_kind="user_text",
+        )
+        for index in range(1, 1102)
+    ]
+    active_summary = ChatContextSummaryRecord(
+        summary_id="summary-long",
+        session_id="s-long",
+        parent_summary_id=None,
+        status="active",
+        summary_kind="token_budget",
+        persona_scope=None,
+        covered_from_message_id="msg-1",
+        covered_to_message_id="msg-1",
+        first_kept_message_id="msg-2",
+        covered_to_sequence_no=1,
+        session_origin="Long session origin.",
+        summary_text="The first message was summarized.",
+        prompt_profile="general_chat",
+        model_provider=None,
+        model_id=None,
+        token_count_before=10_000,
+        token_count_after=100,
+        quality_status="accepted",
+        created_at_ms=2_000,
+        updated_at_ms=2_000,
+    )
+
+    class _SummaryStore:
+        async def get_history_version(self, session_id: str) -> int:
+            assert session_id == "s-long"
+            return 1
+
+        async def get_active_context_summary(self, *, session_id: str):  # type: ignore[no-untyped-def]
+            assert session_id == "s-long"
+            return active_summary
+
+    class _BoundedReadService:
+        def get_conversation_history(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            limit: int | None = 200,
+        ) -> list[ChatDisplayMessage]:
+            assert user_id == "u-chat"
+            assert session_id == "s-long"
+            if limit is None:
+                return list(all_messages)
+            return all_messages[-min(limit, 1000) :]
+
+    service = ChatContextAssembler(
+        l1_db_path=tmp_path / "l1.sqlite3",
+        chat_store=_SummaryStore(),  # type: ignore[arg-type]
+        chat_read_service_factory=_BoundedReadService,
+    )
+
+    history_context = await service.get_or_load_history_context("u-chat", "s-long")
+
+    assert len(history_context.messages) == 1100
+    assert history_context.messages[0] == {"role": "user", "content": "message-2"}
+    assert history_context.messages[-1] == {"role": "user", "content": "message-1101"}
 
 
 @pytest.mark.asyncio

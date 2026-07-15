@@ -138,7 +138,6 @@ def _build_context_assembler(
     return ChatContextAssembler(
         l1_db_path=runtime_paths.l1_memory_db_path,
         history_cache_max_sessions=config.history_cache_max_sessions,
-        history_fetch_limit=config.history_fetch_limit,
         chat_store=config.chat_store,
         chat_read_service_factory=chat_read_service_factory,
         scenario_llm_pool=config.llm_pool,
