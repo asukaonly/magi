@@ -177,6 +177,7 @@ class RelationshipCorrectionService:
                     db,
                     source_kind="edge",
                     source_ids=[command.triple_id],
+                    subject_keys=_affected_subject_keys(before, replacement),
                     updated_at=now,
                 )
                 affected_subjects = list(
@@ -307,6 +308,10 @@ class RelationshipCorrectionService:
                         correction.target_id,
                         correction.replacement_target_id or "",
                     ],
+                    subject_keys=_affected_subject_keys(
+                        correction.before,
+                        correction.replacement,
+                    ),
                     updated_at=now,
                 )
                 affected_subjects = _affected_subject_keys(

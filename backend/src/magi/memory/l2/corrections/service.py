@@ -253,6 +253,7 @@ class MemoryCorrectionService:
                     db,
                     source_kind="assertion",
                     source_ids=[command.assertion_id],
+                    subject_keys=[str(before["entity_id"])],
                     updated_at=now,
                 )
                 subject_revision = await self.repository.bump_subject_revision(
@@ -359,6 +360,7 @@ class MemoryCorrectionService:
                         correction.target_id,
                         correction.replacement_target_id or "",
                     ],
+                    subject_keys=[str(correction.before["entity_id"])],
                     updated_at=now,
                 )
                 subject_revision = await self.repository.bump_subject_revision(

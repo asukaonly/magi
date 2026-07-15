@@ -598,7 +598,26 @@ class MemoryCorrectionRepository:
         dependencies: Iterable[tuple[str, str, str, int]],
     ) -> None:
         """Replace all possibly multi-subject dependencies for one artifact."""
-        now = time.time()
+        async with sqlite_connection_async(self.db_path) as db:
+            await self.replace_artifact_dependencies_on_connection(
+                db,
+                artifact_kind=artifact_kind,
+                artifact_id=artifact_id,
+                dependencies=dependencies,
+            )
+            await db.commit()
+
+    async def replace_artifact_dependencies_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        artifact_kind: str,
+        artifact_id: str,
+        dependencies: Iterable[tuple[str, str, str, int]],
+        created_at: float | None = None,
+    ) -> None:
+        """Replace an artifact dependency ledger in the caller transaction."""
+        now = float(created_at if created_at is not None else time.time())
         normalized = list(
             dict.fromkeys(
                 (
@@ -611,35 +630,33 @@ class MemoryCorrectionRepository:
                 if str(source_id).strip() and str(subject_key).strip()
             )
         )
-        async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                DELETE FROM memory_derivation_dependencies
-                WHERE artifact_kind = ? AND artifact_id = ?
-                """,
-                (artifact_kind, artifact_id),
-            )
-            await db.executemany(
-                """
-                INSERT INTO memory_derivation_dependencies(
-                    artifact_kind, artifact_id, source_kind, source_id,
-                    subject_key, source_revision, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        artifact_kind,
-                        artifact_id,
-                        source_kind,
-                        source_id,
-                        subject_key,
-                        int(source_revision),
-                        now,
-                    )
-                    for source_kind, source_id, subject_key, source_revision in normalized
-                ],
-            )
-            await db.commit()
+        await db.execute(
+            """
+            DELETE FROM memory_derivation_dependencies
+            WHERE artifact_kind = ? AND artifact_id = ?
+            """,
+            (artifact_kind, artifact_id),
+        )
+        await db.executemany(
+            """
+            INSERT INTO memory_derivation_dependencies(
+                artifact_kind, artifact_id, source_kind, source_id,
+                subject_key, source_revision, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    artifact_kind,
+                    artifact_id,
+                    source_kind,
+                    source_id,
+                    subject_key,
+                    int(source_revision),
+                    now,
+                )
+                for source_kind, source_id, subject_key, source_revision in normalized
+            ],
+        )
 
     async def invalidate_l3_insights_on_connection(
         self,
@@ -647,24 +664,46 @@ class MemoryCorrectionRepository:
         *,
         source_kind: str,
         source_ids: Iterable[str],
+        subject_keys: Iterable[str] = (),
         updated_at: float | None = None,
     ) -> set[str]:
-        """Hide L3 insights that explicitly depend on corrected claims."""
+        """Invalidate direct dependants and keep stale same-subject rebuilds queued."""
         normalized_ids = list(
             dict.fromkeys(str(source_id).strip() for source_id in source_ids if str(source_id).strip())
         )
-        if not normalized_ids:
+        normalized_subjects = list(
+            dict.fromkeys(
+                str(subject_key).strip()
+                for subject_key in subject_keys
+                if str(subject_key).strip()
+            )
+        )
+        if not normalized_ids and not normalized_subjects:
             return set()
-        placeholders = ", ".join("?" for _ in normalized_ids)
+        clauses: list[str] = []
+        args: list[Any] = []
+        if normalized_ids:
+            placeholders = ", ".join("?" for _ in normalized_ids)
+            clauses.append(
+                f"(dependencies.source_kind = ? AND dependencies.source_id IN ({placeholders}))"
+            )
+            args.extend((source_kind, *normalized_ids))
+        if normalized_subjects:
+            placeholders = ", ".join("?" for _ in normalized_subjects)
+            clauses.append(
+                f"(dependencies.subject_key IN ({placeholders}) "
+                "AND summaries.derivation_state = 'stale')"
+            )
+            args.extend(normalized_subjects)
         async with db.execute(
             f"""
-            SELECT DISTINCT artifact_id, subject_key
-            FROM memory_derivation_dependencies
-            WHERE artifact_kind = 'l3_insight'
-              AND source_kind = ?
-              AND source_id IN ({placeholders})
+            SELECT DISTINCT dependencies.artifact_id, dependencies.subject_key
+            FROM memory_derivation_dependencies AS dependencies
+            JOIN summaries ON summaries.summary_id = dependencies.artifact_id
+            WHERE dependencies.artifact_kind = 'l3_insight'
+              AND ({' OR '.join(clauses)})
             """,
-            (source_kind, *normalized_ids),
+            tuple(args),
         ) as cursor:
             rows = await cursor.fetchall()
         if not rows:

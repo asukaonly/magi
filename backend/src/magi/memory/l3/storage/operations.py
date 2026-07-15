@@ -292,8 +292,39 @@ class L3SummaryPersistenceMixin:
         """
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                summary = await self.upsert_candidate_on_connection(
+                    db,
+                    candidate=candidate,
+                    source_task_ids=source_task_ids or [],
+                    summary_overrides=summary_overrides,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        await host._schedule_summary_embedding(summary)
+        return summary
+
+    async def upsert_candidate_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        candidate: L3Candidate,
+        source_task_ids: list[str],
+        summary_overrides: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Persist a candidate and evidence links in the caller transaction."""
         now = time.time()
-        insight_key, existing_summary = await self._candidate_insight_match(candidate)
+        insight_key = (candidate.insight_key or "").strip() or None
+        existing_summary = (
+            await self._find_summary_by_insight_key_on_connection(db, insight_key)
+            if insight_key is not None
+            else None
+        )
         summary = self._build_candidate_summary(
             candidate=candidate,
             existing_summary=existing_summary,
@@ -301,22 +332,14 @@ class L3SummaryPersistenceMixin:
             now=now,
             summary_overrides=summary_overrides,
         )
-        await self._store_summary(summary)
-        await self._replace_candidate_links(
+        await self._store_summary_on_connection(db, summary)
+        await self._replace_candidate_links_on_connection(
+            db,
             summary=summary,
             candidate=candidate,
-            source_task_ids=source_task_ids or [],
+            source_task_ids=source_task_ids,
         )
         return summary
-
-    async def _candidate_insight_match(
-        self,
-        candidate: L3Candidate,
-    ) -> tuple[str | None, Optional[Dict[str, Any]]]:
-        insight_key = (candidate.insight_key or "").strip() or None
-        if insight_key is None:
-            return None, None
-        return insight_key, await self._find_summary_by_insight_key(insight_key)
 
     def _build_candidate_summary(
         self,
@@ -389,28 +412,46 @@ class L3SummaryPersistenceMixin:
             "updated_at": now,
         }
 
-    async def _replace_candidate_links(
+    async def _replace_candidate_links_on_connection(
         self,
+        db: aiosqlite.Connection,
         *,
         summary: Dict[str, Any],
         candidate: L3Candidate,
         source_task_ids: list[str],
     ) -> None:
+        """Replace candidate evidence links in the caller transaction."""
         link_event_ids = list(summary.get("source_event_ids") or [])
         if not link_event_ids:
             link_event_ids = list(candidate.source_event_ids)
-        await self._replace_summary_event_links(summary["summary_id"], link_event_ids)
-        await self._replace_summary_task_links(summary["summary_id"], source_task_ids)
+        await self._replace_summary_event_links_on_connection(
+            db,
+            str(summary["summary_id"]),
+            link_event_ids,
+        )
+        await self._replace_summary_task_links_on_connection(
+            db,
+            str(summary["summary_id"]),
+            source_task_ids,
+        )
 
     async def _find_summary_by_insight_key(self, insight_key: str) -> Optional[Dict[str, Any]]:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT * FROM summaries WHERE insight_key = ? LIMIT 1",
-                (insight_key,),
-            ) as cursor:
-                row = await cursor.fetchone()
+            return await self._find_summary_by_insight_key_on_connection(db, insight_key)
+
+    async def _find_summary_by_insight_key_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        insight_key: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Find an insight-key match using the caller connection."""
+        async with db.execute(
+            "SELECT * FROM summaries WHERE insight_key = ? LIMIT 1",
+            (insight_key,),
+        ) as cursor:
+            row = await cursor.fetchone()
         if row is None:
             return None
         return self._row_to_dict(row)
@@ -541,6 +582,17 @@ class L3SummaryPersistenceMixin:
 
     async def _store_summary(self, summary: Dict[str, Any]) -> None:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
+        async with sqlite_connection_async(host.db_path) as db:
+            await self._store_summary_on_connection(db, summary)
+            await db.commit()
+        await host._schedule_summary_embedding(summary)
+
+    async def _store_summary_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        summary: Dict[str, Any],
+    ) -> None:
+        """Store one summary row and its search text in the caller transaction."""
         insight_key_raw = summary.get("insight_key")
         insight_key: str | None = None
         if isinstance(insight_key_raw, str):
@@ -553,106 +605,121 @@ class L3SummaryPersistenceMixin:
         narrative_style = str(summary.get("narrative_style") or "default")
         essence_prose_raw = summary.get("essence_prose")
         essence_prose = str(essence_prose_raw) if essence_prose_raw else None
-        async with sqlite_connection_async(host.db_path) as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO summaries(
-                    summary_id, summary_type, summary_category, period_start, period_end,
-                    content, key_topics, key_entities, sentiment_summary, change_and_pattern, source_event_ids,
-                    source_event_count, importance_aggregate, event_type_distribution,
-                    generated_by_model, generation_prompt, generation_reason,
-                    insight_key, review_state, insight_metadata,
-                    narrative_style, essence_prose,
-                    embedding_chunk_count, last_embedded_at, source_revision,
-                    derivation_state, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+        await db.execute(
+            """
+            INSERT OR REPLACE INTO summaries(
+                summary_id, summary_type, summary_category, period_start, period_end,
+                content, key_topics, key_entities, sentiment_summary, change_and_pattern, source_event_ids,
+                source_event_count, importance_aggregate, event_type_distribution,
+                generated_by_model, generation_prompt, generation_reason,
+                insight_key, review_state, insight_metadata,
+                narrative_style, essence_prose,
+                embedding_chunk_count, last_embedded_at, source_revision,
+                derivation_state, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                summary["summary_id"],
+                summary["summary_type"],
+                summary["summary_category"],
+                float(summary["period_start"]),
+                float(summary["period_end"]),
+                summary["content"],
+                json.dumps(summary["key_topics"], ensure_ascii=False),
+                json.dumps(summary["key_entities"], ensure_ascii=False),
+                self._encode_optional_json(summary["sentiment_summary"]),
+                self._encode_optional_json(summary.get("change_and_pattern")),
+                json.dumps(summary["source_event_ids"], ensure_ascii=False),
+                int(summary["source_event_count"]),
+                float(summary["importance_aggregate"]),
+                json.dumps(summary["event_type_distribution"], ensure_ascii=False),
+                summary["generated_by_model"],
+                summary["generation_prompt"],
+                summary["generation_reason"],
+                insight_key,
+                review_state,
+                insight_metadata,
+                narrative_style,
+                essence_prose,
+                int(summary.get("embedding_chunk_count") or 0),
                 (
-                    summary["summary_id"],
-                    summary["summary_type"],
-                    summary["summary_category"],
-                    float(summary["period_start"]),
-                    float(summary["period_end"]),
-                    summary["content"],
-                    json.dumps(summary["key_topics"], ensure_ascii=False),
-                    json.dumps(summary["key_entities"], ensure_ascii=False),
-                    self._encode_optional_json(summary["sentiment_summary"]),
-                    self._encode_optional_json(summary.get("change_and_pattern")),
-                    json.dumps(summary["source_event_ids"], ensure_ascii=False),
-                    int(summary["source_event_count"]),
-                    float(summary["importance_aggregate"]),
-                    json.dumps(summary["event_type_distribution"], ensure_ascii=False),
-                    summary["generated_by_model"],
-                    summary["generation_prompt"],
-                    summary["generation_reason"],
-                    insight_key,
-                    review_state,
-                    insight_metadata,
-                    narrative_style,
-                    essence_prose,
-                    int(summary.get("embedding_chunk_count") or 0),
-                    (
-                        float(summary["last_embedded_at"])
-                        if summary.get("last_embedded_at") is not None
-                        else None
-                    ),
-                    int(summary.get("source_revision") or 0),
-                    str(summary.get("derivation_state") or "current"),
-                    float(summary["created_at"]),
-                    float(summary["updated_at"]),
+                    float(summary["last_embedded_at"])
+                    if summary.get("last_embedded_at") is not None
+                    else None
                 ),
-            )
-            tokenized = tokenize_for_fts(build_l3_embedding_text(summary))
-            await db.execute(
-                "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
-                (summary["summary_id"],),
-            )
-            await db.execute(
-                "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
-                (summary["summary_id"], tokenized),
-            )
-            await db.commit()
-        await host._schedule_summary_embedding(summary)
+                int(summary.get("source_revision") or 0),
+                str(summary.get("derivation_state") or "current"),
+                float(summary["created_at"]),
+                float(summary["updated_at"]),
+            ),
+        )
+        tokenized = tokenize_for_fts(build_l3_embedding_text(summary))
+        await db.execute(
+            "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
+            (summary["summary_id"],),
+        )
+        await db.execute(
+            "INSERT INTO l3_summaries_fts(summary_id, content) VALUES (?, ?)",
+            (summary["summary_id"], tokenized),
+        )
 
     async def _replace_summary_event_links(self, summary_id: str, event_ids: list[str]) -> None:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
-        now = time.time()
         async with sqlite_connection_async(host.db_path) as db:
-            await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
-            if event_ids:
-                await db.executemany(
-                    """
-                    INSERT INTO summary_event_links(
-                        link_id, summary_id, event_id, link_role, evidence_weight, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    build_summary_event_link_rows(
-                        summary_id=summary_id,
-                        event_ids=event_ids,
-                        created_at=now,
-                    ),
-                )
+            await self._replace_summary_event_links_on_connection(db, summary_id, event_ids)
             await db.commit()
+
+    async def _replace_summary_event_links_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        summary_id: str,
+        event_ids: list[str],
+    ) -> None:
+        """Replace event evidence links in the caller transaction."""
+        now = time.time()
+        await db.execute("DELETE FROM summary_event_links WHERE summary_id = ?", (summary_id,))
+        if event_ids:
+            await db.executemany(
+                """
+                INSERT INTO summary_event_links(
+                    link_id, summary_id, event_id, link_role, evidence_weight, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                build_summary_event_link_rows(
+                    summary_id=summary_id,
+                    event_ids=event_ids,
+                    created_at=now,
+                ),
+            )
 
     async def _replace_summary_task_links(self, summary_id: str, task_ids: list[str]) -> None:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
-        now = time.time()
         async with sqlite_connection_async(host.db_path) as db:
-            await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
-            if task_ids:
-                await db.executemany(
-                    """
-                    INSERT INTO summary_task_links(
-                        link_id, summary_id, task_id, link_role, created_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    build_summary_task_link_rows(
-                        summary_id=summary_id,
-                        task_ids=task_ids,
-                        created_at=now,
-                    ),
-                )
+            await self._replace_summary_task_links_on_connection(db, summary_id, task_ids)
             await db.commit()
+
+    async def _replace_summary_task_links_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        summary_id: str,
+        task_ids: list[str],
+    ) -> None:
+        """Replace task evidence links in the caller transaction."""
+        now = time.time()
+        await db.execute("DELETE FROM summary_task_links WHERE summary_id = ?", (summary_id,))
+        if task_ids:
+            await db.executemany(
+                """
+                INSERT INTO summary_task_links(
+                    link_id, summary_id, task_id, link_role, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                build_summary_task_link_rows(
+                    summary_id=summary_id,
+                    task_ids=task_ids,
+                    created_at=now,
+                ),
+            )
 
     def _row_to_dict(self, row: aiosqlite.Row) -> Dict[str, Any]:
         return row_to_summary_dict(row)

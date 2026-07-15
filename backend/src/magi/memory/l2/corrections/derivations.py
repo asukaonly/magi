@@ -214,7 +214,10 @@ class CorrectionDerivationRunner:
         await L3CorrectionDerivationService(
             db_path=self._db_path,
             l2_store=self._l2_store,
-        ).rebuild_subject(str(job["target_key"]))
+        ).rebuild_subject(
+            str(job["target_key"]),
+            expected_revision=int(job["target_revision"]),
+        )
 
     async def _entity_type(self, entity_id: str) -> str:
         async with sqlite_connection_async(self._db_path) as db:
