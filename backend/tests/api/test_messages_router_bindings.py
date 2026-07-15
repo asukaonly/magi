@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from magi.api.routers import messages as messages_router
 from magi.api.routers import (
@@ -29,7 +30,9 @@ async def _runtime_ready(_app):  # type: ignore[no-untyped-def]
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_uses_runtime_namespace_for_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
@@ -43,7 +46,9 @@ async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -58,7 +63,9 @@ async def test_send_user_message_uses_runtime_namespace_for_dispatch(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_defaults_to_desktop_runtime_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
@@ -72,7 +79,9 @@ async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatc
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -87,7 +96,9 @@ async def test_send_user_message_defaults_to_desktop_runtime_identity(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_passes_attachments_and_workspace_path(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_forwards_structured_recall_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
@@ -101,7 +112,64 @@ async def test_send_user_message_passes_attachments_and_workspace_path(monkeypat
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
+
+    response = await messages_router.send_user_message(
+        messages_router.UserMessageRequest(
+            message="Leave this record out.",
+            session_id="session-1",
+            reply_to_message_id="assistant-1",
+            recall_feedback={
+                "kind": "item_irrelevant",
+                "target_message_id": "assistant-1",
+                "finding_ref": "event:event-1",
+            },
+        )
+    )
+
+    assert response.success is True
+    assert captured["reply_to_message_id"] == "assistant-1"
+    assert captured["metadata"]["recall_feedback"] == {
+        "kind": "item_irrelevant",
+        "target_message_id": "assistant-1",
+        "finding_ref": "event:event-1",
+    }
+
+
+def test_item_recall_feedback_requires_a_finding_reference() -> None:
+    with pytest.raises(ValidationError):
+        messages_router.UserMessageRequest(
+            message="Leave this record out.",
+            session_id="session-1",
+            recall_feedback={
+                "kind": "item_irrelevant",
+                "target_message_id": "assistant-1",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_passes_attachments_and_workspace_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return MessageDispatchOutcome(
+            success=True,
+            user_id=str(kwargs["user_id"]),
+            session_id="session-1",
+            turn_id="turn-1",
+        )
+
+    monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
+    monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -132,7 +200,9 @@ async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -147,7 +217,9 @@ async def test_send_user_message_forwards_reply_target(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_rejects_when_runtime_is_not_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_rejects_when_runtime_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def _fake_runtime_status(_app):  # type: ignore[no-untyped-def]
         return {
             "runtime_ready": False,
@@ -170,7 +242,9 @@ async def test_send_user_message_rejects_when_runtime_is_not_ready(monkeypatch: 
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _fake_runtime_status)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -186,7 +260,9 @@ async def test_send_user_message_rejects_when_runtime_is_not_ready(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_dispatches_when_runtime_is_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_dispatches_when_runtime_is_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
@@ -200,7 +276,9 @@ async def test_send_user_message_dispatches_when_runtime_is_ready(monkeypatch: p
 
     monkeypatch.setattr(messages_dispatch, "get_runtime_system_status", _runtime_ready)
     monkeypatch.setattr(messages_dispatch, "dispatch_user_message", _fake_dispatch_user_message)
-    monkeypatch.setattr(messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        messages_dispatch, "build_bootstrap_l2_priority_metadata", AsyncMock(return_value={})
+    )
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
@@ -214,7 +292,9 @@ async def test_send_user_message_dispatches_when_runtime_is_ready(monkeypatch: p
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_merges_bootstrap_l2_priority_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_send_user_message_merges_bootstrap_l2_priority_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     async def _fake_dispatch_user_message(**kwargs):  # type: ignore[no-untyped-def]
@@ -261,7 +341,9 @@ async def test_send_user_message_merges_bootstrap_l2_priority_metadata(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_get_conversation_history_uses_async_read_service(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_conversation_history_uses_async_read_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _AsyncOnlyReadService:
         def get_display_history(self, user_id: str, session_id: str):  # type: ignore[no-untyped-def]
             raise AssertionError("sync history reader should not be used")
@@ -289,7 +371,9 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
             assert session_id == "s1"
             return None
 
-    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService())
+    monkeypatch.setattr(
+        messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService()
+    )
 
     response = await messages_router.get_conversation_history(user_id="u1", session_id="s1")
 
@@ -299,7 +383,9 @@ async def test_get_conversation_history_uses_async_read_service(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_get_chat_attachment_content_returns_file_response(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+async def test_get_chat_attachment_content_returns_file_response(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
     attachment_path = tmp_path / "diagram.png"
     attachment_path.write_bytes(b"png")
 
@@ -318,7 +404,9 @@ async def test_get_chat_attachment_content_returns_file_response(monkeypatch: py
                 "storage_path": str(attachment_path),
             }
 
-    monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService())
+    monkeypatch.setattr(
+        messages_content, "require_chat_read_service", lambda: _AsyncOnlyReadService()
+    )
 
     response = await messages_router.get_chat_attachment_content(
         session_id="s1",
@@ -352,7 +440,9 @@ async def test_set_message_label_route_updates_message_without_creating_new_row(
             captured["label"] = label
             return True
 
-    monkeypatch.setattr(messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter())
+    monkeypatch.setattr(
+        messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter()
+    )
 
     response = await messages_router.set_message_label(
         session_id="s1",
@@ -401,7 +491,9 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
             captured["message_id"] = message_id
             return True
 
-    monkeypatch.setattr(messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter())
+    monkeypatch.setattr(
+        messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter()
+    )
 
     response = await messages_router.delete_message(
         session_id="s1",
@@ -423,7 +515,9 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
 
 
 @pytest.mark.asyncio
-async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_execution_trace_uses_async_trace_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _FakeReadService:
         pass
 
@@ -438,16 +532,22 @@ async def test_get_execution_trace_uses_async_trace_service(monkeypatch: pytest.
             return {"summary": {"headline": "done"}}
 
     monkeypatch.setattr(messages_content, "require_chat_read_service", lambda: _FakeReadService())
-    monkeypatch.setattr(messages_content, "get_chat_trace_read_service", lambda: _AsyncOnlyTraceService())
+    monkeypatch.setattr(
+        messages_content, "get_chat_trace_read_service", lambda: _AsyncOnlyTraceService()
+    )
 
-    response = await messages_router.get_execution_trace(user_id="u1", session_id="s1", turn_id="turn-1")
+    response = await messages_router.get_execution_trace(
+        user_id="u1", session_id="s1", turn_id="turn-1"
+    )
 
     assert response["success"] is True
     assert response["trace"]["summary"]["headline"] == "done"
 
 
 @pytest.mark.asyncio
-async def test_create_new_session_uses_default_workspace_path(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_new_session_uses_default_workspace_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _FakeReadService:
@@ -475,7 +575,9 @@ async def test_update_session_workspace_route_response(monkeypatch: pytest.Monke
         workspace_path: str | None
 
     class _FakeReadService:
-        async def aupdate_session_workspace(self, user_id: str, session_id: str, workspace_path: str | None):
+        async def aupdate_session_workspace(
+            self, user_id: str, session_id: str, workspace_path: str | None
+        ):
             assert user_id == "u1"
             assert session_id == "s1"
             assert workspace_path == "/tmp/magi"
@@ -499,7 +601,9 @@ async def test_update_session_workspace_route_response(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_cancel_session_run_route_delegates_to_chat_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cancel_session_run_route_delegates_to_chat_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _FakeChatAgent:
@@ -554,7 +658,9 @@ async def test_cancel_session_run_route_delegates_to_chat_agent(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_detach_session_run_route_delegates_to_chat_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_detach_session_run_route_delegates_to_chat_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     captured: dict[str, object] = {}
 
     class _FakeChatAgent:

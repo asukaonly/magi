@@ -231,6 +231,9 @@ class FunctionCallingResponseMixin:
             evidence_text = str(finding.get("evidence_text") or "").strip()
             if evidence_text:
                 entry["evidence_text"] = evidence_text
+            feedback_ref = str(finding.get("feedback_ref") or "").strip()
+            if feedback_ref:
+                entry["feedback_ref"] = feedback_ref
             compact.append(entry)
             if len(compact) >= limit:
                 break

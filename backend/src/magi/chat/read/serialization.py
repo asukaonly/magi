@@ -73,7 +73,12 @@ def row_to_display_message(row: sqlite3.Row) -> ChatDisplayMessage | None:
         return None
 
     if context.message_kind == "user_text":
-        return _build_display_message(context, role="user", kind="user")
+        return _build_display_message(
+            context,
+            role="user",
+            kind="user",
+            payload_keys=("recall_feedback",),
+        )
     if context.message_kind in _USER_PAYLOAD_MESSAGE_KINDS:
         return _build_display_message(
             context,
@@ -139,9 +144,18 @@ def _build_display_message(
     role: str,
     kind: str,
     include_payload: bool = False,
+    payload_keys: tuple[str, ...] = (),
     include_attachments: bool = True,
     include_label: bool = True,
 ) -> ChatDisplayMessage:
+    payload: dict[str, Any] | None = None
+    if include_payload:
+        payload = dict(context.payload)
+    elif payload_keys:
+        selected_payload = {
+            key: context.payload[key] for key in payload_keys if key in context.payload
+        }
+        payload = selected_payload or None
     return ChatDisplayMessage(
         role=role,
         kind=kind,
@@ -152,7 +166,7 @@ def _build_display_message(
         message_kind=context.message_kind,
         persona_id=context.persona_id,
         turn_id=context.turn_id,
-        payload=dict(context.payload) if include_payload else None,
+        payload=payload,
         label=context.label_payload if include_label else None,
     )
 

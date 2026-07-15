@@ -1,4 +1,5 @@
 """Common contracts shared by task-agent execution pipelines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,6 +7,7 @@ from enum import Enum
 from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
+from ....events.recall_feedback import RecallFeedbackRequest
 from ...orchestration_plan import OrchestrationPlan
 from ....config.models import ThinkingDepth
 from ....tools.context_routing import RouteDecision
@@ -68,6 +70,7 @@ class UserMessagePayload:
     workspace_path: Optional[str] = None
     turn_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
+    recall_feedback: RecallFeedbackRequest | None = None
     source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +87,8 @@ class UserMessagePayload:
             payload["turn_id"] = self.turn_id
         if self.reply_to_message_id is not None:
             payload["reply_to_message_id"] = self.reply_to_message_id
+        if self.recall_feedback is not None:
+            payload["recall_feedback"] = self.recall_feedback.to_dict()
         return payload
 
     @classmethod
@@ -94,12 +99,17 @@ class UserMessagePayload:
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
             content=str(payload.get("content") or "").strip(),
-            attachments=payload.get("attachments") if isinstance(payload.get("attachments"), list) else [],
+            attachments=payload.get("attachments")
+            if isinstance(payload.get("attachments"), list)
+            else [],
             workspace_path=_optional_string(payload.get("workspace_path")),
             turn_id=_optional_string(payload.get("turn_id")),
             reply_to_message_id=(
                 _optional_string(payload.get("reply_to_message_id"))
                 or _optional_string(metadata.get("reply_to_message_id"))
+            ),
+            recall_feedback=RecallFeedbackRequest.from_value(
+                payload.get("recall_feedback") or metadata.get("recall_feedback")
             ),
             source=str(raw_source) if raw_source else "api",
         )
@@ -181,7 +191,9 @@ class WorkerUpdatePayload:
                 payload.get("worker_description") or payload.get("description")
             ),
             result_preview=str(payload.get("result_preview") or "").strip(),
-            worker_result=WorkerResult.from_dict(worker_result) if isinstance(worker_result, dict) else None,
+            worker_result=WorkerResult.from_dict(worker_result)
+            if isinstance(worker_result, dict)
+            else None,
             error=_optional_string(payload.get("error")),
             failure_reason=_optional_string(payload.get("failure_reason")),
             error_text=_optional_string(payload.get("error_text")),
@@ -224,7 +236,9 @@ class ExploreTaskRequestPayload:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "ExploreTaskRequestPayload":
+    def from_dict(
+        cls, payload: dict[str, Any], *, fallback_user_id: str
+    ) -> "ExploreTaskRequestPayload":
         history_snapshot = payload.get("history_snapshot")
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
@@ -272,7 +286,9 @@ class ExploreTaskCompletedPayload:
         return payload
 
     @classmethod
-    def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "ExploreTaskCompletedPayload":
+    def from_dict(
+        cls, payload: dict[str, Any], *, fallback_user_id: str
+    ) -> "ExploreTaskCompletedPayload":
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
@@ -404,7 +420,9 @@ class RhythmPersonaSignal:
     register: str = "casual"
     persona_intensity: int = 1
     sentence_style: str = ""
-    chattiness: float = 0.5  # baseline conversational verbosity; drives rhythm pacing via _rhythm_level
+    chattiness: float = (
+        0.5  # baseline conversational verbosity; drives rhythm pacing via _rhythm_level
+    )
 
 
 @dataclass(slots=True)

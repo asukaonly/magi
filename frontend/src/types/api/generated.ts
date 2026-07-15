@@ -7407,6 +7407,23 @@ export interface components {
              */
             readonly condition: string;
         };
+        /**
+         * RecallFeedbackKind
+         * @description Supported answer-level recall correction intents.
+         * @enum {string}
+         */
+        readonly RecallFeedbackKind: "answer_evidence_mismatch" | "item_irrelevant";
+        /**
+         * RecallFeedbackRequestModel
+         * @description Structured request to re-evaluate one memory-grounded answer.
+         */
+        readonly RecallFeedbackRequestModel: {
+            /** Finding Ref */
+            readonly finding_ref?: string | null;
+            readonly kind: components["schemas"]["RecallFeedbackKind"];
+            /** Target Message Id */
+            readonly target_message_id: string;
+        };
         /** RegisterModel */
         readonly RegisterModel: {
             /**
@@ -8250,6 +8267,8 @@ export interface components {
             readonly metadata?: {
                 readonly [key: string]: unknown;
             } | null;
+            /** @description Optional one-turn recall correction request */
+            readonly recall_feedback?: components["schemas"]["RecallFeedbackRequestModel"] | null;
             /**
              * Reply To Message Id
              * @description Optional replied-to message id

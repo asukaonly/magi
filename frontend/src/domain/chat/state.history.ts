@@ -39,6 +39,9 @@ export const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | unde
     const evidenceText = typeof record.evidence_text === 'string'
       ? record.evidence_text.trim() || null
       : null;
+    const feedbackRef = typeof record.feedback_ref === 'string'
+      ? record.feedback_ref.trim() || null
+      : null;
     items.push({
       kind: String(record.kind || 'event'),
       sourceLayer: String(record.source_layer || 'L1'),
@@ -47,6 +50,7 @@ export const normalizeRecalledMemories = (raw: unknown): RecalledMemory[] | unde
       confidence,
       occurredAt,
       evidenceText,
+      feedbackRef,
     });
   }
   return items.length > 0 ? items : undefined;

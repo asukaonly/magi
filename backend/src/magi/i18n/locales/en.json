@@ -20,6 +20,7 @@
         "runtime_command_queue_not_initialized": "Runtime command queue is not initialized. Please complete onboarding or check the saved configuration.",
         "chat_store_not_initialized": "Chat store is not initialized.",
         "session_id_required": "Session ID is required.",
+        "recall_feedback_pending_ask": "Answer the current question before rechecking an earlier reply.",
         "empty_turn": "Message text or attachments are required.",
         "persist_failed": "Chat turn persistence failed",
         "enqueue_failed": "Runtime command enqueue failed",

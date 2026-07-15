@@ -3,6 +3,7 @@
  */
 import { api, unwrapGatewayPayload } from '../client';
 import { DEFAULT_USER_ID } from '@/constants';
+import type { RecallFeedbackRequest } from '@/domain/chat/recall-feedback';
 
 export interface ChatAttachment {
   attachment_id: string;
@@ -26,6 +27,7 @@ export interface UserMessageRequest {
   reply_to_message_id?: string | null;
   workspace_path?: string | null;
   client_turn_id?: string;
+  recall_feedback?: RecallFeedbackRequest;
   metadata?: Record<string, any>;
 }
 

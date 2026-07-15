@@ -418,6 +418,20 @@ def _attach_score(
 # ---------------------------------------------------------------------------
 
 
+def _feedback_ref(
+    kind: str,
+    item: dict[str, Any],
+    *identity_fields: str,
+) -> str | None:
+    """Return an opaque, stable identity for turn-local recall feedback."""
+
+    for field_name in identity_fields:
+        identity = str(item.get(field_name) or "").strip()
+        if identity:
+            return f"{kind}:{identity}"
+    return None
+
+
 def _project_relationships(
     items: list[dict[str, Any]],
     canonical_names: dict[str, str] | None = None,
@@ -475,6 +489,9 @@ def _project_relationships(
             "updated_at": item.get("updated_at"),
             "_retrieval_score": float(item.get("_fusion_score") or item.get("confidence") or 0.0),
         }
+        feedback_ref = _feedback_ref("relationship", item, "triple_id", "id")
+        if feedback_ref is not None:
+            finding["feedback_ref"] = feedback_ref
         evidence_text = str(item.get("evidence_text") or "").strip()
         if evidence_text:
             finding["evidence_text"] = evidence_text
@@ -571,7 +588,7 @@ def _assertion_finding(
     predicate: str,
     value: str,
 ) -> dict[str, Any]:
-    return {
+    finding = {
         "kind": "assertion",
         "statement": f"{subject} {predicate}: {value}",
         "source_layer": "L2",
@@ -581,6 +598,10 @@ def _assertion_finding(
         "updated_at": item.get("updated_at") or item.get("last_validated_at"),
         "_retrieval_score": float(item.get("confidence") or item.get("confidence_score") or 0.0),
     }
+    feedback_ref = _feedback_ref("assertion", item, "assertion_id", "id")
+    if feedback_ref is not None:
+        finding["feedback_ref"] = feedback_ref
+    return finding
 
 
 def _project_experiences(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -611,6 +632,9 @@ def _project_experiences(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 item.get("_retrieval_score") or item.get("narrative_score") or 0.0
             ),
         }
+        feedback_ref = _feedback_ref("experience", item, "experience_id", "id")
+        if feedback_ref is not None:
+            finding["feedback_ref"] = feedback_ref
         findings.append(finding)
     return findings
 
@@ -742,18 +766,20 @@ def _project_events(
                     }
                 )
             continue
-        findings.append(
-            {
-                "kind": "event",
-                "statement": content,
-                "source_layer": "L1",
-                "confidence": item.get("score"),
-                "status": "active",
-                "occurred_at": item.get("timestamp"),
-                "updated_at": item.get("timestamp") or item.get("created_at"),
-                "_retrieval_score": float(item.get("score") or item.get("retrieval_score") or 0.0),
-            }
-        )
+        finding = {
+            "kind": "event",
+            "statement": content,
+            "source_layer": "L1",
+            "confidence": item.get("score"),
+            "status": "active",
+            "occurred_at": item.get("timestamp"),
+            "updated_at": item.get("timestamp") or item.get("created_at"),
+            "_retrieval_score": float(item.get("score") or item.get("retrieval_score") or 0.0),
+        }
+        feedback_ref = _feedback_ref("event", item, "event_id", "id")
+        if feedback_ref is not None:
+            finding["feedback_ref"] = feedback_ref
+        findings.append(finding)
     return findings
 
 
@@ -835,18 +861,27 @@ def _project_reflections(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         summary = str(item.get("summary") or item.get("content") or "").strip()
         if not summary:
             continue
-        findings.append(
-            {
-                "kind": "reflection",
-                "statement": summary,
-                "source_layer": "L3",
-                "confidence": item.get("confidence"),
-                "status": item.get("status"),
-                "occurred_at": item.get("period_start_at"),
-                "updated_at": item.get("updated_at") or item.get("created_at"),
-                "_retrieval_score": float(item.get("confidence") or 0.5),
-            }
+        finding = {
+            "kind": "reflection",
+            "statement": summary,
+            "source_layer": "L3",
+            "confidence": item.get("confidence"),
+            "status": item.get("status"),
+            "occurred_at": item.get("period_start_at"),
+            "updated_at": item.get("updated_at") or item.get("created_at"),
+            "_retrieval_score": float(item.get("confidence") or 0.5),
+        }
+        feedback_ref = _feedback_ref(
+            "reflection",
+            item,
+            "reflection_id",
+            "summary_id",
+            "insight_id",
+            "id",
         )
+        if feedback_ref is not None:
+            finding["feedback_ref"] = feedback_ref
+        findings.append(finding)
     return findings
 
 
@@ -860,18 +895,27 @@ def _project_procedures(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ).strip()
         if not description:
             continue
-        findings.append(
-            {
-                "kind": "procedure",
-                "statement": description,
-                "source_layer": "L4",
-                "confidence": item.get("success_rate"),
-                "status": item.get("status"),
-                "occurred_at": item.get("created_at"),
-                "updated_at": item.get("updated_at"),
-                "_retrieval_score": float(item.get("success_rate") or 0.5),
-            }
+        finding = {
+            "kind": "procedure",
+            "statement": description,
+            "source_layer": "L4",
+            "confidence": item.get("success_rate"),
+            "status": item.get("status"),
+            "occurred_at": item.get("created_at"),
+            "updated_at": item.get("updated_at"),
+            "_retrieval_score": float(item.get("success_rate") or 0.5),
+        }
+        feedback_ref = _feedback_ref(
+            "procedure",
+            item,
+            "skill_id",
+            "procedure_id",
+            "experience_id",
+            "id",
         )
+        if feedback_ref is not None:
+            finding["feedback_ref"] = feedback_ref
+        findings.append(finding)
     return findings
 
 

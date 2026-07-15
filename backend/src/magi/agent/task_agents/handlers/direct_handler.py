@@ -34,6 +34,10 @@ from .handler_helpers import (
     serialize_ux_plan as _serialize_ux_plan,
 )
 from .attachment_context import resolve_effective_turn_attachments
+from .recall_feedback import (
+    build_recall_feedback_message_payload,
+    build_recall_feedback_prompt,
+)
 from ...run.ports import AttachmentResolverPort, NullAttachmentResolver
 from ....runtime_trace import enrich_event_context_with_turn_trace
 
@@ -183,6 +187,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             workspace_path=_resolve_turn_workspace_path(request.context),
             persona_id=getattr(request.context, "active_persona_id", None),
             persona_routing_hint=getattr(request.intent, "persona_routing_hint", None),
+            allow_implicit_memory=getattr(request.context, "recall_feedback", None) is None,
         )
         effective_system_prompt = (
             self._deps.prompt_service.augment_system_prompt_with_reply_context(
@@ -191,6 +196,11 @@ class DirectLLMHandler(BaseExecutionHandler):
                 recent_tool_state=getattr(request.context, "recent_tool_state", None),
             )
         )
+        recall_feedback_prompt = build_recall_feedback_prompt(
+            getattr(request.context, "recall_feedback", None)
+        )
+        if recall_feedback_prompt:
+            effective_system_prompt = f"{effective_system_prompt}\n\n{recall_feedback_prompt}"
         context_budget = self._current_context_budget()
         history_budget = max(
             1,
@@ -560,6 +570,9 @@ class DirectLLMHandler(BaseExecutionHandler):
         return ExecutionResult(
             mode=request.mode,
             response_text=response_text,
+            message_payload=build_recall_feedback_message_payload(
+                getattr(request.context, "recall_feedback", None)
+            ),
             root_user_message=request.context.latest_user_message,
             turn_id=turn_id,
             llm_trace=llm_trace,

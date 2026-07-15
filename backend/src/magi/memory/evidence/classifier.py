@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
+from ...events.recall_feedback import RECALL_FEEDBACK_INTERACTION_KIND
 from ..event_contracts import MemoryDomain, MemoryEvent
 from .models import EvidenceClass, EvidenceClassification
 
@@ -65,8 +66,17 @@ _QUESTION_TAIL_CJK = ("吗", "呢", "嘛")
 # low-ambiguity tokens; "什么 / 哪 / 谁" are intentionally NOT here (they have
 # common non-question idioms) and are handled by the clause-end rule instead.
 _QUESTION_WORD_ANYWHERE_CJK = (
-    "怎么", "怎样", "为什么", "为何", "如何",
-    "多少", "多久", "几时", "几点", "哪里", "哪儿",
+    "怎么",
+    "怎样",
+    "为什么",
+    "为何",
+    "如何",
+    "多少",
+    "多久",
+    "几时",
+    "几点",
+    "哪里",
+    "哪儿",
 )
 
 # Interrogatives detected ONLY at the clause end — words the anywhere-rule
@@ -81,9 +91,20 @@ _TRAILING_MOOD_CHARS = "呀啊呗啦哈哦噢吧呢嘛~。.!！ "
 # Idioms where an interrogative token is NOT a question. First-match wins, so
 # these veto the recall-favoring rules above.
 _NON_QUESTION_CONTEXT_CJK = (
-    "没什么", "什么都", "啥都", "没怎么", "不怎么",
-    "怎么都", "怎么也", "谁都", "谁也",
-    "知道为什么", "不知道为什么", "知道怎么", "不知道怎么", "不知怎么",
+    "没什么",
+    "什么都",
+    "啥都",
+    "没怎么",
+    "不怎么",
+    "怎么都",
+    "怎么也",
+    "谁都",
+    "谁也",
+    "知道为什么",
+    "不知道为什么",
+    "知道怎么",
+    "不知道怎么",
+    "不知怎么",
     "哪里哪里",  # modesty reply ("哪里哪里，您过奖了"), not a location question
 )
 
@@ -137,6 +158,7 @@ class _ClassificationContext:
     semantic_owner: str | None
     content_type: str | None
     memory_domain: MemoryDomain
+    interaction_kind: str | None
     user_intent: str | None  # "question" | "request" | None, only computed for user
 
 
@@ -185,6 +207,12 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
         name="external_source",
         evidence_class=EvidenceClass.EXTERNAL_OBSERVATION,
         matches=lambda ctx: ctx.author_role in {"external", "sensor"},
+    ),
+    _EvidenceRule(
+        name="user_recall_feedback_interaction",
+        evidence_class=EvidenceClass.USER_REQUEST,
+        matches=lambda ctx: _is_user(ctx)
+        and ctx.interaction_kind == RECALL_FEEDBACK_INTERACTION_KIND,
     ),
     _EvidenceRule(
         name="assistant_content_type",
@@ -241,6 +269,7 @@ def classify_event_evidence(event: MemoryEvent) -> EvidenceClassification:
 def _build_context(event: MemoryEvent) -> _ClassificationContext:
     author_role = _normalized(event.author_type)
     content_type = _normalized(event.content_type)
+    metadata = event.metadata_json if isinstance(event.metadata_json, dict) else {}
     user_intent = _detect_user_intent(event.content) if author_role == "user" else None
     return _ClassificationContext(
         event=event,
@@ -249,6 +278,7 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
         semantic_owner=_semantic_owner(author_role),
         content_type=content_type,
         memory_domain=event.memory_domain,
+        interaction_kind=_normalized(metadata.get("interaction_kind")),
         user_intent=user_intent,
     )
 
@@ -347,9 +377,7 @@ def _detect_user_intent(content: str | None) -> str | None:
     if not is_non_question_context:
         if any(word in text for word in _QUESTION_WORD_ANYWHERE_CJK):
             return "question"
-        tail_trimmed = text.rstrip(
-            _TRAILING_MOOD_CHARS + "".join(_QUESTION_MARK_CHARS)
-        )
+        tail_trimmed = text.rstrip(_TRAILING_MOOD_CHARS + "".join(_QUESTION_MARK_CHARS))
         if any(tail_trimmed.endswith(word) for word in _QUESTION_TAIL_WORD_CJK):
             return "question"
 

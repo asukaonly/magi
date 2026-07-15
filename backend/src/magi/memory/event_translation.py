@@ -5,6 +5,7 @@ to magi.memory.event_contracts.normalize_runtime_event to reuse the routing
 classification (ingest_target / cognition_eligible / retention_class).
 The MemoryEvent's metadata_json is then patched in for the tool-invocation case.
 """
+
 from __future__ import annotations
 
 import logging
@@ -88,19 +89,29 @@ def _from_user_message(event: Event) -> MemoryEvent:
     p: UserMessageReceived = event.data
     if p.context.session_id is None:
         logger.warning("translate: chat-derived event missing session_id")
-    legacy_data = {**_ctx_dict(p.context), "content": p.content, **dict(p.metadata or {})}
-    return normalize_runtime_event(Event(
-        type=EventTypes.USER_MESSAGE,
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "chat_projector"),
-        level=event.level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
-        event_id=event.event_id,
-        causation_id=event.causation_id,
-        trace_context=event.trace_context,
-    ))
+    legacy_data = {
+        **_ctx_dict(p.context),
+        "content": p.content,
+        "interaction_kind": p.interaction_kind,
+        **dict(p.metadata or {}),
+    }
+    memory_event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data=legacy_data,
+            timestamp=event.timestamp,
+            source=str(event.source or "chat_projector"),
+            level=event.level,
+            correlation_id=event.correlation_id,
+            metadata=dict(event.metadata or {}),
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+        )
+    )
+    if p.interaction_kind:
+        memory_event.metadata_json = {"interaction_kind": p.interaction_kind}
+    return memory_event
 
 
 def _from_assistant_response(event: Event) -> MemoryEvent:
@@ -108,18 +119,20 @@ def _from_assistant_response(event: Event) -> MemoryEvent:
     if p.context.session_id is None:
         logger.warning("translate: chat-derived event missing session_id")
     legacy_data = {**_ctx_dict(p.context), "content": p.content, **dict(p.metadata or {})}
-    return normalize_runtime_event(Event(
-        type=EventTypes.AI_RESPONSE,
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "chat_projector"),
-        level=event.level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
-        event_id=event.event_id,
-        causation_id=event.causation_id,
-        trace_context=event.trace_context,
-    ))
+    return normalize_runtime_event(
+        Event(
+            type=EventTypes.AI_RESPONSE,
+            data=legacy_data,
+            timestamp=event.timestamp,
+            source=str(event.source or "chat_projector"),
+            level=event.level,
+            correlation_id=event.correlation_id,
+            metadata=dict(event.metadata or {}),
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+        )
+    )
 
 
 def _from_sensor(event: Event) -> MemoryEvent:
@@ -141,18 +154,20 @@ def _from_task_started(event: Event) -> MemoryEvent:
         "task_type": p.task_type,
         "started_at": p.started_at,
     }
-    return normalize_runtime_event(Event(
-        type=EventTypes.TASK_STARTED,
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "task_orchestrator"),
-        level=event.level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
-        event_id=event.event_id,
-        causation_id=event.causation_id,
-        trace_context=event.trace_context,
-    ))
+    return normalize_runtime_event(
+        Event(
+            type=EventTypes.TASK_STARTED,
+            data=legacy_data,
+            timestamp=event.timestamp,
+            source=str(event.source or "task_orchestrator"),
+            level=event.level,
+            correlation_id=event.correlation_id,
+            metadata=dict(event.metadata or {}),
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+        )
+    )
 
 
 def _from_task_completed(event: Event) -> MemoryEvent:
@@ -165,18 +180,20 @@ def _from_task_completed(event: Event) -> MemoryEvent:
         "finished_at": p.finished_at,
         "content": p.summary or "",
     }
-    return normalize_runtime_event(Event(
-        type=EventTypes.TASK_COMPLETED,
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "task_orchestrator"),
-        level=event.level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
-        event_id=event.event_id,
-        causation_id=event.causation_id,
-        trace_context=event.trace_context,
-    ))
+    return normalize_runtime_event(
+        Event(
+            type=EventTypes.TASK_COMPLETED,
+            data=legacy_data,
+            timestamp=event.timestamp,
+            source=str(event.source or "task_orchestrator"),
+            level=event.level,
+            correlation_id=event.correlation_id,
+            metadata=dict(event.metadata or {}),
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+        )
+    )
 
 
 def _from_task_failed(event: Event) -> MemoryEvent:
@@ -190,18 +207,20 @@ def _from_task_failed(event: Event) -> MemoryEvent:
         "content": p.error.message,
     }
     raised_level = event.level if int(event.level) >= int(EventLevel.ERROR) else EventLevel.ERROR
-    return normalize_runtime_event(Event(
-        type=EventTypes.TASK_FAILED,
-        data=legacy_data,
-        timestamp=event.timestamp,
-        source=str(event.source or "task_orchestrator"),
-        level=raised_level,
-        correlation_id=event.correlation_id,
-        metadata=dict(event.metadata or {}),
-        event_id=event.event_id,
-        causation_id=event.causation_id,
-        trace_context=event.trace_context,
-    ))
+    return normalize_runtime_event(
+        Event(
+            type=EventTypes.TASK_FAILED,
+            data=legacy_data,
+            timestamp=event.timestamp,
+            source=str(event.source or "task_orchestrator"),
+            level=raised_level,
+            correlation_id=event.correlation_id,
+            metadata=dict(event.metadata or {}),
+            event_id=event.event_id,
+            causation_id=event.causation_id,
+            trace_context=event.trace_context,
+        )
+    )
 
 
 def _task_context_from_span(sp: SpanCompleted) -> TaskContext:

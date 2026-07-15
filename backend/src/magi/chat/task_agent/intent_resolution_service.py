@@ -103,6 +103,16 @@ class ChatIntentResolutionService:
         return None
 
     async def resolve_user_intent(self, context: ChatRuntimeContext) -> IntentDecision:
+        if context.recall_feedback is not None:
+            return self._build_fixed_intent(
+                context,
+                intent="recall_feedback_correction",
+                execution_mode=ExecutionMode.DIRECT_LLM,
+                reasoning=(
+                    "Recall feedback is resolved from the targeted chat evidence before "
+                    "normal routing so the feedback text cannot become a new memory query."
+                ),
+            )
         decision_context = await self._build_decider_context(context)
         decision = await self._context_decider.decide(
             context.latest_user_message,
@@ -251,10 +261,7 @@ class ChatIntentResolutionService:
 
 
 def _resolve_planner_fact_kind(context: ChatRuntimeContext) -> IncomingFactKind:
-    if (
-        context.planner_fact is not None
-        or context.planner_fact_kind != IncomingFactKind.OTHER_FACT
-    ):
+    if context.planner_fact is not None or context.planner_fact_kind != IncomingFactKind.OTHER_FACT:
         return context.planner_fact_kind
     return context.incoming_fact_kind
 

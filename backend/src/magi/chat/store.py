@@ -64,6 +64,7 @@ class ChatStore(
         turn_id: str,
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None = None,
+        message_payload: dict[str, object] | None = None,
         created_at_ms: int,
         reply_to_message_id: str | None = None,
         run_id: str | None = None,
@@ -80,6 +81,7 @@ class ChatStore(
             turn_id=turn_id,
             message_text=message_text,
             attachment_payloads=attachment_payloads,
+            message_payload=message_payload,
             created_at_ms=created_at_ms,
             persona_id=persona_id,
             reply_to_message_id=reply_to_message_id,
@@ -122,6 +124,7 @@ class ChatStore(
         turn_id: str,
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None,
+        message_payload: dict[str, object] | None,
         created_at_ms: int,
         persona_id: str | None,
         reply_to_message_id: str | None,
@@ -134,7 +137,10 @@ class ChatStore(
             role="user",
             message_kind="user_text",
             content_text=message_text,
-            payload_json=self._build_user_message_payload_json(attachment_payloads),
+            payload_json=self._build_user_message_payload_json(
+                attachment_payloads,
+                message_payload,
+            ),
             is_final=True,
             is_visible=True,
             created_at_ms=created_at_ms,
@@ -307,8 +313,9 @@ class ChatStore(
     @staticmethod
     def _build_user_message_payload_json(
         attachment_payloads: list[dict[str, object]] | None,
+        message_payload: dict[str, object] | None = None,
     ) -> str:
-        return build_user_message_payload_json(attachment_payloads)
+        return build_user_message_payload_json(attachment_payloads, message_payload)
 
     async def _fetchone(self, sql: str, params: tuple[object, ...]) -> aiosqlite.Row | None:
         await self.initialize()

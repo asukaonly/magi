@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import type { TurnExecutionControlState } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState } from '@/hooks/useChatMessageOverlays';
+import type { RecallFeedbackDraftInput } from '@/domain/chat/recall-feedback';
 
 export type TimelineAssistantPersona = {
   name: string;
@@ -45,4 +46,6 @@ export type TranscriptTimelineInteractions = {
   onLabelDraftChange: (value: string) => void;
   onLabelDraftCompositionStart: () => void;
   onLabelDraftCompositionEnd: (value: string) => void;
+  recallFeedbackDisabled?: boolean;
+  onStartRecallFeedback?: (draft: RecallFeedbackDraftInput) => void;
 };

@@ -581,6 +581,56 @@ def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_pa
     assert history[0].content == ""
 
 
+def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="Feedback Chat",
+        created_at=1000,
+        updated_at=1000,
+        message_count=1,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        created_at_ms=1000,
+        updated_at_ms=1000,
+    )
+    feedback = {
+        "kind": "item_irrelevant",
+        "target_message_id": "assistant-1",
+        "finding_ref": "event:event-1",
+    }
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="Leave this record out.",
+        payload_json=json.dumps(
+            {
+                "attachments": [{"kind": "pdf", "attachment_id": "att-1"}],
+                "recall_feedback": feedback,
+                "internal_note": "must not reach the client",
+            }
+        ),
+        created_at_ms=1000,
+    )
+
+    history = service.get_display_history("u1", "s1", limit=10)
+
+    assert history[0].attachments == [{"kind": "pdf", "attachment_id": "att-1"}]
+    assert history[0].payload == {"recall_feedback": feedback}
+
+
 def test_get_display_history_includes_turn_run_state(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
@@ -1678,7 +1728,14 @@ def test_get_display_history_includes_control_status_messages(tmp_path, monkeypa
 
     messages = service.get_display_history("u1", "s-control", limit=20)
 
-    assert [item.kind for item in messages] == ["user", "status", "status", "status", "assistant", "user"]
+    assert [item.kind for item in messages] == [
+        "user",
+        "status",
+        "status",
+        "status",
+        "assistant",
+        "user",
+    ]
     assert [item.message_kind for item in messages[1:]] == [
         "plan_state",
         "todo_state",

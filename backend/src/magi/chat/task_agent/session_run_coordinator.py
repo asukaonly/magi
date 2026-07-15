@@ -436,6 +436,15 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 source_fact=source_fact,
             )
 
+        if payload.recall_feedback is not None:
+            return self._finish_interrupted_user_turn(
+                payload=payload,
+                turn_id=turn_id,
+                source_fact=source_fact,
+                active_run=active_run,
+                disposition=InterruptionDisposition.INTERRUPT,
+            )
+
         disposition = self._interruption_classifier.classify(
             InterruptionContext(
                 user_text=payload.content,
@@ -465,6 +474,15 @@ class SessionRunCoordinator(SessionRunLifecycleMixin, SessionRunTurnQueueMixin):
                 payload=payload,
                 turn_id=turn_id,
                 source_fact=source_fact,
+            )
+
+        if payload.recall_feedback is not None:
+            return self._finish_interrupted_user_turn(
+                payload=payload,
+                turn_id=turn_id,
+                source_fact=source_fact,
+                active_run=active_run,
+                disposition=InterruptionDisposition.INTERRUPT,
             )
 
         disposition = await self._interruption_classifier.aclassify(

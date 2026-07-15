@@ -88,13 +88,19 @@ class ContextAssemblyService:
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
         persona_routing_hint: PersonaRoutingHint | None = None,
+        allow_implicit_memory: bool = True,
     ) -> PromptPackage:
         policy = self._policy.decide(
             user_message=user_message,
             task_category=task_category,
         )
         retrieved_memory_payload = self._empty_retrieval_payload()
-        if policy.retrieve_implicit_memory and policy.retrieval_query and self._retrieval_memory_provider is not None:
+        if (
+            allow_implicit_memory
+            and policy.retrieve_implicit_memory
+            and policy.retrieval_query
+            and self._retrieval_memory_provider is not None
+        ):
             retrieved_memory_payload = await self._retrieval_memory_provider(
                 user_id=user_id,
                 session_id=session_id,
@@ -108,9 +114,11 @@ class ContextAssemblyService:
             session_id=session_id,
             workspace_path=workspace_path,
         )
-        prompt_memory, prompt_persona_name, resolved_persona_id = await self._resolve_prompt_persona(
-            persona_id
-        )
+        (
+            prompt_memory,
+            prompt_persona_name,
+            resolved_persona_id,
+        ) = await self._resolve_prompt_persona(persona_id)
         prompt_context = await self._prompt_context_assembler.assemble(
             agent_id=self._agent_id,
             agent_type=self._agent_type,
@@ -156,6 +164,7 @@ class ContextAssemblyService:
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
         persona_routing_hint: PersonaRoutingHint | None = None,
+        allow_implicit_memory: bool = True,
     ):
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -170,6 +179,7 @@ class ContextAssemblyService:
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
             persona_routing_hint=persona_routing_hint,
+            allow_implicit_memory=allow_implicit_memory,
         )
         return package.prompt_context
 
@@ -188,6 +198,7 @@ class ContextAssemblyService:
         include_tool_catalog: bool = True,
         persona_id: str | None = None,
         persona_routing_hint: PersonaRoutingHint | None = None,
+        allow_implicit_memory: bool = True,
     ) -> str:
         package = await self.build_prompt_package(
             user_id=user_id,
@@ -202,6 +213,7 @@ class ContextAssemblyService:
             include_tool_catalog=include_tool_catalog,
             persona_id=persona_id,
             persona_routing_hint=persona_routing_hint,
+            allow_implicit_memory=allow_implicit_memory,
         )
         return package.system_prompt
 

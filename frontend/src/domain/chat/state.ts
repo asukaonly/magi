@@ -163,6 +163,7 @@ export interface RecalledMemory {
   confidence?: number | null;
   occurredAt?: number | null;
   evidenceText?: string | null;
+  feedbackRef?: string | null;
 }
 
 export interface RecalledMemorySummary {
@@ -267,6 +268,7 @@ export const createPendingTurn = (
   _pendingLabel: string,
   attachments: ChatAttachment[] = [],
   replyTo: ChatTimelineReplyPreview | null = null,
+  payload: Record<string, unknown> | null = null,
 ): ChatTimelineMessage[] => [
   {
     id: `${turnId}-user`,
@@ -279,6 +281,7 @@ export const createPendingTurn = (
     attachments: attachments.length > 0 ? attachments : undefined,
     traceDisplayMode: null,
     allowTraceCollapse: false,
+    payload,
   },
 ];
 

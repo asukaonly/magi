@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { projectChatTimelineRow, type TurnExecutionControlState } from '@/domain/chat/presentation';
 import type { ChatTimelineMessage, ChatTimelineReplyPreview, NormalizedExecutionTraceSummary } from '@/domain/chat/state';
 import type { LabelPopoverState, MessageContextMenuState } from '@/hooks/useChatMessageOverlays';
+import type { RecallFeedbackDraftInput } from '@/domain/chat/recall-feedback';
 import { ChatMessageContextMenuOverlay } from './ChatMessageContextMenuOverlay';
 import { PendingAssistantBubble } from './PendingAssistantBubble';
 import { StatusTimelineRow } from './StatusTimelineRow';
@@ -69,6 +70,8 @@ type ChatTimelinePaneProps = {
   onLabelDraftCompositionEnd: (value: string) => void;
   onCopyMessage: (message: ChatTimelineMessage, mode: 'markdown' | 'plain') => void;
   onDeleteMessage: (message: ChatTimelineMessage) => void;
+  recallFeedbackDisabled: boolean;
+  onStartRecallFeedback: (draft: RecallFeedbackDraftInput) => void;
 };
 
 export const ChatTimelinePane = ({
@@ -105,6 +108,8 @@ export const ChatTimelinePane = ({
   onLabelDraftCompositionEnd,
   onCopyMessage,
   onDeleteMessage,
+  recallFeedbackDisabled,
+  onStartRecallFeedback,
 }: ChatTimelinePaneProps) => {
   const assistant: TimelineAssistantIdentity = {
     name: assistantName,
@@ -143,6 +148,16 @@ export const ChatTimelinePane = ({
         continue;
       }
       ids.add(turnId);
+    }
+    return ids;
+  }, [messages]);
+  const correctedMessageIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of messages) {
+      const targetMessageId = String(message.payload?.corrects_message_id || '').trim();
+      if (targetMessageId) {
+        ids.add(targetMessageId);
+      }
     }
     return ids;
   }, [messages]);
@@ -214,6 +229,8 @@ export const ChatTimelinePane = ({
     onLabelDraftChange,
     onLabelDraftCompositionStart,
     onLabelDraftCompositionEnd,
+    recallFeedbackDisabled,
+    onStartRecallFeedback,
   };
 
   return (
@@ -248,6 +265,9 @@ export const ChatTimelinePane = ({
               execution={execution}
               interactions={transcriptInteractions}
               isLastAssistant={projectedMessage.message.id === lastAssistantId}
+              isCorrected={correctedMessageIds.has(
+                String(projectedMessage.message.messageId || projectedMessage.message.id),
+              )}
             />
           );
         })}

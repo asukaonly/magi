@@ -6,7 +6,11 @@ from types import SimpleNamespace
 import pytest
 
 from magi.agent.cancel import NullCancelToken
-from magi.agent.task_agents.handlers.contracts import ChatRuntimeContext, IntentDecision
+from magi.agent.task_agents.handlers.contracts import (
+    ChatRuntimeContext,
+    IntentDecision,
+    RecallFeedbackContext,
+)
 from magi.agent.task_agents.handlers.direct_handler import DirectLLMHandler
 from magi.agent.task_agents.handlers.handlers import FunctionCallingHandler
 from magi.agent.task_agents.handlers.tool_exposure_policy import ToolExposurePolicy
@@ -270,6 +274,68 @@ async def test_direct_llm_handler_does_not_duplicate_latest_user_message_from_hi
 
     assert request.messages == [{"role": "user", "content": "hello"}]
     assert context_service.calls[0]["attachments"] == []
+
+
+@pytest.mark.asyncio
+async def test_direct_llm_handler_uses_only_resolved_snapshot_for_recall_feedback() -> None:
+    context_service = _FakeContextService()
+    handler = DirectLLMHandler(
+        SimpleNamespace(
+            context_service=context_service,
+            prompt_service=_FakePromptService(),
+            model_context_provider=_model_context_provider,
+        )
+    )
+    context = _direct_chat_context(
+        latest_message="Please leave that record out.",
+        history=[
+            {"role": "user", "content": "What did I browse?"},
+            {"role": "assistant", "content": "You browsed two pages."},
+        ],
+    )
+    context.recall_feedback = RecallFeedbackContext(
+        kind="item_irrelevant",
+        target_message_id="assistant-1",
+        original_question="What did I browse?",
+        previous_answer_excerpt="You browsed two pages.",
+        recalled_memories=[
+            {
+                "kind": "event",
+                "source_layer": "L1",
+                "statement": "Visited docs.example.com",
+                "topic": "docs.example.com",
+                "feedback_ref": "event:event-2",
+            }
+        ],
+        finding_ref="event:event-1",
+    )
+
+    request = await handler.build_request(_direct_execution_request(context))
+
+    assert context_service.calls[0]["allow_implicit_memory"] is False
+    assert '"original_question": "What did I browse?"' in request.system_prompt
+    assert "Visited docs.example.com" in request.system_prompt
+    assert "event:event-2" not in request.system_prompt
+
+    result = await handler.execute(request)
+    assert result.message_payload == {
+        "recall_feedback": {
+            "kind": "item_irrelevant",
+            "target_message_id": "assistant-1",
+            "status": "applied",
+            "finding_ref": "event:event-1",
+        },
+        "corrects_message_id": "assistant-1",
+        "recalled_memories": [
+            {
+                "kind": "event",
+                "source_layer": "L1",
+                "statement": "Visited docs.example.com",
+                "topic": "docs.example.com",
+                "feedback_ref": "event:event-2",
+            }
+        ],
+    }
 
 
 @pytest.mark.asyncio

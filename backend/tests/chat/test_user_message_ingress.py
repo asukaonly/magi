@@ -58,6 +58,7 @@ class _FakeChatStore:
         turn_id: str,
         message_text: str,
         attachment_payloads: list[dict[str, object]] | None = None,
+        message_payload: dict[str, object] | None = None,
         created_at_ms: int,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
@@ -69,6 +70,7 @@ class _FakeChatStore:
                 "turn_id": turn_id,
                 "message_text": message_text,
                 "attachment_payloads": list(attachment_payloads or []),
+                "message_payload": dict(message_payload or {}),
                 "created_at_ms": created_at_ms,
                 "reply_to_message_id": reply_to_message_id,
                 "persona_id": persona_id,
@@ -136,7 +138,11 @@ class _FakeControlInteractionBroker:
 async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: (_ for _ in ()).throw(RuntimeError("missing")))
+    monkeypatch.setattr(
+        service,
+        "require_runtime_command_queue",
+        lambda: (_ for _ in ()).throw(RuntimeError("missing")),
+    )
 
     outcome = await service.dispatch_user_message(
         source="api",
@@ -149,7 +155,9 @@ async def test_dispatch_user_message_returns_message_bus_error_when_bus_missing(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_persists_chat_turn_before_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     chat_projector = _FakeChatProjector()
@@ -176,14 +184,51 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_resolves_pending_ask_before_chat_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_persists_and_enqueues_recall_feedback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    chat_projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
+
+    feedback = {
+        "kind": "item_irrelevant",
+        "target_message_id": "assistant-1",
+        "finding_ref": "event:event-1",
+    }
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="Leave this record out.",
+        session_id="session-for-u1",
+        reply_to_message_id="assistant-1",
+        metadata={"recall_feedback": feedback},
+    )
+
+    assert outcome.success is True
+    assert chat_store.created_turns[0]["message_payload"] == {
+        "recall_feedback": feedback,
+    }
+    assert queue.commands[0].metadata["recall_feedback"] == feedback
+    assert chat_projector.user_messages[0]["interaction_kind"] == "recall_feedback"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_user_message_resolves_pending_ask_before_chat_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     broker = _FakeControlInteractionBroker()
     ask_state = _FakeAskState(request_id="ask-1")
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state))
+    monkeypatch.setattr(
+        service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state)
+    )
     monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
 
     outcome = await service.dispatch_user_message(
@@ -209,6 +254,44 @@ async def test_dispatch_user_message_resolves_pending_ask_before_chat_turn(monke
 
 
 @pytest.mark.asyncio
+async def test_dispatch_recall_feedback_does_not_answer_a_pending_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    chat_store = _FakeChatStore()
+    broker = _FakeControlInteractionBroker()
+    ask_state = _FakeAskState(request_id="ask-1")
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(
+        service,
+        "resolve_control_session_store",
+        lambda: _FakeControlSessionStore(ask_state),
+    )
+    monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="Leave that record out.",
+        session_id="session-for-u1",
+        metadata={
+            "recall_feedback": {
+                "kind": "item_irrelevant",
+                "target_message_id": "assistant-1",
+                "finding_ref": "event:event-1",
+            }
+        },
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.RECALL_FEEDBACK_PENDING_ASK
+    assert broker.resolutions == []
+    assert chat_store.created_turns == []
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
 async def test_dispatch_user_message_rejects_pending_ask_answer_with_attachments(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -218,7 +301,9 @@ async def test_dispatch_user_message_rejects_pending_ask_answer_with_attachments
     ask_state = _FakeAskState(request_id="ask-1")
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
     monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
-    monkeypatch.setattr(service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state))
+    monkeypatch.setattr(
+        service, "resolve_control_session_store", lambda: _FakeControlSessionStore(ask_state)
+    )
     monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
 
     outcome = await service.dispatch_user_message(
@@ -238,7 +323,9 @@ async def test_dispatch_user_message_rejects_pending_ask_answer_with_attachments
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_stores_active_persona_id(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_stores_active_persona_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
 
@@ -261,7 +348,9 @@ async def test_dispatch_user_message_stores_active_persona_id(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_projects_only_l2_queue_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_projects_only_l2_queue_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     chat_projector = _FakeChatProjector()
@@ -289,7 +378,9 @@ async def test_dispatch_user_message_projects_only_l2_queue_metadata(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_publishes_user_message_event(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_publishes_user_message_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
@@ -460,7 +551,9 @@ async def test_dispatch_user_message_rejects_empty_turn_in_zh_cn(
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_returns_publish_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_returns_publish_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     class _FailingRuntimeCommandQueue(_FakeRuntimeCommandQueue):
         async def enqueue_user_message(self, command) -> int:
             raise RuntimeError("boom")
@@ -509,7 +602,9 @@ async def test_dispatch_user_message_preserves_explicit_session_turn_and_runtime
 
 
 @pytest.mark.asyncio
-async def test_dispatch_user_message_rejects_missing_session_id(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_dispatch_user_message_rejects_missing_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     queue = _FakeRuntimeCommandQueue()
     chat_store = _FakeChatStore()
     monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)

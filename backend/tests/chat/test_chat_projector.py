@@ -27,6 +27,7 @@ async def test_chat_projector_publishes_canonical_user_and_assistant_events() ->
         turn_id="turn-1",
         content="hello",
         created_at_ms=1000,
+        interaction_kind="recall_feedback",
     )
     await projector.project_assistant_message(
         message_id="msg-assistant-1",
@@ -49,6 +50,7 @@ async def test_chat_projector_publishes_canonical_user_and_assistant_events() ->
     assert isinstance(assistant_event.data, AssistantResponseProduced)
 
     assert user_event.data.content == "hello"
+    assert user_event.data.interaction_kind == "recall_feedback"
     assert assistant_event.data.content == "world"
 
     assert user_event.data.context.session_id == "s1"

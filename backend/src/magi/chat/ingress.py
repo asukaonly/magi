@@ -11,6 +11,10 @@ from typing import Any
 from ..core.logger import get_logger
 from ..core.runtime_bindings import get_chat_message_notifier, require_runtime_command_queue
 from ..events.contracts import UserMessageCommand
+from ..events.recall_feedback import (
+    RECALL_FEEDBACK_INTERACTION_KIND,
+    RecallFeedbackRequest,
+)
 from ..events.user_message_dispatch import (
     ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,
     ASK_RESPONSE_RESOLVE_FAILED,
@@ -18,6 +22,7 @@ from ..events.user_message_dispatch import (
     CHAT_STORE_PERSIST_FAILED,
     EMPTY_TURN,
     MALFORMED_ATTACHMENTS,
+    RECALL_FEEDBACK_PENDING_ASK,
     MessageDispatchOutcome,
     RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED,
     RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED,
@@ -92,7 +97,9 @@ def resolve_control_session_store():
 def resolve_control_interaction_broker():
     """Resolve the control interaction broker lazily to avoid startup cycles."""
 
-    from ..control.provider import resolve_control_interaction_broker as _resolve_control_interaction_broker
+    from ..control.provider import (
+        resolve_control_interaction_broker as _resolve_control_interaction_broker,
+    )
 
     return _resolve_control_interaction_broker()
 
@@ -120,11 +127,13 @@ async def dispatch_user_message(
 ) -> MessageDispatchOutcome:
     """Resolve chat-owned metadata and enqueue a user-message runtime command."""
 
+    recall_feedback = RecallFeedbackRequest.from_value((metadata or {}).get("recall_feedback"))
     user_id, dependencies, validated, early_outcome = await _prepare_ingress_start(
         user_id=user_id,
         session_id=session_id,
         message=message,
         attachments=attachments,
+        is_recall_feedback=recall_feedback is not None,
     )
     if early_outcome is not None:
         return early_outcome
@@ -174,6 +183,7 @@ async def _prepare_ingress_start(
     session_id: str | None,
     message: str,
     attachments: list[dict[str, Any]] | None,
+    is_recall_feedback: bool,
 ) -> tuple[
     str,
     _IngressDependencies | None,
@@ -195,6 +205,26 @@ async def _prepare_ingress_start(
     if validation_error is not None:
         return user_id, dependencies, None, validation_error
     assert validated is not None
+    if is_recall_feedback:
+        ask_state = _active_pending_ask_state(validated.session_id)
+        if ask_state is not None:
+            return (
+                user_id,
+                dependencies,
+                validated,
+                MessageDispatchOutcome(
+                    success=False,
+                    user_id=user_id,
+                    session_id=validated.session_id,
+                    handled_as="recall_feedback",
+                    ask_request_id=ask_state.request_id,
+                    error_code=RECALL_FEEDBACK_PENDING_ASK,
+                    error_message=t(
+                        "chat.dispatch.errors.recall_feedback_pending_ask",
+                        fallback="Answer the current question before rechecking an earlier reply.",
+                    ),
+                ),
+            )
     ask_outcome = await _resolve_pending_ask_response(
         user_id=user_id,
         session_id=validated.session_id,
@@ -334,7 +364,9 @@ async def _resolve_workspace_path(
     return str(session_summary.workspace_path or "").strip() or None
 
 
-def _empty_turn_outcome(user_id: str, session_id: str, turn_id: str | None = None) -> MessageDispatchOutcome:
+def _empty_turn_outcome(
+    user_id: str, session_id: str, turn_id: str | None = None
+) -> MessageDispatchOutcome:
     return MessageDispatchOutcome(
         success=False,
         user_id=user_id,
@@ -406,6 +438,7 @@ async def _persist_user_message_turn(
     created_at = time.time()
     created_at_ms = int(created_at * 1000)
     active_persona_id = await _resolve_active_persona_id()
+    recall_feedback = RecallFeedbackRequest.from_value(submission.metadata.get("recall_feedback"))
     try:
         created_turn = await chat_store.create_user_turn(
             session_id=submission.session_id,
@@ -413,6 +446,11 @@ async def _persist_user_message_turn(
             turn_id=submission.turn_id,
             message_text=submission.message,
             attachment_payloads=submission.attachments,
+            message_payload=(
+                {"recall_feedback": recall_feedback.to_dict()}
+                if recall_feedback is not None
+                else None
+            ),
             created_at_ms=created_at_ms,
             reply_to_message_id=submission.reply_to_message_id,
             persona_id=active_persona_id,
@@ -436,6 +474,7 @@ async def _project_user_message(
     submission: _UserMessageSubmission,
     persisted: _PersistedUserTurn,
 ) -> None:
+    recall_feedback = RecallFeedbackRequest.from_value(submission.metadata.get("recall_feedback"))
     try:
         chat_projector = get_chat_projector()
     except RuntimeError:
@@ -450,6 +489,9 @@ async def _project_user_message(
             turn_id=submission.turn_id,
             content=submission.message,
             created_at_ms=persisted.created_at_ms,
+            interaction_kind=(
+                RECALL_FEEDBACK_INTERACTION_KIND if recall_feedback is not None else None
+            ),
             metadata=_extract_chat_projection_metadata(submission.metadata),
         )
     except Exception as exc:
@@ -522,11 +564,8 @@ async def _resolve_pending_ask_response(
 ) -> MessageDispatchOutcome | None:
     if not answer:
         return None
-    ask_state = _lookup_pending_ask_state(session_id)
-
-    if ask_state is None or ask_state.status != "pending":
-        return None
-    if ask_state.expires_at is not None and ask_state.expires_at <= time.time():
+    ask_state = _active_pending_ask_state(session_id)
+    if ask_state is None:
         return None
 
     if has_attachments:
@@ -555,8 +594,19 @@ def _lookup_pending_ask_state(session_id: str) -> Any | None:
     except RuntimeError:
         return None
     except Exception:
-        logger.debug("message_dispatch.ask_state_lookup_failed", session_id=session_id, exc_info=True)
+        logger.debug(
+            "message_dispatch.ask_state_lookup_failed", session_id=session_id, exc_info=True
+        )
         return None
+
+
+def _active_pending_ask_state(session_id: str) -> Any | None:
+    ask_state = _lookup_pending_ask_state(session_id)
+    if ask_state is None or ask_state.status != "pending":
+        return None
+    if ask_state.expires_at is not None and ask_state.expires_at <= time.time():
+        return None
+    return ask_state
 
 
 def _ask_response_attachments_unsupported(
@@ -628,15 +678,30 @@ def _normalize_attachments(attachments: list[dict[str, Any]] | None) -> list[dic
     if attachments is None:
         return []
     if not isinstance(attachments, list):
-        raise ValueError(t("chat.dispatch.errors.attachments_must_be_list", fallback="Attachments must be a list."))
+        raise ValueError(
+            t(
+                "chat.dispatch.errors.attachments_must_be_list",
+                fallback="Attachments must be a list.",
+            )
+        )
     normalized: list[dict[str, Any]] = []
     for item in attachments:
         if not isinstance(item, dict):
-            raise ValueError(t("chat.dispatch.errors.attachment_must_be_object", fallback="Each attachment must be an object."))
+            raise ValueError(
+                t(
+                    "chat.dispatch.errors.attachment_must_be_object",
+                    fallback="Each attachment must be an object.",
+                )
+            )
         normalized_item = dict(item)
         attachment_kind = str(normalized_item.get("kind") or "").strip()
         if not attachment_kind:
-            raise ValueError(t("chat.dispatch.errors.attachment_kind_required", fallback="Each attachment must include a kind."))
+            raise ValueError(
+                t(
+                    "chat.dispatch.errors.attachment_kind_required",
+                    fallback="Each attachment must include a kind.",
+                )
+            )
         normalized_item["kind"] = attachment_kind
         normalized.append(normalized_item)
     return normalized
@@ -688,6 +753,7 @@ __all__ = [
     "MessageDispatchOutcome",
     "RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED",
     "RUNTIME_COMMAND_QUEUE_NOT_INITIALIZED",
+    "RECALL_FEEDBACK_PENDING_ASK",
     "SESSION_ID_REQUIRED",
     "dispatch_user_message",
     "get_chat_read_service",

@@ -27,6 +27,7 @@ from magi.agent.task_agents.handlers import (
 )
 from magi.chat.task_agent.postprocess_service import ChatPostProcessService
 from magi.chat.task_agent.reply_context import ChatReplyContextMixin
+from magi.chat.task_agent.recall_feedback_context import ChatRecallFeedbackContextMixin
 from .rhythm import (
     is_conversation_rhythm_enabled,
 )
@@ -84,6 +85,7 @@ class _ChatContextInputs:
     recent_tool_state: list[dict[str, Any]]
     active_orchestrations: list[Any]
     reply_context: Any
+    recall_feedback: Any
     preferences: _ChatRuntimePreferences
 
 
@@ -91,6 +93,7 @@ class ChatTaskAgent(
     ChatSessionControlMixin,
     ChatStreamingMixin,
     ChatReplyContextMixin,
+    ChatRecallFeedbackContextMixin,
     TaskAgent[
         ChatRuntimeContext,
         IntentDecision,
@@ -379,6 +382,8 @@ class ChatTaskAgent(
             session_id=session_id,
             statuses=["running", "aggregating"],
         )
+        reply_context = await self._resolve_reply_context(run_decision.latest_payload)
+        recall_feedback = await self._resolve_recall_feedback_context(run_decision.latest_payload)
         return _ChatContextInputs(
             session_id=session_id,
             active_persona_id=active_persona_id,
@@ -388,7 +393,8 @@ class ChatTaskAgent(
             recent_tool_errors=self._tool_state_view.recent_errors(history_key),
             recent_tool_state=self._tool_state_view.recent_state(history_key),
             active_orchestrations=active_orchestrations,
-            reply_context=await self._resolve_reply_context(run_decision.latest_payload),
+            reply_context=reply_context,
+            recall_feedback=recall_feedback,
             preferences=_resolve_chat_runtime_preferences(),
         )
 
@@ -434,6 +440,7 @@ class ChatTaskAgent(
             planner_payload=run_decision.latest_payload,
             pending_turns=list(run_decision.checkpoint_pending_turns),
             reply_context=context_inputs.reply_context,
+            recall_feedback=context_inputs.recall_feedback,
             session_summary=context_inputs.history_context.session_summary,
             session_origin=context_inputs.history_context.session_origin,
             active_persona_id=context_inputs.active_persona_id,

@@ -1,4 +1,5 @@
 """Typed contracts for the chat task-agent pipeline."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,7 +9,13 @@ from typing import Any
 from ....agent.runtime.contracts import FactRecord
 from magi.control.run_control import RunControl, null_run_control
 from ....personality.turn_planner import PersonaRoutingHint
-from ..common import BaseIntentDecision, BaseRuntimeContext, GenericFactPayload, IncomingFactKind, TaskFactPayload
+from ..common import (
+    BaseIntentDecision,
+    BaseRuntimeContext,
+    GenericFactPayload,
+    IncomingFactKind,
+    TaskFactPayload,
+)
 from .run_contracts import ActiveRun, PendingTurn
 from ....config.models import ThinkingDepth
 
@@ -81,6 +88,7 @@ class ChatRuntimeContext(BaseRuntimeContext):
     planner_payload: TaskFactPayload = field(default_factory=GenericFactPayload)
     pending_turns: list[PendingTurn] = field(default_factory=list)
     reply_context: "ChatReplyContext | None" = None
+    recall_feedback: "RecallFeedbackContext | None" = None
     session_summary: str | None = None
     session_origin: str | None = None
     active_persona_id: str | None = None
@@ -100,6 +108,21 @@ class ChatReplyContext:
     is_explicit_reply: bool
     references_prior_turn: bool
     structured_payload: dict[str, Any] | None = None
+
+
+@dataclass(slots=True)
+class RecallFeedbackContext:
+    """Resolved evidence and target for one turn-local recall correction."""
+
+    kind: str
+    target_message_id: str
+    original_question: str
+    previous_answer_excerpt: str
+    recalled_memories: list[dict[str, Any]] = field(default_factory=list)
+    recalled_memory_summary: dict[str, Any] | None = None
+    finding_ref: str | None = None
+    valid: bool = True
+    error_code: str | None = None
 
 
 @dataclass(slots=True, kw_only=True)

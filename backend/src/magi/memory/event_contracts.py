@@ -9,6 +9,7 @@ from enum import IntEnum
 from typing import Any, Dict, Optional
 
 from ..events.events import Event, EventTypes
+from ..events.recall_feedback import RECALL_FEEDBACK_INTERACTION_KIND
 
 
 class _LabeledIntEnum(IntEnum):
@@ -441,6 +442,16 @@ def _is_runtime_chat_response(event: Event, payload: dict[str, Any]) -> bool:
 def _classify_event(event: Event) -> Dict[str, Any]:
     event_type = str(event.type)
 
+    if event_type == EventTypes.USER_MESSAGE and _is_user_interaction_event(event):
+        return _classification(
+            memory_domain=MemoryDomain.INTERACTION,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=False,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.PERMANENT,
+            importance=0.6,
+        )
+
     if event_type == EventTypes.USER_MESSAGE:
         return _classification(
             memory_domain=MemoryDomain.USER_AUTHORED,
@@ -479,6 +490,12 @@ def _classify_event(event: Event) -> Dict[str, Any]:
         return _external_activity_classification()
 
     return _external_activity_classification()
+
+
+def _is_user_interaction_event(event: Event) -> bool:
+    payload = event.data if isinstance(event.data, dict) else {}
+    interaction_kind = str(payload.get("interaction_kind") or "").strip().lower()
+    return interaction_kind in {RECALL_FEEDBACK_INTERACTION_KIND}
 
 
 def _classification(

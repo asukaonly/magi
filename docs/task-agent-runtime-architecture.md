@@ -460,6 +460,15 @@ and does not mutate post-processing internals after the coordinator is built.
 
 When a user sends another message while a chat turn is already running, the `SessionRunCoordinator` classifies the interruption into one of four dispositions and routes it accordingly. The classifier lives in `backend/src/magi/chat/task_agent/interruption_classifier.py` and combines rule-based keyword matching with an optional LLM fallback.
 
+Recall-correction turns are already structured by the chat contract, so they do
+not go through text-based interruption or intent classification. If another run
+is active they take the `INTERRUPT` path directly, then execute as a dedicated
+direct-response turn. Context assembly disables implicit memory retrieval for
+that turn and receives the resolved evidence snapshot from chat history. This
+keeps localized or user-edited correction text from being mistaken for a new
+memory query and prevents a removed record from re-entering through normal
+recall.
+
 - `INTERRUPT`
   The new message contradicts or cancels the running turn (for example, "stop", "wait", "nevermind"). The active run is cancelled and a new root turn starts from scratch. The `ActiveRun` revision bumps and in-flight tool results are discarded.
 

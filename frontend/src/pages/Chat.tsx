@@ -286,12 +286,16 @@ export const ChatPage: React.FC = () => {
     imageInputRef,
     inputValue,
     pendingResponseTurnId,
+    recallFeedbackDraft,
     removeDraftAttachment,
     replyTarget,
     sendingMessage,
     setAttachmentMenuOpen,
     setInputValue,
     setReplyTarget,
+    startRecallFeedback,
+    cancelRecallFeedback,
+    convertRecallFeedbackToNormal,
     waitingForReply,
   } = useChatComposerController({
     currentSessionId,
@@ -300,6 +304,7 @@ export const ChatPage: React.FC = () => {
     coreModelSupportsVision,
     pendingAsk: activePendingAsk,
     appendPendingTurn,
+    removePendingMessage: removeMessage,
     setCurrentSessionId,
     onAskAnswered: handleAskAnswerSent,
     requestRunCancel,
@@ -473,10 +478,13 @@ export const ChatPage: React.FC = () => {
   const handleInputChangeWithMentions = React.useCallback(
     (next: string) => {
       setInputValue(next);
+      if (recallFeedbackDraft) {
+        return;
+      }
       mentions.onValueChange(next);
       commands.onValueChange(next);
     },
-    [commands, mentions, setInputValue],
+    [commands, mentions, recallFeedbackDraft, setInputValue],
   );
 
   const handleAskQuickReplyPicked = React.useCallback(
@@ -494,11 +502,15 @@ export const ChatPage: React.FC = () => {
 
   const handleKeyDownWithMentions = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (recallFeedbackDraft) {
+        handleComposerKeyDown(event);
+        return;
+      }
       if (mentions.onKeyDown(event)) return;
       if (commands.onKeyDown(event)) return;
       handleComposerKeyDown(event);
     },
-    [commands, handleComposerKeyDown, mentions],
+    [commands, handleComposerKeyDown, mentions, recallFeedbackDraft],
   );
 
   useEffect(() => {
@@ -677,14 +689,16 @@ export const ChatPage: React.FC = () => {
         onLabelDraftCompositionEnd={handleLabelDraftCompositionEnd}
         onCopyMessage={handleCopyMessage}
         onDeleteMessage={handleDeleteMessage}
+        recallFeedbackDisabled={Boolean(activePendingAsk)}
+        onStartRecallFeedback={startRecallFeedback}
       />
 
       <ChatComposerPane
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
-        replyTarget={replyTarget}
+        replyTarget={recallFeedbackDraft ? null : replyTarget}
         onCancelReply={() => setReplyTarget(null)}
-        attachments={draftAttachments}
+        attachments={recallFeedbackDraft ? [] : draftAttachments}
         onRemoveAttachment={removeDraftAttachment}
         inputValue={inputValue}
         onInputChange={handleInputChangeWithMentions}
@@ -702,6 +716,9 @@ export const ChatPage: React.FC = () => {
         sessionId={currentSessionId}
         sendingMessage={sendingMessage}
         onPrimaryAction={handleComposerPrimaryAction}
+        recallFeedbackDraft={recallFeedbackDraft}
+        onCancelRecallFeedback={cancelRecallFeedback}
+        onConvertRecallFeedbackToNormal={convertRecallFeedbackToNormal}
         imageInputRef={imageInputRef}
         fileInputRef={fileInputRef}
         onAttachmentInputChange={handleAttachmentInputChange}
@@ -713,7 +730,7 @@ export const ChatPage: React.FC = () => {
             onPick={handleAskQuickReplyPicked}
           />
         ) : undefined}
-        pickerSlot={
+        pickerSlot={recallFeedbackDraft ? undefined : (
           <>
             <ComposerMentionPicker
               open={mentions.state.open}
@@ -736,7 +753,7 @@ export const ChatPage: React.FC = () => {
               onActiveIndexChange={commands.setActiveIndex}
             />
           </>
-        }
+        )}
       />
 
       <ToolArgsDialog

@@ -1,4 +1,5 @@
 """Pure serialization helpers for chat store records."""
+
 from __future__ import annotations
 
 import json
@@ -21,13 +22,15 @@ def _coerce_int(value: object, default: int = 0) -> int:
 
 def build_user_message_payload_json(
     attachment_payloads: list[dict[str, object]] | None,
+    message_payload: dict[str, object] | None = None,
 ) -> str:
-    if not attachment_payloads:
+    payload = dict(message_payload or {})
+    public_attachments = public_attachment_payloads(attachment_payloads)
+    if public_attachments:
+        payload["attachments"] = public_attachments
+    if not payload:
         return "{}"
-    return json.dumps(
-        {"attachments": public_attachment_payloads(attachment_payloads)},
-        ensure_ascii=False,
-    )
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def extract_attachment_payloads(raw_payload_json: str | None) -> list[dict[str, object]]:
@@ -72,9 +75,7 @@ def public_attachment_payloads(
         if not isinstance(item, dict):
             continue
         public_payload = {
-            key: value
-            for key, value in item.items()
-            if key in allowed_keys and value is not None
+            key: value for key, value in item.items() if key in allowed_keys and value is not None
         }
         if public_payload:
             public_payloads.append(public_payload)
@@ -107,17 +108,19 @@ def row_to_message(row: aiosqlite.Row) -> ChatMessageRecord:
         is_visible=bool(int(row["is_visible"])),
         created_at_ms=int(row["created_at_ms"]),
         sequence_no=int(row["sequence_no"]),
-        replaces_message_id=str(row["replaces_message_id"]) if row["replaces_message_id"] is not None else None,
-        replaced_by_message_id=str(row["replaced_by_message_id"]) if row["replaced_by_message_id"] is not None else None,
+        replaces_message_id=str(row["replaces_message_id"])
+        if row["replaces_message_id"] is not None
+        else None,
+        replaced_by_message_id=str(row["replaced_by_message_id"])
+        if row["replaced_by_message_id"] is not None
+        else None,
         persona_id=(
             str(row["persona_id"])
             if "persona_id" in row.keys() and row["persona_id"] is not None
             else None
         ),
         reply_to_message_id=(
-            str(row["reply_to_message_id"])
-            if row["reply_to_message_id"] is not None
-            else None
+            str(row["reply_to_message_id"]) if row["reply_to_message_id"] is not None else None
         ),
         label=parse_message_label(row["label_json"] if "label_json" in row.keys() else None),
     )

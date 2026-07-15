@@ -18,7 +18,9 @@ class _FakeMemory:
         return PersonalityConfig()
 
     async def get_emotional_state(self):
-        return EmotionalState(current_mood="focused", mood_intensity=0.8, energy_level=0.7, stress_level=0.2)
+        return EmotionalState(
+            current_mood="focused", mood_intensity=0.8, energy_level=0.7, stress_level=0.2
+        )
 
     async def get_relationship(self, user_id: str):
         _ = user_id
@@ -30,6 +32,32 @@ class _FakeMemory:
 
 
 class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
+    async def test_build_prompt_package_can_disable_implicit_memory_retrieval(self):
+        retrieval_memory_provider = AsyncMock(return_value=self._empty_retrieval_payload())
+        service = ContextAssemblyService(
+            agent_id="chat-agent",
+            agent_type="chat",
+            prompt_context_assembler=PromptContextAssembler(),
+            prompt_context_renderer=PromptContextRenderer(),
+            memory=_FakeMemory(),
+            retrieval_memory_provider=retrieval_memory_provider,
+        )
+
+        package = await service.build_prompt_package(
+            user_id="u1",
+            session_id="s1",
+            user_message="Recheck the previous memory answer",
+            task_category="recall_feedback_correction",
+            tools=[],
+            allow_implicit_memory=False,
+        )
+
+        retrieval_memory_provider.assert_not_awaited()
+        self.assertEqual(
+            package.prompt_context.self_memory.retrieval_memory.l0_workbench,
+            [],
+        )
+
     async def test_build_prompt_package_uses_user_message_for_retrieval_query(self):
         retrieval_memory_provider = AsyncMock(
             return_value={
@@ -72,7 +100,10 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             allowed_layers=("L0",),
         )
         self.assertIn("# Recent Tool Errors", package.system_prompt)
-        self.assertEqual(package.prompt_context.self_memory.retrieval_memory.l0_workbench[0]["summary"], "Current goal")
+        self.assertEqual(
+            package.prompt_context.self_memory.retrieval_memory.l0_workbench[0]["summary"],
+            "Current goal",
+        )
 
     async def test_build_prompt_package_allows_l4_only_for_procedural_opt_in(self):
         retrieval_memory_provider = AsyncMock(
@@ -148,7 +179,7 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
                         "description": "Pinned chat",
                         "behavior": "Answer as the pinned persona.",
                     },
-                }
+                },
             }
         )
         persona_lookup = AsyncMock(
@@ -196,7 +227,10 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             retrieval_memory_provider=retrieval_memory_provider,
         )
 
-        with patch("magi.context.assembler.get_default_chat_workspace_path", return_value=str(managed_workspace)):
+        with patch(
+            "magi.context.assembler.get_default_chat_workspace_path",
+            return_value=str(managed_workspace),
+        ):
             package = await service.build_prompt_package(
                 user_id="u1",
                 session_id="s1",

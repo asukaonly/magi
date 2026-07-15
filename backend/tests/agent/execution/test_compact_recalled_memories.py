@@ -35,6 +35,7 @@ def _make_finding(
     confidence: float | None = None,
     occurred_at: float | None = None,
     evidence_text: str | None = None,
+    feedback_ref: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kind": kind,
@@ -48,6 +49,8 @@ def _make_finding(
         payload["occurred_at"] = occurred_at
     if evidence_text is not None:
         payload["evidence_text"] = evidence_text
+    if feedback_ref is not None:
+        payload["feedback_ref"] = feedback_ref
     return payload
 
 
@@ -65,6 +68,7 @@ class TestCompactRecalledMemories:
                         confidence=0.82,
                         occurred_at=1710000000.0,
                         evidence_text="听完哈基米后说节奏太密",
+                        feedback_ref="relationship:triple-1",
                     )
                 ]
             }
@@ -78,6 +82,7 @@ class TestCompactRecalledMemories:
                 "confidence": 0.82,
                 "occurred_at": 1710000000.0,
                 "evidence_text": "听完哈基米后说节奏太密",
+                "feedback_ref": "relationship:triple-1",
             }
         ]
 

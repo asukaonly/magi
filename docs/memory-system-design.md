@@ -238,6 +238,32 @@ artist". Plugins may provide these fields through `domain_payload.source_facets`
 are still present. A structured recall result may claim total coverage only
 inside the explicit source/facet/time/user scope used to query that index.
 
+#### Chat Recall Correction Boundary
+
+Feedback on a memory-grounded chat answer is a chat-turn correction before it
+is a memory mutation. The visible user message stays natural language, while a
+structured turn payload identifies the assistant message being rechecked and,
+for item-level feedback, the stable finding reference being excluded. Runtime
+routing must use that structured relation and must never infer correction intent
+by parsing localized UI copy.
+
+The correction turn reuses the exact compact evidence snapshot that was shown
+with the targeted answer. `answer_evidence_mismatch` re-evaluates the conclusion
+from that snapshot. `item_irrelevant` removes the selected finding from that
+snapshot before prompt assembly. The correction path does not run implicit
+memory retrieval from the correction wording, does not reconstruct a removed
+finding, and must state when the remaining evidence is insufficient. The new
+assistant message links back to the answer it corrects; the previous answer
+remains in the transcript for conversational continuity and auditability.
+
+This feedback is local to the question and answer pair. It does not change
+global retrieval scores, L1 evidence authority, L2 assertion confidence, graph
+state, or portrait material. The visible correction message is retained as
+conversation-only interaction history and is never eligible for cognitive
+projection. A claim that the stored record itself is wrong is a different
+operation and must use the governed L2 assertion or relation feedback path with
+explicit user confirmation.
+
 Prompt continuity note:
 
 - The chat runtime may carry a compact `Recent Tool State` summary across nearby turns so the LLM can reuse recent tool outcomes or handles without replaying full tool transcripts.

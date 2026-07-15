@@ -30,7 +30,9 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
     if runtime_status.get("runtime_ready"):
         return None
 
-    startup_state = str(runtime_status.get("startup_state") or runtime_status.get("runtime_status") or "offline")
+    startup_state = str(
+        runtime_status.get("startup_state") or runtime_status.get("runtime_status") or "offline"
+    )
     deferred_reason = runtime_status.get("deferred_reason")
     if startup_state == "deferred" and deferred_reason == "llm_selection_pending":
         message = core_i18n.t(
@@ -43,7 +45,10 @@ async def _ensure_runtime_ready_for_user_message() -> MessageResponse | None:
             fallback="AI runtime configuration is invalid. Please check the enabled provider and model selection.",
         )
     elif startup_state == "starting":
-        message = core_i18n.t("chat.runtime.not_ready.starting", fallback="AI runtime is still starting. Please retry in a moment.")
+        message = core_i18n.t(
+            "chat.runtime.not_ready.starting",
+            fallback="AI runtime is still starting. Please retry in a moment.",
+        )
     else:
         message = core_i18n.t(
             "chat.runtime.not_ready.startup_pending",
@@ -118,6 +123,9 @@ async def _prepare_api_dispatch_metadata(
     request: UserMessageRequest,
 ) -> tuple[dict[str, object], str | None]:
     metadata = dict(request.metadata or {})
+    metadata.pop("recall_feedback", None)
+    if request.recall_feedback is not None:
+        metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
     metadata.update(
         await build_bootstrap_l2_priority_metadata(
             user_id=request.user_id,
@@ -199,4 +207,9 @@ def _queued_message_response(request: UserMessageRequest, outcome) -> MessageRes
     )
 
 
-__all__ = ["RUNTIME_NOT_READY", "message_dispatch_router", "send_user_message", "_ensure_runtime_ready_for_user_message"]
+__all__ = [
+    "RUNTIME_NOT_READY",
+    "message_dispatch_router",
+    "send_user_message",
+    "_ensure_runtime_ready_for_user_message",
+]

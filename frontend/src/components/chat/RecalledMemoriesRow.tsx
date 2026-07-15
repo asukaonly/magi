@@ -1,7 +1,11 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, RotateCcw } from 'lucide-react';
 import type { RecalledMemory, RecalledMemorySummary } from '@/domain/chat/state';
+import {
+  compactRecallFeedbackFindingLabel,
+  type RecallFeedbackDraftInput,
+} from '@/domain/chat/recall-feedback';
 import { cn } from '@/lib/utils';
 
 const formatRelativeTime = (occurredAt: number | null | undefined, locale: string): string => {
@@ -42,9 +46,20 @@ const KIND_LABEL_KEY: Record<string, string> = {
 type RecalledMemoriesRowProps = {
   memories: RecalledMemory[];
   summary?: RecalledMemorySummary;
+  targetMessageId?: string;
+  targetMessageExcerpt?: string;
+  feedbackDisabled?: boolean;
+  onStartFeedback?: (draft: RecallFeedbackDraftInput) => void;
 };
 
-export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowProps) => {
+export const RecalledMemoriesRow = ({
+  memories,
+  summary,
+  targetMessageId,
+  targetMessageExcerpt = '',
+  feedbackDisabled = false,
+  onStartFeedback,
+}: RecalledMemoriesRowProps) => {
   const { t, i18n } = useTranslation('app');
   const [expanded, setExpanded] = useState(false);
   const detailId = useId();
@@ -64,6 +79,7 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
     defaultValue: '{{count}} 条记忆引用',
     count: memories.length,
   });
+  const canStartFeedback = Boolean(targetMessageId && onStartFeedback && !feedbackDisabled);
 
   if (memories.length === 0 && !hasExhaustiveStructuredCoverage) {
     return null;
@@ -130,13 +146,31 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
             const metadata = [kindLabel, memory.topic, relativeTime].filter(Boolean).join(' · ');
             return (
               <div
-                key={`${memory.kind}-${memory.topic}-${index}`}
+                key={`${memory.feedbackRef || memory.kind}-${memory.topic}-${index}`}
                 className="space-y-0.5 pr-2 text-left"
               >
                 <div className="text-[11.5px] leading-5 text-foreground/85">{memory.statement}</div>
-                {metadata ? (
-                  <div className="text-[10.5px] leading-4 text-muted-foreground/65">{metadata}</div>
-                ) : null}
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  {metadata ? (
+                    <div className="min-w-0 truncate text-[10.5px] leading-4 text-muted-foreground/65">{metadata}</div>
+                  ) : <span />}
+                  {memory.feedbackRef && targetMessageId && onStartFeedback ? (
+                    <button
+                      type="button"
+                      disabled={feedbackDisabled}
+                      onClick={() => onStartFeedback({
+                        kind: 'item_irrelevant',
+                        targetMessageId,
+                        targetMessageExcerpt,
+                        findingRef: memory.feedbackRef || undefined,
+                        findingLabel: compactRecallFeedbackFindingLabel(memory.statement),
+                      })}
+                      className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {t('chat.recallFeedback.itemAction')}
+                    </button>
+                  ) : null}
+                </div>
                 {memory.evidenceText ? (
                   <div className="pt-0.5 text-[10.5px] leading-4 text-muted-foreground/70">
                     {memory.evidenceText}
@@ -145,6 +179,21 @@ export const RecalledMemoriesRow = ({ memories, summary }: RecalledMemoriesRowPr
               </div>
             );
           })}
+          {targetMessageId && onStartFeedback ? (
+            <button
+              type="button"
+              disabled={!canStartFeedback}
+              onClick={() => onStartFeedback({
+                kind: 'answer_evidence_mismatch',
+                targetMessageId,
+                targetMessageExcerpt,
+              })}
+              className="inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-[10.5px] text-muted-foreground/75 transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <RotateCcw className="h-3 w-3" aria-hidden="true" />
+              {t('chat.recallFeedback.answerAction')}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>

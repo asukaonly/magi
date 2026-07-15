@@ -7,6 +7,7 @@ type ComposerAttachmentMenuProps = {
   onToggle: () => void;
   onPickImage: () => void;
   onPickFile: () => void;
+  disabled?: boolean;
 };
 
 export const ComposerAttachmentMenu = ({
@@ -15,6 +16,7 @@ export const ComposerAttachmentMenu = ({
   onToggle,
   onPickImage,
   onPickFile,
+  disabled = false,
 }: ComposerAttachmentMenuProps) => {
   const { t } = useTranslation();
 
@@ -23,14 +25,15 @@ export const ComposerAttachmentMenu = ({
       <button
         type="button"
         onClick={onToggle}
+        disabled={disabled}
         aria-label={t('chat.attachments.add')}
         title={t('chat.attachments.add')}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+        className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
       >
         <Paperclip className="h-4 w-4" />
       </button>
 
-      {isOpen ? (
+      {isOpen && !disabled ? (
         <div className="absolute bottom-full left-0 mb-2 flex w-44 flex-col gap-1 rounded-xl border border-border/60 bg-background p-2 shadow-lg">
           <button
             type="button"

@@ -45,6 +45,7 @@ def test_project_historical_recall_prefers_l2_relationships_for_preference_recal
     assert f["statement"] == "user:local_user DISLIKES weather_state:humid"
     assert f["source_layer"] == "L2"
     assert f["confidence"] == 0.97
+    assert f["feedback_ref"] == "relationship:triple-1"
     assert projected.provenance["primary_count"] == 1
     assert projected.provenance["source_layers"] == ["L2"]
     assert projected.answering_hints["must_not_guess_when_empty"] is True
@@ -108,6 +109,10 @@ def test_project_historical_recall_keeps_l1_evidence_for_temporal_exact_fact_que
     assert "L1" in layers
     assert "L2" in layers
     assert len(projected.findings) == 2
+    assert {f["feedback_ref"] for f in projected.findings} == {
+        "event:evt-photo-1",
+        "relationship:triple-place-1",
+    }
 
 
 def test_project_historical_recall_emits_generic_entity_and_asset_refs() -> None:

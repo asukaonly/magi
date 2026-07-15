@@ -306,6 +306,170 @@ describe('ChatPage', () => {
     expect(screen.queryByText('firstConversation.chips.plan')).not.toBeInTheDocument();
   });
 
+  it('sends a one-turn recall correction while preserving the ordinary draft', async () => {
+    const user = userEvent.setup();
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'user-memory-question',
+          message_kind: 'user_text',
+          role: 'user',
+          content: 'What did I browse?',
+          timestamp: 1000,
+          turn_id: 'turn-memory',
+          kind: 'user',
+        },
+        {
+          message_id: 'assistant-memory-answer',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'You browsed a game page.',
+          timestamp: 1100,
+          turn_id: 'turn-memory',
+          kind: 'assistant',
+          payload: {
+            recalled_memories: [
+              {
+                kind: 'event',
+                source_layer: 'L1',
+                statement: 'Visited example.com',
+                topic: 'example.com',
+                feedback_ref: 'event:event-1',
+              },
+            ],
+          },
+        },
+      ]),
+    );
+
+    render(<ChatPage />);
+
+    const textarea = screen.getByPlaceholderText('chat.inputPlaceholder');
+    await user.type(textarea, 'Keep this ordinary draft');
+    await user.click(screen.getByRole('button', { name: 'chat.recalledMemories.summary' }));
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.itemAction' }));
+
+    expect(screen.getByTestId('recall-feedback-banner')).toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('chat.recallFeedback.templates.itemIrrelevant');
+
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.send' }));
+
+    await waitFor(() => {
+      expect(messagesApi.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        message: 'chat.recallFeedback.templates.itemIrrelevant',
+        reply_to_message_id: 'assistant-memory-answer',
+        recall_feedback: {
+          kind: 'item_irrelevant',
+          target_message_id: 'assistant-memory-answer',
+          finding_ref: 'event:event-1',
+        },
+      }));
+    });
+    expect(screen.queryByTestId('recall-feedback-banner')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('Keep this ordinary draft');
+
+    const feedbackMessage = useConversationStore.getState().messagesBySession['session-1']
+      ?.find((message) => message.payload?.recall_feedback);
+    expect(feedbackMessage).toEqual(expect.objectContaining({
+      content: 'chat.recallFeedback.templates.itemIrrelevant',
+      replyTo: expect.objectContaining({ messageId: 'assistant-memory-answer' }),
+      payload: {
+        recall_feedback: {
+          kind: 'item_irrelevant',
+          target_message_id: 'assistant-memory-answer',
+          finding_ref: 'event:event-1',
+        },
+      },
+    }));
+  });
+
+  it('removes an optimistic recall correction when the send is rejected', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.sendMessage).mockResolvedValueOnce({
+      success: false,
+      message: 'blocked',
+      data: { error_code: 'RECALL_FEEDBACK_PENDING_ASK' },
+    } as any);
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'assistant-memory-answer',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Previous answer',
+          timestamp: 1100,
+          turn_id: 'turn-memory',
+          kind: 'assistant',
+          payload: {
+            recalled_memories: [{
+              kind: 'event',
+              source_layer: 'L1',
+              statement: 'Visited example.com',
+              topic: 'example.com',
+              feedback_ref: 'event:event-1',
+            }],
+          },
+        },
+      ]),
+    );
+
+    render(<ChatPage />);
+    await user.click(screen.getByRole('button', { name: 'chat.recalledMemories.summary' }));
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.itemAction' }));
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.send' }));
+
+    await waitFor(() => {
+      const optimisticFeedback = useConversationStore.getState().messagesBySession['session-1']
+        ?.find((message) => message.payload?.recall_feedback && !message.messageId);
+      expect(optimisticFeedback).toBeUndefined();
+    });
+    expect(screen.getByTestId('recall-feedback-banner')).toBeInTheDocument();
+  });
+
+  it('can turn a recall correction into an ordinary message', async () => {
+    const user = userEvent.setup();
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([
+        {
+          message_id: 'assistant-memory-answer',
+          message_kind: 'assistant_final',
+          role: 'assistant',
+          content: 'Previous answer',
+          timestamp: 1100,
+          turn_id: 'turn-memory',
+          kind: 'assistant',
+          payload: {
+            recalled_memories: [{
+              kind: 'event',
+              source_layer: 'L1',
+              statement: 'Visited example.com',
+              topic: 'example.com',
+              feedback_ref: 'event:event-1',
+            }],
+          },
+        },
+      ]),
+    );
+
+    render(<ChatPage />);
+    await user.click(screen.getByRole('button', { name: 'chat.recalledMemories.summary' }));
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.answerAction' }));
+    await user.click(screen.getByRole('button', { name: 'chat.recallFeedback.convertToNormal' }));
+
+    expect(screen.queryByTestId('recall-feedback-banner')).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox')).toHaveValue('chat.recallFeedback.templates.answerEvidenceMismatch');
+
+    await user.click(screen.getByRole('button', { name: 'chat.send' }));
+    await waitFor(() => {
+      expect(messagesApi.sendMessage).toHaveBeenCalledWith(expect.not.objectContaining({
+        recall_feedback: expect.anything(),
+      }));
+    });
+  });
+
   it('re-fetches history when switching back to a session', async () => {
     vi.mocked(messagesApi.getHistory)
       .mockResolvedValue({ messages: [] } as any)

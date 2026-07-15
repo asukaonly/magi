@@ -813,6 +813,23 @@
         "procedure": "Procedure"
       }
     },
+    "recallFeedback": {
+      "answerAction": "The conclusion doesn't match the references",
+      "itemAction": "Not relevant this time",
+      "draftLabel": "Rechecking the answer",
+      "answerScope": "Review the previous conclusion and references",
+      "thisRecord": "this record",
+      "convertToNormal": "Make this a normal message",
+      "cancel": "Return to my draft",
+      "send": "Recheck",
+      "inputPlaceholder": "Add what seems wrong if helpful",
+      "pendingAskBlocked": "Answer the current question before rechecking an earlier reply.",
+      "correctedLater": "Corrected in a later reply",
+      "templates": {
+        "answerEvidenceMismatch": "I don't think your previous conclusion matches the records you cited. Please take another look.",
+        "itemIrrelevant": "“{{title}}” isn't relevant to what I just asked. Please leave it out."
+      }
+    },
     "contextUsage": {
       "label": "Context usage: {{usage}} ({{percent}}%)",
       "unavailableLabel": "Context usage: {{usage}}"

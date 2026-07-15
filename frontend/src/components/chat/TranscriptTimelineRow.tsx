@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { RotateCcw } from 'lucide-react';
 import { isInteractionExpired, remainingInteractionSeconds } from '@/components/control/interaction-expiry';
 import type { ProjectedChatTimelineMessage } from '@/domain/chat/presentation';
 import { formatChatClockTime } from '@/domain/chat/timestamps';
@@ -132,6 +133,7 @@ type TranscriptTimelineRowProps = TimelineRowSharedProps & {
   projectedMessage: Extract<ProjectedChatTimelineMessage, { surface: 'transcript' }>;
   interactions: TranscriptTimelineInteractions;
   isLastAssistant?: boolean;
+  isCorrected?: boolean;
 };
 
 export const TranscriptTimelineRow = ({
@@ -141,6 +143,7 @@ export const TranscriptTimelineRow = ({
   execution,
   interactions,
   isLastAssistant = false,
+  isCorrected = false,
 }: TranscriptTimelineRowProps) => {
   const { t, i18n } = useTranslation('app');
   const traceEntryLabel = t('chat.trace.view');
@@ -315,7 +318,17 @@ export const TranscriptTimelineRow = ({
                 <RecalledMemoriesRow
                   memories={message.recalledMemories ?? []}
                   summary={message.recalledMemorySummary}
+                  targetMessageId={message.messageId || undefined}
+                  targetMessageExcerpt={message.content.slice(0, 180)}
+                  feedbackDisabled={interactions.recallFeedbackDisabled}
+                  onStartFeedback={interactions.onStartRecallFeedback}
                 />
+              ) : null}
+              {isCorrected ? (
+                <div className="mt-1.5 inline-flex items-center gap-1 text-[10.5px] text-muted-foreground/70">
+                  <RotateCcw className="h-3 w-3" aria-hidden="true" />
+                  {t('chat.recallFeedback.correctedLater')}
+                </div>
               ) : null}
               {transcript.belowBubble.showReactionBadge && (
                 <div className="mt-2 flex justify-end">

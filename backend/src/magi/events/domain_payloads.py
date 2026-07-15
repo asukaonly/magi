@@ -3,6 +3,7 @@
 These dataclasses are carried inside Event.data (the existing envelope).
 Each subclass corresponds to a single EventTypes constant.
 """
+
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
@@ -69,6 +70,7 @@ class TaskFailed:
 class UserMessageReceived:
     content: str
     context: TaskContext
+    interaction_kind: Optional[str] = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
 

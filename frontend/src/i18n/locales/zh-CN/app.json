@@ -813,6 +813,23 @@
         "procedure": "程序经验"
       }
     },
+    "recallFeedback": {
+      "answerAction": "结论和引用对不上",
+      "itemAction": "这次不相关",
+      "draftLabel": "正在重新核对",
+      "answerScope": "重新看刚才的结论和引用",
+      "thisRecord": "这条记录",
+      "convertToNormal": "改为普通消息",
+      "cancel": "返回原草稿",
+      "send": "重新核对",
+      "inputPlaceholder": "可以补充你觉得哪里不对",
+      "pendingAskBlocked": "请先回答当前问题，再重新核对之前的回复。",
+      "correctedLater": "已在后续回复中修正",
+      "templates": {
+        "answerEvidenceMismatch": "我觉得你刚才的结论和引用的记录对不上，重新看一下。",
+        "itemIrrelevant": "“{{title}}”和我刚才问的内容没关系，别把它算进去。"
+      }
+    },
     "contextUsage": {
       "label": "上下文用量：{{usage}}（{{percent}}%）",
       "unavailableLabel": "上下文用量：{{usage}}"

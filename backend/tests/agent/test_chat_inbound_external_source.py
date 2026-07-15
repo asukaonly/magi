@@ -23,6 +23,7 @@ mutation site (``active_run.pending_events.append``) intentionally
 targets the typed in-memory ``AgentRun`` object held by the active-run
 registry, mirroring how ``dispatch_event`` writes pending events today.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -30,7 +31,7 @@ import pytest
 from magi.agent.task_agents.handlers.run_contracts import AgentRun
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.agent.task_agents.common.contracts import UserMessagePayload
-from magi_plugin_sdk.run_trigger import IncomingEvent, RunTrigger
+from magi.events.recall_feedback import RecallFeedbackKind
 
 
 class _StubRunStore:
@@ -63,6 +64,7 @@ class _StubRunStore:
         disposition: str = "augment",
     ):
         from magi.agent.task_agents.handlers.run_contracts import PendingTurn
+
         run = self._active[session_id]
         pt = PendingTurn(
             turn_id=turn_id,
@@ -79,7 +81,10 @@ class _StubRunStore:
 
 def test_user_message_payload_carries_source():
     p = UserMessagePayload(
-        user_id="u1", session_id="s1", content="hi", source="telegram",
+        user_id="u1",
+        session_id="s1",
+        content="hi",
+        source="telegram",
     )
     assert p.source == "telegram"
 
@@ -91,7 +96,10 @@ def test_user_message_payload_source_defaults_to_api():
 
 def test_user_message_payload_source_roundtrip():
     p = UserMessagePayload(
-        user_id="u1", session_id="s1", content="hi", source="weixin",
+        user_id="u1",
+        session_id="s1",
+        content="hi",
+        source="weixin",
     )
     d = p.to_dict()
     assert d["source"] == "weixin"
@@ -104,6 +112,32 @@ def test_user_message_payload_source_missing_in_legacy_payload():
     d = {"user_id": "u1", "session_id": "s1", "content": "hi"}
     p = UserMessagePayload.from_dict(d, fallback_user_id="u1")
     assert p.source == "api"
+
+
+def test_user_message_payload_parses_recall_feedback_from_command_metadata():
+    payload = UserMessagePayload.from_dict(
+        {
+            "user_id": "u1",
+            "session_id": "s1",
+            "content": "Leave this out.",
+            "metadata": {
+                "recall_feedback": {
+                    "kind": "item_irrelevant",
+                    "target_message_id": "assistant-1",
+                    "finding_ref": "event:event-1",
+                }
+            },
+        },
+        fallback_user_id="u1",
+    )
+
+    assert payload.recall_feedback is not None
+    assert payload.recall_feedback.kind == RecallFeedbackKind.ITEM_IRRELEVANT
+    assert payload.to_dict()["recall_feedback"] == {
+        "kind": "item_irrelevant",
+        "target_message_id": "assistant-1",
+        "finding_ref": "event:event-1",
+    }
 
 
 # === handle_user_turn behavior — source-aware RunTrigger ===
@@ -215,9 +249,7 @@ def test_handle_user_turn_appends_incoming_event_for_external_source_with_active
     )
     coord.handle_user_turn(second)
 
-    inbound = [
-        e for e in run.pending_events if e.event_type == "external_inbound"
-    ]
+    inbound = [e for e in run.pending_events if e.event_type == "external_inbound"]
     assert len(inbound) == 1
     assert inbound[0].payload.get("source_channel") == "telegram"
     assert inbound[0].payload.get("content") == "from telegram"
@@ -244,9 +276,7 @@ def test_handle_user_turn_no_incoming_event_for_api_source_with_active_run():
     )
     coord.handle_user_turn(second)
 
-    inbound = [
-        e for e in run.pending_events if e.event_type == "external_inbound"
-    ]
+    inbound = [e for e in run.pending_events if e.event_type == "external_inbound"]
     assert inbound == []
 
 
@@ -268,9 +298,7 @@ async def test_ahandle_user_turn_appends_incoming_event_for_external_source_with
     )
     await coord.ahandle_user_turn(payload)
 
-    inbound = [
-        e for e in run.pending_events if e.event_type == "external_inbound"
-    ]
+    inbound = [e for e in run.pending_events if e.event_type == "external_inbound"]
     assert len(inbound) == 1
     assert inbound[0].payload.get("source_channel") == "weixin"
     assert inbound[0].payload.get("content") == "from weixin async"

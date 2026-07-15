@@ -10,7 +10,8 @@ from magi.chat.task_agent.interruption_classifier import InterruptionDisposition
 from magi.chat.task_agent.postprocess.constants import CHAT_TOOL_LOOP_STEP_EVENT_TYPE
 from magi.chat.task_agent.session_run_coordinator import SessionRunCoordinator
 from magi.control.run_control import DetachSignal
-from magi.agent.task_agents.common import IncomingFactKind
+from magi.agent.task_agents.common import IncomingFactKind, UserMessagePayload
+from magi.events.recall_feedback import RecallFeedbackKind, RecallFeedbackRequest
 from magi.events.events import EventTypes
 
 
@@ -101,9 +102,7 @@ def test_first_turn_creates_new_run() -> None:
 def test_interjection_during_active_run_is_classified_and_stored() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator(
-        interruption_classifier=_StubInterruptionClassifier(
-            [InterruptionDisposition.AUGMENT]
-        ),
+        interruption_classifier=_StubInterruptionClassifier([InterruptionDisposition.AUGMENT]),
     )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
@@ -133,17 +132,13 @@ def test_interjection_during_active_run_is_classified_and_stored() -> None:
     assert [item.content for item in routed.active_run.pending_turns] == [
         "Instead of the login flow, inspect the signup flow."
     ]
-    assert routed.active_run.pending_turns[0].disposition == (
-        InterruptionDisposition.AUGMENT.value
-    )
+    assert routed.active_run.pending_turns[0].disposition == (InterruptionDisposition.AUGMENT.value)
 
 
 def test_steer_interjection_is_queued_with_steer_disposition() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator(
-        interruption_classifier=_StubInterruptionClassifier(
-            [InterruptionDisposition.STEER]
-        ),
+        interruption_classifier=_StubInterruptionClassifier([InterruptionDisposition.STEER]),
     )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
@@ -165,9 +160,7 @@ def test_steer_interjection_is_queued_with_steer_disposition() -> None:
 
     assert routed.interruption_disposition == InterruptionDisposition.STEER
     assert routed.active_run is not None
-    assert [
-        (item.content, item.disposition) for item in routed.active_run.pending_turns
-    ] == [
+    assert [(item.content, item.disposition) for item in routed.active_run.pending_turns] == [
         ("Also, use the staging endpoint.", InterruptionDisposition.STEER.value)
     ]
     # STEER pending turns must not surface as a visible AUGMENT merge at the
@@ -221,9 +214,7 @@ def test_second_turn_starts_fresh_run_after_previous_run_completes() -> None:
 def test_interrupt_bumps_revision() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator(
-        interruption_classifier=_StubInterruptionClassifier(
-            [InterruptionDisposition.INTERRUPT]
-        ),
+        interruption_classifier=_StubInterruptionClassifier([InterruptionDisposition.INTERRUPT]),
     )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
@@ -254,12 +245,45 @@ def test_interrupt_bumps_revision() -> None:
     assert routed.planner_fact_kind == IncomingFactKind.USER_MESSAGE
 
 
+def test_recall_feedback_interrupts_active_run_without_text_classification() -> None:
+    interruption_classifier = _StubInterruptionClassifier([InterruptionDisposition.DEFER])
+    coordinator = SessionRunCoordinator(
+        interruption_classifier=interruption_classifier,
+    )
+    coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Inspect the login flow.",
+            turn_id="turn-1",
+        )
+    )
+
+    routed = coordinator.handle_user_turn(
+        UserMessagePayload(
+            user_id="u-chat",
+            session_id="s-chat",
+            content="Leave that record out.",
+            turn_id="turn-2",
+            recall_feedback=RecallFeedbackRequest(
+                kind=RecallFeedbackKind.ITEM_IRRELEVANT,
+                target_message_id="assistant-1",
+                finding_ref="event:event-1",
+            ),
+        )
+    )
+
+    assert routed.interruption_disposition == InterruptionDisposition.INTERRUPT
+    assert routed.active_run is not None
+    assert routed.active_run.revision == 1
+    assert routed.active_run.root_turn_id == "turn-2"
+    assert len(interruption_classifier._queue) == 1
+
+
 def test_augment_is_visible_at_next_checkpoint() -> None:
     classifier = ChatFactClassifier()
     coordinator = SessionRunCoordinator(
-        interruption_classifier=_StubInterruptionClassifier(
-            [InterruptionDisposition.AUGMENT]
-        ),
+        interruption_classifier=_StubInterruptionClassifier([InterruptionDisposition.AUGMENT]),
     )
     first_fact = _user_fact("Inspect the login flow.", turn_id="turn-1")
     coordinator.route(
@@ -466,8 +490,7 @@ def test_defer_pending_turn_is_not_merged_at_checkpoint() -> None:
         "帮我看看 github 的仓库吧",
     ]
     assert all(
-        item.disposition == InterruptionDisposition.DEFER.value
-        for item in active_run.pending_turns
+        item.disposition == InterruptionDisposition.DEFER.value for item in active_run.pending_turns
     )
 
 
@@ -570,10 +593,7 @@ def test_consume_deferred_turns_returns_and_clears_defer_pending_turns() -> None
     drained = coordinator.consume_deferred_turns("s-chat")
 
     assert [item.turn_id for item in drained] == ["turn-defer"]
-    assert all(
-        item.disposition == InterruptionDisposition.DEFER.value
-        for item in drained
-    )
+    assert all(item.disposition == InterruptionDisposition.DEFER.value for item in drained)
 
     # Second call must be empty; AUGMENT remains untouched.
     assert coordinator.consume_deferred_turns("s-chat") == []
@@ -586,4 +606,3 @@ def test_consume_deferred_turns_returns_empty_when_no_active_run() -> None:
     coordinator = SessionRunCoordinator()
 
     assert coordinator.consume_deferred_turns("unknown-session") == []
-

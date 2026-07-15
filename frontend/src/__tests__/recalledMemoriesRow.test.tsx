@@ -17,6 +17,7 @@ const memory = {
   sourceLayer: 'L1',
   statement: 'Visited example.com',
   topic: 'example.com',
+  feedbackRef: 'event:event-1',
 };
 
 const scrollIntoViewMock = vi.fn();
@@ -105,5 +106,54 @@ describe('RecalledMemoriesRow', () => {
 
     expect(screen.getByText('已完整统计 12 条相关记录')).toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
+  it('starts item-level and answer-level rechecks with the targeted message', () => {
+    const onStartFeedback = vi.fn();
+    render(
+      <RecalledMemoriesRow
+        memories={[memory]}
+        targetMessageId="assistant-1"
+        targetMessageExcerpt="Previous answer"
+        onStartFeedback={onStartFeedback}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '1 条记忆引用' }));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.recallFeedback.itemAction' }));
+
+    expect(onStartFeedback).toHaveBeenLastCalledWith({
+      kind: 'item_irrelevant',
+      targetMessageId: 'assistant-1',
+      targetMessageExcerpt: 'Previous answer',
+      findingRef: 'event:event-1',
+      findingLabel: 'Visited example.com',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'chat.recallFeedback.answerAction' }));
+    expect(onStartFeedback).toHaveBeenLastCalledWith({
+      kind: 'answer_evidence_mismatch',
+      targetMessageId: 'assistant-1',
+      targetMessageExcerpt: 'Previous answer',
+    });
+  });
+
+  it('keeps long cited records compact when starting a recheck', () => {
+    const onStartFeedback = vi.fn();
+    const longStatement = `A ${'very '.repeat(40)}long record`;
+    render(
+      <RecalledMemoriesRow
+        memories={[{ ...memory, statement: longStatement }]}
+        targetMessageId="assistant-1"
+        onStartFeedback={onStartFeedback}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '1 条记忆引用' }));
+    fireEvent.click(screen.getByRole('button', { name: 'chat.recallFeedback.itemAction' }));
+
+    const findingLabel = onStartFeedback.mock.calls[0][0].findingLabel as string;
+    expect(findingLabel).toHaveLength(120);
+    expect(findingLabel.endsWith('…')).toBe(true);
   });
 });

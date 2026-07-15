@@ -2,18 +2,28 @@ from __future__ import annotations
 
 from magi.events.events import Event, EventTypes
 from magi.events.domain_payloads import (
-    ToolInvocationCompleted, TaskContext, ToolError,
-    UserMessageReceived, AssistantResponseProduced, SensorEventEmitted,
+    ToolInvocationCompleted,
+    TaskContext,
+    ToolError,
+    UserMessageReceived,
+    AssistantResponseProduced,
+    SensorEventEmitted,
 )
 from magi.memory.event_translation import translate
+from magi.memory.evidence import classify_event_evidence, resolve_l2_policy
+from magi.memory.event_contracts import MemoryDomain
 
 
 def test_tool_invocation_completed_to_action_executed():
     payload = ToolInvocationCompleted(
-        tool_name="shell", tool_category="external_tool",
-        success=True, duration_ms=12.5,
-        started_at=1.0, finished_at=2.0,
-        args_summary="ls -la", result_summary="ok",
+        tool_name="shell",
+        tool_category="external_tool",
+        success=True,
+        duration_ms=12.5,
+        started_at=1.0,
+        finished_at=2.0,
+        args_summary="ls -la",
+        result_summary="ok",
         error=None,
         context=TaskContext("sess-1", "turn-1", "task-1", "user-1"),
     )
@@ -35,10 +45,15 @@ def test_tool_invocation_completed_to_action_executed():
 def test_tool_invocation_failure_marks_higher_level_and_records_error():
     err = ToolError(type="ValueError", message="boom")
     payload = ToolInvocationCompleted(
-        tool_name="shell", tool_category="external_tool",
-        success=False, duration_ms=1.0,
-        started_at=1.0, finished_at=2.0,
-        args_summary="x", result_summary=None, error=err,
+        tool_name="shell",
+        tool_category="external_tool",
+        success=False,
+        duration_ms=1.0,
+        started_at=1.0,
+        finished_at=2.0,
+        args_summary="x",
+        result_summary=None,
+        error=err,
         context=TaskContext("s", "t", None, None),
     )
     me = translate(Event(type=EventTypes.TOOL_INVOCATION_COMPLETED, data=payload))
@@ -59,6 +74,30 @@ def test_user_message_received_translation():
     assert me.content == "hi"
     assert me.session_id == "s"
     assert me.user_id == "u"
+
+
+def test_recall_feedback_stays_conversational_and_cannot_feed_cognition():
+    payload = UserMessageReceived(
+        content="That record is irrelevant here.",
+        context=TaskContext("s", "t", None, "u"),
+        interaction_kind="recall_feedback",
+        metadata={"author_type": "user"},
+    )
+
+    me = translate(Event(type=EventTypes.USER_MESSAGE_RECEIVED, data=payload))
+
+    assert me is not None
+    assert me.event_type == EventTypes.USER_MESSAGE
+    assert me.memory_domain == MemoryDomain.INTERACTION
+    assert me.cognition_eligible is False
+    assert me.metadata_json == {"interaction_kind": "recall_feedback"}
+    classification = classify_event_evidence(me)
+    policy = resolve_l2_policy(classification)
+    assert classification.evidence_class == "user_request"
+    assert classification.reason_code == "user_recall_feedback_interaction"
+    assert policy.l1_retrieval_scope == "conversation_only"
+    assert policy.allow_graph_write is False
+    assert policy.allow_assertion_write is False
 
 
 def test_assistant_response_produced_translation():
@@ -108,11 +147,20 @@ def test_legacy_event_passthrough():
 
 def test_span_completed_tool_invocation_translates_like_legacy():
     from magi.events.domain_payloads import SpanCompleted
+
     sp = SpanCompleted(
-        span_id="s1", trace_id="t1", parent_span_id=None,
-        node_type="tool_invocation", name="shell", status="ok",
-        started_at_ms=1000, ended_at_ms=1150, duration_ms=150,
-        error=None, result_preview="ok", turn_id="turn-1",
+        span_id="s1",
+        trace_id="t1",
+        parent_span_id=None,
+        node_type="tool_invocation",
+        name="shell",
+        status="ok",
+        started_at_ms=1000,
+        ended_at_ms=1150,
+        duration_ms=150,
+        error=None,
+        result_preview="ok",
+        turn_id="turn-1",
         attributes={
             "tool_name": "shell",
             "tool_category": "external_tool",
@@ -139,12 +187,21 @@ def test_span_completed_tool_invocation_translates_like_legacy():
 
 def test_span_completed_other_node_types_skip():
     from magi.events.domain_payloads import SpanCompleted
+
     for node_type in ("span", "llm_call", "intent_resolution", "turn"):
         sp = SpanCompleted(
-            span_id="s", trace_id="t", parent_span_id=None,
-            node_type=node_type, name="x", status="ok",
-            started_at_ms=0, ended_at_ms=0, duration_ms=0,
-            error=None, result_preview=None, turn_id=None,
+            span_id="s",
+            trace_id="t",
+            parent_span_id=None,
+            node_type=node_type,
+            name="x",
+            status="ok",
+            started_at_ms=0,
+            ended_at_ms=0,
+            duration_ms=0,
+            error=None,
+            result_preview=None,
+            turn_id=None,
         )
         ev = Event(type=EventTypes.SPAN_COMPLETED, data=sp)
         assert translate(ev) is None
@@ -152,11 +209,20 @@ def test_span_completed_other_node_types_skip():
 
 def test_span_completed_task_lifecycle_ok_translates_to_task_completed():
     from magi.events.domain_payloads import SpanCompleted
+
     sp = SpanCompleted(
-        span_id="s1", trace_id="t1", parent_span_id=None,
-        node_type="task_lifecycle", name="chat", status="ok",
-        started_at_ms=1000, ended_at_ms=2000, duration_ms=1000,
-        error=None, result_preview="done", turn_id="turn-1",
+        span_id="s1",
+        trace_id="t1",
+        parent_span_id=None,
+        node_type="task_lifecycle",
+        name="chat",
+        status="ok",
+        started_at_ms=1000,
+        ended_at_ms=2000,
+        duration_ms=1000,
+        error=None,
+        result_preview="done",
+        turn_id="turn-1",
         attributes={
             "task_id": "orch-1",
             "task_type": "chat",
@@ -175,12 +241,20 @@ def test_span_completed_task_lifecycle_ok_translates_to_task_completed():
 
 def test_span_completed_task_lifecycle_error_translates_to_task_failed():
     from magi.events.domain_payloads import SpanCompleted, ToolError
+
     sp = SpanCompleted(
-        span_id="s1", trace_id="t1", parent_span_id=None,
-        node_type="task_lifecycle", name="chat", status="error",
-        started_at_ms=1000, ended_at_ms=2000, duration_ms=1000,
+        span_id="s1",
+        trace_id="t1",
+        parent_span_id=None,
+        node_type="task_lifecycle",
+        name="chat",
+        status="error",
+        started_at_ms=1000,
+        ended_at_ms=2000,
+        duration_ms=1000,
         error=ToolError(type="LaunchError", message="boom"),
-        result_preview=None, turn_id="turn-1",
+        result_preview=None,
+        turn_id="turn-1",
         attributes={
             "task_id": "orch-2",
             "task_type": "chat",
@@ -217,12 +291,23 @@ def test_sensor_main_path_uses_build_sensor_memory_event():
         },
         metadata_dict={},
         policy_dict=SensorMemoryPolicy().to_dict(),
-        projection_dict={"title": "T", "summary": "S", "content": "C", "embedding_head": "H", "metadata": {}},
+        projection_dict={
+            "title": "T",
+            "summary": "S",
+            "content": "C",
+            "embedding_head": "H",
+            "metadata": {},
+        },
         occurred_at=1700.0,
         owner_user_id="user-1",
         idempotency_key="ik-1",
     )
-    ev = Event(type=EventTypes.SENSOR_EVENT_EMITTED, data=payload, event_id="evt-X", correlation_id="corr-X")
+    ev = Event(
+        type=EventTypes.SENSOR_EVENT_EMITTED,
+        data=payload,
+        event_id="evt-X",
+        correlation_id="corr-X",
+    )
     me = translate(ev)
     assert me is not None
     assert me.event_id == "evt-X"

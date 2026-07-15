@@ -62,6 +62,7 @@ type PendingTurnPayload = {
   pendingLabel: string;
   attachments?: ChatAttachment[];
   replyTo?: ChatTimelineReplyPreview | null;
+  payload?: Record<string, unknown> | null;
 };
 
 type TurnUxPlanPayload = {
@@ -335,13 +336,21 @@ export const useConversationStore = create<ConversationState>((set) => ({
       },
     };
   }),
-  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel, attachments, replyTo }) => set((state) => {
+  appendPendingTurn: ({ sessionId, input, turnId, timestamp, pendingLabel, attachments, replyTo, payload }) => set((state) => {
     const ensured = ensureSession(state.sessionsById, state.orderedSessionIds, sessionId);
     const previousMessages = state.messagesBySession[sessionId] || [];
     const previewText = input.trim() || (attachments || []).map((attachment) => attachment.original_name).join(', ').trim();
     const nextMessages = [
       ...previousMessages,
-      ...createPendingTurn(input, turnId, timestamp, pendingLabel, attachments || [], replyTo || null),
+      ...createPendingTurn(
+        input,
+        turnId,
+        timestamp,
+        pendingLabel,
+        attachments || [],
+        replyTo || null,
+        payload || null,
+      ),
     ];
     const nextSession = {
       ...(ensured.sessionsById[sessionId] || {
@@ -533,7 +542,9 @@ export const useConversationStore = create<ConversationState>((set) => ({
       return state;
     }
     const previousMessages = state.messagesBySession[sessionId] || [];
-    const nextMessages = previousMessages.filter((message) => message.messageId !== messageId);
+    const nextMessages = previousMessages.filter(
+      (message) => String(message.messageId || message.id) !== messageId,
+    );
     if (nextMessages.length === previousMessages.length) {
       return state;
     }

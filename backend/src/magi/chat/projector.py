@@ -28,6 +28,7 @@ class ChatProjector:
         turn_id: str,
         content: str,
         created_at_ms: int,
+        interaction_kind: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
         normalized_content = str(content or "").strip()
@@ -50,16 +51,19 @@ class ChatProjector:
                 task_id=None,
                 user_id=user_id,
             ),
+            interaction_kind=str(interaction_kind or "").strip() or None,
             metadata=event_metadata,
         )
-        await self._event_bus.publish(Event(
-            type=EventTypes.USER_MESSAGE_RECEIVED,
-            data=payload,
-            source=CHAT_MEMORY_SOURCE,
-            level=EventLevel.INFO,
-            timestamp=float(created_at_ms) / 1000.0,
-            correlation_id=turn_id,
-        ))
+        await self._event_bus.publish(
+            Event(
+                type=EventTypes.USER_MESSAGE_RECEIVED,
+                data=payload,
+                source=CHAT_MEMORY_SOURCE,
+                level=EventLevel.INFO,
+                timestamp=float(created_at_ms) / 1000.0,
+                correlation_id=turn_id,
+            )
+        )
 
     async def project_assistant_message(
         self,
@@ -94,11 +98,13 @@ class ChatProjector:
             ),
             metadata=event_metadata,
         )
-        await self._event_bus.publish(Event(
-            type=EventTypes.ASSISTANT_RESPONSE_PRODUCED,
-            data=payload,
-            source=CHAT_MEMORY_SOURCE,
-            level=EventLevel.INFO,
-            timestamp=float(created_at_ms) / 1000.0,
-            correlation_id=turn_id,
-        ))
+        await self._event_bus.publish(
+            Event(
+                type=EventTypes.ASSISTANT_RESPONSE_PRODUCED,
+                data=payload,
+                source=CHAT_MEMORY_SOURCE,
+                level=EventLevel.INFO,
+                timestamp=float(created_at_ms) / 1000.0,
+                correlation_id=turn_id,
+            )
+        )

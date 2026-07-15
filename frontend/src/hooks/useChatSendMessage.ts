@@ -5,6 +5,11 @@ import type { ChatAttachment } from '@/api';
 import { DEFAULT_USER_ID } from '@/constants';
 import { APP_EVENTS } from '@/constants/events';
 import { createClientTurnId, type ChatTimelineReplyPreview } from '@/domain/chat/state';
+import {
+  toRecallFeedbackReplyPreview,
+  toRecallFeedbackRequest,
+  type RecallFeedbackDraft,
+} from '@/domain/chat/recall-feedback';
 import type { ComposerDraftItem } from './useChatDraftAttachments';
 import { isFileDraftAttachment, isMcpDraftAttachment } from './useChatDraftAttachments';
 
@@ -18,6 +23,7 @@ export type PendingTurnPayload = {
   pendingLabel: string;
   attachments?: ChatAttachment[];
   replyTo?: ChatTimelineReplyPreview | null;
+  payload?: Record<string, unknown> | null;
 };
 
 export type PendingAskSendContext = {
@@ -40,11 +46,14 @@ export type UseChatSendMessageOptions = {
   replyTarget: ChatTimelineReplyPreview | null;
   allowInterjection: boolean;
   pendingAsk: PendingAskSendContext | null;
+  recallFeedbackDraft: RecallFeedbackDraft | null;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
+  removePendingMessage: (sessionId: string, messageId: string) => void;
   setInputValue: (value: string) => void;
   setCurrentSessionId: (sessionId: string | null) => void;
   clearDraftAttachments: () => void;
   clearReplyTarget: () => void;
+  clearRecallFeedback: () => void;
   onPendingResponseTurn: (turnId: string) => void;
   onAskAnswered: (answer: PendingAskAnswerPayload) => void;
   translate: (key: string, options?: Record<string, unknown>) => string;
@@ -69,11 +78,14 @@ export function useChatSendMessage({
   replyTarget,
   allowInterjection,
   pendingAsk,
+  recallFeedbackDraft,
   appendPendingTurn,
+  removePendingMessage,
   setInputValue,
   setCurrentSessionId,
   clearDraftAttachments,
   clearReplyTarget,
+  clearRecallFeedback,
   onPendingResponseTurn,
   onAskAnswered,
   translate,
@@ -105,7 +117,11 @@ export function useChatSendMessage({
 
   const handleSendMessage = useCallback(async () => {
     const trimmedMessage = inputValue.trim();
-    if (!trimmedMessage && draftAttachments.length === 0) {
+    if (recallFeedbackDraft && !trimmedMessage) {
+      toast.warning(translate('chat.emptyInput'));
+      return;
+    }
+    if (!recallFeedbackDraft && !trimmedMessage && draftAttachments.length === 0) {
       toast.warning(translate('chat.emptyInput'));
       return;
     }
@@ -115,6 +131,10 @@ export function useChatSendMessage({
     }
 
     if (pendingAsk) {
+      if (recallFeedbackDraft) {
+        toast.warning(translate('chat.recallFeedback.pendingAskBlocked'));
+        return;
+      }
       if (!trimmedMessage) {
         toast.warning(translate('chat.emptyInput'));
         return;
@@ -148,6 +168,53 @@ export function useChatSendMessage({
         });
         window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
       } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : translate('chat.sendFailed');
+        toast.error(message);
+      } finally {
+        setSendingMessage(false);
+      }
+      return;
+    }
+
+    if (recallFeedbackDraft) {
+      const turnId = createClientTurnId();
+      const now = Date.now();
+      const feedbackRequest = toRecallFeedbackRequest(recallFeedbackDraft);
+      const feedbackReply = toRecallFeedbackReplyPreview(recallFeedbackDraft);
+
+      setSendingMessage(true);
+      try {
+        appendPendingTurn({
+          sessionId: currentSessionId,
+          input: trimmedMessage,
+          turnId,
+          timestamp: now,
+          pendingLabel: translate('chat.trace.pending'),
+          replyTo: feedbackReply,
+          payload: { recall_feedback: feedbackRequest },
+        });
+        const result = await messagesApi.sendMessage({
+          user_id: USER_ID,
+          session_id: currentSessionId,
+          message: trimmedMessage,
+          reply_to_message_id: recallFeedbackDraft.targetMessageId,
+          workspace_path: currentWorkspacePath ?? null,
+          client_turn_id: turnId,
+          recall_feedback: feedbackRequest,
+        });
+        if (result.success === false) {
+          throw new Error(result.message || translate('chat.sendFailed'));
+        }
+        if (result.data?.session_id) {
+          setCurrentSessionId(String(result.data.session_id));
+        }
+        if (!allowInterjection) {
+          onPendingResponseTurn(turnId);
+        }
+        clearRecallFeedback();
+        window.dispatchEvent(new Event(APP_EVENTS.SESSION_SYNC));
+      } catch (error: unknown) {
+        removePendingMessage(currentSessionId, `${turnId}-user`);
         const message = error instanceof Error ? error.message : translate('chat.sendFailed');
         toast.error(message);
       } finally {
@@ -202,6 +269,7 @@ export function useChatSendMessage({
     allowInterjection,
     appendPendingTurn,
     clearDraftAttachments,
+    clearRecallFeedback,
     clearReplyTarget,
     currentSessionId,
     currentWorkspacePath,
@@ -210,6 +278,8 @@ export function useChatSendMessage({
     onAskAnswered,
     onPendingResponseTurn,
     pendingAsk,
+    recallFeedbackDraft,
+    removePendingMessage,
     replyTarget,
     setCurrentSessionId,
     setInputValue,
