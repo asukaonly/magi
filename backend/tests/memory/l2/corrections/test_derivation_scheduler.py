@@ -17,7 +17,11 @@ from magi.memory.l2.corrections.models import (
 )
 from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.service import MemoryCorrectionService
-from magi.memory.l2.derive_schedule import L2DeriveScheduleContrib
+from magi.memory.l2.derive_schedule import (
+    SCHEDULE_ID_L2_CORRECTION_RETRY,
+    L2DeriveScheduleContrib,
+    _schedule_correction_retry,
+)
 from magi.scheduler.service import SchedulerService
 
 
@@ -414,3 +418,28 @@ async def test_runtime_scheduler_retries_failed_derivation_when_due(
     finally:
         await scheduler.stop()
         container.scheduler_service.reset_override()
+
+
+async def test_correction_retry_schedule_coalesces_to_earliest_wakeup(tmp_path) -> None:
+    scheduler = SchedulerService(
+        db_path=tmp_path / "scheduler.db",
+        runtime_dir=tmp_path,
+    )
+    await scheduler.start()
+    try:
+        now = time.time()
+        assert await _schedule_correction_retry(scheduler, run_at=now + 30)
+        assert await _schedule_correction_retry(scheduler, run_at=now + 10)
+        assert await _schedule_correction_retry(scheduler, run_at=now + 20)
+
+        schedules = [
+            item
+            for item in await scheduler.repository.list_schedules(enabled_only=False)
+            if item.schedule_id == SCHEDULE_ID_L2_CORRECTION_RETRY
+        ]
+        assert len(schedules) == 1
+        next_run_at = await scheduler.repository.get_schedule_next_run_at(schedules[0])
+        assert next_run_at is not None
+        assert abs(next_run_at - (now + 10)) < 1.0
+    finally:
+        await scheduler.stop()

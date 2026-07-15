@@ -192,6 +192,38 @@ async def test_scheduler_service_supports_once_and_cron_and_replaces_existing_sc
 
 
 @pytest.mark.asyncio
+async def test_busy_once_schedule_is_rescheduled_in_place(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    target_type = ScheduledTargetType.MEMORY_L2_MAINTENANCE
+    target_key = "busy-once"
+    await service.start()
+    try:
+        assert await service.repository.acquire_target_lock(target_type, target_key)
+        await service.schedule_once(
+            schedule_id="busy-once-retry",
+            target_type=target_type,
+            target_key=target_key,
+            run_at=time.time() + 60.0,
+            target_payload={},
+        )
+
+        result = await service.execute_schedule("busy-once-retry")
+
+        assert result.message == "target_busy"
+        schedules = await service.repository.list_schedules(enabled_only=False)
+        assert [item.schedule_id for item in schedules] == ["busy-once-retry"]
+        retry = schedules[0]
+        assert retry.metadata["_busy_once_retry_count"] == 1
+        assert service._scheduler.get_job("busy-once-retry") is not None
+        assert await service.repository.get_schedule_next_run_at(retry) is not None
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_unschedule_clears_stale_target_errors(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"

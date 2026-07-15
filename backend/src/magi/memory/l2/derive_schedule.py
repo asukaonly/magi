@@ -42,7 +42,7 @@ logger = get_logger(__name__)
 SCHEDULE_ID_L2_DERIVE = "memory-l2-derive:global"
 TARGET_KEY_L2_DERIVE = "memory_l2_derive"
 SCHEDULE_ID_L2_CORRECTION_DERIVE = "memory-l2-correction-derive:global"
-SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX = "memory-l2-correction-derive:retry:"
+SCHEDULE_ID_L2_CORRECTION_RETRY = "memory-l2-correction-derive:retry"
 TARGET_KEY_L2_CORRECTION_DERIVE = "memory_l2_correction_derive"
 CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS = (
     DEFAULT_DERIVATION_STALE_RUNNING_SECONDS
@@ -183,10 +183,20 @@ async def _schedule_correction_retry(
     *,
     run_at: float,
 ) -> bool:
-    schedule_id = f"{SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX}{int(run_at * 1000)}"
     try:
+        repository = scheduler.repository
+        existing = await repository.get_schedule(SCHEDULE_ID_L2_CORRECTION_RETRY)
+        if existing is not None:
+            existing_run_at = await repository.get_schedule_next_run_at(existing)
+            if existing_run_at is not None and existing_run_at <= run_at:
+                return True
+            await scheduler.unschedule(
+                SCHEDULE_ID_L2_CORRECTION_RETRY,
+                target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+                target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+            )
         await scheduler.schedule_once(
-            schedule_id=schedule_id,
+            schedule_id=SCHEDULE_ID_L2_CORRECTION_RETRY,
             target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
             target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
             run_at=run_at,
@@ -461,13 +471,8 @@ class L2DeriveScheduleContrib:
 
     @staticmethod
     async def _remove_retry_schedules(scheduler: SchedulerService) -> None:
-        repository = getattr(scheduler, "repository", None)
-        if repository is None:
-            return
-        for schedule in await repository.list_schedules(enabled_only=False):
-            if schedule.schedule_id.startswith(SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX):
-                await scheduler.unschedule(
-                    schedule.schedule_id,
-                    target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
-                    target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
-                )
+        await scheduler.unschedule(
+            SCHEDULE_ID_L2_CORRECTION_RETRY,
+            target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+            target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+        )

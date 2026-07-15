@@ -30,6 +30,8 @@ from .repository import ScheduleRepository
 logger = get_logger("magi.scheduler.service")
 
 ScheduleHandler = Callable[[ScheduledExecutionContext], Awaitable[ScheduledExecutionResult]]
+_BUSY_ONCE_RETRY_METADATA_KEY = "_busy_once_retry_count"
+_BUSY_ONCE_MAX_RETRY_DELAY_SECONDS = 30.0
 
 
 @dataclasses.dataclass(slots=True)
@@ -282,6 +284,7 @@ class SchedulerService:
             schedule_id, manual=manual, override_payload=override_payload,
         )
         if prep.early_result is not None:
+            await self._reschedule_busy_once(schedule_id, prep.early_result)
             return prep.early_result
         return await self._run_handler_phase(
             schedule=prep.schedule,
@@ -313,6 +316,7 @@ class SchedulerService:
             schedule_id, manual=manual, override_payload=override_payload,
         )
         if prep.early_result is not None:
+            await self._reschedule_busy_once(schedule_id, prep.early_result)
             return prep.early_result
 
         async def _runner() -> None:
@@ -350,6 +354,40 @@ class SchedulerService:
                 "status": "running",
             },
         )
+
+    async def _reschedule_busy_once(
+        self,
+        schedule_id: str,
+        result: ScheduledExecutionResult,
+    ) -> None:
+        """Keep a busy one-off target durable without leaving an orphan row."""
+        if result.message != "target_busy":
+            return
+        schedule = await self._repository.get_schedule(schedule_id)
+        if schedule is None or schedule.trigger.trigger_type is not TriggerType.ONCE:
+            return
+
+        retry_count = int(schedule.metadata.get(_BUSY_ONCE_RETRY_METADATA_KEY, 0)) + 1
+        delay_seconds = min(
+            _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS,
+            2.0 ** min(max(0, retry_count - 1), 5),
+        )
+        replacement = dataclasses.replace(
+            schedule,
+            trigger=TriggerDefinition(
+                TriggerType.ONCE,
+                {"run_at": time.time() + delay_seconds},
+            ),
+            metadata={
+                **schedule.metadata,
+                _BUSY_ONCE_RETRY_METADATA_KEY: retry_count,
+            },
+        )
+        try:
+            self._scheduler.remove_job(schedule.job_id or schedule.schedule_id)
+        except Exception:
+            pass
+        await self.schedule(replacement)
 
     async def _prepare_execution(
         self,
