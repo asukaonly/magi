@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, Optional, Protocol, cast
 
 import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..corrections.models import (
+    ApplyAssertionCorrectionCommand,
+    CorrectionKind,
+    CorrectionTargetKind,
+)
+from ..corrections.repository import MemoryCorrectionRepository
+from ..corrections.service import MemoryCorrectionConflictError, MemoryCorrectionService
 from .settings import (
     CONFIDENCE_CEILING,
     USER_CONFIRMED_CONFIDENCE_FLOOR,
-    USER_REJECTED_CONFIDENCE,
     assertion_float_setting,
 )
 
@@ -72,6 +77,22 @@ class L2StoreFeedbackMixin:
 
         host = cast(_FeedbackHostProtocol, self)
         await host.initialize()
+        if feedback == "rejected":
+            existing_assertion = await host.get_tom_assertion(assertion_id=assertion_id)
+            if existing_assertion is None:
+                return None
+            if existing_assertion.get("status") == "user_rejected":
+                return existing_assertion
+            correction_result = await self.apply_assertion_correction(
+                assertion_id=assertion_id,
+                request_id=f"feedback_{uuid.uuid4().hex}",
+                actor_id="local_user",
+                correction_kind=CorrectionKind.RECORD_ERROR,
+            )
+            if correction_result is None:
+                return None
+            return await host.get_tom_assertion(assertion_id=assertion_id)
+
         now = time.time()
 
         async with sqlite_connection_async(host.db_path) as db:
@@ -87,26 +108,28 @@ class L2StoreFeedbackMixin:
 
             current_confidence = float(existing["confidence_score"])
             current_state = str(existing["validation_state"])
+            if str(existing["status"]) in {
+                "archived",
+                "expired",
+                "superseded",
+                "user_rejected",
+            }:
+                raise MemoryCorrectionConflictError(
+                    "Inactive assertions must be restored through correction history"
+                )
 
-            if feedback == "confirmed":
-                confidence_ceiling = assertion_float_setting(
-                    "confidence_ceiling",
-                    CONFIDENCE_CEILING,
-                )
-                new_confidence = max(
-                    min(confidence_ceiling, current_confidence + 0.20),
-                    assertion_float_setting(
-                        "user_confirmed_confidence_floor",
-                        USER_CONFIRMED_CONFIDENCE_FLOOR,
-                    ),
-                )
-                new_state = "stable" if current_state != "contradicted" else current_state
-            else:
-                new_confidence = assertion_float_setting(
-                    "user_rejected_confidence",
-                    USER_REJECTED_CONFIDENCE,
-                )
-                new_state = "user_rejected"
+            confidence_ceiling = assertion_float_setting(
+                "confidence_ceiling",
+                CONFIDENCE_CEILING,
+            )
+            new_confidence = max(
+                min(confidence_ceiling, current_confidence + 0.20),
+                assertion_float_setting(
+                    "user_confirmed_confidence_floor",
+                    USER_CONFIRMED_CONFIDENCE_FLOOR,
+                ),
+            )
+            new_state = "stable" if current_state != "contradicted" else current_state
 
             await db.execute(
                 """
@@ -138,39 +161,149 @@ class L2StoreFeedbackMixin:
         assertion_id: str,
         new_value: str,
         reason: Optional[str] = None,
+        request_id: str | None = None,
+        actor_id: str = "local_user",
+        correction_kind: CorrectionKind | str = CorrectionKind.RECORD_ERROR,
+        effective_at: float | None = None,
+        scope: Dict[str, Any] | None = None,
+        source_event_id: str | None = None,
+        expected_updated_at: float | None = None,
     ) -> Optional[Dict[str, Any]]:
-        """Supersede an assertion with a user-provided corrected value."""
+        """Apply a user-provided corrected value through correction governance."""
         host = cast(_FeedbackHostProtocol, self)
         await host.initialize()
-        now = time.time()
-
-        existing = await _load_assertion_row(host.db_path, assertion_id)
-        if existing is None:
-            return None
-
-        new_assertion_id = f"assert_{uuid.uuid4().hex}"
-        await _write_corrected_assertion(
-            host.db_path,
-            existing=existing,
-            old_assertion_id=assertion_id,
-            new_assertion_id=new_assertion_id,
-            new_value=new_value,
-            now=now,
-        )
-
-        logger.info(
-            "L2 user correction applied",
-            old_assertion_id=assertion_id,
-            new_assertion_id=new_assertion_id,
-            entity_id=str(existing["entity_id"]),
-            trait_name=str(existing["trait_name"]),
-            old_value=str(existing["trait_value"]),
-            new_value=new_value,
+        result = await self.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id=request_id or f"correction_request_{uuid.uuid4().hex}",
+            actor_id=actor_id,
+            correction_kind=CorrectionKind(correction_kind),
+            replacement_value=new_value,
             reason=reason,
+            effective_at=effective_at,
+            scope=scope,
+            source_event_id=source_event_id,
+            expected_updated_at=expected_updated_at,
         )
-        result = await host.get_tom_assertion(assertion_id=new_assertion_id)
-        await _notify_feedback_assertion_changed(host, result)
-        return result
+        if result is None or result["current_assertion"] is None:
+            return None
+        return cast(Dict[str, Any], result["current_assertion"])
+
+    async def apply_assertion_correction(
+        self,
+        *,
+        assertion_id: str,
+        request_id: str,
+        actor_id: str,
+        correction_kind: CorrectionKind | str,
+        replacement_value: str | None = None,
+        reason: str | None = None,
+        effective_at: float | None = None,
+        scope: Dict[str, Any] | None = None,
+        source_event_id: str | None = None,
+        expected_updated_at: float | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Apply one governed assertion correction and return its current claim."""
+        host = cast(_FeedbackHostProtocol, self)
+        await host.initialize()
+        service = MemoryCorrectionService(host.db_path)
+        result = await service.apply_assertion_correction(
+            ApplyAssertionCorrectionCommand(
+                assertion_id=assertion_id,
+                request_id=request_id,
+                actor_id=actor_id,
+                correction_kind=CorrectionKind(correction_kind),
+                replacement_value=replacement_value,
+                reason=reason,
+                effective_at=effective_at,
+                scope=scope,
+                source_event_id=source_event_id,
+                expected_updated_at=expected_updated_at,
+            )
+        )
+        if result is None:
+            return None
+        changed_assertion_id = result.current_assertion_id or assertion_id
+        current_assertion = await host.get_tom_assertion(assertion_id=changed_assertion_id)
+        await _notify_feedback_assertion_changed(host, current_assertion)
+        logger.info(
+            "L2 assertion correction applied",
+            correction_id=result.correction.correction_id,
+            assertion_id=assertion_id,
+            replacement_assertion_id=result.correction.replacement_target_id,
+            correction_kind=result.correction.correction_kind.value,
+            created=result.created,
+        )
+        return {
+            "correction": asdict(result.correction),
+            "current_assertion": current_assertion,
+            "subject_revision": result.subject_revision,
+            "created": result.created,
+        }
+
+    async def revert_assertion_correction(
+        self,
+        *,
+        correction_id: str,
+        request_id: str,
+        actor_id: str = "local_user",
+    ) -> Optional[Dict[str, Any]]:
+        """Revert one correction and return the restored current assertion."""
+        host = cast(_FeedbackHostProtocol, self)
+        await host.initialize()
+        result = await MemoryCorrectionService(host.db_path).revert_assertion_correction(
+            correction_id=correction_id,
+            request_id=request_id,
+            actor_id=actor_id,
+        )
+        if result is None:
+            return None
+        current_assertion = await host.get_tom_assertion(
+            assertion_id=result.current_assertion_id or result.correction.target_id
+        )
+        await _notify_feedback_assertion_changed(host, current_assertion)
+        return {
+            "correction": asdict(result.correction),
+            "current_assertion": current_assertion,
+            "subject_revision": result.subject_revision,
+            "created": result.created,
+        }
+
+    async def get_assertion_correction_history(
+        self,
+        *,
+        slot_key: str,
+    ) -> Dict[str, Any]:
+        """Return assertion versions and user corrections for one logical slot."""
+        host = cast(_FeedbackHostProtocol, self)
+        await host.initialize()
+        history = await MemoryCorrectionService(host.db_path).get_assertion_history(
+            slot_key_value=slot_key
+        )
+        assertions: list[Dict[str, Any]] = []
+        for row in history["assertions"]:
+            assertion = await host.get_tom_assertion(assertion_id=str(row["assertion_id"]))
+            if assertion is not None:
+                assertions.append(assertion)
+        return {
+            "assertions": assertions,
+            "corrections": [asdict(item) for item in history["corrections"]],
+        }
+
+    async def list_assertion_corrections(
+        self,
+        *,
+        assertion_id: str,
+        limit: int = 100,
+    ) -> list[Dict[str, Any]]:
+        """List corrections originally applied to one assertion version."""
+        host = cast(_FeedbackHostProtocol, self)
+        await host.initialize()
+        corrections = await MemoryCorrectionRepository(host.db_path).list_for_target(
+            target_kind=CorrectionTargetKind.ASSERTION,
+            target_id=assertion_id,
+            limit=limit,
+        )
+        return [asdict(item) for item in corrections]
 
     async def resolve_shadow_conflict(
         self,
@@ -253,117 +386,6 @@ async def _load_assertion_row(
             (assertion_id,),
         ) as cursor:
             return await cursor.fetchone()
-
-
-async def _write_corrected_assertion(
-    db_path: str,
-    *,
-    existing: aiosqlite.Row,
-    old_assertion_id: str,
-    new_assertion_id: str,
-    new_value: str,
-    now: float,
-) -> None:
-    async with sqlite_connection_async(db_path) as db:
-        await _supersede_assertion_for_correction(
-            db,
-            old_assertion_id=old_assertion_id,
-            new_assertion_id=new_assertion_id,
-            now=now,
-        )
-        await _insert_corrected_assertion(
-            db,
-            existing=existing,
-            new_assertion_id=new_assertion_id,
-            new_value=new_value,
-            now=now,
-        )
-        await db.commit()
-
-
-async def _supersede_assertion_for_correction(
-    db: aiosqlite.Connection,
-    *,
-    old_assertion_id: str,
-    new_assertion_id: str,
-    now: float,
-) -> None:
-    await db.execute(
-        """
-        UPDATE tom_trait_assertions
-        SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
-        WHERE assertion_id = ?
-        """,
-        (new_assertion_id, now, now, old_assertion_id),
-    )
-
-
-async def _insert_corrected_assertion(
-    db: aiosqlite.Connection,
-    *,
-    existing: aiosqlite.Row,
-    new_assertion_id: str,
-    new_value: str,
-    now: float,
-) -> None:
-    await db.execute(
-        """
-        INSERT INTO tom_trait_assertions(
-            assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
-            confidence_score, evidence_events, volatility_index, source_domain,
-            inference_depth, validation_state, first_inferred_at, last_validated_at,
-            target_entity_id, target_entity_type, target_scope, temporal_scope,
-            decay_policy, decay_anchor_at, context_ref_id, expires_at,
-            status, user_feedback, user_feedback_at,
-            created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        _corrected_assertion_values(
-            existing,
-            new_assertion_id=new_assertion_id,
-            new_value=new_value,
-            now=now,
-        ),
-    )
-
-
-def _corrected_assertion_values(
-    existing: aiosqlite.Row,
-    *,
-    new_assertion_id: str,
-    new_value: str,
-    now: float,
-) -> tuple[Any, ...]:
-    evidence = json.loads(existing["evidence_events"] or "[]")
-    return (
-        new_assertion_id,
-        str(existing["entity_id"]),
-        str(existing["entity_type"]),
-        str(existing["trait_family"]),
-        str(existing["trait_name"]),
-        new_value,
-        0.95,
-        json.dumps(evidence, ensure_ascii=False),
-        float(existing["volatility_index"]),
-        "user_correction",
-        "explicit",
-        "stable",
-        float(existing["first_inferred_at"]),
-        now,
-        str(existing["target_entity_id"] or ""),
-        str(existing["target_entity_type"] or ""),
-        str(existing["target_scope"] or "global"),
-        str(existing["temporal_scope"] or "session"),
-        existing["decay_policy"],
-        existing["decay_anchor_at"],
-        str(existing["context_ref_id"] or ""),
-        existing["expires_at"],
-        "stable",
-        "confirmed",
-        now,
-        now,
-        now,
-    )
 
 
 def _build_shadow_conflict_context(

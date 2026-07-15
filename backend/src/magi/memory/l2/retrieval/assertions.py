@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, cast
 
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
+from ..corrections.fingerprints import scope_key
 from ...sql_search import build_like_search_clause
 from .common import L2RetrievalQueryHostProtocol
-
 
 CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
 
@@ -25,6 +26,65 @@ def _excluded_status_clause(*, include_superseded: bool = False) -> tuple[str, l
 
 class L2StoreAssertionQueryMixin:
     """Read and batch-query ToM assertions."""
+
+    async def list_current_assertions(
+        self,
+        *,
+        entity_id: str | None = None,
+        entity_type: str | None = None,
+        context_scope: Mapping[str, Any] | None = None,
+        effective_at: float | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Return one current assertion per slot for the requested context."""
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        at = float(effective_at if effective_at is not None else time.time())
+        requested_scope_key = scope_key(context_scope)
+        status_sql, status_args = _excluded_status_clause()
+        query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
+        args: list[Any] = []
+        if entity_id:
+            query += " AND entity_id = ?"
+            args.append(entity_id)
+        if entity_type:
+            query += " AND entity_type = ?"
+            args.append(entity_type)
+        query += status_sql
+        args.extend(status_args)
+        query += " AND (valid_from IS NULL OR valid_from <= ?)"
+        query += " AND (valid_to IS NULL OR valid_to > ?)"
+        args.extend((at, at))
+        if requested_scope_key == "global":
+            query += " AND scope_key = 'global'"
+        else:
+            query += " AND scope_key IN ('global', ?)"
+            args.append(requested_scope_key)
+        query += " ORDER BY CASE WHEN scope_key = ? THEN 0 ELSE 1 END, updated_at DESC"
+        args.append(requested_scope_key)
+        query += " LIMIT ?"
+        args.append(max(1, int(limit)) * 2)
+
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+
+        current_by_slot: dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            assertion = host._assertion_row_to_dict(row)
+            slot = assertion["slot_key"] or "\x1f".join(
+                (
+                    assertion["entity_type"],
+                    assertion["entity_id"],
+                    assertion["trait_name"],
+                    assertion["target_entity_id"],
+                )
+            )
+            current_by_slot.setdefault(slot, assertion)
+            if len(current_by_slot) >= limit:
+                break
+        return list(current_by_slot.values())
 
     async def count_tom_assertions(
         self,

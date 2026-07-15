@@ -55,6 +55,47 @@ class L2StoreRowMappingMixin:
             "status": str(row["status"]) if "status" in columns and row["status"] else "active",
             "superseded_by": str(row["superseded_by"]) if "superseded_by" in columns and row["superseded_by"] else None,
             "superseded_at": float(row["superseded_at"]) if "superseded_at" in columns and row["superseded_at"] else None,
+            "slot_key": str(row["slot_key"] or "") if "slot_key" in columns else "",
+            "claim_fingerprint": (
+                str(row["claim_fingerprint"] or "")
+                if "claim_fingerprint" in columns
+                else ""
+            ),
+            "authority_ref": (
+                str(row["authority_ref"])
+                if "authority_ref" in columns and row["authority_ref"]
+                else None
+            ),
+            "version_root_id": (
+                str(row["version_root_id"])
+                if "version_root_id" in columns and row["version_root_id"]
+                else None
+            ),
+            "previous_version_id": (
+                str(row["previous_version_id"])
+                if "previous_version_id" in columns and row["previous_version_id"]
+                else None
+            ),
+            "valid_from": (
+                float(row["valid_from"])
+                if "valid_from" in columns and row["valid_from"] is not None
+                else None
+            ),
+            "valid_to": (
+                float(row["valid_to"])
+                if "valid_to" in columns and row["valid_to"] is not None
+                else None
+            ),
+            "scope_key": (
+                str(row["scope_key"] or "global")
+                if "scope_key" in columns
+                else "global"
+            ),
+            "scope": (
+                json.loads(row["scope_json"] or "{}")
+                if "scope_json" in columns
+                else {}
+            ),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),
         })

@@ -123,6 +123,30 @@ class CorrectionCreateResult:
     subject_revisions: dict[str, int]
 
 
+@dataclass(frozen=True)
+class ApplyAssertionCorrectionCommand:
+    """One user-authoritative change to an assertion claim."""
+
+    assertion_id: str
+    request_id: str
+    actor_id: str
+    correction_kind: CorrectionKind
+    replacement_value: str | None = None
+    reason: str | None = None
+    effective_at: float | None = None
+    scope: Mapping[str, Any] | None = None
+    source_event_id: str | None = None
+    expected_updated_at: float | None = None
+
+
+@dataclass(frozen=True)
+class AssertionCorrectionResult:
+    correction: MemoryCorrection
+    created: bool
+    current_assertion_id: str | None
+    subject_revision: int | None
+
+
 def _json_object(value: Any) -> dict[str, Any] | None:
     if value is None or value == "":
         return None
@@ -146,6 +170,8 @@ def _optional_float(value: Any) -> float | None:
 
 
 __all__ = [
+    "ApplyAssertionCorrectionCommand",
+    "AssertionCorrectionResult",
     "CorrectionCreateResult",
     "CorrectionKind",
     "CorrectionRule",

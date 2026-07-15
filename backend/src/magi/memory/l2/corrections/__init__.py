@@ -10,6 +10,8 @@ from .fingerprints import (
     scope_key,
 )
 from .models import (
+    ApplyAssertionCorrectionCommand,
+    AssertionCorrectionResult,
     CorrectionCreateResult,
     CorrectionKind,
     CorrectionRule,
@@ -20,8 +22,15 @@ from .models import (
     NewMemoryCorrection,
 )
 from .repository import MemoryCorrectionRepository
+from .service import (
+    MemoryCorrectionConflictError,
+    MemoryCorrectionService,
+    MemoryCorrectionValidationError,
+)
 
 __all__ = [
+    "ApplyAssertionCorrectionCommand",
+    "AssertionCorrectionResult",
     "CorrectionCreateResult",
     "CorrectionKind",
     "CorrectionRule",
@@ -30,6 +39,9 @@ __all__ = [
     "CorrectionTargetKind",
     "MemoryCorrection",
     "MemoryCorrectionRepository",
+    "MemoryCorrectionConflictError",
+    "MemoryCorrectionService",
+    "MemoryCorrectionValidationError",
     "NewMemoryCorrection",
     "assertion_claim_fingerprint",
     "assertion_slot_key",

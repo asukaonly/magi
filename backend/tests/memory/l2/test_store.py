@@ -3616,7 +3616,7 @@ async def test_structured_trait_value_formats_corroborate_without_superseding(tm
 
 @pytest.mark.asyncio
 async def test_user_correction_supersedes_and_creates_stable(tmp_path):
-    """correct_assertion creates a new stable assertion and supersedes the old."""
+    """correct_assertion rejects the wrong claim and creates a clean replacement."""
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -3640,11 +3640,15 @@ async def test_user_correction_supersedes_and_creates_stable(tmp_path):
     assert result["status"] == "stable"
     assert result["confidence_score"] == 0.95
     assert result["source_domain"] == "user_correction"
+    assert result["evidence_events"] == []
 
     old = await store.get_tom_assertion(assertion_id=id1)
     assert old is not None
-    assert old["status"] == "superseded"
+    assert old["status"] == "user_rejected"
     assert old["superseded_by"] == result["assertion_id"]
+    corrections = await store.list_assertion_corrections(assertion_id=id1)
+    assert len(corrections) == 1
+    assert corrections[0]["reason"] == "I moved"
 
 
 @pytest.mark.asyncio
