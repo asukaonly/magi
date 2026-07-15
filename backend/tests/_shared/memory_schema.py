@@ -23,6 +23,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v1_initial.py",
     "v2_experience_drafts.py",
     "v3_experience_draft_cover.py",
+    "v4_memory_corrections.py",
 )
 
 

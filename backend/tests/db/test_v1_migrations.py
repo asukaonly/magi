@@ -16,7 +16,11 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "l1": {"fact_events", "l1_event_payload", "l1_session_sequences", "l1_source_facets"},
     "memory_shared": {
         "knowledge_graph",
+        "knowledge_graph_versions",
         "manual_entries",
+        "memory_corrections",
+        "memory_correction_rules",
+        "memory_subject_revisions",
         "experiences",
         "experience_seeds",
         "user_portrait_projection",
