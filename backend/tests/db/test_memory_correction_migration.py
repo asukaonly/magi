@@ -97,3 +97,89 @@ def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -
         assert connection.execute(
             "SELECT revision FROM memory_subject_revisions WHERE subject_key = 'user:local_user'"
         ).fetchone() == (1,)
+
+
+def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path) -> None:
+    db_path = tmp_path / "memory.db"
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v6_relationship_governance_slots")
+
+    with sqlite3.connect(db_path) as connection:
+        summary_rows = [
+            (
+                "legacy-unknown",
+                "insight",
+                "state_change",
+                "A legacy claim with unknown dependencies.",
+                "legacy:unknown",
+            ),
+            (
+                "legacy-linked",
+                "insight",
+                "state_change",
+                "A legacy claim with known dependencies.",
+                "legacy:linked",
+            ),
+            (
+                "legacy-temporal",
+                "temporal",
+                "day",
+                "A source-backed temporal recap.",
+                None,
+            ),
+        ]
+        connection.executemany(
+            """
+            INSERT INTO summaries(
+                summary_id, summary_type, summary_category, period_start, period_end,
+                content, source_event_ids, source_event_count, insight_key,
+                embedding_status, embedding_profile_id, embedding_chunk_count,
+                last_embedded_at, source_revision, created_at, updated_at
+            ) VALUES (?, ?, ?, 1, 2, ?, '["event-1"]', 1, ?, 'ready',
+                      'profile-1', 1, 2, 0, 1, 2)
+            """,
+            summary_rows,
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_derivation_dependencies(
+                artifact_kind, artifact_id, source_kind, source_id,
+                subject_key, source_revision, created_at
+            ) VALUES ('l3_insight', 'legacy-linked', 'assertion', 'assertion-1',
+                      'user:local_user', 0, 2)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO l3_summary_chunks(
+                chunk_id, summary_id, chunk_index, chunk_text,
+                char_start, char_end, token_estimate, created_at, updated_at
+            ) VALUES ('chunk-legacy', 'legacy-unknown', 0, 'legacy', 0, 6, 1, 1, 2)
+            """
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as connection:
+        states = dict(
+            connection.execute(
+                "SELECT summary_id, derivation_state FROM summaries ORDER BY summary_id"
+            ).fetchall()
+        )
+        assert states == {
+            "legacy-linked": "current",
+            "legacy-temporal": "current",
+            "legacy-unknown": "stale",
+        }
+        assert connection.execute(
+            """
+            SELECT embedding_status, embedding_profile_id,
+                   embedding_chunk_count, last_embedded_at
+            FROM summaries WHERE summary_id = 'legacy-unknown'
+            """
+        ).fetchone() == ("disabled", None, 0, None)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = 'legacy-unknown'"
+        ).fetchone() == (0,)
