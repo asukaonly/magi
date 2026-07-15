@@ -157,12 +157,54 @@ describe('PersonaPreviewChat', () => {
     expect(presetSpy).toHaveBeenCalledWith('nova', 'en');
     expect(screen.queryByPlaceholderText(/composerPlaceholder/i)).not.toBeInTheDocument();
 
-    const layersSummary = screen.getByText('personality.sections.personaLayers').closest('summary');
-    expect(layersSummary).not.toBeNull();
-    await userEvent.click(layersSummary as HTMLElement);
+    const layersToggle = screen.getByRole('button', {
+      name: 'personality.sections.personaLayers',
+    });
+    expect(layersToggle).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(layersToggle);
+    expect(layersToggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByText('Shares a more candid observation.')).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId('persona-profile-reveal-layers'));
     expect(screen.getByText('Shares a more candid observation.')).toBeInTheDocument();
+  });
+
+  it('opens one profile section at a time and scrolls the new section into view', async () => {
+    const scrollToMock = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: scrollToMock,
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    vi.spyOn(personasApi, 'getPresetConfig').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { ...makeGeneratedConfig(), name: 'Nova' },
+    });
+    renderPersonaPreview({ previews });
+
+    await userEvent.click(screen.getByTestId('persona-mode-profile'));
+
+    const identityToggle = await screen.findByRole('button', {
+      name: 'personality.sections.identityCore',
+    });
+    const voiceToggle = screen.getByRole('button', {
+      name: 'personality.sections.idiolect',
+    });
+    expect(identityToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(voiceToggle).toHaveAttribute('aria-expanded', 'false');
+
+    await userEvent.click(voiceToggle);
+
+    expect(identityToggle).toHaveAttribute('aria-expanded', 'false');
+    expect(voiceToggle).toHaveAttribute('aria-expanded', 'true');
+    expect(scrollToMock).toHaveBeenCalledWith({
+      top: 0,
+      behavior: 'smooth',
+    });
   });
 
   it('preserves the trial transcript while switching between chat and profile', async () => {

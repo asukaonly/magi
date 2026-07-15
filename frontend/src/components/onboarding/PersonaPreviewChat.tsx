@@ -466,7 +466,7 @@ export function PersonaPreviewChat({
 
       {/* Right: either the preview chat or the custom-persona composer. */}
       {mode === 'create' ? (
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-4">
           <div className="flex-1 overflow-y-auto rounded-lg border border-border/50 bg-muted/10 p-4">
             <h3 className="text-base font-semibold text-foreground">{t('personaPreview.createCustomTitle')}</h3>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -565,7 +565,7 @@ export function PersonaPreviewChat({
           <div
             role="group"
             aria-label={t('personaPreview.modeLabel', { name: activeItem?.name || '' })}
-            className="flex w-fit shrink-0 self-end items-center gap-1 rounded-lg border border-border/45 bg-muted/25 p-1"
+            className="flex w-fit shrink-0 self-end items-center gap-1 rounded-xl bg-muted/45 p-1"
           >
             <button
               type="button"
