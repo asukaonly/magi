@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+import sqlite_vec
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
@@ -122,6 +123,13 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
                 "legacy:linked",
             ),
             (
+                "legacy-orphan",
+                "insight",
+                "state_change",
+                "A legacy claim with an orphaned dependency.",
+                "legacy:orphan",
+            ),
+            (
                 "legacy-temporal",
                 "temporal",
                 "day",
@@ -143,6 +151,22 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
         )
         connection.execute(
             """
+            INSERT INTO tom_trait_assertions(
+                assertion_id, entity_id, entity_type, trait_family, trait_name, trait_value,
+                confidence_score, evidence_events, volatility_index, source_domain,
+                inference_depth, validation_state, first_inferred_at, last_validated_at,
+                target_entity_id, target_entity_type, target_scope, temporal_scope,
+                status, created_at, updated_at
+            ) VALUES (
+                'assertion-1', 'user:local_user', 'user', 'identity_profile',
+                'identity.location.home', 'Shanghai', 0.9, '["event-1"]', 0.1,
+                'chat', 'explicit', 'stable', 1, 2, '', '', 'global',
+                'stable', 'stable', 1, 2
+            )
+            """
+        )
+        connection.execute(
+            """
             INSERT INTO memory_derivation_dependencies(
                 artifact_kind, artifact_id, source_kind, source_id,
                 subject_key, source_revision, created_at
@@ -152,10 +176,54 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
         )
         connection.execute(
             """
+            INSERT INTO memory_derivation_dependencies(
+                artifact_kind, artifact_id, source_kind, source_id,
+                subject_key, source_revision, created_at
+            ) VALUES ('l3_insight', 'legacy-orphan', 'assertion', 'missing-assertion',
+                      'user:local_user', 0, 2)
+            """
+        )
+        connection.execute(
+            """
             INSERT INTO l3_summary_chunks(
                 chunk_id, summary_id, chunk_index, chunk_text,
                 char_start, char_end, token_estimate, created_at, updated_at
             ) VALUES ('chunk-legacy', 'legacy-unknown', 0, 'legacy', 0, 6, 1, 1, 2)
+            """
+        )
+        connection.enable_load_extension(True)
+        try:
+            connection.load_extension(sqlite_vec.loadable_path())
+        finally:
+            connection.enable_load_extension(False)
+        connection.execute(
+            """
+            CREATE TABLE l3_summary_chunk_vectors (
+                vec_rowid INTEGER PRIMARY KEY,
+                chunk_id TEXT NOT NULL,
+                embedding_model TEXT NOT NULL,
+                embedding_dim INTEGER NOT NULL,
+                vec_table TEXT NOT NULL,
+                metadata TEXT,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(chunk_id, embedding_model)
+            )
+            """
+        )
+        connection.execute(
+            "CREATE VIRTUAL TABLE l3_summary_chunk_vec_test USING vec0(embedding float[2])"
+        )
+        connection.execute(
+            "INSERT INTO l3_summary_chunk_vec_test(rowid, embedding) VALUES (1, ?)",
+            (sqlite_vec.serialize_float32([1.0, 0.0]),),
+        )
+        connection.execute(
+            """
+            INSERT INTO l3_summary_chunk_vectors(
+                vec_rowid, chunk_id, embedding_model, embedding_dim, vec_table,
+                metadata, created_at, updated_at
+            ) VALUES (1, 'chunk-legacy', 'test', 2, 'l3_summary_chunk_vec_test', NULL, 1, 2)
             """
         )
         connection.commit()
@@ -170,6 +238,7 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
         )
         assert states == {
             "legacy-linked": "current",
+            "legacy-orphan": "stale",
             "legacy-temporal": "current",
             "legacy-unknown": "stale",
         }
@@ -182,4 +251,15 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
         ).fetchone() == ("disabled", None, 0, None)
         assert connection.execute(
             "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = 'legacy-unknown'"
+        ).fetchone() == (0,)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM l3_summary_chunk_vectors WHERE chunk_id = 'chunk-legacy'"
+        ).fetchone() == (0,)
+        connection.enable_load_extension(True)
+        try:
+            connection.load_extension(sqlite_vec.loadable_path())
+        finally:
+            connection.enable_load_extension(False)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM l3_summary_chunk_vec_test"
         ).fetchone() == (0,)
