@@ -30,6 +30,8 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class _ShadowConflictContext:
     shadow_id: str
+    slot_key: str
+    scope_key: str
     entity_id: str
     entity_type: str
     trait_name: str
@@ -337,6 +339,28 @@ class L2StoreFeedbackMixin:
             return await self.apply_user_feedback(assertion_id=shadow_id, feedback="rejected")
 
         context = _build_shadow_conflict_context(shadow_id, shadow_row)
+        authoritative_row = await _load_current_authoritative_row(host.db_path, context)
+        if authoritative_row is not None and authoritative_row["authority_ref"]:
+            correction_result = await self.apply_assertion_correction(
+                assertion_id=str(authoritative_row["assertion_id"]),
+                request_id=f"shadow_confirmation_{uuid.uuid4().hex}",
+                actor_id="local_user",
+                correction_kind=CorrectionKind.RECORD_ERROR,
+                replacement_value=context.trait_value,
+                reason="User confirmed a conflicting assertion",
+            )
+            if correction_result is None or correction_result["current_assertion"] is None:
+                return None
+            replacement = cast(Dict[str, Any], correction_result["current_assertion"])
+            await _archive_confirmed_shadow(
+                host.db_path,
+                shadow_id=shadow_id,
+                replacement_id=str(replacement["assertion_id"]),
+                now=context.now,
+            )
+            await _refresh_snapshot_after_shadow_confirmation(host, context)
+            return replacement
+
         promotion = await _confirm_shadow_conflict(host.db_path, context)
 
         logger.info(
@@ -394,6 +418,8 @@ def _build_shadow_conflict_context(
 ) -> _ShadowConflictContext:
     return _ShadowConflictContext(
         shadow_id=shadow_id,
+        slot_key=str(shadow_row["slot_key"] or ""),
+        scope_key=str(shadow_row["scope_key"] or "global"),
         entity_id=str(shadow_row["entity_id"]),
         entity_type=str(shadow_row["entity_type"]),
         trait_name=str(shadow_row["trait_name"]),
@@ -402,6 +428,48 @@ def _build_shadow_conflict_context(
         current_confidence=float(shadow_row["confidence_score"]),
         now=time.time(),
     )
+
+
+async def _load_current_authoritative_row(
+    db_path: str,
+    context: _ShadowConflictContext,
+) -> aiosqlite.Row | None:
+    async with sqlite_connection_async(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT * FROM tom_trait_assertions
+            WHERE slot_key = ? AND scope_key = ?
+              AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (
+                context.slot_key,
+                context.scope_key,
+            ),
+        ) as cursor:
+            return await cursor.fetchone()
+
+
+async def _archive_confirmed_shadow(
+    db_path: str,
+    *,
+    shadow_id: str,
+    replacement_id: str,
+    now: float,
+) -> None:
+    async with sqlite_connection_async(db_path) as db:
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET status = 'archived', superseded_by = ?, superseded_at = ?,
+                valid_to = COALESCE(valid_to, ?), updated_at = ?
+            WHERE assertion_id = ? AND status = 'shadow'
+            """,
+            (replacement_id, now, now, now, shadow_id),
+        )
+        await db.commit()
 
 
 async def _confirm_shadow_conflict(
@@ -455,16 +523,14 @@ async def _find_current_authoritative_id(
     async with db.execute(
         """
         SELECT assertion_id FROM tom_trait_assertions
-        WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+        WHERE slot_key = ? AND scope_key = ?
           AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
         ORDER BY updated_at DESC
         LIMIT 1
         """,
         (
-            context.entity_id,
-            context.entity_type,
-            context.trait_name,
-            context.target_entity_id,
+            context.slot_key,
+            context.scope_key,
         ),
     ) as cursor:
         old_authoritative = await cursor.fetchone()

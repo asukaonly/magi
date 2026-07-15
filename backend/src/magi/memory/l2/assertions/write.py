@@ -13,6 +13,17 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ..corrections.fingerprints import (
+    assertion_claim_fingerprint,
+    assertion_slot_key,
+    canonical_scope_json,
+    scope_key,
+)
+from ..corrections.policy import (
+    CorrectionPolicyAction,
+    CorrectionPolicyDecision,
+    CorrectionPolicyEvaluator,
+)
 from ..storage.utils import (
     max_evidence_event_ids,
     normalize_event_ids,
@@ -91,13 +102,14 @@ INSERT INTO tom_trait_assertions(
     target_entity_id, target_entity_type, target_scope, temporal_scope,
     decay_policy, decay_anchor_at, context_ref_id, expires_at,
     status, memory_subdomain, natural_summary,
-    created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    created_at, updated_at, slot_key, claim_fingerprint, authority_ref,
+    version_root_id, previous_version_id, valid_from, valid_to, scope_key, scope_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 _ACTIVE_ASSERTION_SQL = """
 SELECT * FROM tom_trait_assertions
-WHERE entity_id = ? AND entity_type = ? AND trait_name = ? AND target_entity_id = ?
+WHERE slot_key = ? AND scope_key = ?
   AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
 ORDER BY updated_at DESC
 LIMIT 1
@@ -106,6 +118,7 @@ LIMIT 1
 _UPDATE_VOLATILE_ASSERTION_SQL = """
 UPDATE tom_trait_assertions
 SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+    slot_key = ?, claim_fingerprint = ?, scope_key = ?, scope_json = ?,
     validation_state = ?, status = ?, last_validated_at = ?,
     first_inferred_at = ?,
     target_entity_type = ?, target_scope = ?, temporal_scope = ?,
@@ -116,13 +129,15 @@ WHERE assertion_id = ?
 
 _SUPERSEDE_ASSERTION_SQL = """
 UPDATE tom_trait_assertions
-SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?
+SET status = 'superseded', superseded_by = ?, superseded_at = ?, updated_at = ?,
+    valid_to = ?
 WHERE assertion_id = ?
 """
 
 _UPDATE_SAME_VALUE_ASSERTION_SQL = """
 UPDATE tom_trait_assertions
 SET trait_value = ?, confidence_score = ?, evidence_events = ?,
+    slot_key = ?, claim_fingerprint = ?, scope_key = ?, scope_json = ?,
     validation_state = ?, status = ?,
     last_validated_at = ?, first_inferred_at = ?,
     target_entity_type = ?, target_scope = ?, temporal_scope = ?,
@@ -185,6 +200,29 @@ def _normalized_assertion_context(
     }
 
 
+def _normalized_assertion_governance(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    raw_scope = candidate.get("scope")
+    scope = dict(raw_scope) if isinstance(raw_scope, dict) else {}
+    slot_key_value = assertion_slot_key(
+        entity_type=str(candidate["entity_type"]),
+        entity_id=str(candidate["entity_id"]),
+        trait_name=str(candidate.get("trait_name") or ""),
+        target_entity_id=str(candidate["target_entity_id"]),
+    )
+    scope_key_value = scope_key(scope)
+    return {
+        "slot_key": slot_key_value,
+        "claim_fingerprint": assertion_claim_fingerprint(
+            slot_key_value=slot_key_value,
+            trait_value=candidate.get("trait_value"),
+            scope_key_value=scope_key_value,
+        ),
+        "scope": scope,
+        "scope_key": scope_key_value,
+        "scope_json": canonical_scope_json(scope),
+    }
+
+
 def normalize_assertion_candidate(
     candidate: Dict[str, Any],
     host: _AssertionHostProtocol,
@@ -202,6 +240,7 @@ def normalize_assertion_candidate(
         candidate.get("evidence_events") or []
     )
     normalized_candidate["trait_value"] = _canonicalize_trait_value(candidate.get("trait_value"))
+    normalized_candidate.update(_normalized_assertion_governance(normalized_candidate))
     return normalized_candidate
 
 
@@ -239,6 +278,8 @@ class AssertionMergeContext:
 class _AssertionWriteResult:
     assertion_id: str
     triggered_stable: bool = False
+    should_notify: bool = True
+    governance_action: CorrectionPolicyAction = CorrectionPolicyAction.ACCEPT_ACTIVE
 
 
 def build_assertion_merge_context(
@@ -292,6 +333,8 @@ def _assertion_insert_values(
     last_validated_at: float,
     status: str,
     now: float,
+    version_root_id: str | None = None,
+    previous_version_id: str | None = None,
 ) -> tuple[Any, ...]:
     return (
         assertion_id,
@@ -321,6 +364,15 @@ def _assertion_insert_values(
         candidate["natural_summary"],
         now,
         now,
+        candidate["slot_key"],
+        candidate["claim_fingerprint"],
+        None,
+        version_root_id or assertion_id,
+        previous_version_id,
+        first_inferred_at,
+        None,
+        candidate["scope_key"],
+        candidate["scope_json"],
     )
 
 
@@ -337,6 +389,10 @@ def _existing_assertion_update_values(
         merge_context.next_value,
         confidence,
         json.dumps(merge_context.merged_evidence, ensure_ascii=False),
+        candidate["slot_key"],
+        candidate["claim_fingerprint"],
+        candidate["scope_key"],
+        candidate["scope_json"],
         validation_state,
         validation_state,
         merge_context.last_validated_at,
@@ -417,22 +473,49 @@ class L2StoreAssertionMixin:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
-                existing = await self._fetch_active_assertion(db, normalized_candidate)
-                if existing is None:
-                    result = await self._insert_new_assertion(
-                        db=db,
+                policy = await CorrectionPolicyEvaluator().evaluate_assertion(
+                    db,
+                    normalized_candidate,
+                )
+                if policy.action in {
+                    CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+                    CorrectionPolicyAction.REQUIRES_SCOPE,
+                }:
+                    result = self._governed_noop_result(policy, normalized_candidate)
+                elif policy.action == CorrectionPolicyAction.ACCEPT_HISTORICAL:
+                    result = await self._merge_historical_evidence(
+                        db,
+                        policy=policy,
                         candidate=normalized_candidate,
-                        trait_name=trait_name,
                         now=now,
                     )
                 else:
-                    result = await self._merge_existing_assertion(
-                        db=db,
-                        existing=existing,
-                        candidate=normalized_candidate,
-                        trait_name=trait_name,
-                        now=now,
-                    )
+                    existing = await self._fetch_active_assertion(db, normalized_candidate)
+                    if policy.action == CorrectionPolicyAction.CREATE_SHADOW:
+                        existing = await self._load_authoritative_assertion(db, policy)
+                        result = await self._shadow_authoritative_conflict(
+                            db,
+                            existing,
+                            normalized_candidate,
+                            trait_name,
+                            build_assertion_merge_context(existing, normalized_candidate),
+                            now,
+                        )
+                    elif existing is None:
+                        result = await self._insert_new_assertion(
+                            db=db,
+                            candidate=normalized_candidate,
+                            trait_name=trait_name,
+                            now=now,
+                        )
+                    else:
+                        result = await self._merge_existing_assertion(
+                            db=db,
+                            existing=existing,
+                            candidate=normalized_candidate,
+                            trait_name=trait_name,
+                            now=now,
+                        )
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -460,13 +543,97 @@ class L2StoreAssertionMixin:
         async with db.execute(
             _ACTIVE_ASSERTION_SQL,
             (
-                candidate["entity_id"],
-                candidate["entity_type"],
-                candidate["trait_name"],
-                candidate["target_entity_id"],
+                candidate["slot_key"],
+                candidate["scope_key"],
             ),
         ) as cursor:
             return await cursor.fetchone()
+
+    def _governed_noop_result(
+        self,
+        policy: CorrectionPolicyDecision,
+        candidate: Dict[str, Any],
+    ) -> _AssertionWriteResult:
+        assertion_id = policy.target_id or f"blocked:{candidate['claim_fingerprint']}"
+        logger.info(
+            "L2 assertion candidate governed without current write",
+            assertion_id=assertion_id,
+            entity_id=candidate["entity_id"],
+            trait_name=candidate["trait_name"],
+            correction_id=policy.correction_id,
+            governance_action=policy.action.value,
+        )
+        return _AssertionWriteResult(
+            assertion_id=assertion_id,
+            should_notify=False,
+            governance_action=policy.action,
+        )
+
+    async def _load_authoritative_assertion(
+        self,
+        db: aiosqlite.Connection,
+        policy: CorrectionPolicyDecision,
+    ) -> Any:
+        if not policy.authoritative_target_id:
+            raise RuntimeError("Authoritative correction rule has no replacement target")
+        async with db.execute(
+            "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+            (policy.authoritative_target_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None or str(row["status"]) != "stable":
+            raise RuntimeError("Authoritative assertion is not current")
+        return row
+
+    async def _merge_historical_evidence(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        policy: CorrectionPolicyDecision,
+        candidate: Dict[str, Any],
+        now: float,
+    ) -> _AssertionWriteResult:
+        if not policy.target_id:
+            return self._governed_noop_result(policy, candidate)
+        async with db.execute(
+            "SELECT * FROM tom_trait_assertions WHERE assertion_id = ?",
+            (policy.target_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return self._governed_noop_result(policy, candidate)
+        evidence = sorted(
+            set(json.loads(row["evidence_events"] or "[]")).union(
+                candidate["evidence_events"]
+            )
+        )[-max_evidence_event_ids():]
+        valid_to = float(row["valid_to"]) if row["valid_to"] is not None else None
+        last_validated_at = max(
+            float(row["last_validated_at"]),
+            float(candidate["last_validated_at"]),
+        )
+        if valid_to is not None:
+            last_validated_at = min(last_validated_at, valid_to)
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET evidence_events = ?, first_inferred_at = ?, last_validated_at = ?,
+                updated_at = ?
+            WHERE assertion_id = ?
+            """,
+            (
+                json.dumps(evidence, ensure_ascii=False),
+                min(float(row["first_inferred_at"]), float(candidate["first_inferred_at"])),
+                last_validated_at,
+                now,
+                policy.target_id,
+            ),
+        )
+        return _AssertionWriteResult(
+            assertion_id=policy.target_id,
+            should_notify=False,
+            governance_action=policy.action,
+        )
 
     async def _merge_existing_assertion(
         self,
@@ -478,6 +645,13 @@ class L2StoreAssertionMixin:
         now: float,
     ) -> _AssertionWriteResult:
         merge_context = build_assertion_merge_context(existing, candidate)
+        if existing["authority_ref"] and not merge_context.value_changed:
+            return await self._merge_authoritative_evidence(
+                db,
+                existing=existing,
+                merge_context=merge_context,
+                now=now,
+            )
         if merge_context.inferred_conflicts_with_authoritative:
             return await self._shadow_authoritative_conflict(
                 db, existing, candidate, trait_name, merge_context, now
@@ -493,6 +667,32 @@ class L2StoreAssertionMixin:
         return await self._merge_same_value_assertion(
             db, existing, candidate, trait_name, merge_context, now
         )
+
+    async def _merge_authoritative_evidence(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        existing: Any,
+        merge_context: AssertionMergeContext,
+        now: float,
+    ) -> _AssertionWriteResult:
+        assertion_id = str(existing["assertion_id"])
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET evidence_events = ?, first_inferred_at = ?, last_validated_at = ?,
+                updated_at = ?
+            WHERE assertion_id = ?
+            """,
+            (
+                json.dumps(merge_context.merged_evidence, ensure_ascii=False),
+                merge_context.first_inferred_at,
+                merge_context.last_validated_at,
+                now,
+                assertion_id,
+            ),
+        )
+        return _AssertionWriteResult(assertion_id=assertion_id, should_notify=False)
 
     async def _insert_new_assertion(
         self,
@@ -546,6 +746,44 @@ class L2StoreAssertionMixin:
         merge_context: AssertionMergeContext,
         now: float,
     ) -> _AssertionWriteResult:
+        async with db.execute(
+            """
+            SELECT * FROM tom_trait_assertions
+            WHERE slot_key = ? AND scope_key = ? AND claim_fingerprint = ?
+              AND status = 'shadow'
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            (
+                candidate["slot_key"],
+                candidate["scope_key"],
+                candidate["claim_fingerprint"],
+            ),
+        ) as cursor:
+            existing_shadow = await cursor.fetchone()
+        if existing_shadow is not None:
+            shadow_merge = build_assertion_merge_context(existing_shadow, candidate)
+            shadow_id = str(existing_shadow["assertion_id"])
+            await db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET evidence_events = ?, first_inferred_at = ?, last_validated_at = ?,
+                    updated_at = ?
+                WHERE assertion_id = ?
+                """,
+                (
+                    json.dumps(shadow_merge.merged_evidence, ensure_ascii=False),
+                    shadow_merge.first_inferred_at,
+                    shadow_merge.last_validated_at,
+                    now,
+                    shadow_id,
+                ),
+            )
+            return _AssertionWriteResult(
+                assertion_id=shadow_id,
+                should_notify=False,
+                governance_action=CorrectionPolicyAction.CREATE_SHADOW,
+            )
         shadow_id = f"assert_{uuid.uuid4().hex}"
         await db.execute(
             _INSERT_SQL,
@@ -561,6 +799,8 @@ class L2StoreAssertionMixin:
                 last_validated_at=float(candidate["last_validated_at"]),
                 status="shadow",
                 now=now,
+                version_root_id=str(existing["version_root_id"] or existing["assertion_id"]),
+                previous_version_id=str(existing["assertion_id"]),
             ),
         )
         logger.info(
@@ -572,7 +812,10 @@ class L2StoreAssertionMixin:
             authoritative_value=merge_context.existing_value,
             inferred_value=merge_context.next_value,
         )
-        return _AssertionWriteResult(assertion_id=shadow_id)
+        return _AssertionWriteResult(
+            assertion_id=shadow_id,
+            governance_action=CorrectionPolicyAction.CREATE_SHADOW,
+        )
 
     async def _update_volatile_assertion_in_place(
         self,
@@ -622,7 +865,13 @@ class L2StoreAssertionMixin:
         )
         await db.execute(
             _SUPERSEDE_ASSERTION_SQL,
-            (new_assertion_id, now, now, str(existing["assertion_id"])),
+            (
+                new_assertion_id,
+                now,
+                now,
+                merge_context.last_validated_at,
+                str(existing["assertion_id"]),
+            ),
         )
         await self._insert_superseding_assertion(
             db=db,
@@ -633,6 +882,8 @@ class L2StoreAssertionMixin:
             validation_state=validation_state,
             confidence=confidence,
             now=now,
+            version_root_id=str(existing["version_root_id"] or existing["assertion_id"]),
+            previous_version_id=str(existing["assertion_id"]),
         )
         logger.info(
             "L2 assertion superseded",
@@ -661,6 +912,8 @@ class L2StoreAssertionMixin:
         validation_state: str,
         confidence: float,
         now: float,
+        version_root_id: str,
+        previous_version_id: str,
     ) -> None:
         await db.execute(
             _INSERT_SQL,
@@ -676,6 +929,8 @@ class L2StoreAssertionMixin:
                 last_validated_at=merge_context.last_validated_at,
                 status=validation_state,
                 now=now,
+                version_root_id=version_root_id,
+                previous_version_id=previous_version_id,
             ),
         )
 
@@ -783,6 +1038,8 @@ class L2StoreAssertionMixin:
         trait_name: str,
         result: _AssertionWriteResult,
     ) -> None:
+        if not result.should_notify:
+            return
         try:
             await host._notify_assertion_changed(
                 {

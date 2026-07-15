@@ -22,6 +22,11 @@ from .models import (
     NewMemoryCorrection,
 )
 from .repository import MemoryCorrectionRepository
+from .policy import (
+    CorrectionPolicyAction,
+    CorrectionPolicyDecision,
+    CorrectionPolicyEvaluator,
+)
 from .service import (
     MemoryCorrectionConflictError,
     MemoryCorrectionService,
@@ -33,6 +38,9 @@ __all__ = [
     "AssertionCorrectionResult",
     "CorrectionCreateResult",
     "CorrectionKind",
+    "CorrectionPolicyAction",
+    "CorrectionPolicyDecision",
+    "CorrectionPolicyEvaluator",
     "CorrectionRule",
     "CorrectionRuleKind",
     "CorrectionState",

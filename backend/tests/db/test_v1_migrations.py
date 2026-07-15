@@ -150,6 +150,8 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
             """
         ).fetchone()[0]
         assert "shadow" in index_sql
+        assert "slot_key" in index_sql
+        assert "scope_key" in index_sql
 
     persona_db_path = next(
         target for target in MIGRATION_TARGETS if target.name == "persona_registry"
