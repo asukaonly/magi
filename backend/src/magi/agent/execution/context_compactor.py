@@ -5,6 +5,7 @@ limit, this module summarises older conversation history via an LLM call
 (or falls back to rule-based truncation for small-window models) and
 replaces the original messages with a compact boundary + summary.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,11 @@ from ...context.window_budget import (
     estimate_context_tokens,
     measure_context_window_usage,
     resolve_summary_output_tokens,
+)
+from ...context.summary_generation import (
+    SummaryChunkRequest,
+    generate_cumulative_summary,
+    resolve_cumulative_summary_output_tokens,
 )
 from ...llm.model_context import (
     ModelContextProfile,
@@ -44,12 +50,6 @@ _KEEP_RECENT_ROUNDS = 3
 # the LLM summariser.
 _RULE_KEEP_RECENT_MESSAGES = 10
 
-_SUMMARY_INPUT_RATIO = 0.60
-
-# Cheap per-character token estimate (JSON encoded messages) used when no
-# provider-reported token count is available.
-_CHARS_PER_TOKEN_ESTIMATE = 4
-
 # Maximum consecutive compaction failures before the circuit breaker trips.
 _MAX_CONSECUTIVE_FAILURES = 3
 _CONTEXT_BOUNDARY_ROLE = "user"
@@ -58,6 +58,7 @@ _CONTEXT_BOUNDARY_ROLE = "user"
 # ---------------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class CompactionResult:
@@ -119,6 +120,7 @@ needed to continue the work without re-reading the original messages.
 # ---------------------------------------------------------------------------
 # Message grouping helpers
 # ---------------------------------------------------------------------------
+
 
 def _group_messages_by_round(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     """Group messages into API rounds.
@@ -187,6 +189,7 @@ def _contains_message(
 # Token estimation
 # ---------------------------------------------------------------------------
 
+
 def _estimate_message_tokens(messages: List[Dict[str, Any]]) -> int:
     """Cheap character-based token estimate."""
     return estimate_context_tokens(messages)
@@ -195,6 +198,7 @@ def _estimate_message_tokens(messages: List[Dict[str, Any]]) -> int:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 class ContextCompactor:
     """Monitors context size and compacts when approaching the limit."""
@@ -335,7 +339,9 @@ class ContextCompactor:
             )
 
         if self._scenario_llm_pool is None:
-            logger.warning("[ContextCompactor] No scenario LLM pool configured, falling back to rule-based compaction")
+            logger.warning(
+                "[ContextCompactor] No scenario LLM pool configured, falling back to rule-based compaction"
+            )
             return self._rule_based_compact(
                 messages,
                 preserve_user_turns=preserve_user_turns,
@@ -402,11 +408,14 @@ class ContextCompactor:
         conversation_text = self._render_messages_for_summary(older_messages)
         user_prompt = _COMPACT_USER_TEMPLATE.format(conversation_text=conversation_text)
 
-        await self._emit_event("context_compacting", {
-            "older_message_count": len(older_messages),
-            "recent_message_count": len(recent_messages),
-            "estimated_tokens": _estimate_message_tokens(older_messages),
-        })
+        await self._emit_event(
+            "context_compacting",
+            {
+                "older_message_count": len(older_messages),
+                "recent_message_count": len(recent_messages),
+                "estimated_tokens": _estimate_message_tokens(older_messages),
+            },
+        )
 
         start = time.monotonic()
         summary_text = await self._call_summariser(user_prompt)
@@ -416,8 +425,7 @@ class ContextCompactor:
             "role": _CONTEXT_BOUNDARY_ROLE,
             "content": (
                 "[context compacted] The earlier conversation has been summarised. "
-                "Details below reflect the key context from the prior exchange.\n\n"
-                + summary_text
+                "Details below reflect the key context from the prior exchange.\n\n" + summary_text
             ),
         }
         compacted_messages = [boundary_message] + recent_messages
@@ -425,16 +433,21 @@ class ContextCompactor:
         self._consecutive_failures = 0
         self._last_input_tokens = None  # Reset — message list changed.
 
-        await self._emit_event("context_compacted", {
-            "original_count": len(messages),
-            "compacted_count": len(compacted_messages),
-            "summary_length": len(summary_text),
-            "elapsed_ms": elapsed_ms,
-        })
+        await self._emit_event(
+            "context_compacted",
+            {
+                "original_count": len(messages),
+                "compacted_count": len(compacted_messages),
+                "summary_length": len(summary_text),
+                "elapsed_ms": elapsed_ms,
+            },
+        )
 
         logger.info(
             "[ContextCompactor] LLM compaction: %d → %d messages (%d ms)",
-            len(messages), len(compacted_messages), elapsed_ms,
+            len(messages),
+            len(compacted_messages),
+            elapsed_ms,
         )
 
         return CompactionResult(
@@ -449,46 +462,56 @@ class ContextCompactor:
         """Call the CONTEXT_COMPACT scenario model to produce a summary."""
         resolved = self._resolve_summary_model()
         budget = build_context_window_budget(resolved.context)
-        summary_output_tokens = resolve_summary_output_tokens(
-            self._current_budget(),
-            budget,
-            profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
+        summary_output_tokens = resolve_cumulative_summary_output_tokens(
+            resolve_summary_output_tokens(
+                self._current_budget(),
+                budget,
+                profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
+            ),
+            input_capacity=budget.input_capacity,
         )
-        chunk_chars = max(
-            4_000,
-            int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _CHARS_PER_TOKEN_ESTIMATE,
-        )
-        chunks = self._split_summary_prompt(user_prompt, max_chars=chunk_chars)
         bridge = LLMProviderBridge(resolved.adapter)
-        cumulative_summary = ""
-        for index, chunk in enumerate(chunks):
-            prompt = chunk
-            if cumulative_summary:
-                prompt = (
-                    "Merge the previous partial summary with the next conversation chunk. "
-                    "Return one cumulative summary using the required analysis and summary blocks.\n\n"
-                    f"<previous_summary>\n{cumulative_summary}\n</previous_summary>\n\n"
-                    f"<next_conversation_chunk>\n{chunk}\n</next_conversation_chunk>"
-                )
+        system_prompt = _COMPACT_SYSTEM_PROMPT.format(
+            max_summary_tokens=summary_output_tokens,
+        )
+
+        async def _call_chunk(request: SummaryChunkRequest) -> str:
             response = await bridge.chat(
-                system_prompt=_COMPACT_SYSTEM_PROMPT.format(
-                    max_summary_tokens=summary_output_tokens,
-                ),
-                messages=[{"role": "user", "content": prompt}],
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": request.prompt}],
                 max_tokens=summary_output_tokens,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
                 event_context={
                     "request_kind": "memory:context_compact",
                     "agent_id": "context_compactor",
-                    "chunk_index": index,
-                    "chunk_count": len(chunks),
+                    "chunk_index": request.index,
+                    "chunk_final": request.is_final,
                 },
             )
-            cumulative_summary = str(response.content or "").strip()
-            if not cumulative_summary:
-                raise RuntimeError("Context compaction summary was empty")
-        return cumulative_summary
+            return str(response.content or "").strip()
+
+        summary = await generate_cumulative_summary(
+            source_text=user_prompt,
+            system_prompt=system_prompt,
+            input_capacity=budget.input_capacity,
+            build_prompt=self._build_cumulative_summary_prompt,
+            call_chunk=_call_chunk,
+        )
+        if not summary:
+            raise RuntimeError("Context compaction summary was empty")
+        return summary
+
+    @staticmethod
+    def _build_cumulative_summary_prompt(previous_summary: str, source_chunk: str) -> str:
+        if not previous_summary:
+            return source_chunk
+        return (
+            "Merge the previous partial summary with the next conversation chunk. "
+            "Return one cumulative summary using the required analysis and summary blocks.\n\n"
+            f"<previous_summary>\n{previous_summary}\n</previous_summary>\n\n"
+            f"<next_conversation_chunk>\n{source_chunk}\n</next_conversation_chunk>"
+        )
 
     def _resolve_summary_model(self) -> ResolvedModel:
         pool = self._scenario_llm_pool
@@ -512,12 +535,6 @@ class ContextCompactor:
                     continue
                 raise
         raise ValueError("No model is configured for context compaction")
-
-    @staticmethod
-    def _split_summary_prompt(text: str, *, max_chars: int) -> list[str]:
-        if len(text) <= max_chars:
-            return [text]
-        return [text[start : start + max_chars] for start in range(0, len(text), max_chars)]
 
     # -- Rule-based fallback --------------------------------------------------
 
@@ -561,7 +578,8 @@ class ContextCompactor:
 
         logger.info(
             "[ContextCompactor] Rule-based compaction: %d → %d messages",
-            len(messages), len(compacted),
+            len(messages),
+            len(compacted),
         )
 
         return CompactionResult(

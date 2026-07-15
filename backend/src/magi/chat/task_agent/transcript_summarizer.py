@@ -19,6 +19,11 @@ from magi.context.window_budget import (
     estimate_text_tokens,
     resolve_summary_output_tokens,
 )
+from magi.context.summary_generation import (
+    SummaryChunkRequest,
+    generate_cumulative_summary,
+    resolve_cumulative_summary_output_tokens,
+)
 from magi.llm.model_context import (
     ModelContextProfile,
     ResolvedModel,
@@ -30,8 +35,6 @@ logger = get_logger(__name__)
 
 SUMMARY_KIND_TOKEN_BUDGET = "token_budget"
 DEFAULT_MIN_MESSAGES_FOR_SUMMARY = 16
-_SUMMARY_CHARS_PER_TOKEN_TARGET = 4
-_SUMMARY_INPUT_RATIO = 0.60
 _PROMPT_MESSAGE_KINDS = {"user_text", "assistant_final", "assistant_rhythm_segment"}
 
 
@@ -315,29 +318,18 @@ class ChatTranscriptSummarizer:
         if resolved is None:
             return ""
         budget = build_context_window_budget(resolved.context)
-        summary_output_tokens = self._resolve_summary_output_tokens(budget)
-        max_chars = max(
-            4_000,
-            int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _SUMMARY_CHARS_PER_TOKEN_TARGET,
-        )
-        chunks = self._split_text(
-            self._build_user_prompt(summary_input),
-            max_chars=max_chars,
+        summary_output_tokens = resolve_cumulative_summary_output_tokens(
+            self._resolve_summary_output_tokens(budget),
+            input_capacity=budget.input_capacity,
         )
         bridge = LLMProviderBridge(resolved.adapter)
-        cumulative_summary = ""
-        for index, chunk in enumerate(chunks):
-            prompt = chunk
-            if cumulative_summary:
-                prompt = (
-                    "Merge the previous partial summary with the next transcript chunk. "
-                    "Return one cumulative active summary only.\n\n"
-                    f"# Previous Partial Summary\n{cumulative_summary}\n\n"
-                    f"# Next Transcript Chunk\n{chunk}"
-                )
+
+        system_prompt = self._build_system_prompt(summary_output_tokens)
+
+        async def _call_chunk(request: SummaryChunkRequest) -> str:
             response = await bridge.chat(
-                system_prompt=self._build_system_prompt(summary_output_tokens),
-                messages=[{"role": "user", "content": prompt}],
+                system_prompt=system_prompt,
+                messages=[{"role": "user", "content": request.prompt}],
                 max_tokens=summary_output_tokens,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
@@ -345,20 +337,30 @@ class ChatTranscriptSummarizer:
                     "request_kind": "memory:chat_transcript_summary",
                     "agent_id": "chat_transcript_summarizer",
                     "session_id": summary_input.session_id,
-                    "chunk_index": index,
-                    "chunk_count": len(chunks),
+                    "chunk_index": request.index,
+                    "chunk_final": request.is_final,
                 },
             )
-            cumulative_summary = str(response.content or "").strip()
-            if not cumulative_summary:
-                return ""
-        return cumulative_summary
+            return str(response.content or "").strip()
+
+        return await generate_cumulative_summary(
+            source_text=self._build_user_prompt(summary_input),
+            system_prompt=system_prompt,
+            input_capacity=budget.input_capacity,
+            build_prompt=self._build_cumulative_prompt,
+            call_chunk=_call_chunk,
+        )
 
     @staticmethod
-    def _split_text(text: str, *, max_chars: int) -> list[str]:
-        if len(text) <= max_chars:
-            return [text]
-        return [text[start : start + max_chars] for start in range(0, len(text), max_chars)]
+    def _build_cumulative_prompt(previous_summary: str, source_chunk: str) -> str:
+        if not previous_summary:
+            return source_chunk
+        return (
+            "Merge the previous partial summary with the next transcript chunk. "
+            "Return one cumulative active summary only.\n\n"
+            f"# Previous Partial Summary\n{previous_summary}\n\n"
+            f"# Next Transcript Chunk\n{source_chunk}"
+        )
 
     def _resolve_summary_model(self) -> ResolvedModel | None:
         if self._scenario_llm_pool is not None:

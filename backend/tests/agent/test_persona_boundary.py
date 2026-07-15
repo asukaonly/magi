@@ -11,6 +11,7 @@ from magi.chat.task_agent.persona_boundary import (
     PersonaBoundarySummaryMessage,
 )
 from magi.config.models import LLMScenario
+from magi.context.window_budget import estimate_context_tokens
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 
 
@@ -75,3 +76,60 @@ async def test_persona_summary_output_budget_tracks_active_model_capacity() -> N
     assert summary == "neutral summary"
     assert bridge.chat.await_args.kwargs["max_tokens"] == 512
     assert "within 512 tokens" in bridge.chat.await_args.kwargs["system_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_persona_summary_chunks_chinese_input_for_writer_capacity() -> None:
+    adapter = SimpleNamespace()
+    pool = SimpleNamespace(
+        resolve=lambda scenario: ResolvedModel(
+            adapter=adapter,
+            context=ModelContextProfile(
+                provider_id="provider",
+                model_id="small-summary-model",
+                context_window=4_000,
+                max_output_tokens=1_000,
+            ),
+        )
+    )
+    bridge = AsyncMock()
+    bridge.chat = AsyncMock(return_value=SimpleNamespace(content="neutral summary"))
+    summarizer = PersonaBoundarySummarizer(
+        chat_store=None,
+        scenario_llm_pool=pool,
+        llm_adapter=None,
+        persona_boundary_summary_generator=None,
+    )
+    summary_input = PersonaBoundarySummaryInput(
+        session_id="session-1",
+        active_persona_id="persona-b",
+        messages=[
+            PersonaBoundarySummaryMessage(
+                message_id=f"message-{index}",
+                role="user",
+                content="这是需要保留的上下文。" * 400,
+                persona_id="persona-a",
+                message_kind="user_text",
+            )
+            for index in range(8)
+        ],
+    )
+
+    with patch(
+        "magi.chat.task_agent.persona_boundary.LLMProviderBridge",
+        return_value=bridge,
+    ):
+        summary = await summarizer._generate(summary_input)
+
+    assert summary == "neutral summary"
+    assert bridge.chat.await_count > 1
+    assert all(
+        estimate_context_tokens(
+            {
+                "system_prompt": call.kwargs["system_prompt"],
+                "messages": call.kwargs["messages"],
+            }
+        )
+        <= 2_700
+        for call in bridge.chat.await_args_list
+    )

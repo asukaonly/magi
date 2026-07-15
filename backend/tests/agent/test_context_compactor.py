@@ -1,18 +1,17 @@
 """Tests for ContextCompactor."""
+
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from magi.context.window_budget import build_context_window_budget
+from magi.context.window_budget import build_context_window_budget, estimate_context_tokens
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.agent.execution.context_compactor import (
     ContextCompactor,
-    _CHARS_PER_TOKEN_ESTIMATE,
     _MAX_CONSECUTIVE_FAILURES,
     _RULE_KEEP_RECENT_MESSAGES,
     _estimate_message_tokens,
@@ -43,7 +42,9 @@ def _make_round_messages(rounds: int) -> List[Dict[str, Any]]:
     msgs: list[dict[str, Any]] = []
     msgs.append({"role": "user", "content": "initial request"})
     for r in range(rounds):
-        msgs.append({"role": "assistant", "content": f"thinking {r}", "tool_calls": [{"id": f"tc_{r}"}]})
+        msgs.append(
+            {"role": "assistant", "content": f"thinking {r}", "tool_calls": [{"id": f"tc_{r}"}]}
+        )
         msgs.append({"role": "tool", "tool_call_id": f"tc_{r}", "content": f"result {r}"})
     msgs.append({"role": "assistant", "content": "final answer"})
     return msgs
@@ -132,8 +133,7 @@ class TestEstimateMessageTokens:
     def test_basic_estimate(self) -> None:
         msgs = [{"role": "user", "content": "hello world"}]
         est = _estimate_message_tokens(msgs)
-        text = json.dumps(msgs, ensure_ascii=False)
-        assert est == max(1, len(text) // _CHARS_PER_TOKEN_ESTIMATE)
+        assert est == estimate_context_tokens(msgs)
 
     def test_minimum_one(self) -> None:
         assert _estimate_message_tokens([]) >= 1
@@ -295,10 +295,13 @@ class TestShouldCompact:
             "tools": [{"name": "large_tool", "description": "d" * 8_000}],
         }
 
-        assert c.should_compact(
-            [{"role": "user", "content": "hi"}],
-            prompt_overhead=overhead,
-        ) is True
+        assert (
+            c.should_compact(
+                [{"role": "user", "content": "hi"}],
+                prompt_overhead=overhead,
+            )
+            is True
+        )
 
     def test_circuit_breaker_keeps_detecting_pressure(self) -> None:
         c = ContextCompactor(context_window=128_000)
@@ -356,8 +359,7 @@ class TestRuleBasedCompact:
         retained = result.messages[1:]
         assert len(retained) % 2 == 0
         assert all(
-            retained[index]["role"] == "user"
-            and retained[index + 1]["role"] == "assistant"
+            retained[index]["role"] == "user" and retained[index + 1]["role"] == "assistant"
             for index in range(0, len(retained), 2)
         )
 
@@ -380,10 +382,7 @@ class TestRuleBasedCompact:
                 "tool_calls": [{"id": "call-1", "name": "demo"}],
             },
             {"role": "tool", "tool_call_id": "call-1", "content": "result"},
-            *[
-                {"role": "user", "content": f"follow-up {index}"}
-                for index in range(9)
-            ],
+            *[{"role": "user", "content": f"follow-up {index}"} for index in range(9)],
         ]
 
         result = await compactor.compact(messages)
@@ -464,7 +463,9 @@ class TestRuleBasedCompact:
 class TestLLMCompact:
     @pytest.mark.asyncio
     async def test_llm_compact_success(self) -> None:
-        fake_response = SimpleNamespace(content="<analysis>analysis</analysis>\n<summary>summary</summary>")
+        fake_response = SimpleNamespace(
+            content="<analysis>analysis</analysis>\n<summary>summary</summary>"
+        )
         mock_bridge = AsyncMock()
         mock_bridge.chat = AsyncMock(return_value=fake_response)
 
@@ -474,7 +475,9 @@ class TestLLMCompact:
         c = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
         msgs = _make_round_messages(rounds=6)
 
-        with patch("magi.agent.execution.context_compactor.LLMProviderBridge", return_value=mock_bridge):
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge", return_value=mock_bridge
+        ):
             result = await c.compact(msgs, system_prompt="sys")
 
         assert result.compacted is True
@@ -575,7 +578,10 @@ class TestLLMCompact:
         c = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
         msgs = _make_round_messages(rounds=6)
 
-        with patch("magi.agent.execution.context_compactor.LLMProviderBridge", side_effect=RuntimeError("boom")):
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            side_effect=RuntimeError("boom"),
+        ):
             result = await c.compact(msgs, system_prompt="sys")
 
         assert result.compacted is True
@@ -648,10 +654,7 @@ class TestLLMCompact:
 
         assert summary == "summary"
         assert mock_bridge.chat.await_args.kwargs["max_tokens"] == 1_190
-        assert (
-            "within 1190 tokens"
-            in mock_bridge.chat.await_args.kwargs["system_prompt"]
-        )
+        assert "within 1190 tokens" in mock_bridge.chat.await_args.kwargs["system_prompt"]
 
     @pytest.mark.asyncio
     async def test_empty_summary_never_replaces_history(self) -> None:
@@ -790,6 +793,7 @@ class TestEventEmission:
 # ---------------------------------------------------------------------------
 # get_usage tests
 # ---------------------------------------------------------------------------
+
 
 class TestGetUsage:
     def test_returns_none_when_no_tokens_recorded(self) -> None:

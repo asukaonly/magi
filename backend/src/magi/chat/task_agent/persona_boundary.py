@@ -26,6 +26,7 @@ Lift criteria: this is per-chat-session prompt-assembly business
 neutralization, lift the class up to a generic ring-2 location;
 keep it local until then.
 """
+
 from __future__ import annotations
 
 import inspect
@@ -40,6 +41,11 @@ from magi.context.window_budget import (
     build_context_window_budget,
     resolve_summary_output_tokens,
 )
+from magi.context.summary_generation import (
+    SummaryChunkRequest,
+    generate_cumulative_summary,
+    resolve_cumulative_summary_output_tokens,
+)
 from magi.core.logger import get_logger
 from magi.llm.model_context import ResolvedModel, unknown_model_context
 from magi.llm.provider_bridge import LLMProviderBridge
@@ -51,11 +57,6 @@ logger = get_logger(__name__)
 # session-summary read path can distinguish persona-boundary summaries
 # from rolling token-budget summaries.
 SUMMARY_KIND_PERSONA_BOUNDARY = "persona_boundary"
-
-# Truncate each message body before sending to the summarizer LLM —
-# long messages bloat the summarization prompt without improving
-# summary quality.
-_PERSONA_BOUNDARY_CONTENT_LIMIT = 2400
 
 
 @dataclass(slots=True)
@@ -237,25 +238,41 @@ class PersonaBoundarySummarizer:
             source_model = self._resolve_source_model()
             source_budget = build_context_window_budget(source_model.context)
             summary_model_budget = build_context_window_budget(summary_model.context)
-            summary_output_tokens = resolve_summary_output_tokens(
-                source_budget,
-                summary_model_budget,
-                profile=PERSONA_SUMMARY_OUTPUT_PROFILE,
+            summary_output_tokens = resolve_cumulative_summary_output_tokens(
+                resolve_summary_output_tokens(
+                    source_budget,
+                    summary_model_budget,
+                    profile=PERSONA_SUMMARY_OUTPUT_PROFILE,
+                ),
+                input_capacity=summary_model_budget.input_capacity,
             )
             bridge = LLMProviderBridge(summary_model.adapter)
-            response = await bridge.chat(
-                system_prompt=_build_system_prompt(summary_output_tokens),
-                messages=[{"role": "user", "content": _build_user_prompt(summary_input)}],
-                max_tokens=summary_output_tokens,
-                temperature=0.2,
-                thinking_depth=ThinkingDepth.NONE,
-                event_context={
-                    "request_kind": "memory:persona_boundary_summary",
-                    "agent_id": "persona_boundary_summary",
-                    "session_id": summary_input.session_id,
-                },
+            system_prompt = _build_system_prompt(summary_output_tokens)
+
+            async def _call_chunk(request: SummaryChunkRequest) -> str:
+                response = await bridge.chat(
+                    system_prompt=system_prompt,
+                    messages=[{"role": "user", "content": request.prompt}],
+                    max_tokens=summary_output_tokens,
+                    temperature=0.2,
+                    thinking_depth=ThinkingDepth.NONE,
+                    event_context={
+                        "request_kind": "memory:persona_boundary_summary",
+                        "agent_id": "persona_boundary_summary",
+                        "session_id": summary_input.session_id,
+                        "chunk_index": request.index,
+                        "chunk_final": request.is_final,
+                    },
+                )
+                return str(response.content or "").strip()
+
+            return await generate_cumulative_summary(
+                source_text=_build_user_prompt(summary_input),
+                system_prompt=system_prompt,
+                input_capacity=summary_model_budget.input_capacity,
+                build_prompt=_build_cumulative_prompt,
+                call_chunk=_call_chunk,
             )
-            return str(response.content or "").strip()
         except Exception:
             logger.exception(
                 "Persona boundary summary generation failed session_id=%s",
@@ -330,9 +347,7 @@ class PersonaBoundarySummarizer:
     # === history scanning ===
 
     @staticmethod
-    def _find_persona_boundary_index(
-        history: list[Any], active_persona_id: str
-    ) -> int | None:
+    def _find_persona_boundary_index(history: list[Any], active_persona_id: str) -> int | None:
         """Walk the transcript from the tail back; the boundary is the
         index *after* the last foreign-persona turn that precedes any
         current-persona turn. Returns None when no boundary exists."""
@@ -354,9 +369,7 @@ class PersonaBoundarySummarizer:
         return None
 
     @staticmethod
-    def _history_has_foreign_persona(
-        history: list[Any], active_persona_id: str
-    ) -> bool:
+    def _history_has_foreign_persona(history: list[Any], active_persona_id: str) -> bool:
         return any(
             persona_id and persona_id != active_persona_id
             for persona_id in (_message_persona_id(item) for item in history)
@@ -369,8 +382,6 @@ class PersonaBoundarySummarizer:
             content = str(getattr(item, "content", "") or "").strip()
             if not content:
                 continue
-            if len(content) > _PERSONA_BOUNDARY_CONTENT_LIMIT:
-                content = content[:_PERSONA_BOUNDARY_CONTENT_LIMIT].rstrip() + "\n... [truncated]"
             messages.append(
                 PersonaBoundarySummaryMessage(
                     message_id=_message_id(item),
@@ -396,7 +407,9 @@ class PersonaBoundarySummarizer:
             if message.role == "user":
                 lines.append(f"- User request/context: {content}")
             elif message.persona_id and message.persona_id != summary_input.active_persona_id:
-                lines.append(f"- Previous assistant turn content, neutralized for continuity: {content}")
+                lines.append(
+                    f"- Previous assistant turn content, neutralized for continuity: {content}"
+                )
             else:
                 lines.append(f"- Prior {message.role} context: {content}")
         if len(summary_input.messages) > 24:
@@ -436,6 +449,17 @@ def _build_user_prompt(summary_input: PersonaBoundarySummaryInput) -> str:
             "Return the neutral continuity summary only.",
         ]
     ).strip()
+
+
+def _build_cumulative_prompt(previous_summary: str, source_chunk: str) -> str:
+    if not previous_summary:
+        return source_chunk
+    return (
+        "Merge the previous neutral continuity summary with the next older transcript chunk. "
+        "Return one cumulative neutral continuity summary only.\n\n"
+        f"# Previous Partial Summary\n{previous_summary}\n\n"
+        f"# Next Transcript Chunk\n{source_chunk}"
+    )
 
 
 def _render_messages(messages: list[PersonaBoundarySummaryMessage]) -> str:
