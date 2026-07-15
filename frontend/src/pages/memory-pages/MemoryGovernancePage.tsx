@@ -26,12 +26,15 @@ export const MemoryGovernancePage = () => {
   const [activePage, setActivePage] = useState(1);
   const [recordSearchQuery, setRecordSearchQuery] = useState('');
   const [selectedRecord, setSelectedRecord] = useState<LayerRecord | null>(null);
+  const [recordLoading, setRecordLoading] = useState(true);
+  const [recordLoadError, setRecordLoadError] = useState<string | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [recordActionLoading, setRecordActionLoading] = useState(false);
   const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
   const [reconsolidateError, setReconsolidateError] = useState<string | null>(null);
   const [baseLayerCounts, setBaseLayerCounts] = useState<Partial<Record<MaintenanceCategoryId, number>>>({});
   const skipNextBaseCountUpdate = useRef(false);
+  const recordRequestId = useRef(0);
 
   const memory = useMemory({ initialLoadScope: 'all' });
 
@@ -97,6 +100,59 @@ export const MemoryGovernancePage = () => {
     ...(isRecordSearchActive ? { query: normalizedRecordSearchQuery } : {}),
   }), [currentPage, isRecordSearchActive, normalizedRecordSearchQuery]);
 
+  const loadCategoryRecords = useCallback(async (
+    category: MaintenanceCategoryId,
+    params: ReturnType<typeof currentPageParams>
+  ) => {
+    const requestId = recordRequestId.current + 1;
+    recordRequestId.current = requestId;
+    setRecordLoading(true);
+    setRecordLoadError(null);
+
+    let loaded: boolean | void = true;
+    switch (category) {
+      case 'sessions':
+        loaded = await memory.loadL0Sessions(params);
+        break;
+      case 'events':
+        loaded = await memory.queryL1Events(params);
+        break;
+      case 'entities':
+        loaded = await memory.loadL2Entities(params);
+        break;
+      case 'assertions':
+        loaded = await memory.loadL2Assertions(params);
+        break;
+      case 'relations':
+        loaded = await memory.loadL2Relations(params);
+        break;
+      case 'snapshots':
+        loaded = await memory.loadL2Snapshots(params);
+        break;
+      case 'summaries':
+        loaded = await memory.loadL3Summaries(params);
+        break;
+      case 'skills':
+        loaded = await memory.loadL4Skills(params);
+        break;
+    }
+
+    if (requestId !== recordRequestId.current) return;
+    if (loaded === false) {
+      setRecordLoadError('load_failed');
+    }
+    setRecordLoading(false);
+  }, [
+    memory.loadL0Sessions,
+    memory.queryL1Events,
+    memory.loadL2Entities,
+    memory.loadL2Assertions,
+    memory.loadL2Relations,
+    memory.loadL2Snapshots,
+    memory.loadL3Summaries,
+    memory.loadL4Skills,
+  ]);
+
   const refreshCategory = async (category: MaintenanceCategoryId) => {
     const params = currentPageParams();
     switch (category) {
@@ -129,43 +185,11 @@ export const MemoryGovernancePage = () => {
 
   useEffect(() => {
     const params = currentPageParams();
-    switch (activeLayer) {
-      case 'sessions':
-        void memory.loadL0Sessions(params);
-        break;
-      case 'events':
-        void memory.queryL1Events(params);
-        break;
-      case 'entities':
-        void memory.loadL2Entities(params);
-        break;
-      case 'assertions':
-        void memory.loadL2Assertions(params);
-        break;
-      case 'relations':
-        void memory.loadL2Relations(params);
-        break;
-      case 'snapshots':
-        void memory.loadL2Snapshots(params);
-        break;
-      case 'summaries':
-        void memory.loadL3Summaries(params);
-        break;
-      case 'skills':
-        void memory.loadL4Skills(params);
-        break;
-    }
+    void loadCategoryRecords(activeLayer, params);
   }, [
     activeLayer,
     currentPageParams,
-    memory.loadL0Sessions,
-    memory.queryL1Events,
-    memory.loadL2Entities,
-    memory.loadL2Assertions,
-    memory.loadL2Relations,
-    memory.loadL2Snapshots,
-    memory.loadL3Summaries,
-    memory.loadL4Skills,
+    loadCategoryRecords,
   ]);
 
   const diagnostics = useMemo(() => {
@@ -357,6 +381,9 @@ export const MemoryGovernancePage = () => {
                 setActivePage(Math.min(Math.max(1, page), pageCount));
                 setSelectedRecord(null);
               }}
+              loading={recordLoading}
+              error={recordLoadError ? label('objects.loadFailedBody', '暂时无法读取这类记录，请稍后重试。') : null}
+              onRetry={() => void loadCategoryRecords(activeLayer, currentPageParams())}
               label={label}
             />
           </TabsContent>

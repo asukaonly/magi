@@ -53,12 +53,12 @@ export interface UseMemoryReturn {
   l0Workbench: L0Workbench | null;
   selectedSessionId: string | null;
   selectSession: (sessionId: string | null) => void;
-  loadL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) => Promise<void>;
+  loadL0Sessions: (params?: PaginationParams & { status?: string; query?: string }) => Promise<boolean>;
 
   // L1 data
   l1Events: L1Event[];
   l1Total: number;
-  queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<void>;
+  queryL1Events: (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => Promise<boolean>;
 
   // L2 data
   l2Relations: L2Relation[];
@@ -83,21 +83,21 @@ export interface UseMemoryReturn {
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
   submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
   correctAssertion: (assertionId: string, newValue: string) => Promise<void>;
-  loadL2Relations: (params?: MemoryListQueryParams) => Promise<void>;
-  loadL2Assertions: (params?: MemoryListQueryParams) => Promise<void>;
-  loadL2Entities: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL2Relations: (params?: MemoryListQueryParams) => Promise<boolean>;
+  loadL2Assertions: (params?: MemoryListQueryParams) => Promise<boolean>;
+  loadL2Entities: (params?: MemoryListQueryParams) => Promise<boolean>;
   loadL2Mentions: (params?: PaginationParams) => Promise<void>;
-  loadL2Snapshots: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL2Snapshots: (params?: MemoryListQueryParams) => Promise<boolean>;
 
   // L3 data
   l3Summaries: L3Summary[];
   l3Total: number;
-  loadL3Summaries: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL3Summaries: (params?: MemoryListQueryParams) => Promise<boolean>;
 
   // L4 data
   l4Skills: L4Skill[];
   l4Total: number;
-  loadL4Skills: (params?: MemoryListQueryParams) => Promise<void>;
+  loadL4Skills: (params?: MemoryListQueryParams) => Promise<boolean>;
 
   // Search
   searchQuery: string;
@@ -235,8 +235,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL0Sessions({ limit: 50, ...params });
       setL0Sessions(data.items || []);
       setL0Total(data.total ?? 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L0 sessions:', error);
+      return false;
     }
   }, []);
 
@@ -255,8 +257,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL1Events({ limit: 50, ...params });
       setL1Events(data.items || []);
       setL1Total(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L1 events:', error);
+      return false;
     }
   }, []);
 
@@ -264,7 +268,7 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     async (params?: Omit<L1EventQueryParams, 'limit'> & { limit?: number }) => {
       setLoading(true);
       try {
-        await loadL1Events(params);
+        return await loadL1Events(params);
       } finally {
         setLoading(false);
       }
@@ -277,8 +281,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL2Relations({ limit: 50, ...params });
       setL2Relations(data.items || []);
       setL2RelationsTotal(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L2 relations:', error);
+      return false;
     }
   }, []);
 
@@ -287,8 +293,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL2Assertions({ limit: 50, ...params });
       setL2Assertions(data.items || []);
       setL2AssertionsTotal(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L2 assertions:', error);
+      return false;
     }
   }, []);
 
@@ -297,8 +305,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL2Entities({ limit: 50, ...params });
       setL2Entities(data.items || []);
       setL2EntitiesTotal(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L2 entities:', error);
+      return false;
     }
   }, []);
 
@@ -317,8 +327,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL2Snapshots({ limit: 50, ...params });
       setL2Snapshots(data.items || []);
       setL2SnapshotsTotal(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L2 snapshots:', error);
+      return false;
     }
   }, []);
 
@@ -509,8 +521,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL3Summaries({ limit: 50, ...params });
       setL3Summaries(data.items || []);
       setL3Total(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L3 summaries:', error);
+      return false;
     }
   }, []);
 
@@ -519,8 +533,10 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
       const data = await memoryApi.getL4Skills({ limit: 50, ...params });
       setL4Skills(data.items || []);
       setL4Total(data.total || 0);
+      return true;
     } catch (error) {
       console.error('Failed to load L4 skills:', error);
+      return false;
     }
   }, []);
 

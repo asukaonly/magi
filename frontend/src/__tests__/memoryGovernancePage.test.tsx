@@ -60,7 +60,7 @@ const baseMemoryState = {
   l0Workbench: null,
   selectedSessionId: null,
   selectSession: vi.fn(),
-  loadL0Sessions: vi.fn(),
+  loadL0Sessions: vi.fn().mockResolvedValue(true),
   l1Events: [
     {
       event_id: 'evt_1',
@@ -75,7 +75,7 @@ const baseMemoryState = {
     },
   ],
   l1Total: 1,
-  queryL1Events: vi.fn(),
+  queryL1Events: vi.fn().mockResolvedValue(true),
   l2Relations: [
     {
       triple_id: 'rel_1',
@@ -146,11 +146,11 @@ const baseMemoryState = {
   upsertL2GraphConflictRule: vi.fn(),
   submitAssertionFeedback: vi.fn(),
   correctAssertion: vi.fn(),
-  loadL2Relations: vi.fn(),
-  loadL2Assertions: vi.fn(),
-  loadL2Entities: vi.fn(),
+  loadL2Relations: vi.fn().mockResolvedValue(true),
+  loadL2Assertions: vi.fn().mockResolvedValue(true),
+  loadL2Entities: vi.fn().mockResolvedValue(true),
   loadL2Mentions: vi.fn(),
-  loadL2Snapshots: vi.fn(),
+  loadL2Snapshots: vi.fn().mockResolvedValue(true),
   l3Summaries: [
     {
       summary_id: 'sum_1',
@@ -165,7 +165,7 @@ const baseMemoryState = {
     },
   ],
   l3Total: 1,
-  loadL3Summaries: vi.fn(),
+  loadL3Summaries: vi.fn().mockResolvedValue(true),
   l4Skills: [
     {
       skill_id: 'skill_1',
@@ -181,7 +181,7 @@ const baseMemoryState = {
     },
   ],
   l4Total: 1,
-  loadL4Skills: vi.fn(),
+  loadL4Skills: vi.fn().mockResolvedValue(true),
   searchQuery: '',
   setSearchQuery: vi.fn(),
   searchResults: {
@@ -242,7 +242,7 @@ describe('MemoryGovernancePage', () => {
     expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: /断言 偏好、判断/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /关系图谱/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /实体：用户/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^打开记录 用户$/ })).toBeInTheDocument();
     expect(screen.queryByText('健康')).not.toBeInTheDocument();
     expect(screen.queryByText('稳定')).not.toBeInTheDocument();
     expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
@@ -294,8 +294,8 @@ describe('MemoryGovernancePage', () => {
     const search = await screen.findByRole('searchbox', { name: '搜索当前选项记录' });
     await user.type(search, 'codex');
 
-    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e USES tool_codex/ })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /关系：ent_user_8f3e VISITED place:huzhou/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^打开记录 用户 使用 codex$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^打开记录 用户 去过 huzhou$/ })).toBeInTheDocument();
 
     await waitFor(() => {
       expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: 'codex' });
@@ -353,6 +353,69 @@ describe('MemoryGovernancePage', () => {
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
     expect(within(drawer).getByText('assert_1')).toBeInTheDocument();
+    const internalSummary = within(drawer).getByText('内部信息').closest('summary');
+    expect(internalSummary).not.toBeNull();
+    const internalDetails = internalSummary?.closest('details');
+    expect(internalDetails).not.toHaveAttribute('open');
+    await user.click(internalSummary as HTMLElement);
+    expect(internalDetails).toHaveAttribute('open');
+  });
+
+  it('uses category-specific columns and readable relation statements', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [
+        ...baseMemoryState.l2Relations,
+        {
+          ...baseMemoryState.l2Relations[0],
+          triple_id: 'rel_viewed',
+          subject_id: 'user:self',
+          subject_type: 'user',
+          predicate: 'viewed',
+          object_id: 'other_google_com',
+          object_type: 'other',
+        },
+      ],
+      l2RelationsTotal: 2,
+    } as ReturnType<typeof useMemory>);
+    renderPage();
+
+    expect(await screen.findByText('对象类型')).toBeInTheDocument();
+    expect(screen.getByText('当前关联')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    expect(await screen.findByText('事件类型')).toBeInTheDocument();
+    expect(screen.getByText('发生时间')).toBeInTheDocument();
+    expect(screen.getAllByText('对话消息')).toHaveLength(2);
+    expect(screen.getByText('对话')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+    expect(await screen.findByRole('button', { name: /^打开记录 用户 使用 codex$/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^打开记录 用户 浏览了 google com$/ })).toBeInTheDocument();
+    expect(screen.queryByText(/ent_user_8f3e USES tool_codex/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/viewed other/)).not.toBeInTheDocument();
+    expect(screen.getAllByText('用户 → 其他')).toHaveLength(2);
+    expect(screen.getByText('观察')).toBeInTheDocument();
+  });
+
+  it('shows a visible load error and retries the active category', async () => {
+    const loadL2Entities = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      loadL2Entities,
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时无法读取这类记录，请稍后重试。');
+    await user.click(screen.getByRole('button', { name: '重新读取' }));
+
+    await waitFor(() => expect(loadL2Entities).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole('button', { name: /^打开记录 用户$/ })).toBeInTheDocument();
   });
 
   it('collapses keyed assertion traits into readable relation labels', async () => {
@@ -408,7 +471,7 @@ describe('MemoryGovernancePage', () => {
 
     renderPage();
 
-    expect(await screen.findByRole('button', { name: /^打开记录 实体：分页实体 1$/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^打开记录 分页实体 1$/ })).toBeInTheDocument();
     expect(screen.getByText('1-20 / 24 条')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '下一页' }));
@@ -424,15 +487,16 @@ describe('MemoryGovernancePage', () => {
 
     expect(screen.queryByRole('dialog', { name: '记录详情' })).not.toBeInTheDocument();
 
-    await user.click(await screen.findByRole('button', { name: /实体：用户/ }));
+    await user.click(await screen.findByRole('button', { name: /^打开记录 用户$/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
-    expect(within(drawer).getByText('实体：用户')).toBeInTheDocument();
-    expect(within(drawer).getByText('下游影响')).toBeInTheDocument();
+    expect(within(drawer).getByRole('heading', { name: '用户' })).toBeInTheDocument();
+    expect(within(drawer).getByText('当前可见关联')).toBeInTheDocument();
+    expect(within(drawer).getByText('这里只反映当前已读取的数据，不代表删除或遗忘的完整影响范围。')).toBeInTheDocument();
     expect(within(drawer).getByText('重新核对这个实体的合并、关系和冲突状态。')).toBeInTheDocument();
-    expect(within(drawer).getByRole('button', { name: '重新校准实体' })).toBeEnabled();
-    expect(within(drawer).getByRole('button', { name: '连带遗忘（包含下游）' })).toBeEnabled();
-    expect(within(drawer).queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
+    expect(within(drawer).getByRole('button', { name: '重新核对' })).toBeEnabled();
+    expect(within(drawer).getByRole('button', { name: '遗忘实体及相关知识' })).toBeEnabled();
+    expect(within(drawer).queryByRole('button', { name: '删除原始事件' })).not.toBeInTheDocument();
   });
 
   it('opens a wider drawer and explains raw event re-extraction', async () => {
@@ -443,10 +507,10 @@ describe('MemoryGovernancePage', () => {
     await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
 
     const drawer = await screen.findByRole('dialog', { name: '记录详情' });
-    expect(drawer).toHaveClass('!w-[min(96vw,720px)]');
-    expect(drawer).toHaveClass('!max-w-[720px]');
+    expect(drawer).toHaveClass('!w-[min(96vw,760px)]');
+    expect(drawer).toHaveClass('!max-w-[760px]');
 
-    const action = within(drawer).getByRole('button', { name: '重新抽取结构' });
+    const action = within(drawer).getByRole('button', { name: '重新提取' });
     expect(action).toBeEnabled();
     expect(within(drawer).getByText('把这条原始事件重新送入结构抽取，更新实体、断言和关系。')).toBeInTheDocument();
 
@@ -465,7 +529,7 @@ describe('MemoryGovernancePage', () => {
     await user.click(screen.getByRole('button', { name: /原始事件/ }));
     await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
     const eventDrawer = await screen.findByRole('dialog', { name: '记录详情' });
-    const deleteButton = within(eventDrawer).getByRole('button', { name: '删除' });
+    const deleteButton = within(eventDrawer).getByRole('button', { name: '删除原始事件' });
     expect(deleteButton).toBeEnabled();
     await user.click(deleteButton);
     await waitFor(() => {
@@ -474,9 +538,9 @@ describe('MemoryGovernancePage', () => {
     expect(baseMemoryState.queryL1Events).toHaveBeenCalledWith({ limit: 20, offset: 0 });
 
     await user.click(screen.getByRole('button', { name: /实体 人物/ }));
-    await user.click(await screen.findByRole('button', { name: /实体：用户/ }));
+    await user.click(await screen.findByRole('button', { name: /^打开记录 用户$/ }));
     const entityDrawer = await screen.findByRole('dialog', { name: '记录详情' });
-    const cascadeButton = within(entityDrawer).getByRole('button', { name: '连带遗忘（包含下游）' });
+    const cascadeButton = within(entityDrawer).getByRole('button', { name: '遗忘实体及相关知识' });
     expect(cascadeButton).toBeEnabled();
     await user.click(cascadeButton);
     await waitFor(() => {
@@ -503,7 +567,7 @@ describe('MemoryGovernancePage', () => {
     expect(baseMemoryState.submitAssertionFeedback).toHaveBeenCalledWith('assert_1', 'rejected');
 
     await user.click(screen.getByRole('button', { name: /关系图谱/ }));
-    await user.click(await screen.findByRole('button', { name: /关系：ent_user_8f3e USES tool_codex/ }));
+    await user.click(await screen.findByRole('button', { name: /^打开记录 用户 使用 codex$/ }));
     const relationDrawer = await screen.findByRole('dialog', { name: '记录详情' });
     const relationReject = within(relationDrawer).getByRole('button', { name: '标记无效' });
     expect(relationReject).toBeEnabled();
