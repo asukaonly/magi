@@ -37,7 +37,7 @@ def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -
                 fact_kind, confidence, evidence_event_ids, observation_count,
                 first_observed_at, last_observed_at, status, created_at, updated_at
             ) VALUES (
-                'triple-old', 'user:local_user', 'user', 'LIVES_IN', 'place:hangzhou',
+                'triple-old', 'user:local_user', 'user', 'CURRENT_LIVES_IN', 'place:hangzhou',
                 'place', 'explicit_fact', 0.1, '["event-1"]', 1, 10, 20,
                 'user_rejected', 10, 20
             )
@@ -73,6 +73,27 @@ def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -
         assert connection.execute(
             "SELECT COUNT(*) FROM memory_correction_rules WHERE rule_kind = 'block_claim'"
         ).fetchone() == (2,)
+        edge_governance = connection.execute(
+            """
+            SELECT corrections.slot_key, corrections.claim_fingerprint,
+                   rules.slot_key, rules.claim_fingerprint,
+                   versions.slot_key, versions.claim_fingerprint
+            FROM memory_corrections AS corrections
+            JOIN memory_correction_rules AS rules
+              ON rules.correction_id = corrections.correction_id
+            JOIN knowledge_graph_versions AS versions
+              ON versions.triple_id = corrections.target_id
+            WHERE corrections.target_kind = 'edge'
+            """
+        ).fetchone()
+        assert edge_governance == (
+            edge[0],
+            edge[1],
+            edge[0],
+            edge[1],
+            edge[0],
+            edge[1],
+        )
         assert connection.execute(
             "SELECT revision FROM memory_subject_revisions WHERE subject_key = 'user:local_user'"
         ).fetchone() == (1,)

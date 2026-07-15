@@ -24,6 +24,7 @@ from .fingerprints import (
 )
 from .models import (
     ApplyAssertionCorrectionCommand,
+    ApplyRelationshipCorrectionCommand,
     AssertionCorrectionResult,
     CorrectionKind,
     CorrectionRule,
@@ -32,6 +33,7 @@ from .models import (
     CorrectionTargetKind,
     MemoryCorrection,
     NewMemoryCorrection,
+    RelationshipCorrectionResult,
 )
 from .repository import MemoryCorrectionRepository
 
@@ -98,6 +100,43 @@ class MemoryCorrectionService:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.repository = MemoryCorrectionRepository(db_path)
+
+    async def apply_relationship_correction(
+        self,
+        command: ApplyRelationshipCorrectionCommand,
+    ) -> RelationshipCorrectionResult | None:
+        """Apply a governed relationship correction."""
+        from .relationship_service import RelationshipCorrectionService
+
+        return await RelationshipCorrectionService(self.db_path).apply(command)
+
+    async def revert_relationship_correction(
+        self,
+        *,
+        correction_id: str,
+        request_id: str,
+        actor_id: str,
+    ) -> RelationshipCorrectionResult | None:
+        """Revert a governed relationship correction."""
+        from .relationship_service import RelationshipCorrectionService
+
+        return await RelationshipCorrectionService(self.db_path).revert(
+            correction_id=correction_id,
+            request_id=request_id,
+            actor_id=actor_id,
+        )
+
+    async def get_relationship_correction_history(
+        self,
+        *,
+        triple_id: str,
+    ) -> dict[str, Any]:
+        """Return immutable versions and corrections for a relationship."""
+        from .relationship_service import RelationshipCorrectionService
+
+        return await RelationshipCorrectionService(self.db_path).history(
+            triple_id=triple_id
+        )
 
     async def apply_assertion_correction(
         self,

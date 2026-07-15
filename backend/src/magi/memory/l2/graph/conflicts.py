@@ -13,6 +13,7 @@ from ..graph_conflicts import (
     build_exclusive_group_index,
     iter_opposite_predicates,
 )
+from .versions import append_knowledge_graph_version
 
 logger = get_logger(__name__)
 
@@ -110,6 +111,20 @@ class L2StoreGraphConflictMixin:
             ),
         )
         if int(cursor.rowcount or 0) > 0:
+            async with db.execute(
+                """
+                SELECT triple_id FROM knowledge_graph
+                WHERE deprecated_by = ? AND deprecated_at = ?
+                """,
+                (triple_id, observed_at),
+            ) as affected_cursor:
+                affected_ids = [str(row[0]) for row in await affected_cursor.fetchall()]
+            for affected_id in affected_ids:
+                await append_knowledge_graph_version(
+                    db,
+                    triple_id=affected_id,
+                    created_at=now,
+                )
             logger.debug(
                 "L2 graph conflict applied",
                 source_triple_id=triple_id,

@@ -11,6 +11,7 @@ from .fingerprints import (
 )
 from .models import (
     ApplyAssertionCorrectionCommand,
+    ApplyRelationshipCorrectionCommand,
     AssertionCorrectionResult,
     CorrectionCreateResult,
     CorrectionKind,
@@ -20,6 +21,7 @@ from .models import (
     CorrectionTargetKind,
     MemoryCorrection,
     NewMemoryCorrection,
+    RelationshipCorrectionResult,
 )
 from .repository import MemoryCorrectionRepository
 from .policy import (
@@ -35,6 +37,7 @@ from .service import (
 
 __all__ = [
     "ApplyAssertionCorrectionCommand",
+    "ApplyRelationshipCorrectionCommand",
     "AssertionCorrectionResult",
     "CorrectionCreateResult",
     "CorrectionKind",
@@ -51,6 +54,7 @@ __all__ = [
     "MemoryCorrectionService",
     "MemoryCorrectionValidationError",
     "NewMemoryCorrection",
+    "RelationshipCorrectionResult",
     "assertion_claim_fingerprint",
     "assertion_slot_key",
     "canonical_claim_value",

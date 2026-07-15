@@ -35,13 +35,38 @@ class CorrectionPolicyEvaluator:
         db: aiosqlite.Connection,
         candidate: Mapping[str, Any],
     ) -> CorrectionPolicyDecision:
+        return await self._evaluate(
+            db,
+            candidate,
+            target_kind=CorrectionTargetKind.ASSERTION,
+        )
+
+    async def evaluate_relationship(
+        self,
+        db: aiosqlite.Connection,
+        candidate: Mapping[str, Any],
+    ) -> CorrectionPolicyDecision:
+        """Evaluate correction rules for one normalized relationship write."""
+        return await self._evaluate(
+            db,
+            candidate,
+            target_kind=CorrectionTargetKind.EDGE,
+        )
+
+    async def _evaluate(
+        self,
+        db: aiosqlite.Connection,
+        candidate: Mapping[str, Any],
+        *,
+        target_kind: CorrectionTargetKind,
+    ) -> CorrectionPolicyDecision:
         slot_key = str(candidate["slot_key"])
         claim_fingerprint = str(candidate["claim_fingerprint"])
         scope_key = str(candidate.get("scope_key") or "global")
         observed_at = float(candidate.get("last_validated_at") or 0.0)
         rules = await _active_rules_for_slot(
             db,
-            target_kind=CorrectionTargetKind.ASSERTION,
+            target_kind=target_kind,
             slot_key=slot_key,
         )
 

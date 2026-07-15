@@ -159,7 +159,22 @@ class L2StoreRowMappingMixin:
             "natural_summary": str(row["natural_summary"] or "") if "natural_summary" in columns else "",
             "embedding_status": str(row["embedding_status"] or "pending") if "embedding_status" in columns else "pending",
             "expires_at": float(row["expires_at"]) if "expires_at" in columns and row["expires_at"] else None,
+            "valid_from": (
+                float(row["valid_from"])
+                if "valid_from" in columns and row["valid_from"] is not None
+                else None
+            ),
+            "valid_to": (
+                float(row["valid_to"])
+                if "valid_to" in columns and row["valid_to"] is not None
+                else None
+            ),
             "status": str(row["status"]),
+            "status_reason": (
+                str(row["status_reason"])
+                if "status_reason" in columns and row["status_reason"]
+                else None
+            ),
             "deprecated_by": row["deprecated_by"],
             "deprecated_at": float(row["deprecated_at"]) if row["deprecated_at"] else None,
             # NULL evidence_class is load-bearing: downstream filter treats it
@@ -169,6 +184,27 @@ class L2StoreRowMappingMixin:
                 str(row["evidence_class"])
                 if "evidence_class" in columns and row["evidence_class"] is not None
                 else None
+            ),
+            "slot_key": str(row["slot_key"] or "") if "slot_key" in columns else "",
+            "claim_fingerprint": (
+                str(row["claim_fingerprint"] or "")
+                if "claim_fingerprint" in columns
+                else ""
+            ),
+            "authority_ref": (
+                str(row["authority_ref"])
+                if "authority_ref" in columns and row["authority_ref"]
+                else None
+            ),
+            "scope_key": (
+                str(row["scope_key"] or "global")
+                if "scope_key" in columns
+                else "global"
+            ),
+            "scope": (
+                json.loads(row["scope_json"] or "{}")
+                if "scope_json" in columns
+                else {}
             ),
             "created_at": float(row["created_at"]),
             "updated_at": float(row["updated_at"]),

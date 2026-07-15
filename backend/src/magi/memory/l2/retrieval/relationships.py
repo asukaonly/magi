@@ -3,17 +3,69 @@
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, cast
 
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ..corrections.fingerprints import scope_key
 from ...sql_search import build_like_search_clause
 from .common import L2RetrievalQueryHostProtocol
 
 
 class L2StoreRelationshipQueryMixin:
     """Read and batch-query L2 knowledge-graph relationships."""
+
+    async def list_current_relationships(
+        self,
+        *,
+        subject_id: str | None = None,
+        object_id: str | None = None,
+        context_scope: Mapping[str, Any] | None = None,
+        effective_at: float | None = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Return one current relationship per governed slot and context."""
+        host = cast(L2RetrievalQueryHostProtocol, self)
+        await host.initialize()
+        requested_scope_key = scope_key(context_scope)
+        at = float(effective_at if effective_at is not None else time.time())
+        sql = "SELECT * FROM knowledge_graph WHERE status = 'active'"
+        args: list[Any] = []
+        if subject_id:
+            sql += " AND subject_id = ?"
+            args.append(subject_id)
+        if object_id:
+            sql += " AND object_id = ?"
+            args.append(object_id)
+        sql += " AND (valid_from IS NULL OR valid_from <= ?)"
+        sql += " AND (valid_to IS NULL OR valid_to > ?)"
+        args.extend((at, at))
+        if requested_scope_key == "global":
+            sql += " AND scope_key = 'global'"
+        else:
+            sql += " AND scope_key IN ('global', ?)"
+            args.append(requested_scope_key)
+        sql += " ORDER BY CASE WHEN scope_key = ? THEN 0 ELSE 1 END, updated_at DESC"
+        args.append(requested_scope_key)
+        sql += " LIMIT ?"
+        args.append(max(1, int(limit)) * 2)
+        async with sqlite_connection_async(host.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        current_by_slot: dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            relationship = host._relation_row_to_dict(row)
+            current_by_slot.setdefault(
+                relationship["slot_key"] or relationship["triple_id"],
+                relationship,
+            )
+            if len(current_by_slot) >= limit:
+                break
+        return list(current_by_slot.values())
 
     async def count_relationships(self, *, query: str | None = None) -> int:
         """Count all active relationships in the knowledge graph."""

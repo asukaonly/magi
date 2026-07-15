@@ -147,6 +147,30 @@ class AssertionCorrectionResult:
     subject_revision: int | None
 
 
+@dataclass(frozen=True)
+class ApplyRelationshipCorrectionCommand:
+    """One user-authoritative change to a relationship claim."""
+
+    triple_id: str
+    request_id: str
+    actor_id: str
+    correction_kind: CorrectionKind
+    replacement: Mapping[str, Any] | None = None
+    reason: str | None = None
+    effective_at: float | None = None
+    scope: Mapping[str, Any] | None = None
+    source_event_id: str | None = None
+    expected_updated_at: float | None = None
+
+
+@dataclass(frozen=True)
+class RelationshipCorrectionResult:
+    correction: MemoryCorrection
+    created: bool
+    current_triple_id: str | None
+    subject_revision: int | None
+
+
 def _json_object(value: Any) -> dict[str, Any] | None:
     if value is None or value == "":
         return None
@@ -171,6 +195,7 @@ def _optional_float(value: Any) -> float | None:
 
 __all__ = [
     "ApplyAssertionCorrectionCommand",
+    "ApplyRelationshipCorrectionCommand",
     "AssertionCorrectionResult",
     "CorrectionCreateResult",
     "CorrectionKind",
@@ -180,4 +205,5 @@ __all__ = [
     "CorrectionTargetKind",
     "MemoryCorrection",
     "NewMemoryCorrection",
+    "RelationshipCorrectionResult",
 ]
