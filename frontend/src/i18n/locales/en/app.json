@@ -2398,6 +2398,7 @@
     },
     "marketplace": {
       "searchPlaceholder": "Search plugins…",
+      "filterLabel": "Plugin categories",
       "loading": "Loading plugin marketplace…",
       "error": "Unable to reach the plugin registry",
       "empty": "No plugins available in the registry.",
@@ -2418,6 +2419,7 @@
         "uninstall": "Uninstall",
         "update": "Update",
         "refresh": "Refresh",
+        "openHomepage": "Open plugin homepage",
         "retry": "Retry",
         "uploadPlugin": "Upload plugin"
       },

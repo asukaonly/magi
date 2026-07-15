@@ -2397,6 +2397,7 @@
     },
     "marketplace": {
       "searchPlaceholder": "搜索插件…",
+      "filterLabel": "插件分类",
       "loading": "正在加载插件市场…",
       "error": "无法连接插件仓库",
       "empty": "插件仓库暂无可用的插件。",
@@ -2417,6 +2418,7 @@
         "uninstall": "卸载",
         "update": "更新",
         "refresh": "刷新",
+        "openHomepage": "打开插件主页",
         "retry": "重试",
         "uploadPlugin": "上传插件"
       },

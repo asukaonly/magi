@@ -22,7 +22,6 @@ import {
   type PluginPackageState,
   type PluginRegistryEntry,
 } from '@/api/modules/plugins';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -58,12 +57,6 @@ interface EntryPickerState {
   item: MarketplacePluginDisplayItem;
   selectedIds: string[];
 }
-
-const subtlePillClass =
-  'rounded-md border-transparent bg-[hsl(var(--settings-shell)/0.72)] px-2.5 py-1 text-xs font-semibold text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)]';
-
-const primaryPillClass =
-  'rounded-md border-transparent bg-[hsl(var(--primary)/0.12)] px-2.5 py-1 text-xs font-semibold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.2)]';
 
 /** Resolve the localized text from an i18n map, falling back to the default. */
 function localized(
@@ -383,13 +376,13 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
   };
 
   return (
-    <div className="space-y-5 pt-1">
+    <div className="space-y-4 pt-1">
       {/* Search + Actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="relative min-w-[260px] max-w-xl flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-9 border-0 bg-[hsl(var(--settings-shell-elevated)/0.72)] pl-9 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)] focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:ring-offset-0"
+            className="h-9 rounded-lg border-0 bg-[hsl(var(--settings-shell-elevated)/0.46)] pl-9 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.32)] focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:ring-offset-0"
             placeholder={t('settings.marketplace.searchPlaceholder')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -411,7 +404,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               size="sm"
               asChild
               disabled={!!processingIds.__upload}
-              className="h-9 bg-[hsl(var(--settings-shell-elevated)/0.72)] px-3.5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]"
+              className="h-9 rounded-lg bg-transparent px-3.5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] hover:bg-[hsl(var(--settings-nav-hover)/0.42)]"
             >
               <span>
                 <Package className="mr-2 h-4 w-4" />
@@ -423,36 +416,40 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="icon"
+            aria-label={t('settings.marketplace.actions.refresh')}
+            title={t('settings.marketplace.actions.refresh')}
             onClick={() => void fetchRegistry({ force: true })}
             disabled={loading}
-            className="h-9 bg-[hsl(var(--settings-shell-elevated)/0.72)] px-3.5 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.4)]"
+            className="h-9 w-9 rounded-lg bg-transparent shadow-none hover:bg-[hsl(var(--settings-nav-hover)/0.42)]"
           >
-            <RefreshCw className={loading ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} />
-            {t('settings.marketplace.actions.refresh')}
+            <RefreshCw className={loading ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
           </Button>
         </div>
       </div>
 
       {/* Category filter */}
-      <div className="flex flex-wrap gap-2">
+      <nav
+        className="flex flex-wrap items-center gap-5 border-b border-[hsl(var(--settings-subnav-border)/0.36)]"
+        aria-label={t('settings.marketplace.filterLabel')}
+      >
         {CONTRIBUTION_TYPE_FILTERS.map((filter) => (
           <button
             key={filter}
             type="button"
             aria-pressed={typeFilter === filter}
             className={cn(
-              'h-8 rounded-md px-3 text-xs font-semibold transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20',
+              'relative inline-flex h-10 items-center px-0.5 text-sm transition-colors duration-200 after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:origin-center after:rounded-sm after:bg-primary after:transition-transform after:duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15',
               typeFilter === filter
-                ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_hsl(var(--primary)/0.12)]'
-                : 'bg-[hsl(var(--settings-shell-elevated)/0.62)] text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.32)] hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground'
+                ? 'font-semibold text-foreground after:scale-x-100'
+                : 'font-medium text-muted-foreground after:scale-x-0 hover:text-foreground'
             )}
             onClick={() => setTypeFilter(filter)}
           >
             {t(`settings.marketplace.filter.${filter}`)}
           </button>
         ))}
-      </div>
+      </nav>
 
       {installSnapshots.__upload ? (
         <PluginInstallProgressPanel
@@ -482,7 +479,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             : t('settings.marketplace.empty')}
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div
+          data-testid="marketplace-list"
+          className="divide-y divide-[hsl(var(--settings-subnav-border)/0.34)]"
+        >
           {filteredItems.map((item) => {
             const entry = item.primary;
             const itemName = getMarketplaceItemName(item, language);
@@ -497,7 +497,30 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               || item.entries.map((candidate) => processingIds[candidate.plugin_id]).find(Boolean);
             const isProcessing = !!operation;
             const updateAvailable = item.entries.some((candidate) => candidate.update_available);
+            const allOfficial = item.entries.every((candidate) => candidate.official);
             const dataLocalOnly = item.entries.every((candidate) => candidate.data_locality === 'local_only');
+            const headlineMeta = [
+              `v${entry.version}`,
+              item.kind === 'group'
+                ? t('settings.marketplace.badge.entryCount', { count: item.entries.length })
+                : null,
+              item.kind === 'group' && installedCount > 0
+                ? (allEntriesInstalled
+                  ? t('settings.marketplace.badge.installedAll')
+                  : t('settings.marketplace.badge.installedPartial', {
+                    installed: installedCount,
+                    total: item.entries.length,
+                  }))
+                : null,
+            ].filter((value): value is string => Boolean(value));
+            const supportingMeta = [
+              entry.author || null,
+              allOfficial ? t('settings.marketplace.badge.official') : null,
+              ...contributionTypes.map((type) => t(
+                `settings.marketplace.contributionType.${type}`,
+                { defaultValue: type },
+              )),
+            ].filter((value): value is string => Boolean(value));
             const entrySnapshots = item.entries
               .map((candidate) => installSnapshots[candidate.plugin_id])
               .filter(Boolean);
@@ -509,112 +532,101 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
               : null;
 
             return (
-              <div
+              <article
                 key={item.id}
                 data-testid={`marketplace-plugin-${item.id}`}
-                className="space-y-3 rounded-lg bg-[hsl(var(--settings-shell-elevated)/0.5)] p-4 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34),0_12px_30px_hsl(var(--foreground)/0.035)] transition-[background-color,box-shadow] duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.68)] hover:shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.42),0_14px_34px_hsl(var(--foreground)/0.05)]"
+                className="-mx-3 space-y-3 rounded-lg px-3 py-5 transition-colors duration-200 hover:bg-[hsl(var(--settings-shell-elevated)/0.28)]"
               >
-                <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
                   <div className="flex min-w-0 flex-1 gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[hsl(var(--settings-shell)/0.78)] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.38)]">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center text-foreground">
                       <PluginIcon
                         iconId={getMarketplaceItemIcon(item)}
-                        className="h-5 w-5"
+                        className="h-6 w-6"
                       />
                     </div>
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                         <span className="text-[15px] font-semibold leading-6 text-foreground">
                           {itemName}
                         </span>
-                        <Badge variant="outline" className={subtlePillClass}>
-                          v{entry.version}
-                        </Badge>
-                        {item.kind === 'group' && (
-                          <Badge variant="outline" className={subtlePillClass}>
-                            {t('settings.marketplace.badge.entryCount', { count: item.entries.length })}
-                          </Badge>
-                        )}
-                        {item.kind === 'group' && installedCount > 0 ? (
-                          <Badge variant="secondary" className={primaryPillClass}>
-                            {allEntriesInstalled
-                              ? t('settings.marketplace.badge.installedAll')
-                              : t('settings.marketplace.badge.installedPartial', {
-                                installed: installedCount,
-                                total: item.entries.length,
-                              })}
-                          </Badge>
-                        ) : null}
-                        {item.entries.every((candidate) => candidate.official) && (
-                          <Badge variant="secondary" className={primaryPillClass}>
-                            {t('settings.marketplace.badge.official')}
-                          </Badge>
-                        )}
-                        {dataLocalOnly && (
-                          <Badge
-                            variant="outline"
-                            className={cn(primaryPillClass, 'gap-1')}
-                            title={t('settings.marketplace.badge.localOnlyHint', {
-                              defaultValue: 'All data stays on this device — nothing is uploaded.',
-                            })}
-                          >
-                            <Lock className="h-3 w-3" />
-                            {t('settings.marketplace.badge.localOnly', { defaultValue: 'Local only' })}
-                          </Badge>
-                        )}
+                        {headlineMeta.map((label, index) => (
+                          <React.Fragment key={label}>
+                            {index > 0 ? (
+                              <span aria-hidden className="text-[10px] text-muted-foreground/55">·</span>
+                            ) : null}
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {label}
+                            </span>
+                          </React.Fragment>
+                        ))}
                       </div>
-                      <p className="max-w-4xl text-sm leading-6 text-muted-foreground">
+                      <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground">
                         {itemDescription}
                       </p>
                       {item.kind === 'group' ? (
-                        <div className="flex flex-wrap gap-1.5">
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
                           {item.entries.map((candidate) => {
                             const candidateInstalled = isEntryInstalled(candidate);
                             const memberName = getMarketplaceEntryMemberName(candidate, language);
                             return (
-                              <Badge
+                              <span
                                 key={candidate.plugin_id}
                                 data-testid={`marketplace-entry-chip-${candidate.plugin_id}`}
-                                variant="outline"
-                                className={cn(
-                                  'gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold',
-                                  candidateInstalled
-                                    ? 'border-transparent bg-[hsl(var(--primary)/0.1)] text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.18)]'
-                                    : 'border-transparent bg-[hsl(var(--settings-shell)/0.72)] text-[hsl(var(--settings-nav-foreground))] shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)]'
-                                )}
+                                className="inline-flex items-center gap-1.5"
                               >
-                                <span>{memberName}</span>
-                                <span className="text-[10px] font-medium opacity-75">
+                                {candidateInstalled ? (
+                                  <Check className="h-3 w-3 text-primary" />
+                                ) : null}
+                                <span className="font-medium text-[hsl(var(--settings-nav-foreground))]">
+                                  {memberName}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground">
                                   {candidateInstalled
                                     ? t('settings.marketplace.entryStatus.installed')
                                     : t('settings.marketplace.entryStatus.available')}
                                 </span>
-                              </Badge>
+                              </span>
                             );
                           })}
                         </div>
                       ) : null}
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        {entry.author && <span className="font-medium">{entry.author}</span>}
-                        {contributionTypes.length > 0 && (
-                          <div className="flex gap-1">
-                            {contributionTypes.map((type) => (
-                              <Badge key={type} variant="secondary" className={subtlePillClass}>
-                                {t(`settings.marketplace.contributionType.${type}`, { defaultValue: type })}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
+                      <div
+                        data-testid={`marketplace-plugin-meta-${item.id}`}
+                        className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+                      >
+                        {supportingMeta.map((label, index) => (
+                          <React.Fragment key={`${label}-${index}`}>
+                            {index > 0 ? <span aria-hidden className="opacity-55">·</span> : null}
+                            <span>{label}</span>
+                          </React.Fragment>
+                        ))}
+                        {dataLocalOnly ? (
+                          <>
+                            {supportingMeta.length > 0 ? (
+                              <span aria-hidden className="opacity-55">·</span>
+                            ) : null}
+                            <span
+                              className="inline-flex items-center gap-1"
+                              title={t('settings.marketplace.badge.localOnlyHint')}
+                            >
+                              <Lock className="h-3 w-3" />
+                              {t('settings.marketplace.badge.localOnly')}
+                            </span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-1 self-start sm:ml-2">
                     {entry.homepage && (
                       <a
                         href={entry.homepage}
                         target="_blank"
                         rel="noopener noreferrer"
+                        aria-label={t('settings.marketplace.actions.openHomepage')}
+                        title={t('settings.marketplace.actions.openHomepage')}
                         className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[hsl(var(--settings-nav-hover)/0.72)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
                       >
                         <ExternalLink className="h-4 w-4" />
@@ -630,7 +642,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             size="sm"
                             disabled={isProcessing}
                             onClick={() => handleUpdate(item)}
-                            className="h-9 bg-[hsl(var(--settings-shell)/0.72)] px-3.5"
+                            className="h-9 rounded-lg bg-transparent px-3.5 shadow-none hover:bg-[hsl(var(--settings-nav-hover)/0.42)]"
                           >
                             {operation === 'updating' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -647,7 +659,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             size="sm"
                             disabled={isProcessing}
                             onClick={() => handleInstall(item)}
-                            className="h-9 rounded-md px-4 shadow-[0_10px_24px_hsl(var(--primary)/0.14)]"
+                            className="h-9 rounded-lg px-4 shadow-none hover:shadow-none"
                           >
                             {operation === 'installing' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -661,10 +673,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                               : t('settings.marketplace.actions.chooseEntries')}
                           </Button>
                         ) : (
-                          <Badge variant="secondary" className={subtlePillClass}>
-                            <Check className="mr-1 h-3 w-3" />
+                          <span className="inline-flex h-9 items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground">
+                            <Check className="h-3.5 w-3.5 text-primary" />
                             {t('settings.marketplace.badge.installedAll')}
-                          </Badge>
+                          </span>
                         )}
                       </div>
                     ) : isInstalled ? (
@@ -676,7 +688,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                             size="sm"
                             disabled={isProcessing}
                             onClick={() => handleUpdate(item)}
-                            className="h-9 bg-[hsl(var(--settings-shell)/0.72)] px-3.5"
+                            className="h-9 rounded-lg bg-transparent px-3.5 shadow-none hover:bg-[hsl(var(--settings-nav-hover)/0.42)]"
                           >
                             {operation === 'updating' ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -694,21 +706,23 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         <Button
                           type="button"
                           variant="ghost"
-                          size="sm"
+                          size="icon"
+                          aria-label={t('settings.marketplace.actions.uninstall')}
+                          title={t('settings.marketplace.actions.uninstall')}
                           disabled={isProcessing}
                           onClick={() => void handleUninstall(item)}
-                          className="h-9 px-3 text-muted-foreground hover:text-destructive"
+                          className="h-9 w-9 rounded-lg text-muted-foreground hover:bg-destructive/5 hover:text-destructive"
                         >
                           {operation === 'uninstalling' ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            <Trash2 className="mr-2 h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                           )}
-                          {t('settings.marketplace.actions.uninstall')}
                         </Button>
-                        <Badge variant="secondary" className={subtlePillClass}>
+                        <span className="inline-flex h-9 items-center gap-1.5 px-2 text-xs font-medium text-muted-foreground">
+                          <Check className="h-3.5 w-3.5 text-primary" />
                           {t('settings.marketplace.badge.installed')}
-                        </Badge>
+                        </span>
                       </div>
                     ) : (
                       <Button
@@ -717,7 +731,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                         size="sm"
                         disabled={isProcessing}
                         onClick={() => handleInstall(item)}
-                        className="h-9 rounded-md px-4 shadow-[0_10px_24px_hsl(var(--primary)/0.14)]"
+                        className="h-9 rounded-lg px-4 shadow-none hover:shadow-none"
                       >
                         {operation === 'installing' ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -748,7 +762,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     ) : null
                   ))
                 )}
-              </div>
+              </article>
             );
           })}
         </div>
@@ -760,7 +774,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
             className="max-w-xl overflow-hidden p-0"
             data-testid={`marketplace-entry-picker-${entryPicker.item.id}`}
           >
-            <DialogHeader className="border-b border-[hsl(var(--settings-subnav-border)/0.58)] bg-[hsl(var(--settings-shell)/0.36)] px-6 py-5">
+            <DialogHeader className="px-6 pb-2 pt-6">
               <DialogTitle className="text-base">
                 {t('settings.marketplace.entryPicker.title', {
                   name: getMarketplaceItemName(entryPicker.item, language),
@@ -770,7 +784,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                 {t('settings.marketplace.entryPicker.description')}
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 px-6 py-4">
+            <div className="divide-y divide-[hsl(var(--settings-subnav-border)/0.3)] px-6 py-3">
               {entryPicker.item.entries.map((candidate) => {
                 const candidateInstalled = isEntryInstalled(candidate);
                 const checked = candidateInstalled || entryPicker.selectedIds.includes(candidate.plugin_id);
@@ -780,10 +794,10 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                     key={candidate.plugin_id}
                     data-testid={`marketplace-entry-option-${candidate.plugin_id}`}
                     className={cn(
-                      'flex cursor-pointer items-start gap-3 rounded-lg px-3 py-3 shadow-[inset_0_0_0_1px_hsl(var(--settings-subnav-border)/0.34)] transition-colors',
+                      'flex cursor-pointer items-start gap-3 rounded-md px-2 py-3 transition-colors duration-200',
                       candidateInstalled
-                        ? 'cursor-default bg-[hsl(var(--settings-shell)/0.52)] text-muted-foreground'
-                        : 'bg-[hsl(var(--settings-shell-elevated)/0.58)] hover:bg-[hsl(var(--settings-shell-elevated)/0.78)]'
+                        ? 'cursor-default text-muted-foreground'
+                        : 'hover:bg-[hsl(var(--settings-shell-elevated)/0.42)]'
                     )}
                   >
                     <input
@@ -801,14 +815,16 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                           className="h-4 w-4"
                         />
                         <span className="text-sm font-semibold text-foreground">{memberName}</span>
-                        <Badge
-                          variant="outline"
-                          className={candidateInstalled ? primaryPillClass : subtlePillClass}
+                        <span
+                          className={cn(
+                            'text-xs font-medium',
+                            candidateInstalled ? 'text-primary' : 'text-muted-foreground'
+                          )}
                         >
                           {candidateInstalled
                             ? t('settings.marketplace.entryStatus.installed')
                             : t('settings.marketplace.entryStatus.available')}
-                        </Badge>
+                        </span>
                       </div>
                       <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
                         {localized(candidate.description, candidate.description_i18n, language)}
@@ -818,7 +834,7 @@ export const PluginMarketplace: React.FC<PluginMarketplaceProps> = ({
                 );
               })}
             </div>
-            <DialogFooter className="bg-[hsl(var(--settings-shell)/0.26)]">
+            <DialogFooter className="border-t-0 px-6 pb-6 pt-2">
               <Button type="button" variant="ghost" onClick={() => setEntryPicker(null)}>
                 {t('settings.marketplace.entryPicker.cancel')}
               </Button>
