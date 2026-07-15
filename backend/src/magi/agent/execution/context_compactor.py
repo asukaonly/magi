@@ -641,9 +641,6 @@ class ContextCompactor:
 
             if role == "tool":
                 tool_id = msg.get("tool_call_id", "?")
-                # Truncate very long tool results.
-                if isinstance(content, str) and len(content) > 2000:
-                    content = content[:2000] + "\n... [truncated]"
                 parts.append(f"[tool result {tool_id}]: {content}")
             elif role == "assistant":
                 if isinstance(content, str):
@@ -662,8 +659,6 @@ class ContextCompactor:
                                     ensure_ascii=False,
                                     default=str,
                                 )
-                                if len(tool_input) > 800:
-                                    tool_input = tool_input[:800] + "..."
                                 text_parts.append(f"[call {tool_name}({tool_input})]")
                     text = "\n".join(text_parts)
                 else:

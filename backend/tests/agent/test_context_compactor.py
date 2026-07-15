@@ -764,13 +764,36 @@ class TestLLMCompact:
 
 
 class TestRenderMessagesForSummary:
-    def test_tool_result_truncation(self) -> None:
-        long_content = "x" * 3000
+    def test_tool_result_is_not_truncated_again_before_summary(self) -> None:
+        long_content = "result-start-" + ("x" * 3000) + "-result-end"
         msgs = [{"role": "tool", "tool_call_id": "t1", "content": long_content}]
         c = ContextCompactor()
         rendered = c._render_messages_for_summary(msgs)
-        assert "[truncated]" in rendered
-        assert len(rendered) < 3000
+        assert long_content in rendered
+        assert "result-start" in rendered
+        assert "result-end" in rendered
+
+    def test_tool_call_input_is_not_truncated_again_before_summary(self) -> None:
+        long_query = "query-start-" + ("x" * 1200) + "-query-end"
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "search",
+                        "input": {"query": long_query},
+                    }
+                ],
+            }
+        ]
+        c = ContextCompactor()
+
+        rendered = c._render_messages_for_summary(msgs)
+
+        assert long_query in rendered
+        assert "query-start" in rendered
+        assert "query-end" in rendered
 
     def test_multi_block_assistant(self) -> None:
         msgs = [
