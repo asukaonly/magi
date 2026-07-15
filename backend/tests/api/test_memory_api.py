@@ -1710,6 +1710,45 @@ def test_memory_clear_api_clears_all_layers(monkeypatch):
     assert body["results"]["chat_context"]["count"] == 4
 
 
+def test_memory_clear_stops_correction_work_before_clearing_l1(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    clear_order: list[str] = []
+
+    class _OrderedStore:
+        def __init__(self, name: str, count: int) -> None:
+            self.name = name
+            self.count = count
+
+        async def clear(self) -> int:
+            clear_order.append(self.name)
+            return self.count
+
+    unified = SimpleNamespace(
+        l0=_OrderedStore("l0", 1),
+        l1=_OrderedStore("l1", 1),
+        l2=_OrderedStore("l2", 1),
+        l2_entity_catalog=_OrderedStore("l2_entities", 1),
+        l3=_OrderedStore("l3", 1),
+        l4=_OrderedStore("l4", 1),
+    )
+
+    class _FakeChatReadService:
+        def clear_all_sessions(self) -> int:
+            return 0
+
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: unified)
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service",
+        lambda: _FakeChatReadService(),
+    )
+
+    response = TestClient(app).delete("/api/memory/clear")
+
+    assert response.status_code == 200
+    assert clear_order.index("l2") < clear_order.index("l1")
+
+
 def test_registered_memory_clear_api_is_public(monkeypatch):
     app = FastAPI()
     register_api_routes(app)

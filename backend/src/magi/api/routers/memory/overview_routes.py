@@ -64,15 +64,15 @@ async def clear_memory_layers():
             detail=memory_t("memory.errors.system_uninitialized", "Memory system not initialized"),
         )
 
-    logger.info("clear_memory: clearing l0")
-    l0_count = await unified_memory.l0.clear() if getattr(unified_memory, "l0", None) else 0
-    logger.info("clear_memory: l0 done, removed=%d; clearing l1", l0_count)
-    l1_count = await unified_memory.l1.clear() if getattr(unified_memory, "l1", None) else 0
-    logger.info("clear_memory: l1 done, removed=%d; clearing l2", l1_count)
+    logger.info("clear_memory: stopping correction work and clearing l2")
     l2_count = await unified_memory.l2.clear() if getattr(unified_memory, "l2", None) else 0
     if getattr(unified_memory, "l2_entity_catalog", None):
         l2_count += await unified_memory.l2_entity_catalog.clear()
-    logger.info("clear_memory: l2 done, removed=%d; clearing l3", l2_count)
+    logger.info("clear_memory: l2 done, removed=%d; clearing l0", l2_count)
+    l0_count = await unified_memory.l0.clear() if getattr(unified_memory, "l0", None) else 0
+    logger.info("clear_memory: l0 done, removed=%d; clearing l1", l0_count)
+    l1_count = await unified_memory.l1.clear() if getattr(unified_memory, "l1", None) else 0
+    logger.info("clear_memory: l1 done, removed=%d; clearing l3", l1_count)
     l3_count = await unified_memory.l3.clear() if getattr(unified_memory, "l3", None) else 0
     logger.info("clear_memory: l3 done, removed=%d; clearing l4", l3_count)
     l4_count = await unified_memory.l4.clear() if getattr(unified_memory, "l4", None) else 0

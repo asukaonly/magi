@@ -262,27 +262,34 @@ class L2CognitionStore(
     async def clear(self) -> int:
         """Delete all cognition artifacts."""
         await self.initialize()
-        async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
-                row = await cursor.fetchone()
-                count = int(row[0]) if row else 0
-            await db.executescript("""
-                DELETE FROM knowledge_graph;
-                DELETE FROM entity_facets;
-                DELETE FROM tom_trait_assertions;
-                DELETE FROM tom_snapshots;
-                DELETE FROM user_profile_projection;
-                DELETE FROM user_portrait_projection;
-                DELETE FROM experience_seed_evidence;
-                DELETE FROM experience_seeds;
-                DELETE FROM experience_key_events;
-                DELETE FROM experience_members;
-                DELETE FROM experiences;
-                DELETE FROM episodes;
-                DELETE FROM episode_events;
-                """)
-            await db.commit()
-        await self._projection_queue.clear_all()
+        async with self.memory_correction_job_guard():
+            async with sqlite_connection_async(self.db_path) as db:
+                async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
+                    row = await cursor.fetchone()
+                    count = int(row[0]) if row else 0
+                await db.executescript("""
+                    DELETE FROM memory_derivation_jobs;
+                    DELETE FROM memory_derivation_dependencies;
+                    DELETE FROM memory_correction_rules;
+                    DELETE FROM memory_corrections;
+                    DELETE FROM memory_subject_revisions;
+                    DELETE FROM knowledge_graph_versions;
+                    DELETE FROM knowledge_graph;
+                    DELETE FROM entity_facets;
+                    DELETE FROM tom_trait_assertions;
+                    DELETE FROM tom_snapshots;
+                    DELETE FROM user_profile_projection;
+                    DELETE FROM user_portrait_projection;
+                    DELETE FROM experience_seed_evidence;
+                    DELETE FROM experience_seeds;
+                    DELETE FROM experience_key_events;
+                    DELETE FROM experience_members;
+                    DELETE FROM experiences;
+                    DELETE FROM episodes;
+                    DELETE FROM episode_events;
+                    """)
+                await db.commit()
+            await self._projection_queue.clear_all()
         return count
 
 
