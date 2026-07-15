@@ -200,20 +200,29 @@ class SchedulerService:
             metadata=dict(metadata or {}),
         )
         async with self._schedule_lock:
-            existing = await self._repository.get_schedule(schedule_id)
-            if existing is not None and existing.trigger.trigger_type is TriggerType.ONCE:
-                existing_run_at = await self._repository.get_schedule_next_run_at(existing)
-                if (
-                    existing_run_at is not None
-                    and existing_run_at > time.time()
-                    and existing_run_at <= float(run_at)
-                ):
-                    return existing
-            if existing is not None:
-                await self._unschedule_locked(schedule_id)
-            await self._repository.upsert_schedule(definition)
-            await self._upsert_job(definition)
-            persisted = await self._repository.get_schedule(schedule_id)
+            return await self._schedule_once_earliest_locked(definition)
+
+    async def _schedule_once_earliest_locked(
+        self,
+        definition: ScheduleDefinition,
+    ) -> ScheduleDefinition:
+        """Keep the earliest one-off definition while ``_schedule_lock`` is held."""
+        schedule_id = definition.schedule_id
+        run_at = float(definition.trigger.config["run_at"])
+        existing = await self._repository.get_schedule(schedule_id)
+        if existing is not None and existing.trigger.trigger_type is TriggerType.ONCE:
+            existing_run_at = await self._repository.get_schedule_next_run_at(existing)
+            if (
+                existing_run_at is not None
+                and existing_run_at > time.time()
+                and existing_run_at <= run_at
+            ):
+                return existing
+        if existing is not None:
+            await self._unschedule_locked(schedule_id)
+        await self._repository.upsert_schedule(definition)
+        await self._upsert_job(definition)
+        persisted = await self._repository.get_schedule(schedule_id)
         return persisted or definition
 
     async def schedule_interval(
@@ -399,31 +408,28 @@ class SchedulerService:
         """Keep a busy one-off target durable without leaving an orphan row."""
         if result.message != "target_busy":
             return
-        schedule = await self._repository.get_schedule(schedule_id)
-        if schedule is None or schedule.trigger.trigger_type is not TriggerType.ONCE:
-            return
+        async with self._schedule_lock:
+            schedule = await self._repository.get_schedule(schedule_id)
+            if schedule is None or schedule.trigger.trigger_type is not TriggerType.ONCE:
+                return
 
-        retry_count = int(schedule.metadata.get(_BUSY_ONCE_RETRY_METADATA_KEY, 0)) + 1
-        delay_seconds = min(
-            _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS,
-            2.0 ** min(max(0, retry_count - 1), 5),
-        )
-        replacement = dataclasses.replace(
-            schedule,
-            trigger=TriggerDefinition(
-                TriggerType.ONCE,
-                {"run_at": time.time() + delay_seconds},
-            ),
-            metadata={
-                **schedule.metadata,
-                _BUSY_ONCE_RETRY_METADATA_KEY: retry_count,
-            },
-        )
-        try:
-            self._scheduler.remove_job(schedule.job_id or schedule.schedule_id)
-        except Exception:
-            pass
-        await self.schedule(replacement)
+            retry_count = int(schedule.metadata.get(_BUSY_ONCE_RETRY_METADATA_KEY, 0)) + 1
+            delay_seconds = min(
+                _BUSY_ONCE_MAX_RETRY_DELAY_SECONDS,
+                2.0 ** min(max(0, retry_count - 1), 5),
+            )
+            replacement = dataclasses.replace(
+                schedule,
+                trigger=TriggerDefinition(
+                    TriggerType.ONCE,
+                    {"run_at": time.time() + delay_seconds},
+                ),
+                metadata={
+                    **schedule.metadata,
+                    _BUSY_ONCE_RETRY_METADATA_KEY: retry_count,
+                },
+            )
+            await self._schedule_once_earliest_locked(replacement)
 
     async def _prepare_execution(
         self,

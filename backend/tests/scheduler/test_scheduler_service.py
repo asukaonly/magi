@@ -224,6 +224,75 @@ async def test_busy_once_schedule_is_rescheduled_in_place(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_busy_once_retry_cannot_overwrite_concurrent_earlier_schedule(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    await service.start()
+    try:
+        now = time.time()
+        await service.schedule_once(
+            schedule_id="busy-race",
+            target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+            target_key="busy-race",
+            run_at=now + 60.0,
+            target_payload={},
+            metadata={"_busy_once_retry_count": 5},
+        )
+
+        busy_read = asyncio.Event()
+        release_busy = asyncio.Event()
+        original_get_schedule = service.repository.get_schedule
+
+        async def _pause_busy_read(schedule_id):  # type: ignore[no-untyped-def]
+            schedule = await original_get_schedule(schedule_id)
+            task = asyncio.current_task()
+            if task is not None and task.get_name() == "busy-reschedule-race":
+                busy_read.set()
+                await release_busy.wait()
+            return schedule
+
+        monkeypatch.setattr(service.repository, "get_schedule", _pause_busy_read)
+        busy_task = asyncio.create_task(
+            service._reschedule_busy_once(
+                "busy-race",
+                ScheduledExecutionResult(success=False, message="target_busy"),
+            ),
+            name="busy-reschedule-race",
+        )
+        await asyncio.wait_for(busy_read.wait(), timeout=2.0)
+        busy_holds_schedule_lock = service._schedule_lock.locked()
+        earlier_run_at = now + 10.0
+        earlier_task = asyncio.create_task(
+            service.schedule_once_earliest(
+                schedule_id="busy-race",
+                target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+                target_key="busy-race",
+                run_at=earlier_run_at,
+                target_payload={"source": "correction_retry"},
+            )
+        )
+        if not busy_holds_schedule_lock:
+            await asyncio.wait_for(asyncio.shield(earlier_task), timeout=2.0)
+        release_busy.set()
+        await asyncio.wait_for(asyncio.gather(busy_task, earlier_task), timeout=2.0)
+
+        stored = await original_get_schedule("busy-race")
+        assert stored is not None
+        next_run_at = await service.repository.get_schedule_next_run_at(stored)
+        assert next_run_at is not None
+        assert abs(next_run_at - earlier_run_at) < 1.0
+        assert stored.target_payload == {"source": "correction_retry"}
+    finally:
+        release_busy.set()
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_schedule_once_earliest_is_atomic_under_concurrency(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"
