@@ -17,9 +17,11 @@ from ...config.models import LLMScenario, ThinkingDepth
 from ...context.window_budget import (
     ContextWindowBudget,
     ContextWindowUsage,
+    GENERAL_SUMMARY_OUTPUT_PROFILE,
     build_context_window_budget,
     estimate_context_tokens,
     measure_context_window_usage,
+    resolve_summary_output_tokens,
 )
 from ...llm.model_context import (
     ModelContextProfile,
@@ -42,8 +44,6 @@ _KEEP_RECENT_ROUNDS = 3
 # the LLM summariser.
 _RULE_KEEP_RECENT_MESSAGES = 10
 
-# Maximum tokens reserved for the compaction summary output.
-_SUMMARY_OUTPUT_RESERVE = 16_384
 _SUMMARY_INPUT_RATIO = 0.60
 
 # Cheap per-character token estimate (JSON encoded messages) used when no
@@ -83,6 +83,7 @@ history provided by the user.
 CRITICAL RULES:
 - Respond with plain text only.  Do NOT call any tools.
 - Your response MUST contain an <analysis> block followed by a <summary> block.
+- Keep the complete response within {max_summary_tokens} tokens.
 
 <analysis>
 Chronologically walk through the conversation.  For each exchange note:
@@ -448,6 +449,11 @@ class ContextCompactor:
         """Call the CONTEXT_COMPACT scenario model to produce a summary."""
         resolved = self._resolve_summary_model()
         budget = build_context_window_budget(resolved.context)
+        summary_output_tokens = resolve_summary_output_tokens(
+            self._current_budget(),
+            budget,
+            profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
+        )
         chunk_chars = max(
             4_000,
             int(budget.input_capacity * _SUMMARY_INPUT_RATIO) * _CHARS_PER_TOKEN_ESTIMATE,
@@ -465,9 +471,11 @@ class ContextCompactor:
                     f"<next_conversation_chunk>\n{chunk}\n</next_conversation_chunk>"
                 )
             response = await bridge.chat(
-                system_prompt=_COMPACT_SYSTEM_PROMPT,
+                system_prompt=_COMPACT_SYSTEM_PROMPT.format(
+                    max_summary_tokens=summary_output_tokens,
+                ),
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=min(_SUMMARY_OUTPUT_RESERVE, budget.output_reserve),
+                max_tokens=summary_output_tokens,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
                 event_context={

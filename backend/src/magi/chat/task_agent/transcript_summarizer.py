@@ -13,9 +13,11 @@ from magi.core.logger import get_logger
 from magi.llm.provider_bridge import LLMProviderBridge
 from magi.context.window_budget import (
     ContextWindowBudget,
+    GENERAL_SUMMARY_OUTPUT_PROFILE,
     build_context_window_budget,
     estimate_context_tokens,
     estimate_text_tokens,
+    resolve_summary_output_tokens,
 )
 from magi.llm.model_context import (
     ModelContextProfile,
@@ -28,9 +30,6 @@ logger = get_logger(__name__)
 
 SUMMARY_KIND_TOKEN_BUDGET = "token_budget"
 DEFAULT_MIN_MESSAGES_FOR_SUMMARY = 16
-SUMMARY_OUTPUT_RATIO = 0.05
-MIN_SUMMARY_OUTPUT_TOKENS = 1_024
-MAX_SUMMARY_OUTPUT_TOKENS = 16_384
 _SUMMARY_CHARS_PER_TOKEN_TARGET = 4
 _SUMMARY_INPUT_RATIO = 0.60
 _PROMPT_MESSAGE_KINDS = {"user_text", "assistant_final", "assistant_rhythm_segment"}
@@ -394,13 +393,11 @@ class ChatTranscriptSummarizer:
         self,
         summary_model_budget: ContextWindowBudget,
     ) -> int:
-        core_budget = self._current_budget()
-        capacity_target = int(core_budget.input_capacity * SUMMARY_OUTPUT_RATIO)
-        core_limit = min(
-            MAX_SUMMARY_OUTPUT_TOKENS,
-            max(MIN_SUMMARY_OUTPUT_TOKENS, capacity_target),
+        return resolve_summary_output_tokens(
+            self._current_budget(),
+            summary_model_budget,
+            profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
         )
-        return max(1, min(core_limit, summary_model_budget.output_reserve))
 
     def _resolve_model_provider(self) -> str | None:
         resolved = self._resolve_summary_model()

@@ -620,6 +620,40 @@ class TestLLMCompact:
         assert "partial summary" in second_prompt
 
     @pytest.mark.asyncio
+    async def test_summary_output_budget_tracks_active_model_capacity(self) -> None:
+        fake_adapter = SimpleNamespace()
+        fake_pool = SimpleNamespace(
+            resolve=lambda scenario: ResolvedModel(
+                adapter=fake_adapter,
+                context=ModelContextProfile(
+                    provider_id="summary-provider",
+                    model_id="large-summary-model",
+                    context_window=1_000_000,
+                    max_output_tokens=64_000,
+                ),
+            )
+        )
+        mock_bridge = AsyncMock()
+        mock_bridge.chat = AsyncMock(return_value=SimpleNamespace(content="summary"))
+        compactor = ContextCompactor(
+            context_window=32_000,
+            scenario_llm_pool=fake_pool,
+        )
+
+        with patch(
+            "magi.agent.execution.context_compactor.LLMProviderBridge",
+            return_value=mock_bridge,
+        ):
+            summary = await compactor._call_summariser("conversation")
+
+        assert summary == "summary"
+        assert mock_bridge.chat.await_args.kwargs["max_tokens"] == 1_190
+        assert (
+            "within 1190 tokens"
+            in mock_bridge.chat.await_args.kwargs["system_prompt"]
+        )
+
+    @pytest.mark.asyncio
     async def test_empty_summary_never_replaces_history(self) -> None:
         fake_adapter = SimpleNamespace()
         fake_pool = SimpleNamespace(get=lambda scenario: fake_adapter)

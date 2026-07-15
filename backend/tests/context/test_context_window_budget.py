@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from magi.context.window_budget import (
+    GENERAL_SUMMARY_OUTPUT_PROFILE,
+    PERSONA_SUMMARY_OUTPUT_PROFILE,
     build_context_window_budget,
     estimate_context_tokens,
     measure_context_window_usage,
+    resolve_summary_output_tokens,
 )
 from magi.llm.model_context import ModelContextProfile
 
@@ -114,3 +117,60 @@ def test_context_usage_keeps_provider_count_as_lower_bound() -> None:
 
     assert usage.estimated_tokens == 1_500
     assert usage.requires_compaction is True
+
+
+def test_summary_output_budget_uses_destination_capacity_and_purpose() -> None:
+    source_budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="core",
+            model_id="small-core-model",
+            context_window=32_000,
+            max_output_tokens=8_000,
+        )
+    )
+    summary_model_budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="summary",
+            model_id="large-summary-model",
+            context_window=1_000_000,
+            max_output_tokens=64_000,
+        )
+    )
+
+    assert (
+        resolve_summary_output_tokens(
+            source_budget,
+            summary_model_budget,
+            profile=GENERAL_SUMMARY_OUTPUT_PROFILE,
+        )
+        == 1_200
+    )
+    assert (
+        resolve_summary_output_tokens(
+            source_budget,
+            summary_model_budget,
+            profile=PERSONA_SUMMARY_OUTPUT_PROFILE,
+        )
+        == 512
+    )
+
+
+def test_summary_output_budget_never_exceeds_writer_model() -> None:
+    source_budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="core",
+            model_id="large-core-model",
+            context_window=1_000_000,
+            max_output_tokens=64_000,
+        )
+    )
+    summary_model_budget = build_context_window_budget(
+        ModelContextProfile(
+            provider_id="summary",
+            model_id="tiny-summary-model",
+            context_window=4_000,
+            max_output_tokens=300,
+        )
+    )
+
+    assert resolve_summary_output_tokens(source_budget, summary_model_budget) == 300

@@ -17,6 +17,8 @@ LARGE_CONTEXT_TRIGGER_RATIO = 0.50
 RECENT_TAIL_RATIO = 0.20
 ASCII_CHARS_PER_TOKEN_ESTIMATE = 4.0
 NON_ASCII_BYTES_PER_TOKEN_ESTIMATE = 2.5
+GENERAL_SUMMARY_OUTPUT_RATIO = 0.05
+PERSONA_SUMMARY_OUTPUT_RATIO = 0.02
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +52,27 @@ class ContextWindowUsage:
         return self.estimated_tokens <= self.input_capacity
 
 
+@dataclass(frozen=True, slots=True)
+class SummaryOutputProfile:
+    """Purpose-specific bounds applied by the shared summary budget policy."""
+
+    input_capacity_ratio: float
+    min_tokens: int
+    max_tokens: int
+
+
+GENERAL_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
+    input_capacity_ratio=GENERAL_SUMMARY_OUTPUT_RATIO,
+    min_tokens=1_024,
+    max_tokens=16_384,
+)
+PERSONA_SUMMARY_OUTPUT_PROFILE = SummaryOutputProfile(
+    input_capacity_ratio=PERSONA_SUMMARY_OUTPUT_RATIO,
+    min_tokens=512,
+    max_tokens=4_096,
+)
+
+
 def build_context_window_budget(profile: ModelContextProfile) -> ContextWindowBudget:
     """Build the context policy from the model that will receive the request."""
     configured_window = profile.context_window
@@ -78,6 +101,28 @@ def build_context_window_budget(profile: ModelContextProfile) -> ContextWindowBu
         compaction_trigger_tokens=compaction_trigger_tokens,
         recent_tail_tokens=recent_tail_tokens,
         uses_fallback=uses_fallback,
+    )
+
+
+def resolve_summary_output_tokens(
+    source_budget: ContextWindowBudget,
+    summary_model_budget: ContextWindowBudget,
+    *,
+    profile: SummaryOutputProfile = GENERAL_SUMMARY_OUTPUT_PROFILE,
+) -> int:
+    """Size a summary for its destination, capped by the writer model."""
+    capacity_target = int(source_budget.input_capacity * profile.input_capacity_ratio)
+    profile_target = min(
+        profile.max_tokens,
+        max(profile.min_tokens, capacity_target),
+    )
+    return max(
+        1,
+        min(
+            profile_target,
+            source_budget.input_capacity,
+            summary_model_budget.output_reserve,
+        ),
     )
 
 

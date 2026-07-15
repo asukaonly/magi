@@ -35,7 +35,13 @@ from typing import Any, Awaitable, Callable
 from magi.agent.trace import now_wall_ms
 from magi.chat import ChatContextSummaryRecord, ChatStore
 from magi.config.models import LLMScenario, ThinkingDepth
+from magi.context.window_budget import (
+    PERSONA_SUMMARY_OUTPUT_PROFILE,
+    build_context_window_budget,
+    resolve_summary_output_tokens,
+)
 from magi.core.logger import get_logger
+from magi.llm.model_context import ResolvedModel, unknown_model_context
 from magi.llm.provider_bridge import LLMProviderBridge
 
 logger = get_logger(__name__)
@@ -45,11 +51,6 @@ logger = get_logger(__name__)
 # session-summary read path can distinguish persona-boundary summaries
 # from rolling token-budget summaries.
 SUMMARY_KIND_PERSONA_BOUNDARY = "persona_boundary"
-
-# Max tokens the summarizer LLM may emit; sized to fit the typical
-# continuity summary while leaving plenty of headroom in the prompt
-# for the actual conversation tail.
-_PERSONA_BOUNDARY_OUTPUT_RESERVE = 4096
 
 # Truncate each message body before sending to the summarizer LLM —
 # long messages bloat the summarization prompt without improving
@@ -229,15 +230,23 @@ class PersonaBoundarySummarizer:
             if inspect.isawaitable(generated):
                 generated = await generated
             return str(generated or "").strip()
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        summary_model = self._resolve_summary_model()
+        if summary_model is None:
             return ""
         try:
-            bridge = LLMProviderBridge(adapter)
+            source_model = self._resolve_source_model()
+            source_budget = build_context_window_budget(source_model.context)
+            summary_model_budget = build_context_window_budget(summary_model.context)
+            summary_output_tokens = resolve_summary_output_tokens(
+                source_budget,
+                summary_model_budget,
+                profile=PERSONA_SUMMARY_OUTPUT_PROFILE,
+            )
+            bridge = LLMProviderBridge(summary_model.adapter)
             response = await bridge.chat(
-                system_prompt=_build_system_prompt(),
+                system_prompt=_build_system_prompt(summary_output_tokens),
                 messages=[{"role": "user", "content": _build_user_prompt(summary_input)}],
-                max_tokens=_PERSONA_BOUNDARY_OUTPUT_RESERVE,
+                max_tokens=summary_output_tokens,
                 temperature=0.2,
                 thinking_depth=ThinkingDepth.NONE,
                 event_context={
@@ -256,38 +265,67 @@ class PersonaBoundarySummarizer:
 
     # === adapter / model resolution ===
 
-    def _resolve_summary_adapter(self) -> Any | None:
-        if self._scenario_llm_pool is not None:
-            try:
-                return self._scenario_llm_pool.get(LLMScenario.CONTEXT_COMPACT)
-            except (ValueError, KeyError):
+    def _resolve_scenario_model(self, scenario: LLMScenario) -> ResolvedModel | None:
+        pool = self._scenario_llm_pool
+        if pool is not None:
+            resolver = getattr(pool, "resolve", None)
+            if callable(resolver):
                 try:
-                    return self._scenario_llm_pool.get(LLMScenario.CORE)
+                    return resolver(scenario)
                 except (ValueError, KeyError):
-                    return None
-        return self._llm_adapter
+                    pass
+            getter = getattr(pool, "get", None)
+            if callable(getter):
+                try:
+                    adapter = getter(scenario)
+                    return ResolvedModel(
+                        adapter=adapter,
+                        context=unknown_model_context(adapter),
+                    )
+                except (ValueError, KeyError):
+                    pass
+        return None
+
+    def _resolve_summary_model(self) -> ResolvedModel | None:
+        for scenario in (LLMScenario.CONTEXT_COMPACT, LLMScenario.CORE):
+            resolved = self._resolve_scenario_model(scenario)
+            if resolved is not None:
+                return resolved
+        if self._llm_adapter is None:
+            return None
+        return ResolvedModel(
+            adapter=self._llm_adapter,
+            context=unknown_model_context(self._llm_adapter),
+        )
+
+    def _resolve_source_model(self) -> ResolvedModel:
+        resolved = self._resolve_scenario_model(LLMScenario.CORE)
+        if resolved is not None:
+            return resolved
+        return ResolvedModel(
+            adapter=self._llm_adapter,
+            context=unknown_model_context(self._llm_adapter),
+        )
 
     def _resolve_model_provider(self) -> str | None:
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        resolved = self._resolve_summary_model()
+        if resolved is None:
             return (
                 "summary_generator"
                 if self._persona_boundary_summary_generator is not None
                 else None
             )
-        provider = getattr(adapter, "provider", None) or getattr(adapter, "provider_name", None)
-        return str(provider) if provider is not None else None
+        return resolved.context.provider_id
 
     def _resolve_model_id(self) -> str | None:
-        adapter = self._resolve_summary_adapter()
-        if adapter is None:
+        resolved = self._resolve_summary_model()
+        if resolved is None:
             return (
                 "persona_boundary_summary_generator"
                 if self._persona_boundary_summary_generator is not None
                 else None
             )
-        model_id = getattr(adapter, "model_id", None) or getattr(adapter, "model_name", None)
-        return str(model_id) if model_id is not None else None
+        return resolved.context.model_id
 
     # === history scanning ===
 
@@ -371,14 +409,15 @@ class PersonaBoundarySummarizer:
 # === LLM prompt builders (module-level so they remain pure / testable) ===
 
 
-def _build_system_prompt() -> str:
-    return """You create neutral continuity summaries when a chat thread switches active assistant persona.
+def _build_system_prompt(max_summary_tokens: int) -> str:
+    return f"""You create neutral continuity summaries when a chat thread switches active assistant persona.
 
 Rules:
 - Preserve user requests, facts, decisions, constraints, commitments, unresolved tasks, and concrete artifacts.
 - Do not imitate, quote, or preserve the previous persona's voice, style, jokes, self-reference, or emotional mannerisms.
 - Refer to older assistant turns as previous assistant turns when attribution is needed.
 - Write concise structured plain text that can be inserted into the next prompt.
+- Keep the summary within {max_summary_tokens} tokens.
 - Keep the current active persona authoritative for future replies.""".strip()
 
 
