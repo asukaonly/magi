@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
@@ -17,7 +19,11 @@ from .graph_conflicts import (
     build_graph_conflict_matrix,
 )
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
-from .corrections.repository import MemoryCorrectionRepository
+from .corrections.repository import (
+    DEFAULT_DERIVATION_MAX_ATTEMPTS,
+    DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+    MemoryCorrectionRepository,
+)
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -77,6 +83,8 @@ class L2CognitionStore(
         self._memory_correction_job_handlers: Dict[
             str, Callable[[Mapping[str, Any]], Awaitable[None]]
         ] = {}
+        self._memory_correction_job_wakeup: Callable[[], Awaitable[None]] | None = None
+        self._memory_correction_job_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Verify cognition schema (alembic-managed) is reachable."""
@@ -87,13 +95,6 @@ class L2CognitionStore(
         async with sqlite_connection_async(self.db_path) as db:
             await self._reload_graph_conflict_rules(db)
         self._initialized = True
-        try:
-            await self.process_memory_correction_jobs(recover_interrupted=True)
-        except Exception as exc:
-            logger.warning(
-                "Memory correction recovery deferred",
-                error=str(exc),
-            )
 
     async def list_graph_conflict_rules(self) -> List[Dict[str, Any]]:
         """List graph conflict rules from the persisted matrix."""
@@ -179,6 +180,34 @@ class L2CognitionStore(
         """Register a composed runtime handler for a durable correction follow-up."""
         self._memory_correction_job_handlers[str(job_kind)] = handler
 
+    def set_memory_correction_job_wakeup(
+        self,
+        callback: Callable[[], Awaitable[None]] | None,
+    ) -> None:
+        """Register the runtime scheduler wakeup for durable correction jobs."""
+        self._memory_correction_job_wakeup = callback
+
+    async def wake_memory_correction_jobs(self) -> bool:
+        """Wake the scheduler without making the user request drain the queue."""
+        callback = self._memory_correction_job_wakeup
+        if callback is None:
+            return False
+        try:
+            await callback()
+        except Exception as exc:
+            logger.warning(
+                "Memory correction scheduler wakeup failed",
+                error=str(exc),
+            )
+            return False
+        return True
+
+    @asynccontextmanager
+    async def memory_correction_job_guard(self) -> AsyncIterator[None]:
+        """Serialize correction derivation and destructive memory operations."""
+        async with self._memory_correction_job_lock:
+            yield
+
     async def get_memory_correction_derivation_state(self, correction_id: str) -> str:
         """Return whether all durable correction follow-ups have completed."""
         return await MemoryCorrectionRepository(self.db_path).derivation_state_for_correction(
@@ -190,17 +219,38 @@ class L2CognitionStore(
         *,
         limit: int = 50,
         recover_interrupted: bool = False,
+        recover_stale_after_seconds: float | None = None,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
     ) -> Dict[str, int]:
         """Rebuild correction-sensitive derived views from durable jobs."""
         from .corrections.derivations import CorrectionDerivationRunner
 
-        return await CorrectionDerivationRunner(
-            db_path=self.db_path,
-            l2_store=self,
-            handlers=self._memory_correction_job_handlers,
-        ).run_pending(
-            limit=limit,
-            recover_interrupted=recover_interrupted,
+        async with self.memory_correction_job_guard():
+            if recover_stale_after_seconds is not None:
+                await MemoryCorrectionRepository(self.db_path).recover_stale_running_jobs(
+                    stale_after_seconds=recover_stale_after_seconds,
+                    max_attempts=max_attempts,
+                )
+            return await CorrectionDerivationRunner(
+                db_path=self.db_path,
+                l2_store=self,
+                handlers=self._memory_correction_job_handlers,
+            ).run_pending(
+                limit=limit,
+                recover_interrupted=recover_interrupted,
+                max_attempts=max_attempts,
+            )
+
+    async def next_memory_correction_job_wakeup_at(
+        self,
+        *,
+        stale_after_seconds: float = DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
+    ) -> float | None:
+        """Return when the scheduler should next inspect durable correction jobs."""
+        return await MemoryCorrectionRepository(self.db_path).next_derivation_wakeup_at(
+            stale_after_seconds=stale_after_seconds,
+            max_attempts=max_attempts,
         )
 
     def get_statistics(self) -> Dict[str, Any]:

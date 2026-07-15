@@ -20,6 +20,10 @@ from .models import (
 )
 
 
+DEFAULT_DERIVATION_MAX_ATTEMPTS = 5
+DEFAULT_DERIVATION_STALE_RUNNING_SECONDS = 300.0
+
+
 class MemoryCorrectionRepository:
     """Persist correction governance inside the shared memory transaction."""
 
@@ -324,59 +328,156 @@ class MemoryCorrectionRepository:
         return job_ids
 
     async def requeue_running_jobs(self) -> int:
-        """Return jobs interrupted by process shutdown to the pending state."""
-        now = time.time()
+        """Return all running jobs to pending for explicit startup recovery."""
+        recovery = await self.recover_stale_running_jobs(stale_after_seconds=0.0)
+        return recovery["requeued"]
+
+    async def recover_stale_running_jobs(
+        self,
+        *,
+        stale_after_seconds: float = DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
+        now: float | None = None,
+    ) -> dict[str, int]:
+        """Recover abandoned running jobs without disturbing live workers."""
+        recovered_at = float(now if now is not None else time.time())
+        stale_before = recovered_at - max(0.0, float(stale_after_seconds))
+        bounded_attempts = max(1, int(max_attempts))
         async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
+            terminal_cursor = await db.execute(
+                """
+                UPDATE memory_derivation_jobs
+                SET status = 'failed', next_retry_at = NULL,
+                    last_error = 'Interrupted after maximum attempts', updated_at = ?
+                WHERE status = 'running' AND updated_at <= ?
+                  AND attempt_count >= ?
+                """,
+                (recovered_at, stale_before, bounded_attempts),
+            )
+            requeued_cursor = await db.execute(
                 """
                 UPDATE memory_derivation_jobs
                 SET status = 'pending', next_retry_at = NULL,
                     last_error = 'Interrupted before completion', updated_at = ?
-                WHERE status = 'running'
+                WHERE status = 'running' AND updated_at <= ?
+                  AND attempt_count < ?
                 """,
-                (now,),
+                (recovered_at, stale_before, bounded_attempts),
             )
             await db.commit()
-            return int(cursor.rowcount or 0)
+        return {
+            "requeued": int(requeued_cursor.rowcount or 0),
+            "terminal_failed": int(terminal_cursor.rowcount or 0),
+        }
+
+    async def next_derivation_wakeup_at(
+        self,
+        *,
+        stale_after_seconds: float = DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
+        now: float | None = None,
+    ) -> float | None:
+        """Return when the next retryable or recoverable job needs attention."""
+        checked_at = float(now if now is not None else time.time())
+        bounded_attempts = max(1, int(max_attempts))
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT MIN(ready_at)
+                FROM (
+                    SELECT CASE
+                        WHEN status = 'pending'
+                            THEN COALESCE(next_retry_at, ?)
+                        WHEN status = 'failed' AND next_retry_at IS NOT NULL
+                            THEN next_retry_at
+                        WHEN status = 'running'
+                            THEN updated_at + ?
+                        ELSE NULL
+                    END AS ready_at
+                    FROM memory_derivation_jobs
+                    WHERE attempt_count < ?
+                      AND (
+                          status = 'pending'
+                          OR (status = 'failed' AND next_retry_at IS NOT NULL)
+                          OR status = 'running'
+                      )
+                )
+                WHERE ready_at IS NOT NULL
+                """,
+                (
+                    checked_at,
+                    max(0.0, float(stale_after_seconds)),
+                    bounded_attempts,
+                ),
+            ) as cursor:
+                row = await cursor.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
 
     async def derivation_state_for_correction(self, correction_id: str) -> str:
         """Return the aggregate follow-up state for one correction."""
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
-                SELECT status, COUNT(*)
+                SELECT status, next_retry_at
                 FROM memory_derivation_jobs
                 WHERE correction_id = ?
-                GROUP BY status
                 """,
                 (correction_id,),
             ) as cursor:
                 rows = await cursor.fetchall()
-        counts = {str(status): int(count) for status, count in rows}
-        if counts.get("failed"):
+        if any(str(status) == "failed" and next_retry_at is None for status, next_retry_at in rows):
             return "failed"
-        if counts.get("running"):
+        if any(str(status) == "running" for status, _ in rows):
             return "running"
-        if counts.get("pending"):
+        if any(
+            str(status) == "pending"
+            or (str(status) == "failed" and next_retry_at is not None)
+            for status, next_retry_at in rows
+        ):
             return "pending"
         return "completed"
 
     async def claim_next_derivation_job(
         self,
         *,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
         now: float | None = None,
     ) -> dict[str, Any] | None:
         """Atomically claim the next ready derivation job."""
         claimed_at = float(now if now is not None else time.time())
+        bounded_attempts = max(1, int(max_attempts))
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                await db.execute(
+                    """
+                    UPDATE memory_derivation_jobs
+                    SET status = 'failed', next_retry_at = NULL,
+                        last_error = COALESCE(last_error, 'Maximum attempts reached'),
+                        updated_at = ?
+                    WHERE status IN ('pending', 'failed')
+                      AND attempt_count >= ?
+                    """,
+                    (claimed_at, bounded_attempts),
+                )
                 async with db.execute(
                     """
                     SELECT * FROM memory_derivation_jobs
-                    WHERE status = 'pending'
-                       OR (status = 'failed' AND COALESCE(next_retry_at, 0) <= ?)
+                    WHERE attempt_count < ?
+                      AND (
+                          (
+                              status = 'pending'
+                              AND (next_retry_at IS NULL OR next_retry_at <= ?)
+                          )
+                          OR (
+                              status = 'failed'
+                              AND next_retry_at IS NOT NULL
+                              AND next_retry_at <= ?
+                          )
+                      )
                     ORDER BY
                         CASE job_kind
                             WHEN 'l1_audit' THEN 0
@@ -390,7 +491,7 @@ class MemoryCorrectionRepository:
                         created_at ASC
                     LIMIT 1
                     """,
-                    (claimed_at,),
+                    (bounded_attempts, claimed_at, claimed_at),
                 ) as cursor:
                     row = await cursor.fetchone()
                 if row is None:
@@ -444,21 +545,26 @@ class MemoryCorrectionRepository:
         *,
         error: str,
         attempt_count: int,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
         now: float | None = None,
-    ) -> None:
+    ) -> bool:
         """Record a recoverable failure with bounded exponential backoff."""
         failed_at = float(now if now is not None else time.time())
+        terminal = int(attempt_count) >= max(1, int(max_attempts))
         delay_seconds = min(300.0, 2.0 ** max(0, int(attempt_count) - 1))
+        next_retry_at = None if terminal else failed_at + delay_seconds
+        status = "failed" if terminal else "pending"
         async with sqlite_connection_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE memory_derivation_jobs
-                SET status = 'failed', next_retry_at = ?, last_error = ?, updated_at = ?
+                SET status = ?, next_retry_at = ?, last_error = ?, updated_at = ?
                 WHERE job_id = ?
                 """,
-                (failed_at + delay_seconds, str(error)[:1000], failed_at, job_id),
+                (status, next_retry_at, str(error)[:1000], failed_at, job_id),
             )
             await db.commit()
+        return terminal
 
     async def replace_dependencies(
         self,
@@ -595,4 +701,8 @@ def _optional_text(value: str | None) -> str | None:
     return text or None
 
 
-__all__ = ["MemoryCorrectionRepository"]
+__all__ = [
+    "DEFAULT_DERIVATION_MAX_ATTEMPTS",
+    "DEFAULT_DERIVATION_STALE_RUNNING_SECONDS",
+    "MemoryCorrectionRepository",
+]

@@ -121,6 +121,8 @@ async def test_correction_only_rebuilds_dependent_l3_insight(tmp_path) -> None:
     )
 
     assert corrected is not None
+    assert await l3.get_summary_by_id(insight["summary_id"]) is None
+    await l2.process_memory_correction_jobs(limit=10)
     current_insight = await l3.get_summary_by_id(insight["summary_id"])
     current_temporal = await l3.get_summary_by_id(temporal["summary_id"])
     assert current_insight is not None
@@ -258,6 +260,7 @@ async def test_relationship_dependent_insight_is_retired_without_touching_others
     )
 
     assert await l3.get_summary_by_id(insight["summary_id"]) is None
+    await l2.process_memory_correction_jobs(limit=10)
     async with aiosqlite.connect(db_path) as db:
         async with db.execute(
             "SELECT derivation_state FROM summaries WHERE summary_id = ?",

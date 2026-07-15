@@ -40,12 +40,7 @@ class _ForgettingHostProtocol(Protocol):
     ) -> str:
         ...
 
-    async def process_memory_correction_jobs(
-        self,
-        *,
-        limit: int = 50,
-        recover_interrupted: bool = False,
-    ) -> Dict[str, int]:
+    async def wake_memory_correction_jobs(self) -> bool:
         ...
 
 
@@ -123,7 +118,7 @@ class L2StoreForgettingMixin:
         )
         if result is None:
             return None
-        await host.process_memory_correction_jobs()
+        await host.wake_memory_correction_jobs()
         current_relationship = (
             await host.get_relationship(triple_id=result.current_triple_id)
             if result.current_triple_id
@@ -161,7 +156,7 @@ class L2StoreForgettingMixin:
         )
         if result is None:
             return None
-        await host.process_memory_correction_jobs()
+        await host.wake_memory_correction_jobs()
         current_relationship = await host.get_relationship(
             triple_id=result.current_triple_id or result.correction.target_id
         )

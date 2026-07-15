@@ -14,7 +14,10 @@ from ....user_profile.portrait_projection_builder import UserPortraitProjectionB
 from ....user_profile.portrait_projection_repository import UserPortraitProjectionRepository
 from ....user_profile.projection_builder import UserProfileProjectionBuilder
 from ....user_profile.projection_repository import UserProfileProjectionRepository
-from .repository import MemoryCorrectionRepository
+from .repository import (
+    DEFAULT_DERIVATION_MAX_ATTEMPTS,
+    MemoryCorrectionRepository,
+)
 
 logger = get_logger(__name__)
 
@@ -41,13 +44,16 @@ class CorrectionDerivationRunner:
         *,
         limit: int = 50,
         recover_interrupted: bool = False,
+        max_attempts: int = DEFAULT_DERIVATION_MAX_ATTEMPTS,
     ) -> dict[str, int]:
         """Run ready jobs without allowing a rebuild failure to escape."""
         if recover_interrupted:
             await self._repository.requeue_running_jobs()
         stats = {"completed": 0, "failed": 0, "superseded": 0}
         for _ in range(max(0, int(limit))):
-            job = await self._repository.claim_next_derivation_job()
+            job = await self._repository.claim_next_derivation_job(
+                max_attempts=max_attempts,
+            )
             if job is None:
                 break
             current_revision = await self._repository.current_subject_revision(
@@ -88,6 +94,7 @@ class CorrectionDerivationRunner:
                     str(job["job_id"]),
                     error=str(exc),
                     attempt_count=int(job["attempt_count"]),
+                    max_attempts=max_attempts,
                 )
                 stats["failed"] += 1
                 logger.warning(

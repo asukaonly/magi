@@ -3,8 +3,8 @@
 Verifies:
 
 1. ``MEMORY_L2_DERIVE`` is a valid ``ScheduledTargetType`` value.
-2. ``L2DeriveScheduleContrib.register_schedules`` registers the handler and
-   creates a schedule with the configured interval.
+2. ``L2DeriveScheduleContrib.register_schedules`` registers the handler plus
+   periodic derive and correction-recovery schedules.
 3. ``handle_l2_derive``: interest aggregation surfaces in the canonical user's snapshot when enabled.
 4. ``handle_l2_derive``: a seeded canonical-user shadow produces a conflict notification when enabled.
 5. ``handle_l2_derive``: ``interest_aggregation_enabled=False`` gates the step.
@@ -201,12 +201,14 @@ def test_scheduled_target_type_includes_memory_l2_derive():
 
 @pytest.mark.asyncio
 async def test_l2_derive_contrib_registers_handler_and_schedule():
-    """L2DeriveScheduleContrib.register_schedules wires handler + interval to the scheduler."""
+    """L2DeriveScheduleContrib wires derive and correction intervals."""
     from magi.memory.l2.derive_schedule import (
+        CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS,
         L2DeriveScheduleContrib,
+        SCHEDULE_ID_L2_CORRECTION_DERIVE,
         SCHEDULE_ID_L2_DERIVE,
+        TARGET_KEY_L2_CORRECTION_DERIVE,
         TARGET_KEY_L2_DERIVE,
-        handle_l2_derive,
     )
 
     registered_handlers: dict[ScheduledTargetType, Any] = {}
@@ -237,12 +239,22 @@ async def test_l2_derive_contrib_registers_handler_and_schedule():
     assert ScheduledTargetType.MEMORY_L2_DERIVE in registered_handlers
     assert callable(registered_handlers[ScheduledTargetType.MEMORY_L2_DERIVE])
 
-    assert len(scheduled_intervals) == 1
-    si = scheduled_intervals[0]
+    assert len(scheduled_intervals) == 2
+    si = next(
+        item for item in scheduled_intervals if item["schedule_id"] == SCHEDULE_ID_L2_DERIVE
+    )
     assert si["schedule_id"] == SCHEDULE_ID_L2_DERIVE
     assert si["target_type"] == ScheduledTargetType.MEMORY_L2_DERIVE
     assert si["target_key"] == TARGET_KEY_L2_DERIVE
     assert si["seconds"] == 21_600.0
+    correction = next(
+        item
+        for item in scheduled_intervals
+        if item["schedule_id"] == SCHEDULE_ID_L2_CORRECTION_DERIVE
+    )
+    assert correction["target_type"] == ScheduledTargetType.MEMORY_L2_DERIVE
+    assert correction["target_key"] == TARGET_KEY_L2_CORRECTION_DERIVE
+    assert correction["seconds"] == CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS
 
 
 # ---------------------------------------------------------------------------

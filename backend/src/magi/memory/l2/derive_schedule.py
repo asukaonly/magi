@@ -1,14 +1,16 @@
-"""Scheduler integration for periodic L2 derived-data generation.
+"""Scheduler integration for L2 derived data and correction follow-ups.
 
 Runs interest aggregation and shadow-conflict-notification materialization on
 an independent cadence (default 6 h) completely separate from the L2 ops
 maintenance task (entity/graph hygiene, embedding cleanup, promotion-counter
 prune).  This separation lets business-derived data refresh more frequently or
-less frequently than housekeeping without coupling the two.
+less frequently than housekeeping without coupling the two. Durable correction
+jobs share the scheduler target family but use a separate bounded queue cadence.
 """
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -29,12 +31,24 @@ from .assertions.derived_rules import (
 )
 from .assertions.conflict_notifications import materialize_shadow_conflict_notifications
 from .assertions.interest_aggregation import aggregate_interests
+from .corrections.repository import (
+    DEFAULT_DERIVATION_MAX_ATTEMPTS,
+    DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+)
 from .extraction_profiles import build_extraction_profile_registry
 
 logger = get_logger(__name__)
 
 SCHEDULE_ID_L2_DERIVE = "memory-l2-derive:global"
 TARGET_KEY_L2_DERIVE = "memory_l2_derive"
+SCHEDULE_ID_L2_CORRECTION_DERIVE = "memory-l2-correction-derive:global"
+SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX = "memory-l2-correction-derive:retry:"
+TARGET_KEY_L2_CORRECTION_DERIVE = "memory_l2_correction_derive"
+CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS = (
+    DEFAULT_DERIVATION_STALE_RUNNING_SECONDS
+)
+CORRECTION_DERIVATION_BATCH_SIZE = 25
+CORRECTION_DERIVATION_RETRY_SCHEDULE_DELAY_SECONDS = 1.0
 PortraitRefreshScheduler = Callable[[Any, str], Awaitable[None]]
 
 
@@ -83,6 +97,108 @@ async def handle_l2_derive(
             "shadow_notifications_emitted": shadow_notifications_emitted,
         },
     )
+
+
+async def handle_memory_correction_derivations(
+    context: ScheduledExecutionContext,
+    *,
+    scheduler: SchedulerService | None = None,
+) -> ScheduledExecutionResult:
+    """Process a bounded correction batch and schedule the next due retry."""
+    _ = context
+    if not get_config().agent.memory.l2.enabled:
+        return ScheduledExecutionResult(success=True, message="l2_disabled_skip", stats={})
+
+    try:
+        unified = get_unified_memory()
+    except RuntimeError:
+        logger.debug("Memory correction derivation skipped: unified memory unavailable")
+        return ScheduledExecutionResult(
+            success=True,
+            message="unified_memory_unavailable_skip",
+            stats={},
+        )
+
+    cognition_store = _existing_cognition_store(unified)
+    if cognition_store is None:
+        return ScheduledExecutionResult(
+            success=True,
+            message="l2_store_uninitialized_skip",
+            stats={},
+        )
+
+    try:
+        stats = await cognition_store.process_memory_correction_jobs(
+            limit=CORRECTION_DERIVATION_BATCH_SIZE,
+            recover_stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+            max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
+        )
+        next_wakeup_at = await cognition_store.next_memory_correction_job_wakeup_at(
+            stale_after_seconds=DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
+            max_attempts=DEFAULT_DERIVATION_MAX_ATTEMPTS,
+        )
+    except Exception as exc:
+        logger.error("Memory correction derivation run failed", error=str(exc))
+        return ScheduledExecutionResult(
+            success=False,
+            message="correction_derivation_failed",
+            stats={"error": str(exc)},
+        )
+
+    retry_scheduled = False
+    now = time.time()
+    if (
+        scheduler is not None
+        and next_wakeup_at is not None
+        and next_wakeup_at < now + CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS
+    ):
+        retry_scheduled = await _schedule_correction_retry(
+            scheduler,
+            run_at=max(
+                float(next_wakeup_at),
+                now + CORRECTION_DERIVATION_RETRY_SCHEDULE_DELAY_SECONDS,
+            ),
+        )
+
+    return ScheduledExecutionResult(
+        success=True,
+        message="correction_derivation_ok",
+        stats={
+            **stats,
+            "next_wakeup_at": next_wakeup_at,
+            "retry_scheduled": retry_scheduled,
+        },
+    )
+
+
+def _existing_cognition_store(unified: Any) -> Any | None:
+    cognition_store = getattr(getattr(unified, "l2_pipeline", None), "_cognition_store", None)
+    if cognition_store is not None:
+        return cognition_store
+    return getattr(unified, "l2", None)
+
+
+async def _schedule_correction_retry(
+    scheduler: SchedulerService,
+    *,
+    run_at: float,
+) -> bool:
+    schedule_id = f"{SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX}{int(run_at * 1000)}"
+    try:
+        await scheduler.schedule_once(
+            schedule_id=schedule_id,
+            target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+            target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+            run_at=run_at,
+            target_payload={"corrections_only": True},
+        )
+    except Exception as exc:
+        logger.warning(
+            "Memory correction retry scheduling failed",
+            error=str(exc),
+        )
+        return False
+    return True
 
 
 def _l2_derive_skip_result(memory_cfg: Any) -> ScheduledExecutionResult | None:
@@ -254,7 +370,7 @@ async def _refresh_user_snapshot(
 
 
 class L2DeriveScheduleContrib:
-    """Registers MEMORY_L2_DERIVE handler and optional interval schedule."""
+    """Registers periodic L2 derivation and durable correction follow-ups."""
 
     def __init__(
         self,
@@ -262,9 +378,15 @@ class L2DeriveScheduleContrib:
         portrait_refresh_scheduler: PortraitRefreshScheduler | None = None,
     ) -> None:
         self._portrait_refresh_scheduler = portrait_refresh_scheduler
+        self._correction_store: Any | None = None
 
     async def register_schedules(self, scheduler: SchedulerService) -> None:
         async def handler(context: ScheduledExecutionContext) -> ScheduledExecutionResult:
+            if bool(context.schedule.target_payload.get("corrections_only")):
+                return await handle_memory_correction_derivations(
+                    context,
+                    scheduler=scheduler,
+                )
             return await handle_l2_derive(
                 context,
                 portrait_refresh_scheduler=self._portrait_refresh_scheduler,
@@ -282,14 +404,70 @@ class L2DeriveScheduleContrib:
             seconds=float(l2_cfg.derive_schedule_interval_seconds),
             target_payload={},
         )
+        await scheduler.schedule_interval(
+            schedule_id=SCHEDULE_ID_L2_CORRECTION_DERIVE,
+            target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+            target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+            seconds=CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS,
+            target_payload={"corrections_only": True},
+        )
+        await self._register_correction_wakeup(scheduler)
         logger.info(
             "L2 derive schedule registered",
             interval_seconds=l2_cfg.derive_schedule_interval_seconds,
+            correction_sweep_interval_seconds=CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS,
         )
 
     async def unregister_schedules(self, scheduler: SchedulerService) -> None:
+        if self._correction_store is not None:
+            self._correction_store.set_memory_correction_job_wakeup(None)
+            self._correction_store = None
         await scheduler.unschedule(
             SCHEDULE_ID_L2_DERIVE,
             target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
             target_key=TARGET_KEY_L2_DERIVE,
         )
+        await scheduler.unschedule(
+            SCHEDULE_ID_L2_CORRECTION_DERIVE,
+            target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+            target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+        )
+        await self._remove_retry_schedules(scheduler)
+
+    async def _register_correction_wakeup(self, scheduler: SchedulerService) -> None:
+        try:
+            unified = get_unified_memory()
+        except RuntimeError:
+            logger.debug("Memory correction scheduler wakeup was not bound")
+            return
+        cognition_store = _existing_cognition_store(unified)
+        if cognition_store is None:
+            return
+
+        async def wakeup() -> None:
+            result = await scheduler.execute_schedule_async(
+                SCHEDULE_ID_L2_CORRECTION_DERIVE,
+                manual=False,
+            )
+            if result.message == "target_busy":
+                await _schedule_correction_retry(
+                    scheduler,
+                    run_at=time.time() + CORRECTION_DERIVATION_RETRY_SCHEDULE_DELAY_SECONDS,
+                )
+
+        self._correction_store = cognition_store
+        cognition_store.set_memory_correction_job_wakeup(wakeup)
+        await wakeup()
+
+    @staticmethod
+    async def _remove_retry_schedules(scheduler: SchedulerService) -> None:
+        repository = getattr(scheduler, "repository", None)
+        if repository is None:
+            return
+        for schedule in await repository.list_schedules(enabled_only=False):
+            if schedule.schedule_id.startswith(SCHEDULE_ID_L2_CORRECTION_RETRY_PREFIX):
+                await scheduler.unschedule(
+                    schedule.schedule_id,
+                    target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
+                    target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
+                )
