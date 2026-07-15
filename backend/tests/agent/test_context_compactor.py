@@ -12,6 +12,8 @@ from magi.context.window_budget import build_context_window_budget, estimate_con
 from magi.llm.model_context import ModelContextProfile, ResolvedModel
 from magi.agent.execution.context_compactor import (
     ContextCompactor,
+    CompactionResult,
+    _CIRCUIT_RETRY_SECONDS,
     _MAX_CONSECUTIVE_FAILURES,
     _RULE_KEEP_RECENT_MESSAGES,
     _estimate_message_tokens,
@@ -323,6 +325,29 @@ class TestShouldCompact:
         assert result.compacted is True
         assert "[context truncated]" in result.messages[0]["content"]
 
+    @pytest.mark.asyncio
+    async def test_circuit_breaker_retries_after_cooldown(self) -> None:
+        c = ContextCompactor(
+            context_window=128_000,
+            scenario_llm_pool=SimpleNamespace(),
+        )
+        c._consecutive_failures = _MAX_CONSECUTIVE_FAILURES
+        c._circuit_opened_at = 100.0
+        recovered = CompactionResult(
+            compacted=True,
+            messages=[{"role": "user", "content": "summary"}],
+        )
+        c._llm_compact = AsyncMock(return_value=recovered)  # type: ignore[method-assign]
+
+        with patch(
+            "magi.agent.execution.context_compactor.time.monotonic",
+            return_value=100.0 + _CIRCUIT_RETRY_SECONDS,
+        ):
+            result = await c.compact(_make_messages(30))
+
+        assert result is recovered
+        c._llm_compact.assert_awaited_once()  # type: ignore[attr-defined]
+
 
 # ---------------------------------------------------------------------------
 # Rule-based compaction
@@ -587,6 +612,25 @@ class TestLLMCompact:
         assert result.compacted is True
         assert "[context truncated]" in result.messages[0]["content"]
         assert c._consecutive_failures == 1
+
+    @pytest.mark.asyncio
+    async def test_repeated_summary_failures_open_circuit_with_retry_timestamp(self) -> None:
+        fake_pool = SimpleNamespace(get=lambda scenario: SimpleNamespace())
+        c = ContextCompactor(context_window=200_000, scenario_llm_pool=fake_pool)
+        messages = _make_round_messages(rounds=6)
+
+        with (
+            patch.object(c, "_llm_compact", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch(
+                "magi.agent.execution.context_compactor.time.monotonic",
+                return_value=123.0,
+            ),
+        ):
+            for _ in range(_MAX_CONSECUTIVE_FAILURES):
+                await c.compact(messages)
+
+        assert c._consecutive_failures == _MAX_CONSECUTIVE_FAILURES
+        assert c._circuit_opened_at == 123.0
 
     @pytest.mark.asyncio
     async def test_summary_request_is_chunked_for_summary_model_capacity(self) -> None:

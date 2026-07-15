@@ -52,6 +52,7 @@ _RULE_KEEP_RECENT_MESSAGES = 10
 
 # Maximum consecutive compaction failures before the circuit breaker trips.
 _MAX_CONSECUTIVE_FAILURES = 3
+_CIRCUIT_RETRY_SECONDS = 60.0
 _CONTEXT_BOUNDARY_ROLE = "user"
 
 
@@ -216,6 +217,7 @@ class ContextCompactor:
         self._budget_provider = budget_provider
         self._on_event = on_event
         self._consecutive_failures = 0
+        self._circuit_opened_at: float | None = None
         # Track the last provider-reported input token count so that
         # callers can feed us an accurate number.
         self._last_input_tokens: int | None = None
@@ -328,7 +330,7 @@ class ContextCompactor:
         preserve_user_turns: bool = False,
     ) -> CompactionResult:
         """Run compaction and return the replacement message list."""
-        if self._consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        if self._circuit_blocks_summary_attempt():
             logger.warning(
                 "[ContextCompactor] Summary circuit breaker open (%d consecutive failures), using rule fallback",
                 self._consecutive_failures,
@@ -355,6 +357,8 @@ class ContextCompactor:
             )
         except Exception:
             self._consecutive_failures += 1
+            if self._consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                self._circuit_opened_at = time.monotonic()
             logger.exception(
                 "[ContextCompactor] LLM compaction failed (consecutive=%d), falling back to rule-based",
                 self._consecutive_failures,
@@ -363,6 +367,20 @@ class ContextCompactor:
                 messages,
                 preserve_user_turns=preserve_user_turns,
             )
+
+    def _circuit_blocks_summary_attempt(self) -> bool:
+        if self._consecutive_failures < _MAX_CONSECUTIVE_FAILURES:
+            return False
+        now = time.monotonic()
+        if self._circuit_opened_at is None:
+            self._circuit_opened_at = now
+            return True
+        if now - self._circuit_opened_at < _CIRCUIT_RETRY_SECONDS:
+            return True
+        logger.info(
+            "[ContextCompactor] Summary circuit breaker retry window reached; attempting recovery"
+        )
+        return False
 
     # -- LLM-based compaction -------------------------------------------------
 
@@ -431,6 +449,7 @@ class ContextCompactor:
         compacted_messages = [boundary_message] + recent_messages
 
         self._consecutive_failures = 0
+        self._circuit_opened_at = None
         self._last_input_tokens = None  # Reset — message list changed.
 
         await self._emit_event(
