@@ -6,6 +6,11 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ..contracts import ChatMessageLabel, ChatMessageRecord
+from ..message_frontier import (
+    MESSAGE_FRONTIER_SELECT_SQL,
+    MESSAGE_ORDER_SQL,
+    build_inclusive_frontier_filter,
+)
 from .serialization import normalize_message_label, parse_message_label, row_to_message, serialize_message_label
 
 
@@ -201,22 +206,56 @@ class ChatMessagePersistenceMixin:
             return None
         return self._row_to_message(row)
 
-    async def list_messages(self, *, session_id: str) -> list[ChatMessageRecord]:
-        """List transcript messages for one session in display order."""
+    async def list_messages(
+        self,
+        *,
+        session_id: str,
+        start_message_id: str | None = None,
+    ) -> list[ChatMessageRecord]:
+        """List transcript messages from an optional inclusive frontier."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
+            where_sql = "session_id = ?"
+            params: list[object] = [session_id]
+            normalized_start = str(start_message_id or "").strip()
+            if normalized_start:
+                boundary = await self._fetch_message_boundary(
+                    db,
+                    session_id=session_id,
+                    message_id=normalized_start,
+                )
+                if boundary is not None:
+                    frontier_sql, frontier_params = build_inclusive_frontier_filter(
+                        boundary,
+                        message_id=normalized_start,
+                    )
+                    where_sql += frontier_sql
+                    params.extend(frontier_params)
             cur = await db.execute(
                 f"""
                 SELECT {MESSAGE_SELECT_COLUMNS}
                 FROM chat_messages
-                WHERE session_id = ?
-                ORDER BY created_at_ms ASC, sequence_no ASC
+                WHERE {where_sql}
+                ORDER BY {MESSAGE_ORDER_SQL}
                 """,
-                (session_id,),
+                tuple(params),
             )
             rows = await cur.fetchall()
         return [self._row_to_message(row) for row in rows]
+
+    @staticmethod
+    async def _fetch_message_boundary(
+        db: aiosqlite.Connection,
+        *,
+        session_id: str,
+        message_id: str,
+    ) -> aiosqlite.Row | None:
+        cursor = await db.execute(
+            MESSAGE_FRONTIER_SELECT_SQL,
+            (session_id, message_id),
+        )
+        return await cursor.fetchone()
 
     async def update_message_label(
         self,

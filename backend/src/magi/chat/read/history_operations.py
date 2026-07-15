@@ -108,6 +108,7 @@ class _ChatHistoryOperationsHost(Protocol):
         message_kinds: tuple[str, ...] | None,
         visible_only: bool,
         exclude_replaced: bool,
+        start_message_id: str | None = None,
     ) -> list[sqlite3.Row]: ...
 
     def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]: ...
@@ -128,6 +129,8 @@ class _ChatHistoryOperationsHost(Protocol):
         message: ChatDisplayMessage,
         preferences: dict[str, Any] | None,
     ) -> None: ...
+
+    def _parse_message_payload_json(self, raw_payload_json: str | None) -> dict[str, Any]: ...
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
@@ -336,6 +339,8 @@ class ChatHistoryOperationsMixin:
         user_id: str,
         session_id: str,
         limit: int | None = 200,
+        *,
+        start_message_id: str | None = None,
     ) -> list[ChatDisplayMessage]:
         host = cast(_ChatHistoryOperationsHost, self)
         if not host._chat_db_path.exists():
@@ -352,6 +357,7 @@ class ChatHistoryOperationsMixin:
                 ),
                 visible_only=True,
                 exclude_replaced=True,
+                start_message_id=start_message_id,
             )
         except Exception as exc:
             logger.exception(f"Failed to query chat history: {exc}")
@@ -373,6 +379,55 @@ class ChatHistoryOperationsMixin:
             messages.append(display_message)
         host._attach_reply_previews(rows=selected_message_rows, messages=messages)
         return _collapse_rhythm_segments_for_prompt(messages)
+
+    def get_session_attachment_references(
+        self,
+        user_id: str,
+        session_id: str,
+        limit: int = 40,
+    ) -> list[dict[str, Any]]:
+        """Return recent durable attachment references without loading transcript bodies."""
+
+        host = cast(_ChatHistoryOperationsHost, self)
+        if not host._chat_db_path.exists():
+            return []
+        safe_limit = max(1, min(limit, 200))
+        rows = (
+            host._get_conn()
+            .execute(
+                f"""
+                SELECT turn_id, payload_json
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ?
+                  AND session_id = ?
+                  AND is_visible = 1
+                  AND replaced_by_message_id IS NULL
+                  AND json_type(payload_json, '$.attachments') = 'array'
+                  AND json_array_length(payload_json, '$.attachments') > 0
+                ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
+                LIMIT ?
+                """,
+                (user_id, session_id, safe_limit),
+            )
+            .fetchall()
+        )
+        references: list[dict[str, Any]] = []
+        for row in rows:
+            payload = host._parse_message_payload_json(row["payload_json"])
+            attachments = payload.get("attachments")
+            if not isinstance(attachments, list):
+                continue
+            turn_id = str(row["turn_id"] or "").strip()
+            for attachment in reversed(attachments):
+                if not isinstance(attachment, dict):
+                    continue
+                reference = dict(attachment)
+                if turn_id:
+                    reference["turn_id"] = turn_id
+                references.append(reference)
+                if len(references) >= safe_limit:
+                    return list(reversed(references))
+        return list(reversed(references))
 
     def get_display_history(
         self,

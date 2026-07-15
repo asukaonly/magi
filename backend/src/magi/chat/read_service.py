@@ -13,6 +13,11 @@ from ..core.logger import get_logger
 from ..core.sqlite import connect_sqlite
 from ..utils.runtime import get_runtime_paths
 from .asset_gc import ChatAssetGC
+from .message_frontier import (
+    MESSAGE_FRONTIER_SELECT_SQL,
+    MESSAGE_ORDER_SQL,
+    build_inclusive_frontier_filter,
+)
 from .read.models import (
     ChatDisplayMessage,
     ChatSessionRenameResult,
@@ -136,6 +141,20 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         """Load conversation history without blocking the event loop."""
         return await self._run_threaded(
             "get_conversation_history", user_id, session_id, limit
+        )
+
+    async def aget_session_attachment_references(
+        self,
+        user_id: str,
+        session_id: str,
+        limit: int = 40,
+    ) -> list[dict[str, Any]]:
+        """Load recent session attachment references without blocking the event loop."""
+        return await self._run_threaded(
+            "get_session_attachment_references",
+            user_id,
+            session_id,
+            limit,
         )
 
     async def aget_display_history(
@@ -287,6 +306,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         message_kinds: tuple[str, ...] | None,
         visible_only: bool,
         exclude_replaced: bool,
+        start_message_id: str | None = None,
     ) -> list[sqlite3.Row]:
         query = f"""
             SELECT message_id, session_id, turn_id, user_id, role, message_kind,
@@ -305,8 +325,21 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             query += " AND is_visible = 1"
         if exclude_replaced:
             query += " AND replaced_by_message_id IS NULL"
-        query += " ORDER BY created_at_ms ASC, sequence_no ASC"
         conn = self._get_conn()
+        normalized_start = str(start_message_id or "").strip()
+        if normalized_start:
+            boundary = conn.execute(
+                MESSAGE_FRONTIER_SELECT_SQL,
+                (session_id, normalized_start),
+            ).fetchone()
+            if boundary is not None:
+                frontier_sql, frontier_params = build_inclusive_frontier_filter(
+                    boundary,
+                    message_id=normalized_start,
+                )
+                query += frontier_sql
+                params.extend(frontier_params)
+        query += f" ORDER BY {MESSAGE_ORDER_SQL}"
         return conn.execute(query, params).fetchall()
 
     def _query_turn_rows(self, *, user_id: str, session_id: str) -> list[sqlite3.Row]:

@@ -144,7 +144,12 @@ class ChatTranscriptSummarizer:
             summary_kind=SUMMARY_KIND_TOKEN_BUDGET,
         )
         transcript_messages = self._prompt_messages_from_records(
-            await self._chat_store.list_messages(session_id=session_id)
+            await self._chat_store.list_messages(
+                session_id=session_id,
+                start_message_id=(
+                    active_summary.first_kept_message_id if active_summary is not None else None
+                ),
+            )
         )
         summary_plan = self._build_summary_plan(
             active_summary=active_summary,

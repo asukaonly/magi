@@ -265,12 +265,26 @@ async def test_chat_context_assembler_keeps_complete_tail_beyond_legacy_limit(
             user_id: str,
             session_id: str,
             limit: int | None = 200,
+            start_message_id: str | None = None,
         ) -> list[ChatDisplayMessage]:
             assert user_id == "u-chat"
             assert session_id == "s-long"
+            assert start_message_id == "msg-2"
+            tail = all_messages[1:]
             if limit is None:
-                return list(all_messages)
-            return all_messages[-min(limit, 1000) :]
+                return list(tail)
+            return tail[-min(limit, 1000) :]
+
+        def get_session_attachment_references(
+            self,
+            user_id: str,
+            session_id: str,
+            limit: int = 40,
+        ) -> list[dict[str, object]]:
+            assert user_id == "u-chat"
+            assert session_id == "s-long"
+            assert limit == 40
+            return []
 
     service = ChatContextAssembler(
         l1_db_path=tmp_path / "l1.sqlite3",
@@ -402,7 +416,14 @@ async def test_chat_context_assembler_retries_reload_after_transient_read_failur
         def __init__(self) -> None:
             self.calls = 0
 
-        def get_conversation_history(self, *, user_id: str, session_id: str, limit: int = 200):  # type: ignore[no-untyped-def]
+        def get_conversation_history(
+            self,
+            *,
+            user_id: str,
+            session_id: str,
+            limit: int = 200,
+            start_message_id: str | None = None,
+        ):  # type: ignore[no-untyped-def]
             self.calls += 1
             if self.calls == 1:
                 raise RuntimeError("transient read failure")
@@ -410,6 +431,19 @@ async def test_chat_context_assembler_retries_reload_after_transient_read_failur
                 user_id=user_id,
                 session_id=session_id,
                 limit=limit,
+                start_message_id=start_message_id,
+            )
+
+        def get_session_attachment_references(
+            self,
+            user_id: str,
+            session_id: str,
+            limit: int = 40,
+        ):  # type: ignore[no-untyped-def]
+            return real_read_service.get_session_attachment_references(
+                user_id,
+                session_id,
+                limit,
             )
 
     flaky_read_service = _FlakyReadService()

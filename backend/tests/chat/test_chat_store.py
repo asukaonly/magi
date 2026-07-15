@@ -167,12 +167,25 @@ async def test_chat_store_persists_turn_and_message_records(runtime_paths_with_s
 
         turn = await store.get_turn("turn-1")
         messages = await store.list_messages(session_id="session-1")
+        tail = await store.list_messages(
+            session_id="session-1",
+            start_message_id="msg-assistant-1",
+        )
+        missing_frontier = await store.list_messages(
+            session_id="session-1",
+            start_message_id="missing-message",
+        )
 
         assert turn is not None
         assert turn.status == "queued"
         assert [message.message_kind for message in messages] == ["user_text", "assistant_final"]
         assert [message.content_text for message in messages] == ["hello", "hi there"]
         assert [message.persona_id for message in messages] == ["persona-a", "persona-a"]
+        assert [message.message_id for message in tail] == ["msg-assistant-1"]
+        assert [message.message_id for message in missing_frontier] == [
+            "msg-user-1",
+            "msg-assistant-1",
+        ]
         assert _read_session_workspace_path(db_path, "session-1") == "/tmp/magi"
     finally:
         await store.shutdown()

@@ -121,9 +121,14 @@ async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(
                 sequence_no=index * 2,
             )
 
-        second_result = await summarizer.maybe_summarize_session(
-            user_id="user-1",
+        with patch.object(store, "list_messages", wraps=store.list_messages) as list_messages:
+            second_result = await summarizer.maybe_summarize_session(
+                user_id="user-1",
+                session_id="session-1",
+            )
+        list_messages.assert_awaited_once_with(
             session_id="session-1",
+            start_message_id=first_active.first_kept_message_id,
         )
         second_active = await store.get_active_context_summary(session_id="session-1")
 

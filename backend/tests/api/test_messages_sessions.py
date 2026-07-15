@@ -877,10 +877,23 @@ def test_get_conversation_history_can_return_complete_prompt_history(tmp_path):
     conn.close()
 
     history = service.get_conversation_history("u1", "s-long", limit=None)
+    tail = service.get_conversation_history(
+        "u1",
+        "s-long",
+        limit=None,
+        start_message_id="msg-1001",
+    )
 
     assert len(history) == 1005
     assert history[0].message_id == "msg-1"
     assert history[-1].message_id == "msg-1005"
+    assert [message.message_id for message in tail] == [
+        "msg-1001",
+        "msg-1002",
+        "msg-1003",
+        "msg-1004",
+        "msg-1005",
+    ]
 
 
 def test_get_conversation_history_collapses_rhythm_segments_for_prompt(tmp_path):

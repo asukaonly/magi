@@ -117,17 +117,22 @@ class ChatContextAssembler:
             return cached_entry
         try:
             read_service = self._get_chat_read_service()
+            first_kept_message_id = (
+                active_summary.first_kept_message_id if active_summary is not None else None
+            )
             history = read_service.get_conversation_history(
                 user_id=user_id,
                 session_id=session_id,
                 limit=None,
+                start_message_id=first_kept_message_id,
             )
-            attachment_manifest = self._build_session_attachment_manifest(history)
-            if active_summary is not None:
-                history = self._filter_history_from_first_kept_message(
-                    history,
-                    first_kept_message_id=active_summary.first_kept_message_id,
+            attachment_manifest = self._build_attachment_manifest_from_references(
+                read_service.get_session_attachment_references(
+                    user_id=user_id,
+                    session_id=session_id,
+                    limit=_SESSION_ATTACHMENT_MANIFEST_LIMIT,
                 )
+            )
             history, persona_boundary_summary = await self._persona_boundary.summarize(
                 session_id=session_id,
                 history=history,
@@ -251,21 +256,6 @@ class ChatContextAssembler:
             logger.debug("Evicted history cache | key=%s", oldest_key)
 
     @staticmethod
-    def _filter_history_from_first_kept_message(
-        history: list[Any],
-        *,
-        first_kept_message_id: str | None,
-    ) -> list[Any]:
-        normalized_first_kept = str(first_kept_message_id or "").strip()
-        if not normalized_first_kept:
-            return history
-        for index, item in enumerate(history):
-            if str(getattr(item, "message_id", "") or "").strip() == normalized_first_kept:
-                return history[index:]
-        return history
-
-
-    @staticmethod
     def _combine_session_summaries(
         token_budget_summary: str | None,
         persona_boundary_summary: str | None,
@@ -285,7 +275,7 @@ class ChatContextAssembler:
 
     @staticmethod
     def _build_session_attachment_manifest(messages: list[Any]) -> str | None:
-        all_entries: list[str] = []
+        references: list[dict[str, Any]] = []
         for message in messages:
             attachments = getattr(message, "attachments", None)
             if not isinstance(attachments, list):
@@ -296,26 +286,42 @@ class ChatContextAssembler:
                 attachment_id = str(attachment.get("attachment_id") or "").strip()
                 if not attachment_id:
                     continue
-                name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
-                kind = str(attachment.get("kind") or "file").strip() or "file"
-                details = [
-                    f"attachment_id={attachment_id}",
-                    f"name={name}",
-                    f"kind={kind}",
-                ]
-                page_count = attachment.get("page_count")
-                if isinstance(page_count, int):
-                    details.append(f"pages={page_count}")
-                character_count = attachment.get("character_count")
-                if isinstance(character_count, int):
-                    details.append(f"chars={character_count}")
-                parse_status = str(attachment.get("parse_status") or "").strip()
-                if parse_status:
-                    details.append(f"parse_status={parse_status}")
+                reference = dict(attachment)
                 turn_id = str(getattr(message, "turn_id", "") or "").strip()
                 if turn_id:
-                    details.append(f"turn_id={turn_id}")
-                all_entries.append("- " + "; ".join(details))
+                    reference["turn_id"] = turn_id
+                references.append(reference)
+        return ChatContextAssembler._build_attachment_manifest_from_references(references)
+
+    @staticmethod
+    def _build_attachment_manifest_from_references(
+        references: list[dict[str, Any]],
+    ) -> str | None:
+        all_entries: list[str] = []
+        for attachment in references:
+            attachment_id = str(attachment.get("attachment_id") or "").strip()
+            if not attachment_id:
+                continue
+            name = str(attachment.get("original_name") or "attachment").strip() or "attachment"
+            kind = str(attachment.get("kind") or "file").strip() or "file"
+            details = [
+                f"attachment_id={attachment_id}",
+                f"name={name}",
+                f"kind={kind}",
+            ]
+            page_count = attachment.get("page_count")
+            if isinstance(page_count, int):
+                details.append(f"pages={page_count}")
+            character_count = attachment.get("character_count")
+            if isinstance(character_count, int):
+                details.append(f"chars={character_count}")
+            parse_status = str(attachment.get("parse_status") or "").strip()
+            if parse_status:
+                details.append(f"parse_status={parse_status}")
+            turn_id = str(attachment.get("turn_id") or "").strip()
+            if turn_id:
+                details.append(f"turn_id={turn_id}")
+            all_entries.append("- " + "; ".join(details))
         if not all_entries:
             return None
         omitted = max(0, len(all_entries) - _SESSION_ATTACHMENT_MANIFEST_LIMIT)
