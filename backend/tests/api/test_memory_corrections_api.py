@@ -113,8 +113,19 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     body = corrected.json()
     assert body["current_claim"]["trait_value"] == "Shanghai"
     assert body["current_claim"]["evidence_events"] == []
-    assert body["derivation_state"] == "completed"
+    assert body["derivation_state"] == "pending"
     assert body["correction"]["audit_event_id"].startswith("correction_audit_")
+
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
+    assert (
+        asyncio.run(
+            memory.l2.get_memory_correction_derivation_state(
+                body["correction"]["correction_id"]
+            )
+        )
+        == "completed"
+    )
 
     assert memory.l1 is not None
     audit_events = asyncio.run(memory.l1.query_events(event_type="MEMORY_CORRECTION", limit=10))
@@ -123,7 +134,6 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert audit_events[0]["l1_retrieval_scope"] == "audit_only"
 
     _seed_assertion(memory, value="Hangzhou")
-    assert memory.l2 is not None
     current = asyncio.run(memory.l2.list_current_assertions(entity_id="user:local_user", limit=20))
     assert [item["trait_value"] for item in current] == ["Shanghai"]
 
@@ -167,11 +177,21 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
     body = corrected.json()
     assert body["current_claim"]["object_id"] == "place:shanghai"
     assert body["current_claim"]["evidence_event_ids"] == []
-    assert body["derivation_state"] == "completed"
+    assert body["derivation_state"] == "pending"
+
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
+    assert (
+        asyncio.run(
+            memory.l2.get_memory_correction_derivation_state(
+                body["correction"]["correction_id"]
+            )
+        )
+        == "completed"
+    )
 
     replayed_id = _seed_relationship(memory)
     assert replayed_id == triple_id
-    assert memory.l2 is not None
     replayed = asyncio.run(memory.l2.get_relationship(triple_id=triple_id))
     assert replayed["status"] == "user_rejected"
     current = asyncio.run(
