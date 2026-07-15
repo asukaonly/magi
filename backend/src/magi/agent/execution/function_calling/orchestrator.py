@@ -435,14 +435,16 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     async def _prepare_context_for_model(
         self,
         state: FunctionCallingStepState,
+        *,
+        include_tools: bool = True,
     ) -> ExecutionOutcome | None:
         """Compact and re-measure the full prompt before a provider request."""
-        usage = self._measure_context_usage(state)
+        usage = self._measure_context_usage(state, include_tools=include_tools)
         if usage.requires_compaction:
             compacted_tool_messages = self._compact_existing_tool_messages(state)
             if compacted_tool_messages:
                 self._context_compactor.invalidate_recorded_usage()
-                usage = self._measure_context_usage(state)
+                usage = self._measure_context_usage(state, include_tools=include_tools)
                 await self._emit_loop_event(
                     {
                         "stage": "tool_message_context_compacted",
@@ -459,14 +461,18 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
                 )
                 if result.compacted:
                     state.messages[:] = result.messages
-                usage = self._measure_context_usage(state)
+                usage = self._measure_context_usage(state, include_tools=include_tools)
 
         if usage.fits_input_capacity:
             return None
 
-        removed_tools = self._drop_lower_priority_optional_tools_until_fit(state)
+        removed_tools = (
+            self._drop_lower_priority_optional_tools_until_fit(state)
+            if include_tools
+            else []
+        )
         if removed_tools:
-            usage = self._measure_context_usage(state)
+            usage = self._measure_context_usage(state, include_tools=True)
             await self._emit_loop_event(
                 {
                     "stage": "tool_context_reduced",
@@ -509,12 +515,14 @@ class FunctionCallingOrchestrator(FunctionCallingFailureMixin):
     def _measure_context_usage(
         self,
         state: FunctionCallingStepState,
+        *,
+        include_tools: bool = True,
     ) -> ContextWindowUsage:
         return self._context_compactor.measure_usage(
             state.messages,
             prompt_overhead={
                 "system_prompt": state.effective_system_prompt,
-                "tools": state.tools,
+                "tools": state.tools if include_tools else [],
             },
         )
 

@@ -159,7 +159,10 @@ class FunctionCallingLoopRunner:
         thinking_depth: ThinkingDepth,
         control: RunControl,
     ) -> ExecutionOutcome:
-        context_failure = await self._host._prepare_context_for_model(state)
+        context_failure = await self._host._prepare_context_for_model(
+            state,
+            include_tools=False,
+        )
         if context_failure is not None:
             return cast(ExecutionOutcome, context_failure)
         return cast(

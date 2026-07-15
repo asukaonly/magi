@@ -425,7 +425,8 @@ class FunctionCallingCheckpointLoop:
         cancel_token: CancelToken,
     ) -> FunctionCallingExecutionResult:
         context_failure = await self._deps.function_calling_orchestrator._prepare_context_for_model(
-            cursor.step_state
+            cursor.step_state,
+            include_tools=False,
         )
         if context_failure is not None:
             return self._build_failed_result(

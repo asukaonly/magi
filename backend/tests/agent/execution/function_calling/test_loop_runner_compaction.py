@@ -37,8 +37,12 @@ async def test_compacts_before_first_model_request() -> None:
             return None
 
         async def _prepare_context_for_model(
-            self, state: FunctionCallingStepState
+            self,
+            state: FunctionCallingStepState,
+            *,
+            include_tools: bool = True,
         ) -> ExecutionOutcome | None:
+            _ = (state, include_tools)
             events.append("compact")
             return None
 
@@ -81,8 +85,12 @@ async def test_context_failure_stops_before_model_request() -> None:
             return None
 
         async def _prepare_context_for_model(
-            self, state: FunctionCallingStepState
+            self,
+            state: FunctionCallingStepState,
+            *,
+            include_tools: bool = True,
         ) -> ExecutionOutcome | None:
+            _ = include_tools
             events.append("prepare")
             return ExecutionOutcome(
                 status="failed",

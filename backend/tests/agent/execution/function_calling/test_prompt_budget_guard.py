@@ -241,3 +241,31 @@ async def test_prepare_context_never_drops_only_capability_tool() -> None:
 
     assert failure is not None
     assert state.selected_tool_names == selected
+
+
+@pytest.mark.asyncio
+async def test_final_response_budget_ignores_tools_not_sent_to_provider() -> None:
+    descriptions = {"large-tool": "x" * 20_000}
+    orchestrator = _orchestrator(
+        descriptions,
+        context_window=4_000,
+        max_output_tokens=400,
+    )
+    state = FunctionCallingStepState(
+        messages=[{"role": "user", "content": "write the final answer"}],
+        effective_system_prompt="system",
+        tools=orchestrator._build_tools_parameter(["large-tool"]),
+        selected_tool_names=["large-tool"],
+    )
+
+    with_tools = orchestrator._measure_context_usage(state)
+    without_tools = orchestrator._measure_context_usage(state, include_tools=False)
+    failure = await orchestrator._prepare_context_for_model(
+        state,
+        include_tools=False,
+    )
+
+    assert with_tools.fits_input_capacity is False
+    assert without_tools.fits_input_capacity is True
+    assert failure is None
+    assert state.selected_tool_names == ["large-tool"]

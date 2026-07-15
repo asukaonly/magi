@@ -117,7 +117,10 @@ class _FakeOrchestrator:
     async def _prepare_context_for_model(
         self,
         state: FunctionCallingStepState,
+        *,
+        include_tools: bool = True,
     ) -> None:
+        _ = (state, include_tools)
         return None
 
 

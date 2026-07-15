@@ -33,6 +33,7 @@ class _FakeOrchestrator:
         self.execute_with_tools_calls: list[dict[str, object]] = []
         self.fallback_calls: list[dict[str, object]] = []
         self.prepare_context_calls = 0
+        self.prepare_context_include_tools: list[bool] = []
         self.context_failure = context_failure
 
     def build_step_state(self, *, turn, system_prompt, selected_tools, conversation_history=None, session_summary=None, session_origin=None, reply_context=None, allow_attachment_grounding=False, ephemeral_context=None, **kwargs):  # type: ignore[no-untyped-def]
@@ -57,8 +58,12 @@ class _FakeOrchestrator:
     async def _prepare_context_for_model(
         self,
         state: FunctionCallingStepState,
+        *,
+        include_tools: bool = True,
     ) -> ExecutionOutcome | None:
+        _ = (state, include_tools)
         self.prepare_context_calls += 1
+        self.prepare_context_include_tools.append(include_tools)
         return self.context_failure
 
     async def run(self, run_input):  # engine front door (ADR-0004 P4) → forwards
@@ -423,3 +428,4 @@ async def test_function_calling_handler_passes_prompt_workspace_to_checkpoint_fa
 
     assert result.response_text == "fallback result"
     assert orchestrator.fallback_calls[0]["execution_workspace"] == "/tmp/magi"
+    assert orchestrator.prepare_context_include_tools[-1] is False
