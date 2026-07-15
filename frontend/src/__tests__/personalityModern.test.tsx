@@ -39,7 +39,7 @@ vi.mock('@/hooks', () => ({
   }),
 }));
 
-const buildConfig = (name = '七号', description = '赛博乐子人 / 反讽大师') => ({
+const buildConfig = (name = '七号', description = '嘴硬有梗，熟悉后会开始护短') => ({
   name,
   description,
   avatar: '',
@@ -59,7 +59,7 @@ const buildConfig = (name = '七号', description = '赛博乐子人 / 反讽大
 const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   config: buildConfig(),
   list: [
-    { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师', avatar: '/static/user-avatars/seven.png' },
+    { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '嘴硬有梗，熟悉后会开始护短', avatar: '/static/user-avatars/seven.png' },
     { id: 'uuid-asuka', name: '明日香', displayName: '明日香', subtitle: '傲娇驾驶员', avatar: '' },
   ],
   currentId: 'uuid-seven',
@@ -71,7 +71,7 @@ const buildHookState = (overrides: Partial<Record<string, unknown>> = {}) => ({
   generationProgress: 0,
   generationStageKey: 'base',
   switching: false,
-  selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '赛博乐子人 / 反讽大师' },
+  selectedInfo: { id: 'uuid-seven', name: '七号', displayName: '七号', subtitle: '嘴硬有梗，熟悉后会开始护短' },
   switchPrompt: null,
   prompt: '',
   setPrompt: vi.fn(),
