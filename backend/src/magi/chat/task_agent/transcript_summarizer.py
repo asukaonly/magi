@@ -139,6 +139,7 @@ class ChatTranscriptSummarizer:
 
     async def _maybe_summarize_session_locked(self, *, session_id: str) -> TranscriptSummaryResult:
         assert self._chat_store is not None
+        snapshot_version = await self._chat_store.get_history_version(session_id)
         active_summary = await self._chat_store.get_active_context_summary(
             session_id=session_id,
             summary_kind=SUMMARY_KIND_TOKEN_BUDGET,
@@ -151,6 +152,11 @@ class ChatTranscriptSummarizer:
                 ),
             )
         )
+        if await self._chat_store.get_history_version(session_id) != snapshot_version:
+            return TranscriptSummaryResult(
+                created=False,
+                reason="history_changed_during_load",
+            )
         summary_plan = self._build_summary_plan(
             active_summary=active_summary,
             transcript_messages=transcript_messages,
@@ -163,6 +169,12 @@ class ChatTranscriptSummarizer:
         )
         if not summary_text:
             return TranscriptSummaryResult(created=False, reason="summary_unavailable")
+        if await self._chat_store.get_history_version(session_id) != snapshot_version:
+            return TranscriptSummaryResult(
+                created=False,
+                reason="history_changed_during_summary",
+                token_count_before=summary_plan.current_token_count,
+            )
 
         summary_record = self._build_summary_record(
             session_id=session_id,

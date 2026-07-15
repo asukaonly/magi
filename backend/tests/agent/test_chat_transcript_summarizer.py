@@ -142,6 +142,66 @@ async def test_transcript_summarizer_rolls_previous_summary_into_next_summary(
         await store.shutdown()
 
 
+@pytest.mark.asyncio
+async def test_transcript_summarizer_does_not_activate_stale_summary(
+    runtime_paths_with_schema,
+) -> None:
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.initialize()
+
+    async def summary_generator(summary_input: TranscriptSummaryInput) -> str:
+        await store.create_user_turn(
+            session_id=summary_input.session_id,
+            user_id="user-1",
+            turn_id="turn-new",
+            message_text="new message while summary is running",
+            created_at_ms=10_000,
+        )
+        return "stale summary"
+
+    try:
+        for index in range(1, 5):
+            turn_id = f"turn-{index}"
+            await store.create_user_turn(
+                session_id="session-stale",
+                user_id="user-1",
+                turn_id=turn_id,
+                message_text=f"user message {index} " + "x" * 80,
+                created_at_ms=index * 100,
+            )
+            await _append_assistant_message(
+                store,
+                session_id="session-stale",
+                user_id="user-1",
+                turn_id=turn_id,
+                message_id=f"assistant-{index}",
+                content=f"assistant answer {index} " + "y" * 80,
+                created_at_ms=index * 100 + 50,
+                sequence_no=index * 2,
+            )
+        summarizer = ChatTranscriptSummarizer(
+            chat_store=store,
+            summary_generator=summary_generator,
+            token_threshold=1,
+            tail_token_budget=70,
+            min_messages=4,
+        )
+
+        result = await summarizer.maybe_summarize_session(
+            user_id="user-1",
+            session_id="session-stale",
+        )
+        active_summary = await store.get_active_context_summary(
+            session_id="session-stale"
+        )
+
+        assert result.created is False
+        assert result.reason == "history_changed_during_summary"
+        assert active_summary is None
+    finally:
+        await store.shutdown()
+
+
 def test_transcript_summarizer_recomputes_threshold_for_active_model() -> None:
     current = {
         "profile": ModelContextProfile(
