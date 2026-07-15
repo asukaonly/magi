@@ -489,9 +489,7 @@ class TestRuleBasedCompact:
 class TestLLMCompact:
     @pytest.mark.asyncio
     async def test_llm_compact_success(self) -> None:
-        fake_response = SimpleNamespace(
-            content="<analysis>analysis</analysis>\n<summary>summary</summary>"
-        )
+        fake_response = SimpleNamespace(content="Primary request: inspect the repository.")
         mock_bridge = AsyncMock()
         mock_bridge.chat = AsyncMock(return_value=fake_response)
 
@@ -509,8 +507,11 @@ class TestLLMCompact:
         assert result.compacted is True
         assert result.messages[0]["role"] == "user"
         assert "[context compacted]" in result.messages[0]["content"]
-        assert "summary" in result.summary_text
+        assert "Primary request" in result.summary_text
         assert c._consecutive_failures == 0
+        system_prompt = mock_bridge.chat.await_args.kwargs["system_prompt"]
+        assert "one structured plain-text summary only" in system_prompt
+        assert "<analysis>" not in system_prompt
 
     @pytest.mark.asyncio
     async def test_initial_history_summary_keeps_recent_user_turns_complete(self) -> None:
@@ -699,7 +700,7 @@ class TestLLMCompact:
             "magi.agent.execution.context_compactor.LLMProviderBridge",
             return_value=mock_bridge,
         ):
-            summary = await compactor._call_summariser("x" * 100_000)
+            summary = await compactor._call_summariser("x" * 120_000)
 
         assert summary == "final cumulative summary"
         assert mock_bridge.chat.await_count == 2

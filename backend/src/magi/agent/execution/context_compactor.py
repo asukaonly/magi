@@ -78,33 +78,16 @@ class CompactionResult:
 # ---------------------------------------------------------------------------
 
 _COMPACT_SYSTEM_PROMPT = """\
-You are a conversation summariser for an AI assistant.  Your ONLY job is
-to produce a faithful, detail-preserving summary of the conversation
-history provided by the user.
+You create faithful, detail-preserving continuation summaries for an AI assistant.
 
-CRITICAL RULES:
-- Respond with plain text only.  Do NOT call any tools.
-- Your response MUST contain an <analysis> block followed by a <summary> block.
+Rules:
+- Respond with one structured plain-text summary only. Do not call tools or include a separate analysis section.
 - Keep the complete response within {max_summary_tokens} tokens.
-
-<analysis>
-Chronologically walk through the conversation.  For each exchange note:
-1. The user's explicit request and intent
-2. The approach taken and key decisions
-3. Specific file paths, code snippets, function signatures, and edits
-4. Errors encountered and how they were fixed
-5. User feedback and corrections
-</analysis>
-
-<summary>
-Produce a structured summary covering:
-1. Primary request and intent
-2. Key technical context (languages, frameworks, libraries)
-3. Files and code sections examined or modified (include short snippets when important)
-4. Errors, root causes, and fixes applied
-5. Current task status and any pending work
-6. Decisions made and rationale
-</summary>
+- Preserve the user's request, constraints, corrections, preferences, and decisions.
+- Preserve exact names, IDs, paths, commands, arguments, code references, and reusable handles when relevant.
+- Preserve tool outcomes, errors, fixes, current status, and unresolved work.
+- Keep chronology only where order changes the meaning; do not repeat the same fact in multiple sections.
+- Treat the recent raw messages kept outside this summary as authoritative.
 """
 
 _COMPACT_USER_TEMPLATE = """\
@@ -549,7 +532,7 @@ class ContextCompactor:
             return source_chunk
         return (
             "Merge the previous partial summary with the next conversation chunk. "
-            "Return one cumulative summary using the required analysis and summary blocks.\n\n"
+            "Return one cumulative structured summary without repeating facts.\n\n"
             f"<previous_summary>\n{previous_summary}\n</previous_summary>\n\n"
             f"<next_conversation_chunk>\n{source_chunk}\n</next_conversation_chunk>"
         )
