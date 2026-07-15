@@ -45,12 +45,17 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.pending.evidenceCount': '{{count}} fragments',
     'memory.episodes.pending.actions.promote': 'Make experience',
     'memory.episodes.pending.actions.reject': 'Not one',
-    'memory.episodes.create.title': 'New experience',
-    'memory.episodes.create.description': 'Describe the experience you want Magi to help organize.',
+    'memory.episodes.create.title': 'Which experience do you want to organize?',
+    'memory.episodes.create.description': 'Tell Magi roughly when it happened or what took place.',
+    'memory.episodes.create.close': 'Close experience organizer',
     'memory.episodes.create.promptLabel': 'What experience do you want to organize?',
     'memory.episodes.create.promptPlaceholder': 'For example: May 1 to May 10, 2026 · Japan trip',
+    'memory.episodes.create.promptHint': 'An approximate time, place, or event will make the right memories easier to find.',
+    'memory.episodes.create.examples.travel': 'Last month\'s Japan trip',
+    'memory.episodes.create.examples.project': 'The project I have been working on',
+    'memory.episodes.create.examples.decision': 'That important decision',
     'memory.episodes.create.organizing': 'Finding the memories that belong together...',
-    'memory.episodes.create.organize': 'Help me organize',
+    'memory.episodes.create.organize': 'Start organizing',
     'memory.episodes.create.insufficient': 'No closely related records were found. Try adding an approximate date or what happened.',
     'memory.episodes.create.error': 'Could not create the experience.',
     'memory.episodes.create.noPromotion': 'The selected chapters were saved for review.',
@@ -98,8 +103,9 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.eventCount': '{{count}} events',
     'memory.episodes.episodeCount': '{{count}} source episodes',
     'memory.episodes.sourceEpisodeFallback': 'Source chapter {{index}}',
-    'memory.episodes.emptyTitle': 'No active experiences yet',
-    'memory.episodes.emptyBody': 'Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.',
+    'memory.episodes.emptyEyebrow': 'Your experiences',
+    'memory.episodes.emptyTitle': 'No complete experiences yet',
+    'memory.episodes.emptyBody': 'Experiences will take shape as conversations and activity accumulate. You can also tell Magi about a time or event, and it will find the related memories for you.',
     'memory.episodes.detailEmptyTitle': 'Choose an experience',
     'memory.episodes.detailEmptyBody': 'Open one from the list to inspect its events and impressions.',
     'memory.episodes.noRecap': 'No recap yet.',
@@ -121,7 +127,7 @@ vi.mock('react-i18next', async () => {
     'memory.episodes.fields.pinned': 'Pinned',
     'memory.episodes.actions.open': 'Open experience',
     'memory.episodes.actions.backToList': 'Back to experiences',
-    'memory.episodes.actions.createExperience': 'New experience',
+    'memory.episodes.actions.createExperience': 'Organize an experience',
     'memory.episodes.actions.createExperienceSubmit': 'Create experience',
     'memory.episodes.actions.rename': 'Rename',
     'memory.episodes.actions.editDescription': 'Edit recap',
@@ -747,7 +753,8 @@ describe('MemoryEpisodesPage', () => {
     expect(screen.queryByText(/Chrome browsed A/)).not.toBeInTheDocument();
   });
 
-  it('points empty states to the manage page without inline rebuild controls', async () => {
+  it('turns the empty state into a focused experience-organizing entry point', async () => {
+    const user = userEvent.setup();
     vi.mocked(memoryApi.listExperiences).mockResolvedValueOnce({
       items: [],
       total: 0,
@@ -762,9 +769,25 @@ describe('MemoryEpisodesPage', () => {
     } as never);
     renderPage();
 
-    expect(await screen.findByText('No active experiences yet')).toBeInTheDocument();
-    expect(screen.getByText('Magi will form experiences as conversations and activity accumulate. If you need to refresh them manually, use the Manage page.')).toBeInTheDocument();
+    expect(await screen.findByText('No complete experiences yet')).toBeInTheDocument();
+    expect(screen.getByText('Your experiences')).toBeInTheDocument();
+    expect(screen.getByText('Experiences will take shape as conversations and activity accumulate. You can also tell Magi about a time or event, and it will find the related memories for you.')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Organize an experience' })).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Build experiences now' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Organize an experience' }));
+    expect(screen.getByRole('heading', { name: 'Which experience do you want to organize?' })).toBeInTheDocument();
+    expect(screen.getByText('An approximate time, place, or event will make the right memories easier to find.')).toBeInTheDocument();
+    const prompt = screen.getByLabelText('What experience do you want to organize?');
+    expect(prompt).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Start organizing' })).toBeDisabled();
+
+    await user.click(screen.getByRole('button', { name: "Last month's Japan trip" }));
+    expect(prompt).toHaveValue("Last month's Japan trip");
+    expect(screen.getByRole('button', { name: 'Start organizing' })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Close experience organizer' }));
+    expect(screen.queryByRole('heading', { name: 'Which experience do you want to organize?' })).not.toBeInTheDocument();
   });
 
   it('promotes a pending signal into an experience and refreshes the list', async () => {
@@ -798,12 +821,12 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     await screen.findByText('Launch week');
-    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    await user.click(screen.getByRole('button', { name: 'Organize an experience' }));
     await user.type(
       screen.getByLabelText('What experience do you want to organize?'),
       '2026年5月1日到10日 日本旅行',
     );
-    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
+    await user.click(screen.getByRole('button', { name: 'Start organizing' }));
 
     await waitFor(() => {
       expect(memoryApi.organizeExperienceDraft).toHaveBeenCalledWith({
@@ -1340,12 +1363,12 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     await screen.findByText('Launch week');
-    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    await user.click(screen.getByRole('button', { name: 'Organize an experience' }));
     await user.type(
       screen.getByLabelText('What experience do you want to organize?'),
       '2026年7月台风',
     );
-    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
+    await user.click(screen.getByRole('button', { name: 'Start organizing' }));
 
     const notice = await screen.findByRole('status');
     expect(notice).toHaveTextContent('No closely related records were found. Try adding an approximate date or what happened.');
@@ -1360,12 +1383,12 @@ describe('MemoryEpisodesPage', () => {
     renderPage();
 
     await screen.findByText('Launch week');
-    await user.click(screen.getByRole('button', { name: 'New experience' }));
+    await user.click(screen.getByRole('button', { name: 'Organize an experience' }));
     await user.type(
       screen.getByLabelText('What experience do you want to organize?'),
       '2026年7月台风',
     );
-    await user.click(screen.getByRole('button', { name: 'Help me organize' }));
+    await user.click(screen.getByRole('button', { name: 'Start organizing' }));
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Could not create the experience.');

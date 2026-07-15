@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Plus, SearchX } from 'lucide-react';
+import { ArrowRight, Loader2, Plus, SearchX, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,14 +13,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import MemoryPageFrame, { MEMORY_EMPTY_PANEL_CLASS, MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
+import MemoryPageFrame, { MEMORY_INFO_PANEL_CLASS } from './MemoryPageFrame';
 import { ExperienceTimeline } from './episodes/ExperienceTimeline';
 import { PendingExperienceShelf } from './episodes/PendingExperienceShelf';
 import { groupExperiencesByMonth, sortExperiencesForReview } from './episodes/experienceIndexModel';
@@ -28,6 +28,12 @@ import { groupExperiencesByMonth, sortExperiencesForReview } from './episodes/ex
 export { sortExperiencesForReview } from './episodes/experienceIndexModel';
 export { MemoryExperienceDetailPage } from './episodes/MemoryExperienceDetailPage';
 export { MemoryExperienceDraftPage } from './episodes/MemoryExperienceDraftPage';
+
+const CREATE_EXAMPLE_KEYS = [
+  'memory.episodes.create.examples.travel',
+  'memory.episodes.create.examples.project',
+  'memory.episodes.create.examples.decision',
+] as const;
 
 export const MemoryEpisodesPage = () => {
   const { t, i18n } = useTranslation('app');
@@ -69,6 +75,9 @@ export const MemoryEpisodesPage = () => {
     () => groupExperiencesByMonth(sortedExperiences, i18n.language, t('memory.episodes.unknownMonth')),
     [sortedExperiences, i18n.language, t]
   );
+  const isCompletelyEmpty = experiences.length === 0
+    && experienceSeeds.length === 0
+    && experienceDrafts.length === 0;
 
   const openExperience = (experienceId: string) => {
     navigate(`/memory/episodes/${experienceId}`);
@@ -80,6 +89,13 @@ export const MemoryEpisodesPage = () => {
     setCreateError(null);
     setCreatePrompt('');
     setOrganizeChoices([]);
+  };
+
+  const updateCreatePrompt = (value: string) => {
+    setCreatePrompt(value);
+    setOrganizeChoices([]);
+    setCreateNotice(null);
+    setCreateError(null);
   };
 
   const organizeExperience = async (choice?: ExperienceDraftChoice) => {
@@ -141,17 +157,18 @@ export const MemoryEpisodesPage = () => {
         <div className={MEMORY_INFO_PANEL_CLASS}>{t('common.loading')}</div>
       ) : (
         <section className="min-w-0 space-y-7">
-          <div className="flex justify-end">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 rounded-md px-3 text-xs"
-              onClick={openCreateExperience}
-            >
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              {t('memory.episodes.actions.createExperience')}
-            </Button>
-          </div>
+          {!isCompletelyEmpty ? (
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                className="h-9 rounded-lg px-4 text-sm active:translate-y-px"
+                onClick={openCreateExperience}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                {t('memory.episodes.actions.createExperience')}
+              </Button>
+            </div>
+          ) : null}
           {experienceDrafts.length > 0 ? (
             <button
               type="button"
@@ -177,10 +194,43 @@ export const MemoryEpisodesPage = () => {
           ) : null}
 
           {experiences.length === 0 ? (
-            <div className={MEMORY_EMPTY_PANEL_CLASS}>
-              <div className="font-semibold text-[hsl(var(--memory-title))]">{t('memory.episodes.emptyTitle')}</div>
-              <p className="mt-1 text-sm">{t('memory.episodes.emptyBody')}</p>
-            </div>
+            isCompletelyEmpty ? (
+              <div
+                data-testid="experience-empty-state"
+                className="mx-auto flex min-h-[440px] w-full max-w-[680px] items-center px-5 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-500"
+              >
+                <div className="relative w-full pl-10 sm:pl-12">
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 top-1.5 h-3 w-3 rounded-full bg-[hsl(var(--memory-accent))] shadow-[0_0_0_6px_hsl(var(--memory-accent-soft)/0.48)]"
+                  />
+                  <span
+                    aria-hidden="true"
+                    className="absolute bottom-1 left-[5px] top-7 w-px bg-[hsl(var(--memory-divider)/0.72)]"
+                  />
+                  <p className="text-xs font-medium tracking-[0.08em] text-[hsl(var(--memory-accent))]">
+                    {t('memory.episodes.emptyEyebrow')}
+                  </p>
+                  <h2 className="mt-3 text-[clamp(1.75rem,3vw,2.35rem)] font-semibold tracking-[-0.035em] text-[hsl(var(--memory-title))]">
+                    {t('memory.episodes.emptyTitle')}
+                  </h2>
+                  <p className="mt-4 max-w-[560px] text-[0.98rem] leading-7 text-[hsl(var(--memory-body))]">
+                    {t('memory.episodes.emptyBody')}
+                  </p>
+                  <Button
+                    type="button"
+                    className="group mt-7 h-10 rounded-lg px-5 text-sm active:translate-y-px"
+                    onClick={openCreateExperience}
+                  >
+                    {t('memory.episodes.actions.createExperience')}
+                    <ArrowRight
+                      className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5 motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
+                  </Button>
+                </div>
+              </div>
+            ) : null
           ) : (
             <div className="space-y-4">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -205,27 +255,60 @@ export const MemoryEpisodesPage = () => {
           )}
 
           <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-            <DialogContent className="max-w-xl">
-              <DialogHeader>
-                <DialogTitle>{t('memory.episodes.create.title')}</DialogTitle>
-                <DialogDescription>{t('memory.episodes.create.description')}</DialogDescription>
+            <DialogContent
+              hideClose
+              className="w-[calc(100%-2rem)] max-w-[560px] overflow-hidden rounded-xl border-[hsl(var(--memory-border)/0.4)] bg-[hsl(var(--memory-panel-elevated)/0.99)] p-0 shadow-[0_30px_90px_hsl(var(--memory-shadow)/0.18)] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] data-[state=closed]:scale-[0.985] data-[state=open]:scale-100 motion-reduce:duration-0"
+            >
+              <DialogHeader className="relative px-7 pb-0 pt-7 pr-16">
+                <DialogTitle className="text-xl font-semibold leading-7 tracking-[-0.02em] text-[hsl(var(--memory-title))]">
+                  {t('memory.episodes.create.title')}
+                </DialogTitle>
+                <DialogDescription className="max-w-[430px] pt-1 text-sm leading-6 text-[hsl(var(--memory-body))]">
+                  {t('memory.episodes.create.description')}
+                </DialogDescription>
+                <DialogClose asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t('memory.episodes.create.close')}
+                    className="absolute right-5 top-5 h-8 w-8 text-[hsl(var(--memory-muted))] hover:text-[hsl(var(--memory-title))]"
+                  >
+                    <X className="h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </DialogClose>
               </DialogHeader>
-              <div className="space-y-4 px-6 pb-2">
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-[hsl(var(--memory-title))]">{t('memory.episodes.create.promptLabel')}</span>
+              <div className="space-y-5 px-7 pb-7 pt-5">
+                <label className="block">
+                  <span className="sr-only">{t('memory.episodes.create.promptLabel')}</span>
                   <Textarea
                     aria-label={t('memory.episodes.create.promptLabel')}
                     placeholder={t('memory.episodes.create.promptPlaceholder')}
                     value={createPrompt}
-                    onChange={(event) => {
-                      setCreatePrompt(event.target.value);
-                      setOrganizeChoices([]);
-                      setCreateNotice(null);
-                      setCreateError(null);
-                    }}
-                    className="min-h-28 resize-none border-[hsl(var(--memory-input-border)/0.68)] bg-[hsl(var(--memory-input-bg))] text-base leading-7"
+                    onChange={(event) => updateCreatePrompt(event.target.value)}
+                    className="min-h-24 resize-none rounded-lg border-[hsl(var(--memory-input-border)/0.52)] bg-[hsl(var(--memory-input-bg))] px-4 py-3 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))] shadow-none transition-[border-color,box-shadow] duration-200 placeholder:text-[hsl(var(--memory-input-placeholder))] focus-visible:border-[hsl(var(--memory-accent)/0.4)] focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent-soft)/0.58)] focus-visible:ring-offset-0"
                   />
                 </label>
+                <div className="space-y-2.5">
+                  <p className="text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                    {t('memory.episodes.create.promptHint')}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {CREATE_EXAMPLE_KEYS.map((key) => {
+                      const example = t(key);
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          className="rounded-md bg-[hsl(var(--memory-panel-subtle)/0.62)] px-3 py-1.5 text-xs text-[hsl(var(--memory-body))] transition-colors duration-200 hover:bg-[hsl(var(--memory-accent-soft)/0.72)] hover:text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+                          onClick={() => updateCreatePrompt(example)}
+                        >
+                          {example}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 {createSaving ? (
                   <div className={MEMORY_INFO_PANEL_CLASS}>
                     <Loader2 className="mr-2 inline h-4 w-4 animate-spin" aria-hidden="true" />
@@ -263,20 +346,27 @@ export const MemoryEpisodesPage = () => {
                 {createError ? (
                   <div
                     role="alert"
-                    className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                    className="rounded-md bg-destructive/5 px-3 py-2 text-sm text-destructive"
                   >
                     {createError}
                   </div>
                 ) : null}
+                <div className="flex items-center justify-between gap-3 pt-1">
+                  <DialogClose asChild>
+                    <Button variant="ghost" className="px-2" disabled={createSaving}>
+                      {t('common.cancel')}
+                    </Button>
+                  </DialogClose>
+                  <Button
+                    onClick={() => { void organizeExperience(); }}
+                    disabled={createSaving || createPrompt.trim().length < 2}
+                    className="min-w-[112px] rounded-lg disabled:bg-[hsl(var(--memory-panel-subtle)/0.86)] disabled:text-[hsl(var(--memory-muted))] disabled:opacity-100"
+                  >
+                    {createSaving ? t('common.saving') : t('memory.episodes.create.organize')}
+                    {!createSaving ? <ArrowRight className="h-4 w-4" aria-hidden="true" /> : null}
+                  </Button>
+                </div>
               </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setCreateOpen(false)} disabled={createSaving}>
-                  {t('common.cancel')}
-                </Button>
-                <Button onClick={() => { void organizeExperience(); }} disabled={createSaving || createPrompt.trim().length < 2}>
-                  {createSaving ? t('common.saving') : t('memory.episodes.create.organize')}
-                </Button>
-              </DialogFooter>
             </DialogContent>
           </Dialog>
         </section>
