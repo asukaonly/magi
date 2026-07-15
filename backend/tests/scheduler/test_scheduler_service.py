@@ -224,6 +224,37 @@ async def test_busy_once_schedule_is_rescheduled_in_place(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_schedule_once_earliest_is_atomic_under_concurrency(tmp_path):
+    db_path = tmp_path / "scheduler.db"
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir()
+    service = SchedulerService(db_path=db_path, runtime_dir=runtime_dir)
+    await service.start()
+    try:
+        now = time.time()
+        await asyncio.gather(
+            *(
+                service.schedule_once_earliest(
+                    schedule_id="earliest-once",
+                    target_type=ScheduledTargetType.MEMORY_L2_MAINTENANCE,
+                    target_key="earliest",
+                    run_at=now + offset,
+                    target_payload={},
+                )
+                for offset in (30, 10, 20, 40, 15, 25)
+            )
+        )
+
+        schedule = await service.repository.get_schedule("earliest-once")
+        assert schedule is not None
+        next_run_at = await service.repository.get_schedule_next_run_at(schedule)
+        assert next_run_at is not None
+        assert abs(next_run_at - (now + 10)) < 1.0
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
 async def test_unschedule_clears_stale_target_errors(tmp_path):
     db_path = tmp_path / "scheduler.db"
     runtime_dir = tmp_path / "runtime"

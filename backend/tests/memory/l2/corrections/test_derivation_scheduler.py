@@ -428,9 +428,13 @@ async def test_correction_retry_schedule_coalesces_to_earliest_wakeup(tmp_path) 
     await scheduler.start()
     try:
         now = time.time()
-        assert await _schedule_correction_retry(scheduler, run_at=now + 30)
-        assert await _schedule_correction_retry(scheduler, run_at=now + 10)
-        assert await _schedule_correction_retry(scheduler, run_at=now + 20)
+        results = await asyncio.gather(
+            *(
+                _schedule_correction_retry(scheduler, run_at=now + offset)
+                for offset in (30, 10, 20, 40, 15, 25)
+            )
+        )
+        assert all(results)
 
         schedules = [
             item

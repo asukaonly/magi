@@ -180,6 +180,38 @@ class SchedulerService:
             )
         )
 
+    async def schedule_once_earliest(
+        self,
+        *,
+        schedule_id: str,
+        target_type: ScheduledTargetType,
+        target_key: str,
+        run_at: float,
+        target_payload: dict[str, object],
+        metadata: dict[str, object] | None = None,
+    ) -> ScheduleDefinition:
+        """Atomically keep one one-off schedule at its earliest requested time."""
+        definition = ScheduleDefinition(
+            schedule_id=schedule_id,
+            target_type=target_type,
+            target_key=target_key,
+            trigger=TriggerDefinition(TriggerType.ONCE, {"run_at": run_at}),
+            target_payload=dict(target_payload),
+            metadata=dict(metadata or {}),
+        )
+        async with self._schedule_lock:
+            existing = await self._repository.get_schedule(schedule_id)
+            if existing is not None and existing.trigger.trigger_type is TriggerType.ONCE:
+                existing_run_at = await self._repository.get_schedule_next_run_at(existing)
+                if existing_run_at is not None and existing_run_at <= float(run_at):
+                    return existing
+            if existing is not None:
+                await self._unschedule_locked(schedule_id)
+            await self._repository.upsert_schedule(definition)
+            await self._upsert_job(definition)
+            persisted = await self._repository.get_schedule(schedule_id)
+        return persisted or definition
+
     async def schedule_interval(
         self,
         *,

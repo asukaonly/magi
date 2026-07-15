@@ -184,18 +184,7 @@ async def _schedule_correction_retry(
     run_at: float,
 ) -> bool:
     try:
-        repository = scheduler.repository
-        existing = await repository.get_schedule(SCHEDULE_ID_L2_CORRECTION_RETRY)
-        if existing is not None:
-            existing_run_at = await repository.get_schedule_next_run_at(existing)
-            if existing_run_at is not None and existing_run_at <= run_at:
-                return True
-            await scheduler.unschedule(
-                SCHEDULE_ID_L2_CORRECTION_RETRY,
-                target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
-                target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
-            )
-        await scheduler.schedule_once(
+        await scheduler.schedule_once_earliest(
             schedule_id=SCHEDULE_ID_L2_CORRECTION_RETRY,
             target_type=ScheduledTargetType.MEMORY_L2_DERIVE,
             target_key=TARGET_KEY_L2_CORRECTION_DERIVE,
