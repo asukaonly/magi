@@ -181,7 +181,16 @@ class ChatTranscriptSummarizer:
             summary_plan=summary_plan,
             summary_text=summary_text,
         )
-        await self._chat_store.activate_context_summary(summary_record)
+        activated = await self._chat_store.activate_context_summary_if_history_version(
+            summary_record,
+            expected_history_version=snapshot_version,
+        )
+        if not activated:
+            return TranscriptSummaryResult(
+                created=False,
+                reason="history_changed_before_activation",
+                token_count_before=summary_plan.current_token_count,
+            )
         self._log_activated_context_summary(session_id, summary_record)
         return self._created_summary_result(summary_record)
 

@@ -269,6 +269,66 @@ async def test_chat_store_activates_latest_context_summary(runtime_paths_with_sc
 
 
 @pytest.mark.asyncio
+async def test_chat_store_activates_summary_only_for_expected_history_version(
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat import ChatContextSummaryRecord, ChatStore
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.initialize()
+    try:
+        await store.create_user_turn(
+            session_id="session-conditional",
+            user_id="user-1",
+            turn_id="turn-1",
+            message_text="start",
+            created_at_ms=100,
+        )
+        record = ChatContextSummaryRecord(
+            summary_id="summary-conditional",
+            session_id="session-conditional",
+            parent_summary_id=None,
+            status="building",
+            summary_kind="token_budget",
+            persona_scope=None,
+            covered_from_message_id="msg-1",
+            covered_to_message_id="msg-1",
+            first_kept_message_id="msg-2",
+            covered_to_sequence_no=1,
+            session_origin="origin",
+            summary_text="summary",
+            prompt_profile="general_chat",
+            model_provider="test",
+            model_id="model-a",
+            token_count_before=1_000,
+            token_count_after=100,
+            quality_status="ok",
+            created_at_ms=200,
+            updated_at_ms=200,
+        )
+
+        rejected = await store.activate_context_summary_if_history_version(
+            record,
+            expected_history_version=0,
+        )
+        activated = await store.activate_context_summary_if_history_version(
+            record,
+            expected_history_version=1,
+        )
+
+        assert rejected is False
+        assert activated is True
+        assert await store.get_history_version("session-conditional") == 2
+        active = await store.get_active_context_summary(
+            session_id="session-conditional"
+        )
+        assert active is not None
+        assert active.summary_id == "summary-conditional"
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_chat_store_bumps_history_version_when_creating_user_turn(runtime_paths_with_schema) -> None:
     from magi.chat import ChatStore
 

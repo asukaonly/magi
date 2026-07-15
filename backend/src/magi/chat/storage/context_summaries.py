@@ -76,6 +76,13 @@ SET history_version = history_version + 1
 WHERE session_id = ?
 """
 
+_CLAIM_SESSION_HISTORY_VERSION_SQL = """
+UPDATE chat_sessions
+SET history_version = history_version + 1
+WHERE session_id = ?
+  AND history_version = ?
+"""
+
 
 class ChatContextSummaryPersistenceMixin:
     """Persist and query session-scoped rolling context summaries."""
@@ -126,6 +133,32 @@ class ChatContextSummaryPersistenceMixin:
             await self._upsert_active_context_summary(db, record)
             await self._bump_context_summary_history_version(db, record.session_id)
             await db.commit()
+
+    async def activate_context_summary_if_history_version(
+        self,
+        record: ChatContextSummaryRecord,
+        *,
+        expected_history_version: int,
+    ) -> bool:
+        """Activate a summary only if its source transcript is still current."""
+        await self.initialize()
+        normalized_scope = str(record.persona_scope or "").strip()
+        async with sqlite_connection_async(self.db_path, profile="mixed") as db:
+            cursor = await db.execute(
+                _CLAIM_SESSION_HISTORY_VERSION_SQL,
+                (record.session_id, expected_history_version),
+            )
+            if cursor.rowcount != 1:
+                await db.rollback()
+                return False
+            await self._supersede_active_context_summaries(
+                db,
+                record,
+                normalized_scope,
+            )
+            await self._upsert_active_context_summary(db, record)
+            await db.commit()
+        return True
 
     async def _supersede_active_context_summaries(
         self,
