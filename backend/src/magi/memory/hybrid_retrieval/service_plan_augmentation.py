@@ -144,6 +144,7 @@ def _temporal_l2_plan(request: RetrievalQuery) -> LayerQueryPlan:
     l2_conditions = L2Conditions(
         content_query=request.query,
         subject_hint="self",
+        context_scope=dict(request.context_scope or {}),
         include_tom_snapshot=True,
         include_relationships=True,
         include_assertions=True,

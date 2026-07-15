@@ -162,7 +162,7 @@ class TestRetrieveSnapshots:
         )
         result = await retrieve_snapshots(plan, store)
         kinds = [r["_candidate_kind"] for r in result]
-        assert "snapshot" in kinds
+        assert "snapshot" not in kinds
         assert "snapshot_history" in kinds
 
     @pytest.mark.asyncio

@@ -220,6 +220,7 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         source_filters=list(request.get("source_filters") or []),
         domain_filters=list(request.get("domain_filters") or []),
         summary_categories=list(request.get("summary_categories") or []),
+        context_scope=dict(request.get("context_scope") or {}),
         limit=int(request.get("limit") or 10),
         exclude_user_text=request.get("exclude_user_text"),
         conversation_context=request.get("conversation_context"),

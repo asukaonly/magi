@@ -373,6 +373,7 @@ class HybridRetrievalService(
             source_filters=request.source_filters,
             domain_filters=request.domain_filters,
             summary_categories=list(request.summary_categories or []),
+            context_scope=dict(request.context_scope or {}),
             query_mode_hint=mode_context.intent_query_mode_hint,
             l1_limit=request.limit,
         )

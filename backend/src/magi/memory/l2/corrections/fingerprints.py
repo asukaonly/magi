@@ -61,6 +61,35 @@ def scope_key(scope: Mapping[str, Any] | None) -> str:
     return f"scope_{_stable_digest(canonical)}"
 
 
+def scope_matches(
+    claim_scope: Mapping[str, Any] | None,
+    context_scope: Mapping[str, Any] | None,
+) -> bool:
+    """Return whether every claim constraint is present in the query context.
+
+    An empty claim scope is global and matches every explicit context. An empty
+    query context intentionally matches only global claims, preventing scoped
+    refinements from leaking into ordinary recall.
+    """
+    claim = dict(claim_scope or {})
+    context = dict(context_scope or {})
+    if not claim:
+        return True
+    if not context:
+        return False
+    for key, value in claim.items():
+        if key not in context:
+            return False
+        if canonical_claim_value(context[key]) != canonical_claim_value(value):
+            return False
+    return True
+
+
+def scope_specificity(scope: Mapping[str, Any] | None) -> int:
+    """Return the deterministic precedence of a matching claim scope."""
+    return len(dict(scope or {}))
+
+
 def assertion_slot_key(
     *,
     entity_type: str,
@@ -126,5 +155,7 @@ __all__ = [
     "canonical_scope_json",
     "relationship_claim_fingerprint",
     "relationship_slot_key",
+    "scope_matches",
+    "scope_specificity",
     "scope_key",
 ]

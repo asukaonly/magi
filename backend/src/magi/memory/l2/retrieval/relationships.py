@@ -10,9 +10,9 @@ from typing import Any, Dict, List, Optional, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ..corrections.fingerprints import scope_key
+from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
-from .common import L2RetrievalQueryHostProtocol
+from .common import L2RetrievalQueryHostProtocol, select_governed_range_rows
 
 
 class L2StoreRelationshipQueryMixin:
@@ -22,43 +22,126 @@ class L2StoreRelationshipQueryMixin:
         self,
         *,
         subject_id: str | None = None,
+        entity_ids: List[str] | None = None,
+        direction: str = "outgoing",
         object_id: str | None = None,
+        predicates: List[str] | None = None,
+        object_types: List[str] | None = None,
+        evidence_classes: List[str] | None = None,
+        triple_ids: List[str] | None = None,
         context_scope: Mapping[str, Any] | None = None,
         effective_at: float | None = None,
+        effective_range: tuple[float | None, float | None] | None = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Return one current relationship per governed slot and context."""
+        """Return governed relationships that are valid at one point in time.
+
+        This is the product-facing relationship read boundary. A deprecated
+        relationship remains eligible only through an explicit future
+        ``valid_to`` so a scheduled situation change does not create a gap.
+        Rejected, conflicted, archived, and legacy deprecated rows never pass.
+        """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
-        requested_scope_key = scope_key(context_scope)
+        requested_scope = dict(context_scope or {})
         at = float(effective_at if effective_at is not None else time.time())
-        sql = "SELECT * FROM knowledge_graph WHERE status = 'active'"
+        sql = "SELECT * FROM knowledge_graph WHERE status IN ('active', 'deprecated')"
         args: list[Any] = []
         if subject_id:
             sql += " AND subject_id = ?"
             args.append(subject_id)
+        if entity_ids:
+            unique_entity_ids = list(dict.fromkeys(str(item) for item in entity_ids if item))
+            if not unique_entity_ids:
+                return []
+            placeholders = ", ".join("?" for _ in unique_entity_ids)
+            if direction == "incoming":
+                sql += f" AND object_id IN ({placeholders})"
+                args.extend(unique_entity_ids)
+            elif direction == "both":
+                sql += (
+                    f" AND (subject_id IN ({placeholders})"
+                    f" OR object_id IN ({placeholders}))"
+                )
+                args.extend(unique_entity_ids)
+                args.extend(unique_entity_ids)
+            else:
+                sql += f" AND subject_id IN ({placeholders})"
+                args.extend(unique_entity_ids)
         if object_id:
             sql += " AND object_id = ?"
             args.append(object_id)
-        sql += " AND (valid_from IS NULL OR valid_from <= ?)"
-        sql += " AND (valid_to IS NULL OR valid_to > ?)"
-        args.extend((at, at))
-        if requested_scope_key == "global":
-            sql += " AND scope_key = 'global'"
+        if predicates:
+            placeholders = ", ".join("?" for _ in predicates)
+            sql += f" AND predicate IN ({placeholders})"
+            args.extend(str(item).strip().upper() for item in predicates)
+        if object_types:
+            placeholders = ", ".join("?" for _ in object_types)
+            sql += f" AND object_type IN ({placeholders})"
+            args.extend(str(item).strip().lower() for item in object_types)
+        if evidence_classes:
+            placeholders = ", ".join("?" for _ in evidence_classes)
+            sql += f" AND (evidence_class IN ({placeholders}) OR evidence_class IS NULL)"
+            args.extend(str(item).strip() for item in evidence_classes)
+        if triple_ids:
+            unique_triple_ids = list(dict.fromkeys(str(item) for item in triple_ids if item))
+            if not unique_triple_ids:
+                return []
+            placeholders = ", ".join("?" for _ in unique_triple_ids)
+            sql += f" AND triple_id IN ({placeholders})"
+            args.extend(unique_triple_ids)
+        sql += " AND (status != 'deprecated' OR valid_to IS NOT NULL)"
+        if effective_range is None:
+            sql += " AND (valid_from IS NULL OR valid_from <= ?)"
+            sql += " AND (valid_to IS NULL OR valid_to > ?)"
+            args.extend((at, at))
+            sql += " AND (expires_at IS NULL OR expires_at > ?)"
+            args.append(at)
         else:
-            sql += " AND scope_key IN ('global', ?)"
-            args.append(requested_scope_key)
-        sql += " ORDER BY CASE WHEN scope_key = ? THEN 0 ELSE 1 END, updated_at DESC"
-        args.append(requested_scope_key)
-        sql += " LIMIT ?"
-        args.append(max(1, int(limit)) * 2)
+            range_start, range_end = effective_range
+            if range_end is not None:
+                sql += " AND (valid_from IS NULL OR valid_from <= ?)"
+                args.append(float(range_end))
+            if range_start is not None:
+                sql += " AND (valid_to IS NULL OR valid_to > ?)"
+                args.append(float(range_start))
+                sql += " AND (expires_at IS NULL OR expires_at > ?)"
+                args.append(float(range_start))
+        if not requested_scope:
+            sql += " AND scope_key = 'global'"
+        sql += " ORDER BY updated_at DESC"
+        if not requested_scope:
+            sql += " LIMIT ?"
+            args.append(max(1, int(limit)) * 4)
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
+        relationships = [host._relation_row_to_dict(row) for row in rows]
+        relationships = [
+            relationship
+            for relationship in relationships
+            if scope_matches(relationship.get("scope"), requested_scope)
+        ]
+        relationships.sort(
+            key=lambda relationship: (
+                scope_specificity(relationship.get("scope")),
+                float(relationship.get("updated_at") or 0.0),
+            ),
+            reverse=True,
+        )
+
+        if effective_range is not None:
+            return select_governed_range_rows(
+                relationships,
+                identity_field="triple_id",
+                range_start=effective_range[0],
+                range_end=effective_range[1],
+                limit=limit,
+            )
+
         current_by_slot: dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            relationship = host._relation_row_to_dict(row)
+        for relationship in relationships:
             current_by_slot.setdefault(
                 relationship["slot_key"] or relationship["triple_id"],
                 relationship,

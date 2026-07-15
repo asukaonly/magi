@@ -10,9 +10,9 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..assertions.state_machine import RETRIEVAL_EXCLUDED_STATUSES
-from ..corrections.fingerprints import scope_key
+from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
-from .common import L2RetrievalQueryHostProtocol
+from .common import L2RetrievalQueryHostProtocol, select_governed_range_rows
 
 CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
 
@@ -31,48 +31,116 @@ class L2StoreAssertionQueryMixin:
         self,
         *,
         entity_id: str | None = None,
+        entity_ids: List[str] | None = None,
         entity_type: str | None = None,
+        trait_families: List[str] | None = None,
+        validation_states: List[str] | None = None,
+        target_entity_id: str | None = None,
         context_scope: Mapping[str, Any] | None = None,
         effective_at: float | None = None,
+        effective_range: tuple[float | None, float | None] | None = None,
+        include_expired: bool = False,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        """Return one current assertion per slot for the requested context."""
+        """Return governed assertions that are valid at one point in time.
+
+        This is the product-facing assertion read boundary. Lifecycle state,
+        validity interval, expiration, and correction scope are applied before
+        one winner per slot is selected. A superseded row is eligible only when
+        it has an explicit ``valid_to`` and the requested point precedes it;
+        this keeps future-dated situation changes continuous without reviving
+        legacy superseded rows that have no governed validity interval.
+        """
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         at = float(effective_at if effective_at is not None else time.time())
-        requested_scope_key = scope_key(context_scope)
-        status_sql, status_args = _excluded_status_clause()
+        requested_scope = dict(context_scope or {})
         query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
         args: list[Any] = []
         if entity_id:
             query += " AND entity_id = ?"
             args.append(entity_id)
+        if entity_ids:
+            unique_entity_ids = list(dict.fromkeys(str(item) for item in entity_ids if item))
+            if not unique_entity_ids:
+                return []
+            placeholders = ", ".join("?" for _ in unique_entity_ids)
+            query += f" AND entity_id IN ({placeholders})"
+            args.extend(unique_entity_ids)
         if entity_type:
             query += " AND entity_type = ?"
             args.append(entity_type)
+        if trait_families:
+            placeholders = ", ".join("?" for _ in trait_families)
+            query += f" AND trait_family IN ({placeholders})"
+            args.extend(str(item).strip().lower() for item in trait_families)
+        if validation_states:
+            placeholders = ", ".join("?" for _ in validation_states)
+            query += f" AND validation_state IN ({placeholders})"
+            args.extend(str(item).strip() for item in validation_states)
+        if target_entity_id:
+            query += " AND target_entity_id = ?"
+            args.append(target_entity_id)
+        status_sql, status_args = _excluded_status_clause(include_superseded=True)
         query += status_sql
         args.extend(status_args)
-        query += " AND (valid_from IS NULL OR valid_from <= ?)"
-        query += " AND (valid_to IS NULL OR valid_to > ?)"
-        args.extend((at, at))
-        if requested_scope_key == "global":
-            query += " AND scope_key = 'global'"
+        query += " AND (status != 'superseded' OR valid_to IS NOT NULL)"
+        if effective_range is None:
+            query += " AND (valid_from IS NULL OR valid_from <= ?)"
+            query += " AND (valid_to IS NULL OR valid_to > ?)"
+            args.extend((at, at))
+            if not include_expired:
+                query += " AND (expires_at IS NULL OR expires_at > ?)"
+                args.append(at)
         else:
-            query += " AND scope_key IN ('global', ?)"
-            args.append(requested_scope_key)
-        query += " ORDER BY CASE WHEN scope_key = ? THEN 0 ELSE 1 END, updated_at DESC"
-        args.append(requested_scope_key)
-        query += " LIMIT ?"
-        args.append(max(1, int(limit)) * 2)
+            range_start, range_end = effective_range
+            if range_end is not None:
+                query += " AND (valid_from IS NULL OR valid_from <= ?)"
+                args.append(float(range_end))
+            if range_start is not None:
+                query += " AND (valid_to IS NULL OR valid_to > ?)"
+                args.append(float(range_start))
+                if not include_expired:
+                    query += " AND (expires_at IS NULL OR expires_at > ?)"
+                    args.append(float(range_start))
+        if not requested_scope:
+            query += " AND scope_key = 'global'"
+        query += " ORDER BY updated_at DESC"
+        if not requested_scope:
+            query += " LIMIT ?"
+            args.append(max(1, int(limit)) * 4)
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(query, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
 
+        assertions = [host._assertion_row_to_dict(row) for row in rows]
+        assertions = [
+            assertion
+            for assertion in assertions
+            if scope_matches(assertion.get("scope"), requested_scope)
+        ]
+        assertions.sort(
+            key=lambda assertion: (
+                scope_specificity(assertion.get("scope")),
+                float(assertion.get("updated_at") or 0.0),
+            ),
+            reverse=True,
+        )
+
+        if effective_range is not None:
+            return select_governed_range_rows(
+                assertions,
+                identity_field="assertion_id",
+                range_start=effective_range[0],
+                range_end=effective_range[1],
+                include_expired=include_expired,
+                limit=limit,
+            )
+
         current_by_slot: dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            assertion = host._assertion_row_to_dict(row)
+        for assertion in assertions:
             slot = assertion["slot_key"] or "\x1f".join(
                 (
                     assertion["entity_type"],

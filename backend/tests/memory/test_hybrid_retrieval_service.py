@@ -348,6 +348,8 @@ class TestServiceLayerRouting:
         l2.get_relationships.return_value = []
         l2.batch_list_tom_assertions.return_value = {"user:u1": [assertion_data]}
         l2.list_tom_assertions.return_value = [assertion_data]
+        l2.list_current_assertions.return_value = [assertion_data]
+        l2.list_current_relationships.return_value = []
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
         mem = _make_memory(l2=l2)
@@ -356,7 +358,7 @@ class TestServiceLayerRouting:
         result = await svc.query(_make_request(query_mode="graph"))
 
         assert len(result.l2_assertions) == 1
-        l2.batch_list_tom_assertions.assert_called()
+        l2.list_current_assertions.assert_called()
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_relationships_by_predicate_and_status(self):
@@ -366,6 +368,10 @@ class TestServiceLayerRouting:
         l2.batch_get_relationships.return_value = {
             "user:u1": [{"triple_id": "triple-1", "subject_id": "user:u1", "status": "active"}],
         }
+        l2.list_current_relationships.return_value = [
+            {"triple_id": "triple-1", "subject_id": "user:u1", "status": "active"}
+        ]
+        l2.list_current_assertions.return_value = []
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
@@ -380,9 +386,9 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) >= 1
-        first_call_kwargs = l2.batch_get_relationships.call_args_list[0][1]
+        first_call_kwargs = l2.list_current_relationships.call_args_list[0][1]
         assert first_call_kwargs["predicates"] == ["DISLIKES", "FOLLOWS", "INTERESTED_IN", "LIKES"]
-        assert first_call_kwargs["status_filters"] == ["active"]
+        assert first_call_kwargs["context_scope"] == {}
 
     @pytest.mark.asyncio
     async def test_graph_mode_resolves_alias_entities_via_entity_catalog(self):
@@ -391,6 +397,10 @@ class TestServiceLayerRouting:
         l2.batch_get_relationships.return_value = {
             "user:u1": [{"triple_id": "triple-1", "subject_id": "user:u1", "object_id": "place:shanghai", "status": "active"}],
         }
+        l2.list_current_relationships.return_value = [
+            {"triple_id": "triple-1", "subject_id": "user:u1", "object_id": "place:shanghai", "status": "active"}
+        ]
+        l2.list_current_assertions.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
@@ -420,7 +430,11 @@ class TestServiceLayerRouting:
         )
 
         entity_catalog.resolve_query_entities.assert_called_once()
-        first_call_kwargs = l2.batch_get_relationships.call_args_list[0][1]
+        first_call_kwargs = next(
+            call.kwargs
+            for call in l2.list_current_relationships.call_args_list
+            if call.kwargs.get("entity_ids")
+        )
         assert "user:u1" in first_call_kwargs["entity_ids"]
 
     @pytest.mark.asyncio
@@ -430,6 +444,10 @@ class TestServiceLayerRouting:
         l2.batch_get_relationships.return_value = {
             "user:u1": [{"triple_id": "triple-in", "subject_id": "user:u1", "object_id": "person:x", "status": "active"}],
         }
+        l2.list_current_relationships.return_value = [
+            {"triple_id": "triple-in", "subject_id": "person:x", "object_id": "user:u1", "status": "active"}
+        ]
+        l2.list_current_assertions.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
@@ -445,8 +463,9 @@ class TestServiceLayerRouting:
         )
 
         assert len(result.l2_relationships) >= 1
-        first_call_kwargs = l2.batch_get_relationships.call_args_list[0][1]
+        first_call_kwargs = l2.list_current_relationships.call_args_list[0][1]
         assert "user:u1" in first_call_kwargs["entity_ids"]
+        assert first_call_kwargs["direction"] == "incoming"
 
     @pytest.mark.asyncio
     async def test_graph_mode_filters_assertions_by_target_entity(self):
@@ -454,6 +473,8 @@ class TestServiceLayerRouting:
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {}
         l2.batch_list_tom_assertions.return_value = {"user:u1": [{"assertion_id": "assert-1"}]}
+        l2.list_current_assertions.return_value = [{"assertion_id": "assert-1", "entity_id": "user:u1"}]
+        l2.list_current_relationships.return_value = []
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -473,7 +494,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.batch_list_tom_assertions.call_args
+        _, kwargs = l2.list_current_assertions.call_args
         assert kwargs["target_entity_id"] == "weather_state:rainy-hangzhou"
 
     @pytest.mark.asyncio
@@ -486,6 +507,18 @@ class TestServiceLayerRouting:
         l2.batch_list_tom_assertions.return_value = {
             "user:u1": [{"assertion_id": "assert-1", "confidence_score": 0.8}],
         }
+        l2.list_current_assertions.return_value = [
+            {"assertion_id": "assert-1", "entity_id": "user:u1", "confidence_score": 0.8}
+        ]
+        l2.list_current_relationships.return_value = [
+            {
+                "triple_id": "triple-1",
+                "predicate": "KNOWS",
+                "subject_id": "user:u1",
+                "object_id": "place:shanghai",
+                "status": "active",
+            }
+        ]
         l2.get_relationships.return_value = [
             {
                 "triple_id": "triple-1",
@@ -662,6 +695,10 @@ class TestServiceLayerRouting:
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {"user:local_user": [{"triple_id": "t1"}]}
         l2.batch_list_tom_assertions.return_value = {}
+        l2.list_current_relationships.return_value = [
+            {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
+        ]
+        l2.list_current_assertions.return_value = []
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
             {
@@ -682,7 +719,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        _, kwargs = l2.batch_get_relationships.call_args
+        _, kwargs = l2.list_current_relationships.call_args
         assert "user:local_user" in kwargs["entity_ids"]
 
     @pytest.mark.asyncio
@@ -698,6 +735,12 @@ class TestServiceLayerRouting:
         l2.batch_list_tom_assertions.return_value = {
             "user:local_user": [{"assertion_id": "a1", "confidence_score": 0.8}],
         }
+        l2.list_current_relationships.return_value = [
+            {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
+        ]
+        l2.list_current_assertions.return_value = [
+            {"assertion_id": "a1", "entity_id": "user:local_user", "confidence_score": 0.8}
+        ]
         l2.get_relationships.return_value = []
         l2.list_episodes.return_value = []
         l2.search_episodes_fts.return_value = []
@@ -721,7 +764,7 @@ class TestServiceLayerRouting:
             )
         )
 
-        first_rel_kwargs = l2.batch_get_relationships.call_args_list[0][1]
+        first_rel_kwargs = l2.list_current_relationships.call_args_list[0][1]
         assert "user:local_user" in first_rel_kwargs["entity_ids"]
         assert len(result.l2_relationships) >= 1
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from .grounding import L2GroundingPlan
 from .soft_edges import is_soft_edge
@@ -124,8 +124,12 @@ def apply_structured_filter(
         and candidate.payload.get("_hop")
         != 2  # hop2 edges reached via traversal: subject is the bridge, not the user
     ):
-        subject_id = candidate.payload.get("subject_id", "")
-        if subject_id and subject_id not in plan.subject_entity_ids:
+        scoped_entity_id = (
+            candidate.payload.get("object_id", "")
+            if plan.relation_direction == "incoming"
+            else candidate.payload.get("subject_id", "")
+        )
+        if scoped_entity_id and scoped_entity_id not in plan.subject_entity_ids:
             if candidate.kind == "knowledge_edge":
                 candidate.gate_status = "filtered"
                 candidate.gate_reason = "subject_scope_mismatch"
@@ -147,7 +151,8 @@ def apply_structured_filter(
 
     if candidate.kind == "knowledge_edge":
         status = candidate.payload.get("status", "")
-        if status and status not in ("active", ""):
+        governed_valid = candidate.payload.get("_governed_valid_at") is not None
+        if status and status not in ("active", "") and not governed_valid:
             candidate.gate_status = "filtered"
             candidate.gate_reason = "status_invalid"
             return
@@ -216,7 +221,12 @@ def _knowledge_edge_candidates(knowledge_edges: list[dict[str, Any]]) -> list[L2
             predicate_match_score=edge.get("_predicate_match_score", 0.5),
             object_constraint_score=edge.get("_object_constraint_score", 1.0),
             temporal_score=edge.get("_temporal_score", 1.0),
-            status_score=1.0 if edge.get("status") == "active" else 0.3,
+            status_score=(
+                1.0
+                if edge.get("status") == "active"
+                or edge.get("_governed_valid_at") is not None
+                else 0.3
+            ),
             evidence_score=min(1.0, (edge.get("observation_count", 1) or 1) / 5.0),
             confidence_score=edge.get("confidence", 0.5),
         )

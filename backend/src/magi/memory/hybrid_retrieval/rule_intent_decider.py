@@ -128,6 +128,7 @@ class RuleBasedIntentDecider:
         elif layer == "L2":
             conditions = L2Conditions(
                 content_query=inp.query,
+                context_scope=dict(inp.context_scope or {}),
                 include_tom_snapshot=True,
                 include_relationships=True,
                 include_assertions=True,

@@ -68,10 +68,26 @@ async def retrieve_knowledge(
     merged = _merge_channels(graph_results, vector_results, topo_results)
 
     for edge in merged:
+        first_observed = edge.get("first_observed_at")
+        last_observed = edge.get("last_observed_at")
+        if (
+            edge.get("_governed_valid_at") is not None
+            and plan.temporal_context is not None
+            and plan.temporal_context.mode == "during"
+        ):
+            # Corrections turn an edge into an explicit validity interval.
+            # Evidence timestamps are not the interval and must not hide either
+            # side of a change that occurs inside a range query.
+            first_observed = edge.get("valid_from") or first_observed
+            last_observed = (
+                edge.get("valid_to")
+                or plan.temporal_context.end
+                or last_observed
+            )
         edge["_temporal_score"] = compute_temporal_score(
             plan.temporal_context,
-            first_observed=edge.get("first_observed_at"),
-            last_observed=edge.get("last_observed_at"),
+            first_observed=first_observed,
+            last_observed=last_observed,
         )
         edge["_subject_match_score"] = _score_subject_match(edge, plan)
         edge["_predicate_match_score"] = _score_predicate_match(edge, plan)

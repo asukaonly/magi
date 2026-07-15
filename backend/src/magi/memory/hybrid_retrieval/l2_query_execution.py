@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 from .grounding import L2GroundingPlan, build_grounding_plan
+from .governed_l2_recall import (
+    GovernedL2RecallView,
+    effective_at_for_context,
+    effective_range_for_context,
+)
 from .l2_fusion import fuse_l2_candidates, project_candidates
 from .l2_knowledge_retriever import retrieve_knowledge
 from .predicate_resolver import resolve_predicates
@@ -112,10 +117,16 @@ async def _retrieve_l2_channels(
     *,
     user_id: Optional[str],
 ) -> _L2ChannelResults:
+    claim_store = GovernedL2RecallView(
+        host._store,
+        context_scope=plan.context_scope,
+        effective_at=effective_at_for_context(plan.temporal_context),
+        effective_range=effective_range_for_context(plan.temporal_context),
+    )
     knowledge_task = (
         retrieve_knowledge(
             plan,
-            host._store,
+            claim_store,
             embedding_service=getattr(host, "_embedding_service", None),
             edge_vector_index=getattr(host, "_edge_vector_index", None),
             l1_store=getattr(host, "_l1_store", None),
@@ -129,7 +140,7 @@ async def _retrieve_l2_channels(
     assertion_task = (
         retrieve_assertions(
             plan,
-            host._store,
+            claim_store,
             limit=conditions.limit,
         )
         if conditions.include_assertions

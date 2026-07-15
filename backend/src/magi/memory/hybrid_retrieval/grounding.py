@@ -12,8 +12,9 @@ from ..l2.predicate_catalog import (
     get_family_predicates,
     get_spec,
 )
+from .l2_relationship_utils import infer_relation_direction
 from .l2_semantic_utils import predicates_for_semantic_frame
-from .models import L2Conditions, L2SemanticFrame, TemporalContext
+from .models import L2Conditions, TemporalContext
 
 
 @dataclass
@@ -62,6 +63,7 @@ class L2GroundingPlan:
     subject_scope: str = "none"
     object_constraints: List[GroundedConstraint] = field(default_factory=list)
     temporal_context: TemporalContext = field(default_factory=TemporalContext)
+    context_scope: dict[str, Any] = field(default_factory=dict)
     confidence: float = 0.5
     allowed_evidence_classes: Optional[set[str]] = None
     evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
@@ -127,9 +129,12 @@ def build_grounding_plan(
     _ground_predicates(plan, conditions)
     plan.query_kind = _infer_query_kind(plan, conditions)
     plan.answer_kind = _infer_answer_kind(plan, conditions)
-    plan.relation_direction = conditions.relation_direction or "outgoing"
+    plan.relation_direction = conditions.relation_direction or infer_relation_direction(
+        conditions.content_query
+    )
     _ground_object_constraints(plan, conditions, resolved_entities)
     plan.temporal_context = _build_temporal_context(conditions, time_range)
+    plan.context_scope = dict(conditions.context_scope or {})
     plan.confidence = _compute_plan_confidence(plan)
     plan.allowed_evidence_classes = conditions.allowed_evidence_classes
     plan.evidence_focus_source = conditions.evidence_focus_source
@@ -520,6 +525,14 @@ def _build_temporal_context(
 
     start = getattr(time_range, "start", None)
     end = getattr(time_range, "end", None)
+    as_of = getattr(time_range, "as_of", None)
+
+    if as_of is not None:
+        return TemporalContext(
+            mode="as_of",
+            anchor=as_of,
+            confidence=1.0,
+        )
 
     if start is not None and end is not None:
         return TemporalContext(

@@ -82,6 +82,7 @@ class TestMemoryQueryTool:
         param_names = [p.name for p in schema.parameters]
         assert "query" in param_names
         assert "time_range" in param_names
+        assert "context_scope" in param_names
         # `sources` was deliberately removed — the LLM has no reliable
         # mapping from natural language to concrete source identifiers
         # and the resulting filter was a post-rank exclude that threw
@@ -106,6 +107,7 @@ class TestMemoryQueryTool:
         assert "experience_recall" in query_mode_param.enum
         time_range_param = next(p for p in schema.parameters if p.name == "time_range")
         assert time_range_param.required is False
+        assert "as_of" in time_range_param.description
         assert "user preferences" in schema.description
         assert "personal facts" in schema.description
         assert "customized settings" in schema.description
@@ -224,6 +226,42 @@ class TestMemoryQueryTool:
         assert request.session_id is None
 
     @pytest.mark.asyncio
+    async def test_tool_execution_passes_scope_and_as_of_time(self):
+        """Resolved condition scope and point-in-time intent must reach retrieval."""
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+
+        fake_service = MagicMock(name="retrieval_service")
+        fake_service.query = AsyncMock(
+            return_value=MagicMock(
+                l0_workbench=[],
+                l1_events=[],
+                l2_entity_cards=[],
+                l2_relationships=[],
+                l2_assertions=[],
+                l3_reflections=[],
+                l4_procedures=[],
+                trace={"query_mode": "exact_fact"},
+            )
+        )
+        fake_mq = _make_fake_mq(fake_service)
+        tool = MemoryQueryTool()
+
+        result = await tool.execute(
+            {
+                "query": "当时在 Magi 项目里我住在哪里",
+                "query_mode": "exact_fact",
+                "time_range": {"as_of": 1234.0},
+                "context_scope": {"project": "magi", "activity": "coding"},
+            },
+            _make_context(fake_mq=fake_mq, env_vars={"user_id": "u1"}),
+        )
+
+        assert result.success is True
+        request = fake_mq.query.await_args.args[0]
+        assert request.time_range == {"as_of": 1234.0}
+        assert request.context_scope == {"project": "magi", "activity": "coding"}
+
+    @pytest.mark.asyncio
     async def test_tool_execution_passes_explicit_session_when_provided(self):
         """Should preserve an explicitly requested session-local lookup."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
@@ -278,6 +316,7 @@ class TestMemoryQueryTool:
         # Sanity-check that legitimate params are still there.
         assert "query" in properties
         assert "time_range" in properties
+        assert "context_scope" in properties
         assert "query_mode" in properties
 
     @pytest.mark.asyncio

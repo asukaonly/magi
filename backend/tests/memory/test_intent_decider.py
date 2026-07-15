@@ -382,6 +382,21 @@ class TestRangeWidthHeuristics:
 
 
 class TestRawTimeRange:
+    def test_as_of_accepts_point_in_time(self, decider: RuleBasedIntentDecider):
+        inp = IntentDeciderInput(
+            query="where did I live then",
+            raw_time_range={"as_of": "2026-05-10T12:34:56+08:00"},
+        )
+
+        result = decider.evaluate(inp)
+
+        assert result.time_range is not None
+        assert result.time_range.as_of == datetime.fromisoformat(
+            "2026-05-10T12:34:56+08:00"
+        ).timestamp()
+        assert result.time_range.start is None
+        assert result.time_range.end is None
+
     def test_absolute_start_end(self, decider: RuleBasedIntentDecider):
         now = time.time()
         raw = {"start": now - 3600, "end": now}

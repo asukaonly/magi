@@ -170,6 +170,9 @@ def _coerce_time_boundary(value: Any, *, boundary: str) -> float:
 
 
 def parse_raw_time_range(raw: dict[str, Any]) -> TimeRange | None:
+    if "as_of" in raw:
+        return TimeRange(as_of=_coerce_time_boundary(raw["as_of"], boundary="end"))
+
     if "start" in raw or "end" in raw:
         start = _coerce_time_boundary(raw["start"], boundary="start") if "start" in raw else None
         end = _coerce_time_boundary(raw["end"], boundary="end") if "end" in raw else None

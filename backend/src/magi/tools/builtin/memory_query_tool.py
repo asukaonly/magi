@@ -91,13 +91,30 @@ def _time_range_parameter() -> ToolParameter:
         name="time_range",
         type=ParameterType.OBJECT,
         description=(
-            'Optional time-range constraint. Either {"relative": "<n>d|<n>h|<n>w"} '
+            'Optional time constraint. Use {"as_of": ISO8601|unix_seconds|common_date_text} '
+            "for the state at one exact historical point; "
+            'use {"relative": "<n>d|<n>h|<n>w"} '
             '(e.g. {"relative": "7d"} for last week) or '
             '{"start": ISO8601|unix_seconds|common_date_text, "end": ISO8601|unix_seconds|common_date_text}. '
             "Common date text examples: YYYY/MM/DD, YYYY-MM-DD, YYYY-MM-DD HH:MM:SS. "
             "Date-only end boundaries expand to the end of that day. "
             "Omit when the user's intent is "
             "lifetime/profile lookup."
+        ),
+        required=False,
+    )
+
+
+def _context_scope_parameter() -> ToolParameter:
+    return ToolParameter(
+        name="context_scope",
+        type=ParameterType.OBJECT,
+        description=(
+            "Optional resolved context for condition-scoped memories. Use only concrete "
+            "dimensions known from the current conversation: project, activity, place, "
+            "or person. Example: {\"project\": \"magi\", \"activity\": \"coding\"}. "
+            "Omit it for ordinary global recall; an omitted scope never matches a "
+            "scoped memory."
         ),
         required=False,
     )
@@ -180,6 +197,7 @@ def _memory_query_parameters(
         _time_range_parameter(),
         _query_mode_parameter(),
         _summary_categories_parameter(plugin_projection_service),
+        _context_scope_parameter(),
         _limit_parameter(),
         _conversation_context_parameter(),
     ]
@@ -311,6 +329,7 @@ class MemoryQueryTool(Tool):
             source_filters=[],
             domain_filters=parameters.get("domains", []) or [],
             summary_categories=parameters.get("summary_categories", []) or [],
+            context_scope=dict(parameters.get("context_scope") or {}),
             limit=parameters.get("limit", 20),
             exclude_user_text=current_user_text,
             conversation_context=self._build_conversation_context(mq, parameters),

@@ -79,10 +79,23 @@ async def retrieve_assertions(
         )
 
     for assertion in assertions:
+        first_observed = assertion.get("first_inferred_at")
+        last_observed = assertion.get("last_validated_at")
+        if (
+            assertion.get("_governed_valid_at") is not None
+            and tc is not None
+            and tc.mode == "during"
+        ):
+            # Governed claim versions describe a validity interval. Observation
+            # timestamps only describe when evidence arrived and would wrongly
+            # discard an older version whose validity extends into the query
+            # window (or a replacement that remains valid after its creation).
+            first_observed = assertion.get("valid_from") or first_observed
+            last_observed = assertion.get("valid_to") or tc.end or last_observed
         assertion["_temporal_score"] = compute_temporal_score(
             tc,
-            first_observed=assertion.get("first_inferred_at"),
-            last_observed=assertion.get("last_validated_at"),
+            first_observed=first_observed,
+            last_observed=last_observed,
         )
         assertion["_candidate_kind"] = "assertion"
 
@@ -139,11 +152,10 @@ async def retrieve_snapshots(
             snapshot["_candidate_kind"] = "snapshot"
             results.append(snapshot)
         else:
-            current_entry = dict(snapshot)
-            current_entry["_temporal_score"] = 0.2
-            current_entry["_candidate_kind"] = "snapshot"
-            results.append(current_entry)
-
+            # A snapshot is a current derived view. Letting it participate in
+            # an historical answer can reintroduce a post-correction value next
+            # to the governed as-of assertion or relationship. Only explicitly
+            # timestamped snapshot history is eligible for historical recall.
             history_entries = _extract_snapshot_history(snapshot, tc)
             for entry in history_entries:
                 entry["_candidate_kind"] = "snapshot_history"

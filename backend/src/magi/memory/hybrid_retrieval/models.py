@@ -32,6 +32,9 @@ class RetrievalQuery:
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
     summary_categories: List[str] = field(default_factory=list)
+    # Resolved product context used by correction-scoped L2 claims. Empty
+    # means global context and must never match a scoped refinement.
+    context_scope: Dict[str, Any] = field(default_factory=dict)
     limit: int = 10
     # Original user message text for the current turn. Used by echo filtering
     # so the L1 event of the just-typed user message is suppressed even when
@@ -97,6 +100,7 @@ class IntentDeciderInput:
     source_filters: List[str] = field(default_factory=list)
     domain_filters: List[str] = field(default_factory=list)
     summary_categories: List[str] = field(default_factory=list)
+    context_scope: Dict[str, Any] = field(default_factory=dict)
     query_mode_hint: Optional[str] = None  # from RetrievalQuery.query_mode
     l1_limit: int = 10  # per-plan L1 event limit, forwarded from request
 
@@ -107,6 +111,7 @@ class TimeRange:
 
     start: Optional[float] = None
     end: Optional[float] = None
+    as_of: Optional[float] = None
 
 
 @dataclass
@@ -155,6 +160,7 @@ class L2Conditions:
     relation_direction: Optional[str] = None
     hop_count: int = 1
     status_filter: Optional[List[str]] = None
+    context_scope: Dict[str, Any] = field(default_factory=dict)
     semantic_frame: Optional["L2SemanticFrame"] = None
     allow_soft_edges: bool = True  # permit SEMANTIC_CONTEXT soft-edge sparse fallback (RFC #65 P2)
     hop2_target_type: Optional[str] = None  # FINAL answer entity type for 2-hop queries (RFC #65 P3)

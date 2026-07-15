@@ -495,9 +495,7 @@ def test_project_historical_recall_infers_answer_kind_from_findings_before_query
 
 
 def test_coerce_request_propagates_all_fields_from_dict() -> None:
-    """Round 5 #8: dict path of _coerce_request must preserve exclude_user_text,
-    conversation_context, and summary_categories — earlier it silently dropped
-    them, degrading callers that passed dicts (tests / plugins)."""
+    """The dict request path must preserve every retrieval control."""
     from magi.memory.hybrid_retrieval.models import ConversationTurn
     from magi.memory.retrieval_projection import _coerce_request
 
@@ -512,6 +510,7 @@ def test_coerce_request_propagates_all_fields_from_dict() -> None:
             "source_filters": ["chrome"],
             "domain_filters": ["d.com"],
             "summary_categories": ["work"],
+            "context_scope": {"project": "magi"},
             "limit": 5,
             "exclude_user_text": "echo",
             "conversation_context": [turn],
@@ -520,6 +519,7 @@ def test_coerce_request_propagates_all_fields_from_dict() -> None:
     assert coerced.exclude_user_text == "echo"
     assert coerced.conversation_context == [turn]
     assert coerced.summary_categories == ["work"]
+    assert coerced.context_scope == {"project": "magi"}
     assert coerced.source_filters == ["chrome"]
     assert coerced.domain_filters == ["d.com"]
     assert coerced.limit == 5
