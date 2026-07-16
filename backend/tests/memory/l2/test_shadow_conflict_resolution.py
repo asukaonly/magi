@@ -20,7 +20,6 @@ lets a user accept (confirm) or discard (reject) the shadow:
 
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, List
 
 import aiosqlite
@@ -177,7 +176,7 @@ async def test_confirm_promotes_shadow(l2_store_with_schema):
     # Snapshot refresh was called without error (it's error-isolated in the impl).
     # We just verify no exception was raised; snapshot content depends on confidence
     # thresholds that the single-evidence row may not meet.
-    snapshot = await store.get_tom_snapshot(entity_id=_ENTITY_ID, entity_type="user")
+    await store.get_tom_snapshot(entity_id=_ENTITY_ID, entity_type="user")
     # snapshot may be None if assertion hasn't reached stable threshold — that's fine.
 
 
@@ -201,6 +200,10 @@ async def test_reject_discards_shadow(l2_store_with_schema):
     assert result["assertion_id"] == shadow_id
     assert result["status"] == "user_rejected"
     assert result["validation_state"] == "user_rejected"
+
+    corrections = await store.list_assertion_corrections(assertion_id=shadow_id)
+    assert len(corrections) == 1
+    assert corrections[0]["correction_kind"] == "record_error"
 
     rows = await _all_rows(store.db_path)
     active = _active_rows(rows)

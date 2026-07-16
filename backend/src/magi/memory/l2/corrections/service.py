@@ -456,6 +456,12 @@ def _ensure_assertion_is_correctable(
     command: ApplyAssertionCorrectionCommand,
 ) -> None:
     status = str(before.get("status") or "active")
+    if (
+        status == "shadow"
+        and command.correction_kind == CorrectionKind.RECORD_ERROR
+        and command.replacement_value is None
+    ):
+        return
     if status in _INACTIVE_ASSERTION_STATUSES:
         raise MemoryCorrectionConflictError("Assertion is no longer current")
     if command.expected_updated_at is None:
