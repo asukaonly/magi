@@ -5,18 +5,19 @@ from __future__ import annotations
 from typing import Any
 
 from magi.context.assembler import PromptContextAssembler
+from magi.context.contracts import PromptPackage
 from magi.context.renderer import PromptContextRenderer
 from magi.context.scenarios import Scenario
 from magi.context.service import ContextAssemblyService
 from magi.personality.loader import PersonalityConfig
 
 
-async def build_preview_system_prompt(
+async def build_preview_prompt_package(
     *,
     persona_config: PersonalityConfig,
     user_message: str,
-) -> str:
-    """Return the same persona-aware system prompt used by a first chat turn.
+) -> PromptPackage:
+    """Return the same persona-aware prompt package used by a first chat turn.
 
     The service is intentionally ephemeral: it has no chat session, memory
     provider, journal service, profile service, or tool catalog. Those normal
@@ -42,7 +43,7 @@ async def build_preview_system_prompt(
         session_workspace_provider=None,
         persona_lookup=resolve_persona,
     )
-    package = await service.build_prompt_package(
+    return await service.build_prompt_package(
         user_id="default_user",
         user_message=user_message,
         task_category="chat",
@@ -51,7 +52,18 @@ async def build_preview_system_prompt(
         include_tool_catalog=False,
         persona_id=persona_id,
     )
+
+
+async def build_preview_system_prompt(
+    *,
+    persona_config: PersonalityConfig,
+    user_message: str,
+) -> str:
+    package = await build_preview_prompt_package(
+        persona_config=persona_config,
+        user_message=user_message,
+    )
     return package.system_prompt
 
 
-__all__ = ["build_preview_system_prompt"]
+__all__ = ["build_preview_prompt_package", "build_preview_system_prompt"]

@@ -19,6 +19,7 @@ Tests inject their own callables for isolation.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
@@ -32,12 +33,13 @@ from magi.api.routers.chat_preview_schemas import (
 from magi.chat.task_agent.rhythm import (
     SEGMENT_SENTINEL,
     ResponseRhythmPlanner,
+    extract_persona_rhythm,
     strip_segmentation_sentinel,
 )
 from magi.chat_preview import (
     PreviewMessage,
     PreviewMode,
-    build_preview_system_prompt,
+    build_preview_prompt_package,
     run_preview,
 )
 from magi.core.logger import get_logger
@@ -102,10 +104,12 @@ def build_default_chat_preview_router(
                 # Raises ValueError → 400 if the seed is unknown.
                 persona_config = resolve_persona(request.seed_slug, request.locale)
 
-            system_prompt = await build_preview_system_prompt(
+            prompt_package = await build_preview_prompt_package(
                 persona_config=persona_config,
                 user_message=request.message.content,
             )
+            system_prompt = prompt_package.system_prompt
+            persona_rhythm = extract_persona_rhythm(prompt_package.prompt_context)
 
             core_model = core_model_dep(request.llm_override)
             llm_call = llm_call_dep(request.llm_override)
@@ -130,9 +134,15 @@ def build_default_chat_preview_router(
             ):
                 chunks.append(chunk)
 
-            visible_text = await _finalize_preview_text("".join(chunks))
-            if visible_text:
-                yield visible_text.encode("utf-8")
+            delivery = await _build_preview_delivery(
+                "".join(chunks),
+                persona=persona_rhythm,
+            )
+            for index, (content, delay_ms) in enumerate(delivery):
+                if delay_ms > 0:
+                    await _wait_preview_delay(delay_ms)
+                prefix = "" if index == 0 else SEGMENT_SENTINEL
+                yield f"{prefix}{content}".encode("utf-8")
 
         return StreamingResponse(streamer(), media_type="text/plain")
 
@@ -166,15 +176,25 @@ def _resolve_persona_config(seed_slug: str, locale: str) -> PersonalityConfig:
     return PersonalityConfig.from_dict(data)
 
 
-async def _finalize_preview_text(response_text: str) -> str:
-    """Apply the same deterministic bubble validation as normal chat."""
+async def _build_preview_delivery(
+    response_text: str,
+    *,
+    persona: Any = None,
+) -> list[tuple[str, int]]:
+    """Return validated preview bubbles with normal-chat delivery delays."""
     plan = await ResponseRhythmPlanner().plan(
         response_text=response_text,
+        persona=persona,
         streamed=False,
     )
     if plan is not None:
-        return SEGMENT_SENTINEL.join(segment.content for segment in plan.segments)
-    return strip_segmentation_sentinel(response_text)
+        return [(segment.content, segment.delay_ms) for segment in plan.segments]
+    visible_text = strip_segmentation_sentinel(response_text)
+    return [(visible_text, 0)] if visible_text else []
+
+
+async def _wait_preview_delay(delay_ms: int) -> None:
+    await asyncio.sleep(max(0, delay_ms) / 1000)
 
 
 def _default_persona_loader_dep() -> Callable[[str, str], PersonalityConfig]:

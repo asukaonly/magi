@@ -80,6 +80,51 @@ def test_post_preview_returns_streamed_text(app_with_preview) -> None:
     assert b"hi there" in body
 
 
+def test_post_preview_waits_between_validated_bubbles(monkeypatch) -> None:
+    from magi.api.routers import chat_preview_routes
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    waited_ms: list[int] = []
+
+    async def fake_llm(*, system_prompt, messages, model):
+        yield "first short message‖second short message"
+
+    async def record_wait(delay_ms: int) -> None:
+        waited_ms.append(delay_ms)
+
+    monkeypatch.setattr(
+        ResponseRhythmPlanner,
+        "_is_enabled",
+        staticmethod(lambda: True),
+    )
+    monkeypatch.setattr(chat_preview_routes, "_wait_preview_delay", record_wait)
+
+    app = FastAPI()
+    app.include_router(
+        build_default_chat_preview_router(
+            persona_loader_dep=lambda: (lambda slug, locale: _persona_config(slug)),
+            llm_call_dep=lambda _override=None: fake_llm,
+            core_model_dep=lambda _override=None: "core-model",
+        ),
+    )
+    client = TestClient(app)
+    with client.stream(
+        "POST",
+        "/chat/preview",
+        json={
+            "seed_slug": "nova",
+            "history": [],
+            "message": {"role": "user", "content": "hello"},
+        },
+    ) as response:
+        assert response.status_code == 200
+        body = b"".join(response.iter_bytes()).decode("utf-8")
+
+    assert body == "first short message‖second short message"
+    assert len(waited_ms) == 1
+    assert 1000 <= waited_ms[0] <= 4000
+
+
 def test_post_preview_validates_seed_slug(app_with_preview) -> None:
     client = TestClient(app_with_preview)
     response = client.post(
@@ -393,8 +438,8 @@ def test_post_preview_requires_seed_or_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalize_preview_text_preserves_valid_chat_bubbles(monkeypatch) -> None:
-    from magi.api.routers.chat_preview_routes import _finalize_preview_text
+async def test_build_preview_delivery_preserves_bubbles_and_delays(monkeypatch) -> None:
+    from magi.api.routers.chat_preview_routes import _build_preview_delivery
     from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
 
     monkeypatch.setattr(
@@ -402,13 +447,15 @@ async def test_finalize_preview_text_preserves_valid_chat_bubbles(monkeypatch) -
         "_is_enabled",
         staticmethod(lambda: True),
     )
-    result = await _finalize_preview_text("first short message‖second short message")
-    assert result == "first short message‖second short message"
+    result = await _build_preview_delivery("first short message‖second short message")
+    assert result[0] == ("first short message", 0)
+    assert result[1][0] == "second short message"
+    assert 1000 <= result[1][1] <= 4000
 
 
 @pytest.mark.asyncio
-async def test_finalize_preview_text_strips_invalid_bubble_markers(monkeypatch) -> None:
-    from magi.api.routers.chat_preview_routes import _finalize_preview_text
+async def test_build_preview_delivery_strips_invalid_bubble_markers(monkeypatch) -> None:
+    from magi.api.routers.chat_preview_routes import _build_preview_delivery
     from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
 
     monkeypatch.setattr(
@@ -416,5 +463,5 @@ async def test_finalize_preview_text_strips_invalid_bubble_markers(monkeypatch) 
         "_is_enabled",
         staticmethod(lambda: True),
     )
-    result = await _finalize_preview_text("one‖two‖three‖four‖five‖six‖seven")
-    assert result == "one two three four five six seven"
+    result = await _build_preview_delivery("one‖two‖three‖four‖five‖six‖seven")
+    assert result == [("one two three four five six seven", 0)]

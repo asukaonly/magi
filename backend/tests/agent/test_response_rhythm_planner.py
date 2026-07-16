@@ -142,7 +142,7 @@ async def test_response_rhythm_planner_skips_non_visible_surfaces(monkeypatch, s
 
 
 def test_extract_persona_rhythm_from_prompt_context() -> None:
-    from magi.agent.task_agents.handlers.direct_handler import _extract_persona_rhythm
+    from magi.chat.task_agent.rhythm import extract_persona_rhythm
 
     plan = SimpleNamespace(
         register="chat",
@@ -151,18 +151,18 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
     )
     ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=plan))
 
-    signal = _extract_persona_rhythm(ctx)
+    signal = extract_persona_rhythm(ctx)
     assert signal is not None
     assert signal.register == "chat"
     assert signal.persona_intensity == 2
     assert signal.sentence_style == "爱用短句"
 
-    assert _extract_persona_rhythm(SimpleNamespace()) is None
-    assert _extract_persona_rhythm(SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=None))) is None
+    assert extract_persona_rhythm(SimpleNamespace()) is None
+    assert extract_persona_rhythm(SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=None))) is None
 
     crisis_plan = SimpleNamespace(register="crisis", persona_intensity=0, idiolect={})
     crisis_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=crisis_plan))
-    crisis_signal = _extract_persona_rhythm(crisis_ctx)
+    crisis_signal = extract_persona_rhythm(crisis_ctx)
     assert crisis_signal is not None
     assert crisis_signal.persona_intensity == 0
     assert crisis_signal.register == "crisis"
@@ -172,15 +172,15 @@ def test_extract_persona_rhythm_from_prompt_context() -> None:
         register="chat", persona_intensity=2, idiolect={"sentence_style": "x", "chattiness": 0.8}
     )
     chat_ctx = SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=chat_plan))
-    chat_signal = _extract_persona_rhythm(chat_ctx)
+    chat_signal = extract_persona_rhythm(chat_ctx)
     assert chat_signal.chattiness == 0.8
 
-    miss = _extract_persona_rhythm(
+    miss = extract_persona_rhythm(
         SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
             register="chat", persona_intensity=1, idiolect={"sentence_style": ""})))
     )
     assert miss.chattiness == 0.5
-    clamped = _extract_persona_rhythm(
+    clamped = extract_persona_rhythm(
         SimpleNamespace(self_memory=SimpleNamespace(persona_turn_plan=SimpleNamespace(
             register="chat", persona_intensity=1, idiolect={"chattiness": 9.0})))
     )

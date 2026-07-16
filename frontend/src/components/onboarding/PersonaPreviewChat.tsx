@@ -273,19 +273,22 @@ export function PersonaPreviewChat({
     });
   }, []);
 
-  const finalizeAssistantContent = useCallback(
+  const updateAssistantStreamContent = useCallback(
     (seedSlug: string, content: string) => {
       setTranscripts((prev) => {
         const list = prev[seedSlug] ?? [];
-        const lastIdx = list.length - 1;
-        if (lastIdx < 0 || list[lastIdx].role !== 'assistant') return prev;
+        let currentUserIdx = list.length - 1;
+        while (currentUserIdx >= 0 && list[currentUserIdx].role !== 'user') {
+          currentUserIdx -= 1;
+        }
+        if (currentUserIdx < 0 || currentUserIdx === list.length - 1) return prev;
         const segments = splitPreviewReply(content);
         const assistantTurns = (segments.length > 0 ? segments : [content]).map<PreviewTurn>(
           (segment) => ({ role: 'assistant', content: segment }),
         );
         return {
           ...prev,
-          [seedSlug]: [...list.slice(0, lastIdx), ...assistantTurns],
+          [seedSlug]: [...list.slice(0, currentUserIdx + 1), ...assistantTurns],
         };
       });
     },
@@ -317,11 +320,11 @@ export function PersonaPreviewChat({
         llm_override: llmConfig,
       })) {
         responseText += chunk;
+        updateAssistantStreamContent(seed, responseText);
       }
-      finalizeAssistantContent(seed, responseText);
     } catch (err) {
       const prefix = responseText ? `${responseText}\n` : '';
-      finalizeAssistantContent(seed, `${prefix}[error: ${(err as Error).message}]`);
+      updateAssistantStreamContent(seed, `${prefix}[error: ${(err as Error).message}]`);
     } finally {
       setBusy(false);
     }
@@ -336,7 +339,7 @@ export function PersonaPreviewChat({
     locale,
     llmConfig,
     appendTurn,
-    finalizeAssistantContent,
+    updateAssistantStreamContent,
   ]);
 
   const handleChipPick = useCallback((prompt: string) => {

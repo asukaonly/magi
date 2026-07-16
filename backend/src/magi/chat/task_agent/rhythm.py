@@ -121,6 +121,32 @@ def is_conversation_rhythm_enabled() -> bool:
     return mode in {"natural", "expressive"}
 
 
+def extract_persona_rhythm(prompt_context: Any) -> RhythmPersonaSignal | None:
+    """Read the rhythm-relevant signal from an assembled persona turn plan."""
+    self_memory = getattr(prompt_context, "self_memory", None)
+    plan = getattr(self_memory, "persona_turn_plan", None)
+    if plan is None:
+        return None
+    idiolect = getattr(plan, "idiolect", None)
+    sentence_style = ""
+    chattiness = 0.5
+    if isinstance(idiolect, dict):
+        sentence_style = str(idiolect.get("sentence_style", "") or "")
+        raw_chattiness = idiolect.get("chattiness", 0.5)
+        if raw_chattiness is not None:
+            try:
+                chattiness = max(0.0, min(1.0, float(raw_chattiness)))
+            except (TypeError, ValueError):
+                chattiness = 0.5
+    raw_intensity = getattr(plan, "persona_intensity", 1)
+    return RhythmPersonaSignal(
+        register=str(getattr(plan, "register", "casual") or "casual"),
+        persona_intensity=int(raw_intensity) if raw_intensity is not None else 1,
+        sentence_style=sentence_style,
+        chattiness=chattiness,
+    )
+
+
 @dataclass(slots=True)
 class _ContentFeatures:
     has_code_block: bool
@@ -204,6 +230,7 @@ class ResponseRhythmPlanner:
 
 __all__ = [
     "ResponseRhythmPlanner",
+    "extract_persona_rhythm",
     "is_conversation_rhythm_enabled",
     "split_on_sentinel",
     "strip_segmentation_sentinel",

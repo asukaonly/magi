@@ -558,9 +558,19 @@ describe('PersonaPreviewChat', () => {
     });
   });
 
-  it('renders validated rhythm segments as bubbles and collapses them in history', async () => {
+  it('reveals rhythm segments over time and collapses them in history', async () => {
+    let releaseSecondSegment: () => void = () => {};
+    const secondSegmentGate = new Promise<void>((resolve) => {
+      releaseSecondSegment = resolve;
+    });
     mockStream
-      .mockImplementationOnce(() => makeAsyncIter(['first reply‖second reply']))
+      .mockImplementationOnce(() =>
+        (async function* () {
+          yield 'first reply';
+          await secondSegmentGate;
+          yield '‖second reply';
+        })(),
+      )
       .mockImplementationOnce(() => makeAsyncIter(['third reply']));
 
     renderPersonaPreview({ previews });
@@ -569,12 +579,18 @@ describe('PersonaPreviewChat', () => {
 
     await userEvent.type(input, 'first question');
     await userEvent.click(sendButton);
-    await waitFor(() => expect(screen.getByText('second reply')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('first reply')).toBeInTheDocument());
 
-    expect(screen.getAllByTestId('persona-preview-assistant-bubble')).toHaveLength(2);
-    expect(screen.getByText('first reply')).toBeInTheDocument();
-
+    expect(screen.getAllByTestId('persona-preview-assistant-bubble')).toHaveLength(1);
+    expect(screen.queryByText('second reply')).not.toBeInTheDocument();
     await userEvent.type(input, 'second question');
+    expect(sendButton).toBeDisabled();
+
+    releaseSecondSegment();
+    await waitFor(() => expect(screen.getByText('second reply')).toBeInTheDocument());
+    expect(screen.getAllByTestId('persona-preview-assistant-bubble')).toHaveLength(2);
+    await waitFor(() => expect(sendButton).toBeEnabled());
+
     await userEvent.click(sendButton);
     await waitFor(() => expect(screen.getByText('third reply')).toBeInTheDocument());
 

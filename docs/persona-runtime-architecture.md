@@ -472,9 +472,10 @@ config to this path, so registers, examples, quiet hours, triggers, and dynamic
 rules are interpreted by the same planner. The preview is an ephemeral session
 with no tool catalog or durable chat, memory, relationship, milestone, or
 emotional-state store; those inputs therefore remain naturally empty, as they do
-for a new conversation without prior context. Validated rhythm segments may be
-shown as separate bubbles, while subsequent preview turns send them back to the
-model as one assistant turn.
+for a new conversation without prior context. Validated rhythm segments use the
+same computed inter-bubble delays as normal chat instead of appearing in one
+burst, while subsequent preview turns send them back to the model as one
+assistant turn.
 
 ## Migration From Current Code
 

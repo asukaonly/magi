@@ -16,6 +16,7 @@ from ....context.window_budget import (
     measure_provider_prompt_usage,
 )
 from ....agent.turn_input import UserTurnInput
+from ....chat.task_agent.rhythm import extract_persona_rhythm
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
 from ....core.logger import get_logger
@@ -78,36 +79,6 @@ def _build_llm_event_context(context: object, turn_id: object) -> dict[str, obje
             "session_id": getattr(context, "session_id", None),
             "turn_id": turn_id,
         }
-    )
-
-
-def _extract_persona_rhythm(prompt_context: Any) -> "RhythmPersonaSignal | None":
-    """Pull the rhythm-relevant persona signals off the already-built turn plan.
-
-    Tolerant by design: any missing link in the chain yields None so the chat
-    path never breaks when there is no active persona / plan.
-    """
-    self_memory = getattr(prompt_context, "self_memory", None)
-    plan = getattr(self_memory, "persona_turn_plan", None)
-    if plan is None:
-        return None
-    idiolect = getattr(plan, "idiolect", None)
-    sentence_style = ""
-    chattiness = 0.5
-    if isinstance(idiolect, dict):
-        sentence_style = str(idiolect.get("sentence_style", "") or "")
-        raw_chattiness = idiolect.get("chattiness", 0.5)
-        if raw_chattiness is not None:
-            try:
-                chattiness = max(0.0, min(1.0, float(raw_chattiness)))
-            except (TypeError, ValueError):
-                chattiness = 0.5
-    raw_intensity = getattr(plan, "persona_intensity", 1)
-    return RhythmPersonaSignal(
-        register=str(getattr(plan, "register", "casual") or "casual"),
-        persona_intensity=int(raw_intensity) if raw_intensity is not None else 1,
-        sentence_style=sentence_style,
-        chattiness=chattiness,
     )
 
 
@@ -527,7 +498,7 @@ class DirectLLMHandler(BaseExecutionHandler):
             response_text=response_text,
             turn_id=turn_id,
             llm_trace=dict(llm_trace),
-            persona_rhythm=_extract_persona_rhythm(request.prompt_context),
+            persona_rhythm=extract_persona_rhythm(request.prompt_context),
         )
 
     @staticmethod
