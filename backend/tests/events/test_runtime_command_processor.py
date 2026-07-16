@@ -7,7 +7,12 @@ import pytest
 
 from magi.awareness.sensor_hub import SensorHub
 from magi.bootstrap.context import RuntimeBootstrapContext
-from magi.events.contracts import RefreshLLMConfigCommand, SensorStateFlushCommand, SensorSyncCommand, UserMessageCommand
+from magi.events.contracts import (
+    RefreshLLMConfigCommand,
+    SensorStateFlushCommand,
+    SensorSyncCommand,
+    UserMessageCommand,
+)
 from magi.events.events import EventTypes
 from magi.events.lifecycle import RuntimeCommandProcessorModule
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
@@ -24,7 +29,9 @@ async def _start_in_memory_message_bus() -> InMemoryMessageBusBackend:
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp_path: Path) -> None:
+async def test_runtime_command_processor_publishes_user_message_to_local_bus(
+    tmp_path: Path,
+) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
@@ -86,7 +93,9 @@ async def test_runtime_command_processor_publishes_user_message_to_local_bus(tmp
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_runtime_command_processor_refreshes_llm_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
@@ -107,7 +116,9 @@ async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, mo
         calls.append("refresh")
 
     monkeypatch.setattr("magi.config.loader.reload_config", _fake_reload_config)
-    monkeypatch.setattr("magi.bootstrap.backend.refresh_runtime_llm_config", _fake_refresh_runtime_llm_config)
+    monkeypatch.setattr(
+        "magi.bootstrap.backend.refresh_runtime_llm_config", _fake_refresh_runtime_llm_config
+    )
 
     processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
     await processor.init()
@@ -135,7 +146,9 @@ async def test_runtime_command_processor_refreshes_llm_config(tmp_path: Path, mo
 
 
 @pytest.mark.asyncio
-async def test_runtime_command_processor_stops_claiming_commands_while_draining(tmp_path: Path) -> None:
+async def test_runtime_command_processor_stops_claiming_commands_while_draining(
+    tmp_path: Path,
+) -> None:
     queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
     await queue.start()
     message_bus = await _start_in_memory_message_bus()
@@ -420,7 +433,9 @@ async def test_runtime_command_processor_requeues_user_messages_without_local_su
 
         for _ in range(100):
             stats = await queue.get_stats()
-            if stats["completed_count"] == 0 and (stats["pending_count"] > 0 or stats["claimed_count"] > 0):
+            if stats["completed_count"] == 0 and (
+                stats["pending_count"] > 0 or stats["claimed_count"] > 0
+            ):
                 break
             await asyncio.sleep(0.02)
 
@@ -503,9 +518,7 @@ async def test_claimed_user_message_is_discarded_when_clear_advances_before_disp
     try:
         await asyncio.wait_for(command_claimed.wait(), timeout=1)
         async with queue.user_message_clear_boundary():
-            generation, purged = (
-                await queue.advance_user_message_generation_and_purge()
-            )
+            generation, purged = await queue.advance_user_message_generation_and_purge()
         assert generation == 1
         assert purged == 1
 
@@ -520,4 +533,88 @@ async def test_claimed_user_message_is_discarded_when_clear_advances_before_disp
             await asyncio.gather(dispatch_task, return_exceptions=True)
         await sensor_hub.stop()
         await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_stays_non_idle_until_all_concurrent_work_finishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    context = RuntimeBootstrapContext()
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+
+    await queue.enqueue_refresh_llm_config(RefreshLLMConfigCommand(source="api", reason="first"))
+    await queue.enqueue_refresh_llm_config(RefreshLLMConfigCommand(source="api", reason="second"))
+
+    releases = [asyncio.Event(), asyncio.Event()]
+    both_started = asyncio.Event()
+    execution_count = 0
+
+    async def _execute_and_wait(command, message_bus):  # type: ignore[no-untyped-def]
+        nonlocal execution_count
+        _ = (command, message_bus)
+        index = execution_count
+        execution_count += 1
+        if execution_count == 2:
+            both_started.set()
+        await releases[index].wait()
+        return True
+
+    monkeypatch.setattr(processor, "_execute_runtime_command", _execute_and_wait)
+    tasks = [
+        asyncio.create_task(processor._run_next_command(queue=queue, message_bus=object()))
+        for _ in range(2)
+    ]
+    try:
+        await asyncio.wait_for(both_started.wait(), timeout=1)
+        assert processor._active_commands == 2
+
+        releases[0].set()
+        done, _ = await asyncio.wait(tasks, timeout=1, return_when=asyncio.FIRST_COMPLETED)
+        assert len(done) == 1
+        assert processor._active_commands == 1
+        with pytest.raises(asyncio.TimeoutError):
+            await processor.wait_until_idle(timeout_seconds=0.01)
+
+        releases[1].set()
+        await asyncio.wait_for(asyncio.gather(*tasks), timeout=1)
+        await processor.wait_until_idle(timeout_seconds=0.1)
+        assert processor._active_commands == 0
+    finally:
+        for release in releases:
+            release.set()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_processor_requeues_handler_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    await queue.enqueue_refresh_llm_config(
+        RefreshLLMConfigCommand(source="api", reason="retry failure")
+    )
+    processor = RuntimeCommandProcessorModule(RuntimeBootstrapContext())
+
+    async def _fail(command, message_bus):  # type: ignore[no-untyped-def]
+        _ = (command, message_bus)
+        raise RuntimeError("handler failed")
+
+    monkeypatch.setattr(processor, "_execute_runtime_command", _fail)
+    try:
+        with pytest.raises(RuntimeError, match="handler failed"):
+            await processor._run_next_command(queue=queue, message_bus=object())
+
+        stats = await queue.get_stats()
+        assert stats["pending_count"] == 1
+        assert stats["claimed_count"] == 0
+        assert processor._active_commands == 0
+        await processor.wait_until_idle(timeout_seconds=0.1)
+    finally:
         await queue.stop()

@@ -46,6 +46,7 @@ class TemporalPromptRenderer:
                     "memory_domain": item.memory_domain,
                     "importance_score": item.importance_score,
                     "content": item.content,
+                    "interpretation_context": item.interpretation_context,
                 }
                 for item in pack.events
             ],
@@ -60,6 +61,7 @@ class TemporalPromptRenderer:
             "Shared Context:\n"
             "You are working on one temporal memory summary for the provided memory window.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
+            "An event's interpretation_context only explains how to read its content. The product-authored question is not evidence and must never be presented as something the user said, believed, or experienced.\n"
             "When plugin_summary_features are present, use them to surface source-specific behavior patterns such as concentration, revisits, and session structure.\n"
             "Use source_distribution, window_event_count, and omitted_event_count to understand coverage and avoid treating representative events as exhaustive.\n"
             "Prioritize explicit changes, recurring constraints, and high-importance events.\n\n"

@@ -1,4 +1,5 @@
 """Growth memory engine: milestones, relationships, and personality evolution events."""
+import hashlib
 import json
 import time
 import logging
@@ -7,10 +8,9 @@ from pathlib import Path
 
 from ..core.sqlite import sqlite_connection_async
 from .growth_models import (
-    InteractionType,
+    InteractionType,  # noqa: F401 - compatibility re-export
     Milestone,
     MilestoneType,
-    PersonalityEvolution,
     RelationshipProfile,
 )
 from .growth_relationships import GrowthRelationshipMixin
@@ -44,10 +44,17 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         milestone_type: MilestoneType,
         title: str,
         description: str,
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Milestone:
         """Persist a growth milestone (relationship/personality/special) and invalidate cache."""
-        milestone_id = f"milestone_{int(time.time() * 1000)}_{hash(title) % 10000:04d}"
+        normalized_idempotency_key = str(idempotency_key or "").strip()
+        if normalized_idempotency_key:
+            digest = hashlib.sha256(normalized_idempotency_key.encode("utf-8")).hexdigest()
+            milestone_id = f"milestone_once_{digest[:32]}"
+        else:
+            milestone_id = f"milestone_{int(time.time() * 1000)}_{hash(title) % 10000:04d}"
 
         milestone = Milestone(
             id=milestone_id,
@@ -59,8 +66,10 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
         )
 
         async with sqlite_connection_async(self._expanded_db_path) as db:
-            await db.execute(
-                """INSERT INTO milestones (id, Type, title, description, timestamp, metadata, persona_id)
+            insert_clause = "INSERT OR IGNORE" if normalized_idempotency_key else "INSERT"
+            cursor = await db.execute(
+                f"""{insert_clause} INTO milestones
+                   (id, Type, title, description, timestamp, metadata, persona_id)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     milestone_id,
@@ -73,6 +82,27 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
                 )
             )
             await db.commit()
+
+            if normalized_idempotency_key and int(cursor.rowcount or 0) == 0:
+                existing_cursor = await db.execute(
+                    """
+                    SELECT id, Type, title, description, timestamp, metadata
+                    FROM milestones
+                    WHERE id = ?
+                    """,
+                    (milestone_id,),
+                )
+                existing = await existing_cursor.fetchone()
+                if existing is None:
+                    raise RuntimeError("Idempotent milestone disappeared after insert")
+                return Milestone(
+                    id=str(existing[0]),
+                    type=MilestoneType(str(existing[1])),
+                    title=str(existing[2]),
+                    description=str(existing[3]),
+                    timestamp=float(existing[4]),
+                    metadata=json.loads(existing[5]) if existing[5] else {},
+                )
 
         self._milestone_cache = None
 
@@ -199,7 +229,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
             for key, value in rows:
                 try:
                     stats[key] = json.loads(value)
-                except:
+                except (TypeError, ValueError):
                     stats[key] = value
 
             return stats
@@ -213,7 +243,7 @@ class GrowthMemoryEngine(GrowthRelationshipMixin):
             if row:
                 try:
                     current = json.loads(row[0])
-                except:
+                except (TypeError, ValueError):
                     current = row[0]
 
                 if isinstance(current, int):

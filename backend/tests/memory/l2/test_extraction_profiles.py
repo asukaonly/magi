@@ -95,6 +95,28 @@ def test_default_chat_profile_exposes_full_allowlists():
     assert profile.allow_assertion is True
 
 
+def test_first_context_story_uses_constrained_chat_profile():
+    from magi.memory.l2.extraction_profiles import resolve_extraction_profile
+
+    event = _make_event(source="chat", content="还行")
+    event.metadata_json = {
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+
+    profile = resolve_extraction_profile(event)
+
+    assert profile.profile_id == "chat.first_context_story"
+    assert profile.allow_graph is True
+    assert profile.allow_assertion is True
+    assert profile.extraction_instructions is not None
+    assert "provided only to interpret a short or elliptical" in profile.extraction_instructions
+    assert "gibberish" in profile.extraction_instructions
+
+
 def test_timeline_source_falls_back_to_chat_profile():
     from magi.memory.l2.extraction_profiles import resolve_extraction_profile
 

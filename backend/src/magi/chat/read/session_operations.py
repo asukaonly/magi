@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 from typing import Protocol, cast
 
 from ...core.logger import get_logger
 from ...core.sqlite import connect_sqlite
-from ...memory.l1.chat_sessions import create_chat_session_record
+from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
 from .models import ChatSessionRenameResult, ChatSessionSummary, SessionWorkspaceUpdateResult
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
@@ -17,11 +18,13 @@ from .schema import (
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
     CHAT_SESSIONS_TABLE,
     CHAT_TURNS_TABLE,
+    CHAT_USER_TURN_DELIVERY_TABLE,
 )
 
 logger = get_logger(__name__)
 
 FACT_EVENTS_TABLE = "fact_events"
+_CLIENT_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 class _ChatSessionOperationsHost(Protocol):
@@ -43,19 +46,35 @@ class _ChatSessionOperationsHost(Protocol):
     def _clear_all_runtime_trace_rows(self) -> None: ...
 
 
-class ChatSessionOperationsMixin:
-    """Create, update, list, and delete chat sessions."""
+def _insert_or_return_session(
+    *,
+    host: _ChatSessionOperationsHost,
+    record: ChatSessionRecord,
+    normalized_user_id: str,
+    normalized_client_session_id: str | None,
+) -> str:
+    conn = host._get_conn()
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        if normalized_client_session_id is not None:
+            existing = conn.execute(
+                f"""
+                SELECT user_id, archived_at_ms, deleted_at_ms
+                FROM {CHAT_SESSIONS_TABLE}
+                WHERE session_id = ?
+                """,
+                (normalized_client_session_id,),
+            ).fetchone()
+            if existing is not None:
+                if (
+                    str(existing["user_id"]) == normalized_user_id
+                    and existing["archived_at_ms"] is None
+                    and existing["deleted_at_ms"] is None
+                ):
+                    conn.commit()
+                    return normalized_client_session_id
+                raise ValueError("Client session ID is not available")
 
-    def create_new_session(self, user_id: str, workspace_path: str | None = None) -> str:
-        host = cast(_ChatSessionOperationsHost, self)
-        normalized_user_id = str(user_id).strip()
-        if not normalized_user_id:
-            raise ValueError("User ID is required")
-        record = create_chat_session_record(
-            user_id=normalized_user_id,
-            workspace_path=host._normalize_workspace_path(workspace_path),
-        )
-        conn = host._get_conn()
         conn.execute(
             f"""
             INSERT INTO {CHAT_SESSIONS_TABLE} (
@@ -73,7 +92,9 @@ class ChatSessionOperationsMixin:
                 int(record.created_at * 1000),
                 int(record.updated_at * 1000),
                 int(record.last_message_at * 1000) if record.last_message_at is not None else None,
-                int(record.last_user_message_at * 1000) if record.last_user_message_at is not None else None,
+                int(record.last_user_message_at * 1000)
+                if record.last_user_message_at is not None
+                else None,
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
@@ -83,7 +104,43 @@ class ChatSessionOperationsMixin:
             ),
         )
         conn.commit()
-        return str(record.session_id)
+    except BaseException:
+        conn.rollback()
+        raise
+    return str(record.session_id)
+
+
+class ChatSessionOperationsMixin:
+    """Create, update, list, and delete chat sessions."""
+
+    def create_new_session(
+        self,
+        user_id: str,
+        workspace_path: str | None = None,
+        client_session_id: str | None = None,
+    ) -> str:
+        host = cast(_ChatSessionOperationsHost, self)
+        normalized_user_id = str(user_id).strip()
+        if not normalized_user_id:
+            raise ValueError("User ID is required")
+        normalized_client_session_id = str(client_session_id or "").strip() or None
+        if normalized_client_session_id is not None and not _CLIENT_SESSION_ID_PATTERN.fullmatch(
+            normalized_client_session_id
+        ):
+            raise ValueError(
+                "Client session ID must contain only letters, numbers, underscores, or hyphens and be at most 128 characters"
+            )
+        record = create_chat_session_record(
+            user_id=normalized_user_id,
+            session_id=normalized_client_session_id,
+            workspace_path=host._normalize_workspace_path(workspace_path),
+        )
+        return _insert_or_return_session(
+            host=host,
+            record=record,
+            normalized_user_id=normalized_user_id,
+            normalized_client_session_id=normalized_client_session_id,
+        )
 
     def get_session_summary(self, user_id: str, session_id: str) -> ChatSessionSummary | None:
         host = cast(_ChatSessionOperationsHost, self)
@@ -93,8 +150,10 @@ class ChatSessionOperationsMixin:
             raise ValueError("User ID and session ID are required")
         if not host._chat_db_path.exists():
             return None
-        row = host._get_conn().execute(
-            f"""
+        row = (
+            host._get_conn()
+            .execute(
+                f"""
             SELECT
                 session_id,
                 title,
@@ -112,8 +171,10 @@ class ChatSessionOperationsMixin:
               AND deleted_at_ms IS NULL
               AND archived_at_ms IS NULL
             """,
-            (normalized_user_id, normalized_session_id),
-        ).fetchone()
+                (normalized_user_id, normalized_session_id),
+            )
+            .fetchone()
+        )
         return host._row_to_session_summary(row) if row is not None else None
 
     def get_session_summaries_batch(
@@ -132,8 +193,10 @@ class ChatSessionOperationsMixin:
         if not clean_ids:
             return {}
         placeholders = ", ".join("?" for _ in clean_ids)
-        rows = host._get_conn().execute(
-            f"""
+        rows = (
+            host._get_conn()
+            .execute(
+                f"""
             SELECT
                 session_id,
                 title,
@@ -151,12 +214,11 @@ class ChatSessionOperationsMixin:
               AND deleted_at_ms IS NULL
               AND archived_at_ms IS NULL
             """,
-            (normalized_user_id, *clean_ids),
-        ).fetchall()
-        return {
-            str(row["session_id"]): host._row_to_session_summary(row)
-            for row in rows
-        }
+                (normalized_user_id, *clean_ids),
+            )
+            .fetchall()
+        )
+        return {str(row["session_id"]): host._row_to_session_summary(row) for row in rows}
 
     def list_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List recent chat sessions for a user."""
@@ -274,7 +336,9 @@ class ChatSessionOperationsMixin:
                 conn.close()
             except Exception as exc:
                 logger.exception(f"Failed to delete session: {exc}")
-        host._delete_runtime_trace_rows(user_id=normalized_user_id, session_id=normalized_session_id)
+        host._delete_runtime_trace_rows(
+            user_id=normalized_user_id, session_id=normalized_session_id
+        )
         host._delete_chat_session_assets(session_id=normalized_session_id)
 
         conn = host._get_conn()
@@ -284,6 +348,17 @@ class ChatSessionOperationsMixin:
         )
         conn.execute(
             f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
+            (normalized_user_id, normalized_session_id),
+        )
+        conn.execute(
+            f"""
+            DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
+            WHERE turn_id IN (
+                SELECT turn_id
+                FROM {CHAT_TURNS_TABLE}
+                WHERE user_id = ? AND session_id = ?
+            )
+            """,
             (normalized_user_id, normalized_session_id),
         )
         conn.execute(
@@ -327,6 +402,7 @@ class ChatSessionOperationsMixin:
         removed = int((row["total"] if row is not None else 0) or 0)
         conn.execute(f"DELETE FROM {CHAT_MESSAGES_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_ATTACHMENTS_TABLE}")
+        conn.execute(f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_TURNS_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE}")
         conn.execute(f"DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}")
@@ -334,6 +410,24 @@ class ChatSessionOperationsMixin:
         conn.commit()
         host._clear_all_chat_assets()
         return removed
+
+    def reset_user_turn_delivery_after_failed_clear(self) -> int:
+        """Make surviving chat turns replayable after a partial global clear."""
+        host = cast(_ChatSessionOperationsHost, self)
+        if not host._chat_db_path.exists():
+            return 0
+        conn = host._get_conn()
+        cursor = conn.execute(
+            f"""
+            UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
+            SET projection_completed = 0,
+                runtime_enqueued = 0,
+                updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+            WHERE projection_completed != 0 OR runtime_enqueued != 0
+            """
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0)
 
 
 __all__ = ["ChatSessionOperationsMixin"]

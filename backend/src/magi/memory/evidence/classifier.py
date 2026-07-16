@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from typing import Callable
 
+from ...events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ...events.recall_feedback import RECALL_FEEDBACK_INTERACTION_KIND
 from ..event_contracts import MemoryDomain, MemoryEvent
 from .models import EvidenceClass, EvidenceClassification
@@ -142,6 +143,25 @@ _REQUEST_LEAD_CJK = (
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _LEADING_TRIM_CHARS = "\"'`“”‘’（(《<【 "
+_FIRST_CONTEXT_LOW_SIGNAL_VALUES = {
+    "-",
+    "--",
+    "...",
+    "asdf",
+    "idk",
+    "n/a",
+    "none",
+    "null",
+    "qwer",
+    "test",
+    "xxx",
+    "zxcv",
+    "不知道",
+    "无",
+    "没什么",
+    "随便",
+}
+_CLAUSE_SPLIT_RE = re.compile(r"[，,。；;！？!?]+")
 
 
 @dataclass(frozen=True)
@@ -160,6 +180,8 @@ class _ClassificationContext:
     memory_domain: MemoryDomain
     interaction_kind: str | None
     user_intent: str | None  # "question" | "request" | None, only computed for user
+    first_context_low_signal: bool
+    first_context_has_self_report: bool
 
 
 @dataclass(frozen=True)
@@ -220,6 +242,16 @@ EVIDENCE_RULES: tuple[_EvidenceRule, ...] = (
         matches=lambda ctx: _is_assistant(ctx) and ctx.content_type == "tool_result",
     ),
     _EvidenceRule(
+        name="first_context_story_low_signal",
+        evidence_class=EvidenceClass.USER_REQUEST,
+        matches=lambda ctx: _is_user(ctx) and ctx.first_context_low_signal,
+    ),
+    _EvidenceRule(
+        name="first_context_story_with_self_report",
+        evidence_class=EvidenceClass.USER_SELF_REPORT,
+        matches=lambda ctx: _is_user(ctx) and ctx.first_context_has_self_report,
+    ),
+    _EvidenceRule(
         name="user_question_lead_or_mark",
         evidence_class=EvidenceClass.USER_QUESTION,
         matches=lambda ctx: _is_user(ctx) and ctx.user_intent == "question",
@@ -271,6 +303,8 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
     content_type = _normalized(event.content_type)
     metadata = event.metadata_json if isinstance(event.metadata_json, dict) else {}
     user_intent = _detect_user_intent(event.content) if author_role == "user" else None
+    interaction_kind = _normalized(metadata.get("interaction_kind"))
+    is_first_context = interaction_kind == FIRST_CONTEXT_STORY_INTERACTION_KIND
     return _ClassificationContext(
         event=event,
         author_role=author_role,
@@ -278,8 +312,14 @@ def _build_context(event: MemoryEvent) -> _ClassificationContext:
         semantic_owner=_semantic_owner(author_role),
         content_type=content_type,
         memory_domain=event.memory_domain,
-        interaction_kind=_normalized(metadata.get("interaction_kind")),
+        interaction_kind=interaction_kind,
         user_intent=user_intent,
+        first_context_low_signal=(
+            bool(is_first_context and _is_first_context_low_signal(event.content))
+        ),
+        first_context_has_self_report=(
+            bool(is_first_context and _has_first_context_self_report_clause(event.content))
+        ),
     )
 
 
@@ -387,6 +427,32 @@ def _detect_user_intent(content: str | None) -> str | None:
         return "request"
 
     return None
+
+
+def _is_first_context_low_signal(content: str | None) -> bool:
+    text = str(content or "").strip().lower()
+    if not text:
+        return True
+    compact = re.sub(r"\s+", "", text)
+    if compact in _FIRST_CONTEXT_LOW_SIGNAL_VALUES:
+        return True
+    if re.fullmatch(r"\d+", compact):
+        return True
+    if re.fullmatch(r"(?:asdf|qwer(?:ty)?|zxcv(?:bn)?)[a-z]*", compact):
+        return True
+    if len(compact) >= 3 and len(set(compact)) == 1:
+        return True
+    return False
+
+
+def _has_first_context_self_report_clause(content: str | None) -> bool:
+    for raw_clause in _CLAUSE_SPLIT_RE.split(str(content or "")):
+        clause = raw_clause.strip()
+        if not clause:
+            continue
+        if _detect_user_intent(clause) is None and not _is_first_context_low_signal(clause):
+            return True
+    return False
 
 
 __all__ = ["EvidenceClassification", "classify_event_evidence"]

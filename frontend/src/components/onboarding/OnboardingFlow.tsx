@@ -11,7 +11,14 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/api/client";
-import { STORAGE_KEYS } from "@/constants/app";
+import { messagesApi } from "@/api/modules/messages";
+import {
+  CHAT_SESSION_KEY,
+  DEFAULT_USER_ID,
+  STORAGE_KEYS,
+} from "@/constants/app";
+import { createClientTurnId } from "@/domain/chat/state";
+import { useConversationStore } from "@/stores/conversation-store";
 import { configApi } from "../../api/modules/config";
 import type {
   LanguageCode,
@@ -31,7 +38,13 @@ import GuidedConfigFrame from "../config-forms/GuidedConfigFrame";
 import WelcomeScreen from "./WelcomeScreen";
 import StepIndicator from "./StepIndicator";
 import CompletionScreen from "./CompletionScreen";
-import FirstContextStep from "./FirstContextStep";
+import FirstContextStep, {
+  FIRST_CONTEXT_QUESTION_IDS,
+  isFirstContextQuestionId,
+  isFirstContextRoute,
+  type FirstContextQuestionId,
+  type FirstContextRoute,
+} from "./FirstContextStep";
 import LLMSetupStep, { type LLMConnectionTestState } from "./LLMSetupStep";
 import {
   PersonaPreviewChat,
@@ -58,6 +71,42 @@ const LLM_SETUP_STEP = 1;
 const PERSONA_STEP = 2;
 const FIRST_CONTEXT_STEP = 3;
 const COMPLETE_STEP = 4;
+const createFirstContextSessionId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `session_${crypto.randomUUID()}`;
+  }
+  return `session_${Date.now().toString(36)}_${Math.random()
+    .toString(36)
+    .slice(2, 10)}`;
+};
+
+interface FirstContextProgress {
+  route: FirstContextRoute;
+  questionId: FirstContextQuestionId;
+  draft: string;
+  sessionId: string | null;
+  turnId: string | null;
+  messageId: string | null;
+  submitted: boolean;
+  sendUncertain: boolean;
+}
+
+const DEFAULT_FIRST_CONTEXT_PROGRESS: FirstContextProgress = {
+  route: "choose",
+  questionId: FIRST_CONTEXT_QUESTION_IDS[0],
+  draft: "",
+  sessionId: null,
+  turnId: null,
+  messageId: null,
+  submitted: false,
+  sendUncertain: false,
+};
+
+interface FinishOnboardingOptions {
+  destination?: "/" | "/chat";
+  sessionId?: string | null;
+  onError?: (message: string) => void;
+}
 
 interface RuntimeReadyResponse {
   success: boolean;
@@ -245,6 +294,17 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   );
   const [firstContextCountsByPluginId, setFirstContextCountsByPluginId] =
     useState<Record<string, number | null>>({});
+  const [firstContextProgress, setFirstContextProgress] =
+    useState<FirstContextProgress>(DEFAULT_FIRST_CONTEXT_PROGRESS);
+  const firstContextProgressRef = useRef<FirstContextProgress>(
+    DEFAULT_FIRST_CONTEXT_PROGRESS,
+  );
+  const [firstContextStorySubmitting, setFirstContextStorySubmitting] =
+    useState(false);
+  const [firstContextStoryError, setFirstContextStoryError] = useState<
+    string | null
+  >(null);
+  const firstContextStorySubmitInFlightRef = useRef(false);
   const installablePreloadStartedRef = useRef(false);
   const lastPersistedLanguageRef = useRef<LanguageCode | null>(null);
   const initializedLanguageRef = useRef<LanguageCode | null>(null);
@@ -428,6 +488,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         customPersonas?: CustomPersonaDraft[];
         firstContextPluginIds?: string[];
         firstContextCountsByPluginId?: Record<string, number | null>;
+        firstContextProgress?: Partial<FirstContextProgress>;
       };
       if (typeof parsed.current === "number") {
         const recoveredStep = Math.max(
@@ -467,6 +528,47 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           }
         }
         setFirstContextCountsByPluginId(nextCounts);
+      }
+      if (
+        parsed.firstContextProgress &&
+        typeof parsed.firstContextProgress === "object"
+      ) {
+        const rawProgress = parsed.firstContextProgress;
+        const sessionId =
+          typeof rawProgress.sessionId === "string" &&
+          rawProgress.sessionId.trim()
+            ? rawProgress.sessionId.trim()
+            : null;
+        const turnId =
+          typeof rawProgress.turnId === "string" && rawProgress.turnId.trim()
+            ? rawProgress.turnId.trim()
+            : null;
+        const messageId =
+          typeof rawProgress.messageId === "string" && rawProgress.messageId.trim()
+            ? rawProgress.messageId.trim()
+            : null;
+        const submitted = Boolean(
+          rawProgress.submitted && sessionId && turnId,
+        );
+        const restoredProgress: FirstContextProgress = {
+          route: isFirstContextRoute(rawProgress.route)
+            ? rawProgress.route
+            : DEFAULT_FIRST_CONTEXT_PROGRESS.route,
+          questionId: isFirstContextQuestionId(rawProgress.questionId)
+            ? rawProgress.questionId
+            : DEFAULT_FIRST_CONTEXT_PROGRESS.questionId,
+          draft:
+            typeof rawProgress.draft === "string" ? rawProgress.draft : "",
+          sessionId,
+          turnId,
+          messageId,
+          submitted,
+          sendUncertain: Boolean(
+            rawProgress.sendUncertain && sessionId && turnId && !submitted,
+          ),
+        };
+        firstContextProgressRef.current = restoredProgress;
+        setFirstContextProgress(restoredProgress);
       }
       if (parsed.values) {
         const savedLanguage = localStorage.getItem("magi_language");
@@ -513,6 +615,8 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       string,
       number | null
     > = firstContextCountsByPluginId,
+    nextFirstContextProgress: FirstContextProgress =
+      firstContextProgressRef.current,
   ) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -523,8 +627,33 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         customPersonas: nextCustomPersonas,
         firstContextPluginIds: nextFirstContextPluginIds,
         firstContextCountsByPluginId: nextFirstContextCountsByPluginId,
+        firstContextProgress: nextFirstContextProgress,
       }),
     );
+  };
+
+  const updateFirstContextProgress = (
+    update:
+      | Partial<FirstContextProgress>
+      | ((currentProgress: FirstContextProgress) => FirstContextProgress),
+  ): FirstContextProgress => {
+    const currentProgress = firstContextProgressRef.current;
+    const nextProgress =
+      typeof update === "function"
+        ? update(currentProgress)
+        : { ...currentProgress, ...update };
+    firstContextProgressRef.current = nextProgress;
+    setFirstContextProgress(nextProgress);
+    saveProgress(
+      form.getFieldsValue(true),
+      seedSlugRef.current,
+      customPersonasRef.current,
+      current,
+      firstContextPluginIds,
+      firstContextCountsByPluginId,
+      nextProgress,
+    );
+    return nextProgress;
   };
 
   const onValuesChange = (_: unknown, allValues: SystemConfig) => {
@@ -846,35 +975,75 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     }
   };
 
-  const enterAppAfterCompletion = (language: string | undefined) => {
+  const enterAppAfterCompletion = (
+    language: string | undefined,
+    destination: "/" | "/chat" = "/",
+    sessionId?: string | null,
+  ) => {
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (normalizedSessionId) {
+      localStorage.setItem(
+        CHAT_SESSION_KEY(DEFAULT_USER_ID),
+        normalizedSessionId,
+      );
+      useConversationStore.getState().setCurrentSessionId(normalizedSessionId);
+    }
     localStorage.removeItem(STORAGE_KEY);
     if (language) {
       localStorage.setItem("magi_language", language);
     }
     if (language !== initialConfig.preferences.language) {
-      window.location.href = "/";
+      window.location.href = destination;
       return;
     }
-    navigate("/");
+    navigate(destination);
   };
 
-  const recoverCompletedOnboarding = async (): Promise<boolean> => {
+  const showFirstContextMessageInChat = (
+    sessionId: string,
+    turnId: string,
+    message: string,
+    messageId?: string | null,
+  ) => {
+    const normalizedMessageId = String(messageId || "").trim();
+    useConversationStore.getState().upsertMessage(sessionId, {
+      id: normalizedMessageId || `${turnId}-user`,
+      messageId: normalizedMessageId || undefined,
+      messageKind: "user_text",
+      role: "user",
+      kind: "user",
+      content: message,
+      timestamp: Date.now(),
+      turnId,
+      traceAvailable: false,
+    });
+  };
+
+  const recoverCompletedOnboarding = async (
+    options: FinishOnboardingOptions = {},
+  ): Promise<boolean> => {
     try {
       const response = await configApi.getOnboardingStatus();
       if (response.data?.completed !== true) {
         return false;
       }
       const values = form.getFieldsValue(true) as SystemConfig;
-      enterAppAfterCompletion(values.preferences?.language);
+      enterAppAfterCompletion(
+        values.preferences?.language,
+        options.destination,
+        options.sessionId,
+      );
       return true;
     } catch {
       return false;
     }
   };
 
-  const handleFinish = async () => {
+  const handleFinish = async (
+    options: FinishOnboardingOptions = {},
+  ): Promise<boolean> => {
     if (finishInFlightRef.current) {
-      return;
+      return false;
     }
     finishInFlightRef.current = true;
     setSaving(true);
@@ -902,16 +1071,229 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         toast.warning(t("messages.runtimeStartingSlow"));
       }
 
-      enterAppAfterCompletion(values.preferences.language);
+      enterAppAfterCompletion(
+        values.preferences.language,
+        options.destination,
+        options.sessionId,
+      );
+      return true;
     } catch (error: any) {
-      if (await recoverCompletedOnboarding()) {
-        return;
+      if (await recoverCompletedOnboarding(options)) {
+        return true;
       }
-      toast.error(error?.message || t("messages.saveFailed"));
+      const message = options.onError
+        ? t("firstContext.story.errors.finishFailed")
+        : error instanceof OnboardingTimeoutError
+          ? error.message
+          : t("messages.saveFailed");
+      if (options.onError) {
+        options.onError(message);
+      } else {
+        toast.error(message);
+      }
+      return false;
     } finally {
       finishInFlightRef.current = false;
       setSaving(false);
       setFinishingRuntime(false);
+    }
+  };
+
+  const handleFirstContextRouteChange = (route: FirstContextRoute) => {
+    setFirstContextStoryError(null);
+    updateFirstContextProgress({ route });
+  };
+
+  const handleFirstContextQuestionChange = () => {
+    setFirstContextStoryError(null);
+    updateFirstContextProgress((progress) => {
+      const currentIndex = FIRST_CONTEXT_QUESTION_IDS.indexOf(
+        progress.questionId,
+      );
+      const questionId =
+        FIRST_CONTEXT_QUESTION_IDS[
+          (currentIndex + 1) % FIRST_CONTEXT_QUESTION_IDS.length
+        ];
+      return { ...progress, questionId, turnId: null, messageId: null };
+    });
+  };
+
+  const handleFirstContextStoryDraftChange = (draft: string) => {
+    setFirstContextStoryError(null);
+    updateFirstContextProgress({ draft, turnId: null, messageId: null });
+  };
+
+  const handleFirstContextStorySubmit = async () => {
+    if (firstContextStorySubmitInFlightRef.current) {
+      return;
+    }
+
+    const initialProgress = firstContextProgressRef.current;
+    const message = initialProgress.draft.trim();
+    if (!message) {
+      setFirstContextStoryError(t("firstContext.story.errors.empty"));
+      return;
+    }
+
+    firstContextStorySubmitInFlightRef.current = true;
+    setFirstContextStorySubmitting(true);
+    setFirstContextStoryError(null);
+
+    try {
+      let progress = firstContextProgressRef.current;
+
+      if (!progress.submitted) {
+        const runtimeSnapshot = await waitForRuntimeReadyAfterOnboarding();
+        if (!runtimeSnapshot?.runtime_ready) {
+          setFirstContextStoryError(
+            t("firstContext.story.errors.runtimeNotReady"),
+          );
+          return;
+        }
+      }
+
+      let sessionId = String(progress.sessionId || "").trim();
+      if (!sessionId) {
+        sessionId = createFirstContextSessionId();
+        progress = updateFirstContextProgress({ sessionId });
+        let created: Awaited<ReturnType<typeof messagesApi.createNewSession>>;
+        try {
+          created = await messagesApi.createNewSession(
+            DEFAULT_USER_ID,
+            sessionId,
+          );
+        } catch {
+          setFirstContextStoryError(
+            t("firstContext.story.errors.sessionFailed"),
+          );
+          return;
+        }
+        const createdSessionId = String(created.session_id || "").trim();
+        if (
+          !created.success ||
+          !createdSessionId ||
+          createdSessionId !== sessionId
+        ) {
+          setFirstContextStoryError(
+            t("firstContext.story.errors.sessionFailed"),
+          );
+          return;
+        }
+      }
+
+      let turnId = String(progress.turnId || "").trim();
+      if (!turnId) {
+        turnId = createClientTurnId();
+        progress = updateFirstContextProgress({ turnId });
+      }
+
+      if (!progress.submitted) {
+        progress = updateFirstContextProgress({ sendUncertain: true });
+        const questionText = t(
+          `firstContext.story.questions.${progress.questionId}`,
+        );
+        let sendErrorMessage = t("firstContext.story.errors.sendFailed");
+        let sendAccepted = false;
+        let acceptedMessageId: string | null = null;
+
+        try {
+          const response = await messagesApi.sendMessage({
+            user_id: DEFAULT_USER_ID,
+            session_id: sessionId,
+            message,
+            client_turn_id: turnId,
+            interaction_kind: "first_context_story",
+            first_context: {
+              question_id: progress.questionId,
+              question_text: questionText,
+            },
+          });
+          acceptedMessageId = String(response.data?.message_id || "").trim() || null;
+          sendAccepted = response.success === true && acceptedMessageId !== null;
+          if (response.success === true && !acceptedMessageId) {
+            sendErrorMessage = t(
+              "firstContext.story.errors.confirmationUnavailable",
+            );
+          } else if (!sendAccepted && !acceptedMessageId) {
+            progress = updateFirstContextProgress({ sendUncertain: false });
+          } else if (!sendAccepted && acceptedMessageId) {
+            sendErrorMessage = t(
+              "firstContext.story.errors.confirmationUnavailable",
+            );
+            progress = updateFirstContextProgress({ messageId: acceptedMessageId });
+          }
+        } catch {
+          sendErrorMessage = t(
+            "firstContext.story.errors.confirmationUnavailable",
+          );
+        }
+
+        if (!sendAccepted) {
+          setFirstContextStoryError(sendErrorMessage);
+          return;
+        }
+
+        progress = updateFirstContextProgress({
+          messageId: acceptedMessageId,
+          submitted: true,
+          sendUncertain: false,
+        });
+      }
+
+      showFirstContextMessageInChat(
+        sessionId,
+        turnId,
+        message,
+        progress.messageId,
+      );
+
+      await handleFinish({
+        destination: "/chat",
+        sessionId,
+        onError: setFirstContextStoryError,
+      });
+    } catch {
+      setFirstContextStoryError(t("firstContext.story.errors.sendFailed"));
+    } finally {
+      firstContextStorySubmitInFlightRef.current = false;
+      if (mountedRef.current) {
+        setFirstContextStorySubmitting(false);
+      }
+    }
+  };
+
+  const handleFirstContextContinueWithoutConfirmation = async () => {
+    if (firstContextStorySubmitInFlightRef.current) {
+      return;
+    }
+    const progress = firstContextProgressRef.current;
+    if (!progress.sendUncertain) {
+      return;
+    }
+    firstContextStorySubmitInFlightRef.current = true;
+    setFirstContextStorySubmitting(true);
+    setFirstContextStoryError(null);
+    try {
+      const sessionId = String(progress.sessionId || "").trim();
+      const turnId = String(progress.turnId || "").trim();
+      if (sessionId && turnId && progress.messageId && progress.draft.trim()) {
+        showFirstContextMessageInChat(
+          sessionId,
+          turnId,
+          progress.draft.trim(),
+          progress.messageId,
+        );
+      }
+      await handleFinish({
+        destination: "/chat",
+        sessionId,
+        onError: setFirstContextStoryError,
+      });
+    } finally {
+      firstContextStorySubmitInFlightRef.current = false;
+      if (mountedRef.current) {
+        setFirstContextStorySubmitting(false);
+      }
     }
   };
 
@@ -1039,6 +1421,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       return (
         <FirstContextStep
           llmConfig={llmValue}
+          route={firstContextProgress.route}
+          questionId={firstContextProgress.questionId}
+          storyDraft={firstContextProgress.draft}
+          storySubmitting={firstContextStorySubmitting}
+          storyLocked={
+            firstContextProgress.submitted ||
+            firstContextProgress.sendUncertain
+          }
+          storySubmitted={firstContextProgress.submitted}
+          storyError={firstContextStoryError}
+          onRouteChange={handleFirstContextRouteChange}
+          onQuestionChange={handleFirstContextQuestionChange}
+          onStoryDraftChange={handleFirstContextStoryDraftChange}
+          onStorySubmit={() => void handleFirstContextStorySubmit()}
+          onStoryContinueWithoutConfirmation={() =>
+            void handleFirstContextContinueWithoutConfirmation()
+          }
           installableItems={installableItems}
           installableCatalogMode={installableCatalogMode}
           installableLoading={installableLoading}
@@ -1125,6 +1524,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   onClick={handlePrev}
                   disabled={
                     saving ||
+                    firstContextStorySubmitting ||
+                    (current === FIRST_CONTEXT_STEP &&
+                      (firstContextProgress.submitted ||
+                        firstContextProgress.sendUncertain)) ||
                     llmConnectionConfigPending ||
                     (current === PERSONA_STEP &&
                       (personaGenerating || personaConfirming))
@@ -1139,6 +1542,10 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
                   onClick={handleNext}
                   disabled={
                     saving ||
+                    firstContextStorySubmitting ||
+                    (current === FIRST_CONTEXT_STEP &&
+                      (firstContextProgress.submitted ||
+                        firstContextProgress.sendUncertain)) ||
                     llmConnectionConfigPending ||
                     llmConnectionTestState.loading ||
                     (current === LLM_SETUP_STEP && !llmValid) ||

@@ -19,6 +19,7 @@ from ....agent.turn_input import UserTurnInput
 from ....context.scenarios import Scenario
 from .... import i18n as core_i18n
 from ....core.logger import get_logger
+from ....events.first_context import build_first_context_runtime_guidance
 from ....llm.cancellable_client import CancellationRaised, RetractRaised
 from ....llm.model_context import ModelContextProfile
 from ..common import (
@@ -176,6 +177,15 @@ class DirectLLMHandler(BaseExecutionHandler):
         )
         if recall_feedback_prompt:
             effective_system_prompt = f"{effective_system_prompt}\n\n{recall_feedback_prompt}"
+        latest_payload = getattr(request.context, "latest_payload", None)
+        first_context_guidance = build_first_context_runtime_guidance(
+            {
+                "interaction_kind": getattr(latest_payload, "interaction_kind", None),
+                "first_context": getattr(latest_payload, "first_context", None),
+            }
+        )
+        if first_context_guidance:
+            effective_system_prompt = f"{effective_system_prompt}\n\n{first_context_guidance}"
         context_budget = self._current_context_budget()
         history_budget = max(
             1,

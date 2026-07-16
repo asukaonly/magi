@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+import time
 from typing import AsyncIterator, Iterator
 
 import aiosqlite
@@ -30,6 +31,11 @@ SQLITE_PROFILES: dict[str, SqliteProfile] = {
     "readonly": DEFAULT_SQLITE_PROFILE,
 }
 
+_JOURNAL_MODE_MAX_ATTEMPTS = 6
+_JOURNAL_MODE_RETRY_BASE_SECONDS = 0.01
+_JOURNAL_MODE_RETRY_BUDGET_SECONDS = 1.0
+_JOURNAL_MODE_BUSY_TIMEOUT_MS = 250
+
 
 def get_sqlite_profile(profile: str | SqliteProfile = "default") -> SqliteProfile:
     """Resolve a named SQLite profile."""
@@ -39,6 +45,51 @@ def get_sqlite_profile(profile: str | SqliteProfile = "default") -> SqliteProfil
         return SQLITE_PROFILES[profile]
     except KeyError as exc:
         raise ValueError(f"Unknown SQLite profile: {profile}") from exc
+
+
+def _is_sqlite_lock_error(exc: sqlite3.OperationalError) -> bool:
+    message = str(exc).lower()
+    return "locked" in message or "busy" in message
+
+
+def _journal_mode_retry_delay(attempt: int) -> float:
+    return _JOURNAL_MODE_RETRY_BASE_SECONDS * (2**attempt)
+
+
+async def _configure_async_journal_mode(
+    db: aiosqlite.Connection,
+    journal_mode: str,
+) -> None:
+    retry_deadline = time.monotonic() + _JOURNAL_MODE_RETRY_BUDGET_SECONDS
+    for attempt in range(_JOURNAL_MODE_MAX_ATTEMPTS):
+        try:
+            await db.execute(f"PRAGMA journal_mode={journal_mode}")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_error(exc) or attempt == _JOURNAL_MODE_MAX_ATTEMPTS - 1:
+                raise
+            delay = _journal_mode_retry_delay(attempt)
+            if time.monotonic() + delay >= retry_deadline:
+                raise
+            await asyncio.sleep(delay)
+
+
+def _configure_sync_journal_mode(
+    cursor: sqlite3.Cursor,
+    journal_mode: str,
+) -> None:
+    retry_deadline = time.monotonic() + _JOURNAL_MODE_RETRY_BUDGET_SECONDS
+    for attempt in range(_JOURNAL_MODE_MAX_ATTEMPTS):
+        try:
+            cursor.execute(f"PRAGMA journal_mode={journal_mode}")
+            return
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_error(exc) or attempt == _JOURNAL_MODE_MAX_ATTEMPTS - 1:
+                raise
+            delay = _journal_mode_retry_delay(attempt)
+            if time.monotonic() + delay >= retry_deadline:
+                raise
+            time.sleep(delay)
 
 
 async def configure_aiosqlite(
@@ -51,10 +102,15 @@ async def configure_aiosqlite(
     resolved = get_sqlite_profile(profile)
     if use_row_factory:
         db.row_factory = aiosqlite.Row
-    await db.execute(f"PRAGMA journal_mode={resolved.journal_mode}")
+    configuration_timeout_ms = min(
+        max(0, int(resolved.busy_timeout_ms)),
+        _JOURNAL_MODE_BUSY_TIMEOUT_MS,
+    )
+    await db.execute(f"PRAGMA busy_timeout = {configuration_timeout_ms}")
+    await _configure_async_journal_mode(db, resolved.journal_mode)
     await db.execute(f"PRAGMA synchronous={resolved.synchronous}")
-    await db.execute(f"PRAGMA busy_timeout = {int(resolved.busy_timeout_ms)}")
     await db.execute(f"PRAGMA foreign_keys = {1 if resolved.foreign_keys else 0}")
+    await db.execute(f"PRAGMA busy_timeout = {int(resolved.busy_timeout_ms)}")
     return db
 
 
@@ -70,10 +126,15 @@ def configure_sqlite3(
         conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     try:
-        cursor.execute(f"PRAGMA journal_mode={resolved.journal_mode}")
+        configuration_timeout_ms = min(
+            max(0, int(resolved.busy_timeout_ms)),
+            _JOURNAL_MODE_BUSY_TIMEOUT_MS,
+        )
+        cursor.execute(f"PRAGMA busy_timeout = {configuration_timeout_ms}")
+        _configure_sync_journal_mode(cursor, resolved.journal_mode)
         cursor.execute(f"PRAGMA synchronous={resolved.synchronous}")
-        cursor.execute(f"PRAGMA busy_timeout = {int(resolved.busy_timeout_ms)}")
         cursor.execute(f"PRAGMA foreign_keys = {1 if resolved.foreign_keys else 0}")
+        cursor.execute(f"PRAGMA busy_timeout = {int(resolved.busy_timeout_ms)}")
     finally:
         cursor.close()
     return conn
@@ -115,7 +176,11 @@ def connect_sqlite(
     expanded = Path(db_path).expanduser()
     expanded.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(expanded), timeout=timeout_seconds)
-    return configure_sqlite3(conn, profile=profile, use_row_factory=use_row_factory)
+    try:
+        return configure_sqlite3(conn, profile=profile, use_row_factory=use_row_factory)
+    except BaseException:
+        conn.close()
+        raise
 
 
 @asynccontextmanager

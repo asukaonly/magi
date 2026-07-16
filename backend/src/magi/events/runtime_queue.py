@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
 from collections.abc import AsyncIterator
@@ -28,14 +29,22 @@ STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
 
 _USER_MESSAGE_CLEAR_STATE_ID = 1
+DEFAULT_CLAIM_LEASE_SECONDS = 60.0
 
 
 class SQLiteRuntimeCommandQueue:
     """Persisted queue shared by API ingress and the lifecycle-owned runtime worker."""
 
-    def __init__(self, *, db_path: str = "~/.magi/runtime/message_queue.db", poll_interval_seconds: float = 0.1) -> None:
+    def __init__(
+        self,
+        *,
+        db_path: str = "~/.magi/runtime/message_queue.db",
+        poll_interval_seconds: float = 0.1,
+        claim_lease_seconds: float = DEFAULT_CLAIM_LEASE_SECONDS,
+    ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self.poll_interval_seconds = poll_interval_seconds
+        self.claim_lease_seconds = max(0.001, float(claim_lease_seconds))
         self._started = False
         # Serialize this instance's writes. Producer (enqueue) and consumer
         # (claim_next, run at a tight poll interval) share one instance in-process,
@@ -53,6 +62,7 @@ class SQLiteRuntimeCommandQueue:
         if self._started:
             return
         await self._initialize()
+        await self._recover_claimed_commands_after_restart()
         await self._ensure_user_message_generation_loaded()
         self._started = True
 
@@ -112,7 +122,17 @@ class SQLiteRuntimeCommandQueue:
         user_message_generation: int = 0,
     ) -> int:
         await self._initialize()
+        payload_json = json.dumps(payload, ensure_ascii=False)
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            if command_type is RuntimeCommandType.USER_MESSAGE:
+                return await self._enqueue_user_message_once(
+                    db,
+                    payload=payload,
+                    payload_json=payload_json,
+                    correlation_id=correlation_id,
+                    created_at=created_at,
+                    user_message_generation=user_message_generation,
+                )
             cursor = await db.execute(
                 """
                 INSERT INTO runtime_commands (
@@ -128,7 +148,7 @@ class SQLiteRuntimeCommandQueue:
                 """,
                 (
                     command_type.value,
-                    json.dumps(payload, ensure_ascii=False),
+                    payload_json,
                     correlation_id,
                     STATUS_PENDING,
                     int(user_message_generation),
@@ -136,8 +156,144 @@ class SQLiteRuntimeCommandQueue:
                     float(created_at),
                 ),
             )
+            command_id = int(cursor.lastrowid or 0)
             await db.commit()
-            return int(cursor.lastrowid)
+            return command_id
+
+    async def _enqueue_user_message_once(
+        self,
+        db,
+        *,
+        payload: dict[str, object],
+        payload_json: str,
+        correlation_id: str,
+        created_at: float,
+        user_message_generation: int,
+    ) -> int:
+        payload_fingerprint = _payload_fingerprint(payload)
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = await db.execute(
+                """
+                SELECT receipt.payload_fingerprint,
+                       receipt.first_command_id,
+                       receipt.delivery_status,
+                       command.status
+                FROM runtime_user_message_idempotency AS receipt
+                LEFT JOIN runtime_commands AS command
+                  ON command.command_id = receipt.first_command_id
+                WHERE receipt.correlation_id = ?
+                """,
+                (correlation_id,),
+            )
+            existing = await cursor.fetchone()
+            if existing is not None:
+                if str(existing[0]) != payload_fingerprint:
+                    raise ValueError("User-message correlation id was reused for different input")
+                receipt_status = str(existing[2] or "open")
+                command_status = str(existing[3] or "")
+                if receipt_status == "completed" or command_status == STATUS_COMPLETED:
+                    if receipt_status != "completed":
+                        await db.execute(
+                            """
+                            UPDATE runtime_user_message_idempotency
+                            SET delivery_status = 'completed'
+                            WHERE correlation_id = ?
+                            """,
+                            (correlation_id,),
+                        )
+                    await db.commit()
+                    return int(existing[1])
+                if receipt_status not in {"failed"} and command_status in {
+                    STATUS_PENDING,
+                    STATUS_CLAIMED,
+                }:
+                    await db.commit()
+                    return int(existing[1])
+
+                command_id = await self._insert_user_message_command_row(
+                    db,
+                    payload_json=payload_json,
+                    correlation_id=correlation_id,
+                    created_at=created_at,
+                    user_message_generation=user_message_generation,
+                )
+                await db.execute(
+                    """
+                    UPDATE runtime_user_message_idempotency
+                    SET first_command_id = ?,
+                        delivery_status = 'open',
+                        created_at = ?
+                    WHERE correlation_id = ?
+                    """,
+                    (command_id, float(created_at), correlation_id),
+                )
+                await db.commit()
+                return command_id
+
+            command_id = await self._insert_user_message_command_row(
+                db,
+                payload_json=payload_json,
+                correlation_id=correlation_id,
+                created_at=created_at,
+                user_message_generation=user_message_generation,
+            )
+            await db.execute(
+                """
+                INSERT INTO runtime_user_message_idempotency (
+                    correlation_id,
+                    payload_fingerprint,
+                    first_command_id,
+                    delivery_status,
+                    created_at
+                ) VALUES (?, ?, ?, 'open', ?)
+                """,
+                (
+                    correlation_id,
+                    payload_fingerprint,
+                    command_id,
+                    float(created_at),
+                ),
+            )
+            await db.commit()
+            return command_id
+        except BaseException:
+            await db.rollback()
+            raise
+
+    @staticmethod
+    async def _insert_user_message_command_row(
+        db,
+        *,
+        payload_json: str,
+        correlation_id: str,
+        created_at: float,
+        user_message_generation: int,
+    ) -> int:
+        cursor = await db.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type,
+                payload_json,
+                correlation_id,
+                status,
+                retry_count,
+                user_message_generation,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+            """,
+            (
+                RuntimeCommandType.USER_MESSAGE.value,
+                payload_json,
+                correlation_id,
+                STATUS_PENDING,
+                int(user_message_generation),
+                float(created_at),
+                float(created_at),
+            ),
+        )
+        return int(cursor.lastrowid or 0)
 
     async def claim_next(
         self,
@@ -153,32 +309,56 @@ class SQLiteRuntimeCommandQueue:
         placeholders = ", ".join("?" for _ in allowed_types)
         now = time.time()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"""
-                UPDATE runtime_commands
-                SET status = ?, claimed_by = ?, claimed_at = ?, updated_at = ?
-                WHERE command_id = (
-                    SELECT command_id
-                    FROM runtime_commands
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.execute(
+                    """
+                    UPDATE runtime_commands
+                    SET status = ?,
+                        retry_count = retry_count + 1,
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        last_error = 'CLAIM_LEASE_EXPIRED',
+                        updated_at = ?
                     WHERE status = ?
-                      AND command_type IN ({placeholders})
-                    ORDER BY created_at ASC
-                    LIMIT 1
+                      AND (claimed_at IS NULL OR claimed_at < ?)
+                    """,
+                    (
+                        STATUS_PENDING,
+                        now,
+                        STATUS_CLAIMED,
+                        now - self.claim_lease_seconds,
+                    ),
                 )
-                RETURNING command_id, command_type, payload_json, correlation_id,
-                          retry_count, user_message_generation
-                """,
-                (
-                    STATUS_CLAIMED,
-                    consumer_name,
-                    now,
-                    now,
-                    STATUS_PENDING,
-                    *allowed_types,
-                ),
-            )
-            row = await cursor.fetchone()
-            await db.commit()
+                cursor = await db.execute(
+                    f"""
+                    UPDATE runtime_commands
+                    SET status = ?, claimed_by = ?, claimed_at = ?, updated_at = ?
+                    WHERE command_id = (
+                        SELECT command_id
+                        FROM runtime_commands
+                        WHERE status = ?
+                          AND command_type IN ({placeholders})
+                        ORDER BY created_at ASC
+                        LIMIT 1
+                    )
+                    RETURNING command_id, command_type, payload_json, correlation_id,
+                              retry_count, user_message_generation
+                    """,
+                    (
+                        STATUS_CLAIMED,
+                        consumer_name,
+                        now,
+                        now,
+                        STATUS_PENDING,
+                        *allowed_types,
+                    ),
+                )
+                row = await cursor.fetchone()
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
 
         if row is None:
             return None
@@ -224,9 +404,7 @@ class SQLiteRuntimeCommandQueue:
         """Advance the clear generation and remove every older user-message payload."""
         task = asyncio.current_task()
         if task is None or task is not self._user_message_clear_owner:
-            raise RuntimeError(
-                "User-message generation can only advance inside its clear boundary"
-            )
+            raise RuntimeError("User-message generation can only advance inside its clear boundary")
         await self._ensure_user_message_generation_loaded()
         now = time.time()
         async with self._write_lock, sqlite_connection_async(self.db_path) as db:
@@ -260,6 +438,7 @@ class SQLiteRuntimeCommandQueue:
                     (RuntimeCommandType.USER_MESSAGE.value,),
                 )
                 purged_count = int(cursor.rowcount or 0)
+                await db.execute("DELETE FROM runtime_user_message_idempotency")
                 await db.commit()
             except BaseException:
                 await db.rollback()
@@ -285,6 +464,14 @@ class SQLiteRuntimeCommandQueue:
                 WHERE command_id = ?
                 """,
                 (STATUS_PENDING, error_text, time.time(), command_id),
+            )
+            await db.execute(
+                """
+                UPDATE runtime_user_message_idempotency
+                SET delivery_status = 'open'
+                WHERE first_command_id = ?
+                """,
+                (command_id,),
             )
             await db.commit()
 
@@ -313,6 +500,32 @@ class SQLiteRuntimeCommandQueue:
 
     async def _initialize(self) -> None:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+    async def _recover_claimed_commands_after_restart(self) -> int:
+        """Return prior-process claims to pending before this worker starts."""
+        now = time.time()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE runtime_commands
+                    SET status = ?,
+                        retry_count = retry_count + 1,
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        last_error = 'PROCESS_RESTART_RECOVERY',
+                        updated_at = ?
+                    WHERE status = ?
+                    """,
+                    (STATUS_PENDING, now, STATUS_CLAIMED),
+                )
+                recovered = int(cursor.rowcount or 0)
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return recovered
 
     async def _ensure_user_message_generation_loaded(self) -> None:
         if self._user_message_generation is not None:
@@ -348,4 +561,23 @@ class SQLiteRuntimeCommandQueue:
                 """,
                 (status, int(clear_claim), int(clear_claim), time.time(), command_id),
             )
+            if status == STATUS_COMPLETED:
+                await db.execute(
+                    """
+                    UPDATE runtime_user_message_idempotency
+                    SET delivery_status = 'completed'
+                    WHERE first_command_id = ?
+                    """,
+                    (command_id,),
+                )
             await db.commit()
+
+
+def _payload_fingerprint(payload: dict[str, object]) -> str:
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

@@ -13,6 +13,7 @@ from magi.agent.trace import (
 )
 from magi.chat import ChatProjector, ChatStore
 from magi.events.events import EventTypes
+from magi.events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from magi.runtime_trace import (
     RuntimeTraceStore,
 )
@@ -392,7 +393,13 @@ class ChatPostProcessService:
         )
         prepared.history_stored = True
         prepared.user_message = user_message
-        if user_message:
+        is_first_context_story = (
+            str(getattr(context.latest_payload, "interaction_kind", "") or "")
+            .strip()
+            .lower()
+            == FIRST_CONTEXT_STORY_INTERACTION_KIND
+        )
+        if user_message and not is_first_context_story:
             self._schedule_background_memory_updates(
                 user_id=context.user_id,
                 user_message=user_message,

@@ -89,6 +89,7 @@ class L2BatchEvent:
     source: str = "unknown"
     event_type: str = ""
     author_type: str = "user"
+    metadata_json: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "L2BatchEvent":
@@ -101,6 +102,11 @@ class L2BatchEvent:
             source=payload.get("source", "unknown"),
             event_type=payload.get("event_type", ""),
             author_type=payload.get("author_type", "user"),
+            metadata_json=(
+                dict(payload.get("metadata_json") or {})
+                if isinstance(payload.get("metadata_json"), dict)
+                else {}
+            ),
         )
 
     def __post_init__(self) -> None:
@@ -112,6 +118,9 @@ class L2BatchEvent:
         self.source = _optional_text(self.source) or "unknown"
         self.event_type = _optional_text(self.event_type) or ""
         self.author_type = _optional_text(self.author_type) or "user"
+        self.metadata_json = (
+            dict(self.metadata_json) if isinstance(self.metadata_json, dict) else {}
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

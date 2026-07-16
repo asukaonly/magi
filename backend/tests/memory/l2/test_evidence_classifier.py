@@ -325,7 +325,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     which ``normalize_runtime_event`` already sets correctly for plugin
     emitters regardless of the exact source label.
     """
-    from magi.events.events import Event, EventLevel, EventTypes
+    from magi.events.events import Event, EventLevel
     from magi.memory.evidence import classify_event_evidence
 
     event = Event(
@@ -342,7 +342,7 @@ def test_classifier_external_plugin_source_classifies_as_external_observation():
     assert classification.reason_code == "external_source"
 
 
-def test_classifier_evidence_rule_version_is_three():
+def test_classifier_evidence_rule_version_is_four():
     """Bumping EVIDENCE_RULE_VERSION triggers stale-row backfill.
 
     The version is part of the L1 backfill contract: any rule semantics
@@ -350,7 +350,7 @@ def test_classifier_evidence_rule_version_is_three():
     """
     from magi.memory.evidence import EVIDENCE_RULE_VERSION
 
-    assert EVIDENCE_RULE_VERSION == 3
+    assert EVIDENCE_RULE_VERSION == 4
 
 
 @pytest.mark.parametrize(
@@ -436,3 +436,75 @@ def test_classifier_speech_act_boundaries(message, expected):
         normalize_runtime_event(_build_user_message(message=message))
     )
     assert classification.evidence_class == expected, f"{message!r} -> {classification.evidence_class}"
+
+
+def _classify_first_context(message: str):
+    from magi.memory.evidence import classify_event_evidence
+
+    event = normalize_runtime_event(_build_user_message(message=message))
+    event.metadata_json = {
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+    return classify_event_evidence(event)
+
+
+def test_first_context_mixed_self_report_and_question_keeps_self_report_evidence():
+    classification = _classify_first_context("我最近失恋了，你能陪我聊聊吗？")
+
+    assert classification.evidence_class == "user_self_report"
+    assert classification.reason_code == "first_context_story_with_self_report"
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "最近总在听周杰伦，你喜欢吗？",
+        "还行，你呢？",
+    ],
+)
+def test_first_context_answer_clause_wins_over_trailing_question(message):
+    classification = _classify_first_context(message)
+
+    assert classification.evidence_class == "user_self_report"
+    assert classification.reason_code == "first_context_story_with_self_report"
+
+
+def test_first_context_pure_question_stays_conversation_only():
+    from magi.memory.evidence import resolve_l2_policy
+
+    classification = _classify_first_context("你能陪我聊聊吗？")
+    policy = resolve_l2_policy(classification)
+
+    assert classification.evidence_class == "user_question"
+    assert policy.allow_graph_write is False
+    assert policy.allow_assertion_write is False
+
+
+def test_first_context_identity_question_stays_conversation_only():
+    from magi.memory.evidence import resolve_l2_policy
+
+    classification = _classify_first_context("你是谁？")
+    policy = resolve_l2_policy(classification)
+
+    assert classification.evidence_class == "user_question"
+    assert policy.allow_graph_write is False
+    assert policy.allow_assertion_write is False
+
+
+@pytest.mark.parametrize("message", ["123", "asdf", "qwerty", "随便"])
+def test_first_context_low_signal_input_cannot_write_l2(message):
+    from magi.memory.evidence import resolve_l2_policy
+
+    classification = _classify_first_context(message)
+    policy = resolve_l2_policy(classification)
+
+    assert classification.evidence_class == "user_request"
+    assert classification.reason_code == "first_context_story_low_signal"
+    assert policy.l1_retrieval_scope == "conversation_only"
+    assert policy.allow_entity_extraction is False
+    assert policy.allow_graph_write is False
+    assert policy.allow_assertion_write is False

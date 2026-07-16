@@ -27,9 +27,11 @@ const { i18nMock, localStorageMock, navigateMock, streamChatPreviewMock } =
 
 import { apiClient } from "@/api/client";
 import { configApi, DEFAULT_SYSTEM_CONFIG } from "@/api/modules/config";
+import { messagesApi } from "@/api/modules/messages";
 import { personasApi } from "@/api/modules/personas";
 import * as systemSuggestions from "@/api/modules/systemSuggestions";
 import OnboardingFlow from "@/components/onboarding/OnboardingFlow";
+import { useConversationStore } from "@/stores/conversation-store";
 import { usePluginInstallPanelStore } from "@/stores/pluginInstallPanel";
 
 vi.mock("react-i18next", () => ({
@@ -218,6 +220,22 @@ async function enterPersonaStep(
   await screen.findByRole("button", { name: /Ember/i });
 }
 
+async function enterFirstContextStep(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await enterPersonaStep(user);
+  await user.click(screen.getByRole("button", { name: /Ember/i }));
+  await user.click(screen.getByRole("button", { name: "actions.next" }));
+  await screen.findByTestId("first-context-route-chooser");
+}
+
+async function openFirstContextActivity(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> {
+  await user.click(screen.getByTestId("first-context-route-activity"));
+  await screen.findByTestId("first-context-activity-route");
+}
+
 describe("OnboardingFlow (linear 5-step)", () => {
   let originalUpdateLanguagePreference: unknown;
   let originalUpdateOnboardingDraft: unknown;
@@ -334,6 +352,33 @@ describe("OnboardingFlow (linear 5-step)", () => {
         },
       },
     } as any);
+    vi.spyOn(messagesApi, "createNewSession").mockImplementation(
+      async (userId, clientSessionId) => ({
+        success: true,
+        user_id: userId || "local_user",
+        session_id: clientSessionId || "first-context-session",
+      }),
+    );
+    vi.spyOn(messagesApi, "sendMessage").mockImplementation(
+      async (request) => ({
+        success: true,
+        message: "accepted",
+        data: {
+          message_id: "first-context-message",
+          user_id: request.user_id || "local_user",
+          session_id: request.session_id,
+          turn_id: request.client_turn_id,
+          message_length: request.message.length,
+          timestamp: 1,
+        },
+      }),
+    );
+    vi.spyOn(messagesApi, "getHistory").mockResolvedValue({
+      user_id: "local_user",
+      session_id: "first-context-session",
+      messages: [],
+      count: 0,
+    });
   });
 
   afterEach(() => {
@@ -353,6 +398,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     localStorageMock.setItem.mockClear();
     localStorageMock.removeItem.mockClear();
     navigateMock.mockReset();
+    useConversationStore.getState().reset();
     usePluginInstallPanelStore.getState().closePanel();
   });
 
@@ -512,6 +558,16 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     // Step 3: First context — this is a real step now, not a footer on completion.
     expect(await screen.findByText("firstContext.title")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("first-context-route-question"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("first-context-route-activity"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("empty-state-connect-chrome-history"),
+    ).not.toBeInTheDocument();
+    await openFirstContextActivity(user);
     expect(screen.getByTestId("first-context-scope-note")).toHaveTextContent(
       "firstContext.scopeHint",
     );
@@ -554,6 +610,457 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       screen.queryByText(/quick mode|快速模式|expert mode|专家模式/i),
     ).toBeNull();
+  });
+
+  it("offers equal question and activity routes without showing sources first", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+
+    const questionRoute = screen.getByTestId("first-context-route-question");
+    const activityRoute = screen.getByTestId("first-context-route-activity");
+    expect(questionRoute).toHaveClass("min-h-36");
+    expect(activityRoute).toHaveClass("min-h-36");
+    expect(
+      screen.queryByTestId("empty-state-connect-chrome-history"),
+    ).not.toBeInTheDocument();
+
+    await user.click(questionRoute);
+    const input = await screen.findByTestId("first-context-story-input");
+    expect(
+      screen.getByTestId("first-context-question-recent_feeling"),
+    ).toHaveTextContent("firstContext.story.questions.recent_feeling");
+    expect(input).toHaveAttribute(
+      "aria-describedby",
+      expect.stringContaining("first-context-story-question"),
+    );
+
+    await user.type(input, "最近重新开始听一张旧专辑");
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
+    );
+    expect(
+      screen.getByTestId("first-context-question-repeating_content"),
+    ).toHaveTextContent("firstContext.story.questions.repeating_content");
+    expect(input).toHaveValue("最近重新开始听一张旧专辑");
+
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.routes.back" }),
+    );
+    await user.click(screen.getByTestId("first-context-route-question"));
+    expect(await screen.findByTestId("first-context-story-input")).toHaveValue(
+      "最近重新开始听一张旧专辑",
+    );
+    expect(
+      screen.getByTestId("first-context-question-repeating_content"),
+    ).toBeInTheDocument();
+
+    const progressWrites = localStorageMock.setItem.mock.calls.filter(
+      ([key]) => key === "magi_onboarding_state",
+    );
+    const persisted = JSON.parse(
+      progressWrites[progressWrites.length - 1]?.[1] || "{}",
+    );
+    expect(persisted.firstContextProgress).toEqual(
+      expect.objectContaining({
+        route: "question",
+        questionId: "repeating_content",
+        draft: "最近重新开始听一张旧专辑",
+      }),
+    );
+  });
+
+  it("keeps an empty everyday answer on the page instead of creating a chat", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.empty",
+    );
+    expect(messagesApi.createNewSession).not.toHaveBeenCalled();
+    expect(messagesApi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("reuses the same session when the create response is lost", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(messagesApi.createNewSession).mockRejectedValueOnce(
+      new Error("response lost"),
+    );
+    vi.spyOn(configApi, "completeOnboarding").mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "刚才在楼下吹了一会儿风",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.sessionFailed",
+    );
+    const stableSessionId = vi.mocked(messagesApi.createNewSession).mock
+      .calls[0][1] as string;
+    expect(stableSessionId).toMatch(/^session_/);
+    expect(messagesApi.sendMessage).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
+    expect(messagesApi.createNewSession).toHaveBeenCalledTimes(1);
+    expect(messagesApi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: stableSessionId }),
+    );
+  });
+
+  it("sends the everyday answer as one real message and enters that same chat", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
+    );
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "最近总在反复听同一首歌",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
+    expect(messagesApi.createNewSession).toHaveBeenCalledWith(
+      "local_user",
+      expect.stringMatching(/^session_/),
+    );
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(messagesApi.sendMessage).mock.calls[0][0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        user_id: "local_user",
+        session_id: expect.stringMatching(/^session_/),
+        message: "最近总在反复听同一首歌",
+        client_turn_id: expect.stringMatching(/^turn_/),
+        interaction_kind: "first_context_story",
+        first_context: {
+          question_id: "repeating_content",
+          question_text: "firstContext.story.questions.repeating_content",
+        },
+      }),
+    );
+    expect(request.metadata).toBeUndefined();
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(messagesApi.sendMessage).mock.invocationCallOrder[0],
+    ).toBeLessThan(completeOnboarding.mock.invocationCallOrder[0]);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      "chat_session_local_user",
+      request.session_id,
+    );
+    expect(localStorageMock.removeItem).toHaveBeenCalledWith(
+      "magi_onboarding_state",
+    );
+    expect(
+      screen.queryByRole("button", { name: "actions.enterApp" }),
+    ).not.toBeInTheDocument();
+    expect(
+      useConversationStore.getState().messagesBySession[
+        request.session_id
+      ],
+    ).toEqual([
+      expect.objectContaining({
+        role: "user",
+        content: "最近总在反复听同一首歌",
+        messageId: "first-context-message",
+        turnId: request.client_turn_id,
+      }),
+    ]);
+  });
+
+  it("retries an uncertain answer with the same turn without trusting history alone", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(messagesApi.sendMessage).mockRejectedValueOnce(
+      new Error("response lost"),
+    );
+    vi.spyOn(configApi, "completeOnboarding").mockResolvedValue({
+      success: true,
+      message: "ok",
+      data: DEFAULT_SYSTEM_CONFIG,
+    } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "今天午后的阳光很好",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.confirmationUnavailable",
+    );
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("first-context-story-input")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "firstContext.routes.back" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "actions.previous" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "actions.skipContext" }),
+    ).toBeDisabled();
+    expect(screen.getByTestId("first-context-story-submit")).toBeEnabled();
+    expect(
+      screen.getByTestId(
+        "first-context-story-continue-without-confirmation",
+      ),
+    ).toBeEnabled();
+    const turnId = vi.mocked(messagesApi.sendMessage).mock.calls[0][0]
+      .client_turn_id as string;
+    await user.click(screen.getByTestId("first-context-story-submit"));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
+    expect(messagesApi.getHistory).not.toHaveBeenCalled();
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(2);
+    expect(
+      vi.mocked(messagesApi.sendMessage).mock.calls[1][0].client_turn_id,
+    ).toBe(turnId);
+  });
+
+  it("keeps the answer uncertain when the response has no message identity", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(messagesApi.sendMessage).mockResolvedValueOnce({
+      success: true,
+      message: "accepted",
+      data: {
+        user_id: "local_user",
+        session_id: "first-context-session",
+        turn_id: "first-context-turn",
+        message_length: 8,
+        timestamp: 1,
+      },
+    });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "今晚循环听 MyGO",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.confirmationUnavailable",
+    );
+    expect(screen.getByTestId("first-context-story-input")).toBeDisabled();
+    expect(
+      screen.getByTestId(
+        "first-context-story-continue-without-confirmation",
+      ),
+    ).toBeEnabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("lets the user enter Magi when send confirmation remains unavailable", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(messagesApi.sendMessage).mockRejectedValueOnce(
+      new Error("response lost"),
+    );
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockResolvedValue({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "今天想慢一点",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    await user.click(
+      await screen.findByTestId(
+        "first-context-story-continue-without-confirmation",
+      ),
+    );
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(completeOnboarding).toHaveBeenCalledTimes(1);
+  });
+
+  it("unlocks a definitively rejected answer without exposing backend details", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    vi.mocked(messagesApi.sendMessage).mockResolvedValueOnce({
+      success: false,
+      message: "Runtime command enqueue failed",
+      data: {
+        user_id: "local_user",
+        session_id: "first-context-session",
+        turn_id: "first-context-turn",
+        message_length: 12,
+        timestamp: 1,
+      },
+    });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "最近晚饭后总想出去走一圈",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("firstContext.story.errors.sendFailed");
+    expect(error).not.toHaveTextContent("Runtime command enqueue failed");
+    expect(screen.getByTestId("first-context-story-input")).toBeEnabled();
+    expect(
+      screen.queryByTestId(
+        "first-context-story-continue-without-confirmation",
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retries onboarding completion without sending the answer twice", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+    const completeOnboarding = vi
+      .spyOn(configApi, "completeOnboarding")
+      .mockRejectedValueOnce(new Error("save unavailable"))
+      .mockResolvedValueOnce({
+        success: true,
+        message: "ok",
+        data: DEFAULT_SYSTEM_CONFIG,
+      } as any);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "最近下班后喜欢慢慢走回家",
+    );
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.finishFailed",
+    );
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("first-context-story-input")).toHaveValue(
+      "最近下班后喜欢慢慢走回家",
+    );
+    expect(screen.getByTestId("first-context-story-input")).toBeDisabled();
+    expect(screen.getByTestId("first-context-story-submit")).toHaveTextContent(
+      "firstContext.story.retryEntering",
+    );
+
+    await user.click(screen.getByTestId("first-context-story-submit"));
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
+    expect(completeOnboarding).toHaveBeenCalledTimes(2);
+    expect(messagesApi.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the draft when the runtime is not ready", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockReturnValue(null);
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await enterFirstContextStep(user);
+    await user.click(screen.getByTestId("first-context-route-question"));
+    await user.type(
+      screen.getByTestId("first-context-story-input"),
+      "今天什么都不想赶",
+    );
+    let simulatedNow = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => {
+      simulatedNow += 13_000;
+      return simulatedNow;
+    });
+    await user.click(screen.getByTestId("first-context-story-submit"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "firstContext.story.errors.runtimeNotReady",
+    );
+    expect(screen.getByTestId("first-context-story-input")).toHaveValue(
+      "今天什么都不想赶",
+    );
+    expect(screen.getByTestId("first-context-story-input")).toBeEnabled();
+    expect(messagesApi.createNewSession).not.toHaveBeenCalled();
+    expect(messagesApi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("restores the selected question and draft after model revalidation", async () => {
+    const user = userEvent.setup();
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key !== "magi_onboarding_state") {
+        return null;
+      }
+      return JSON.stringify({
+        current: 3,
+        values: DEFAULT_SYSTEM_CONFIG,
+        seedSlug: "ember",
+        firstContextProgress: {
+          route: "question",
+          questionId: "personal_time",
+          draft: "晚上洗完澡以后最像自己的时间",
+          sessionId: "restored-session",
+          turnId: "restored-turn",
+          submitted: false,
+          sendUncertain: false,
+        },
+      });
+    });
+
+    render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
+    await user.click(await screen.findByTestId("llm-setup-provider-openai"));
+    await user.type(screen.getByTestId("llm-setup-api-key"), "sk-test");
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+    await screen.findByRole("button", { name: /Ember/i });
+    await user.click(screen.getByRole("button", { name: "actions.next" }));
+
+    expect(
+      await screen.findByTestId("first-context-question-personal_time"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("first-context-story-input")).toHaveValue(
+      "晚上洗完澡以后最像自己的时间",
+    );
   });
 
   it("preserves the chosen persona after moving forward and back", async () => {
@@ -1058,6 +1565,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
     await screen.findByText("firstContext.title");
+    await openFirstContextActivity(user);
     await user.click(screen.getByTestId("empty-state-connect-chrome-history"));
 
     expect(openPanel).toHaveBeenCalledWith("chrome-history", expect.objectContaining({
@@ -1067,7 +1575,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       pluginIcon: "brand:googlechrome",
       pluginName: "Chrome 浏览器历史",
     }));
-    expect(screen.getByText("firstContext.title")).toBeInTheDocument();
+    expect(screen.getByText("firstContext.activity.title")).toBeInTheDocument();
 
     const onDone = openPanel.mock.calls[0]?.[1]?.onDone;
     onDone?.({ pluginId: "chrome-history", firstContextCount: 42 });
@@ -1142,6 +1650,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
+    await screen.findByText("firstContext.title");
+    await openFirstContextActivity(user);
     expect(await screen.findByText("emptyState.loadError")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "actions.skipContext" }),
@@ -1176,6 +1686,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
+    await screen.findByText("firstContext.title");
+    await openFirstContextActivity(user);
     expect(
       await screen.findByText("emptyState.marketplaceUnavailableTitle"),
     ).toBeInTheDocument();
@@ -1202,7 +1714,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
   });
 
-  it("repeats the missing-vector warning on the first-context step without blocking skip", async () => {
+  it("shows the missing-vector warning only inside the activity route", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -1224,11 +1736,21 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(screen.getByRole("button", { name: /Ember/i }));
     await user.click(screen.getByRole("button", { name: "actions.next" }));
 
-    const warning = await screen.findByTestId("first-context-memory-warning");
-    const title = screen.getByText("firstContext.title");
+    await screen.findByTestId("first-context-route-chooser");
     expect(
-      warning.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      screen.queryByTestId("first-context-memory-warning"),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("first-context-route-question"));
+    expect(
+      screen.queryByTestId("first-context-memory-warning"),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "firstContext.routes.back" }),
+    );
+    await openFirstContextActivity(user);
+    expect(
+      await screen.findByTestId("first-context-memory-warning"),
+    ).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "actions.skipContext" }),
     );

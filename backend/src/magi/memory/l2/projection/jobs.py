@@ -40,6 +40,11 @@ class L2ProjectionJobStoreMixin:
             max_wait_seconds=max_wait_seconds,
         )
 
+    async def has_projection_job(self, *, event_id: str) -> bool:
+        """Return whether an L1 event has reached the durable L2 queue."""
+        await self.initialize()
+        return await self._projection_queue.has_job(event_id=event_id)
+
     async def claim_ready_projection_jobs(
         self,
         *,

@@ -12,6 +12,19 @@ from .models import (
 )
 
 
+def event_allows_l2_projection(event) -> bool:
+    """Return whether the shared evidence policy permits an L2 write."""
+    from .classifier import classify_event_evidence
+
+    policy = resolve_l2_policy(classify_event_evidence(event))
+    return policy_allows_l2_projection(policy)
+
+
+def policy_allows_l2_projection(policy: PolicyDecision) -> bool:
+    """Return whether a resolved policy requires durable L2 projection."""
+    return bool(policy.allow_graph_write or policy.allow_assertion_write)
+
+
 def resolve_l2_policy(classification: EvidenceClassification) -> PolicyDecision:
     """Map an evidence class to a deterministic L2 write policy."""
 
@@ -162,4 +175,9 @@ _POLICY_MATRIX: dict[EvidenceClass, PolicyDecision] = {
 }
 
 
-__all__ = ["PolicyDecision", "resolve_l2_policy"]
+__all__ = [
+    "PolicyDecision",
+    "event_allows_l2_projection",
+    "policy_allows_l2_projection",
+    "resolve_l2_policy",
+]

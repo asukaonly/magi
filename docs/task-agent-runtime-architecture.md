@@ -362,6 +362,19 @@ Important rule: runtime notifications are best-effort live fan-out of already co
 
 Important rule: the runtime message bus is process-local to `runtime_worker`. It is not a durable cross-process broker and it does not own SQLite queue persistence.
 
+Important rule: runtime commands provide at-least-once handoff only from the
+persisted queue to a local message-bus publish. The queue makes one HTTP turn
+durable and retryable, but it cannot atomically commit an in-memory bus publish
+together with subscriber handling or arbitrary agent and tool side effects. A
+restart may replay a command that was published before its queue acknowledgement.
+Conversely, a process exit after queue acknowledgement but before an in-memory
+subscriber handles the event can lose that delivery. There is currently no
+durable agent inbox to close this gap. Chat consumers must converge on the
+existing stable turn and final-message records, and any consumer that performs
+an external side effect must provide its own idempotency keyed by the stable turn
+or message identity. This boundary must not be described as end-to-end durable
+delivery or exactly-once execution.
+
 ## Agent Runtime
 
 The L12 runtime lives under `backend/src/magi/agent/`.

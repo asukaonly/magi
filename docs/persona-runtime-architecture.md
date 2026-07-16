@@ -462,7 +462,7 @@ The UI should show staged generation feedback while the request is running throu
 
 Post-generation cleanup should correct deterministic quality issues before validation: remove accidental spaces between CJK characters, localize bootstrap fallbacks to the target language, clamp `trust_level_gte` unlock gates to the runtime's 0.0-1.0 trust scale, and fill broad dynamic-state rules when a module omits them. These cleanups are backstops, not a substitute for stage prompts; prompts should still ask for persona-specific triggers, target-language bootstrap copy, low-intensity ordinary baselines, and relationship-depth layers that use the correct trust scale.
 
-Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config.
+Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config. When the user starts the first real chat from onboarding by answering an ordinary-life question, that submitted turn consumes the same one-shot first-contact state; the chat page must not inject a second opening afterward.
 
 Onboarding persona preview prompts are also separate from the full chat runtime.
 They should remain lightweight and skip memory, tools, relationship depth,

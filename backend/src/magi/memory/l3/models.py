@@ -123,6 +123,7 @@ class TemporalEvidenceItem:
     timestamp: float | None = None
     memory_domain: str | None = None
     importance_score: float | None = None
+    interpretation_context: dict[str, str] | None = None
 
 
 @dataclass(slots=True)
@@ -178,6 +179,7 @@ class ThematicEvidenceItem:
     content: str
     timestamp: float | None = None
     importance_score: float | None = None
+    interpretation_context: dict[str, str] | None = None
 
 
 @dataclass(slots=True)

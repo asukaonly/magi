@@ -28,6 +28,11 @@ export interface UserMessageRequest {
   workspace_path?: string | null;
   client_turn_id?: string;
   recall_feedback?: RecallFeedbackRequest;
+  interaction_kind?: 'first_context_story';
+  first_context?: {
+    question_id: string;
+    question_text: string;
+  };
   metadata?: Record<string, any>;
 }
 
@@ -59,6 +64,7 @@ export interface ChatRunState {
 
 // Backend response data shape
 export interface MessageData {
+  message_id?: string | null;
   user_id: string;
   session_id?: string;
   turn_id?: string | null;
@@ -249,9 +255,15 @@ export const messagesApi = {
     return unwrapGatewayPayload<ClearHistoryResponse>(response);
   },
 
-  createNewSession: async (userId: string = DEFAULT_USER_ID): Promise<CreateSessionResponse> => {
+  createNewSession: async (
+    userId: string = DEFAULT_USER_ID,
+    clientSessionId?: string,
+  ): Promise<CreateSessionResponse> => {
     const response = await api.post<CreateSessionResponse>('/messages/session/new', null, {
-      params: { user_id: userId },
+      params: {
+        user_id: userId,
+        client_session_id: clientSessionId,
+      },
     });
     return unwrapGatewayPayload(response);
   },

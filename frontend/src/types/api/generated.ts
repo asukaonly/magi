@@ -4942,6 +4942,16 @@ export interface components {
             /** Title Hint */
             readonly title_hint?: string | null;
         };
+        /**
+         * FirstContextStoryRequestModel
+         * @description Reference to the question that the onboarding answer responds to.
+         */
+        readonly FirstContextStoryRequestModel: {
+            /** Question Id */
+            readonly question_id: string;
+            /** Question Text */
+            readonly question_text: string;
+        };
         /** ForgetEntityRequest */
         readonly ForgetEntityRequest: {
             /**
@@ -8432,6 +8442,13 @@ export interface components {
              * @description Optional client-generated turn id
              */
             readonly client_turn_id?: string | null;
+            /** @description Question context for a first-context answer */
+            readonly first_context?: components["schemas"]["FirstContextStoryRequestModel"] | null;
+            /**
+             * Interaction Kind
+             * @description Controlled interaction type for a first-context answer
+             */
+            readonly interaction_kind?: "first_context_story" | null;
             /**
              * Message
              * @description User message content
@@ -13646,6 +13663,7 @@ export interface operations {
         readonly parameters: {
             readonly query?: {
                 readonly user_id?: string;
+                readonly client_session_id?: string | null;
             };
             readonly header?: never;
             readonly path?: never;

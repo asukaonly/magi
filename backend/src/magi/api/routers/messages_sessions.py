@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any, Dict
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -16,18 +16,34 @@ message_sessions_router = APIRouter()
 
 
 @message_sessions_router.post("/session/new", response_model=Dict[str, Any])
-async def create_new_session(user_id: str = DEFAULT_USER_ID):
+async def create_new_session(
+    user_id: str = DEFAULT_USER_ID,
+    client_session_id: Annotated[
+        str | None,
+        Query(
+            min_length=1,
+            max_length=128,
+            pattern=r"^[A-Za-z0-9_-]+$",
+        ),
+    ] = None,
+):
     """Create a new chat session row for the given user."""
     try:
         read_service = require_chat_read_service()
         workspace_path = get_default_chat_workspace_path()
-        session_id = await read_service.acreate_new_session(user_id, workspace_path)
+        session_id = await read_service.acreate_new_session(
+            user_id,
+            workspace_path,
+            client_session_id,
+        )
         return {
             "success": True,
             "user_id": user_id,
             "session_id": session_id,
             "workspace_path": workspace_path,
         }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError:
         return {
             "success": False,

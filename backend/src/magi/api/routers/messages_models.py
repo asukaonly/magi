@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ...events.recall_feedback import RecallFeedbackKind
+from ...events.first_context import normalize_first_context
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 
 
@@ -30,6 +31,23 @@ class RecallFeedbackRequestModel(BaseModel):
         return self
 
 
+class FirstContextStoryRequestModel(BaseModel):
+    """Reference to the question that the onboarding answer responds to."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(..., min_length=1, max_length=128)
+    question_text: str = Field(..., min_length=1, max_length=500)
+
+    @field_validator("question_id", "question_text")
+    @classmethod
+    def strip_required_text(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
+
+
 class UserMessageRequest(BaseModel):
     """User message request."""
 
@@ -48,7 +66,30 @@ class UserMessageRequest(BaseModel):
         None,
         description="Optional one-turn recall correction request",
     )
+    interaction_kind: Optional[Literal["first_context_story"]] = Field(
+        None,
+        description="Controlled interaction type for a first-context answer",
+    )
+    first_context: Optional[FirstContextStoryRequestModel] = Field(
+        None,
+        description="Question context for a first-context answer",
+    )
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="metadata")
+
+    @model_validator(mode="after")
+    def validate_first_context_interaction(self) -> "UserMessageRequest":
+        if self.interaction_kind == "first_context_story" and self.first_context is None:
+            raise ValueError("first_context is required for first_context_story")
+        if self.first_context is not None and self.interaction_kind != "first_context_story":
+            raise ValueError("first_context requires interaction_kind=first_context_story")
+        if (
+            self.first_context is not None
+            and normalize_first_context(self.first_context.model_dump(mode="json")) is None
+        ):
+            raise ValueError("first_context must reference a supported onboarding question")
+        if self.first_context is not None and self.recall_feedback is not None:
+            raise ValueError("first_context cannot be combined with recall_feedback")
+        return self
 
 
 class MessageResponse(BaseModel):
@@ -113,6 +154,7 @@ class MessageLabelRequest(BaseModel):
 __all__ = [
     "CancelSessionRunRequest",
     "DetachSessionRunRequest",
+    "FirstContextStoryRequestModel",
     "MessageLabelRequest",
     "MessageResponse",
     "RenameSessionRequest",

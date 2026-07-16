@@ -118,6 +118,16 @@ CREATE TABLE IF NOT EXISTS chat_run_consumed_events (
     PRIMARY KEY (session_id, run_id, revision, message_id)
 );
 
+CREATE TABLE IF NOT EXISTS chat_user_turn_delivery (
+    turn_id TEXT PRIMARY KEY,
+    projection_completed INTEGER NOT NULL DEFAULT 0,
+    runtime_enqueued INTEGER NOT NULL DEFAULT 0,
+    runtime_envelope_json TEXT NOT NULL DEFAULT '{}',
+    request_fingerprint TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user_updated
     ON chat_sessions(user_id, updated_at_ms DESC);
 
@@ -176,6 +186,8 @@ DROP INDEX IF EXISTS idx_chat_turns_session_created;
 DROP INDEX IF EXISTS idx_chat_sessions_user_updated;
 
 DROP TABLE IF EXISTS chat_run_consumed_events;
+
+DROP TABLE IF EXISTS chat_user_turn_delivery;
 
 DROP TABLE IF EXISTS chat_context_summaries;
 

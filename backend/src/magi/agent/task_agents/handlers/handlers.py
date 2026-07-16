@@ -7,6 +7,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from ....agent.cancel import CancelToken, SessionRunCancelToken, null_cancel_token
 from ....core.logger import get_logger
+from ....events.first_context import build_first_context_runtime_guidance
 from ....agent.background.launch import BackgroundLaunchService
 from magi.control.run_control import null_run_control
 from ....agent.turn_input import UserTurnInput
@@ -144,17 +145,27 @@ class FunctionCallingHandler(FunctionCallingRuntimeControlMixin, BaseExecutionHa
             selected_tools=selected_tools,
         )
         selected_tools = self._resolve_execution_tools(request, selected_tools)
+        system_prompt = self._deps.prompt_service.augment_system_prompt_with_reply_context(
+            system_prompt=system_prompt,
+            reply_context=getattr(request.context, "reply_context", None),
+            recent_tool_state=getattr(request.context, "recent_tool_state", None),
+        )
+        latest_payload = getattr(request.context, "latest_payload", None)
+        first_context_guidance = build_first_context_runtime_guidance(
+            {
+                "interaction_kind": getattr(latest_payload, "interaction_kind", None),
+                "first_context": getattr(latest_payload, "first_context", None),
+            }
+        )
+        if first_context_guidance:
+            system_prompt = f"{system_prompt}\n\n{first_context_guidance}"
         return FunctionCallingRequest(
             mode=request.mode,
             context=request.context,
             intent=request.intent,
             tool_selection=request.tool_selection,
             prompt_context=prompt_package.prompt_context,
-            system_prompt=self._deps.prompt_service.augment_system_prompt_with_reply_context(
-                system_prompt=system_prompt,
-                reply_context=getattr(request.context, "reply_context", None),
-                recent_tool_state=getattr(request.context, "recent_tool_state", None),
-            ),
+            system_prompt=system_prompt,
             selected_tools=selected_tools,
             thinking_depth=request.intent.thinking_depth,
         )

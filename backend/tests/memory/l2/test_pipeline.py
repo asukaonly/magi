@@ -5794,6 +5794,24 @@ class TestEpisodeCandidateJobEntityAttribution:
         assert jobs[0].entity_ids == ["person:sarah", "software:v2ex"]
         assert jobs[1].entity_ids == ["person:sarah", "software:v2ex"]
 
+    def test_first_context_story_never_forms_an_episode_candidate(self):
+        job = self._job()
+        job.events[0]["metadata_json"] = {
+            "interaction_kind": "first_context_story",
+            "first_context": {
+                "question_id": "recent_feeling",
+                "question_text": "最近有哪件小事，让你心情有一点变化？",
+            },
+        }
+
+        jobs = self._worker()._build_episode_candidate_jobs(
+            job,
+            result={"touched_place_ids": [], "touched_topic_keys": []},
+            touched_entity_ids=["user:local_user"],
+        )
+
+        assert [item.event_id for item in jobs] == ["evt-browse"]
+
     def test_phase2_touch_scope_exposes_event_entity_map(self):
         from magi.memory.l2.pipeline.phase2_flow import _phase2_touch_scope
 

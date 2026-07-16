@@ -23,7 +23,10 @@
         "recall_feedback_pending_ask": "Answer the current question before rechecking an earlier reply.",
         "empty_turn": "Message text or attachments are required.",
         "persist_failed": "Chat turn persistence failed",
+        "turn_conflict": "This send identifier was already used for different content. Send it again as a new message.",
+        "projection_failed": "The message was saved, but memory projection failed. Please retry.",
         "enqueue_failed": "Runtime command enqueue failed",
+        "bootstrap_state_update_failed": "The first conversation was saved, but onboarding state could not be updated. Please retry.",
         "attachments_must_be_list": "Attachments must be a list.",
         "attachment_must_be_object": "Each attachment must be an object.",
         "attachment_kind_required": "Each attachment must include a kind."

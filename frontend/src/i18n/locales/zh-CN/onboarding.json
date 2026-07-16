@@ -247,8 +247,53 @@
   },
   "firstContext": {
     "kicker": "可选的数据源",
-    "title": "要不要给第一次对话加一点上下文？",
-    "body": "连接一个你愿意分享的历史数据源，Magi 会先读取一小部分代表性内容，让第一次开场不必从零开始。也可以跳过，之后随时再连接。",
+    "title": "想让 Magi 从哪里开始认识你？",
+    "body": "选一种最自然的方式就好。这一步完全可选，之后也能随时补充。",
+    "routes": {
+      "back": "返回选择",
+      "question": {
+        "title": "回答一个日常问题",
+        "body": "不用介绍完整的自己，半分钟说一点最近的生活。",
+        "meta": "约 30 秒"
+      },
+      "activity": {
+        "title": "连接日常活动",
+        "body": "从浏览、音乐、照片等自然留下的痕迹开始。",
+        "meta": "只连接你愿意分享的来源"
+      },
+      "note": "两种方式没有先后之分，也可以直接跳过。"
+    },
+    "story": {
+      "title": "先从一个日常问题聊起",
+      "body": "不用写得完整，想到什么就说什么。短短一句也可以。",
+      "questionLabel": "想问你",
+      "questions": {
+        "recent_feeling": "最近有哪件小事，让你心情有一点变化？",
+        "repeating_content": "最近有什么内容，是你会忍不住反复看或听的？",
+        "personal_time": "最近一天里，哪段时间最像是“你自己的时间”？",
+        "reluctant_routine": "最近有什么事，明明不太想做，却还是一直在做？"
+      },
+      "changeQuestion": "换一个问题",
+      "inputLabel": "说一点最近的生活",
+      "placeholder": "比如：回家路上买到了一直想喝的饮料，那一刻心情很好。",
+      "privacyNote": "这会成为你和 Magi 的第一段真实对话。聊天记录保存在本机，并且可以随时删除。",
+      "submit": "说给 Magi 听",
+      "submitting": "正在进入对话…",
+      "retryEntering": "继续进入对话",
+      "continueWithoutConfirmation": "先进入 Magi",
+      "errors": {
+        "empty": "先写一句也可以，或者换一个问题。",
+        "runtimeNotReady": "Magi 还在准备中，你写的内容已经保留，请稍后重试。",
+        "sessionFailed": "暂时没能创建第一次对话。内容已经保留，请重试。",
+        "sendFailed": "这段话暂时还没准备好进入对话。内容和当前进度已经保留，请重试。",
+        "confirmationUnavailable": "暂时无法确认这段话是否已经完整发出。你可以安全重试，也可以先进入 Magi。",
+        "finishFailed": "暂时还不能进入 Magi。你的内容和当前进度已经保留，请重试。"
+      }
+    },
+    "activity": {
+      "title": "从日常活动开始",
+      "body": "只连接你愿意分享的来源。Magi 会先读取一小部分近期记录。"
+    },
     "scopeHint": "这里只准备第一次聊天要用的一小部分内容；完整历史可以进入后再补。",
     "note": "Magi 只会读取你主动启用的来源；每个插件都可以在设置里关闭或调整。",
     "connectedCount": "已连接 {{count}} 个来源",

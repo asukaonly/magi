@@ -131,4 +131,14 @@ CREATE INDEX IF NOT EXISTS idx_crce_message
     ON chat_run_consumed_events(session_id, message_id);
 CREATE INDEX IF NOT EXISTS idx_crce_run
     ON chat_run_consumed_events(session_id, run_id, revision);
+
+CREATE TABLE IF NOT EXISTS chat_user_turn_delivery (
+    turn_id TEXT PRIMARY KEY,
+    projection_completed INTEGER NOT NULL DEFAULT 0,
+    runtime_enqueued INTEGER NOT NULL DEFAULT 0,
+    runtime_envelope_json TEXT NOT NULL DEFAULT '{}',
+    request_fingerprint TEXT NOT NULL DEFAULT '',
+    created_at_ms INTEGER NOT NULL,
+    updated_at_ms INTEGER NOT NULL
+);
 """

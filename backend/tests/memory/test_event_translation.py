@@ -100,6 +100,48 @@ def test_recall_feedback_stays_conversational_and_cannot_feed_cognition():
     assert policy.allow_assertion_write is False
 
 
+def test_first_context_metadata_and_l2_priority_hints_survive_translation():
+    first_context = {
+        "question_id": "recent_feeling",
+        "question_text": "最近有哪件小事，让你心情有一点变化？",
+    }
+    payload = UserMessageReceived(
+        content="我最近失恋了，你能陪我聊聊吗？",
+        context=TaskContext("s", "t", None, "u"),
+        interaction_kind="first_context_story",
+        metadata={
+            "first_context": first_context,
+            "l2_batch_owner": "bootstrap:u:test",
+            "l2_batch_max_events": 1,
+            "l2_batch_max_estimated_tokens": 128,
+            "l2_batch_min_ready_events": 1,
+            "l2_batch_max_wait_seconds": 1.0,
+            "untrusted": "drop-me",
+        },
+    )
+
+    memory_event = translate(
+        Event(type=EventTypes.USER_MESSAGE_RECEIVED, data=payload, source="chat")
+    )
+
+    assert memory_event is not None
+    assert memory_event.metadata_json == {
+        "interaction_kind": "first_context_story",
+        "first_context": first_context,
+        "l2_batch_owner": "bootstrap:u:test",
+        "l2_batch_max_events": 1,
+        "l2_batch_max_estimated_tokens": 128,
+        "l2_batch_min_ready_events": 1,
+        "l2_batch_max_wait_seconds": 1.0,
+    }
+    classification = classify_event_evidence(memory_event)
+    policy = resolve_l2_policy(classification)
+    assert classification.evidence_class == "user_self_report"
+    assert classification.reason_code == "first_context_story_with_self_report"
+    assert policy.allow_graph_write is True
+    assert policy.allow_assertion_write is True
+
+
 def test_assistant_response_produced_translation():
     payload = AssistantResponseProduced(
         content="reply",

@@ -35,6 +35,14 @@ CREATE TABLE IF NOT EXISTS runtime_command_rollups (
     PRIMARY KEY (granularity, bucket_start, command_type, status)
 );
 
+CREATE TABLE IF NOT EXISTS runtime_user_message_idempotency (
+    correlation_id TEXT PRIMARY KEY,
+    payload_fingerprint TEXT NOT NULL,
+    first_command_id INTEGER NOT NULL,
+    delivery_status TEXT NOT NULL DEFAULT 'open',
+    created_at REAL NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_runtime_commands_status_created
     ON runtime_commands(status, created_at ASC);
 
@@ -53,6 +61,8 @@ DROP INDEX IF EXISTS idx_runtime_commands_type_status_created;
 DROP INDEX IF EXISTS idx_runtime_commands_status_created;
 
 DROP TABLE IF EXISTS runtime_command_rollups;
+
+DROP TABLE IF EXISTS runtime_user_message_idempotency;
 
 DROP TABLE IF EXISTS runtime_commands;
 """

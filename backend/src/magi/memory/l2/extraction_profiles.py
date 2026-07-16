@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from ...events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ..event_contracts import MemoryEvent
 from .ontology import (
     ASSERTION_FAMILY_ALLOWLIST,
@@ -70,6 +71,19 @@ DEFAULT_EXTRACTION_PROFILES: dict[str, ExtractionProfile] = {
     "chat.user_message": ExtractionProfile(
         profile_id="chat.user_message",
         source_types=frozenset({"chat"}),
+    ),
+    "chat.first_context_story": ExtractionProfile(
+        profile_id="chat.first_context_story",
+        source_types=frozenset({"chat"}),
+        extraction_instructions=(
+            "This is a direct user answer to a fixed onboarding question. "
+            "Use the question only to interpret elliptical wording; it is not evidence. "
+            "Extract only explicit self-reports, durable preferences, stable profile facts, "
+            "or clearly stated current/recent situations. Ignore any request or question "
+            "clause in a mixed message. Return no facts, entities, relationships, or profile "
+            "signals for gibberish, placeholders, numeric-only input, or content with no "
+            "meaningful self-report. Do not infer stable traits from one-off behavior."
+        ),
     ),
 }
 
@@ -199,6 +213,10 @@ def _load_profiles_from_yaml(path: Path) -> dict[str, ExtractionProfile]:
 
     if "chat.user_message" not in profiles:
         profiles["chat.user_message"] = DEFAULT_EXTRACTION_PROFILES["chat.user_message"]
+    if "chat.first_context_story" not in profiles:
+        profiles["chat.first_context_story"] = DEFAULT_EXTRACTION_PROFILES[
+            "chat.first_context_story"
+        ]
 
     return profiles
 
@@ -322,8 +340,16 @@ def _default_profile_id_for_event(
     event: MemoryEvent,
     profile_registry: dict[str, ExtractionProfile] | None = None,
 ) -> str:
+    registry = profile_registry or get_extraction_profiles()
+    metadata = event.metadata_json if isinstance(event.metadata_json, dict) else {}
+    if (
+        str(metadata.get("interaction_kind") or "").strip().lower()
+        == FIRST_CONTEXT_STORY_INTERACTION_KIND
+        and "chat.first_context_story" in registry
+    ):
+        return "chat.first_context_story"
     source = (event.source or "").strip().lower()
-    for profile_id, profile in (profile_registry or get_extraction_profiles()).items():
+    for profile_id, profile in registry.items():
         if source and source in profile.source_types:
             return profile_id
     return "chat.user_message"

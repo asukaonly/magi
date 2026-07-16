@@ -11,7 +11,11 @@ from .models import (
     L1RetrievalScope,
     PolicyDecision,
 )
-from .policy import resolve_l2_policy
+from .policy import (
+    event_allows_l2_projection,
+    policy_allows_l2_projection,
+    resolve_l2_policy,
+)
 
 __all__ = [
     "AssertionScope",
@@ -23,5 +27,7 @@ __all__ = [
     "L1RetrievalScope",
     "PolicyDecision",
     "classify_event_evidence",
+    "event_allows_l2_projection",
+    "policy_allows_l2_projection",
     "resolve_l2_policy",
 ]

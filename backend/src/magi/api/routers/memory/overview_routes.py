@@ -88,6 +88,18 @@ async def _clear_chat_runtime_state() -> int:
     return int(chat_count or 0)
 
 
+async def _reset_chat_delivery_after_failed_clear() -> int:
+    """Best-effort compensation after the runtime queue was already purged."""
+    reset = getattr(
+        get_chat_read_service(),
+        "areset_user_turn_delivery_after_failed_clear",
+        None,
+    )
+    if not callable(reset):
+        return 0
+    return int(await reset() or 0)
+
+
 @memory_router.get("/statistics")
 async def get_memory_statistics():
     """Return per-layer memory statistics in L0-L4 format."""
@@ -151,6 +163,7 @@ async def clear_memory_layers():
     primary_failure: BaseException | None = None
     primary_traceback = None
     recovery_failures: list[tuple[str, BaseException]] = []
+    queue_purged = False
     try:
         async with runtime_command_queue.user_message_clear_boundary():
             try:
@@ -163,6 +176,7 @@ async def clear_memory_layers():
                 generation, purged_commands = (
                     await runtime_command_queue.advance_user_message_generation_and_purge()
                 )
+                queue_purged = True
                 purged_sensor_events = 0
                 sensor_cleanup_failure: Exception | None = None
                 if sensor_hub is not None:
@@ -199,12 +213,22 @@ async def clear_memory_layers():
                 primary_failure = exc
                 primary_traceback = exc.__traceback__
 
-            recovery_failures = await _resume_clear_dependencies(
+            if primary_failure is not None and queue_purged:
+                try:
+                    reset_count = await _reset_chat_delivery_after_failed_clear()
+                    logger.warning(
+                        "clear_memory: reset %d surviving chat deliveries after clear failure",
+                        reset_count,
+                    )
+                except BaseException as exc:
+                    recovery_failures.append(("chat_delivery_compensation", exc))
+
+            recovery_failures.extend(await _resume_clear_dependencies(
                 task_agent_manager=task_agent_manager,
                 chat_pause_started=chat_pause_started,
                 rebuild_manager=_embedding_rebuild_manager,
                 rebuild_pause_started=rebuild_pause_started,
-            )
+            ))
     except BaseException as exc:
         if primary_failure is None:
             primary_failure = exc

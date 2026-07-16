@@ -7,12 +7,15 @@ import sqlite3
 from pathlib import Path
 from types import ModuleType
 
-from magi.db.runner import MIGRATION_TARGETS, run_upgrade_head
+from alembic import command
+import pytest
+
+from magi.db.runner import MIGRATION_TARGETS, _build_config, run_upgrade_head
 from magi.utils.runtime import RuntimePaths
 
 
 EXPECTED_TABLES: dict[str, set[str]] = {
-    "chat": {"chat_sessions", "chat_run_consumed_events"},
+    "chat": {"chat_sessions", "chat_run_consumed_events", "chat_user_turn_delivery"},
     "l1": {"fact_events", "l1_event_payload", "l1_session_sequences", "l1_source_facets"},
     "memory_shared": {
         "knowledge_graph",
@@ -34,7 +37,11 @@ EXPECTED_TABLES: dict[str, set[str]] = {
     "scheduler": {"schedules", "schedule_executions", "sensor_sync_jobs"},
     "sensor_state": {"sensor_cursors", "sensor_fingerprints", "sensor_stats"},
     "background_tasks": {"background_tasks", "background_task_events"},
-    "message_queue": {"runtime_commands", "runtime_command_rollups"},
+    "message_queue": {
+        "runtime_commands",
+        "runtime_command_rollups",
+        "runtime_user_message_idempotency",
+    },
     "permission_rules": {"permission_rules"},
     "channels": {"channel_session_mappings", "delivery_receipts", "outreach_outbox"},
     "identity": {"user_identity_bindings"},
@@ -52,11 +59,7 @@ def _revision_files(target_name: str) -> list[Path]:
         / target_name
         / "versions"
     )
-    return sorted(
-        path
-        for path in versions_dir.glob("*.py")
-        if path.name != "__init__.py"
-    )
+    return sorted(path for path in versions_dir.glob("*.py") if path.name != "__init__.py")
 
 
 def _load_revision(path: Path, target_name: str) -> ModuleType:
@@ -72,9 +75,7 @@ def _load_revision(path: Path, target_name: str) -> ModuleType:
 
 
 def _table_names(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
     return {row[0] for row in rows}
 
 
@@ -135,7 +136,9 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
                 _latest_revision(target.name),
             )
 
-    memory_db_path = next(t for t in MIGRATION_TARGETS if t.name == "memory_shared").db_path(runtime_paths)
+    memory_db_path = next(t for t in MIGRATION_TARGETS if t.name == "memory_shared").db_path(
+        runtime_paths
+    )
     with sqlite3.connect(memory_db_path) as conn:
         assert "privacy_scope" not in _columns(conn, "knowledge_graph")
         assert "trigger_json" in _columns(conn, "l0_execution_runs")
@@ -175,3 +178,284 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
     with sqlite3.connect(message_queue_db_path) as conn:
         assert "runtime_user_message_clear_state" in _table_names(conn)
         assert "user_message_generation" in _columns(conn, "runtime_commands")
+        assert "runtime_user_message_idempotency" in _table_names(conn)
+        assert "delivery_status" in _columns(
+            conn,
+            "runtime_user_message_idempotency",
+        )
+
+
+def test_chat_delivery_state_upgrades_from_pre_delta_v1(tmp_path: Path) -> None:
+    target = next(item for item in MIGRATION_TARGETS if item.name == "chat")
+    db_path = tmp_path / "chat-v1.db"
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v1")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE chat_user_turn_delivery")
+        conn.execute(
+            """
+            INSERT INTO chat_turns (
+                turn_id, session_id, user_id, status, response_mode,
+                ux_plan_json, created_at_ms, updated_at_ms, run_revision
+            ) VALUES ('turn-1', 'session-1', 'user-1', 'queued', 'direct', '{}', 1, 1, 0)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO chat_messages (
+                message_id, session_id, turn_id, user_id, role, message_kind,
+                payload_json, is_final, is_visible, created_at_ms, sequence_no
+            ) VALUES (
+                'message-1', 'session-1', 'turn-1', 'user-1', 'user',
+                'user_text', '{}', 1, 1, 1, 1
+            )
+            """
+        )
+        conn.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute(
+            """
+            SELECT projection_completed, runtime_enqueued
+            FROM chat_user_turn_delivery
+            WHERE turn_id = 'turn-1'
+            """
+        ).fetchone() == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_user_message_tombstone_upgrades_legacy_duplicate_correlations(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    target = next(item for item in MIGRATION_TARGETS if item.name == "message_queue")
+    db_path = tmp_path / "message-queue-v2.db"
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v2")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE runtime_user_message_idempotency")
+        conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status,
+                user_message_generation, created_at, updated_at
+            ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
+                      'pending', 0, 1, 1)
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status,
+                user_message_generation, created_at, updated_at
+            ) VALUES ('user_message', '{"value": 2}', 'user_message:message-1',
+                      'pending', 0, 2, 2)
+            """
+        )
+        conn.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as conn:
+        first_command_id = conn.execute(
+            """
+            SELECT command_id
+            FROM runtime_commands
+            WHERE correlation_id = 'user_message:message-1'
+            ORDER BY command_id ASC
+            LIMIT 1
+            """
+        ).fetchone()[0]
+        tombstone = conn.execute(
+            """
+            SELECT first_command_id, payload_fingerprint
+            FROM runtime_user_message_idempotency
+            WHERE correlation_id = 'user_message:message-1'
+            """
+        ).fetchone()
+        assert tombstone is not None
+        assert tombstone[0] == first_command_id
+        assert len(tombstone[1]) == 64
+        assert conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM runtime_commands
+            WHERE correlation_id = 'user_message:message-1'
+              AND status IN ('pending', 'claimed')
+            """
+        ).fetchone() == (1,)
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+    try:
+        claimed = await queue.claim_next(
+            consumer_name="migration-test",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert claimed is not None
+        assert claimed.command_id == first_command_id
+        await queue.ack(claimed.command_id)
+        assert (
+            await queue.claim_next(
+                consumer_name="migration-test",
+                command_types=(RuntimeCommandType.USER_MESSAGE,),
+            )
+            is None
+        )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_user_message_tombstone_drops_pending_duplicate_after_completion(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    target = next(item for item in MIGRATION_TARGETS if item.name == "message_queue")
+    db_path = tmp_path / "message-queue-completed-v2.db"
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v2")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE runtime_user_message_idempotency")
+        completed_id = conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status,
+                user_message_generation, created_at, updated_at
+            ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
+                      'completed', 0, 1, 1)
+            """
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status,
+                user_message_generation, created_at, updated_at
+            ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
+                      'pending', 0, 2, 2)
+            """
+        )
+        conn.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute(
+            """
+            SELECT first_command_id
+            FROM runtime_user_message_idempotency
+            WHERE correlation_id = 'user_message:message-1'
+            """
+        ).fetchone() == (completed_id,)
+        assert conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM runtime_commands
+            WHERE correlation_id = 'user_message:message-1'
+              AND status IN ('pending', 'claimed')
+            """
+        ).fetchone() == (0,)
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+    try:
+        assert (
+            await queue.claim_next(
+                consumer_name="migration-test",
+                command_types=(RuntimeCommandType.USER_MESSAGE,),
+            )
+            is None
+        )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_failed_legacy_user_message_can_retry_after_upgrade_and_gc(
+    tmp_path: Path,
+) -> None:
+    import json
+
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    target = next(item for item in MIGRATION_TARGETS if item.name == "message_queue")
+    db_path = tmp_path / "message-queue-failed-v2.db"
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v2")
+    original = UserMessageCommand(
+        source="api",
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        message="retry after failed GC",
+        correlation_id="user_message:message-1",
+        created_at=1710000000.0,
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("DROP TABLE runtime_user_message_idempotency")
+        failed_id = conn.execute(
+            """
+            INSERT INTO runtime_commands (
+                command_type, payload_json, correlation_id, status,
+                user_message_generation, created_at, updated_at
+            ) VALUES (?, ?, ?, 'failed', 0, ?, ?)
+            """,
+            (
+                RuntimeCommandType.USER_MESSAGE.value,
+                json.dumps(original.to_payload(), ensure_ascii=False),
+                original.correlation_id,
+                original.created_at,
+                original.created_at,
+            ),
+        ).lastrowid
+        conn.commit()
+
+    command.upgrade(config, "head")
+    with sqlite3.connect(db_path) as conn:
+        assert conn.execute(
+            """
+            SELECT first_command_id, delivery_status
+            FROM runtime_user_message_idempotency
+            WHERE correlation_id = ?
+            """,
+            (original.correlation_id,),
+        ).fetchone() == (failed_id, "failed")
+        conn.execute(
+            "DELETE FROM runtime_commands WHERE command_id = ?",
+            (failed_id,),
+        )
+        conn.commit()
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+    try:
+        retried_id = await queue.enqueue_user_message(original)
+        assert retried_id != failed_id
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute(
+                """
+                SELECT first_command_id, delivery_status
+                FROM runtime_user_message_idempotency
+                WHERE correlation_id = ?
+                """,
+                (original.correlation_id,),
+            ).fetchone() == (retried_id, "open")
+        claimed = await queue.claim_next(
+            consumer_name="migration-test",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert claimed is not None
+        assert claimed.command_id == retried_id
+    finally:
+        await queue.stop()

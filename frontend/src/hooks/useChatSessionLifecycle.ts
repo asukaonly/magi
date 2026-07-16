@@ -12,22 +12,44 @@ import { useConversationStore } from '@/stores';
 const USER_ID = DEFAULT_USER_ID;
 const BOOTSTRAP_PENDING_TURN_ID = 'bootstrap-init-pending';
 const BOOTSTRAP_PENDING_MESSAGE_ID = 'bootstrap-init-pending';
+const HISTORY_LOAD_MAX_ATTEMPTS = 2;
+const HISTORY_LOAD_RETRY_DELAY_MS = 200;
+const HISTORY_BACKGROUND_RETRY_DELAYS_MS = [800, 2_000, 5_000] as const;
 
 /**
  * Pure gate deciding whether the persona's bootstrap opening may fire yet.
  *
- * The opening is deferred until the one-time first-run context prompt is
- * resolved: we hold it while that state is still loading or pending, and only
- * release it once the prompt is loaded AND completed (or skipped). Extracted
- * as a pure helper so the gate is unit-testable independently of the hook.
+ * The opening is deferred until both the one-time first-run context prompt and
+ * the current session history are resolved. A persisted user message always
+ * wins over the synthetic opening. Extracted as a pure helper so the gate is
+ * unit-testable independently of the hook.
  */
 export function shouldFireBootstrap(args: {
   needsBootstrap: boolean;
   tourLoaded: boolean;
   tourCompleted: boolean;
+  historyLoaded: boolean;
+  hasUserMessage: boolean;
 }): boolean {
-  return args.needsBootstrap && args.tourLoaded && args.tourCompleted;
+  return (
+    args.needsBootstrap
+    && args.tourLoaded
+    && args.tourCompleted
+    && args.historyLoaded
+    && !args.hasUserMessage
+  );
 }
+
+type HistoryBootstrapState = {
+  loaded: boolean;
+  hasUserMessage: boolean;
+};
+
+type HistoryRequestOptions = {
+  force?: boolean;
+  maxAttempts?: number;
+  showError?: boolean;
+};
 
 type UseChatSessionLifecycleOptions = {
   currentSessionId: string | null;
@@ -57,6 +79,11 @@ const hasFreshCachedHistory = (sessionId: string): boolean => {
   return serverVersion !== null && cachedVersion === serverVersion;
 };
 
+const sessionHasUserMessage = (sessionId: string): boolean => (
+  (useConversationStore.getState().messagesBySession[sessionId] || [])
+    .some((message) => message.role === 'user')
+);
+
 export type ChatPersonaIdentity = {
   name: string;
   avatar: string;
@@ -80,7 +107,7 @@ export function useChatSessionLifecycle({
   const bootstrappedSessionIdRef = useRef<string | null>(null);
   // Defer the persona's bootstrap opening until the one-time first-run context
   // prompt is resolved. When it completes, the flag flips and the firing effect
-  // below re-runs (re-fetching the greeting), releasing the held opening.
+  // below re-runs, but session history is still checked first.
   const { completed: tourCompleted, loaded: tourLoaded } = useProductTourFlag();
 
   useEffect(() => {
@@ -117,47 +144,80 @@ export function useChatSessionLifecycle({
     };
   }, []);
 
-  const requestHistory = useCallback(async (sessionId: string, options: { force?: boolean } = {}) => {
+  const requestHistory = useCallback(async (
+    sessionId: string,
+    options: HistoryRequestOptions = {},
+  ): Promise<HistoryBootstrapState> => {
     if (!sessionId) {
-      return;
+      return { loaded: false, hasUserMessage: false };
     }
 
     if (!options.force && hasFreshCachedHistory(sessionId)) {
-      return;
+      return {
+        loaded: true,
+        hasUserMessage: sessionHasUserMessage(sessionId),
+      };
     }
 
-    try {
-      const history = await messagesApi.getHistory(USER_ID, sessionId);
-      const rawMessages = Array.isArray(history.messages) ? history.messages : [];
-      const responseVersion = normalizeHistoryVersion(history.history_version);
-      const fallbackVersion = normalizeHistoryVersion(
-        useConversationStore.getState().sessionsById[sessionId]?.history_version,
-      );
-      useConversationStore.getState().receiveHistory(
-        sessionId,
-        normalizeHistoryMessages(rawMessages),
-        responseVersion ?? fallbackVersion,
-      );
-    } catch {
+    const maxAttempts = Math.max(
+      1,
+      Math.floor(options.maxAttempts ?? HISTORY_LOAD_MAX_ATTEMPTS),
+    );
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        const history = await messagesApi.getHistory(USER_ID, sessionId);
+        const rawMessages = Array.isArray(history.messages) ? history.messages : [];
+        const normalizedMessages = normalizeHistoryMessages(rawMessages);
+        const responseVersion = normalizeHistoryVersion(history.history_version);
+        const fallbackVersion = normalizeHistoryVersion(
+          useConversationStore.getState().sessionsById[sessionId]?.history_version,
+        );
+        useConversationStore.getState().receiveHistory(
+          sessionId,
+          normalizedMessages,
+          responseVersion ?? fallbackVersion,
+        );
+        return {
+          loaded: true,
+          hasUserMessage: normalizedMessages.some((message) => message.role === 'user'),
+        };
+      } catch {
+        if (attempt + 1 < maxAttempts) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(resolve, HISTORY_LOAD_RETRY_DELAY_MS);
+          });
+        }
+      }
+    }
+    if (options.showError !== false) {
       toast.error(translate('chat.loadHistoryFailed'));
     }
+    return { loaded: false, hasUserMessage: false };
   }, [translate]);
 
-  const loadPersonality = useCallback(async () => {
+  const loadPersonality = useCallback(async (
+    sessionId: string,
+    historyStatePromise: Promise<HistoryBootstrapState>,
+    isCancelled: () => boolean,
+  ) => {
     try {
       const personasResponse = await personasApi.list({ includeDeleted: true });
       const personaItems = Array.isArray(personasResponse.data)
         ? personasResponse.data as PersonaSummary[]
         : [];
-      setAssistantPersonas(Object.fromEntries(personaItems.map((item) => [
-        item.persona_id,
-        {
-          name: item.name || 'AI',
-          avatar: personasApi.getAvatarUrl(item.avatar_path || ''),
-        },
-      ])));
+      if (!isCancelled()) {
+        setAssistantPersonas(Object.fromEntries(personaItems.map((item) => [
+          item.persona_id,
+          {
+            name: item.name || 'AI',
+            avatar: personasApi.getAvatarUrl(item.avatar_path || ''),
+          },
+        ])));
+      }
     } catch {
-      setAssistantPersonas({});
+      if (!isCancelled()) {
+        setAssistantPersonas({});
+      }
     }
 
     try {
@@ -170,7 +230,7 @@ export function useChatSessionLifecycle({
         needs_bootstrap_init?: boolean;
       } | undefined;
 
-      if (!data) {
+      if (!data || isCancelled()) {
         return;
       }
 
@@ -179,14 +239,34 @@ export function useChatSessionLifecycle({
 
       const needsBootstrap = Boolean(data.needs_bootstrap_init ?? data.needs_bootstrap);
       if (
-        !shouldFireBootstrap({ needsBootstrap, tourLoaded, tourCompleted })
-        || !currentSessionId
-        || bootstrappedSessionIdRef.current === currentSessionId
+        !needsBootstrap
+        || !tourLoaded
+        || !tourCompleted
+        || !sessionId
+        || bootstrappedSessionIdRef.current === sessionId
       ) {
         return;
       }
 
-      bootstrappedSessionIdRef.current = currentSessionId;
+      const historyState = await historyStatePromise;
+      if (isCancelled()) {
+        return;
+      }
+      const hasUserMessage = historyState.hasUserMessage || sessionHasUserMessage(sessionId);
+      if (
+        !shouldFireBootstrap({
+          needsBootstrap,
+          tourLoaded,
+          tourCompleted,
+          historyLoaded: historyState.loaded,
+          hasUserMessage,
+        })
+        || bootstrappedSessionIdRef.current === sessionId
+      ) {
+        return;
+      }
+
+      bootstrappedSessionIdRef.current = sessionId;
       const bootstrapPendingMessage: ChatTimelineMessage = {
         id: BOOTSTRAP_PENDING_MESSAGE_ID,
         messageId: BOOTSTRAP_PENDING_MESSAGE_ID,
@@ -199,22 +279,22 @@ export function useChatSessionLifecycle({
         turnId: BOOTSTRAP_PENDING_TURN_ID,
         traceAvailable: false,
       };
-      upsertMessage(currentSessionId, bootstrapPendingMessage);
+      upsertMessage(sessionId, bootstrapPendingMessage);
 
       try {
-        await personasApi.bootstrapInit(currentSessionId, USER_ID);
-        void requestHistory(currentSessionId, { force: true });
+        await personasApi.bootstrapInit(sessionId, USER_ID);
+        void requestHistory(sessionId, { force: true });
       } catch {
-        if (bootstrappedSessionIdRef.current === currentSessionId) {
+        if (bootstrappedSessionIdRef.current === sessionId) {
           bootstrappedSessionIdRef.current = null;
         }
       } finally {
-        removeMessage(currentSessionId, BOOTSTRAP_PENDING_MESSAGE_ID);
+        removeMessage(sessionId, BOOTSTRAP_PENDING_MESSAGE_ID);
       }
     } catch {
       // Non-critical — keep default AI name.
     }
-  }, [currentSessionId, removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
+  }, [removeMessage, requestHistory, translate, tourCompleted, tourLoaded, upsertMessage]);
 
   const requestHistoryRef = useRef(requestHistory);
   const loadPersonalityRef = useRef(loadPersonality);
@@ -232,13 +312,37 @@ export function useChatSessionLifecycle({
       return;
     }
 
-    void requestHistoryRef.current(currentSessionId);
-    void loadPersonalityRef.current();
+    let cancelled = false;
+    const historyStatePromise = requestHistoryRef.current(currentSessionId);
+    void loadPersonalityRef.current(currentSessionId, historyStatePromise, () => cancelled);
+    void (async () => {
+      const initialState = await historyStatePromise;
+      if (initialState.loaded || cancelled) {
+        return;
+      }
+      for (const delayMs of HISTORY_BACKGROUND_RETRY_DELAYS_MS) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, delayMs);
+        });
+        if (cancelled) {
+          return;
+        }
+        const recovered = await requestHistoryRef.current(currentSessionId, {
+          force: true,
+          maxAttempts: 1,
+          showError: false,
+        });
+        if (recovered.loaded) {
+          return;
+        }
+      }
+    })();
     // tourCompleted/tourLoaded are deps so this same effect also re-evaluates the
-    // *deferred* bootstrap opening once the first-run context prompt resolves:
-    // loadPersonality re-fetches the greeting and shouldFireBootstrap then releases
-    // the held opening. Folding it into this effect (rather than a second one)
-    // avoids a redundant loadPersonality/getGreeting call on every session switch.
+    // deferred bootstrap opening once the first-run context prompt resolves.
+    // Every evaluation waits for history first to avoid racing a real user turn.
+    return () => {
+      cancelled = true;
+    };
   }, [currentSessionId, tourCompleted, tourLoaded]);
 
   useEffect(() => {

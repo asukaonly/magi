@@ -16,6 +16,7 @@ from .schema import (
     CHAT_RUN_CONSUMED_EVENTS_TABLE,
     CHAT_SESSIONS_TABLE,
     CHAT_TURNS_TABLE,
+    CHAT_USER_TURN_DELIVERY_TABLE,
 )
 
 logger = get_logger(__name__)
@@ -588,6 +589,17 @@ class ChatHistoryOperationsMixin:
             )
             conn.execute(
                 f"DELETE FROM {CHAT_ATTACHMENTS_TABLE} WHERE user_id = ? AND session_id = ?",
+                (user_id, session_id),
+            )
+            conn.execute(
+                f"""
+                DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE}
+                WHERE turn_id IN (
+                    SELECT turn_id
+                    FROM {CHAT_TURNS_TABLE}
+                    WHERE user_id = ? AND session_id = ?
+                )
+                """,
                 (user_id, session_id),
             )
             conn.execute(

@@ -136,6 +136,49 @@ class TestBootstrapNeedsCheck:
         kwargs = growth.record_milestone.await_args.kwargs
         assert kwargs["milestone_type"] == MilestoneType.BOOTSTRAP_STARTED
         assert kwargs["metadata"]["session_id"] == "s1"
+        assert kwargs["idempotency_key"] == "bootstrap_started:persona-1"
+
+    @pytest.mark.asyncio
+    async def test_concurrent_bootstrap_started_writes_one_durable_milestone(
+        self,
+        runtime_paths_with_schema,
+    ):
+        import asyncio
+        import sqlite3
+
+        growth = GrowthMemoryEngine(str(runtime_paths_with_schema.growth_db_path))
+        service = BootstrapDialogueService(growth_engine=growth)
+
+        await asyncio.gather(
+            service.mark_bootstrap_started(
+                persona_name="test_persona",
+                persona_id="persona-1",
+                user_id="u1",
+                session_id="s1",
+                turn_id="turn-1",
+                message_id="message-1",
+            ),
+            service.mark_bootstrap_started(
+                persona_name="test_persona",
+                persona_id="persona-1",
+                user_id="u1",
+                session_id="s1",
+                turn_id="turn-1",
+                message_id="message-1",
+            ),
+        )
+
+        with sqlite3.connect(runtime_paths_with_schema.growth_db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT type, metadata
+                FROM milestones
+                WHERE type = ?
+                """,
+                (MilestoneType.BOOTSTRAP_STARTED.value,),
+            ).fetchall()
+        assert len(rows) == 1
+        assert '"message_id": "message-1"' in rows[0][1]
 
 
 class TestBootstrapOpening:

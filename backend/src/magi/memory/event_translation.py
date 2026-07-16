@@ -34,6 +34,16 @@ logger = logging.getLogger(__name__)
 
 EventTranslator = Callable[[Event], Optional[MemoryEvent]]
 
+_USER_MESSAGE_MEMORY_METADATA_KEYS = {
+    "first_context",
+    "l2_batch_owner",
+    "l2_batch_catch_up_owner",
+    "l2_batch_max_events",
+    "l2_batch_max_estimated_tokens",
+    "l2_batch_min_ready_events",
+    "l2_batch_max_wait_seconds",
+}
+
 
 def translate(event: Event) -> Optional[MemoryEvent]:
     handler = _DISPATCH.get(event.type)
@@ -109,8 +119,14 @@ def _from_user_message(event: Event) -> MemoryEvent:
             trace_context=event.trace_context,
         )
     )
+    memory_metadata = {
+        key: value
+        for key, value in dict(p.metadata or {}).items()
+        if key in _USER_MESSAGE_MEMORY_METADATA_KEYS and value is not None
+    }
     if p.interaction_kind:
-        memory_event.metadata_json = {"interaction_kind": p.interaction_kind}
+        memory_metadata["interaction_kind"] = p.interaction_kind
+    memory_event.metadata_json = memory_metadata or None
     return memory_event
 
 

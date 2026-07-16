@@ -521,3 +521,82 @@ async def test_chat_store_marks_interim_messages_replaced_by_final(runtime_paths
         assert final.replaces_message_id == "msg-interim"
     finally:
         await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_replayed_turn_reuses_existing_final_message(runtime_paths_with_schema) -> None:
+    from magi.chat import ChatSessionRecord, ChatStore, ChatTurnRecord
+    from magi.chat.task_agent.postprocess.message_writes import ChatAssistantMessageWriter
+
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    await store.initialize()
+    turn = ChatTurnRecord(
+        turn_id="turn-replayed",
+        session_id="session-replayed",
+        user_id="user-1",
+        trace_id=None,
+        orchestration_id=None,
+        status="running",
+        response_mode="final_only",
+        execution_mode="direct_llm",
+        ux_plan_json="{}",
+        created_at_ms=100,
+        updated_at_ms=100,
+        completed_at_ms=None,
+        error_text=None,
+    )
+    await store.upsert_session(
+        ChatSessionRecord(
+            session_id=turn.session_id,
+            user_id=turn.user_id,
+            title="",
+            title_overridden=False,
+            summary="",
+            created_at_ms=100,
+            updated_at_ms=100,
+            last_message_at_ms=None,
+            last_user_message_at_ms=None,
+            last_message_preview="",
+            last_user_message_preview="",
+            message_count=0,
+            archived_at_ms=None,
+            deleted_at_ms=None,
+        )
+    )
+    await store.upsert_turn(turn)
+    writer = ChatAssistantMessageWriter(chat_store=store)
+
+    try:
+        first = await writer.append_final_message(
+            turn=turn,
+            turn_id=turn.turn_id,
+            response_text="first completed answer",
+            attachments=None,
+            message_payload=None,
+            completed_at_ms=200,
+            reply_to_message_id=None,
+            persona_id=None,
+        )
+        replayed = await writer.append_final_message(
+            turn=turn,
+            turn_id=turn.turn_id,
+            response_text="answer from replayed execution",
+            attachments=None,
+            message_payload=None,
+            completed_at_ms=300,
+            reply_to_message_id=None,
+            persona_id=None,
+        )
+
+        assert first is not None
+        assert replayed is not None
+        assert replayed.message_id == first.message_id
+        assert replayed.content_text == "first completed answer"
+        final_messages = [
+            message
+            for message in await store.list_messages(session_id=turn.session_id)
+            if message.turn_id == turn.turn_id and message.message_kind == "assistant_final"
+        ]
+        assert len(final_messages) == 1
+    finally:
+        await store.shutdown()

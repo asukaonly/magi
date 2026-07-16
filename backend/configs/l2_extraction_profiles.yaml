@@ -51,3 +51,26 @@ profiles:
         clearly says they are their real name.
       - Preserve the user's exact wording when it matters for preference or naming.
       - Skip transient logistics unless they reveal a stable preference or identity fact.
+
+  chat.first_context_story:
+    source_types:
+      - chat
+    allowed_entity_types: all
+    allowed_predicates: all
+    allow_graph: true
+    allow_assertion: true
+    extraction_instructions: |
+      This event is a direct user answer to one fixed onboarding question.
+
+      The question context is provided only to interpret a short or elliptical
+      answer. It is not a user claim and must never be used as evidence.
+
+      Extraction rules:
+      - Extract only explicit self-reports, durable preferences, stable profile
+        facts, or clearly stated current/recent situations.
+      - For a mixed message containing both a self-report and a request or
+        question, extract only the self-report clause.
+      - Return no facts, entities, relationships, or profile signals for
+        gibberish, placeholders, numeric-only input, or content with no
+        meaningful self-report.
+      - Do not infer stable traits from one-off behavior.

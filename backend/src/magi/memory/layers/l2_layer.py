@@ -6,7 +6,11 @@ import logging
 from typing import Any
 
 from ..event_contracts import MemoryEvent
-from ..evidence import classify_event_evidence, resolve_l2_policy
+from ..evidence import (
+    classify_event_evidence,
+    policy_allows_l2_projection,
+    resolve_l2_policy,
+)
 from ..l2.pipeline.lifecycle import DEFAULT_L2_BATCH_FLUSH_INTERVAL_SECONDS
 from ..l2.pipeline.staging import DEFAULT_L2_MAX_EVENTS_PER_BATCH
 from ..layer_protocol import FanOutContext, LayerIngestResult, WILDCARD_EVENT_TYPES
@@ -125,7 +129,7 @@ class L2ProjectionLayer:
                 "l2_evidence_class": classification.evidence_class,
                 "l2_skip_reason": "policy_error",
             }
-        allowed = bool(policy.allow_graph_write or policy.allow_assertion_write)
+        allowed = policy_allows_l2_projection(policy)
         return {
             "l2_policy_allows_projection": allowed,
             "l2_evidence_class": classification.evidence_class,

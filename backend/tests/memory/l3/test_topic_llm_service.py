@@ -44,6 +44,41 @@ def test_build_topic_evidence_pack_preserves_topic_and_ids() -> None:
     assert pack.rule_hints["repeated_event_types"] == []
 
 
+def test_topic_prompt_marks_first_context_question_as_non_evidence() -> None:
+    service = TopicSummaryLLMService()
+    question = "最近有什么内容，是你会忍不住反复看或听的？"
+    pack = service.build_evidence_pack(
+        topic="MyGO",
+        events=[
+            {
+                "event_id": "evt-mygo",
+                "event_type": "UserMessage",
+                "content": "MyGO",
+                "importance_score": 0.6,
+                "timestamp": 100.0,
+                "metadata_json": {
+                    "interaction_kind": "first_context_story",
+                    "first_context": {
+                        "question_id": "repeating_content",
+                        "question_text": question,
+                    },
+                },
+            }
+        ],
+    )
+
+    assert pack.events[0].content == "MyGO"
+    assert pack.events[0].interpretation_context == {
+        "kind": "first_context_question",
+        "question_id": "repeating_content",
+        "question_text": question,
+        "evidence_semantics": "interpretation_context_only",
+    }
+    prompt = service.render_topic_prompt(pack)
+    assert question in prompt
+    assert "product-authored question is not evidence" in prompt
+
+
 def test_parse_topic_llm_output_into_candidate() -> None:
     service = TopicSummaryLLMService()
     pack = ThematicEvidencePack(

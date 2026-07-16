@@ -8,8 +8,11 @@ from ...core.runtime_bindings import require_user_message_dispatcher
 from ...events.user_message_dispatch import (
     ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED,
     ASK_RESPONSE_RESOLVE_FAILED,
+    BOOTSTRAP_STATE_UPDATE_FAILED,
     CHAT_STORE_NOT_INITIALIZED,
     CHAT_STORE_PERSIST_FAILED,
+    CHAT_TURN_CONFLICT,
+    CHAT_PROJECTION_FAILED,
     EMPTY_TURN,
     MALFORMED_ATTACHMENTS,
     MESSAGE_DISPATCHER_NOT_INITIALIZED,
@@ -32,6 +35,8 @@ async def dispatch_user_message(
     client_turn_id: str | None = None,
     metadata: dict[str, Any] | None = None,
     runtime_namespace: str | None = None,
+    interaction_kind: str | None = None,
+    first_context: dict[str, Any] | None = None,
 ) -> MessageDispatchOutcome:
     """Forward a user-message request to the active chat ingress service."""
 
@@ -57,14 +62,19 @@ async def dispatch_user_message(
         client_turn_id=client_turn_id,
         metadata=metadata,
         runtime_namespace=runtime_namespace,
+        interaction_kind=interaction_kind,
+        first_context=first_context,
     )
 
 
 __all__ = [
     "ASK_RESPONSE_ATTACHMENTS_UNSUPPORTED",
     "ASK_RESPONSE_RESOLVE_FAILED",
+    "BOOTSTRAP_STATE_UPDATE_FAILED",
     "CHAT_STORE_NOT_INITIALIZED",
     "CHAT_STORE_PERSIST_FAILED",
+    "CHAT_TURN_CONFLICT",
+    "CHAT_PROJECTION_FAILED",
     "EMPTY_TURN",
     "MALFORMED_ATTACHMENTS",
     "MESSAGE_DISPATCHER_NOT_INITIALIZED",

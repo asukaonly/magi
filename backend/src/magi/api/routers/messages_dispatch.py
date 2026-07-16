@@ -116,6 +116,12 @@ async def _dispatch_api_user_message(request: UserMessageRequest):
         client_turn_id=request.client_turn_id,
         metadata=metadata,
         runtime_namespace=str(metadata.get("runtime_namespace") or DEFAULT_RUNTIME_NAMESPACE),
+        interaction_kind=request.interaction_kind,
+        first_context=(
+            request.first_context.model_dump(mode="json")
+            if request.first_context is not None
+            else None
+        ),
     )
 
 
@@ -124,6 +130,8 @@ async def _prepare_api_dispatch_metadata(
 ) -> tuple[dict[str, object], str | None]:
     metadata = dict(request.metadata or {})
     metadata.pop("recall_feedback", None)
+    metadata.pop("interaction_kind", None)
+    metadata.pop("first_context", None)
     if request.recall_feedback is not None:
         metadata["recall_feedback"] = request.recall_feedback.model_dump(mode="json")
     metadata.update(
@@ -131,6 +139,7 @@ async def _prepare_api_dispatch_metadata(
             user_id=request.user_id,
             session_id=request.session_id,
             persona_name=get_current_personality(),
+            force=request.interaction_kind == "first_context_story",
         )
     )
     reply_to_message_id = str(request.reply_to_message_id or "").strip() or None
@@ -153,6 +162,8 @@ def _dispatch_rejected_response(
         data={
             "user_id": request.user_id,
             "session_id": outcome.session_id,
+            "turn_id": outcome.turn_id,
+            "message_id": outcome.message_id,
             "error": outcome.error_message,
             "error_code": outcome.error_code,
         },
@@ -200,6 +211,7 @@ def _queued_message_response(request: UserMessageRequest, outcome) -> MessageRes
             "user_id": request.user_id,
             "session_id": outcome.session_id,
             "turn_id": outcome.turn_id,
+            "message_id": outcome.message_id,
             "message_length": len(request.message),
             "attachment_count": len(request.attachments or []),
             "timestamp": time.time(),

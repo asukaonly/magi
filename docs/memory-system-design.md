@@ -415,6 +415,13 @@ persona. After that opening is persisted, all profile extraction returns to the
 normal chat -> L1 -> L2 pipeline; bootstrap must not own a separate user-profile
 extraction path. The first opening may use only the governed portrait prompt
 summary; it must not sample raw imported L1 events or source summaries directly.
+If onboarding begins the first real chat with a user-authored answer instead,
+that answer is persisted as an ordinary chat message and follows the same L1 and
+L2 pipeline. Its first-context marker may select narrower extraction guidance,
+batch it promptly, suppress one-turn episode or relationship derivation, and
+consume the persona's one-shot opening state, but it must not create a parallel
+profile write path. Empty or low-signal extraction is a valid outcome and must
+not be presented as a successful durable memory.
 Recent portrait lines remain tentative, while durable lines have already passed
 the normal assertion promotion boundary. A completed sensor backfill triggers
 the L2 derive task, and successful derived-profile writes explicitly enqueue the

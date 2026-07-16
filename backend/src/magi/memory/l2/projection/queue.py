@@ -35,6 +35,18 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
     # Public API
     # ------------------------------------------------------------------
 
+    async def has_job(self, *, event_id: str) -> bool:
+        """Return whether a durable projection job exists for an L1 event."""
+        normalized_event_id = str(event_id or "").strip()
+        if not normalized_event_id:
+            return False
+        async with sqlite_connection_async(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT 1 FROM l2_projection_jobs WHERE event_id = ? LIMIT 1",
+                (normalized_event_id,),
+            )
+            return await cursor.fetchone() is not None
+
     async def enqueue(
         self,
         *,

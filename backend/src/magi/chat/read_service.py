@@ -78,10 +78,18 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             self._conn = None
 
     async def acreate_new_session(
-        self, user_id: str, workspace_path: str | None = None
+        self,
+        user_id: str,
+        workspace_path: str | None = None,
+        client_session_id: str | None = None,
     ) -> str:
         """Create a session without blocking the event loop."""
-        return await self._run_threaded("create_new_session", user_id, workspace_path)
+        return await self._run_threaded(
+            "create_new_session",
+            user_id,
+            workspace_path,
+            client_session_id,
+        )
 
     async def aget_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
         """Load a worker result without blocking the event loop."""
@@ -101,13 +109,9 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         session_ids: list[str],
     ) -> dict[str, "ChatSessionSummary"]:
         """Fetch multiple session summaries in one query without blocking."""
-        return await self._run_threaded(
-            "get_session_summaries_batch", user_id, session_ids
-        )
+        return await self._run_threaded("get_session_summaries_batch", user_id, session_ids)
 
-    async def alist_sessions(
-        self, user_id: str, limit: int = 30
-    ) -> list[ChatSessionSummary]:
+    async def alist_sessions(self, user_id: str, limit: int = 30) -> list[ChatSessionSummary]:
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
 
@@ -139,9 +143,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         limit: int | None = 200,
     ) -> list[ChatDisplayMessage]:
         """Load conversation history without blocking the event loop."""
-        return await self._run_threaded(
-            "get_conversation_history", user_id, session_id, limit
-        )
+        return await self._run_threaded("get_conversation_history", user_id, session_id, limit)
 
     async def aget_session_attachment_references(
         self,
@@ -164,9 +166,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         limit: int = 200,
     ) -> list[ChatDisplayMessage]:
         """Load display history without blocking the event loop."""
-        return await self._run_threaded(
-            "get_display_history", user_id, session_id, limit
-        )
+        return await self._run_threaded("get_display_history", user_id, session_id, limit)
 
     async def aget_display_message(
         self,
@@ -175,9 +175,7 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         message_id: str,
     ) -> ChatDisplayMessage | None:
         """Load one visible display message without blocking the event loop."""
-        return await self._run_threaded(
-            "get_display_message", user_id, session_id, message_id
-        )
+        return await self._run_threaded("get_display_message", user_id, session_id, message_id)
 
     async def aget_attachment_payload(
         self,
@@ -197,6 +195,10 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
     async def aclear_all_sessions(self) -> int:
         """Clear all sessions without blocking the event loop."""
         return await self._run_threaded("clear_all_sessions")
+
+    async def areset_user_turn_delivery_after_failed_clear(self) -> int:
+        """Make surviving turns replayable after a failed destructive clear."""
+        return await self._run_threaded("reset_user_turn_delivery_after_failed_clear")
 
     def get_worker_result(self, worker_id: str) -> Optional[dict[str, Any]]:
         if not worker_id.strip():

@@ -3287,6 +3287,52 @@ def _plain_non_streamed_context_and_result(*, turn_id: str = "turn-1"):
     return context, result
 
 
+def test_first_context_story_stores_chat_but_skips_relationship_memory_updates():
+    assembler = _FakeContextAssembler()
+    service = ChatPostProcessService(
+        agent_id="chat:local_user",
+        context_assembler=assembler,  # type: ignore[arg-type]
+        get_event_emitter=lambda: _FakeEventEmitter(),
+        get_task_agent_manager=lambda: None,
+        get_sensor_hub=lambda: None,
+        max_fact_memory=10,
+    )
+    context, result = _plain_non_streamed_context_and_result(
+        turn_id="turn-first-context"
+    )
+    context.latest_user_message = "还行"
+    context.latest_payload = UserMessagePayload(
+        user_id="local_user",
+        session_id="session-1",
+        content="还行",
+        turn_id="turn-first-context",
+        interaction_kind="first_context_story",
+        first_context={
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    )
+    result.root_user_message = "还行"
+    scheduled: list[dict[str, object]] = []
+    service._schedule_background_memory_updates = (  # type: ignore[method-assign]
+        lambda **kwargs: scheduled.append(dict(kwargs))
+    )
+    prepared = SimpleNamespace(
+        latest_fact=context.latest_fact,
+        response_text="听起来今天比较平静。",
+        history_stored=False,
+        user_message=None,
+        memory_updated=False,
+    )
+
+    service._record_chat_history_and_memory(context, result, prepared)
+
+    assert [item["role"] for item in assembler.history] == ["user", "assistant"]
+    assert scheduled == []
+    assert prepared.history_stored is True
+    assert prepared.memory_updated is False
+
+
 @pytest.mark.asyncio
 async def test_handle_routes_plain_non_streamed_agent_response_through_delivery_seam(
     runtime_trace_store: RuntimeTraceStore,

@@ -1926,6 +1926,156 @@ def test_memory_clear_resumes_services_when_queue_generation_advance_fails(
     rebuild_resume.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
+    monkeypatch,
+    runtime_paths_with_schema,
+):
+    import sqlite3
+
+    from magi.api.routers.memory.embedding_routes import _embedding_rebuild_manager
+    from magi.api.routers.memory.overview_routes import clear_memory_layers
+    from magi.chat import ingress as ingress_service
+    from magi.chat.store import ChatStore
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+    from magi.utils import runtime as runtime_module
+
+    class _Projector:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            self.calls += 1
+
+    class _FailingUnifiedMemory:
+        async def clear_all_memory(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            raise OSError("memory database failed midway")
+
+    class _TempChatReadService:
+        def __init__(self, db_path) -> None:  # type: ignore[no-untyped-def]
+            self._db_path = db_path
+
+        async def areset_user_turn_delivery_after_failed_clear(self) -> int:
+            assert self._db_path == runtime_paths_with_schema.chat_db_path
+            with sqlite3.connect(self._db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE chat_user_turn_delivery
+                    SET projection_completed = 0,
+                        runtime_enqueued = 0,
+                        updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+                    WHERE projection_completed != 0 OR runtime_enqueued != 0
+                    """
+                )
+                conn.commit()
+                return int(cursor.rowcount or 0)
+
+        async def aclear_all_sessions(self) -> int:
+            raise AssertionError("failing memory clear must not reach chat deletion")
+
+    monkeypatch.setattr(runtime_module, "_runtime_paths", runtime_paths_with_schema)
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
+    await queue.start()
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    projector = _Projector()
+    read_service = _TempChatReadService(runtime_paths_with_schema.chat_db_path)
+
+    monkeypatch.setattr(
+        ingress_service,
+        "require_runtime_command_queue",
+        lambda: queue,
+    )
+    monkeypatch.setattr(ingress_service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(ingress_service, "get_chat_projector", lambda: projector)
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_runtime_command_queue",
+        lambda: queue,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_unified_memory",
+        lambda: _FailingUnifiedMemory(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_task_agent_manager",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_sensor_hub",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_manual_entry_asset_store",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes._resolve_orchestration_store",
+        lambda: SimpleNamespace(clear_all=AsyncMock(return_value={})),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.overview_routes.get_chat_read_service",
+        lambda: read_service,
+    )
+    monkeypatch.setattr(
+        _embedding_rebuild_manager,
+        "pause_starts_and_cancel_all",
+        AsyncMock(),
+    )
+    monkeypatch.setattr(
+        _embedding_rebuild_manager,
+        "resume_starts",
+        AsyncMock(),
+    )
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "survive a partial clear",
+        "session_id": "session-clear-retry",
+        "client_turn_id": "turn-clear-retry",
+    }
+    try:
+        initial = await ingress_service.dispatch_user_message(**request)
+        assert initial.success is True
+
+        with pytest.raises(OSError, match="memory database failed midway"):
+            await clear_memory_layers()
+
+        with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
+            assert conn.execute(
+                """
+                SELECT projection_completed, runtime_enqueued
+                FROM chat_user_turn_delivery
+                WHERE turn_id = 'turn-clear-retry'
+                """
+            ).fetchone() == (0, 0)
+        with sqlite3.connect(runtime_paths_with_schema.message_queue_db_path) as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM runtime_commands WHERE command_type = 'user_message'"
+            ).fetchone() == (0,)
+            assert conn.execute(
+                "SELECT COUNT(*) FROM runtime_user_message_idempotency"
+            ).fetchone() == (0,)
+
+        retried = await ingress_service.dispatch_user_message(**request)
+        assert retried.success is True
+        assert retried.message_id == initial.message_id
+        assert projector.calls == 2
+        with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
+            assert conn.execute(
+                """
+                SELECT projection_completed, runtime_enqueued
+                FROM chat_user_turn_delivery
+                WHERE turn_id = 'turn-clear-retry'
+                """
+            ).fetchone() == (1, 1)
+        assert (await queue.get_stats())["pending_count"] == 1
+    finally:
+        await queue.stop()
+
+
 def test_memory_clear_finishes_data_clear_when_sensor_queue_cleanup_fails(
     monkeypatch,
     _isolate_user_message_clear_boundary,

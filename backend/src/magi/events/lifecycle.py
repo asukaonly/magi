@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Any
 
 from ..bootstrap.lifecycle import LifecycleModule
@@ -142,7 +143,6 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self._mark_command_finished()
                 logger.warning("Runtime command processing failed", error=str(exc))
                 await asyncio.sleep(self._poll_interval_seconds)
 
@@ -157,26 +157,44 @@ class RuntimeCommandProcessorModule(LifecycleModule):
             return
 
         self._mark_command_started()
-        if command.command_type is RuntimeCommandType.USER_MESSAGE:
-            async with queue.user_message_operation():
-                if (
-                    int(command.user_message_generation)
-                    != queue.current_user_message_generation()
-                ):
-                    logger.info(
-                        "Discarding stale user-message runtime command",
-                        command_id=command.command_id,
-                        command_generation=command.user_message_generation,
-                        current_generation=queue.current_user_message_generation(),
-                    )
-                    await queue.ack(command.command_id)
-                    self._mark_command_finished()
-                    return
-                published = await self._execute_runtime_command(command, message_bus)
-                await self._complete_runtime_command(queue, command, published)
-            return
-        published = await self._execute_runtime_command(command, message_bus)
-        await self._complete_runtime_command(queue, command, published)
+        try:
+            if command.command_type is RuntimeCommandType.USER_MESSAGE:
+                async with queue.user_message_operation():
+                    if (
+                        int(command.user_message_generation)
+                        != queue.current_user_message_generation()
+                    ):
+                        logger.info(
+                            "Discarding stale user-message runtime command",
+                            command_id=command.command_id,
+                            command_generation=command.user_message_generation,
+                            current_generation=queue.current_user_message_generation(),
+                        )
+                        await queue.ack(command.command_id)
+                        return
+                    published = await self._execute_runtime_command(command, message_bus)
+                    await self._complete_runtime_command(queue, command, published)
+                return
+            published = await self._execute_runtime_command(command, message_bus)
+            await self._complete_runtime_command(queue, command, published)
+        except asyncio.CancelledError:
+            await asyncio.shield(
+                queue.requeue(
+                    command.command_id,
+                    error_text="RUNTIME_COMMAND_PROCESSOR_CANCELLED",
+                )
+            )
+            raise
+        except BaseException as exc:
+            await asyncio.shield(
+                queue.requeue(
+                    command.command_id,
+                    error_text=f"RUNTIME_COMMAND_HANDLER_FAILED:{type(exc).__name__}",
+                )
+            )
+            raise
+        finally:
+            self._mark_command_finished()
 
     async def _claim_next_command(self, queue: Any) -> Any | None:
         return await queue.claim_next(
@@ -224,7 +242,6 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                 command.command_id,
                 error_text="LOCAL_MESSAGE_BUS_PUBLISH_FAILED",
             )
-        self._mark_command_finished()
 
     async def _publish_user_message_command(self, command: Any, message_bus: Any) -> bool:
         user_message = command.as_user_message()
@@ -249,6 +266,10 @@ class RuntimeCommandProcessorModule(LifecycleModule):
                 source=user_message.source,
                 level=EventLevel.INFO,
                 correlation_id=user_message.correlation_id,
+                event_id=uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    f"magi:runtime-user-message:{user_message.correlation_id}",
+                ).hex,
                 metadata={REQUIRE_SUBSCRIBER_DELIVERY_METADATA_KEY: True},
             )
         )

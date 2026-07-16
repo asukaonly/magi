@@ -6,6 +6,7 @@ import re
 from collections import Counter
 from typing import Any
 
+from .evidence_context import first_context_interpretation_context
 from .models import TemporalEvidenceItem, TemporalEvidencePack
 
 _TOP_TERM_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
@@ -82,7 +83,10 @@ class TemporalEvidencePackMixin:
                 content=str(event.get("content") or ""),
                 timestamp=float(event["timestamp"]) if event.get("timestamp") is not None else None,
                 memory_domain=str(event.get("memory_domain") or "") or None,
-                importance_score=float(event["importance_score"]) if event.get("importance_score") is not None else None,
+                importance_score=float(event["importance_score"])
+                if event.get("importance_score") is not None
+                else None,
+                interpretation_context=first_context_interpretation_context(event),
             )
             for event in kept_events
             if str(event.get("event_id") or "").strip()
@@ -93,7 +97,9 @@ class TemporalEvidencePackMixin:
         ]
         event_type_distribution: dict[str, int] = {}
         for item in evidence_items:
-            event_type_distribution[item.event_type] = event_type_distribution.get(item.event_type, 0) + 1
+            event_type_distribution[item.event_type] = (
+                event_type_distribution.get(item.event_type, 0) + 1
+            )
         return TemporalEvidencePack(
             summary_category=summary_category,  # type: ignore[arg-type]
             period_start=float(period_start),
@@ -101,7 +107,9 @@ class TemporalEvidencePackMixin:
             source_event_count=len(source_event_ids),
             source_event_ids=source_event_ids,
             events=evidence_items,
-            importance_aggregate=(sum(importance_values) / len(importance_values)) if importance_values else None,
+            importance_aggregate=(sum(importance_values) / len(importance_values))
+            if importance_values
+            else None,
             event_type_distribution=event_type_distribution,
             rule_hints=self._build_rule_hints(evidence_items, event_type_distribution),
         )
@@ -127,13 +135,11 @@ class TemporalEvidencePackMixin:
             if item.event_id
         ]
         repeated_event_types = [
-            event_type
-            for event_type, count in sorted(event_type_distribution.items())
-            if count > 1
+            event_type for event_type, count in sorted(event_type_distribution.items()) if count > 1
         ]
         ordered_items = sorted(
             evidence_items,
-            key=lambda item: (float(item.timestamp) if item.timestamp is not None else float("inf")),
+            key=lambda item: float(item.timestamp) if item.timestamp is not None else float("inf"),
         )
         window_change_candidates = self._build_window_change_candidates(ordered_items)
         recurring_constraints = self._build_recurring_constraints(evidence_items)

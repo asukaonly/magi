@@ -7,6 +7,10 @@ from enum import Enum
 from typing import Any, Optional, TypeAlias
 
 from ....agent.runtime.contracts import FactRecord
+from ....events.first_context import (
+    FIRST_CONTEXT_STORY_INTERACTION_KIND,
+    first_context_from_metadata,
+)
 from ....events.recall_feedback import RecallFeedbackRequest
 from ...orchestration_plan import OrchestrationPlan
 from ....config.models import ThinkingDepth
@@ -71,10 +75,12 @@ class UserMessagePayload:
     turn_id: Optional[str] = None
     reply_to_message_id: Optional[str] = None
     recall_feedback: RecallFeedbackRequest | None = None
+    interaction_kind: str | None = None
+    first_context: dict[str, str] | None = None
     source: str = "api"
 
     def to_dict(self) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "user_id": self.user_id,
             "session_id": self.session_id,
             "content": self.content,
@@ -89,19 +95,34 @@ class UserMessagePayload:
             payload["reply_to_message_id"] = self.reply_to_message_id
         if self.recall_feedback is not None:
             payload["recall_feedback"] = self.recall_feedback.to_dict()
+        if self.interaction_kind is not None and self.first_context is not None:
+            payload["interaction_kind"] = self.interaction_kind
+            payload["first_context"] = dict(self.first_context)
         return payload
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any], *, fallback_user_id: str) -> "UserMessagePayload":
-        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+        raw_metadata = payload.get("metadata")
+        metadata: dict[str, Any] = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
+        raw_attachments = payload.get("attachments")
+        attachments = (
+            [dict(item) for item in raw_attachments if isinstance(item, dict)]
+            if isinstance(raw_attachments, list)
+            else []
+        )
         raw_source = payload.get("source")
+        normalized_first_context = first_context_from_metadata(
+            {
+                "interaction_kind": payload.get("interaction_kind")
+                or metadata.get("interaction_kind"),
+                "first_context": payload.get("first_context") or metadata.get("first_context"),
+            }
+        )
         return cls(
             user_id=str(payload.get("user_id") or fallback_user_id),
             session_id=str(payload.get("session_id") or ""),
             content=str(payload.get("content") or "").strip(),
-            attachments=payload.get("attachments")
-            if isinstance(payload.get("attachments"), list)
-            else [],
+            attachments=attachments,
             workspace_path=_optional_string(payload.get("workspace_path")),
             turn_id=_optional_string(payload.get("turn_id")),
             reply_to_message_id=(
@@ -111,6 +132,12 @@ class UserMessagePayload:
             recall_feedback=RecallFeedbackRequest.from_value(
                 payload.get("recall_feedback") or metadata.get("recall_feedback")
             ),
+            interaction_kind=(
+                FIRST_CONTEXT_STORY_INTERACTION_KIND
+                if normalized_first_context is not None
+                else None
+            ),
+            first_context=normalized_first_context,
             source=str(raw_source) if raw_source else "api",
         )
 

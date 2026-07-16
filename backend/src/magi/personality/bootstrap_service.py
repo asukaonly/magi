@@ -312,35 +312,39 @@ async def build_bootstrap_l2_priority_metadata(
     session_id: str = "",
     persona_name: str,
     persona_id: str = "",
+    force: bool = False,
 ) -> Dict[str, Any]:
     """Return short-lived queue overrides right after the opening is injected."""
     normalized_persona_name = str(persona_name or "").strip()
     if not normalized_persona_name:
         return {}
 
-    growth_engine = await get_shared_growth_engine()
-    started_milestones = await growth_engine.get_milestones(
-        milestone_type=MilestoneType.BOOTSTRAP_STARTED,
-        limit=20,
-    )
-    matching = next(
-        (
-            milestone
-            for milestone in started_milestones
-            if _milestone_matches_scope(
-                milestone,
-                persona_name=normalized_persona_name,
-                persona_id=persona_id,
-                user_id=user_id,
-                session_id=session_id,
-            )
-        ),
-        None,
-    )
-    if matching is None:
-        return {}
-    if (time.time() - float(getattr(matching, "timestamp", 0.0) or 0.0)) > BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS:
-        return {}
+    if not force:
+        growth_engine = await get_shared_growth_engine()
+        started_milestones = await growth_engine.get_milestones(
+            milestone_type=MilestoneType.BOOTSTRAP_STARTED,
+            limit=20,
+        )
+        matching = next(
+            (
+                milestone
+                for milestone in started_milestones
+                if _milestone_matches_scope(
+                    milestone,
+                    persona_name=normalized_persona_name,
+                    persona_id=persona_id,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+            ),
+            None,
+        )
+        if matching is None:
+            return {}
+        if (
+            time.time() - float(getattr(matching, "timestamp", 0.0) or 0.0)
+        ) > BOOTSTRAP_L2_PRIORITY_WINDOW_SECONDS:
+            return {}
 
     owner_suffix = str(persona_id or normalized_persona_name).strip()
     if not owner_suffix:
@@ -406,6 +410,7 @@ class BootstrapDialogueService:
                 "turn_id": turn_id,
                 "message_id": message_id,
             },
+            idempotency_key=f"bootstrap_started:{persona_id or persona_name}",
         )
 
     def _ensure_bootstrap_config(self, config: PersonalityConfig) -> BootstrapConfig:

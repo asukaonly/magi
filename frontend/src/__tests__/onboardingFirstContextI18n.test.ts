@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest";
+
+import enOnboarding from "@/i18n/locales/en/onboarding.json";
+import zhCnOnboarding from "@/i18n/locales/zh-CN/onboarding.json";
+
+const QUESTION_IDS = [
+  "recent_feeling",
+  "repeating_content",
+  "personal_time",
+  "reluctant_routine",
+] as const;
+
+const REQUIRED_PATHS = [
+  "title",
+  "body",
+  "routes.back",
+  "routes.question.title",
+  "routes.question.body",
+  "routes.question.meta",
+  "routes.activity.title",
+  "routes.activity.body",
+  "routes.activity.meta",
+  "routes.note",
+  "story.title",
+  "story.body",
+  "story.questionLabel",
+  "story.changeQuestion",
+  "story.inputLabel",
+  "story.placeholder",
+  "story.privacyNote",
+  "story.submit",
+  "story.submitting",
+  "story.retryEntering",
+  "story.continueWithoutConfirmation",
+  "story.errors.empty",
+  "story.errors.runtimeNotReady",
+  "story.errors.sessionFailed",
+  "story.errors.sendFailed",
+  "story.errors.confirmationUnavailable",
+  "story.errors.finishFailed",
+  "activity.title",
+  "activity.body",
+] as const;
+
+function readPath(value: unknown, path: string): unknown {
+  return path.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, value);
+}
+
+describe("first-context onboarding copy", () => {
+  it("keeps every route and recovery message translated in both locales", () => {
+    for (const resource of [zhCnOnboarding, enOnboarding]) {
+      for (const path of REQUIRED_PATHS) {
+        expect(readPath(resource.firstContext, path), path).toEqual(
+          expect.any(String),
+        );
+        expect(
+          String(readPath(resource.firstContext, path)).trim(),
+          path,
+        ).not.toBe("");
+      }
+    }
+  });
+
+  it("keeps the four stable everyday question ids aligned", () => {
+    expect(Object.keys(zhCnOnboarding.firstContext.story.questions)).toEqual(
+      QUESTION_IDS,
+    );
+    expect(Object.keys(enOnboarding.firstContext.story.questions)).toEqual(
+      QUESTION_IDS,
+    );
+    for (const questionId of QUESTION_IDS) {
+      expect(
+        zhCnOnboarding.firstContext.story.questions[questionId].trim(),
+      ).not.toBe("");
+      expect(
+        enOnboarding.firstContext.story.questions[questionId].trim(),
+      ).not.toBe("");
+    }
+  });
+
+  it("only promises local storage for the chat record", () => {
+    expect(zhCnOnboarding.firstContext.story.privacyNote).toContain(
+      "聊天记录保存在本机",
+    );
+    expect(enOnboarding.firstContext.story.privacyNote).toContain(
+      "The chat record is stored on this device",
+    );
+  });
+});

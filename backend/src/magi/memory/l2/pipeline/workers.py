@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, Awaitable, Callable, Protocol
 
 from ....core.logger import get_logger
+from ....events.first_context import FIRST_CONTEXT_STORY_INTERACTION_KIND
 from ...event_contracts import MemoryEvent
 from ..episode_formation import assign_events_to_episode, episode_type_for_event
 from ..llm_json_client import L2LLMJsonError
@@ -224,6 +225,12 @@ class L2PipelineWorkerMixin:
                 episode_type_hint=episode_type_for_event(str(evt.get("event_type") or "")),
             )
             for eid, evt in zip(job.event_ids, job.events)
+            if str(
+                (evt.get("metadata_json") or {}).get("interaction_kind")
+                if isinstance(evt.get("metadata_json"), dict)
+                else ""
+            ).strip().lower()
+            != FIRST_CONTEXT_STORY_INTERACTION_KIND
         ]
 
     async def _fail_extract_job(self, job: L2BatchJob, exc: Exception) -> None:

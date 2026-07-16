@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,223 @@ async def test_runtime_command_queue_enqueues_and_claims_user_message(tmp_path: 
         assert stats["pending_count"] == 0
         assert stats["claimed_count"] == 0
         assert stats["completed_count"] == 1
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_queue_recovers_prior_process_claim_immediately_on_start(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    db_path = tmp_path / "runtime_commands.db"
+    first_queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await first_queue.start()
+    command_id = await first_queue.enqueue_user_message(
+        UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="recover immediately",
+        )
+    )
+    claimed = await first_queue.claim_next(
+        consumer_name="old-process",
+        command_types=(RuntimeCommandType.USER_MESSAGE,),
+    )
+    assert claimed is not None
+    assert claimed.command_id == command_id
+    await first_queue.stop()
+
+    restarted_queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await restarted_queue.start()
+    try:
+        recovered = await restarted_queue.claim_next(
+            consumer_name="new-process",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert recovered is not None
+        assert recovered.command_id == command_id
+        assert recovered.retry_count == 1
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute(
+                "SELECT last_error FROM runtime_commands WHERE command_id = ?",
+                (command_id,),
+            ).fetchone() == ("PROCESS_RESTART_RECOVERY",)
+    finally:
+        await restarted_queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_queue_recovers_expired_claim_lease(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    db_path = tmp_path / "runtime_commands.db"
+    queue = SQLiteRuntimeCommandQueue(
+        db_path=str(db_path),
+        claim_lease_seconds=0.001,
+    )
+    await queue.start()
+    command_id = await queue.enqueue_user_message(
+        UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            message="recover expired lease",
+        )
+    )
+    first = await queue.claim_next(
+        consumer_name="stuck-worker",
+        command_types=(RuntimeCommandType.USER_MESSAGE,),
+    )
+    assert first is not None
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE runtime_commands SET claimed_at = 0 WHERE command_id = ?",
+            (command_id,),
+        )
+        conn.commit()
+
+    try:
+        recovered = await queue.claim_next(
+            consumer_name="recovery-worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert recovered is not None
+        assert recovered.command_id == command_id
+        assert recovered.retry_count == 1
+        with sqlite3.connect(db_path) as conn:
+            assert conn.execute(
+                "SELECT last_error FROM runtime_commands WHERE command_id = ?",
+                (command_id,),
+            ).fetchone() == ("CLAIM_LEASE_EXPIRED",)
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_queue_deduplicates_stable_user_turn_correlation(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    command = UserMessageCommand(
+        source="api",
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        message="hello",
+        correlation_id="user_turn:turn-1",
+        created_at=1710000000.0,
+    )
+    try:
+        first_id = await queue.enqueue_user_message(command)
+        second_id = await queue.enqueue_user_message(command)
+
+        assert second_id == first_id
+        stats = await queue.get_stats()
+        assert stats["pending_count"] == 1
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_command_queue_rejects_same_correlation_for_different_input(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    try:
+        await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                message="hello",
+                correlation_id="user_turn:turn-1",
+                created_at=1710000000.0,
+            )
+        )
+        with pytest.raises(
+            ValueError,
+            match="correlation id was reused for different input",
+        ):
+            await queue.enqueue_user_message(
+                UserMessageCommand(
+                    source="api",
+                    user_id="user-1",
+                    session_id="session-1",
+                    turn_id="turn-1",
+                    message="different",
+                    correlation_id="user_turn:turn-1",
+                    created_at=1710000000.0,
+                )
+            )
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_user_message_idempotency_survives_completed_command_gc(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    db_path = tmp_path / "runtime_commands.db"
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+    original = UserMessageCommand(
+        source="api",
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        message="hello",
+        correlation_id="user_message:message-1",
+        created_at=1710000000.0,
+    )
+    try:
+        first_id = await queue.enqueue_user_message(original)
+        claimed = await queue.claim_next(
+            consumer_name="runtime-worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert claimed is not None
+        await queue.ack(claimed.command_id)
+        with sqlite3.connect(db_path) as db:
+            db.execute("DELETE FROM runtime_commands WHERE command_id = ?", (first_id,))
+            db.commit()
+
+        assert await queue.enqueue_user_message(original) == first_id
+        assert (await queue.get_stats())["pending_count"] == 0
+
+        second_id = await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                message="hello again",
+                correlation_id="user_message:message-2",
+                created_at=1710000001.0,
+            )
+        )
+        assert second_id != first_id
+        assert (await queue.get_stats())["pending_count"] == 1
     finally:
         await queue.stop()
 
@@ -294,9 +512,7 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
         )
 
         async with queue.user_message_clear_boundary():
-            generation, purged_count = (
-                await queue.advance_user_message_generation_and_purge()
-            )
+            generation, purged_count = await queue.advance_user_message_generation_and_purge()
 
         assert generation == 1
         assert purged_count == 4
@@ -305,10 +521,15 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
                 "SELECT command_type, payload_json FROM runtime_commands ORDER BY command_id"
             ) as cursor:
                 rows = await cursor.fetchall()
+            async with db.execute(
+                "SELECT COUNT(*) FROM runtime_user_message_idempotency"
+            ) as cursor:
+                receipt_count = int((await cursor.fetchone())[0])
         assert [(row[0], "keep me" in str(row[1])) for row in rows] == [
             (RuntimeCommandType.REFRESH_LLM_CONFIG.value, True)
         ]
         assert all("secret" not in str(row[1]) for row in rows)
+        assert receipt_count == 0
 
         await _enqueue("new generation")
         next_command = await queue.claim_next(
@@ -317,6 +538,59 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
         )
         assert next_command is not None
         assert next_command.user_message_generation == 1
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_user_message_can_reenqueue_same_correlation_after_destructive_clear(
+    tmp_path: Path,
+) -> None:
+    from magi.core.sqlite import sqlite_connection_async
+    from magi.events.contracts import UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    command = UserMessageCommand(
+        source="api",
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        message="same business input",
+        correlation_id="user_message:message-1",
+        created_at=1710000000.0,
+    )
+    try:
+        first_command_id = await queue.enqueue_user_message(command)
+        async with queue.user_message_clear_boundary():
+            generation, purged = await queue.advance_user_message_generation_and_purge()
+
+        assert generation == 1
+        assert purged == 1
+        async with sqlite_connection_async(queue.db_path) as db:
+            async with db.execute(
+                """
+                SELECT COUNT(*)
+                FROM runtime_user_message_idempotency
+                WHERE correlation_id = ?
+                """,
+                (command.correlation_id,),
+            ) as cursor:
+                assert int((await cursor.fetchone())[0]) == 0
+
+        second_command_id = await queue.enqueue_user_message(command)
+        assert second_command_id != first_command_id
+        async with sqlite_connection_async(queue.db_path) as db:
+            async with db.execute(
+                """
+                SELECT user_message_generation
+                FROM runtime_commands
+                WHERE command_id = ?
+                """,
+                (second_command_id,),
+            ) as cursor:
+                assert int((await cursor.fetchone())[0]) == 1
     finally:
         await queue.stop()
 
@@ -371,9 +645,7 @@ async def test_first_clear_purges_legacy_user_message_migrated_from_v1(
     try:
         assert queue.current_user_message_generation() == 0
         async with queue.user_message_clear_boundary():
-            generation, purged = (
-                await queue.advance_user_message_generation_and_purge()
-            )
+            generation, purged = await queue.advance_user_message_generation_and_purge()
         assert generation == 1
         assert purged == 1
         with sqlite3.connect(db_path) as conn:

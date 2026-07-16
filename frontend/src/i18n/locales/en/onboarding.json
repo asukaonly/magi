@@ -247,8 +247,53 @@
   },
   "firstContext": {
     "kicker": "Optional context source",
-    "title": "Add a little context to the first conversation?",
-    "body": "Connect one historical source you are comfortable sharing. Magi will read a small representative sample so the first hello does not start from zero. You can also skip this and connect sources later.",
+    "title": "How would you like Magi to start getting to know you?",
+    "body": "Choose whichever feels most natural. This step is optional, and you can add more later.",
+    "routes": {
+      "back": "Back to choices",
+      "question": {
+        "title": "Answer an everyday question",
+        "body": "No full introduction needed—take half a minute to share something from recent life.",
+        "meta": "About 30 seconds"
+      },
+      "activity": {
+        "title": "Connect everyday activity",
+        "body": "Start with traces you naturally leave in browsing, music, photos, and more.",
+        "meta": "Only connect sources you choose"
+      },
+      "note": "Neither option comes first, and you can also skip this step."
+    },
+    "story": {
+      "title": "Start with an everyday question",
+      "body": "It does not need to be complete. Share whatever comes to mind—even one short sentence is enough.",
+      "questionLabel": "A question for you",
+      "questions": {
+        "recent_feeling": "What small thing recently changed your mood, even a little?",
+        "repeating_content": "What have you found yourself watching or listening to again and again lately?",
+        "personal_time": "What part of a recent day felt most like time that was truly yours?",
+        "reluctant_routine": "What have you kept doing lately, even though you did not really feel like doing it?"
+      },
+      "changeQuestion": "Try another question",
+      "inputLabel": "Share something from recent life",
+      "placeholder": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
+      "privacyNote": "This becomes your first real conversation with Magi. The chat record is stored on this device and can be deleted at any time.",
+      "submit": "Tell Magi",
+      "submitting": "Opening your conversation…",
+      "retryEntering": "Continue to conversation",
+      "continueWithoutConfirmation": "Enter Magi for now",
+      "errors": {
+        "empty": "One short sentence is enough, or you can try another question.",
+        "runtimeNotReady": "Magi is still getting ready. Your draft is safe—please try again in a moment.",
+        "sessionFailed": "Could not start the first conversation yet. Your draft is safe—please try again.",
+        "sendFailed": "The conversation could not continue yet. Your answer and progress are preserved—please try again.",
+        "confirmationUnavailable": "Magi cannot confirm whether the full send completed. You can retry safely or enter Magi for now.",
+        "finishFailed": "Magi cannot open yet. Your answer and progress are preserved—please try again."
+      }
+    },
+    "activity": {
+      "title": "Start with everyday activity",
+      "body": "Only connect sources you choose. Magi will first read a small amount of recent history."
+    },
     "scopeHint": "This only prepares a small amount of context for the first chat; full history can be backfilled after setup.",
     "note": "Magi only reads sources you enable. You can turn each plugin off or adjust it from Settings.",
     "connectedCount": "{{count}} source connected",

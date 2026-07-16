@@ -77,6 +77,17 @@ class ChatMessageRecord:
 
 
 @dataclass(slots=True)
+class CreateUserTurnResult:
+    """Result of an idempotent user-turn creation attempt."""
+
+    message: ChatMessageRecord
+    created: bool
+    projection_completed: bool
+    runtime_enqueued: bool
+    runtime_envelope: dict[str, Any]
+
+
+@dataclass(slots=True)
 class ChatContextSummaryRecord:
     """Durable rolling summary for one chat session prompt frontier."""
 

@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -792,6 +793,112 @@ def test_create_new_session_persists_workspace_path(tmp_path):
 
     assert sessions[0].session_id == session_id
     assert sessions[0].workspace_path == "/tmp/magi"
+
+
+def test_create_new_session_with_client_session_id_is_idempotent(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+
+    first = service.create_new_session(
+        "u1",
+        workspace_path="/tmp/magi",
+        client_session_id="onboarding_session_1",
+    )
+    second = service.create_new_session(
+        "u1",
+        workspace_path="/tmp/changed",
+        client_session_id="onboarding_session_1",
+    )
+
+    assert first == second == "onboarding_session_1"
+    with sqlite3.connect(service._chat_db_path) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
+            (first,),
+        ).fetchone() == (1,)
+        assert conn.execute(
+            "SELECT workspace_path FROM chat_sessions WHERE session_id = ?",
+            (first,),
+        ).fetchone() == ("/tmp/magi",)
+
+
+def test_create_new_session_with_client_session_id_is_idempotent_under_concurrency(tmp_path):
+    first_service = _build_service(tmp_path)
+    second_service = _build_service(tmp_path)
+    _init_chat_session_store(first_service._chat_db_path)
+
+    def _create_and_close(service):  # type: ignore[no-untyped-def]
+        try:
+            return service.create_new_session(
+                "u1",
+                "/tmp/magi",
+                "onboarding_session_1",
+            )
+        finally:
+            service.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(_create_and_close, service)
+            for service in (first_service, second_service)
+        ]
+        session_ids = [future.result(timeout=2) for future in futures]
+
+    assert session_ids == ["onboarding_session_1", "onboarding_session_1"]
+    with sqlite3.connect(first_service._chat_db_path) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM chat_sessions WHERE session_id = ?",
+            ("onboarding_session_1",),
+        ).fetchone() == (1,)
+
+
+@pytest.mark.parametrize("terminal_column", ["archived_at_ms", "deleted_at_ms"])
+def test_create_new_session_rejects_reuse_after_terminal_state(tmp_path, terminal_column):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    session_id = service.create_new_session(
+        "u1",
+        client_session_id="onboarding_session_1",
+    )
+    with sqlite3.connect(service._chat_db_path) as conn:
+        conn.execute(
+            f"UPDATE chat_sessions SET {terminal_column} = 123 WHERE session_id = ?",
+            (session_id,),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="not available"):
+        service.create_new_session(
+            "u1",
+            client_session_id="onboarding_session_1",
+        )
+
+
+def test_create_new_session_rejects_client_session_id_owned_by_another_user(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    service.create_new_session(
+        "u1",
+        client_session_id="onboarding_session_1",
+    )
+
+    with pytest.raises(ValueError, match="not available"):
+        service.create_new_session(
+            "u2",
+            client_session_id="onboarding_session_1",
+        )
+
+
+@pytest.mark.parametrize(
+    "client_session_id",
+    ["contains space", "slash/value", "x" * 129],
+)
+def test_create_new_session_rejects_invalid_client_session_id(tmp_path, client_session_id):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+
+    with pytest.raises(ValueError, match="Client session ID"):
+        service.create_new_session("u1", client_session_id=client_session_id)
 
 
 def test_get_display_history_returns_attachment_metadata_for_user_message(tmp_path):

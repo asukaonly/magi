@@ -13,7 +13,7 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 
 | File | Owner | Holds |
 |------|-------|-------|
-| `data/chat/chat.db` | chat | sessions, turns, messages, attachments, context summaries |
+| `data/chat/chat.db` | chat | sessions, turns, messages, attachments, context summaries, user-turn delivery checkpoints |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
 | `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
@@ -23,7 +23,7 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 | `data/memory/emotional_state.db` | personality | emotional state KV + events |
 | `data/memory/growth_memory.db` | personality | milestones, relationships, personality evolution |
 | `runtime/scheduler.db` | scheduler | schedules, execution history, sensor sync jobs |
-| `runtime/message_queue.db` | runtime | runtime command queue, command rollups |
+| `runtime/message_queue.db` | runtime | runtime command queue, stable user-turn deduplication, command rollups |
 | `runtime/sensor_state.db` | sensors | per-source cursors, fingerprints, stats |
 | `runtime/background_tasks.db` | runtime | background-task durability |
 | `runtime/permission_rules.db` | runtime permissions | trust and permission rule state |
@@ -34,6 +34,18 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 
 Each subsystem owns the schema for its own file. There is no
 cross-file foreign-key enforcement.
+
+The runtime command queue provides durable **at-least-once handoff only from the
+persisted queue to a local message-bus publish**. It is not end-to-end durable
+delivery or exactly-once execution. Stable user-turn receipts prevent repeated
+HTTP submissions from creating another chat row or another queued command, and
+claimed rows are recovered after a process restart. A crash after local publish
+but before queue acknowledgement can replay the command. A crash after queue
+acknowledgement but before the in-memory subscriber handles the event can lose
+that delivery because there is currently no durable agent inbox. Consumers must
+therefore make transcript writes and any external side effects idempotent using
+the stable turn or message identity; the queue receipt is not proof that a
+subscriber handled the event or that a downstream side effect ran exactly once.
 
 ## Two tiers of schema management
 

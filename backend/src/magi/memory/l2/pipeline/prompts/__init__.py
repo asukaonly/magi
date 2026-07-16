@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from magi.events.first_context import first_context_from_metadata
+
 from ...models import L2EventWindow
 from ...assertion_family_policy import (
     render_assertion_family_list,
@@ -252,6 +254,22 @@ def render_phase1_extract_prompt(
         ts = _format_ts(event.timestamp)
         parts.append(f"### [{role}] [#{event.event_id}] {ts}")
         parts.append(str(event.content).strip())
+        parts.append("")
+
+    first_context_questions: list[tuple[str, dict[str, str]]] = []
+    for event in event_window.events:
+        context = first_context_from_metadata(event.metadata_json)
+        if context is not None:
+            first_context_questions.append((event.event_id, context))
+    if first_context_questions:
+        parts.append("## Conversation Question Context (not evidence)")
+        parts.append(
+            "Use this only to interpret a short or elliptical answer. The question is not a user claim and must never be extracted as evidence."
+        )
+        for event_id, context in first_context_questions:
+            parts.append(
+                f"- [#{event_id}] question_id={context['question_id']}: {context['question_text']}"
+            )
         parts.append("")
 
     # Focal subject

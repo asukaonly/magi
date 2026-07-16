@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from magi.memory.l3.models import TemporalEvidenceItem, TemporalEvidencePack
+from magi.memory.l3.summary_store import _temporal_fallback_summary
 from magi.memory.l3.temporal_llm_service import TemporalSummaryLLMService
 from magi.i18n import set_current_language
 
@@ -92,6 +93,55 @@ async def test_build_temporal_evidence_pack_filters_runtime_and_preserves_import
         }
     ]
     assert pack.rule_hints["recurring_constraints"] == []
+
+
+@pytest.mark.asyncio
+async def test_first_context_short_answer_keeps_question_as_non_evidence_context() -> None:
+    service = TemporalSummaryLLMService(enabled=False)
+    question = "最近有什么内容，是你会忍不住反复看或听的？"
+    events = [
+        {
+            "event_id": "evt-mygo",
+            "event_type": "UserMessage",
+            "content": "MyGO",
+            "memory_domain": "user_authored",
+            "importance_score": 0.6,
+            "timestamp": 100.0,
+            "metadata_json": {
+                "interaction_kind": "first_context_story",
+                "first_context": {
+                    "question_id": "repeating_content",
+                    "question_text": question,
+                },
+            },
+        }
+    ]
+
+    pack = service.build_evidence_pack(
+        events=events,
+        summary_category="day",
+        period_start=100.0,
+        period_end=200.0,
+    )
+
+    assert pack.events[0].content == "MyGO"
+    assert pack.events[0].interpretation_context == {
+        "kind": "first_context_question",
+        "question_id": "repeating_content",
+        "question_text": question,
+        "evidence_semantics": "interpretation_context_only",
+    }
+    prompt = service._render_temporal_context_prompt(pack)
+    assert question in prompt
+    assert "product-authored question is not evidence" in prompt
+
+    result = await service.generate_temporal_candidate(
+        pack,
+        fallback_summary=_temporal_fallback_summary(events),
+    )
+    assert result.used_fallback is True
+    assert result.candidate.content == "MyGO"
+    assert question not in result.candidate.content
 
 
 def test_parse_temporal_llm_output_into_candidate() -> None:

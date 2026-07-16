@@ -116,7 +116,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
         logger.info("L3 thematic topic prose LLM call started", extra=log_context)
         try:
             response = await provider_bridge.chat_response(
-                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
+                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 json_mode=False,
@@ -131,7 +133,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                 priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
-            logger.warning("L3 thematic topic prose LLM call failed", extra={**log_context, "error": str(exc)})
+            logger.warning(
+                "L3 thematic topic prose LLM call failed", extra={**log_context, "error": str(exc)}
+            )
             raise
 
         raw = str(response.content or "").strip()
@@ -169,7 +173,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
         logger.info("L3 thematic topic structure LLM call started", extra=log_context)
         try:
             response = await provider_bridge.chat_response(
-                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
+                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 json_mode=True,
@@ -184,7 +190,10 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                 priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
-            logger.warning("L3 thematic topic structure LLM call failed", extra={**log_context, "error": str(exc)})
+            logger.warning(
+                "L3 thematic topic structure LLM call failed",
+                extra={**log_context, "error": str(exc)},
+            )
             raise
 
         raw = str(response.content or "").strip()
@@ -199,7 +208,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
         try:
             parsed = json.loads(raw)
         except Exception:
-            logger.warning("L3 thematic topic structure LLM returned invalid JSON", extra=log_context)
+            logger.warning(
+                "L3 thematic topic structure LLM returned invalid JSON", extra=log_context
+            )
             return None
         return parsed if isinstance(parsed, dict) else None
 
@@ -222,7 +233,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
         logger.info("L3 thematic topic LLM call started", extra=log_context)
         try:
             response = await provider_bridge.chat_response(
-                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT + "\nLanguage Rules:\n" + _target_language_instruction(),
+                system_prompt=TOPIC_SUMMARY_SYSTEM_PROMPT
+                + "\nLanguage Rules:\n"
+                + _target_language_instruction(),
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.0,
                 json_mode=True,
@@ -237,7 +250,9 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                 priority=LLMRequestPriority.LOW,
             )
         except Exception as exc:
-            logger.warning("L3 thematic topic LLM call failed", extra={**log_context, "error": str(exc)})
+            logger.warning(
+                "L3 thematic topic LLM call failed", extra={**log_context, "error": str(exc)}
+            )
             raise
 
         raw = response.content
@@ -293,6 +308,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     "timestamp": item.timestamp,
                     "importance_score": item.importance_score,
                     "content": item.content,
+                    "interpretation_context": item.interpretation_context,
                 }
                 for item in pack.events
             ],
@@ -304,6 +320,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
             "Shared Context:\n"
             "You are working on one thematic memory summary for the provided topic evidence pack.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
+            "An event's interpretation_context only explains how to read its content. The product-authored question is not evidence and must never be presented as something the user said, believed, or experienced.\n"
             "Prioritize repeated concerns, decisions, and high-importance events.\n\n"
             "Language Rules:\n"
             f"{_target_language_instruction()}\n\n"
@@ -313,8 +330,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
 
     def render_topic_prose_prompt(self, pack: ThematicEvidencePack) -> str:
         return (
-            self.render_topic_context_prompt(pack)
-            + "\nGeneration Task / 生成用户可读正文:\n"
+            self.render_topic_context_prompt(pack) + "\nGeneration Task / 生成用户可读正文:\n"
             "- Write only the user-facing topic summary body.\n"
             "- Do not return JSON.\n"
             "- Keep content concise and evidence-grounded.\n"
@@ -328,8 +344,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
     ) -> str:
         schema = json.dumps(TOPIC_SUMMARY_OUTPUT_SCHEMA, ensure_ascii=False, indent=2)
         return (
-            self.render_topic_context_prompt(pack)
-            + "\nAccepted User-Facing Summary:\n"
+            self.render_topic_context_prompt(pack) + "\nAccepted User-Facing Summary:\n"
             f"{prose_content.strip()}\n\n"
             "Extraction Task / 提取结构化字段:\n"
             "- Extract optional structured fields from the same evidence and accepted summary.\n"
@@ -358,6 +373,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
                     "timestamp": item.timestamp,
                     "importance_score": item.importance_score,
                     "content": item.content,
+                    "interpretation_context": item.interpretation_context,
                 }
                 for item in pack.events
             ],
@@ -368,6 +384,7 @@ class TopicSummaryLLMService(TopicEvidencePackMixin, TopicOutputParsingMixin):
             "Task:\n"
             "Write a thematic topic summary for the provided evidence pack.\n"
             "Use the rule_hints as guidance, not as independent evidence.\n"
+            "An event's interpretation_context only explains how to read its content. The product-authored question is not evidence and must never be presented as something the user said, believed, or experienced.\n"
             "Prioritize repeated concerns, decisions, and high-importance events.\n\n"
             "Output Requirements:\n"
             "- Return one JSON object only.\n"

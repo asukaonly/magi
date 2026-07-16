@@ -23,7 +23,10 @@
         "recall_feedback_pending_ask": "请先回答当前问题，再重新核对之前的回复。",
         "empty_turn": "请输入消息或添加附件。",
         "persist_failed": "聊天轮次保存失败",
+        "turn_conflict": "这次发送使用的编号已经对应了另一份内容，请作为一条新消息重新发送。",
+        "projection_failed": "消息已保存，但记忆处理失败。请重试。",
         "enqueue_failed": "运行时命令入队失败",
+        "bootstrap_state_update_failed": "首次对话已保存，但初始化状态更新失败。请重试。",
         "attachments_must_be_list": "附件必须是列表。",
         "attachment_must_be_object": "每个附件必须是对象。",
         "attachment_kind_required": "每个附件都必须包含 kind。"

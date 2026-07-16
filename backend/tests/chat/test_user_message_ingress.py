@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -37,6 +39,9 @@ class _FakeRuntimeCommandQueue:
         yield
 
     async def enqueue_user_message(self, command) -> int:
+        for index, existing in enumerate(self.commands, start=1):
+            if existing.correlation_id == command.correlation_id:
+                return index
         self.commands.append(command)
         command_id = self.next_command_id
         self.next_command_id += 1
@@ -51,13 +56,43 @@ class _FakeCreatedTurn:
     session_id: str
     turn_id: str
     message_id: str
+    created_at_ms: int
+    persona_id: str | None = None
 
 
 class _FakeChatStore:
     def __init__(self) -> None:
         self.created_turns: list[dict[str, object]] = []
+        self.turns_by_id: dict[str, _FakeCreatedTurn] = {}
+        self.delivery_by_id: dict[str, dict[str, bool]] = {}
+        self.runtime_envelope_by_id: dict[str, dict[str, object]] = {}
+        self.request_fingerprint_by_id: dict[str, str] = {}
 
-    async def create_user_turn(
+    async def load_user_turn_once(
+        self,
+        *,
+        turn_id: str,
+        request_fingerprint: str,
+    ):  # type: ignore[no-untyped-def]
+        existing = self.turns_by_id.get(turn_id)
+        if existing is None:
+            return None
+        if self.request_fingerprint_by_id[turn_id] != request_fingerprint:
+            raise service.ChatTurnConflictError("turn request conflict")
+        delivery = self.delivery_by_id[turn_id]
+        return type(
+            "_Result",
+            (),
+            {
+                "message": existing,
+                "created": False,
+                "projection_completed": delivery["projection_completed"],
+                "runtime_enqueued": delivery["runtime_enqueued"],
+                "runtime_envelope": dict(self.runtime_envelope_by_id[turn_id]),
+            },
+        )()
+
+    async def create_user_turn_once(
         self,
         *,
         session_id: str,
@@ -69,7 +104,25 @@ class _FakeChatStore:
         created_at_ms: int,
         reply_to_message_id: str | None = None,
         persona_id: str | None = None,
-    ) -> _FakeCreatedTurn:
+        runtime_envelope: dict[str, object] | None = None,
+        request_fingerprint: str = "",
+    ):  # type: ignore[no-untyped-def]
+        existing = self.turns_by_id.get(turn_id)
+        if existing is not None:
+            if self.request_fingerprint_by_id[turn_id] != request_fingerprint:
+                raise service.ChatTurnConflictError("turn envelope conflict")
+            delivery = self.delivery_by_id[turn_id]
+            return type(
+                "_Result",
+                (),
+                {
+                    "message": existing,
+                    "created": False,
+                    "projection_completed": delivery["projection_completed"],
+                    "runtime_enqueued": delivery["runtime_enqueued"],
+                    "runtime_envelope": dict(self.runtime_envelope_by_id[turn_id]),
+                },
+            )()
         self.created_turns.append(
             {
                 "session_id": session_id,
@@ -83,11 +136,41 @@ class _FakeChatStore:
                 "persona_id": persona_id,
             }
         )
-        return _FakeCreatedTurn(
+        created = _FakeCreatedTurn(
             session_id=session_id,
             turn_id=turn_id,
             message_id=f"msg-{turn_id}",
+            created_at_ms=created_at_ms,
+            persona_id=persona_id,
         )
+        self.turns_by_id[turn_id] = created
+        self.delivery_by_id[turn_id] = {
+            "projection_completed": False,
+            "runtime_enqueued": False,
+        }
+        self.runtime_envelope_by_id[turn_id] = dict(runtime_envelope or {})
+        self.request_fingerprint_by_id[turn_id] = request_fingerprint
+        return type(
+            "_Result",
+            (),
+            {
+                "message": created,
+                "created": True,
+                "projection_completed": False,
+                "runtime_enqueued": False,
+                "runtime_envelope": dict(runtime_envelope or {}),
+            },
+        )()
+
+    async def mark_user_turn_projection_completed(
+        self, *, turn_id: str, updated_at_ms: int
+    ) -> None:
+        _ = updated_at_ms
+        self.delivery_by_id[turn_id]["projection_completed"] = True
+
+    async def mark_user_turn_runtime_enqueued(self, *, turn_id: str, updated_at_ms: int) -> None:
+        _ = updated_at_ms
+        self.delivery_by_id[turn_id]["runtime_enqueued"] = True
 
 
 class _FakeChatProjector:
@@ -96,6 +179,33 @@ class _FakeChatProjector:
 
     async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
         self.user_messages.append(dict(kwargs))
+
+
+class _FakeChatMessageNotifier:
+    def __init__(self) -> None:
+        self.upserts: list[dict[str, str]] = []
+
+    async def broadcast_chat_message_upsert(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> None:
+        self.upserts.append(
+            {
+                "user_id": user_id,
+                "session_id": session_id,
+                "message_id": message_id,
+            }
+        )
+
+
+@pytest.fixture(autouse=True)
+def _default_chat_projector(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+    return projector
 
 
 class _FakeChatReadService:
@@ -634,7 +744,7 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FailingChatStore(_FakeChatStore):
-        async def create_user_turn(
+        async def create_user_turn_once(
             self,
             *,
             session_id: str,
@@ -642,11 +752,21 @@ async def test_dispatch_user_message_returns_chat_persist_failure_before_enqueue
             turn_id: str,
             message_text: str,
             attachment_payloads: list[dict[str, object]] | None = None,
+            message_payload: dict[str, object] | None = None,
             created_at_ms: int,
             reply_to_message_id: str | None = None,
             persona_id: str | None = None,
+            runtime_envelope: dict[str, object] | None = None,
+            request_fingerprint: str = "",
         ) -> _FakeCreatedTurn:
-            _ = (attachment_payloads, reply_to_message_id, persona_id)
+            _ = (
+                attachment_payloads,
+                message_payload,
+                reply_to_message_id,
+                persona_id,
+                runtime_envelope,
+                request_fingerprint,
+            )
             raise RuntimeError("persist failed")
 
     queue = _FakeRuntimeCommandQueue()
@@ -808,3 +928,956 @@ async def test_dispatch_started_during_clear_waits_and_is_fully_preserved(
     assert len(chat_store.created_turns) == 1
     assert len(chat_projector.user_messages) == 1
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_same_turn_retry_completes_enqueue_without_duplicate_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat.store import ChatStore
+    from magi.personality.bootstrap_service import BootstrapDialogueService
+
+    class _FailOnceQueue(_FakeRuntimeCommandQueue):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        async def enqueue_user_message(self, command) -> int:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("temporary enqueue failure")
+            return await super().enqueue_user_message(command)
+
+    class _GrowthEngine:
+        def __init__(self) -> None:
+            self.milestones: list[SimpleNamespace] = []
+
+        async def get_milestones(self, **kwargs):  # type: ignore[no-untyped-def]
+            _ = kwargs
+            return list(self.milestones)
+
+        async def record_milestone(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.milestones.append(SimpleNamespace(metadata=dict(kwargs.get("metadata") or {})))
+
+    queue = _FailOnceQueue()
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    chat_projector = _FakeChatProjector()
+    growth = _GrowthEngine()
+    notifier = _FakeChatMessageNotifier()
+
+    async def _active_persona_id() -> str:
+        return "persona-active"
+
+    async def _growth_engine():
+        return growth
+
+    async def _projection_confirmed(*, message_id: str) -> bool:
+        _ = message_id
+        return True
+
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
+    monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
+    monkeypatch.setattr(
+        service,
+        "_wait_for_first_context_memory_projection",
+        _projection_confirmed,
+    )
+    monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
+    monkeypatch.setattr(
+        "magi.personality.active_persona.get_current_personality",
+        lambda: "test-persona",
+    )
+    monkeypatch.setattr(
+        "magi.personality.bootstrap_service.get_shared_growth_engine",
+        _growth_engine,
+    )
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "我最近失恋了，你能陪我聊聊吗？",
+        "session_id": "session-first-context",
+        "client_turn_id": "turn-first-context",
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+
+    first = await service.dispatch_user_message(**request)
+    assert first.success is False
+    assert first.error_code == service.RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED
+    assert growth.milestones == []
+    assert notifier.upserts == []
+
+    second = await service.dispatch_user_message(**request)
+    assert notifier.upserts == [
+        {
+            "user_id": "u1",
+            "session_id": "session-first-context",
+            "message_id": second.message_id,
+        }
+    ]
+    third = await service.dispatch_user_message(**request)
+
+    assert second.success is True
+    assert third.success is True
+    assert second.message_id == third.message_id
+    assert len(chat_projector.user_messages) == 1
+    assert len(queue.commands) == 1
+    assert queue.attempts == 2
+    assert queue.commands[0].correlation_id == f"user_message:{second.message_id}"
+    assert len(notifier.upserts) == 2
+    assert notifier.upserts[1] == notifier.upserts[0]
+    assert len(growth.milestones) == 1
+    bootstrap = BootstrapDialogueService(growth_engine=growth)  # type: ignore[arg-type]
+    assert (
+        await bootstrap.needs_bootstrap_init(
+            "test-persona",
+            persona_id="persona-active",
+        )
+        is False
+    )
+
+    with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE turn_id = ? AND role = 'user'",
+            ("turn-first-context",),
+        ).fetchone() == (1,)
+        assert db.execute(
+            """
+            SELECT projection_completed, runtime_enqueued
+            FROM chat_user_turn_delivery
+            WHERE turn_id = ?
+            """,
+            ("turn-first-context",),
+        ).fetchone() == (1, 1)
+
+
+@pytest.mark.asyncio
+async def test_same_turn_retry_skips_hook_and_attachment_preparation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from magi.hooks.contracts import HookDecision
+
+    class _FailOnceQueue(_FakeRuntimeCommandQueue):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        async def enqueue_user_message(self, command) -> int:
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("temporary enqueue failure")
+            return await super().enqueue_user_message(command)
+
+    queue = _FailOnceQueue()
+    store = _FakeChatStore()
+    hook_calls = 0
+    attachment_prepare_calls = 0
+
+    async def _modify_hook(*args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal hook_calls
+        _ = (args, kwargs)
+        hook_calls += 1
+        return HookDecision.modify(user_message=f"hooked-{hook_calls}")
+
+    async def _prepare_attachments(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal attachment_prepare_calls
+        attachment_prepare_calls += 1
+        return [
+            {
+                **dict(item),
+                "prepared_once": attachment_prepare_calls,
+            }
+            for item in kwargs["attachments"]
+        ]
+
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "_prepare_runtime_attachments", _prepare_attachments)
+    monkeypatch.setattr("magi.hooks.dispatch.dispatch_hook", _modify_hook)
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "raw input",
+        "session_id": "session-hook-retry",
+        "client_turn_id": "turn-hook-retry",
+        "attachments": [{"kind": "file", "attachment_id": "attachment-1"}],
+    }
+    first = await service.dispatch_user_message(**request)
+    second = await service.dispatch_user_message(**request)
+
+    assert first.error_code == service.RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED
+    assert second.success is True
+    assert hook_calls == 1
+    assert attachment_prepare_calls == 1
+    assert queue.attempts == 2
+    assert queue.commands[0].message == "hooked-1"
+    assert queue.commands[0].attachments[0]["prepared_once"] == 1
+
+
+@pytest.mark.asyncio
+async def test_existing_turn_retry_bypasses_new_pending_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _FailRuntimeStageOnceStore(_FakeChatStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.runtime_stage_attempts = 0
+
+        async def mark_user_turn_runtime_enqueued(
+            self,
+            *,
+            turn_id: str,
+            updated_at_ms: int,
+        ) -> None:
+            self.runtime_stage_attempts += 1
+            if self.runtime_stage_attempts == 1:
+                raise RuntimeError("temporary runtime-stage failure")
+            await super().mark_user_turn_runtime_enqueued(
+                turn_id=turn_id,
+                updated_at_ms=updated_at_ms,
+            )
+
+    queue = _FakeRuntimeCommandQueue()
+    store = _FailRuntimeStageOnceStore()
+    broker = _FakeControlInteractionBroker()
+    active_ask: _FakeAskState | None = None
+
+    class _DynamicControlSessionStore:
+        def ask_state(self, session_id: str) -> _FakeAskState | None:
+            _ = session_id
+            return active_ask
+
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(
+        service,
+        "resolve_control_session_store",
+        lambda: _DynamicControlSessionStore(),
+    )
+    monkeypatch.setattr(service, "resolve_control_interaction_broker", lambda: broker)
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "original user message",
+        "session_id": "session-pending-ask-retry",
+        "client_turn_id": "turn-pending-ask-retry",
+    }
+    first = await service.dispatch_user_message(**request)
+    active_ask = _FakeAskState(request_id="ask-created-by-runtime")
+    second = await service.dispatch_user_message(**request)
+
+    assert first.error_code == service.CHAT_STORE_PERSIST_FAILED
+    assert second.success is True
+    assert second.handled_as is None
+    assert store.runtime_stage_attempts == 2
+    assert len(queue.commands) == 1
+    assert broker.resolutions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("changed_field", "changed_value"),
+    [
+        ("attachments", [{"kind": "file", "attachment_id": "attachment-2"}]),
+        ("workspace_path", "/workspace/two"),
+        ("metadata", {"custom": "two"}),
+    ],
+)
+async def test_same_turn_retry_rejects_caller_owned_input_drift(
+    monkeypatch: pytest.MonkeyPatch,
+    changed_field: str,
+    changed_value: object,
+) -> None:
+    class _FailingQueue(_FakeRuntimeCommandQueue):
+        async def enqueue_user_message(self, command) -> int:
+            _ = command
+            raise RuntimeError("leave persisted turn incomplete")
+
+    async def _prepare_attachments(**kwargs):  # type: ignore[no-untyped-def]
+        return [dict(item) for item in kwargs["attachments"]]
+
+    queue = _FailingQueue()
+    store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "_prepare_runtime_attachments", _prepare_attachments)
+
+    first_request: dict[str, object] = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "same text",
+        "session_id": "session-request-drift",
+        "client_turn_id": "turn-request-drift",
+        "attachments": [{"kind": "file", "attachment_id": "attachment-1"}],
+        "workspace_path": "/workspace/one",
+        "metadata": {"custom": "one"},
+    }
+    second_request = dict(first_request)
+    second_request[changed_field] = changed_value
+
+    first = await service.dispatch_user_message(**first_request)  # type: ignore[arg-type]
+    second = await service.dispatch_user_message(**second_request)  # type: ignore[arg-type]
+
+    assert first.error_code == service.RUNTIME_COMMAND_QUEUE_ENQUEUE_FAILED
+    assert second.success is False
+    assert second.error_code == service.CHAT_TURN_CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_runtime_stage_retry_restores_canonical_scheduling_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _StrictQueue(_FakeRuntimeCommandQueue):
+        async def enqueue_user_message(self, command) -> int:
+            for index, existing in enumerate(self.commands, start=1):
+                if existing.correlation_id != command.correlation_id:
+                    continue
+                if existing.to_payload() != command.to_payload():
+                    raise ValueError("same correlation received a different payload")
+                return index
+            return await super().enqueue_user_message(command)
+
+    class _FailRuntimeStageOnceStore(_FakeChatStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.runtime_stage_attempts = 0
+
+        async def mark_user_turn_runtime_enqueued(
+            self,
+            *,
+            turn_id: str,
+            updated_at_ms: int,
+        ) -> None:
+            self.runtime_stage_attempts += 1
+            if self.runtime_stage_attempts == 1:
+                raise RuntimeError("temporary runtime-stage failure")
+            await super().mark_user_turn_runtime_enqueued(
+                turn_id=turn_id,
+                updated_at_ms=updated_at_ms,
+            )
+
+    queue = _StrictQueue()
+    store = _FailRuntimeStageOnceStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+
+    base_request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "same text",
+        "session_id": "session-scheduling-retry",
+        "client_turn_id": "turn-scheduling-retry",
+    }
+    first = await service.dispatch_user_message(
+        **base_request,
+        metadata={
+            "l2_batch_owner": "bootstrap:old",
+            "l2_batch_max_wait_seconds": 1.0,
+        },
+    )
+    second = await service.dispatch_user_message(
+        **base_request,
+        metadata={
+            "l2_batch_owner": "bootstrap:new",
+            "l2_batch_max_wait_seconds": 2.0,
+        },
+    )
+
+    assert first.error_code == service.CHAT_STORE_PERSIST_FAILED
+    assert second.success is True
+    assert store.runtime_stage_attempts == 2
+    assert len(queue.commands) == 1
+    assert queue.commands[0].metadata["l2_batch_owner"] == "bootstrap:old"
+    assert queue.commands[0].metadata["l2_batch_max_wait_seconds"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_concurrent_different_envelopes_choose_one_turn_winner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+
+    base_request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "same text",
+        "session_id": "session-concurrent-conflict",
+        "client_turn_id": "turn-concurrent-conflict",
+    }
+    outcomes = await asyncio.gather(
+        service.dispatch_user_message(**base_request, metadata={"variant": "a"}),
+        service.dispatch_user_message(**base_request, metadata={"variant": "b"}),
+    )
+
+    successful = [outcome for outcome in outcomes if outcome.success]
+    conflicts = [
+        outcome for outcome in outcomes if outcome.error_code == service.CHAT_TURN_CONFLICT
+    ]
+    assert len(successful) == 1
+    assert len(conflicts) == 1
+    assert len(store.created_turns) == 1
+    assert len(projector.user_messages) == 1
+    assert len(queue.commands) == 1
+    winner_metadata = store.runtime_envelope_by_id["turn-concurrent-conflict"]["metadata"]
+    assert queue.commands[0].metadata == winner_metadata
+
+
+@pytest.mark.asyncio
+async def test_concurrent_same_first_context_turn_records_one_bootstrap_start(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_paths_with_schema,
+    _default_chat_projector,
+) -> None:
+    from magi.chat.store import ChatStore
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+    from magi.personality.growth_memory import GrowthMemoryEngine, MilestoneType
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(runtime_paths_with_schema.message_queue_db_path))
+    await queue.start()
+    chat_store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    growth = GrowthMemoryEngine(str(runtime_paths_with_schema.growth_db_path))
+    notifier = _FakeChatMessageNotifier()
+
+    async def _active_persona_id() -> str:
+        return "persona-active"
+
+    async def _growth_engine():
+        return growth
+
+    async def _projection_confirmed(*, message_id: str) -> bool:
+        _ = message_id
+        return True
+
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_message_notifier", lambda: notifier)
+    monkeypatch.setattr(
+        service,
+        "_wait_for_first_context_memory_projection",
+        _projection_confirmed,
+    )
+    monkeypatch.setattr(service, "_resolve_active_persona_id", _active_persona_id)
+    monkeypatch.setattr(
+        "magi.personality.active_persona.get_current_personality",
+        lambda: "test-persona",
+    )
+    monkeypatch.setattr(
+        "magi.personality.bootstrap_service.get_shared_growth_engine",
+        _growth_engine,
+    )
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "最近开始每天晚饭后散步。",
+        "session_id": "session-concurrent-first-context",
+        "client_turn_id": "turn-concurrent-first-context",
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+
+    try:
+        outcomes = await asyncio.gather(
+            service.dispatch_user_message(**request),
+            service.dispatch_user_message(**request),
+        )
+
+        assert all(outcome.success for outcome in outcomes)
+        assert outcomes[0].message_id == outcomes[1].message_id
+        milestones = await growth.get_milestones(
+            milestone_type=MilestoneType.BOOTSTRAP_STARTED,
+        )
+        assert len(milestones) == 1
+        assert milestones[0].metadata["message_id"] == outcomes[0].message_id
+        stats = await queue.get_stats()
+        assert stats["pending_count"] == 1
+        assert len(_default_chat_projector.user_messages) == 1
+        with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as db:
+            assert db.execute(
+                """
+                SELECT COUNT(*)
+                FROM chat_messages
+                WHERE turn_id = ? AND role = 'user'
+                """,
+                (request["client_turn_id"],),
+            ).fetchone() == (1,)
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
+async def test_projection_failure_is_retried_before_runtime_enqueue(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat.store import ChatStore
+
+    class _FailOnceProjector(_FakeChatProjector):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        async def project_user_message(self, **kwargs):  # type: ignore[no-untyped-def]
+            self.attempts += 1
+            if self.attempts == 1:
+                raise RuntimeError("temporary projection failure")
+            await super().project_user_message(**kwargs)
+
+    queue = _FakeRuntimeCommandQueue()
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    projector = _FailOnceProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+
+    async def _skip_bootstrap_mark(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    async def _projection_confirmed(*, message_id: str) -> bool:
+        _ = message_id
+        return True
+
+    monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
+    monkeypatch.setattr(
+        service,
+        "_wait_for_first_context_memory_projection",
+        _projection_confirmed,
+    )
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "还行",
+        "session_id": "session-projection-retry",
+        "client_turn_id": "turn-projection-retry",
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+    first = await service.dispatch_user_message(**request)
+    second = await service.dispatch_user_message(**request)
+    third = await service.dispatch_user_message(**request)
+
+    assert first.error_code == service.CHAT_PROJECTION_FAILED
+    assert second.success is True
+    assert third.success is True
+    assert projector.attempts == 2
+    assert len(projector.user_messages) == 1
+    assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_ordinary_chat_remains_available_without_chat_projector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(
+        service,
+        "get_chat_projector",
+        lambda: (_ for _ in ()).throw(RuntimeError("projector disabled")),
+    )
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="hello",
+        session_id="session-no-projector",
+        client_turn_id="turn-no-projector",
+    )
+
+    assert outcome.success is True
+    assert len(queue.commands) == 1
+    assert store.delivery_by_id["turn-no-projector"] == {
+        "projection_completed": True,
+        "runtime_enqueued": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_republished_projection_keeps_one_l1_event_when_stage_mark_retries(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat.projector import ChatProjector
+    from magi.chat.store import ChatStore
+    from magi.memory.event_translation import translate
+    from magi.memory.l1.event_store import L1EventStore
+
+    class _CollectingBus:
+        def __init__(self) -> None:
+            self.events: list[object] = []
+
+        async def publish(self, event) -> bool:  # type: ignore[no-untyped-def]
+            self.events.append(event)
+            return True
+
+    queue = _FakeRuntimeCommandQueue()
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    bus = _CollectingBus()
+    projector = ChatProjector(event_bus=bus)
+    original_mark = store.mark_user_turn_projection_completed
+    mark_attempts = 0
+
+    async def _fail_mark_once(*, turn_id: str, updated_at_ms: int) -> None:
+        nonlocal mark_attempts
+        mark_attempts += 1
+        if mark_attempts == 1:
+            raise RuntimeError("temporary delivery-state failure")
+        await original_mark(turn_id=turn_id, updated_at_ms=updated_at_ms)
+
+    monkeypatch.setattr(store, "mark_user_turn_projection_completed", _fail_mark_once)
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "I like jazz.",
+        "session_id": "session-stage-retry",
+        "client_turn_id": "turn-stage-retry",
+    }
+    first = await service.dispatch_user_message(**request)
+    second = await service.dispatch_user_message(**request)
+    third = await service.dispatch_user_message(**request)
+
+    assert first.error_code == service.CHAT_STORE_PERSIST_FAILED
+    assert second.success is True
+    assert third.success is True
+    assert len(bus.events) == 2
+    idempotency_keys = {
+        event.data.metadata["idempotency_key"]  # type: ignore[union-attr]
+        for event in bus.events
+    }
+    assert len(idempotency_keys) == 1
+
+    l1 = L1EventStore(
+        db_path=str(runtime_paths_with_schema.l1_memory_db_path),
+        vector_enabled=False,
+    )
+    await l1.initialize()
+    translated = [translate(event) for event in bus.events]
+    assert all(item is not None for item in translated)
+    stored_ids = [await l1.store(item) for item in translated if item is not None]
+    assert stored_ids == [stored_ids[0], stored_ids[0]]
+    with sqlite3.connect(runtime_paths_with_schema.l1_memory_db_path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM fact_events WHERE idempotency_key = ?",
+            (next(iter(idempotency_keys)),),
+        ).fetchone() == (1,)
+
+
+class _ProjectionConfirmationL1:
+    def __init__(self, *, event_id: str | None, memory_event: object | None) -> None:
+        self.event_id = event_id
+        self.memory_event = memory_event
+
+    async def find_event_id_by_idempotency(self, **kwargs):  # type: ignore[no-untyped-def]
+        _ = kwargs
+        return self.event_id
+
+    async def get_memory_event(self, event_id: str):  # type: ignore[no-untyped-def]
+        _ = event_id
+        return self.memory_event
+
+
+class _ProjectionConfirmationL2:
+    def __init__(self, results: list[bool]) -> None:
+        self.results = list(results)
+        self.calls = 0
+
+    async def has_projection_job(self, *, event_id: str) -> bool:
+        _ = event_id
+        self.calls += 1
+        if len(self.results) > 1:
+            return self.results.pop(0)
+        return self.results[0]
+
+
+@pytest.mark.asyncio
+async def test_first_context_projection_confirms_l1_for_policy_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
+    l2 = _ProjectionConfirmationL2([False])
+    memory = SimpleNamespace(l1=l1, l2=l2)
+    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: False)
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert l2.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_first_context_projection_waits_for_durable_l2_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
+    l2 = _ProjectionConfirmationL2([False, True])
+    memory = SimpleNamespace(l1=l1, l2=l2)
+    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_INTERVAL_SECONDS", 0)
+
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+    assert l2.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_first_context_projection_does_not_accept_l1_only_for_self_report(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
+    l2 = _ProjectionConfirmationL2([False])
+    memory = SimpleNamespace(l1=l1, l2=l2)
+    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is False
+
+    l2.results = [True]
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+
+
+@pytest.mark.asyncio
+async def test_first_context_projection_only_skips_explicitly_disabled_layers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service,
+        "_resolve_projection_memory",
+        lambda: (_ for _ in ()).throw(RuntimeError("memory unavailable")),
+    )
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: False)
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is False
+
+    l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
+    monkeypatch.setattr(
+        service,
+        "_resolve_projection_memory",
+        lambda: SimpleNamespace(l1=l1, l2=None),
+    )
+    monkeypatch.setattr(service, "_event_requires_l2_projection", lambda event: True)
+    monkeypatch.setattr(
+        service,
+        "_memory_layer_enabled",
+        lambda layer: False if layer == "l2" else True,
+    )
+    assert await service._wait_for_first_context_memory_projection(message_id="message-1") is True
+
+
+@pytest.mark.asyncio
+async def test_first_context_projection_policy_error_stays_retriable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    l1 = _ProjectionConfirmationL1(event_id="event-1", memory_event=object())
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(
+        service,
+        "_resolve_projection_memory",
+        lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([True])),
+    )
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(
+        service,
+        "_event_requires_l2_projection",
+        lambda event: (_ for _ in ()).throw(RuntimeError("classification failed")),
+    )
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="I like jazz.",
+        session_id="session-policy-error",
+        client_turn_id="turn-policy-error",
+        interaction_kind="first_context_story",
+        first_context={
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.CHAT_PROJECTION_FAILED
+    assert store.delivery_by_id["turn-policy-error"]["projection_completed"] is False
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_first_context_async_publish_without_durable_l1_stays_pending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = _FakeRuntimeCommandQueue()
+    store = _FakeChatStore()
+    l1 = _ProjectionConfirmationL1(event_id=None, memory_event=None)
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(
+        service,
+        "_resolve_projection_memory",
+        lambda: SimpleNamespace(l1=l1, l2=_ProjectionConfirmationL2([False])),
+    )
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(service, "_FIRST_CONTEXT_PROJECTION_CONFIRM_TIMEOUT_SECONDS", 0)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="I like jazz.",
+        session_id="session-async-publish",
+        client_turn_id="turn-async-publish",
+        interaction_kind="first_context_story",
+        first_context={
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.CHAT_PROJECTION_FAILED
+    assert store.delivery_by_id["turn-async-publish"]["projection_completed"] is False
+    assert queue.commands == []
+
+
+@pytest.mark.asyncio
+async def test_first_context_republish_converges_to_one_l1_event_and_l2_job(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_paths_with_schema,
+) -> None:
+    from magi.chat.projector import ChatProjector
+    from magi.chat.store import ChatStore
+    from magi.events.in_memory_backend import InMemoryMessageBusBackend
+    from magi.memory.subscribers.memory_ingestion_subscriber import (
+        MemoryIngestionSubscriber,
+    )
+    from magi.memory.unified_store import UnifiedMemoryStore
+
+    memory = UnifiedMemoryStore(
+        l1_db_path=str(runtime_paths_with_schema.l1_memory_db_path),
+        memory_db_path=str(runtime_paths_with_schema.memory_db_path),
+        persist_dir=str(runtime_paths_with_schema.memory_dir),
+        enable_l0=False,
+        enable_l1=True,
+        enable_l2=True,
+        enable_l3=False,
+        enable_l4=False,
+        l2_batch_flush_interval_seconds=60,
+        scenario_llm_pool=None,
+    )
+    bus = InMemoryMessageBusBackend()
+    subscriber = MemoryIngestionSubscriber(event_bus=bus, unified_memory=memory)
+    await memory.initialize()
+    bus.bind_memory_operation_epoch(memory.memory_operation_epoch)
+    await bus.start()
+    await subscriber.start()
+
+    queue = _FakeRuntimeCommandQueue()
+    store = ChatStore(db_path=str(runtime_paths_with_schema.chat_db_path))
+    projector = ChatProjector(event_bus=bus)
+    original_mark = store.mark_user_turn_projection_completed
+    mark_attempts = 0
+
+    async def _fail_mark_once(*, turn_id: str, updated_at_ms: int) -> None:
+        nonlocal mark_attempts
+        mark_attempts += 1
+        if mark_attempts == 1:
+            raise RuntimeError("temporary delivery-state failure")
+        await original_mark(turn_id=turn_id, updated_at_ms=updated_at_ms)
+
+    async def _skip_bootstrap_mark(*args, **kwargs):  # type: ignore[no-untyped-def]
+        _ = (args, kwargs)
+        return None
+
+    monkeypatch.setattr(store, "mark_user_turn_projection_completed", _fail_mark_once)
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: projector)
+    monkeypatch.setattr(service, "_resolve_projection_memory", lambda: memory)
+    monkeypatch.setattr(service, "_memory_layer_enabled", lambda layer: True)
+    monkeypatch.setattr(service, "_mark_first_context_bootstrap_started", _skip_bootstrap_mark)
+
+    request = {
+        "source": "api",
+        "user_id": "u1",
+        "message": "I love jazz and listen to it every evening.",
+        "session_id": "session-durable-memory-retry",
+        "client_turn_id": "turn-durable-memory-retry",
+        "interaction_kind": "first_context_story",
+        "first_context": {
+            "question_id": "recent_feeling",
+            "question_text": "最近有哪件小事，让你心情有一点变化？",
+        },
+    }
+
+    try:
+        first = await service.dispatch_user_message(**request)
+        second = await service.dispatch_user_message(**request)
+        assert first.error_code == service.CHAT_STORE_PERSIST_FAILED
+        assert second.success is True
+        assert first.message_id == second.message_id
+
+        for _ in range(100):
+            stats = await bus.get_stats()
+            if stats["queue_length"] == 0 and stats["active_dispatches"] == 0:
+                break
+            await asyncio.sleep(0.01)
+        await subscriber.drain()
+
+        with sqlite3.connect(runtime_paths_with_schema.l1_memory_db_path) as db:
+            l1_rows = db.execute(
+                """
+                SELECT event_id
+                FROM fact_events
+                WHERE source = 'chat'
+                  AND event_type = ?
+                  AND idempotency_key = ?
+                """,
+                ("UserMessage", second.message_id),
+            ).fetchall()
+        assert len(l1_rows) == 1
+        with sqlite3.connect(runtime_paths_with_schema.memory_db_path) as db:
+            assert db.execute(
+                """
+                SELECT COUNT(*)
+                FROM l2_projection_jobs
+                WHERE event_id = ?
+                """,
+                (l1_rows[0][0],),
+            ).fetchone() == (1,)
+    finally:
+        await subscriber.stop()
+        await bus.stop()
+        await memory.shutdown()

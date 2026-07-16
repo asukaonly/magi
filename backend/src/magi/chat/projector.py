@@ -30,10 +30,10 @@ class ChatProjector:
         created_at_ms: int,
         interaction_kind: str | None = None,
         metadata: dict[str, object] | None = None,
-    ) -> None:
+    ) -> bool:
         normalized_content = str(content or "").strip()
         if not normalized_content:
-            return
+            return True
         event_metadata = {
             "source_item_id": message_id,
             "author_type": "user",
@@ -54,7 +54,7 @@ class ChatProjector:
             interaction_kind=str(interaction_kind or "").strip() or None,
             metadata=event_metadata,
         )
-        await self._event_bus.publish(
+        published = await self._event_bus.publish(
             Event(
                 type=EventTypes.USER_MESSAGE_RECEIVED,
                 data=payload,
@@ -64,6 +64,9 @@ class ChatProjector:
                 correlation_id=turn_id,
             )
         )
+        if published is False:
+            raise RuntimeError("Chat user-message projection was not delivered")
+        return True
 
     async def project_assistant_message(
         self,
