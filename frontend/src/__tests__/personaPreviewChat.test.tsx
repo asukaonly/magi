@@ -207,6 +207,48 @@ describe('PersonaPreviewChat', () => {
     });
   });
 
+  it('falls back to scrollTop when element scrolling is unavailable', async () => {
+    const scrollToDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'scrollTo',
+    );
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
+      configurable: true,
+      value: undefined,
+    });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+    vi.spyOn(personasApi, 'getPresetConfig').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: { ...makeGeneratedConfig(), name: 'Nova' },
+    });
+    try {
+      renderPersonaPreview({ previews });
+
+      await userEvent.click(screen.getByTestId('persona-mode-profile'));
+
+      const panel = await screen.findByTestId('persona-profile-panel');
+      panel.scrollTop = 42;
+      const voiceToggle = screen.getByRole('button', {
+        name: 'personality.sections.idiolect',
+      });
+
+      await userEvent.click(voiceToggle);
+
+      expect(panel.scrollTop).toBe(30);
+    } finally {
+      if (scrollToDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollTo', scrollToDescriptor);
+      } else {
+        delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+      }
+    }
+  });
+
   it('preserves the trial transcript while switching between chat and profile', async () => {
     vi.spyOn(personasApi, 'getPresetConfig').mockResolvedValue({
       success: true,

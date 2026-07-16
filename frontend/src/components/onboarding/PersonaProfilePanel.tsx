@@ -312,10 +312,14 @@ export function PersonaProfilePanel({ config }: PersonaProfilePanelProps): JSX.E
             0,
             container.scrollTop + sectionRect.top - containerRect.top - 12,
           );
-          container.scrollTo({
-            top,
-            behavior: shouldReduceMotion ? 'auto' : 'smooth',
-          });
+          if (typeof container.scrollTo === 'function') {
+            container.scrollTo({
+              top,
+              behavior: shouldReduceMotion ? 'auto' : 'smooth',
+            });
+          } else {
+            container.scrollTop = top;
+          }
           scrollFrameRef.current = null;
         });
       });
