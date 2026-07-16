@@ -58,6 +58,7 @@ def embedding_status_code(value: int | str | EmbeddingStatus | None) -> int:
 def embedding_status_label(value: int | str | EmbeddingStatus | None) -> str:
     return _EMBEDDING_STATUS_LABELS[EmbeddingStatus(embedding_status_code(value))]
 
+
 logger = logging.getLogger("magi.memory.l1.embeddings.events")
 
 
@@ -76,6 +77,8 @@ class L1EventEmbeddingHostProtocol(Protocol):
     def _vectors_enabled(self) -> bool: ...
 
     def _async_embeddings_enabled(self) -> bool: ...
+
+    def embedding_mutation_guard(self) -> Any: ...
 
     def _row_to_memory_event(self, row: aiosqlite.Row) -> MemoryEvent: ...
 

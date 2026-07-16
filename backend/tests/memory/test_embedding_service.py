@@ -7,6 +7,84 @@ import pytest
 from magi.llm.concurrency_limiter import LLMConcurrencyLimiter
 
 
+def test_local_embedding_manager_is_replaced_when_variant_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from magi.memory.embedding import local_embedding_manager
+    from magi.memory.embedding.embedding_service import MemoryEmbeddingService
+
+    local_config = SimpleNamespace(
+        model_source="managed",
+        managed_model_id="local-model",
+        model_dir_path=None,
+        variant="fp16",
+        idle_timeout_seconds=1800,
+    )
+    config = SimpleNamespace(
+        agent=SimpleNamespace(
+            memory=SimpleNamespace(
+                embedding=SimpleNamespace(local=local_config),
+            )
+        )
+    )
+    created_variants: list[str] = []
+
+    class FakeLocalManager:
+        def __init__(self, manager_config):  # type: ignore[no-untyped-def]
+            created_variants.append(str(manager_config.variant))
+
+        async def shutdown(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "magi.memory.embedding.embedding_service.get_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(local_embedding_manager, "LocalEmbeddingManager", FakeLocalManager)
+
+    service = MemoryEmbeddingService(None)
+    first = service._get_local_manager()
+    local_config.variant = "int8"
+    second = service._get_local_manager()
+
+    assert first is not second
+    assert created_variants == ["fp16", "int8"]
+
+
+def test_profile_from_published_result_keeps_its_index_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from magi.memory.embedding.embedding_service import EmbeddingResult, MemoryEmbeddingService
+
+    monkeypatch.setattr(
+        "magi.memory.embedding.embedding_service.get_config",
+        lambda: SimpleNamespace(
+            agent=SimpleNamespace(
+                memory=SimpleNamespace(
+                    embedding=SimpleNamespace(mode="remote"),
+                )
+            )
+        ),
+    )
+    service = MemoryEmbeddingService(None)
+
+    profile = service.profile_from_result(
+        EmbeddingResult(
+            model_name="old-model",
+            dimension=2,
+            vector=[1.0, 0.0],
+            index_identity="published-old-profile",
+        ),
+        text_builder_version="l3_summary_v1",
+    )
+
+    assert profile.profile_id == "published-old-profile"
+
+
 class _RecordingLimiter:
     def __init__(self) -> None:
         self.calls: list[tuple[str, int | None]] = []
@@ -71,17 +149,19 @@ async def test_embedding_requests_share_global_limit(monkeypatch: pytest.MonkeyP
     service = MemoryEmbeddingService(pool)
 
     limiter = LLMConcurrencyLimiter(default_limit=1)
-    monkeypatch.setattr("magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        "magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter
+    )
     monkeypatch.setattr(
         "magi.memory.embedding.embedding_service.get_config",
         lambda: SimpleNamespace(
             llm=SimpleNamespace(
                 selections={},
-                    model_runtime_overrides={
-                        "openai::openai::api::api.openai.com::text-embedding-3-small::embedding": SimpleNamespace(
-                            max_concurrency=1
-                        )
-                    },
+                model_runtime_overrides={
+                    "openai::openai::api::api.openai.com::text-embedding-3-small::embedding": SimpleNamespace(
+                        max_concurrency=1
+                    )
+                },
             ),
             agent=SimpleNamespace(
                 memory=SimpleNamespace(
@@ -117,13 +197,17 @@ async def test_embedding_limit_uses_embedding_family_key(monkeypatch: pytest.Mon
     service = MemoryEmbeddingService(pool)
 
     limiter = _RecordingLimiter()
-    monkeypatch.setattr("magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter)
+    monkeypatch.setattr(
+        "magi.memory.embedding.embedding_service.get_llm_concurrency_limiter", lambda: limiter
+    )
     monkeypatch.setattr(
         "magi.memory.embedding.embedding_service.get_config",
         lambda: SimpleNamespace(
             llm=SimpleNamespace(
                 selections={
-                    "embedding": SimpleNamespace(provider_id="openai", model="text-embedding-3-small"),
+                    "embedding": SimpleNamespace(
+                        provider_id="openai", model="text-embedding-3-small"
+                    ),
                 },
                 model_runtime_overrides={
                     "openai::openai::api::api.openai.com::text-embedding-3-small::embedding": SimpleNamespace(

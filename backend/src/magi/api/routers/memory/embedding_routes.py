@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 
 from ....memory.embedding.vector_admin import (
     EmbeddingRebuildPausedError,
-    EmbeddingRebuildManager,
     build_embedding_vector_status,
+    get_embedding_rebuild_manager,
 )
 from .dependencies import _resolve_unified_memory
 from .router import memory_router
@@ -18,7 +18,7 @@ class StartEmbeddingRebuildRequest(BaseModel):
     layers: list[str] | None = Field(default=None)
 
 
-_embedding_rebuild_manager = EmbeddingRebuildManager()
+_embedding_rebuild_manager = get_embedding_rebuild_manager()
 
 
 @memory_router.get("/embeddings/status")

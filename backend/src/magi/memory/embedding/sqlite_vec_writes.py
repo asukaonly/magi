@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import AsyncExitStack
 import json
 from typing import Any, Optional, cast
 
@@ -36,70 +38,304 @@ class SqliteVecWriteMixin:
             return
         host = cast(Any, self)
         await host.initialize()
-        async with host._db_lock:
-            db = host._require_db()
-            await host._ensure_registry_schema(db)
-            vec_specs = {
-                host._vec_table_name(
-                    host._embedding_model_key(item["embedding"]),
-                    item["embedding"].dimension,
-                ): item["embedding"].dimension
-                for item in items
-            }
-            for vec_table, dimension in vec_specs.items():
-                await host._ensure_vec_table(db, vec_table, dimension)
+        async with host._coordinator.write_lock:
+            async with host._db_lock:
+                db = host._require_db()
+                rebuild_session = host._active_rebuild_session()
+                entity_ids = {str(item["entity_id"]) for item in items}
+                if rebuild_session is None:
+                    # Fence first: cancellation can make commit outcome unknowable.
+                    host._record_normal_writes(entity_ids)
+                else:
+                    host._validate_rebuild_identity(
+                        rebuild_session,
+                        {
+                            (
+                                host._embedding_model_key(item["embedding"]),
+                                int(item["embedding"].dimension),
+                            )
+                            for item in items
+                        },
+                    )
+                writable_items = [
+                    item
+                    for item in items
+                    if rebuild_session is None
+                    or host._rebuild_write_is_current(
+                        rebuild_session,
+                        str(item["entity_id"]),
+                    )
+                ]
+                if not writable_items:
+                    return
+                vec_specs = {
+                    host._vec_table_name(
+                        host._embedding_model_key(item["embedding"]),
+                        item["embedding"].dimension,
+                    ): item["embedding"].dimension
+                    for item in writable_items
+                }
+                try:
+                    await host._ensure_registry_schema(db)
+                    if rebuild_session is not None:
+                        await host._prepare_rebuild_cleanup_tracking(db, rebuild_session)
+                    for vec_table, dimension in vec_specs.items():
+                        await host._ensure_vec_table(db, vec_table, dimension)
 
-            now = await host._current_timestamp(db)
-            for item in items:
-                await self._upsert_one_locked(
-                    db,
-                    entity_id=str(item["entity_id"]),
-                    embedding=item["embedding"],
-                    metadata=item.get("metadata"),
-                    now=now,
-                )
-            await db.commit()
+                    now = await host._current_timestamp(db)
+                    for item in writable_items:
+                        await self._upsert_one_locked(
+                            db,
+                            entity_id=str(item["entity_id"]),
+                            embedding=item["embedding"],
+                            metadata=item.get("metadata"),
+                            now=now,
+                        )
+                        if rebuild_session is not None and rebuild_session.cleanup_needed:
+                            await db.execute(
+                                f"INSERT OR IGNORE INTO {host._rebuild_marks_table}(entity_id) VALUES (?)",
+                                (str(item["entity_id"]),),
+                            )
+                    await db.commit()
+                except BaseException:
+                    await asyncio.shield(db.rollback())
+                    raise
 
     async def delete_entity(self, *, entity_id: str) -> None:
         host = cast(Any, self)
         await host.initialize()
-        async with host._db_lock:
-            db = host._require_db()
-            await host._ensure_registry_schema(db)
-            async with db.execute(
-                f"SELECT vec_rowid, vec_table FROM {host._registry_table} WHERE {host._entity_column} = ?",
-                (entity_id,),
-            ) as cursor:
-                rows = await cursor.fetchall()
-            for row in rows:
-                await db.execute(
-                    f'DELETE FROM "{row["vec_table"]}" WHERE rowid = ?', (int(row["vec_rowid"]),)
-                )
-            await db.execute(
-                f"DELETE FROM {host._registry_table} WHERE {host._entity_column} = ?",
-                (entity_id,),
-            )
-            await db.commit()
+        async with host._coordinator.write_lock:
+            async with host._db_lock:
+                db = host._require_db()
+                rebuild_session = host._active_rebuild_session()
+                if rebuild_session is None:
+                    host._record_normal_writes({entity_id})
+                elif not host._rebuild_write_is_current(rebuild_session, entity_id):
+                    return
+                try:
+                    await host._ensure_registry_schema(db)
+                    async with db.execute(
+                        f"SELECT vec_rowid, vec_table FROM {host._registry_table} WHERE {host._entity_column} = ?",
+                        (entity_id,),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                    for row in rows:
+                        await db.execute(
+                            f'DELETE FROM "{row["vec_table"]}" WHERE rowid = ?',
+                            (int(row["vec_rowid"]),),
+                        )
+                    await db.execute(
+                        f"DELETE FROM {host._registry_table} WHERE {host._entity_column} = ?",
+                        (entity_id,),
+                    )
+                    await db.commit()
+                except BaseException:
+                    await asyncio.shield(db.rollback())
+                    raise
+
+    async def delete_embedding(
+        self,
+        *,
+        entity_id: str,
+        embedding: EmbeddingResult,
+    ) -> None:
+        """Delete one entity vector identity without removing recovery copies."""
+
+        host = cast(Any, self)
+        await host.initialize()
+        async with host._coordinator.write_lock:
+            async with host._db_lock:
+                db = host._require_db()
+                rebuild_session = host._active_rebuild_session()
+                if rebuild_session is None:
+                    host._record_normal_writes({entity_id})
+                elif not host._rebuild_write_is_current(rebuild_session, entity_id):
+                    return
+                model_key = host._embedding_model_key(embedding)
+                try:
+                    await host._ensure_registry_schema(db)
+                    async with db.execute(
+                        f"""
+                        SELECT vec_rowid, vec_table
+                        FROM {host._registry_table}
+                        WHERE {host._entity_column} = ? AND embedding_model = ?
+                        """,
+                        (entity_id, model_key),
+                    ) as cursor:
+                        row = await cursor.fetchone()
+                    if row is not None:
+                        await db.execute(
+                            f'DELETE FROM "{row["vec_table"]}" WHERE rowid = ?',
+                            (int(row["vec_rowid"]),),
+                        )
+                        await db.execute(
+                            f"DELETE FROM {host._registry_table} WHERE vec_rowid = ?",
+                            (int(row["vec_rowid"]),),
+                        )
+                    if (
+                        rebuild_session is not None
+                        and model_key == rebuild_session.target_model_key
+                    ):
+                        await db.execute(
+                            f"DELETE FROM {host._rebuild_marks_table} WHERE entity_id = ?",
+                            (entity_id,),
+                        )
+                    await db.commit()
+                except BaseException:
+                    await asyncio.shield(db.rollback())
+                    raise
 
     async def clear(self) -> None:
         host = cast(Any, self)
         await host.initialize()
-        async with host._db_lock:
-            db = host._require_db()
-            await host._ensure_registry_schema(db)
-            async with db.execute(
-                "SELECT name FROM sqlite_master"
-                " WHERE type = 'table'"
-                " AND name LIKE ?"
-                " AND name != ?"
-                " AND sql LIKE 'CREATE VIRTUAL TABLE%'",
-                (f"{host._vec_table_prefix}%", host._registry_table),
-            ) as cursor:
-                vec_tables = [str(row[0]) for row in await cursor.fetchall()]
-            for table_name in vec_tables:
-                await db.execute(f'DROP TABLE IF EXISTS "{table_name}"')
-            await db.execute(f"DELETE FROM {host._registry_table}")
-            await db.commit()
+        async with host._coordinator.write_lock:
+            async with host._db_lock:
+                db = host._require_db()
+                host._record_clear()
+                try:
+                    await host._ensure_registry_schema(db)
+                    async with db.execute(
+                        "SELECT name FROM sqlite_master"
+                        " WHERE type = 'table'"
+                        " AND name LIKE ?"
+                        " AND name != ?"
+                        " AND sql LIKE 'CREATE VIRTUAL TABLE%'",
+                        (f"{host._vec_table_prefix}%", host._registry_table),
+                    ) as cursor:
+                        vec_tables = [str(row[0]) for row in await cursor.fetchall()]
+                    for table_name in vec_tables:
+                        await db.execute(f'DELETE FROM "{table_name}"')
+                    await db.execute(f"DELETE FROM {host._registry_table}")
+                    await db.commit()
+                except BaseException:
+                    await asyncio.shield(db.rollback())
+                    raise
+
+    async def prune_orphans(
+        self,
+        *,
+        valid_entity_query: str,
+        parameters: tuple[Any, ...] = (),
+        batch_size: int = 250,
+        mutation_guard_factory: Any | None = None,
+    ) -> int:
+        """Delete vectors whose source entity is absent from an internal query."""
+
+        host = cast(Any, self)
+        await host.initialize()
+        normalized_batch_size = max(1, int(batch_size))
+        pruned = 0
+        while True:
+            async with AsyncExitStack() as stack:
+                if mutation_guard_factory is not None:
+                    await stack.enter_async_context(mutation_guard_factory())
+                await stack.enter_async_context(host._coordinator.write_lock)
+                await stack.enter_async_context(host._db_lock)
+                db = host._require_db()
+                try:
+                    await db.execute("BEGIN IMMEDIATE")
+                    async with db.execute(
+                        f"""
+                        SELECT registry.vec_rowid, registry.vec_table
+                        FROM {host._registry_table} AS registry
+                        WHERE NOT EXISTS (
+                            SELECT 1
+                            FROM ({valid_entity_query}) AS valid
+                            WHERE valid.entity_id = registry.{host._entity_column}
+                        )
+                        LIMIT ?
+                        """,
+                        (*parameters, normalized_batch_size),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                    if not rows:
+                        await db.commit()
+                        return pruned
+                    for row in rows:
+                        vec_table = str(row["vec_table"])
+                        vec_rowid = int(row["vec_rowid"])
+                        if await host._table_exists(db, vec_table):
+                            await db.execute(
+                                f'DELETE FROM "{vec_table}" WHERE rowid = ?',
+                                (vec_rowid,),
+                            )
+                        await db.execute(
+                            f"DELETE FROM {host._registry_table} WHERE vec_rowid = ?",
+                            (vec_rowid,),
+                        )
+                    await db.commit()
+                    pruned += len(rows)
+                except BaseException:
+                    await asyncio.shield(db.rollback())
+                    raise
+            await asyncio.sleep(0)
+
+    async def _finalize_rebuild_session(self, session: Any) -> None:
+        """Retire stale model copies for entities refreshed by a successful rebuild."""
+
+        host = cast(Any, self)
+        host._assert_rebuild_identity_stable(session)
+        if not session.cleanup_needed or session.target_model_key is None:
+            return
+        while True:
+            async with host._coordinator.write_lock:
+                async with host._db_lock:
+                    if host._coordinator.clear_epoch != session.baseline_clear_epoch:
+                        return
+                    db = host._require_db()
+                    try:
+                        async with db.execute(
+                            f"SELECT entity_id FROM {host._rebuild_marks_table} LIMIT 250"
+                        ) as cursor:
+                            rows = await cursor.fetchall()
+                        if not rows:
+                            return
+                        for row in rows:
+                            entity_id = str(row["entity_id"])
+                            if host._rebuild_write_is_current(session, entity_id):
+                                await self._delete_obsolete_models_locked(
+                                    db,
+                                    entity_id=entity_id,
+                                    retained_models={session.target_model_key},
+                                )
+                            await db.execute(
+                                f"DELETE FROM {host._rebuild_marks_table} WHERE entity_id = ?",
+                                (entity_id,),
+                            )
+                        await db.commit()
+                    except BaseException:
+                        await asyncio.shield(db.rollback())
+                        raise
+            await asyncio.sleep(0)
+
+    async def _delete_obsolete_models_locked(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        entity_id: str,
+        retained_models: set[str],
+    ) -> None:
+        host = cast(Any, self)
+        async with db.execute(
+            f"""
+            SELECT vec_rowid, vec_table, embedding_model
+            FROM {host._registry_table}
+            WHERE {host._entity_column} = ?
+            """,
+            (entity_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+
+        obsolete_rows = [row for row in rows if str(row["embedding_model"]) not in retained_models]
+        for row in obsolete_rows:
+            vec_table = str(row["vec_table"])
+            vec_rowid = int(row["vec_rowid"])
+            if await host._table_exists(db, vec_table):
+                await db.execute(f'DELETE FROM "{vec_table}" WHERE rowid = ?', (vec_rowid,))
+            await db.execute(
+                f"DELETE FROM {host._registry_table} WHERE vec_rowid = ?",
+                (vec_rowid,),
+            )
 
     async def _upsert_one_locked(
         self,

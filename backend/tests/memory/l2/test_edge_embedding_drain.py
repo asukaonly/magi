@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.store import L2CognitionStore
 
@@ -70,7 +69,14 @@ async def test_drain_once_embeds_pending_edges() -> None:
         )
 
         mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+
+        async def _prepare(items):
+            mock_result.parent_id = items[0].parent_id
+            mock_result.payload = items[0].payload
+            return [mock_result]
+
+        mock_pipeline_cls.prepare_items = AsyncMock(side_effect=_prepare)
+        mock_pipeline_cls.persist_results = AsyncMock(side_effect=lambda results: results)
 
         drainer = EdgeEmbeddingDrainer(
             db_path=db_path,
@@ -143,7 +149,7 @@ async def test_drain_once_swallows_pipeline_error() -> None:
         mock_vector_index = MagicMock()
 
         mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(side_effect=RuntimeError("boom"))
+        mock_pipeline_cls.prepare_items = AsyncMock(side_effect=RuntimeError("boom"))
 
         drainer = EdgeEmbeddingDrainer(
             db_path=db_path,
@@ -224,7 +230,14 @@ async def test_worker_drains_then_stops_cleanly() -> None:
         )
 
         mock_pipeline_cls = AsyncMock()
-        mock_pipeline_cls.upsert_items = AsyncMock(return_value=[mock_result])
+
+        async def _prepare(items):
+            mock_result.parent_id = items[0].parent_id
+            mock_result.payload = items[0].payload
+            return [mock_result]
+
+        mock_pipeline_cls.prepare_items = AsyncMock(side_effect=_prepare)
+        mock_pipeline_cls.persist_results = AsyncMock(side_effect=lambda results: results)
 
         drainer = EdgeEmbeddingDrainer(
             db_path=db_path,
@@ -241,19 +254,6 @@ async def test_worker_drains_then_stops_cleanly() -> None:
             return mock_pipeline_cls
 
         drain_module.MemoryEmbeddingPipeline = _patched_pipeline
-
-        # We need the mock_result.parent_id to match the upserted triple_id.
-        # Capture it by wrapping upsert_items.
-        captured_items: list = []
-        original_upsert = mock_pipeline_cls.upsert_items
-
-        async def _capturing_upsert(items):
-            captured_items.extend(items)
-            if captured_items:
-                mock_result.parent_id = captured_items[0].parent_id
-            return await original_upsert(items)
-
-        mock_pipeline_cls.upsert_items = _capturing_upsert
 
         try:
             worker = L2EdgeEmbeddingWorker(drainer=drainer, idle_interval_seconds=0.05)

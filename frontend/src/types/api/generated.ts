@@ -4664,6 +4664,8 @@ export interface components {
              * @default managed
              */
             readonly model_source: string;
+            /** Variant */
+            readonly variant?: string | null;
         };
         /** EntitySemanticEdgeConfigModel */
         readonly EntitySemanticEdgeConfigModel: {
@@ -8647,6 +8649,11 @@ export interface components {
              * @default 0
              */
             readonly refreshed_at: number;
+            /**
+             * Source Generation
+             * @default 0
+             */
+            readonly source_generation: number;
             /**
              * Source Revision
              * @default 0

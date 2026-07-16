@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from ..embedding.embedding_service import MemoryEmbeddingService
 from ..embedding.sqlite_vec_index import SqliteVecIndex
@@ -77,9 +78,16 @@ class L1EventStore(
         self._embedding_active_count = 0
         self._embedding_batch_size = 5
         self._embedding_batch_wait_seconds = 1.0
+        self._embedding_mutation_lock = asyncio.Lock()
         self._operation_guard_factory: Callable[[], Any] | None = None
         self._initialized = False
         self._pinned_payload_store: Any | None = None
+
+    @asynccontextmanager
+    async def embedding_mutation_guard(self) -> AsyncIterator[None]:
+        """Serialize parent validation with vector and chunk publication."""
+        async with self._embedding_mutation_lock:
+            yield
 
     async def get_pinned_payloads(self, event_ids: list[str]) -> dict[str, str]:
         """Return ``{event_id: pinned full text}`` for events that have one (RFC #56 P3).

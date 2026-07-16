@@ -14,13 +14,14 @@ from ...embedding.embedding_pipeline import (
     EmbeddingPipelineItem,
     EmbeddingPipelineResult,
     MemoryEmbeddingPipeline,
+    partition_embedding_pipeline_items,
+    verify_active_rebuild_profile,
 )
 from ...embedding.embedding_service import EmbeddingProfile
 from ...event_contracts import MemoryDomain, MemoryEvent
 from ...operation_barrier import optional_operation_guard
 from .chunks import L1EventEmbeddingChunkMixin
 from .common import (
-    EMBEDDING_PROFILES_TABLE,
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_FAILED,
     EMBEDDING_STATUS_PENDING,
@@ -79,47 +80,58 @@ class L1EventEmbeddingMixin(
         ):
             return 0
 
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            await db.execute(f"DELETE FROM {EVENT_CHUNKS_TABLE}")
-            await db.execute(f"DELETE FROM {EMBEDDING_PROFILES_TABLE}")
-            reset_at = time.time()
-            await db.execute(
-                f"""
-                UPDATE {L1_EVENT_EMBEDDING_STATE_TABLE}
-                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL, updated_at = ?
-                WHERE event_id IN (
-                    SELECT event_id FROM {FACT_EVENTS_TABLE} WHERE deleted_at IS NULL
-                )
-                """,
-                (embedding_status_code(EMBEDDING_STATUS_DISABLED), reset_at),
-            )
-            await db.commit()
-        await host._vector_index.clear()
+        async with sqlite_connection_async(host.db_path, profile="readonly") as db:
+            async with db.execute(
+                f"SELECT COALESCE(MAX(id), 0) FROM {FACT_EVENTS_TABLE}"
+            ) as cursor:
+                row = await cursor.fetchone()
+        high_water_id = int(row[0] or 0) if row is not None else 0
 
         processed = 0
-        offset = 0
-        while True:
-            async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    f"""
-                    SELECT *
-                    FROM {FACT_EVENTS_TABLE}
-                    WHERE deleted_at IS NULL
-                    ORDER BY timestamp ASC, id ASC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (normalized_batch_size, offset),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            if not rows:
-                break
-            events = [host._row_to_memory_event(row) for row in rows]
-            await self._maybe_upsert_event_embeddings(events)
-            processed += len(events)
-            offset += len(rows)
-            if progress_callback is not None:
-                await progress_callback(processed)
+        last_id = 0
+        async with host._vector_index.rebuild_session():
+            while last_id < high_water_id:
+                async with sqlite_connection_async(host.db_path, profile="readonly") as db:
+                    db.row_factory = aiosqlite.Row
+                    async with db.execute(
+                        f"""
+                        SELECT *
+                        FROM {FACT_EVENTS_TABLE}
+                        WHERE id > ? AND id <= ? AND deleted_at IS NULL
+                        ORDER BY id ASC
+                        LIMIT ?
+                        """,
+                        (last_id, high_water_id, normalized_batch_size),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                if not rows:
+                    break
+                last_id = int(rows[-1]["id"])
+                events = [host._row_to_memory_event(row) for row in rows]
+                await self._maybe_upsert_event_embeddings(events)
+                processed += len(events)
+                if progress_callback is not None:
+                    await progress_callback(processed)
+            await host._vector_index.prune_orphans(
+                valid_entity_query=f"""
+                    SELECT chunks.chunk_id AS entity_id
+                    FROM {EVENT_CHUNKS_TABLE} AS chunks
+                    JOIN {FACT_EVENTS_TABLE} AS events
+                      ON events.event_id = chunks.event_id
+                    WHERE events.deleted_at IS NULL
+                      AND events.memory_domain NOT IN (?, ?)
+                """,
+                parameters=(
+                    int(MemoryDomain.RUNTIME_TELEMETRY),
+                    int(MemoryDomain.SYSTEM_CONTROL),
+                ),
+                mutation_guard_factory=host.embedding_mutation_guard,
+            )
+            verify_active_rebuild_profile(
+                embedding_service=host._embedding_service,
+                vector_index=host._vector_index,
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+            )
         return processed
 
     async def _maybe_upsert_event_embedding(self, event: MemoryEvent) -> None:
@@ -129,35 +141,120 @@ class L1EventEmbeddingMixin(
         host = cast(L1EventEmbeddingHostProtocol, self)
         if not host._vectors_enabled():
             return
+        pipeline_items = self._event_embedding_pipeline_items(events)
+        embeddable_items, unembeddable_items = partition_embedding_pipeline_items(pipeline_items)
+        await self._remove_unembeddable_event_embeddings(unembeddable_items)
+
         pipeline = self._build_embedding_pipeline()
-        if pipeline is None:
+        if pipeline is None or not embeddable_items:
             return
-        eligible_events = [event for event in events if self._embedding_eligible(event)]
-        if not eligible_events:
-            return
-        prepared_results = await pipeline.prepare_items(
-            self._event_embedding_pipeline_items(eligible_events)
-        )
+        prepared_results = await pipeline.prepare_items(embeddable_items)
+        embeddable_events = [cast(MemoryEvent, item.payload) for item in embeddable_items]
         async with optional_operation_guard(host._operation_guard_factory):
-            current_events = await self._current_embedding_events(eligible_events)
-            if not current_events:
-                return
-            current_event_ids = {event.event_id for event in current_events}
-            results = await pipeline.persist_results(
-                [
-                    result
-                    for result in prepared_results
-                    if result.parent_id in current_event_ids
-                ]
-            )
-            outcome = self._event_embedding_upsert_outcome(current_events, results)
-            if outcome.successful_events:
-                await self._replace_event_chunks(outcome.successful_events)
-            if outcome.state_updates:
-                await self._update_event_embedding_states(
-                    outcome.state_updates,
-                    profiles_by_id=outcome.profiles_by_id,
+            async with host.embedding_mutation_guard():
+                current_events = await self._current_embedding_events(embeddable_events)
+                if not current_events:
+                    return
+                current_event_ids = {event.event_id for event in current_events}
+                results = await pipeline.persist_results(
+                    [result for result in prepared_results if result.parent_id in current_event_ids]
                 )
+                outcome = self._event_embedding_upsert_outcome(current_events, results)
+                if outcome.successful_events:
+                    await self._replace_event_chunks(outcome.successful_events)
+                if outcome.state_updates:
+                    await self._update_event_embedding_states(
+                        outcome.state_updates,
+                        profiles_by_id=outcome.profiles_by_id,
+                    )
+
+    async def _remove_unembeddable_event_embeddings(
+        self,
+        items: list[EmbeddingPipelineItem],
+    ) -> None:
+        """Remove published chunks only for current parents with no canonical text."""
+        if not items:
+            return
+        host = cast(L1EventEmbeddingHostProtocol, self)
+        snapshots = {
+            item.parent_id: cast(MemoryEvent, item.payload)
+            for item in items
+            if isinstance(item.payload, MemoryEvent)
+        }
+        if not snapshots:
+            return
+
+        detached_chunk_ids: list[str] = []
+        async with optional_operation_guard(host._operation_guard_factory):
+            async with host.embedding_mutation_guard():
+                placeholders = ", ".join("?" for _ in snapshots)
+                async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+                    db.row_factory = aiosqlite.Row
+                    await db.execute("BEGIN IMMEDIATE")
+                    try:
+                        async with db.execute(
+                            f"""
+                            SELECT *
+                            FROM {FACT_EVENTS_TABLE}
+                            WHERE event_id IN ({placeholders}) AND deleted_at IS NULL
+                            """,
+                            tuple(snapshots),
+                        ) as cursor:
+                            rows = await cursor.fetchall()
+                        removable_event_ids: list[str] = []
+                        for row in rows:
+                            current = host._row_to_memory_event(row)
+                            snapshot = snapshots.get(current.event_id)
+                            if snapshot is None or not _event_embedding_parent_is_current(
+                                host,
+                                current=current,
+                                embedded=snapshot,
+                            ):
+                                continue
+                            if self._embedding_eligible(
+                                current
+                            ) and self._build_event_embedding_chunks(current):
+                                continue
+                            removable_event_ids.append(current.event_id)
+
+                        for event_id in removable_event_ids:
+                            async with db.execute(
+                                f"SELECT chunk_id FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                                (event_id,),
+                            ) as cursor:
+                                chunk_rows = await cursor.fetchall()
+                            detached_chunk_ids.extend(str(row[0]) for row in chunk_rows)
+                            await db.execute(
+                                f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                                (event_id,),
+                            )
+                        if removable_event_ids:
+                            updated_at = time.time()
+                            await db.executemany(
+                                f"""
+                                UPDATE {L1_EVENT_EMBEDDING_STATE_TABLE}
+                                SET embedding_status = ?, embedding_profile_id = NULL,
+                                    embedding_chunk_count = 0, last_embedded_at = NULL,
+                                    updated_at = ?
+                                WHERE event_id = ?
+                                """,
+                                [
+                                    (
+                                        embedding_status_code(EMBEDDING_STATUS_SKIPPED),
+                                        updated_at,
+                                        event_id,
+                                    )
+                                    for event_id in removable_event_ids
+                                ],
+                            )
+                        await db.commit()
+                    except BaseException:
+                        await db.rollback()
+                        raise
+
+                if host._vector_index is not None:
+                    for chunk_id in dict.fromkeys(detached_chunk_ids):
+                        await host._vector_index.delete_entity(entity_id=chunk_id)
 
     async def _current_embedding_events(
         self,
@@ -180,10 +277,7 @@ class L1EventEmbeddingMixin(
                 tuple(event_ids),
             ) as cursor:
                 rows = await cursor.fetchall()
-        current_by_id = {
-            str(row["event_id"]): host._row_to_memory_event(row)
-            for row in rows
-        }
+        current_by_id = {str(row["event_id"]): host._row_to_memory_event(row) for row in rows}
         return [
             event
             for event in events
@@ -201,7 +295,11 @@ class L1EventEmbeddingMixin(
         return [
             EmbeddingPipelineItem(
                 parent_id=event.event_id,
-                chunks=self._build_event_embedding_chunks(event),
+                chunks=(
+                    self._build_event_embedding_chunks(event)
+                    if self._embedding_eligible(event)
+                    else []
+                ),
                 metadata={
                     "event_id": event.event_id,
                     "event_type": event.event_type,
@@ -338,5 +436,6 @@ def _event_embedding_parent_is_current(
         current.event_type == embedded.event_type
         and current.source == embedded.source
         and current.user_id == embedded.user_id
+        and current.memory_domain == embedded.memory_domain
         and host.get_embedding_text(current) == host.get_embedding_text(embedded)
     )

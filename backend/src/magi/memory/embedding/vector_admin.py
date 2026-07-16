@@ -18,14 +18,11 @@ from ..l1.embeddings.common import EMBEDDING_TEXT_BUILDER_VERSION as L1_TEXT_BUI
 from ..l2.entities.catalog.embeddings import (
     EMBEDDING_TEXT_BUILDER_VERSION as L2_ENTITY_TEXT_BUILDER_VERSION,
 )
+from ..l2.edge_embedding_drain import EdgeEmbeddingDrainer
 from ..l3.embeddings.summaries import EMBEDDING_TEXT_BUILDER_VERSION as L3_TEXT_BUILDER_VERSION
 from ..l4.storage.schema import EMBEDDING_TEXT_BUILDER_VERSION as L4_TEXT_BUILDER_VERSION
-from .chunking import ChunkedText
-from .embedding_pipeline import EmbeddingPipelineItem, MemoryEmbeddingPipeline
-from .embedding_text_builders import (
-    L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
-    build_l2_edge_embedding_text,
-)
+from .embedding_pipeline import verify_active_rebuild_profile
+from .embedding_text_builders import L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION
 from .local_embedding_identity import compute_local_embedding_model_fingerprint
 
 VECTOR_LAYERS: tuple[str, ...] = ("l1", "l2_entities", "l2_edges", "l3", "l4")
@@ -36,11 +33,17 @@ _LAYER_TEXT_BUILDERS: dict[str, str] = {
     "l3": L3_TEXT_BUILDER_VERSION,
     "l4": L4_TEXT_BUILDER_VERSION,
 }
+_ACTIVE_JOB_STATUSES = {"pending", "running"}
 _TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled"}
 
 
 class EmbeddingRebuildPausedError(RuntimeError):
     """Raised when a destructive clear has paused new rebuild jobs."""
+
+
+class EmbeddingRebuildCancelledError(RuntimeError):
+    """Raised at a batch boundary after a persisted cancellation request."""
+
 
 _ADMIN_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS embedding_rebuild_jobs (
@@ -223,8 +226,8 @@ class EmbeddingRebuildManager:
     ) -> dict[str, Any]:
         requested_layers = _normalize_layers(layers)
         await self._ensure_schema()
-        await self._mark_abandoned_jobs()
         async with self._lock:
+            await self._mark_abandoned_jobs()
             if self._pause_depth > 0:
                 raise EmbeddingRebuildPausedError(
                     "Embedding rebuild is paused while memory is being cleared"
@@ -238,6 +241,7 @@ class EmbeddingRebuildManager:
             total_items = sum(int(source_counts.get(layer, 0)) for layer in requested_layers)
             db_path = str(get_runtime_paths().memory_db_path)
             async with sqlite_connection_async(db_path) as db:
+                db.row_factory = aiosqlite.Row
                 await db.execute(
                     """
                     INSERT INTO embedding_rebuild_jobs(
@@ -268,14 +272,15 @@ class EmbeddingRebuildManager:
 
     async def get_latest_job(self) -> dict[str, Any] | None:
         await self._ensure_schema()
-        await self._mark_abandoned_jobs()
-        db_path = str(get_runtime_paths().memory_db_path)
-        async with sqlite_connection_async(db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT job_id FROM embedding_rebuild_jobs ORDER BY created_at DESC LIMIT 1"
-            ) as cursor:
-                row = await cursor.fetchone()
+        async with self._lock:
+            await self._mark_abandoned_jobs()
+            db_path = str(get_runtime_paths().memory_db_path)
+            async with sqlite_connection_async(db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT job_id FROM embedding_rebuild_jobs ORDER BY created_at DESC LIMIT 1"
+                ) as cursor:
+                    row = await cursor.fetchone()
         return await self.get_job(str(row["job_id"])) if row is not None else None
 
     async def get_job(self, job_id: str) -> dict[str, Any] | None:
@@ -310,6 +315,13 @@ class EmbeddingRebuildManager:
                 (now, job_id),
             )
             await db.commit()
+        task = self._tasks.get(job_id)
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            if self._tasks.get(job_id) is task:
+                self._tasks.pop(job_id, None)
+        await self._finish_cancelled_job_if_active(job_id)
         return await self.get_job(job_id)
 
     async def cancel_all_and_wait(self) -> int:
@@ -324,7 +336,11 @@ class EmbeddingRebuildManager:
         async with self._lock:
             self._pause_depth += 1
             active = self._cancel_active_tasks_locked()
-        await self._await_cancelled_tasks(active)
+        try:
+            await self._await_cancelled_tasks(active)
+        except BaseException:
+            await self.resume_starts()
+            raise
         return len(active)
 
     async def resume_starts(self) -> None:
@@ -333,11 +349,7 @@ class EmbeddingRebuildManager:
             self._pause_depth = max(0, self._pause_depth - 1)
 
     def _cancel_active_tasks_locked(self) -> dict[str, asyncio.Task[None]]:
-        active = {
-            job_id: task
-            for job_id, task in self._tasks.items()
-            if not task.done()
-        }
+        active = {job_id: task for job_id, task in self._tasks.items() if not task.done()}
         for task in active.values():
             task.cancel()
         return active
@@ -350,11 +362,21 @@ class EmbeddingRebuildManager:
             return
         await asyncio.gather(*active.values(), return_exceptions=True)
         for job_id in active:
+            await self._finish_cancelled_job_if_active(job_id)
+
+    async def _finish_cancelled_job_if_active(self, job_id: str) -> None:
+        job = await self.get_job(job_id)
+        if job is not None and job.get("status") in _ACTIVE_JOB_STATUSES:
             await self._finish_job(job_id=job_id, status="cancelled")
 
     async def _run_job(self, job_id: str, unified_memory: Any, layers: list[str]) -> None:
-        async with unified_memory.memory_operation_guard():
-            await self._run_job_guarded(job_id, unified_memory, layers)
+        try:
+            async with unified_memory.memory_operation_guard():
+                await self._run_job_guarded(job_id, unified_memory, layers)
+        except asyncio.CancelledError:
+            await self._finish_job(job_id=job_id, status="cancelled")
+        except Exception as exc:
+            await self._finish_job(job_id=job_id, status="failed", error=str(exc))
 
     async def _run_job_guarded(
         self,
@@ -379,15 +401,27 @@ class EmbeddingRebuildManager:
                     )
                     return
                 await self._start_layer(job_id, layer)
+                latest_layer_processed = 0
                 try:
                     completed_before_layer = processed_total
+                    layer_identity_before = _active_layer_profile_key(
+                        unified_memory,
+                        layer,
+                    )
 
-                    async def report_layer_progress(layer_processed: int) -> None:
+                    async def report_layer_progress(reported_items: int) -> None:
+                        nonlocal latest_layer_processed
+                        latest_layer_processed = max(
+                            latest_layer_processed,
+                            int(reported_items),
+                        )
+                        if await self._cancel_requested(job_id):
+                            raise EmbeddingRebuildCancelledError("Embedding rebuild was cancelled")
                         await self._update_progress(
                             job_id=job_id,
                             layer=layer,
                             completed_items=completed_before_layer,
-                            layer_processed_items=layer_processed,
+                            layer_processed_items=latest_layer_processed,
                         )
 
                     processed = await _run_rebuild_layer(
@@ -395,14 +429,44 @@ class EmbeddingRebuildManager:
                         layer,
                         progress_callback=report_layer_progress,
                     )
+                    if _active_layer_profile_key(unified_memory, layer) != layer_identity_before:
+                        raise RuntimeError(
+                            "Embedding identity changed while the layer was rebuilding"
+                        )
                     await report_layer_progress(processed)
+                except EmbeddingRebuildCancelledError as exc:
+                    await self._finish_layer(
+                        job_id,
+                        layer,
+                        "cancelled",
+                        latest_layer_processed,
+                        0,
+                        0,
+                        str(exc),
+                    )
+                    await self._finish_job(
+                        job_id=job_id,
+                        status="cancelled",
+                        processed_items=processed_total + latest_layer_processed,
+                        succeeded_items=succeeded_total,
+                        failed_items=failed_total,
+                    )
+                    return
                 except Exception as exc:
                     failed_total += 1
-                    await self._finish_layer(job_id, layer, "failed", 0, 0, 1, str(exc))
+                    await self._finish_layer(
+                        job_id,
+                        layer,
+                        "failed",
+                        latest_layer_processed,
+                        0,
+                        1,
+                        str(exc),
+                    )
                     await self._finish_job(
                         job_id=job_id,
                         status="failed",
-                        processed_items=processed_total,
+                        processed_items=processed_total + latest_layer_processed,
                         succeeded_items=succeeded_total,
                         failed_items=failed_total,
                         error=str(exc),
@@ -605,7 +669,59 @@ class EmbeddingRebuildManager:
             updates["succeeded_items"] = int(succeeded_items)
         if failed_items is not None:
             updates["failed_items"] = int(failed_items)
-        await self._update_job(job_id, **updates)
+        columns = ", ".join(f"{key} = ?" for key in updates)
+        db_path = str(get_runtime_paths().memory_db_path)
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute(
+                f"UPDATE embedding_rebuild_jobs SET {columns} WHERE job_id = ?",
+                (*updates.values(), job_id),
+            )
+            if status not in _TERMINAL_JOB_STATUSES:
+                await db.commit()
+                return
+
+            layer_error = error
+            if status == "cancelled" and layer_error is None:
+                layer_error = "Embedding rebuild was cancelled."
+            await db.execute(
+                """
+                UPDATE embedding_rebuild_job_layers
+                SET status = ?, error = COALESCE(error, ?),
+                    finished_at = COALESCE(finished_at, ?), updated_at = ?
+                WHERE job_id = ? AND status IN ('pending', 'running')
+                """,
+                (status, layer_error, now, now, job_id),
+            )
+            async with db.execute(
+                """
+                SELECT
+                    COALESCE(SUM(processed_items), 0) AS processed_items,
+                    COALESCE(SUM(
+                        CASE WHEN status = 'succeeded' THEN succeeded_items ELSE 0 END
+                    ), 0) AS succeeded_items,
+                    COALESCE(SUM(failed_items), 0) AS failed_items
+                FROM embedding_rebuild_job_layers
+                WHERE job_id = ?
+                """,
+                (job_id,),
+            ) as cursor:
+                totals = await cursor.fetchone()
+            if totals is not None:
+                await db.execute(
+                    """
+                    UPDATE embedding_rebuild_jobs
+                    SET processed_items = ?, succeeded_items = ?, failed_items = ?
+                    WHERE job_id = ?
+                    """,
+                    (
+                        int(totals["processed_items"] or 0),
+                        int(totals["succeeded_items"] or 0),
+                        int(totals["failed_items"] or 0),
+                        job_id,
+                    ),
+                )
+            await db.commit()
 
 
 async def rebuild_l2_edge_embeddings(
@@ -621,118 +737,79 @@ async def rebuild_l2_edge_embeddings(
     if embedding_service is None or vector_index is None:
         return 0
     normalized_batch_size = max(1, int(batch_size))
-    await vector_index.clear()
-    await _disable_active_l2_edge_embeddings(db_path)
-
-    pipeline = MemoryEmbeddingPipeline(
+    drainer = EdgeEmbeddingDrainer(
+        db_path=db_path,
         embedding_service=embedding_service,
-        vector_index=vector_index,
-        text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+        edge_vector_index=vector_index,
     )
     processed = 0
-    offset = 0
-    while True:
-        rows = await _fetch_l2_edge_embedding_rows(
-            db_path=db_path,
-            batch_size=normalized_batch_size,
-            offset=offset,
-        )
-        if not rows:
-            break
+    last_rowid = 0
+    async with vector_index.rebuild_session():
+        high_water_rowid = await _l2_edge_rebuild_high_water(db_path)
+        while last_rowid < high_water_rowid:
+            rows = await _fetch_l2_edge_embedding_rows(
+                db_path=db_path,
+                batch_size=normalized_batch_size,
+                after_rowid=last_rowid,
+                high_water_rowid=high_water_rowid,
+            )
+            if not rows:
+                break
 
-        await _embed_l2_edge_rows(
-            db_path=db_path,
-            rows=rows,
-            embedding_service=embedding_service,
-            pipeline=pipeline,
+            last_rowid = int(rows[-1]["rebuild_rowid"])
+            await drainer.embed_rows_if_current(rows)
+            processed += len(rows)
+            if progress_callback is not None:
+                await progress_callback(processed)
+        await vector_index.prune_orphans(
+            valid_entity_query=(
+                "SELECT triple_id AS entity_id FROM knowledge_graph WHERE status = 'active'"
+            ),
+            mutation_guard_factory=drainer._vector_source_write_lock,
         )
-        processed += len(rows)
-        offset += len(rows)
-        if progress_callback is not None:
-            await progress_callback(processed)
+        verify_active_rebuild_profile(
+            embedding_service=embedding_service,
+            vector_index=vector_index,
+            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
+        )
     return processed
 
 
-async def _disable_active_l2_edge_embeddings(db_path: str) -> None:
+async def _l2_edge_rebuild_high_water(db_path: str) -> int:
     async with sqlite_connection_async(db_path) as db:
-        await db.execute("""
-            UPDATE knowledge_graph
-            SET embedding_status = 'disabled', embedding_profile_id = NULL, last_embedded_at = NULL
-            WHERE status = 'active'
-            """)
-        await db.commit()
+        async with db.execute(
+            "SELECT COALESCE(MAX(rowid), 0) FROM knowledge_graph WHERE status = 'active'"
+        ) as cursor:
+            row = await cursor.fetchone()
+    return int(row[0] or 0) if row else 0
 
 
 async def _fetch_l2_edge_embedding_rows(
     *,
     db_path: str,
     batch_size: int,
-    offset: int,
+    after_rowid: int,
+    high_water_rowid: int,
 ) -> list[aiosqlite.Row]:
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             """
-            SELECT kg.triple_id, kg.subject_id, kg.predicate, kg.object_id,
-                kg.evidence_text, kg.natural_summary,
+            SELECT kg.rowid AS rebuild_rowid, kg.triple_id,
+                kg.subject_id, kg.predicate, kg.object_id,
+                kg.evidence_text, kg.natural_summary, kg.status, kg.updated_at,
+                kg.embedding_status, kg.embedding_profile_id, kg.last_embedded_at,
                 sc.canonical_name AS subject_name, oc.canonical_name AS object_name
             FROM knowledge_graph kg
             LEFT JOIN entity_catalog sc ON sc.entity_id = kg.subject_id
             LEFT JOIN entity_catalog oc ON oc.entity_id = kg.object_id
-            WHERE kg.status = 'active'
-            ORDER BY kg.updated_at DESC, kg.triple_id ASC
-            LIMIT ? OFFSET ?
+            WHERE kg.status = 'active' AND kg.rowid > ? AND kg.rowid <= ?
+            ORDER BY kg.rowid ASC
+            LIMIT ?
             """,
-            (batch_size, offset),
+            (after_rowid, high_water_rowid, batch_size),
         ) as cursor:
             return await cursor.fetchall()
-
-
-async def _embed_l2_edge_rows(
-    *,
-    db_path: str,
-    rows: list[aiosqlite.Row],
-    embedding_service: Any,
-    pipeline: MemoryEmbeddingPipeline,
-) -> None:
-    items = [_edge_row_to_embedding_item(row) for row in rows]
-    items = [item for item in items if item is not None]
-    if not items:
-        return
-    results = await pipeline.upsert_items(items)
-    updates = _l2_edge_embedding_updates(results, embedding_service)
-    if updates:
-        await _mark_l2_edge_embeddings_ready(db_path, updates)
-
-
-def _l2_edge_embedding_updates(
-    results: Iterable[Any],
-    embedding_service: Any,
-) -> list[tuple[str, float, str]]:
-    updates: list[tuple[str, float, str]] = []
-    for result in results:
-        profile = embedding_service.profile_from_result(
-            result.embeddings[0],
-            text_builder_version=L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION,
-        )
-        updates.append((profile.profile_id, result.embedded_at, result.parent_id))
-    return updates
-
-
-async def _mark_l2_edge_embeddings_ready(
-    db_path: str,
-    updates: list[tuple[str, float, str]],
-) -> None:
-    async with sqlite_connection_async(db_path) as db:
-        await db.executemany(
-            """
-            UPDATE knowledge_graph
-            SET embedding_status = 'ready', embedding_profile_id = ?, last_embedded_at = ?
-            WHERE triple_id = ?
-            """,
-            updates,
-        )
-        await db.commit()
 
 
 async def _run_rebuild_layer(
@@ -785,32 +862,39 @@ async def _run_rebuild_layer(
     raise ValueError(f"Unsupported embedding rebuild layer: {layer}")
 
 
-def _edge_row_to_embedding_item(row: aiosqlite.Row) -> EmbeddingPipelineItem | None:
-    text = build_l2_edge_embedding_text(
-        subject_id=str(row["subject_id"]),
-        predicate=str(row["predicate"]),
-        object_id=str(row["object_id"]),
-        evidence_text=row["evidence_text"],
-        natural_summary=row["natural_summary"],
-        subject_name=row["subject_name"],
-        object_name=row["object_name"],
-    )
-    if not text.strip():
+def _active_layer_profile_key(
+    unified_memory: Any,
+    layer: str,
+) -> tuple[str, int | None] | None:
+    if layer == "l1":
+        owner = getattr(unified_memory, "l1", None)
+        text_builder_version = L1_TEXT_BUILDER_VERSION
+    elif layer in {"l2_entities", "l2_edges"}:
+        owner = getattr(unified_memory, "l2_entity_catalog", None)
+        text_builder_version = (
+            L2_ENTITY_TEXT_BUILDER_VERSION
+            if layer == "l2_entities"
+            else L2_EDGE_EMBEDDING_TEXT_BUILDER_VERSION
+        )
+    elif layer == "l3":
+        owner = getattr(unified_memory, "l3", None)
+        text_builder_version = L3_TEXT_BUILDER_VERSION
+    elif layer == "l4":
+        owner = getattr(unified_memory, "l4", None)
+        text_builder_version = L4_TEXT_BUILDER_VERSION
+    else:
         return None
-    triple_id = str(row["triple_id"])
-    return EmbeddingPipelineItem(
-        parent_id=triple_id,
-        chunks=[
-            ChunkedText(
-                chunk_id=triple_id,
-                text=text,
-                chunk_index=0,
-                char_start=0,
-                char_end=len(text),
-                token_estimate=max(1, len(text) // 4),
-            )
-        ],
-        metadata={"kind": "edge"},
+    embedding_service = getattr(owner, "_embedding_service", None)
+    profile_getter = getattr(embedding_service, "get_active_profile", None)
+    if not callable(profile_getter):
+        return None
+    profile = profile_getter(text_builder_version=text_builder_version)
+    if profile is None:
+        return None
+    dimension = getattr(profile, "dimension", None)
+    return (
+        str(profile.profile_id),
+        int(dimension) if dimension is not None else None,
     )
 
 
@@ -1130,6 +1214,18 @@ def _json_list(value: str) -> list[str]:
     return [str(item) for item in payload]
 
 
+_SHARED_EMBEDDING_REBUILD_MANAGER: EmbeddingRebuildManager | None = None
+
+
+def get_embedding_rebuild_manager() -> EmbeddingRebuildManager:
+    """Return the process-wide embedding rebuild manager."""
+
+    global _SHARED_EMBEDDING_REBUILD_MANAGER
+    if _SHARED_EMBEDDING_REBUILD_MANAGER is None:
+        _SHARED_EMBEDDING_REBUILD_MANAGER = EmbeddingRebuildManager()
+    return _SHARED_EMBEDDING_REBUILD_MANAGER
+
+
 __all__ = [
     "EmbeddingRebuildPausedError",
     "EmbeddingRebuildManager",
@@ -1139,5 +1235,6 @@ __all__ = [
     "build_layer_vector_identities",
     "collect_vector_rebuild_source_counts",
     "collect_vector_ready_counts",
+    "get_embedding_rebuild_manager",
     "rebuild_l2_edge_embeddings",
 ]

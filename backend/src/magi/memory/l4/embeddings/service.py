@@ -9,13 +9,16 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-from ...embedding.embedding_pipeline import EmbeddingPipelineItem, EmbeddingPipelineResult
+from ...embedding.embedding_pipeline import (
+    EmbeddingPipelineItem,
+    EmbeddingPipelineResult,
+    verify_active_rebuild_profile,
+)
 from ...embedding.embedding_service import MemoryEmbeddingService
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_semantic_skills
 from ..storage.schema import (
-    EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
     SKILL_CHUNKS_TABLE,
 )
@@ -71,47 +74,59 @@ class L4SkillEmbeddingMixin:
         ):
             return 0
 
-        await self._vector_index.clear()
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(f"DELETE FROM {SKILL_CHUNKS_TABLE}")
-            await db.execute(
-                """
-                UPDATE procedural_skills
-                SET embedding_status = ?, embedding_profile_id = NULL, embedding_chunk_count = 0, last_embedded_at = NULL
-                """,
-                (EMBEDDING_STATUS_DISABLED,),
-            )
-            await db.commit()
+            async with db.execute(
+                "SELECT COALESCE(MAX(rowid), 0) FROM procedural_skills"
+            ) as cursor:
+                row = await cursor.fetchone()
+        high_water_rowid = int(row[0] or 0) if row is not None else 0
 
         processed = 0
-        offset = 0
-        while True:
-            async with sqlite_connection_async(self.db_path) as db:
-                db.row_factory = aiosqlite.Row
-                async with db.execute(
-                    """
-                    SELECT skill_id, skill_name, skill_category, optimized_prompt
-                    FROM procedural_skills
-                    WHERE deleted_at IS NULL
-                    ORDER BY updated_at DESC, skill_id ASC
-                    LIMIT ? OFFSET ?
-                    """,
-                    (normalized_batch_size, offset),
-                ) as cursor:
-                    rows = await cursor.fetchall()
-            if not rows:
-                break
-            for row in rows:
-                await self._maybe_upsert_skill_embedding(
-                    skill_id=str(row["skill_id"]),
-                    skill_name=str(row["skill_name"]),
-                    skill_category=str(row["skill_category"]),
-                    optimized_prompt=row["optimized_prompt"],
-                )
-            processed += len(rows)
-            offset += len(rows)
-            if progress_callback is not None:
-                await progress_callback(processed)
+        last_rowid = 0
+        async with self._vector_index.rebuild_session():
+            while last_rowid < high_water_rowid:
+                async with sqlite_connection_async(self.db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    async with db.execute(
+                        """
+                        SELECT rowid AS rebuild_rowid, skill_id, skill_name,
+                            skill_category, optimized_prompt
+                        FROM procedural_skills
+                        WHERE rowid > ? AND rowid <= ? AND deleted_at IS NULL
+                        ORDER BY rowid ASC
+                        LIMIT ?
+                        """,
+                        (last_rowid, high_water_rowid, normalized_batch_size),
+                    ) as cursor:
+                        rows = await cursor.fetchall()
+                if not rows:
+                    break
+                last_rowid = int(rows[-1]["rebuild_rowid"])
+                for row in rows:
+                    await self._maybe_upsert_skill_embedding(
+                        skill_id=str(row["skill_id"]),
+                        skill_name=str(row["skill_name"]),
+                        skill_category=str(row["skill_category"]),
+                        optimized_prompt=row["optimized_prompt"],
+                    )
+                processed += len(rows)
+                if progress_callback is not None:
+                    await progress_callback(processed)
+            await self._vector_index.prune_orphans(
+                valid_entity_query=f"""
+                    SELECT chunks.chunk_id AS entity_id
+                    FROM {SKILL_CHUNKS_TABLE} AS chunks
+                    JOIN procedural_skills AS skills
+                      ON skills.skill_id = chunks.skill_id
+                    WHERE skills.deleted_at IS NULL
+                """,
+                mutation_guard_factory=self.embedding_mutation_guard,
+            )
+            verify_active_rebuild_profile(
+                embedding_service=self._embedding_service,
+                vector_index=self._vector_index,
+                text_builder_version=EMBEDDING_TEXT_BUILDER_VERSION,
+            )
         return processed
 
     def get_statistics(self) -> Dict[str, Any]:
@@ -187,8 +202,15 @@ class L4SkillEmbeddingMixin:
                 if published:
                     return
                 if self._vector_index is not None:
-                    for chunk in result.chunks:
-                        await self._vector_index.delete_entity(entity_id=chunk.chunk_id)
+                    for chunk, embedding in zip(
+                        result.chunks,
+                        result.embeddings,
+                        strict=True,
+                    ):
+                        await self._vector_index.delete_embedding(
+                            entity_id=chunk.chunk_id,
+                            embedding=embedding,
+                        )
 
     async def _skill_embedding_snapshot(
         self,
@@ -412,5 +434,4 @@ def _skill_embedding_parent_is_current(
         str(current["skill_name"]) == str(snapshot["stored_skill_name"])
         and str(current["skill_category"]) == str(snapshot["skill_category"])
         and current["optimized_prompt"] == snapshot.get("optimized_prompt")
-        and float(current["updated_at"]) == float(snapshot["updated_at"])
     )

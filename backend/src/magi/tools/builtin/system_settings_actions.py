@@ -191,7 +191,7 @@ class SystemSettingsActionsMixin:
             return parsed
 
         if parsed.scope == "app":
-            return self._set_app_value(parsed, value)
+            return await self._set_app_value(parsed, value)
         return await self._set_tool_value(parsed, value, context)
 
     def _prepare_set_path(
@@ -273,36 +273,81 @@ class SystemSettingsActionsMixin:
             error_code=ToolErrorCode.READ_ONLY.value,
         )
 
-    def _set_app_value(
+    async def _set_app_value(
         self,
         parsed: _ParsedSettingsPath,
         value: Optional[str],
     ) -> ToolResult:
-        converted_value = self._convert_app_value(parsed.target_path, value)
-        if isinstance(converted_value, ToolResult):
-            return converted_value
-
         config_api = _facade_config_api()
-        if config_api.save_config({parsed.target_path: converted_value}):
-            logger.info(
-                "system-settings set saved (app scope)",
-                path=parsed.normalized_path,
-                config_path=parsed.target_path,
-                value_type=type(converted_value).__name__,
+        async with config_api.get_embedding_config_update_lock():
+            current_config = config_api.get_config()
+            converted_value = self._convert_app_value(
+                parsed.target_path,
+                value,
+                config=current_config,
             )
-            return ToolResult(
-                success=True,
-                data={
-                    "path": parsed.normalized_path,
-                    "new_value": _serialize_value(
-                        converted_value,
-                        mask_secrets=_is_sensitive_field(parsed.normalized_path),
-                    ),
-                    "config_file": str(config_api.get_config_file_path()),
-                    "message": f"Saved to {config_api.get_config_file_path()}",
-                    "scope": "app",
-                },
-            )
+            if isinstance(converted_value, ToolResult):
+                return converted_value
+
+            try:
+                proposed_config = config_api.clone_config_with_update(
+                    current_config,
+                    parsed.target_path,
+                    converted_value,
+                )
+            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                logger.error(
+                    "system-settings set failed to prepare app config",
+                    path=parsed.normalized_path,
+                    config_path=parsed.target_path,
+                    error=str(exc),
+                )
+                return ToolResult(
+                    success=False,
+                    error="Failed to prepare configuration update",
+                    error_code=ToolErrorCode.SAVE_FAILED.value,
+                )
+
+            async with config_api.pause_rebuilds_for_embedding_config_change(
+                current_config=current_config,
+                proposed_config=proposed_config,
+                manager_factory=config_api.get_embedding_rebuild_manager,
+            ):
+                if config_api.save_config({parsed.target_path: converted_value}):
+                    try:
+                        config_api.refresh_runtime_llm_config(config_api.get_config())
+                    except Exception as exc:
+                        logger.exception(
+                            "system-settings runtime refresh failed after app config save",
+                            path=parsed.normalized_path,
+                            config_path=parsed.target_path,
+                            error=str(exc),
+                        )
+                        return ToolResult(
+                            success=False,
+                            error="Configuration was saved but the runtime refresh failed",
+                            error_code="RUNTIME_REFRESH_FAILED",
+                        )
+
+                    logger.info(
+                        "system-settings set saved (app scope)",
+                        path=parsed.normalized_path,
+                        config_path=parsed.target_path,
+                        value_type=type(converted_value).__name__,
+                    )
+                    return ToolResult(
+                        success=True,
+                        data={
+                            "path": parsed.normalized_path,
+                            "new_value": _serialize_value(
+                                converted_value,
+                                mask_secrets=_is_sensitive_field(parsed.normalized_path),
+                            ),
+                            "config_file": str(config_api.get_config_file_path()),
+                            "message": f"Saved to {config_api.get_config_file_path()}",
+                            "scope": "app",
+                        },
+                    )
 
         logger.error(
             "system-settings set failed (app scope)",
@@ -319,8 +364,10 @@ class SystemSettingsActionsMixin:
         self,
         config_path: str,
         value: Optional[str],
+        *,
+        config: Any | None = None,
     ) -> Any | ToolResult:
-        config = _facade_config_api().get_config()
+        config = config if config is not None else _facade_config_api().get_config()
         success, current_value, _ = _get_nested_value(config, config_path)
         try:
             if success and current_value is not None:

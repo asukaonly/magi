@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request
@@ -16,6 +16,12 @@ from ...core.runtime_bindings import require_runtime_command_queue
 from ...events.contracts import RefreshLLMConfigCommand
 from ...core.logger import get_logger
 from ...bootstrap import refresh_runtime_llm_config
+from ...memory.embedding.config_coordination import (
+    embedding_execution_signature,
+    get_embedding_config_update_lock,
+    get_embedding_rebuild_manager as _resolve_embedding_rebuild_manager,
+    pause_rebuilds_for_embedding_config_change,
+)
 from ...memory.embedding.vector_admin import build_embedding_config_preflight
 from ..services.config_onboarding import (
     build_onboarding_template as _build_onboarding_template_service,
@@ -66,7 +72,7 @@ logger = get_logger(__name__)
 config_router = APIRouter()
 ONBOARDING_RUNTIME_INIT_RESPONSE_BUDGET_SECONDS = 8.0
 ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS = 3.0
-_ONBOARDING_WRITE_LOCK = asyncio.Lock()
+_ONBOARDING_WRITE_LOCK = get_embedding_config_update_lock()
 
 
 def _read_raw_yaml() -> Dict[str, Any]:
@@ -178,6 +184,14 @@ def _normalize_masked_secrets(config: SystemConfigModel) -> SystemConfigModel:
     return _normalize_masked_config_secrets(config, get_config())
 
 
+def _embedding_execution_signature(config: Any) -> Dict[str, Any]:
+    return embedding_execution_signature(config)
+
+
+def _get_embedding_rebuild_manager() -> Any:
+    return _resolve_embedding_rebuild_manager()
+
+
 def _mask_api_key(api_key: str) -> str:
     return mask_api_key(api_key)
 
@@ -251,7 +265,9 @@ async def _run_with_response_budget(
         task.cancel()
         raise
     except Exception:
-        logger.exception("Runtime operation failed during configuration update", operation=operation)
+        logger.exception(
+            "Runtime operation failed during configuration update", operation=operation
+        )
 
 
 async def _refresh_or_initialize_runtime_after_config_update(
@@ -282,6 +298,34 @@ async def _refresh_or_initialize_runtime_after_config_update(
         operation=f"enqueue_runtime_llm_refresh_after_{reason}",
         timeout_seconds=ONBOARDING_RUNTIME_REFRESH_RESPONSE_BUDGET_SECONDS,
     )
+
+
+async def _persist_config_update(
+    *,
+    prepare_update: Callable[[], tuple[Dict[str, Any], Any]],
+    reason: str,
+    save_error_detail: str,
+    before_save: Callable[[], None] | None = None,
+) -> Any:
+    """Serialize config persistence with any affected vector rebuild."""
+
+    async with _ONBOARDING_WRITE_LOCK:
+        if before_save is not None:
+            before_save()
+        updates, proposed_config = prepare_update()
+        async with pause_rebuilds_for_embedding_config_change(
+            current_config=get_config(),
+            proposed_config=proposed_config,
+            manager_factory=_get_embedding_rebuild_manager,
+        ):
+            if not save_config(updates):
+                raise HTTPException(status_code=500, detail=save_error_detail)
+            refreshed_config = reload_config()
+            await _refresh_or_initialize_runtime_after_config_update(
+                refreshed_config,
+                reason=reason,
+            )
+            return refreshed_config
 
 
 def _is_masked_api_key(api_key: Optional[str]) -> bool:
@@ -329,19 +373,23 @@ async def get_config_endpoint(request: Request):
 @config_router.put("/", response_model=ConfigResponse)
 async def update_config(request: Request, config: SystemConfigModel):
     try:
-        async with _ONBOARDING_WRITE_LOCK:
+
+        def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
             config.preferences.onboarding_completed = _get_onboarding_completed_or_error(request)
             with core_i18n.language_context(_request_language(request)):
                 updates = _build_update_paths(config)
-            if not save_config(updates):
-                raise HTTPException(
-                    status_code=500,
-                    detail=_t(request, "config.errors.save_failed", "Failed to save config"),
-                )
-            refreshed_config = reload_config()
-        await _refresh_or_initialize_runtime_after_config_update(
-            refreshed_config,
+                proposed_config = _normalize_masked_secrets(config)
+                _build_full_update_paths(proposed_config)
+            return updates, proposed_config
+
+        await _persist_config_update(
+            prepare_update=prepare_update,
             reason="config_updated",
+            save_error_detail=_t(
+                request,
+                "config.errors.save_failed",
+                "Failed to save config",
+            ),
         )
         await _enqueue_runtime_channels_refresh_command(reason="config_updated")
         return ConfigResponse(
@@ -468,28 +516,28 @@ async def update_onboarding_draft(
     payload: OnboardingConfigUpdateRequest,
 ):
     try:
-        draft = SystemConfigModel(llm=payload.llm)
-        draft.preferences.language = payload.language
-        with core_i18n.language_context(_request_language(request)):
-            normalized = _normalize_masked_secrets(draft)
-            updates = _build_onboarding_update_paths(normalized, complete=False)
 
-        async with _ONBOARDING_WRITE_LOCK:
-            _ensure_onboarding_incomplete(request)
-            if not save_config(updates):
-                raise HTTPException(
-                    status_code=500,
-                    detail=_t(
-                        request,
-                        "config.onboarding.save_failed",
-                        "Failed to save onboarding configuration",
-                    ),
-                )
-            refreshed_config = reload_config()
+        def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
+            draft = SystemConfigModel(llm=payload.llm)
+            draft.preferences.language = payload.language
+            with core_i18n.language_context(_request_language(request)):
+                normalized = _normalize_masked_secrets(draft)
+                updates = _build_onboarding_update_paths(normalized, complete=False)
+            proposed_config = _build_system_config(mask_api_key=False).model_copy(
+                update={"llm": normalized.llm},
+                deep=True,
+            )
+            return updates, proposed_config
 
-        await _refresh_or_initialize_runtime_after_config_update(
-            refreshed_config,
+        await _persist_config_update(
+            prepare_update=prepare_update,
             reason="onboarding_draft_updated",
+            save_error_detail=_t(
+                request,
+                "config.onboarding.save_failed",
+                "Failed to save onboarding configuration",
+            ),
+            before_save=lambda: _ensure_onboarding_incomplete(request),
         )
         return ConfigResponse(
             success=True,
@@ -568,28 +616,28 @@ async def complete_onboarding(
     payload: OnboardingConfigUpdateRequest,
 ):
     try:
-        config = SystemConfigModel(llm=payload.llm)
-        config.preferences.language = payload.language
-        with core_i18n.language_context(_request_language(request)):
-            normalized = _normalize_masked_secrets(config)
-            updates = _build_onboarding_update_paths(normalized, complete=True)
 
-        async with _ONBOARDING_WRITE_LOCK:
-            _ensure_onboarding_incomplete(request)
-            if not save_config(updates):
-                raise HTTPException(
-                    status_code=500,
-                    detail=_t(
-                        request,
-                        "config.onboarding.save_failed",
-                        "Failed to save onboarding configuration",
-                    ),
-                )
-            refreshed_config = reload_config()
+        def prepare_update() -> tuple[Dict[str, Any], SystemConfigModel]:
+            config = SystemConfigModel(llm=payload.llm)
+            config.preferences.language = payload.language
+            with core_i18n.language_context(_request_language(request)):
+                normalized = _normalize_masked_secrets(config)
+                updates = _build_onboarding_update_paths(normalized, complete=True)
+            proposed_config = _build_system_config(mask_api_key=False).model_copy(
+                update={"llm": normalized.llm},
+                deep=True,
+            )
+            return updates, proposed_config
 
-        await _refresh_or_initialize_runtime_after_config_update(
-            refreshed_config,
+        await _persist_config_update(
+            prepare_update=prepare_update,
             reason="onboarding_completed",
+            save_error_detail=_t(
+                request,
+                "config.onboarding.save_failed",
+                "Failed to save onboarding configuration",
+            ),
+            before_save=lambda: _ensure_onboarding_incomplete(request),
         )
 
         # NOTE: persona registry entries are created by the frontend via

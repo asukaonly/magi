@@ -103,6 +103,7 @@ class MemoryEmbeddingService:
             str(local_cfg.model_source),
             str(local_cfg.managed_model_id or ""),
             str(local_cfg.model_dir_path or ""),
+            str(local_cfg.variant or ""),
             str(local_cfg.idle_timeout_seconds),
         )
         if cache_key != self._local_manager_config_key:
@@ -192,7 +193,7 @@ class MemoryEmbeddingService:
         text_builder_version: str,
     ) -> EmbeddingProfile:
         if self._is_local_mode():
-            return EmbeddingProfile.build(
+            profile = EmbeddingProfile.build(
                 provider_name="local",
                 model_name=result.model_name,
                 dimension=result.dimension,
@@ -200,18 +201,24 @@ class MemoryEmbeddingService:
                 identity_kind="local",
                 identity_key=result.model_identity or result.model_name,
             )
-        adapter = self._get_adapter()
-        provider_name = (
-            str(getattr(adapter, "provider_name", "unknown")) if adapter is not None else "unknown"
-        )
-        return EmbeddingProfile.build(
-            provider_name=provider_name,
-            model_name=result.model_name,
-            dimension=result.dimension,
-            text_builder_version=text_builder_version,
-            identity_kind="remote",
-            identity_key=result.model_name,
-        )
+        else:
+            adapter = self._get_adapter()
+            provider_name = (
+                str(getattr(adapter, "provider_name", "unknown"))
+                if adapter is not None
+                else "unknown"
+            )
+            profile = EmbeddingProfile.build(
+                provider_name=provider_name,
+                model_name=result.model_name,
+                dimension=result.dimension,
+                text_builder_version=text_builder_version,
+                identity_kind="remote",
+                identity_key=result.model_name,
+            )
+        if result.index_identity:
+            profile.profile_id = str(result.index_identity)
+        return profile
 
     def result_for_index(
         self,

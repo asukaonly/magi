@@ -367,6 +367,7 @@ def _memory_update_paths(config: SystemConfigModel) -> Dict[str, Any]:
         "agent.memory.embedding.local.managed_model_id": config.memory.embedding.local.managed_model_id,
         "agent.memory.embedding.local.model_dir_path": config.memory.embedding.local.model_dir_path,
         "agent.memory.embedding.local.idle_timeout_seconds": config.memory.embedding.local.idle_timeout_seconds,
+        "agent.memory.embedding.local.variant": config.memory.embedding.local.variant,
         "agent.memory.retention_days": config.memory.retention_days,
         "agent.memory.history_behavior": config.memory.history_behavior,
         "agent.memory.archive_path": config.memory.archive_path,

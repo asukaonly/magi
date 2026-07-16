@@ -8,6 +8,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from magi.api.routers import config as config_module
 from magi.api.routers.config import (
     SystemConfigModel,
     _build_system_config,
@@ -89,6 +90,76 @@ def _provider_config_model(
     )
 
 
+def _remote_embedding_config(
+    *,
+    model: str = "text-embedding-3-small",
+    base_url: str = "https://api.openai.com/v1",
+) -> SystemConfigModel:
+    config = SystemConfigModel()
+    config.memory.embedding.mode = "remote"
+    config.llm.providers["embedding-provider"] = _provider_config_model(
+        api_key="embedding-key",
+        base_url=base_url,
+    )
+    config.llm.selections["embedding"] = LLMSelectionConfigModel(
+        provider_id="embedding-provider",
+        model=model,
+        embedding_dimension=1536,
+        provider_options={"encoding_format": "float"},
+    )
+    return config
+
+
+def test_embedding_execution_signature_tracks_vector_inputs_but_not_secrets_or_idle_timeout():
+    original = _remote_embedding_config()
+    secret_only = original.model_copy(deep=True)
+    provider = secret_only.llm.providers["embedding-provider"]
+    provider.api_key = "rotated-provider-key"
+    provider.services.embedding.api_key = "rotated-service-key"
+    secret_only.memory.embedding.local.idle_timeout_seconds += 60
+
+    assert config_module._embedding_execution_signature(
+        original
+    ) == config_module._embedding_execution_signature(secret_only)
+
+    changed_provider = original.model_copy(deep=True)
+    changed_provider.llm.providers[
+        "embedding-provider"
+    ].services.embedding.base_url = "https://embedding.example/v1"
+    assert config_module._embedding_execution_signature(
+        original
+    ) != config_module._embedding_execution_signature(changed_provider)
+
+    changed_options = original.model_copy(deep=True)
+    changed_options.llm.selections["embedding"].provider_options = {"encoding_format": "base64"}
+    assert config_module._embedding_execution_signature(
+        original
+    ) != config_module._embedding_execution_signature(changed_options)
+
+    changed_layer = original.model_copy(deep=True)
+    changed_layer.memory.l3.vectors_enabled = False
+    assert config_module._embedding_execution_signature(
+        original
+    ) != config_module._embedding_execution_signature(changed_layer)
+
+    local_original = SystemConfigModel()
+    local_original.memory.embedding.mode = "local"
+    local_original.memory.embedding.local.managed_model_id = "local-model"
+    local_original.memory.embedding.local.variant = "fp16"
+
+    local_idle_change = local_original.model_copy(deep=True)
+    local_idle_change.memory.embedding.local.idle_timeout_seconds += 60
+    assert config_module._embedding_execution_signature(
+        local_original
+    ) == config_module._embedding_execution_signature(local_idle_change)
+
+    local_variant_change = local_original.model_copy(deep=True)
+    local_variant_change.memory.embedding.local.variant = "int8"
+    assert config_module._embedding_execution_signature(
+        local_original
+    ) != config_module._embedding_execution_signature(local_variant_change)
+
+
 def test_system_config_defaults_include_llm_provider_pool_and_selections():
     config = SystemConfigModel()
 
@@ -157,6 +228,7 @@ def test_system_config_defaults_include_memory_lifecycle_settings():
     assert config.memory.embedding.mode == "remote"
     assert config.memory.embedding.local.model_source == "managed"
     assert config.memory.embedding.local.idle_timeout_seconds == 1800
+    assert config.memory.embedding.local.variant is None
     assert "backend" not in config.memory.embedding.model_dump(mode="json")
     assert MemoryL1Settings().retention_days == 30
     assert GraphSpreadingSettings().enabled is True
@@ -351,6 +423,7 @@ def test_build_update_paths_contains_new_sections():
     config.memory.reranker.top_k = 12
     config.memory.reranker.cross_encoder.enabled = True
     config.memory.reranker.cross_encoder.managed_model_id = "bge-reranker-v2-m3"
+    config.memory.embedding.local.variant = "test-variant"
     config.memory.query_expansion.enabled = False
     config.memory.query_expansion.max_expansions = 3
     config.memory.graph_spreading.enabled = not current.memory.graph_spreading.enabled
@@ -381,12 +454,10 @@ def test_build_update_paths_contains_new_sections():
     assert updates["agent.memory.reranker.top_k"] == 12
     assert updates["agent.memory.reranker.cross_encoder.enabled"] is True
     assert updates["agent.memory.reranker.cross_encoder.managed_model_id"] == "bge-reranker-v2-m3"
+    assert updates["agent.memory.embedding.local.variant"] == "test-variant"
     assert updates["agent.memory.query_expansion.enabled"] is False
     assert updates["agent.memory.query_expansion.max_expansions"] == 3
-    assert (
-        updates["agent.memory.graph_spreading.enabled"]
-        is config.memory.graph_spreading.enabled
-    )
+    assert updates["agent.memory.graph_spreading.enabled"] is config.memory.graph_spreading.enabled
     assert "agent.memory.l0.enabled" in updates
     assert updates["agent.memory.l0.enabled"] == config.memory.l0.enabled
     assert updates["agent.memory.l1.retention_days"] == 14
@@ -924,10 +995,7 @@ def test_build_provider_catalog_exposes_and_applies_xiaomi_tokenplan():
         "Singapore",
         "Europe",
     ]
-    assert (
-        xiaomi_entry.plans[0].endpoints[2].base_url
-        == "https://token-plan-ams.xiaomimimo.com/v1"
-    )
+    assert xiaomi_entry.plans[0].endpoints[2].base_url == "https://token-plan-ams.xiaomimimo.com/v1"
     assert xiaomi_entry.default_base_url == "https://token-plan-cn.xiaomimimo.com/v1"
     assert xiaomi_entry.default_model == "mimo-v2.5-pro"
     assert xiaomi_entry.default_classify_model == "mimo-v2.5"
@@ -1466,6 +1534,206 @@ def test_update_config_reloads_config_and_refreshes_runtime_llm_cache(
     assert calls == ["save", "reload", "refresh", "enqueue"]
 
 
+def test_embedding_config_change_waits_for_rebuild_cancel_before_save_and_resumes_after_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    calls: list[str] = []
+    current = _remote_embedding_config(model="text-embedding-3-small")
+    proposed = _remote_embedding_config(model="text-embedding-3-large")
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self) -> int:
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self) -> None:
+            calls.append("resume")
+
+    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+        assert reason == "config_updated"
+        calls.append("refresh")
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
+    monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
+    monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
+    monkeypatch.setattr(
+        config_module,
+        "_get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "save_config",
+        lambda _updates: calls.append("save") or True,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "reload_config",
+        lambda: calls.append("reload") or proposed,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_refresh_or_initialize_runtime_after_config_update",
+        refresh,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_enqueue_runtime_channels_refresh_command",
+        lambda **_kwargs: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_build_system_config",
+        lambda mask_api_key=True: proposed,
+    )
+
+    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    assert calls == ["pause", "save", "reload", "refresh", "resume"]
+
+
+def test_unrelated_config_change_does_not_interrupt_embedding_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    current = _remote_embedding_config()
+    proposed = current.model_copy(deep=True)
+    proposed.tools.builtIn.webFetch.enabled = not current.tools.builtIn.webFetch.enabled
+
+    def unexpected_manager():
+        raise AssertionError("Unrelated settings must not pause embedding rebuilds")
+
+    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+        assert reason == "config_updated"
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
+    monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
+    monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
+    monkeypatch.setattr(config_module, "_get_embedding_rebuild_manager", unexpected_manager)
+    monkeypatch.setattr(config_module, "save_config", lambda _updates: True)
+    monkeypatch.setattr(config_module, "reload_config", lambda: proposed)
+    monkeypatch.setattr(
+        config_module,
+        "_refresh_or_initialize_runtime_after_config_update",
+        refresh,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_enqueue_runtime_channels_refresh_command",
+        lambda **_kwargs: asyncio.sleep(0),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_build_system_config",
+        lambda mask_api_key=True: proposed,
+    )
+
+    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+
+    assert response.status_code == 200
+
+
+def test_embedding_config_save_failure_still_resumes_rebuild_starts(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    calls: list[str] = []
+    current = _remote_embedding_config(model="text-embedding-3-small")
+    proposed = _remote_embedding_config(model="text-embedding-3-large")
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self) -> int:
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self) -> None:
+            calls.append("resume")
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
+    monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
+    monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
+    monkeypatch.setattr(
+        config_module,
+        "_get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "save_config",
+        lambda _updates: calls.append("save") or False,
+    )
+
+    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+
+    assert response.status_code == 500
+    assert calls == ["pause", "save", "resume"]
+
+
+def test_embedding_runtime_refresh_failure_still_resumes_rebuild_starts(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    calls: list[str] = []
+    current = _remote_embedding_config(model="text-embedding-3-small")
+    proposed = _remote_embedding_config(model="text-embedding-3-large")
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self) -> int:
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self) -> None:
+            calls.append("resume")
+
+    async def failing_refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+        assert reason == "config_updated"
+        calls.append("refresh")
+        raise RuntimeError("refresh failed")
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
+    monkeypatch.setattr(config_module, "_build_update_paths", lambda _config: {})
+    monkeypatch.setattr(config_module, "_build_full_update_paths", lambda _config: {})
+    monkeypatch.setattr(
+        config_module,
+        "_get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "save_config",
+        lambda _updates: calls.append("save") or True,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "reload_config",
+        lambda: calls.append("reload") or proposed,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_refresh_or_initialize_runtime_after_config_update",
+        failing_refresh,
+    )
+
+    response = client.put("/config/", json=proposed.model_dump(mode="json"))
+
+    assert response.status_code == 500
+    assert calls == ["pause", "save", "reload", "refresh", "resume"]
+
+
 def test_update_language_preference_saves_language_without_runtime_refresh(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -1571,6 +1839,7 @@ def test_update_config_preserves_close_to_tray_enabled_preference_in_preferences
 
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: get_config())
+
     async def _skip_runtime_refresh(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         return None
 
@@ -1621,6 +1890,7 @@ def test_update_config_persists_changed_settings_and_returns_rebuilt_config(
     )
     monkeypatch.setattr("magi.api.routers.config.save_config", _fake_save_config)
     monkeypatch.setattr("magi.api.routers.config.reload_config", lambda: refreshed_config)
+
     async def _skip_runtime_refresh(*args, **kwargs) -> None:  # type: ignore[no-untyped-def]
         return None
 
@@ -1687,6 +1957,81 @@ def test_complete_onboarding_reloads_config_and_refreshes_runtime_llm_cache(
 
     assert response.status_code == 200
     assert calls == ["save", "reload", "refresh", "enqueue"]
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "reason"),
+    [
+        ("PUT", "/config/onboarding-draft", "onboarding_draft_updated"),
+        ("POST", "/config/onboarding-complete", "onboarding_completed"),
+    ],
+)
+def test_onboarding_embedding_change_uses_rebuild_coordination(
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    reason: str,
+):
+    app = FastAPI()
+    app.include_router(config_router, prefix="/config")
+    client = TestClient(app)
+    calls: list[str] = []
+    current = _remote_embedding_config(model="text-embedding-3-small")
+    proposed = _remote_embedding_config(model="text-embedding-3-large")
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self) -> int:
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self) -> None:
+            calls.append("resume")
+
+    async def refresh(_config, *, reason: str) -> None:  # type: ignore[no-untyped-def]
+        calls.append(f"refresh:{reason}")
+
+    monkeypatch.setattr(config_module, "get_config", lambda: current)
+    monkeypatch.setattr(config_module, "_normalize_masked_secrets", lambda config: config)
+    monkeypatch.setattr(
+        config_module,
+        "_build_onboarding_update_paths",
+        lambda _config, complete: {},
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        config_module,
+        "save_config",
+        lambda _updates: calls.append("save") or True,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "reload_config",
+        lambda: calls.append("reload") or proposed,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_refresh_or_initialize_runtime_after_config_update",
+        refresh,
+    )
+    monkeypatch.setattr(
+        config_module,
+        "_build_system_config",
+        lambda mask_api_key=True: current,
+    )
+    monkeypatch.setattr(config_module, "_read_onboarding_completed", lambda: False)
+
+    response = client.request(
+        method,
+        path,
+        json={"language": "zh", "llm": proposed.llm.model_dump(mode="json")},
+    )
+
+    assert response.status_code == 200
+    assert calls == ["pause", "save", "reload", f"refresh:{reason}", "resume"]
 
 
 def test_complete_onboarding_returns_when_runtime_init_exceeds_response_budget(

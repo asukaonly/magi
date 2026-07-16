@@ -166,6 +166,7 @@ class EmbeddingLocalConfigModel(BaseModel):
     managed_model_id: Optional[str] = Field(default=None)
     model_dir_path: Optional[str] = Field(default=None)
     idle_timeout_seconds: int = Field(default=1800, ge=60)
+    variant: Optional[str] = Field(default=None)
 
 
 class EmbeddingConfigModel(BaseModel):

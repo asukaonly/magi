@@ -71,24 +71,49 @@ class SqliteVecSearchMixin:
         self,
         *,
         entity_ids: list[str],
+        model_key: str | None = None,
+        dimension: int | None = None,
     ) -> dict[str, list[float]]:
-        """Return raw embedding vectors for the given *entity_ids*."""
+        """Return raw vectors from one embedding identity.
+
+        Callers that compare vectors should always provide ``model_key``. When
+        it is omitted, this method only returns vectors if all matching rows
+        belong to one unambiguous model-and-dimension identity.
+        """
         if not entity_ids:
             return {}
+        if dimension is not None and model_key is None:
+            raise ValueError("model_key is required when dimension is specified")
         host = cast(Any, self)
         await host.initialize()
         async with host._db_lock:
             db = host._require_db()
             await host._ensure_registry_schema(db)
             ph = ", ".join("?" for _ in entity_ids)
+            clauses = [f"{host._entity_column} IN ({ph})"]
+            params: list[Any] = list(entity_ids)
+            if model_key is not None:
+                clauses.append("embedding_model = ?")
+                params.append(str(model_key))
+            if dimension is not None:
+                clauses.append("embedding_dim = ?")
+                params.append(int(dimension))
             async with db.execute(
-                f"SELECT {host._entity_column}, vec_rowid, vec_table FROM {host._registry_table}"
-                f" WHERE {host._entity_column} IN ({ph})",
-                tuple(entity_ids),
+                f"SELECT {host._entity_column}, vec_rowid, vec_table, "
+                f"embedding_model, embedding_dim FROM {host._registry_table} "
+                f"WHERE {' AND '.join(clauses)} "
+                f"ORDER BY embedding_model, embedding_dim, {host._entity_column}",
+                tuple(params),
             ) as cursor:
                 registry_rows = await cursor.fetchall()
 
             if not registry_rows:
+                return {}
+
+            identities = {
+                (str(row["embedding_model"]), int(row["embedding_dim"])) for row in registry_rows
+            }
+            if len(identities) != 1:
                 return {}
 
             results: dict[str, list[float]] = {}

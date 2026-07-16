@@ -423,6 +423,46 @@ cold-start personalization timely without creating a second profile pipeline.
 
 `L2` embedding uses a shared embedding pipeline across all layers; each layer defines its own text builder, chunk strategy, parent-table status writeback, and retrieval collapse logic. The entity catalog uses single-entity-single-vector without chunking. All L2 parent tables record unified embedding observation fields (`embedding_status`, `embedding_profile_id`, `last_embedded_at`); `knowledge_graph` also records these fields for relation-edge vectors. Runtime settings expose a persistent vector rebuild job for `L1`, `L2` entities, `L2` edges, `L3`, and `L4`.
 
+Vector rebuilds are online refreshes, not destructive clear-and-refill jobs. Each
+layer captures a fixed parent-row high-water mark and scans it with a stable,
+monotonic row key, so concurrent retirement or deletion cannot shift the next
+page. The rebuild does not globally clear existing vectors or chunk metadata.
+Each item is embedded, checked again against its current parent, and then
+published under the layer's normal embedding-write guard. Vector rows and parent
+metadata use separate database transactions, so this is not a per-item atomic
+swap; retrieval still requires a current parent or chunk mapping, and stale
+late results remove only the identity they just wrote. This keeps same-identity
+maintenance rebuilds searchable while preserving an older usable identity when
+a hard-switch result becomes stale.
+
+After a hard embedding-identity change, old vectors remain stored for safe
+recovery but are not queried with the incompatible new model; coverage for the
+new identity grows as the online rebuild advances. A normal write or delete that
+reaches the index after the rebuild starts takes precedence over an older
+rebuild result for the same parent. Failure or cancellation never performs a
+global rollback and must not erase the sole usable copy; already published
+current results and already pruned true orphans may remain. A successful rebuild
+prunes vectors without a valid current parent or chunk and removes superseded
+model copies only for parents it actually refreshed. Configuration saves that
+change vector execution first pause new rebuild starts and cancel and await the
+active rebuild before refreshing the runtime. The same boundary advances a
+process-local execution generation around the save and refresh; every shared
+embedding pipeline captures that generation before model work and checks it
+again at the serialized vector-publication gate. A result from an older
+configuration is discarded instead of being published as a newer normal write,
+and published parent metadata keeps the exact vector identity stamped at that
+gate. Independent identity checks still fail a job if its embedding identity
+changes through another runtime path. The coordinator is process-local under
+the current single Python sidecar model; a future multi-process runtime must
+replace it with a database lease and durable generation before allowing
+concurrent rebuild owners.
+
+An atomic cutover between incompatible embedding identities would require a
+complete shadow index, write replay or dual-write coverage, and roughly double
+the temporary vector storage. It is intentionally outside the current rebuild
+contract; do not describe a hard model switch as having zero search-coverage
+transition time.
+
 Vector indexes must separate incompatible embeddings by hard identity. Remote embedding identity is `model + dimension + text_builder_version`; provider ID, base URL, API format, and provider type are provenance and may produce a soft warning but not a forced table split. Local embedding identity is `model_file_hash + dimension + text_builder_version`, where `model_file_hash` is derived from the ONNX model and tokenizer/config sidecar files. The sqlite-vec registry stores the hard index identity, so changing models or text-builder versions does not silently query stale vectors. When operators intentionally change embedding identity, Settings warns before saving and the rebuild job can regenerate all layer vectors in the background.
 
 `L2` is the "evidence-backed interpretation layer", not the raw truth layer.

@@ -213,8 +213,17 @@ class L1EventQueryMixin(
         host = cast(L1EventQueryHostProtocol, self)
         if not event_ids or host._vector_index is None:
             return {}
+        try:
+            active_profile_id, _ = host._resolve_active_embedding_profile_id()
+        except Exception:
+            return {}
+        if active_profile_id is None:
+            return {}
         chunk_ids = [host._chunk_id_for_event(eid, 0) for eid in event_ids]
-        raw = await host._vector_index.get_vectors(entity_ids=chunk_ids)
+        raw = await host._vector_index.get_vectors(
+            entity_ids=chunk_ids,
+            model_key=active_profile_id,
+        )
         result: Dict[str, List[float]] = {}
         for eid in event_ids:
             cid = host._chunk_id_for_event(eid, 0)

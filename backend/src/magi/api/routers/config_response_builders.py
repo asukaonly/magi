@@ -82,6 +82,7 @@ def _build_memory_embedding_config(memory_cfg: Any) -> EmbeddingConfigModel:
             managed_model_id=memory_cfg.embedding.local.managed_model_id,
             model_dir_path=memory_cfg.embedding.local.model_dir_path,
             idle_timeout_seconds=memory_cfg.embedding.local.idle_timeout_seconds,
+            variant=memory_cfg.embedding.local.variant,
         ),
     )
 

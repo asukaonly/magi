@@ -92,6 +92,8 @@ class L1EventWriteHostProtocol(Protocol):
 
     async def _list_chunk_ids_for_event(self, event_id: str) -> list[str]: ...
 
+    def embedding_mutation_guard(self) -> Any: ...
+
     async def _replace_source_facets_for_event(
         self,
         db: aiosqlite.Connection,
@@ -698,26 +700,27 @@ class L1EventWriteMixin:
         host = cast(L1EventWriteHostProtocol, self)
         await host.initialize()
         deleted_timestamp = float(deleted_at or time.time())
-        chunk_ids = await host._list_chunk_ids_for_event(event_id)
-        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-            cursor = await db.execute(
-                f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
-                (deleted_timestamp, event_id),
-            )
-            if cursor.rowcount > 0:
-                await db.execute(
-                    "DELETE FROM l1_events_fts WHERE event_id = ?",
-                    (event_id,),
+        async with host.embedding_mutation_guard():
+            chunk_ids = await host._list_chunk_ids_for_event(event_id)
+            async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+                cursor = await db.execute(
+                    f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
+                    (deleted_timestamp, event_id),
                 )
-                await db.execute(
-                    f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
-                    (event_id,),
-                )
-            await db.commit()
-        if cursor.rowcount > 0 and host._vector_index is not None:
-            for chunk_id in chunk_ids:
-                await host._vector_index.delete_entity(entity_id=chunk_id)
-        return cursor.rowcount > 0
+                if cursor.rowcount > 0:
+                    await db.execute(
+                        "DELETE FROM l1_events_fts WHERE event_id = ?",
+                        (event_id,),
+                    )
+                    await db.execute(
+                        f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
+                        (event_id,),
+                    )
+                await db.commit()
+            if cursor.rowcount > 0 and host._vector_index is not None:
+                for chunk_id in chunk_ids:
+                    await host._vector_index.delete_entity(entity_id=chunk_id)
+            return cursor.rowcount > 0
 
 
 __all__ = [

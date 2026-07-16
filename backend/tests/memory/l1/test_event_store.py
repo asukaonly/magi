@@ -426,7 +426,9 @@ class _BatchTrackingEmbeddingService:
             vector[2] = 1.0
         if not any(vector):
             vector[min(3, self.embedding_dimension - 1)] = 1.0
-        return EmbeddingResult(model_name=self.model_name, dimension=self.embedding_dimension, vector=vector)
+        return EmbeddingResult(
+            model_name=self.model_name, dimension=self.embedding_dimension, vector=vector
+        )
 
     def get_active_profile(self, *, text_builder_version: str):
         from magi.memory.embedding.embedding_service import EmbeddingProfile
@@ -531,7 +533,9 @@ async def test_l1_event_store_persists_and_filters_memory_events(tmp_path):
 
         stored_event_id = await store.store(memory_event)
         fetched = await store.get_event("evt-1")
-        queried = await store.query_events(session_id="session-1", memory_domain="user_authored", limit=10)
+        queried = await store.query_events(
+            session_id="session-1", memory_domain="user_authored", limit=10
+        )
 
         assert stored_event_id == "evt-1"
         assert fetched is not None
@@ -847,14 +851,16 @@ def test_l1_event_store_search_text_includes_projection_retrieval_terms():
         },
     )
 
-    assert store.get_search_text(event) == "网易云音乐听了 YOASOBI 的《夜に駆ける》 j-pop electropop external observation"
+    assert (
+        store.get_search_text(event)
+        == "网易云音乐听了 YOASOBI 的《夜に駆ける》 j-pop electropop external observation"
+    )
 
 
 @pytest.mark.asyncio
 async def test_l1_event_store_backfills_owner_for_legacy_external_events(tmp_path):
     """Removed: _backfill_external_owner_user_ids was deleted in pre-release cleanup."""
     return
-
 
 
 @pytest.mark.asyncio
@@ -1070,8 +1076,7 @@ async def test_l1_store_initializes_without_runtime_observations_table(tmp_path)
     try:
         conn = sqlite3.connect(str(db_path))
         table_names = {
-            row[0]
-            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
         conn.close()
 
@@ -1345,7 +1350,9 @@ async def test_l1_event_store_store_is_idempotent_for_existing_event_ids(tmp_pat
             """,
             ("session-1",),
         ).fetchone()
-        event_count = conn.execute("SELECT COUNT(*) FROM fact_events WHERE event_id = ?", ("evt-idempotent",)).fetchone()
+        event_count = conn.execute(
+            "SELECT COUNT(*) FROM fact_events WHERE event_id = ?", ("evt-idempotent",)
+        ).fetchone()
         conn.close()
 
         assert row is not None
@@ -1555,10 +1562,12 @@ async def test_l1_async_embeddings_flush_partial_batches_after_timeout(tmp_path)
 
     assert time.monotonic() - started_at >= 0.04
     assert embedding_service.single_calls == []
-    assert embedding_service.batch_calls == [[
-        "stress note 0",
-        "stress note 1",
-    ]]
+    assert embedding_service.batch_calls == [
+        [
+            "stress note 0",
+            "stress note 1",
+        ]
+    ]
 
 
 @pytest.mark.asyncio
@@ -1761,11 +1770,13 @@ async def test_l1_batch_embedding_flush_uses_vector_index_upsert_many(tmp_path):
     store._default_vector_enabled = True
     await store._maybe_upsert_event_embeddings(events)
 
-    assert recording_index.upsert_many_calls == [[
-        "evt-many-0::chunk-0",
-        "evt-many-1::chunk-0",
-        "evt-many-2::chunk-0",
-    ]]
+    assert recording_index.upsert_many_calls == [
+        [
+            "evt-many-0::chunk-0",
+            "evt-many-1::chunk-0",
+            "evt-many-2::chunk-0",
+        ]
+    ]
     assert recording_index.upsert_calls == []
     await store.shutdown()
 
@@ -1818,7 +1829,10 @@ async def test_l1_batch_embedding_flush_indexes_chunks_and_updates_chunk_count(t
     assert fetched["embedding_status"] == "ready"
     assert fetched["embedding_chunk_count"] > 1
     assert len(recording_index.upsert_many_calls) == 1
-    assert all(chunk_id.startswith("evt-chunked::chunk-") for chunk_id in recording_index.upsert_many_calls[0])
+    assert all(
+        chunk_id.startswith("evt-chunked::chunk-")
+        for chunk_id in recording_index.upsert_many_calls[0]
+    )
 
 
 @pytest.mark.asyncio
@@ -2111,7 +2125,14 @@ async def test_l1_event_store_masks_legacy_failed_status_when_vectors_disabled(t
                 """,
                 [
                     ("evt-legacy-failed-user", embedding_status_code("failed"), None, 0, None, now),
-                    ("evt-legacy-failed-runtime", embedding_status_code("failed"), None, 0, None, now + 1),
+                    (
+                        "evt-legacy-failed-runtime",
+                        embedding_status_code("failed"),
+                        None,
+                        0,
+                        None,
+                        now + 1,
+                    ),
                 ],
             )
             conn.commit()
@@ -2241,3 +2262,167 @@ async def test_l1_rebuild_embeddings_reindexes_disabled_events(tmp_path):
             ("evt-rebuild",),
         ).fetchone()[0]
     assert updated_at > 1.0
+
+
+@pytest.mark.asyncio
+async def test_l1_rebuild_keyset_does_not_skip_after_first_event_is_deleted(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    store = L1EventStore(
+        db_path=str(tmp_path / "l1_events.db"),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        for index in range(2):
+            await store.store(
+                normalize_runtime_event(
+                    Event(
+                        type=EventTypes.USER_MESSAGE,
+                        data={
+                            "user_id": "user-1",
+                            "session_id": "session-1",
+                            "content": f"rebuild page {index}",
+                            "author_type": "user",
+                            "content_type": "text",
+                        },
+                        source="chat",
+                        level=EventLevel.INFO,
+                        correlation_id=f"corr-page-{index}",
+                        event_id=f"evt-page-{index}",
+                    )
+                )
+            )
+
+        seen: list[str] = []
+
+        async def delete_first_batch(events: list[MemoryEvent]) -> None:
+            seen.extend(event.event_id for event in events)
+            if len(seen) == 1:
+                await store.mark_deleted(events[0].event_id)
+
+        store._maybe_upsert_event_embeddings = delete_first_batch  # type: ignore[method-assign]
+        processed = await store.rebuild_embeddings(batch_size=1)
+    finally:
+        await store.shutdown()
+
+    assert processed == 2
+    assert seen == ["evt-page-0", "evt-page-1"]
+
+
+@pytest.mark.asyncio
+async def test_l1_rebuild_prunes_vectors_that_are_no_longer_embedding_eligible(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    chunk_id = "evt-domain-change::chunk-0"
+    try:
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "user-1",
+                        "session_id": "session-1",
+                        "content": "a user-authored event that was initially searchable",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-domain-change",
+                    event_id="evt-domain-change",
+                )
+            )
+        )
+        assert chunk_id in await store._vector_index.get_vectors(  # type: ignore[union-attr]
+            entity_ids=[chunk_id]
+        )
+
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "UPDATE fact_events SET memory_domain = ? WHERE event_id = ?",
+                (int(MemoryDomain.RUNTIME_TELEMETRY), "evt-domain-change"),
+            )
+            db.commit()
+
+        assert await store.rebuild_embeddings(batch_size=1) == 1
+        assert (
+            await store._vector_index.get_vectors(  # type: ignore[union-attr]
+                entity_ids=[chunk_id]
+            )
+            == {}
+        )
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_rebuild_removes_old_embedding_when_current_event_has_no_text(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = tmp_path / "l1_events.db"
+    store = L1EventStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    chunk_id = "evt-empty-text::chunk-0"
+    try:
+        await store.store(
+            normalize_runtime_event(
+                Event(
+                    type=EventTypes.USER_MESSAGE,
+                    data={
+                        "user_id": "user-1",
+                        "session_id": "session-1",
+                        "content": "career note that was initially searchable",
+                        "author_type": "user",
+                        "content_type": "text",
+                    },
+                    source="chat",
+                    level=EventLevel.INFO,
+                    correlation_id="corr-empty-text",
+                    event_id="evt-empty-text",
+                )
+            )
+        )
+        with sqlite3.connect(db_path) as db:
+            assert (
+                db.execute(
+                    "SELECT COUNT(*) FROM l1_event_chunk_vectors WHERE chunk_id = ?",
+                    (chunk_id,),
+                ).fetchone()[0]
+                == 1
+            )
+            db.execute(
+                "UPDATE fact_events SET content = '', metadata_json = NULL WHERE event_id = ?",
+                ("evt-empty-text",),
+            )
+            db.commit()
+
+        assert await store.rebuild_embeddings(batch_size=1) == 1
+        current = await store.get_event("evt-empty-text")
+        with sqlite3.connect(db_path) as db:
+            vector_count = db.execute(
+                "SELECT COUNT(*) FROM l1_event_chunk_vectors WHERE chunk_id = ?",
+                (chunk_id,),
+            ).fetchone()[0]
+            chunk_count = db.execute(
+                "SELECT COUNT(*) FROM l1_event_chunks WHERE event_id = ?",
+                ("evt-empty-text",),
+            ).fetchone()[0]
+    finally:
+        await store.shutdown()
+
+    assert current is not None
+    assert current["embedding_status"] == "skipped"
+    assert current["embedding_chunk_count"] == 0
+    assert vector_count == 0
+    assert chunk_count == 0

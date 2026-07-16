@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import sqlite3
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+from magi.memory.embedding.embedding_service import EmbeddingResult
 
 
 class _RecordingEmbeddingService:
@@ -14,7 +20,9 @@ class _RecordingEmbeddingService:
         self.texts.append(text)
         from magi.memory.embedding.embedding_service import EmbeddingResult
 
-        return EmbeddingResult(model_name="test-embedding", dimension=4, vector=[1.0, 0.0, 0.0, 0.0])
+        return EmbeddingResult(
+            model_name="test-embedding", dimension=4, vector=[1.0, 0.0, 0.0, 0.0]
+        )
 
 
 class _RecordingVectorIndex:
@@ -24,6 +32,49 @@ class _RecordingVectorIndex:
     async def upsert(self, *, entity_id: str, embedding, metadata=None) -> None:
         _ = (embedding, metadata)
         self.upserted_entity_ids.append(entity_id)
+
+    async def close(self) -> None:
+        return None
+
+
+class _ControlledEmbeddingService:
+    def __init__(self) -> None:
+        self.old_embedding_started = asyncio.Event()
+        self.release_old_embedding = asyncio.Event()
+
+    async def embed_texts(self, texts: list[str]):
+        is_old_snapshot = any("Old Name" in text for text in texts)
+        if is_old_snapshot:
+            self.old_embedding_started.set()
+            await self.release_old_embedding.wait()
+        vector = [1.0, 0.0] if is_old_snapshot else [0.0, 1.0]
+        return [
+            EmbeddingResult(
+                model_name="test-embedding",
+                dimension=2,
+                vector=vector,
+            )
+            for _ in texts
+        ]
+
+    def profile_from_result(self, result, *, text_builder_version: str):  # type: ignore[no-untyped-def]
+        return SimpleNamespace(profile_id=f"profile:{text_builder_version}")
+
+
+class _StatefulVectorIndex:
+    def __init__(self) -> None:
+        self.items: dict[str, EmbeddingResult] = {}
+
+    @asynccontextmanager
+    async def rebuild_session(self):
+        yield
+
+    async def upsert_many(self, items: list[dict]) -> None:
+        for item in items:
+            self.items[str(item["entity_id"])] = item["embedding"]
+
+    async def prune_orphans(self, **_kwargs) -> int:
+        return 0
 
     async def close(self) -> None:
         return None
@@ -93,7 +144,9 @@ async def test_low_confidence_alias_does_not_auto_merge():
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
-        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai")
+        await catalog.upsert_entity(
+            canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai"
+        )
         await catalog.add_alias(entity_id="place:shanghai", alias_text="沪上", confidence=0.6)
 
         resolved = await catalog.resolve_alias("沪上", entity_type="place")
@@ -170,7 +223,9 @@ async def test_list_entities_returns_canonical_names_and_aliases():
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
-        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai")
+        await catalog.upsert_entity(
+            canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai"
+        )
         await catalog.add_alias(entity_id="place:shanghai", alias_text="上海", confidence=1.0)
         await catalog.add_alias(entity_id="place:shanghai", alias_text="魔都", confidence=0.95)
 
@@ -201,8 +256,12 @@ async def test_find_by_canonical_name_matches_case_insensitively_and_filters_typ
         catalog = L2EntityCatalog(db_path=db_path)
         await catalog.initialize()
 
-        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai")
-        await catalog.upsert_entity(canonical_name="Shanghai", entity_type="topic", entity_id="topic:shanghai")
+        await catalog.upsert_entity(
+            canonical_name="Shanghai", entity_type="place", entity_id="place:shanghai"
+        )
+        await catalog.upsert_entity(
+            canonical_name="Shanghai", entity_type="topic", entity_id="topic:shanghai"
+        )
 
         matches = await catalog.find_by_canonical_name("sHaNgHaI")
         place_matches = await catalog.find_by_canonical_name("SHANGHAI", entity_type="place")
@@ -366,7 +425,10 @@ async def test_entity_embeddings_use_unified_builder_with_aliases_and_remain_sin
         )
         await catalog.add_alias(entity_id=entity_id, alias_text="OpenAI Labs", confidence=0.95)
 
-        assert catalog._vector_index.upserted_entity_ids == ["organization:openai", "organization:openai"]  # type: ignore[attr-defined]
+        assert catalog._vector_index.upserted_entity_ids == [
+            "organization:openai",
+            "organization:openai",
+        ]  # type: ignore[attr-defined]
         assert embedding_service.texts[-1] == "organization\nOpenAI\nOpenAI Labs"
 
 
@@ -424,3 +486,85 @@ async def test_entity_catalog_rebuild_embeddings_reindexes_disabled_entities():
         assert entities[0]["embedding_status"] == "ready"
         assert entities[0]["embedding_profile_id"] is not None
         assert entities[0]["last_embedded_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_entity_rebuild_does_not_chase_rows_inserted_after_its_high_water():
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        disabled_catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+        await disabled_catalog.initialize()
+        for entity_id in ("organization:a", "organization:c", "organization:z"):
+            await disabled_catalog.upsert_entity(
+                canonical_name=entity_id,
+                entity_type="organization",
+                entity_id=entity_id,
+            )
+        await disabled_catalog.close()
+
+        service = _RecordingEmbeddingService()
+        catalog = L2EntityCatalog(db_path=db_path, embedding_service=service)
+        await catalog.initialize()
+
+        async def insert_between_existing_ids(processed: int) -> None:
+            if processed != 1:
+                return
+            with sqlite3.connect(db_path) as db:
+                db.execute(
+                    """
+                    INSERT INTO entity_catalog(
+                        entity_id, canonical_name, entity_type, created_at, updated_at
+                    ) VALUES ('organization:b', 'Inserted During Rebuild', 'organization', 10, 10)
+                    """
+                )
+                db.commit()
+
+        try:
+            processed = await catalog.rebuild_embeddings(
+                batch_size=1,
+                progress_callback=insert_between_existing_ids,
+            )
+        finally:
+            await catalog.close()
+
+        assert processed == 3
+        assert all("Inserted During Rebuild" not in text for text in service.texts)
+
+
+@pytest.mark.asyncio
+async def test_entity_rebuild_does_not_overwrite_a_newer_normal_embedding():
+    from magi.memory.l2.entities.catalog import L2EntityCatalog
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = str(Path(temp_dir) / "memory.db")
+        disabled_catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+        await disabled_catalog.initialize()
+        await disabled_catalog.upsert_entity(
+            canonical_name="Old Name",
+            entity_type="organization",
+            entity_id="organization:subject",
+        )
+        await disabled_catalog.close()
+
+        service = _ControlledEmbeddingService()
+        index = _StatefulVectorIndex()
+        catalog = L2EntityCatalog(db_path=db_path, embedding_service=service)
+        catalog._vector_index = index  # type: ignore[assignment]
+        await catalog.initialize()
+        rebuild_task = asyncio.create_task(catalog.rebuild_embeddings(batch_size=1))
+        try:
+            await asyncio.wait_for(service.old_embedding_started.wait(), timeout=1)
+            await catalog.upsert_entity(
+                canonical_name="New Name",
+                entity_type="organization",
+                entity_id="organization:subject",
+            )
+            assert index.items["organization:subject"].vector == [0.0, 1.0]
+        finally:
+            service.release_old_embedding.set()
+            await asyncio.wait_for(rebuild_task, timeout=1)
+            await catalog.close()
+
+        assert index.items["organization:subject"].vector == [0.0, 1.0]

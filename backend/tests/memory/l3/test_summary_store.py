@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 
 import pytest
@@ -64,6 +65,36 @@ class _BatchTrackingEmbeddingService:
         # Mirror MemoryEmbeddingService.result_for_index; the identity
         # transform is sufficient for these tests.
         return result
+
+
+class _IdentityEmbeddingService(_BatchTrackingEmbeddingService):
+    def __init__(self, identity: str) -> None:
+        super().__init__()
+        self.identity = identity
+
+    def _make_result(self, text: str):
+        result = super()._make_result(text)
+        result.index_identity = self.identity
+        return result
+
+
+class _FailingBatchEmbeddingService(_BatchTrackingEmbeddingService):
+    async def embed_texts(self, texts: list[str]):
+        self.batch_calls.append(list(texts))
+        raise RuntimeError("injected embedding failure")
+
+
+def _summary_vector_models(db_path, chunk_id: str) -> set[str]:  # type: ignore[no-untyped-def]
+    with sqlite3.connect(db_path) as db:
+        rows = db.execute(
+            """
+            SELECT embedding_model
+            FROM l3_summary_chunk_vectors
+            WHERE chunk_id = ?
+            """,
+            (chunk_id,),
+        ).fetchall()
+    return {str(row[0]) for row in rows}
 
 
 class _RecordingVectorIndex:
@@ -769,11 +800,19 @@ async def test_search_summaries_filters_summary_category(tmp_path, monkeypatch: 
         }
     )
 
-    async def _fake_bm25(_query: str, *, summary_type: str | None = None, summary_category: str | None = None, limit: int = 20):  # type: ignore[no-untyped-def]
+    async def _fake_bm25(
+        _query: str,
+        *,
+        summary_type: str | None = None,
+        summary_category: str | None = None,
+        limit: int = 20,
+    ):  # type: ignore[no-untyped-def]
         _ = summary_type, summary_category, limit
         return [("summary-state-change", -1.0), ("summary-trend-shift", -0.8)]
 
-    async def _fake_semantic(*, query: str, summary_type: str | None, summary_category: str | None, limit: int):  # type: ignore[no-untyped-def]
+    async def _fake_semantic(
+        *, query: str, summary_type: str | None, summary_category: str | None, limit: int
+    ):  # type: ignore[no-untyped-def]
         _ = query, summary_type, summary_category, limit
         return [{"summary_id": "summary-trend-shift"}, {"summary_id": "summary-state-change"}]
 
@@ -1879,3 +1918,253 @@ async def test_l3_rebuild_embeddings_reindexes_disabled_summaries(tmp_path):
     assert results[0]["embedding_profile_id"] is not None
     assert results[0]["embedding_chunk_count"] > 0
     assert results[0]["last_embedded_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_l3_rebuild_keeps_old_identity_when_parent_changes_before_publish(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    db_path = tmp_path / "memory.db"
+    store = L3SummaryStore(
+        db_path=str(db_path),
+        embedding_service=_IdentityEmbeddingService("old-identity"),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    summary = {
+        "summary_id": "summary-stale-rebuild",
+        "summary_type": "thematic",
+        "summary_category": "topic",
+        "period_start": 1.0,
+        "period_end": 2.0,
+        "content": "career summary before a concurrent correction",
+        "key_topics": ["career"],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+        "source_event_ids": ["evt-1"],
+        "source_event_count": 1,
+        "importance_aggregate": 0.8,
+        "event_type_distribution": {},
+        "generated_by_model": "rule-summary",
+        "generation_prompt": None,
+        "generation_reason": "thematic:topic:career",
+        "created_at": 1.0,
+        "updated_at": 1.0,
+    }
+    chunk_id = "summary-stale-rebuild::chunk-0"
+    models_before_change: set[str] = set()
+    try:
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embedding(summary)
+        assert _summary_vector_models(db_path, chunk_id) == {"old-identity"}
+
+        store._embedding_service = _IdentityEmbeddingService("new-identity")
+        original_publish = store._publish_summary_embedding_results
+
+        async def change_parent_before_publish(results):  # type: ignore[no-untyped-def]
+            nonlocal models_before_change
+            models_before_change = _summary_vector_models(db_path, chunk_id)
+            with sqlite3.connect(db_path) as db:
+                db.execute(
+                    "UPDATE summaries SET content = ? WHERE summary_id = ?",
+                    (
+                        "career summary changed during rebuild",
+                        "summary-stale-rebuild",
+                    ),
+                )
+                db.commit()
+            return await original_publish(results)
+
+        store._publish_summary_embedding_results = change_parent_before_publish  # type: ignore[method-assign]
+        processed = await store.rebuild_embeddings(batch_size=1)
+        models_after_rebuild = _summary_vector_models(db_path, chunk_id)
+    finally:
+        await store.shutdown()
+
+    assert processed == 1
+    assert models_before_change == {"old-identity", "new-identity"}
+    assert models_after_rebuild == {"old-identity"}
+
+
+@pytest.mark.asyncio
+async def test_l3_rebuild_keyset_does_not_skip_after_first_summary_is_retired(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    db_path = tmp_path / "memory.db"
+    store = L3SummaryStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    try:
+        for index in range(2):
+            await store._store_summary(
+                {
+                    "summary_id": f"summary-page-{index}",
+                    "summary_type": "thematic",
+                    "summary_category": "topic",
+                    "period_start": 1.0,
+                    "period_end": 2.0,
+                    "content": f"summary rebuild page {index}",
+                    "key_topics": [],
+                    "key_entities": [],
+                    "sentiment_summary": None,
+                    "change_and_pattern": None,
+                    "source_event_ids": [f"evt-{index}"],
+                    "source_event_count": 1,
+                    "importance_aggregate": 0.5,
+                    "event_type_distribution": {},
+                    "generated_by_model": "test",
+                    "generation_prompt": None,
+                    "generation_reason": "test",
+                    "created_at": float(index + 1),
+                    "updated_at": float(index + 1),
+                }
+            )
+
+        seen: list[str] = []
+
+        async def retire_first_batch(summaries: list[dict]) -> None:
+            seen.extend(str(summary["summary_id"]) for summary in summaries)
+            if len(seen) == 1:
+                with sqlite3.connect(db_path) as db:
+                    db.execute(
+                        "UPDATE summaries SET derivation_state = 'retired' WHERE summary_id = ?",
+                        (seen[0],),
+                    )
+                    db.commit()
+
+        store._maybe_upsert_summary_embeddings = retire_first_batch  # type: ignore[method-assign]
+        processed = await store.rebuild_embeddings(batch_size=1)
+    finally:
+        await store.shutdown()
+
+    assert processed == 2
+    assert seen == ["summary-page-0", "summary-page-1"]
+
+
+@pytest.mark.asyncio
+async def test_l3_rebuild_removes_old_embedding_when_current_summary_has_no_text(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    db_path = tmp_path / "memory.db"
+    store = L3SummaryStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    summary_id = "summary-empty-text"
+    chunk_id = f"{summary_id}::chunk-0"
+    summary = {
+        "summary_id": summary_id,
+        "summary_type": "thematic",
+        "summary_category": "topic",
+        "period_start": 1.0,
+        "period_end": 2.0,
+        "content": "career summary that was initially searchable",
+        "key_topics": ["career"],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+        "source_event_ids": ["evt-1"],
+        "source_event_count": 1,
+        "importance_aggregate": 0.8,
+        "event_type_distribution": {},
+        "generated_by_model": "test",
+        "generation_prompt": None,
+        "generation_reason": "test",
+        "created_at": 1.0,
+        "updated_at": 1.0,
+    }
+    try:
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embedding(summary)
+        assert _summary_vector_models(db_path, chunk_id) == {"test-embedding"}
+
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                """
+                UPDATE summaries
+                SET content = '', key_topics = '[]', key_entities = '[]',
+                    sentiment_summary = NULL, change_and_pattern = NULL,
+                    source_revision = source_revision + 1
+                WHERE summary_id = ?
+                """,
+                (summary_id,),
+            )
+            db.commit()
+
+        assert await store.rebuild_embeddings(batch_size=1) == 1
+        current = (await store.fetch_by_ids([summary_id]))[0]
+        with sqlite3.connect(db_path) as db:
+            chunk_count = db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (summary_id,),
+            ).fetchone()[0]
+    finally:
+        await store.shutdown()
+
+    assert current["embedding_status"] == "disabled"
+    assert current["embedding_chunk_count"] == 0
+    assert _summary_vector_models(db_path, chunk_id) == set()
+    assert chunk_count == 0
+
+
+@pytest.mark.asyncio
+async def test_l3_rebuild_failure_keeps_previous_searchable_embedding(tmp_path):
+    from magi.memory.l3.summary_store import L3SummaryStore
+
+    db_path = tmp_path / "memory.db"
+    store = L3SummaryStore(
+        db_path=str(db_path),
+        embedding_service=_BatchTrackingEmbeddingService(),
+        async_embeddings=False,
+    )
+    await store.initialize()
+    summary_id = "summary-embedding-failure"
+    chunk_id = f"{summary_id}::chunk-0"
+    summary = {
+        "summary_id": summary_id,
+        "summary_type": "thematic",
+        "summary_category": "topic",
+        "period_start": 1.0,
+        "period_end": 2.0,
+        "content": "career summary that must remain searchable on failure",
+        "key_topics": [],
+        "key_entities": [],
+        "sentiment_summary": None,
+        "change_and_pattern": None,
+        "source_event_ids": ["evt-1"],
+        "source_event_count": 1,
+        "importance_aggregate": 0.8,
+        "event_type_distribution": {},
+        "generated_by_model": "test",
+        "generation_prompt": None,
+        "generation_reason": "test",
+        "created_at": 1.0,
+        "updated_at": 1.0,
+    }
+    try:
+        await store._store_summary(summary)
+        await store._maybe_upsert_summary_embedding(summary)
+        assert _summary_vector_models(db_path, chunk_id) == {"test-embedding"}
+
+        store._embedding_service = _FailingBatchEmbeddingService()
+        with pytest.raises(RuntimeError, match="injected embedding failure"):
+            await store.rebuild_embeddings(batch_size=1)
+
+        current = (await store.fetch_by_ids([summary_id]))[0]
+        with sqlite3.connect(db_path) as db:
+            chunk_count = db.execute(
+                "SELECT COUNT(*) FROM l3_summary_chunks WHERE summary_id = ?",
+                (summary_id,),
+            ).fetchone()[0]
+    finally:
+        await store.shutdown()
+
+    assert current["embedding_status"] == "ready"
+    assert _summary_vector_models(db_path, chunk_id) == {"test-embedding"}
+    assert chunk_count == 1

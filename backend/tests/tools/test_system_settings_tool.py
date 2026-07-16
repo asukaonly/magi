@@ -1,6 +1,7 @@
 """
 Tests for the refactored system-settings routing behavior.
 """
+
 from types import MethodType, SimpleNamespace
 
 import pytest
@@ -42,6 +43,7 @@ async def test_list_contains_app_and_tool_paths():
 async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
     tool = SystemSettingsTool()
     captured = {}
+    refreshed = []
 
     fake_config = SimpleNamespace(
         llm=SimpleNamespace(timeout=60),
@@ -56,6 +58,10 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
 
     monkeypatch.setattr("magi.tools.builtin.system_settings_tool.get_config", fake_get_config)
     monkeypatch.setattr("magi.tools.builtin.system_settings_tool.save_config", fake_save_config)
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.refresh_runtime_llm_config",
+        lambda config: refreshed.append(config),
+    )
 
     result = await tool.execute(
         {"action": "set", "path": "app.llm.timeout", "value": "120"},
@@ -64,6 +70,130 @@ async def test_set_app_path_uses_save_config_with_type_conversion(monkeypatch):
 
     assert result.success is True
     assert captured == {"llm.timeout": 120}
+    assert refreshed == [fake_config]
+
+
+def _local_embedding_settings_config(*, model_id: str = "model-a"):
+    return SimpleNamespace(
+        agent=SimpleNamespace(
+            memory=SimpleNamespace(
+                db_path="memory.db",
+                embedding=SimpleNamespace(
+                    backend="sqlite_vec",
+                    mode="local",
+                    local=SimpleNamespace(
+                        model_source="managed",
+                        managed_model_id=model_id,
+                        model_dir_path="",
+                    ),
+                ),
+                l1=SimpleNamespace(enabled=True, vectors_enabled=True),
+                l2=SimpleNamespace(enabled=True, vectors_enabled=True),
+                l3=SimpleNamespace(enabled=True, vectors_enabled=True),
+                l4=SimpleNamespace(enabled=True, vectors_enabled=True),
+            )
+        ),
+        llm=SimpleNamespace(selections={}, providers={}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_set_embedding_app_path_stops_rebuild_before_save_and_resumes_after_refresh(
+    monkeypatch,
+):
+    tool = SystemSettingsTool()
+    current = _local_embedding_settings_config()
+    calls = []
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self):
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self):
+            calls.append("resume")
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.get_config",
+        lambda: current,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.save_config",
+        lambda updates: calls.append(("save", updates)) or True,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.refresh_runtime_llm_config",
+        lambda _config: calls.append("refresh"),
+    )
+
+    result = await tool.execute(
+        {
+            "action": "set",
+            "path": "app.agent.memory.embedding.local.managed_model_id",
+            "value": "model-b",
+        },
+        _context(),
+    )
+
+    assert result.success is True
+    assert calls == [
+        "pause",
+        (
+            "save",
+            {"agent.memory.embedding.local.managed_model_id": "model-b"},
+        ),
+        "refresh",
+        "resume",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_set_embedding_app_path_resumes_rebuild_when_save_fails(monkeypatch):
+    tool = SystemSettingsTool()
+    current = _local_embedding_settings_config()
+    calls = []
+
+    class RebuildManager:
+        async def pause_starts_and_cancel_all(self):
+            calls.append("pause")
+            return 1
+
+        async def resume_starts(self):
+            calls.append("resume")
+
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.get_config",
+        lambda: current,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.get_embedding_rebuild_manager",
+        lambda: RebuildManager(),
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.save_config",
+        lambda _updates: calls.append("save") or False,
+    )
+    monkeypatch.setattr(
+        "magi.tools.builtin.system_settings_tool.refresh_runtime_llm_config",
+        lambda _config: calls.append("refresh"),
+    )
+
+    result = await tool.execute(
+        {
+            "action": "set",
+            "path": "app.agent.memory.embedding.local.managed_model_id",
+            "value": "model-b",
+        },
+        _context(),
+    )
+
+    assert result.success is False
+    assert result.error_code == ToolErrorCode.SAVE_FAILED.value
+    assert calls == ["pause", "save", "resume"]
 
 
 @pytest.mark.asyncio
@@ -137,7 +267,9 @@ async def test_set_web_fetch_tool_path_routes_to_tool_update(monkeypatch):
         called["value"] = value
         return ToolResult(success=True, data={"ok": True})
 
-    monkeypatch.setattr(web_fetch_tool, "update_config", MethodType(fake_update_config, web_fetch_tool))
+    monkeypatch.setattr(
+        web_fetch_tool, "update_config", MethodType(fake_update_config, web_fetch_tool)
+    )
 
     result = await tool.execute(
         {

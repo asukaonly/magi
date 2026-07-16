@@ -1,12 +1,27 @@
 """
 System Settings Tool - Unified app/tool configuration entrypoint.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
 from ...config import get_config, get_config_file_path, list_app_config_specs, save_config
-from ..schema import Tool, ToolErrorCode, ToolExecutionContext, ToolParameter, ToolResult, ToolSchema, ParameterType
+from ...memory.embedding.config_coordination import (
+    clone_config_with_update,
+    get_embedding_config_update_lock,
+    get_embedding_rebuild_manager,
+    pause_rebuilds_for_embedding_config_change,
+)
+from ..schema import (
+    Tool,
+    ToolErrorCode,
+    ToolExecutionContext,
+    ToolParameter,
+    ToolResult,
+    ToolSchema,
+    ParameterType,
+)
 from .system_settings_actions import SystemSettingsActionsMixin
 from .system_settings_paths import SystemSettingsPathMixin
 from .system_settings_utils import (
@@ -17,6 +32,14 @@ from .system_settings_utils import (
     _is_sensitive_field,
     _serialize_value,
 )
+
+
+def refresh_runtime_llm_config(config: Any) -> None:
+    """Refresh runtime adapters after a tool-initiated config write."""
+
+    from ...bootstrap import refresh_runtime_llm_config as refresh
+
+    refresh(config)
 
 
 class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, Tool):
@@ -72,7 +95,11 @@ class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, To
                     "output": "Updates global app config and persists to runtime config file",
                 },
                 {
-                    "input": {"action": "set", "path": "tool.web-search.providers.brave.api_key", "value": "your-key"},
+                    "input": {
+                        "action": "set",
+                        "path": "tool.web-search.providers.brave.api_key",
+                        "value": "your-key",
+                    },
                     "output": "Routes update to web-search tool config logic",
                 },
                 {
@@ -90,16 +117,18 @@ class SystemSettingsTool(SystemSettingsPathMixin, SystemSettingsActionsMixin, To
                 "operations": ["inspect", "edit"],
                 "query_shapes": ["config_path", "setting_value"],
                 "followed_by": [],
-                "avoid_task_intents": ["explore_codebase", "research_external", "clarify_requirement"],
+                "avoid_task_intents": [
+                    "explore_codebase",
+                    "research_external",
+                    "clarify_requirement",
+                ],
                 "cost": "cheap",
                 "tool_hint": "Use to inspect or update Magi runtime and tool configuration; prefer source files when the question is about code behavior rather than live config.",
             },
         )
 
     async def execute(
-        self,
-        parameters: dict[str, Any],
-        context: ToolExecutionContext
+        self, parameters: dict[str, Any], context: ToolExecutionContext
     ) -> ToolResult:
         """Execute settings operation."""
         action = parameters.get("action")
@@ -128,8 +157,13 @@ __all__ = [
     "SystemSettingsTool",
     "get_config",
     "get_config_file_path",
+    "get_embedding_config_update_lock",
+    "get_embedding_rebuild_manager",
     "list_app_config_specs",
+    "pause_rebuilds_for_embedding_config_change",
+    "refresh_runtime_llm_config",
     "save_config",
+    "clone_config_with_update",
     "_get_nested_value",
     "_is_read_only_field",
     "_is_sensitive_field",
