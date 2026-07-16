@@ -7584,6 +7584,16 @@ export interface components {
             /** Total */
             readonly total: number;
         };
+        /**
+         * PreviewDeliverySegment
+         * @description One visible preview bubble and the delay before revealing it.
+         */
+        readonly PreviewDeliverySegment: {
+            /** Content */
+            readonly content: string;
+            /** Delay Ms */
+            readonly delay_ms: number;
+        };
         /** PreviewMessageRequest */
         readonly PreviewMessageRequest: {
             /** History */
@@ -7600,6 +7610,11 @@ export interface components {
             readonly persona_override?: components["schemas"]["PreviewPersonaOverride"] | null;
             /** Seed Slug */
             readonly seed_slug?: string | null;
+        };
+        /** PreviewMessageResponse */
+        readonly PreviewMessageResponse: {
+            /** Segments */
+            readonly segments: readonly components["schemas"]["PreviewDeliverySegment"][];
         };
         /**
          * PreviewPersonaOverride
@@ -9305,7 +9320,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": unknown;
+                    readonly "application/json": components["schemas"]["PreviewMessageResponse"];
                 };
             };
             /** @description Validation Error */

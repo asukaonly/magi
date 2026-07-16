@@ -3,31 +3,42 @@ import { streamChatPreview, type PreviewTurn } from '../api/modules/chatPreview'
 
 describe('chatPreview client', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it('streams chunks from the response body', async () => {
-    const chunks = ['hello', ' ', 'world'];
-    const encoder = new TextEncoder();
-    const responseBody = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
-        controller.close();
-      },
-    });
+  it('paces bubbles even when the desktop transport returns one buffered body', async () => {
+    vi.useFakeTimers();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(responseBody, { status: 200, headers: { 'Content-Type': 'text/plain' } }),
+      new Response(
+        JSON.stringify({
+          segments: [
+            { content: 'first reply', delay_ms: 0 },
+            { content: 'second reply', delay_ms: 1200 },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
     );
 
-    const received: string[] = [];
-    for await (const chunk of streamChatPreview({
+    const preview = streamChatPreview({
       seed_slug: 'nova',
       history: [],
       message: { role: 'user', content: 'hi' },
-    })) {
-      received.push(chunk);
-    }
-    expect(received.join('')).toBe('hello world');
+    });
+
+    await expect(preview.next()).resolves.toEqual({ value: 'first reply', done: false });
+
+    const second = preview.next();
+    let secondResolved = false;
+    void second.then(() => {
+      secondResolved = true;
+    });
+    await vi.advanceTimersByTimeAsync(1199);
+    expect(secondResolved).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(second).resolves.toEqual({ value: '‖second reply', done: false });
+    await expect(preview.next()).resolves.toEqual({ value: undefined, done: true });
   });
 
   it('throws when the server returns non-200', async () => {
@@ -48,7 +59,10 @@ describe('chatPreview client', () => {
 
   it('serializes history in order', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('ok', { status: 200 }),
+      new Response(JSON.stringify({ segments: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     const history: PreviewTurn[] = [
       { role: 'user', content: 'msg1' },

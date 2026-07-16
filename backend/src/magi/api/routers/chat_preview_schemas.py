@@ -15,6 +15,17 @@ class PreviewTurn(BaseModel):
     content: str = Field(min_length=1)
 
 
+class PreviewDeliverySegment(BaseModel):
+    """One visible preview bubble and the delay before revealing it."""
+
+    content: str = Field(min_length=1)
+    delay_ms: int = Field(ge=0, le=10_000)
+
+
+class PreviewMessageResponse(BaseModel):
+    segments: list[PreviewDeliverySegment]
+
+
 class PreviewPersonaOverride(PersonalityConfigModel):
     """Complete unsaved persona config for onboarding preview chat."""
 

@@ -1,4 +1,4 @@
-"""HTTP API for /chat/preview — streams persona preview responses.
+"""HTTP API for /chat/preview — returns timed persona preview bubbles.
 
 Three production wiring concerns are deliberately deferred until the dependency
 callables fire on first request:
@@ -19,19 +19,18 @@ Tests inject their own callables for isolation.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Optional
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
 
 from magi.api.routers.chat_preview_schemas import (
+    PreviewDeliverySegment,
     PreviewMessageRequest,
+    PreviewMessageResponse,
 )
 from magi.chat.task_agent.rhythm import (
-    SEGMENT_SENTINEL,
     ResponseRhythmPlanner,
     extract_persona_rhythm,
     strip_segmentation_sentinel,
@@ -75,7 +74,7 @@ def build_default_chat_preview_router(
     router = APIRouter()
 
     @router.post("/chat/preview")
-    async def chat_preview(request: PreviewMessageRequest) -> StreamingResponse:
+    async def chat_preview(request: PreviewMessageRequest) -> PreviewMessageResponse:
         logger.info(
             "chat_preview.request",
             seed_slug=request.seed_slug,
@@ -116,35 +115,33 @@ def build_default_chat_preview_router(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        async def streamer() -> AsyncIterator[bytes]:
-            chunks: list[str] = []
-            async for chunk in run_preview(
-                PreviewMode(seed_slug=request.seed_slug or "", core_model=core_model),
-                history=[
-                    PreviewMessage(role=t.role, content=t.content)
-                    for t in request.history
-                ],
-                message=PreviewMessage(
-                    role=request.message.role, content=request.message.content
-                ),
-                # The prompt is already resolved; run_preview just needs a
-                # zero-cost provider for it.
-                load_persona_prompt=lambda _slug: system_prompt,
-                invoke_llm=llm_call,
-            ):
-                chunks.append(chunk)
+        chunks: list[str] = []
+        async for chunk in run_preview(
+            PreviewMode(seed_slug=request.seed_slug or "", core_model=core_model),
+            history=[
+                PreviewMessage(role=t.role, content=t.content)
+                for t in request.history
+            ],
+            message=PreviewMessage(
+                role=request.message.role, content=request.message.content
+            ),
+            # The prompt is already resolved; run_preview just needs a
+            # zero-cost provider for it.
+            load_persona_prompt=lambda _slug: system_prompt,
+            invoke_llm=llm_call,
+        ):
+            chunks.append(chunk)
 
-            delivery = await _build_preview_delivery(
-                "".join(chunks),
-                persona=persona_rhythm,
-            )
-            for index, (content, delay_ms) in enumerate(delivery):
-                if delay_ms > 0:
-                    await _wait_preview_delay(delay_ms)
-                prefix = "" if index == 0 else SEGMENT_SENTINEL
-                yield f"{prefix}{content}".encode("utf-8")
-
-        return StreamingResponse(streamer(), media_type="text/plain")
+        delivery = await _build_preview_delivery(
+            "".join(chunks),
+            persona=persona_rhythm,
+        )
+        return PreviewMessageResponse(
+            segments=[
+                PreviewDeliverySegment(content=content, delay_ms=delay_ms)
+                for content, delay_ms in delivery
+            ]
+        )
 
     return router
 
@@ -191,10 +188,6 @@ async def _build_preview_delivery(
         return [(segment.content, segment.delay_ms) for segment in plan.segments]
     visible_text = strip_segmentation_sentinel(response_text)
     return [(visible_text, 0)] if visible_text else []
-
-
-async def _wait_preview_delay(delay_ms: int) -> None:
-    await asyncio.sleep(max(0, delay_ms) / 1000)
 
 
 def _default_persona_loader_dep() -> Callable[[str, str], PersonalityConfig]:

@@ -1,10 +1,9 @@
 /**
- * Streaming client for POST /api/chat/preview.
+ * Timed preview client for POST /api/chat/preview.
  *
- * Yields text chunks as they arrive over the response body. Throws if the
- * server returns a non-2xx status. Uses `fetch` directly (instead of the
- * axios-based {@link apiClient}) because axios does not expose streamed
- * response bodies in browser environments.
+ * The desktop gateway buffers proxied HTTP responses, so the server returns
+ * validated bubbles together with their intended reveal delays. This client
+ * applies those delays locally and yields bubbles one at a time.
  */
 
 import { resolveApiBaseUrl } from '../client';
@@ -45,6 +44,20 @@ export interface ChatPreviewRequest {
   persona_override?: PreviewPersonaOverride;
 }
 
+interface PreviewDeliverySegment {
+  content: string;
+  delay_ms: number;
+}
+
+interface ChatPreviewResponse {
+  segments: PreviewDeliverySegment[];
+}
+
+function waitForPreviewDelay(delayMs: number): Promise<void> {
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise((resolve) => globalThis.setTimeout(resolve, delayMs));
+}
+
 export async function* streamChatPreview(
   request: ChatPreviewRequest,
   init?: { signal?: AbortSignal },
@@ -62,19 +75,14 @@ export async function* streamChatPreview(
     throw new Error(`chat preview failed (${response.status}): ${detail}`);
   }
 
-  const reader = response.body?.getReader();
-  if (!reader) {
-    throw new Error('chat preview response had no body');
+  const payload = (await response.json()) as ChatPreviewResponse;
+  if (!Array.isArray(payload.segments)) {
+    throw new Error('chat preview response had no segments');
   }
-  const decoder = new TextDecoder();
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    if (value && value.byteLength > 0) {
-      yield decoder.decode(value, { stream: true });
-    }
+
+  for (const [index, segment] of payload.segments.entries()) {
+    await waitForPreviewDelay(segment.delay_ms);
+    const prefix = index === 0 ? '' : '‖';
+    yield `${prefix}${segment.content}`;
   }
-  // Flush any trailing bytes from the decoder.
-  const tail = decoder.decode();
-  if (tail) yield tail;
 }

@@ -64,41 +64,33 @@ def app_with_preview():
     return app
 
 
-def test_post_preview_returns_streamed_text(app_with_preview) -> None:
+def test_post_preview_returns_delivery_segments(app_with_preview) -> None:
     client = TestClient(app_with_preview)
-    with client.stream(
-        "POST",
+    response = client.post(
         "/chat/preview",
         json={
             "seed_slug": "nova",
             "history": [],
             "message": {"role": "user", "content": "hello"},
         },
-    ) as response:
-        assert response.status_code == 200
-        body = b"".join(response.iter_bytes())
-    assert b"hi there" in body
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "segments": [{"content": "hi there", "delay_ms": 0}],
+    }
 
 
-def test_post_preview_waits_between_validated_bubbles(monkeypatch) -> None:
-    from magi.api.routers import chat_preview_routes
+def test_post_preview_returns_delays_for_buffered_desktop_transport(monkeypatch) -> None:
     from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
-
-    waited_ms: list[int] = []
 
     async def fake_llm(*, system_prompt, messages, model):
         yield "first short message‖second short message"
-
-    async def record_wait(delay_ms: int) -> None:
-        waited_ms.append(delay_ms)
 
     monkeypatch.setattr(
         ResponseRhythmPlanner,
         "_is_enabled",
         staticmethod(lambda: True),
     )
-    monkeypatch.setattr(chat_preview_routes, "_wait_preview_delay", record_wait)
-
     app = FastAPI()
     app.include_router(
         build_default_chat_preview_router(
@@ -108,21 +100,20 @@ def test_post_preview_waits_between_validated_bubbles(monkeypatch) -> None:
         ),
     )
     client = TestClient(app)
-    with client.stream(
-        "POST",
+    response = client.post(
         "/chat/preview",
         json={
             "seed_slug": "nova",
             "history": [],
             "message": {"role": "user", "content": "hello"},
         },
-    ) as response:
-        assert response.status_code == 200
-        body = b"".join(response.iter_bytes()).decode("utf-8")
+    )
 
-    assert body == "first short message‖second short message"
-    assert len(waited_ms) == 1
-    assert 1000 <= waited_ms[0] <= 4000
+    assert response.status_code == 200
+    segments = response.json()["segments"]
+    assert segments[0] == {"content": "first short message", "delay_ms": 0}
+    assert segments[1]["content"] == "second short message"
+    assert 1000 <= segments[1]["delay_ms"] <= 4000
 
 
 def test_post_preview_validates_seed_slug(app_with_preview) -> None:
