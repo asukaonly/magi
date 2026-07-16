@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
@@ -56,18 +56,26 @@ export const MemoryPortraitPage = () => {
   const [loadError, setLoadError] = useState(false);
   const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
   const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
+  const [confirmingAssertionId, setConfirmingAssertionId] = useState<string | null>(null);
+  const portraitLoadRequestRef = useRef(0);
+  const confirmingAssertionRef = useRef<string | null>(null);
 
   const loadPortrait = useCallback(async () => {
+    const requestId = portraitLoadRequestRef.current + 1;
+    portraitLoadRequestRef.current = requestId;
     setLoading(true);
     try {
-      setPayload(await memoryPortraitSelfApi.get(DEFAULT_USER_ID));
+      const nextPayload = await memoryPortraitSelfApi.get(DEFAULT_USER_ID);
+      if (requestId !== portraitLoadRequestRef.current) return true;
+      setPayload(nextPayload);
       setLoadError(false);
       return true;
     } catch {
+      if (requestId !== portraitLoadRequestRef.current) return true;
       setLoadError(true);
       return false;
     } finally {
-      setLoading(false);
+      if (requestId === portraitLoadRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -81,8 +89,20 @@ export const MemoryPortraitPage = () => {
   );
 
   const handleConfirm = async (assertionId: string) => {
-    await memoryApi.submitAssertionFeedback(assertionId, 'confirmed');
-    await loadPortrait();
+    if (confirmingAssertionRef.current) return;
+    confirmingAssertionRef.current = assertionId;
+    setConfirmingAssertionId(assertionId);
+    try {
+      await memoryApi.submitAssertionFeedback(assertionId, 'confirmed');
+      await loadPortrait();
+    } catch {
+      toast.error(t('memory.portrait.confirmFailed', {
+        defaultValue: '暂时没能确认，这条信息没有被重复处理。请稍后再试。',
+      }));
+    } finally {
+      confirmingAssertionRef.current = null;
+      setConfirmingAssertionId(null);
+    }
   };
 
   const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
@@ -155,6 +175,7 @@ export const MemoryPortraitPage = () => {
             <PortraitReviewQueue
               items={viewModel.reviewItems}
               onConfirm={handleConfirm}
+              confirmingAssertionId={confirmingAssertionId}
               onRequestCorrection={openCorrection}
             />
             <PortraitRecentState items={viewModel.recentItems} />

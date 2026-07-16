@@ -3083,6 +3083,7 @@
         "retry": "Try again"
       },
       "refreshFailed": "The correction is active, but About You could not refresh yet.",
+      "confirmFailed": "Could not confirm this item. It was not processed twice; try again later.",
       "segments": {
         "identity": "Identity",
         "state": "Right now",

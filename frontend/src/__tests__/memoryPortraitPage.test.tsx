@@ -426,10 +426,15 @@ describe('MemoryPortraitPage', () => {
     await screen.findByText('Magi 记忆体验');
     expect(screen.queryByTestId('portrait-world-groups')).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Magi 目前这样理解你' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '确认' }));
+    const confirmButton = screen.getByRole('button', { name: '确认' });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
     expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
+    expect(memoryApi.submitAssertionFeedback).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: '修改' }));
+    const editButton = screen.getByRole('button', { name: '修改' });
+    await waitFor(() => expect(editButton).not.toBeDisabled());
+    fireEvent.click(editButton);
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
     fireEvent.change(within(dialog).getByLabelText('正确内容'), { target: { value: 'Magi 关于你页面' } });
     fireEvent.click(within(dialog).getByRole('button', { name: '保存修正' }));

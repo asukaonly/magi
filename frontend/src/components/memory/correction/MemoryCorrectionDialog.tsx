@@ -83,6 +83,7 @@ export function MemoryCorrectionDialog({
   const [entitySearchLoading, setEntitySearchLoading] = useState(false);
   const [entitySearchError, setEntitySearchError] = useState(false);
   const previousTargetRef = useRef<string | null>(null);
+  const submittingRef = useRef(false);
 
   useEffect(() => {
     const targetKey = target ? `${target.kind}:${target.id}` : null;
@@ -94,6 +95,7 @@ export function MemoryCorrectionDialog({
       recordErrorAction: initialRecordErrorAction,
     });
     setRequestId(createMemoryCorrectionRequestId());
+    submittingRef.current = false;
     setSubmitting(false);
     setError(null);
     setSubmitted(false);
@@ -150,6 +152,7 @@ export function MemoryCorrectionDialog({
   );
 
   const updateDraft = (patch: Partial<MemoryCorrectionDraft>) => {
+    if (submittingRef.current) return;
     setDraft((current) => (current ? { ...current, ...patch } : current));
     setRequestId(createMemoryCorrectionRequestId());
     setError(null);
@@ -167,11 +170,12 @@ export function MemoryCorrectionDialog({
   }, [submitted, t, validation]);
 
   const handleSubmit = async () => {
-    if (!effectiveTarget || !draft) return;
+    if (submittingRef.current || !effectiveTarget || !draft) return;
     setSubmitted(true);
     const payload = buildMemoryCorrectionRequest(effectiveTarget, draft, requestId);
     if (!payload) return;
 
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -205,12 +209,13 @@ export function MemoryCorrectionDialog({
         }));
       }
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (submitting) return;
+    if (submittingRef.current) return;
     if (!nextOpen) previousTargetRef.current = null;
     onOpenChange(nextOpen);
   };
@@ -248,7 +253,11 @@ export function MemoryCorrectionDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-6 px-5 pb-6 sm:px-6">
+            <fieldset
+              disabled={submitting}
+              aria-busy={submitting}
+              className="m-0 min-w-0 space-y-6 border-0 px-5 pb-6 sm:px-6"
+            >
               <section aria-labelledby="memory-correction-current">
                 <h3 id="memory-correction-current" className="text-xs font-semibold text-muted-foreground">
                   {t('memory.correction.currentLabel', { defaultValue: '当前记住的是' })}
@@ -498,7 +507,7 @@ export function MemoryCorrectionDialog({
                   {error || validationMessage}
                 </p>
               ) : null}
-            </div>
+            </fieldset>
 
             <DialogFooter className="sticky bottom-0 bg-card/95 px-5 backdrop-blur sm:px-6">
               <Button type="button" variant="ghost" className="min-h-11" onClick={() => handleOpenChange(false)} disabled={submitting}>

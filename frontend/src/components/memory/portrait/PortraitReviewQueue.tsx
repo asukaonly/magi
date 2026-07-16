@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 interface PortraitReviewQueueProps {
   items: PortraitDisplayItem[];
   onConfirm: (assertionId: string) => Promise<void>;
+  confirmingAssertionId?: string | null;
   onRequestCorrection: (item: PortraitDisplayItem, action: 'replace' | 'remove') => void;
 }
 
@@ -24,6 +25,7 @@ const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | nu
 export const PortraitReviewQueue = ({
   items,
   onConfirm,
+  confirmingAssertionId = null,
   onRequestCorrection,
 }: PortraitReviewQueueProps) => {
   const { t } = useTranslation('app');
@@ -49,6 +51,7 @@ export const PortraitReviewQueue = ({
       <div className="mt-4 space-y-2">
         {items.map((item) => {
           const source = sourceText(item, t);
+          const isConfirming = item.assertionId === confirmingAssertionId;
           return (
             <article key={item.id} className="flex flex-col gap-4 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.34)] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 flex-1 space-y-1">
@@ -62,7 +65,8 @@ export const PortraitReviewQueue = ({
                     variant="secondary"
                     size="sm"
                     onClick={() => item.assertionId && void onConfirm(item.assertionId)}
-                    disabled={!item.assertionId}
+                    disabled={!item.assertionId || confirmingAssertionId !== null}
+                    aria-busy={isConfirming}
                     className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-title))]"
                   >
                     {t('memory.portrait.review.actions.confirm')}
@@ -72,7 +76,7 @@ export const PortraitReviewQueue = ({
                     variant="ghost"
                     size="sm"
                     onClick={() => item.assertionId && onRequestCorrection(item, 'remove')}
-                    disabled={!item.assertionId}
+                    disabled={!item.assertionId || confirmingAssertionId !== null}
                     className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
                   >
                     {t('memory.portrait.review.actions.reject')}
@@ -82,7 +86,7 @@ export const PortraitReviewQueue = ({
                     variant="ghost"
                     size="sm"
                     onClick={() => item.assertionId && onRequestCorrection(item, 'replace')}
-                    disabled={!item.assertionId}
+                    disabled={!item.assertionId || confirmingAssertionId !== null}
                     className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
                   >
                     {t('memory.portrait.review.actions.edit')}

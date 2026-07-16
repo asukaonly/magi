@@ -105,6 +105,35 @@ afterEach(() => {
 });
 
 describe('MemoryCorrectionDialog request safety', () => {
+  it('submits once and locks the draft while the request is pending', async () => {
+    let resolveRequest: ((value: MemoryCorrectionCommandResponse) => void) | undefined;
+    vi.mocked(memoryApi.applyCorrection).mockImplementation(() => new Promise((resolve) => {
+      resolveRequest = resolve;
+    }));
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    const valueInput = within(dialog).getByLabelText('正确内容');
+    fireEvent.change(valueInput, { target: { value: '简洁' } });
+    const submit = within(dialog).getByRole('button', { name: '保存修正' });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1);
+    expect(valueInput).toBeDisabled();
+    expect(submit).toBeDisabled();
+
+    resolveRequest?.(correctionResponse());
+    expect(await within(dialog).findByText('已经按你的意思修正')).toBeInTheDocument();
+  });
+
   it('reuses one request id for an unchanged network retry and rotates it after an edit', async () => {
     vi.mocked(memoryApi.applyCorrection)
       .mockRejectedValueOnce(new Error('network unavailable'))

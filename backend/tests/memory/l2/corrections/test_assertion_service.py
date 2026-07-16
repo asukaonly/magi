@@ -121,6 +121,26 @@ async def test_rejected_feedback_creates_durable_correction(l2_store_with_schema
 
 
 @pytest.mark.asyncio
+async def test_confirmed_feedback_is_idempotent(l2_store_with_schema):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+
+    first = await store.apply_user_feedback(
+        assertion_id=assertion_id,
+        feedback="confirmed",
+    )
+    repeated = await store.apply_user_feedback(
+        assertion_id=assertion_id,
+        feedback="confirmed",
+    )
+
+    assert first is not None
+    assert repeated is not None
+    assert repeated["confidence_score"] == pytest.approx(first["confidence_score"])
+    assert repeated["user_feedback_at"] == pytest.approx(first["user_feedback_at"])
+
+
+@pytest.mark.asyncio
 async def test_situation_changed_closes_old_version_at_effective_time(l2_store_with_schema):
     store = l2_store_with_schema
     assertion_id = await _seed_assertion(store)

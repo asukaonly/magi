@@ -82,10 +82,10 @@ class L2StoreFeedbackMixin:
 
         host = cast(_FeedbackHostProtocol, self)
         await host.initialize()
+        existing_assertion = await host.get_tom_assertion(assertion_id=assertion_id)
+        if existing_assertion is None:
+            return None
         if feedback == "rejected":
-            existing_assertion = await host.get_tom_assertion(assertion_id=assertion_id)
-            if existing_assertion is None:
-                return None
             if existing_assertion.get("status") == "user_rejected":
                 return existing_assertion
             correction_result = await self.apply_assertion_correction(
@@ -98,6 +98,17 @@ class L2StoreFeedbackMixin:
             if correction_result is None:
                 return None
             return await host.get_tom_assertion(assertion_id=assertion_id)
+
+        if (
+            existing_assertion.get("user_feedback") == "confirmed"
+            and existing_assertion.get("status") not in {
+                "archived",
+                "expired",
+                "superseded",
+                "user_rejected",
+            }
+        ):
+            return existing_assertion
 
         now = time.time()
 

@@ -3081,6 +3081,7 @@
         "retry": "重新读取"
       },
       "refreshFailed": "修正已经生效，但“关于你”暂时没有刷新。",
+      "confirmFailed": "暂时没能确认，这条信息没有被重复处理。请稍后再试。",
       "segments": {
         "identity": "身份",
         "state": "当下",
