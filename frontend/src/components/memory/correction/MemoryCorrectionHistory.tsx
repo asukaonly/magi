@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, History, Loader2, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toApiClientError } from '@/api/client';
@@ -41,21 +41,27 @@ export function MemoryCorrectionHistory({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [revertingId, setRevertingId] = useState<string | null>(null);
   const [revertAttempt, setRevertAttempt] = useState<{ correctionId: string; requestId: string } | null>(null);
+  const loadRequestRef = useRef(0);
   const locale = correctionLocale(i18n.resolvedLanguage || i18n.language);
   const historyLoadFailed = t('memory.correction.history.loadFailed', {
     defaultValue: '暂时没能读取修改记录。',
   });
 
   const loadHistory = useCallback(async () => {
+    const requestId = loadRequestRef.current + 1;
+    loadRequestRef.current = requestId;
     setLoading(true);
     setError(null);
     try {
-      setHistory(await memoryApi.getCorrectionHistory(target.kind, target.id));
+      const nextHistory = await memoryApi.getCorrectionHistory(target.kind, target.id);
+      if (requestId !== loadRequestRef.current) return;
+      setHistory(nextHistory);
     } catch {
+      if (requestId !== loadRequestRef.current) return;
       setHistory(null);
       setError(historyLoadFailed);
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }, [historyLoadFailed, target.id, target.kind]);
 
@@ -63,6 +69,9 @@ export function MemoryCorrectionHistory({
     setConfirmingId(null);
     setRevertAttempt(null);
     void loadHistory();
+    return () => {
+      loadRequestRef.current += 1;
+    };
   }, [loadHistory, refreshKey]);
 
   const corrections = useMemo(
@@ -135,6 +144,8 @@ export function MemoryCorrectionHistory({
             const canRevert = correction.correction_id === latestActiveId && correction.state === 'active';
             const isConfirming = confirmingId === correction.correction_id;
             const isReverting = revertingId === correction.correction_id;
+            const isScheduled = correction.state === 'active'
+              && Boolean(correction.effective_at && correction.effective_at > Date.now() / 1000);
             return (
               <article key={correction.correction_id} className="rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.46)] px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -148,11 +159,15 @@ export function MemoryCorrectionHistory({
                   </div>
                   <span className={cn(
                     'rounded-full px-2 py-1 text-[11px] font-medium',
-                    correction.state === 'active'
+                    isScheduled
+                      ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/35 dark:text-blue-300'
+                      : correction.state === 'active'
                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/35 dark:text-emerald-300'
                       : 'bg-muted text-muted-foreground'
                   )}>
-                    {correction.state === 'active'
+                    {isScheduled
+                      ? t('memory.correction.history.scheduled', { defaultValue: '等待生效' })
+                      : correction.state === 'active'
                       ? t('memory.correction.history.active', { defaultValue: '当前有效' })
                       : t('memory.correction.history.reverted', { defaultValue: '已撤销' })}
                   </span>
@@ -280,7 +295,7 @@ function CorrectionChangeSummary({
   const scope = formatCorrectionScope(correction.scope, t);
 
   return (
-    <div className="mt-3 space-y-1 text-xs leading-5 text-[hsl(var(--memory-body))]">
+    <div className="mt-3 space-y-1 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
       <div>
         <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.before', { defaultValue: '原来：' })}</span>
         {before}
@@ -323,9 +338,17 @@ function correctionValue(
     );
   }
   const objectId = String(value.object_id ?? target.relationship.objectId).trim();
-  const objectName = target.entityOptions.find((entity) => entity.id === objectId)?.name
-    ?? (objectId === target.relationship.objectId ? target.relationship.objectName : null)
-    ?? t('memory.correction.history.anotherObject', { defaultValue: '另一个对象' });
+  const naturalSummary = String(value.natural_summary ?? '').trim();
+  const knownObjectName = target.entityOptions.find((entity) => entity.id === objectId)?.name
+    ?? (objectId === target.relationship.objectId ? target.relationship.objectName : null);
+  if (knownObjectName) {
+    return `${target.relationship.subjectName} ${target.relationship.predicateLabel} ${knownObjectName}`;
+  }
+  if (naturalSummary) return naturalSummary;
+  const objectName = t('memory.correction.history.anotherObject', {
+    defaultValue: '对象 {{id}}',
+    id: objectId,
+  });
   return `${target.relationship.subjectName} ${target.relationship.predicateLabel} ${objectName}`;
 }
 
@@ -347,7 +370,9 @@ function versionMeta(
   const to = optionalNumber(version.valid_to);
   const now = Date.now() / 1000;
   let statusText: string;
-  if (from !== null && from > now) {
+  if (to !== null && (to <= now || (from !== null && to <= from))) {
+    statusText = t('memory.correction.history.pastVersion', { defaultValue: '历史版本' });
+  } else if (from !== null && from > now) {
     statusText = t('memory.correction.history.plannedVersion', { defaultValue: '计划生效' });
   } else if (from !== null || to !== null) {
     statusText = (from === null || from <= now) && (to === null || to > now)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Loader2, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toApiClientError } from '@/api/client';
 import { memoryApi, type MemoryCorrectionCommandResponse, type MemoryCorrectionKind } from '@/api/modules/memory';
@@ -24,6 +24,8 @@ import {
   type MemoryCorrectionDraft,
   type MemoryCorrectionEntityOption,
   type MemoryCorrectionUiTarget,
+  type MemoryCorrectionValidationErrors,
+  type MemoryCorrectionValidationField,
 } from './memoryCorrectionModel';
 import {
   correctionLocale,
@@ -61,6 +63,13 @@ const SCOPE_TYPES: MemoryCorrectionDraft['scopeType'][] = [
   'person',
 ];
 
+const CORRECTION_FIELD_IDS: Record<MemoryCorrectionValidationField, string> = {
+  value: 'memory-correction-value',
+  effectiveAt: 'memory-correction-effective-at',
+  scopeValue: 'memory-correction-scope-value',
+  relationObjectId: 'memory-correction-object',
+};
+
 export function MemoryCorrectionDialog({
   open,
   target,
@@ -82,18 +91,22 @@ export function MemoryCorrectionDialog({
   const [entityOptions, setEntityOptions] = useState<MemoryCorrectionEntityOption[]>([]);
   const [entitySearchLoading, setEntitySearchLoading] = useState(false);
   const [entitySearchError, setEntitySearchError] = useState(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const previousTargetRef = useRef<string | null>(null);
+  const initialDraftRef = useRef<MemoryCorrectionDraft | null>(null);
   const submittingRef = useRef(false);
 
   useEffect(() => {
     const targetKey = target ? `${target.kind}:${target.id}` : null;
     if (!open || !target || (targetKey === previousTargetRef.current && draft)) return;
     previousTargetRef.current = targetKey;
-    setDraft({
+    const initialDraft = {
       ...createInitialMemoryCorrectionDraft(target),
       correctionKind: initialCorrectionKind,
       recordErrorAction: initialRecordErrorAction,
-    });
+    };
+    initialDraftRef.current = initialDraft;
+    setDraft(initialDraft);
     setRequestId(createMemoryCorrectionRequestId());
     submittingRef.current = false;
     setSubmitting(false);
@@ -105,7 +118,12 @@ export function MemoryCorrectionDialog({
     setEntityOptions(target.kind === 'edge' ? target.entityOptions : []);
     setEntitySearchLoading(false);
     setEntitySearchError(false);
+    setDiscardConfirmOpen(false);
   }, [draft, initialCorrectionKind, initialRecordErrorAction, open, target]);
+
+  useEffect(() => {
+    if (!open) setDiscardConfirmOpen(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open || target?.kind !== 'edge') return;
@@ -150,6 +168,14 @@ export function MemoryCorrectionDialog({
     () => (effectiveTarget && draft ? validateMemoryCorrectionDraft(effectiveTarget, draft) : null),
     [draft, effectiveTarget]
   );
+  const hasUnsavedChanges = useMemo(
+    () => Boolean(
+      draft
+      && initialDraftRef.current
+      && correctionDraftFingerprint(draft) !== correctionDraftFingerprint(initialDraftRef.current)
+    ),
+    [draft]
+  );
 
   const updateDraft = (patch: Partial<MemoryCorrectionDraft>) => {
     if (submittingRef.current) return;
@@ -161,17 +187,25 @@ export function MemoryCorrectionDialog({
 
   const validationMessage = useMemo(() => {
     if (!submitted || !validation || validation.valid) return null;
-    const firstCode = Object.values(validation.errors).find(Boolean);
-    return firstCode
-      ? t(`memory.correction.validation.${firstCode}`, {
-          defaultValue: '请检查填写内容后再保存。',
-        })
-      : t('memory.correction.validation.form', { defaultValue: '请检查填写内容后再保存。' });
+    return t('memory.correction.validation.form', { defaultValue: '请检查填写内容后再保存。' });
   }, [submitted, t, validation]);
+
+  const validationError = (field: MemoryCorrectionValidationField): string | null => {
+    const code = submitted ? validation?.errors[field] : undefined;
+    return code
+      ? t(`memory.correction.validation.${code}`, {
+          defaultValue: correctionValidationFallback(code),
+        })
+      : null;
+  };
 
   const handleSubmit = async () => {
     if (submittingRef.current || !effectiveTarget || !draft) return;
     setSubmitted(true);
+    if (!validation?.valid) {
+      focusFirstInvalidCorrectionField(validation?.errors ?? {});
+      return;
+    }
     const payload = buildMemoryCorrectionRequest(effectiveTarget, draft, requestId);
     if (!payload) return;
 
@@ -203,6 +237,7 @@ export function MemoryCorrectionDialog({
         setError(t('memory.correction.errors.effectiveAtBeforeTarget', {
           defaultValue: '变化时间不能早于这条记忆开始生效的时间，请重新选择。',
         }));
+        focusCorrectionField('effectiveAt');
       } else {
         setError(t('memory.correction.errors.saveFailed', {
           defaultValue: '暂时没能保存。你填写的内容还在，可以稍后重试。',
@@ -216,8 +251,21 @@ export function MemoryCorrectionDialog({
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (submittingRef.current) return;
-    if (!nextOpen) previousTargetRef.current = null;
+    if (!nextOpen && !result && !conflicted && hasUnsavedChanges) {
+      setDiscardConfirmOpen(true);
+      return;
+    }
+    if (!nextOpen) {
+      previousTargetRef.current = null;
+      setDiscardConfirmOpen(false);
+    }
     onOpenChange(nextOpen);
+  };
+
+  const discardAndClose = () => {
+    previousTargetRef.current = null;
+    setDiscardConfirmOpen(false);
+    onOpenChange(false);
   };
 
   if (!effectiveTarget || !draft) return null;
@@ -231,11 +279,12 @@ export function MemoryCorrectionDialog({
     : isSituationChanged || (isRecordError && draft.recordErrorAction === 'replace');
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent
-        closeLabel={t('memory.correction.close', { defaultValue: '关闭' })}
-        className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto rounded-xl p-0 sm:max-h-[min(88dvh,760px)] sm:rounded-2xl"
-      >
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          closeLabel={t('memory.correction.close', { defaultValue: '关闭' })}
+          className="max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-2xl overflow-y-auto rounded-xl p-0 sm:max-h-[min(88dvh,760px)] sm:rounded-2xl"
+        >
         {result ? (
           <CorrectionSuccess
             target={effectiveTarget}
@@ -349,6 +398,7 @@ export function MemoryCorrectionDialog({
                     hint={isScopeRefinement
                       ? t('memory.correction.scopeValueHint', { defaultValue: '如果内容本身没错，可以保持原样。' })
                       : undefined}
+                    error={validationError('value')}
                   >
                     <Input
                       id="memory-correction-value"
@@ -356,6 +406,7 @@ export function MemoryCorrectionDialog({
                       onChange={(event) => updateDraft({ value: event.target.value })}
                       maxLength={2000}
                       aria-invalid={Boolean(submitted && validation?.errors.value)}
+                      aria-errormessage={validationError('value') ? 'memory-correction-value-error' : undefined}
                       className="h-11"
                     />
                   </FormField>
@@ -366,6 +417,7 @@ export function MemoryCorrectionDialog({
                     hint={t('memory.correction.correctRelationObjectHint', {
                       defaultValue: '主体和关系含义保持不变，只选择正确的对象。',
                     })}
+                    error={validationError('relationObjectId')}
                   >
                     <div className="space-y-2">
                       <div className="relative">
@@ -384,6 +436,7 @@ export function MemoryCorrectionDialog({
                         value={draft.relationObjectId}
                         onChange={(event) => updateDraft({ relationObjectId: event.target.value })}
                         aria-invalid={Boolean(submitted && validation?.errors.relationObjectId)}
+                        aria-errormessage={validationError('relationObjectId') ? 'memory-correction-object-error' : undefined}
                         className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                       >
                         {effectiveTarget.kind === 'edge' ? effectiveTarget.entityOptions.map((entity) => (
@@ -415,6 +468,7 @@ export function MemoryCorrectionDialog({
                 <FormField
                   label={t('memory.correction.effectiveAt', { defaultValue: '从什么时候开始变化？' })}
                   htmlFor="memory-correction-effective-at"
+                  error={validationError('effectiveAt')}
                 >
                   <Input
                     id="memory-correction-effective-at"
@@ -422,6 +476,7 @@ export function MemoryCorrectionDialog({
                     value={draft.effectiveAt}
                     onChange={(event) => updateDraft({ effectiveAt: event.target.value })}
                     aria-invalid={Boolean(submitted && validation?.errors.effectiveAt)}
+                    aria-errormessage={validationError('effectiveAt') ? 'memory-correction-effective-at-error' : undefined}
                     className="h-11"
                   />
                 </FormField>
@@ -454,6 +509,7 @@ export function MemoryCorrectionDialog({
                       ))}
                     </select>
                     <Input
+                      id="memory-correction-scope-value"
                       aria-label={t('memory.correction.scopeValue', { defaultValue: '具体情况' })}
                       value={draft.scopeValue}
                       onChange={(event) => updateDraft({ scopeValue: event.target.value })}
@@ -468,9 +524,15 @@ export function MemoryCorrectionDialog({
                               : '例如：和小王聊天时',
                       })}
                       aria-invalid={Boolean(submitted && validation?.errors.scopeValue)}
+                      aria-errormessage={validationError('scopeValue') ? 'memory-correction-scope-value-error' : undefined}
                       className="h-11"
                     />
                   </div>
+                  {validationError('scopeValue') ? (
+                    <p id="memory-correction-scope-value-error" className="mt-2 text-xs leading-5 text-destructive">
+                      {validationError('scopeValue')}
+                    </p>
+                  ) : null}
                 </fieldset>
               ) : null}
 
@@ -529,8 +591,43 @@ export function MemoryCorrectionDialog({
             </DialogFooter>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={discardConfirmOpen} onOpenChange={setDiscardConfirmOpen}>
+        <DialogContent
+          hideClose
+          overlayClassName="bg-foreground/25 backdrop-blur-[3px]"
+          className="max-w-[420px] overflow-hidden rounded-xl p-0"
+        >
+          <DialogHeader className="px-6 pb-3 pt-6">
+            <div className="flex items-start gap-4">
+              <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <DialogTitle className="text-lg leading-7">
+                  {t('memory.correction.discard.title', { defaultValue: '放弃未保存的修改？' })}
+                </DialogTitle>
+                <DialogDescription className="mt-1 leading-6">
+                  {t('memory.correction.discard.description', {
+                    defaultValue: '你刚才填写的内容还没有保存，关闭后会丢失。',
+                  })}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+          <DialogFooter className="px-6 pb-6 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setDiscardConfirmOpen(false)}>
+              {t('memory.correction.discard.keepEditing', { defaultValue: '继续修改' })}
+            </Button>
+            <Button type="button" variant="destructive" onClick={discardAndClose}>
+              {t('memory.correction.discard.confirm', { defaultValue: '放弃修改' })}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -565,11 +662,13 @@ function FormField({
   label,
   htmlFor,
   hint,
+  error,
   children,
 }: {
   label: string;
   htmlFor: string;
   hint?: string;
+  error?: string | null;
   children: React.ReactNode;
 }) {
   return (
@@ -577,6 +676,11 @@ function FormField({
       <label htmlFor={htmlFor} className="text-sm font-semibold text-foreground">{label}</label>
       {hint ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{hint}</p> : null}
       <div className="mt-2">{children}</div>
+      {error ? (
+        <p id={`${htmlFor}-error`} className="mt-2 text-xs leading-5 text-destructive">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -602,6 +706,7 @@ function CorrectionSuccess({
     result.correction.effective_at
       && result.correction.effective_at > Date.now() / 1000 + 1
   );
+  const wasPendingReview = isPendingReviewClaim(result.correction.before);
 
   return (
     <div className="px-6 py-8 sm:px-8 sm:py-10" role="status" aria-live="polite">
@@ -615,7 +720,11 @@ function CorrectionSuccess({
             ? isFutureChange
               ? t('memory.correction.success.replacedInFuture', { defaultValue: '到设定时间后，相关回答会使用下面这条理解。' })
               : t('memory.correction.success.replaced', { defaultValue: '之后相关的回答会使用下面这条当前理解。' })
-            : t('memory.correction.success.removed', { defaultValue: '之后不会再把原来的内容当作你的信息。' })}
+            : wasPendingReview
+              ? t('memory.correction.success.removedPending', {
+                  defaultValue: '已经把这条待确认内容标为不准确，之后不会用它来了解你。',
+                })
+              : t('memory.correction.success.removed', { defaultValue: '之后不会再把原来的内容当作你的信息。' })}
         </DialogDescription>
         {currentValue ? (
           <div className="mt-5 rounded-xl bg-muted/55 px-4 py-4 text-left">
@@ -647,7 +756,11 @@ function CorrectionSuccess({
             ) : null}
           </dl>
         ) : null}
-        {result.derivation_state === 'failed' ? (
+        {isFutureChange ? (
+          <p className="mt-4 text-xs leading-5 text-muted-foreground">
+            {t('memory.correction.success.scheduledUpdate', { defaultValue: '到设定时间后，相关总结会自动更新。' })}
+          </p>
+        ) : result.derivation_state === 'failed' ? (
           <p className="mt-4 text-xs leading-5 text-amber-700 dark:text-amber-300">
             {t('memory.correction.success.backgroundUpdateFailed', {
               defaultValue: '这次修正已经生效，但相关总结暂时没能更新；你可以稍后再查看。',
@@ -682,6 +795,53 @@ function correctionValidationCode(details: unknown): string | null {
   if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
   const code = (details as Record<string, unknown>).code;
   return typeof code === 'string' ? code : null;
+}
+
+function correctionValidationFallback(code: string): string {
+  const messages: Record<string, string> = {
+    replacement_required: '请填写正确内容。',
+    replacement_unchanged: '新内容和当前内容相同，请填写实际变化后的内容。',
+    effective_at_required: '请选择变化开始的时间。',
+    effective_at_invalid: '变化时间无效，请重新选择。',
+    scope_required: '请填写具体适用的情况。',
+    relation_object_required: '请选择正确的关系对象。',
+    relation_object_unchanged: '请选择一个与当前不同的对象。',
+    relation_object_unavailable: '这个对象目前不可用，请重新选择。',
+  };
+  return messages[code] ?? '请检查填写内容后再保存。';
+}
+
+function correctionDraftFingerprint(draft: MemoryCorrectionDraft): string {
+  return JSON.stringify({
+    correctionKind: draft.correctionKind,
+    recordErrorAction: draft.recordErrorAction,
+    value: draft.value,
+    effectiveAt: draft.effectiveAt,
+    scopeType: draft.scopeType,
+    scopeValue: draft.scopeValue,
+    reason: draft.reason,
+    relationObjectId: draft.relationObjectId,
+  });
+}
+
+function focusFirstInvalidCorrectionField(errors: MemoryCorrectionValidationErrors): void {
+  const firstInvalidField = (Object.keys(CORRECTION_FIELD_IDS) as MemoryCorrectionValidationField[])
+    .find((field) => Boolean(errors[field]));
+  if (firstInvalidField) focusCorrectionField(firstInvalidField);
+}
+
+function focusCorrectionField(field: MemoryCorrectionValidationField): void {
+  const focus = () => document.getElementById(CORRECTION_FIELD_IDS[field])?.focus();
+  if (typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(focus);
+  } else {
+    window.setTimeout(focus, 0);
+  }
+}
+
+function isPendingReviewClaim(claim: Record<string, unknown>): boolean {
+  const lifecycle = String(claim.status ?? claim.validation_state ?? '').trim().toLowerCase();
+  return lifecycle === 'shadow' || lifecycle === 'pending';
 }
 
 function mergeEntityOptions(

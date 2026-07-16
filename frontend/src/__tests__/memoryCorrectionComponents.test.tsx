@@ -105,6 +105,72 @@ afterEach(() => {
 });
 
 describe('MemoryCorrectionDialog request safety', () => {
+  it('asks before discarding an edited correction and keeps the draft when cancelled', async () => {
+    const onOpenChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        onOpenChange={onOpenChange}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    const valueInput = within(dialog).getByLabelText('正确内容');
+    await user.clear(valueInput);
+    await user.type(valueInput, '简洁');
+    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+
+    const discardDialog = await screen.findByRole('dialog', { name: '放弃未保存的修改？' });
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    await user.click(within(discardDialog).getByRole('button', { name: '继续修改' }));
+    expect(valueInput).toHaveValue('简洁');
+
+    await user.click(within(dialog).getByRole('button', { name: '取消' }));
+    await user.click(within(await screen.findByRole('dialog', { name: '放弃未保存的修改？' }))
+      .getByRole('button', { name: '放弃修改' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('shows field-level validation and focuses the first invalid field', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    const valueInput = within(dialog).getByLabelText('正确内容');
+    expect(valueInput).toHaveValue('直白');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+    expect(memoryApi.applyCorrection).not.toHaveBeenCalled();
+    await waitFor(() => expect(valueInput).toHaveAttribute('aria-invalid', 'true'));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText('新内容和当前内容相同，请填写实际变化后的内容。')).toBeInTheDocument();
+    });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent('请检查填写内容后再保存。');
+    await waitFor(() => expect(valueInput).toHaveFocus());
+    expect(valueInput).toHaveAttribute('aria-errormessage', 'memory-correction-value-error');
+
+    await user.clear(valueInput);
+    await user.type(valueInput, '简洁');
+    await user.click(within(dialog).getByRole('button', { name: /以前是这样，现在变了/ }));
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    const effectiveAtInput = within(dialog).getByLabelText('从什么时候开始变化？');
+    await waitFor(() => {
+      expect(within(dialog).getByText('请选择变化开始的时间。')).toBeInTheDocument();
+    });
+    await waitFor(() => expect(effectiveAtInput).toHaveFocus());
+  });
+
   it('submits once and locks the draft while the request is pending', async () => {
     let resolveRequest: ((value: MemoryCorrectionCommandResponse) => void) | undefined;
     vi.mocked(memoryApi.applyCorrection).mockImplementation(() => new Promise((resolve) => {
@@ -295,6 +361,34 @@ describe('MemoryCorrectionDialog request safety', () => {
       replacement: { object_id: 'tool:codex', object_type: 'software' },
     }));
   });
+
+  it('describes rejecting a pending understanding without claiming it was replaced', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
+      correction: {
+        ...correctionResponse().correction,
+        before: { trait_value: '直白', status: 'shadow' },
+        replacement: null,
+        replacement_target_id: undefined,
+      },
+      current_claim: null,
+    }));
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        initialRecordErrorAction="remove"
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: '确认不再使用' }));
+
+    expect(await within(dialog).findByText('已经把这条待确认内容标为不准确，之后不会用它来了解你。'))
+      .toBeInTheDocument();
+  });
 });
 
 describe('MemoryCorrectionHistory request safety', () => {
@@ -403,6 +497,58 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key');
   });
 
+  it('uses the saved summary or object id instead of a vague historical object label', async () => {
+    const target: MemoryCorrectionUiTarget = {
+      ...relationshipTarget,
+      entityOptions: [{ id: 'tool:magi', name: 'Magi', type: 'software' }],
+    };
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'edge', id: 'edge-1' },
+      versions: [{
+        version_id: 'version-legacy',
+        triple_id: 'edge-1',
+        object_id: 'tool:legacy',
+        natural_summary: '你 使用 Legacy Tool',
+        valid_from: 1719300000,
+        valid_to: 1719301200,
+      }, {
+        version_id: 'version-deleted',
+        triple_id: 'edge-1',
+        object_id: 'tool:deleted',
+        valid_from: 1719301200,
+        valid_to: 1719301400,
+      }],
+      corrections: [],
+    });
+
+    render(<MemoryCorrectionHistory target={target} />);
+
+    await screen.findByText('还没有修正过这条记忆。');
+    fireEvent.click(screen.getByText('查看内容变化'));
+    expect(screen.getByText('你 使用 Legacy Tool')).toBeInTheDocument();
+    expect(screen.getByText('你 使用 对象 tool:deleted')).toBeInTheDocument();
+    expect(screen.queryByText(/另一个对象/)).not.toBeInTheDocument();
+    expect(memoryApi.getL2Entities).not.toHaveBeenCalled();
+  });
+
+  it('labels a future correction as waiting instead of currently effective', async () => {
+    const now = Date.now() / 1000;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        correction_kind: 'situation_changed',
+        effective_at: now + 3600,
+      }],
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('等待生效')).toBeInTheDocument();
+    expect(screen.queryByText('当前有效')).not.toBeInTheDocument();
+  });
+
   it('labels a future change as scheduled while keeping the old value current', async () => {
     const now = Date.now() / 1000;
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
@@ -431,5 +577,27 @@ describe('MemoryCorrectionHistory request safety', () => {
     fireEvent.click(screen.getByText('查看内容变化'));
     expect(screen.getByText(/当前版本/)).toBeInTheDocument();
     expect(screen.getByText(/计划生效/)).toBeInTheDocument();
+  });
+
+  it('does not label a future-starting version as scheduled after it already ended', async () => {
+    const now = Date.now() / 1000;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [{
+        assertion_id: 'assertion-future-reverted',
+        trait_value: '简洁',
+        status: 'archived',
+        valid_from: now + 3600,
+        valid_to: now - 60,
+      }],
+      corrections: [],
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    await screen.findByText('还没有修正过这条记忆。');
+    fireEvent.click(screen.getByText('查看内容变化'));
+    expect(screen.getByText(/历史版本/)).toBeInTheDocument();
+    expect(screen.queryByText(/计划生效/)).not.toBeInTheDocument();
   });
 });
