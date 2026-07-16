@@ -95,14 +95,15 @@ def _materialize_relationship_states(
         )
         ordered = _deduplicate_snapshot_rows(ordered)
         states = _active_relationship_states(ordered)
+        triple_materialized: List[Dict[str, Any]] = []
         for index, state in enumerate(states):
-            start = _state_start(states, index)
+            start = _state_start(ordered, states, index)
             end_candidates = [
                 value
                 for value in (
                     _optional_float(state["row"].get("valid_to")),
                     _state_closure_time(ordered, state),
-                    _state_start(states, index + 1) if index + 1 < len(states) else None,
+                    (_state_start(ordered, states, index + 1) if index + 1 < len(states) else None),
                 )
                 if value is not None
             ]
@@ -113,8 +114,48 @@ def _materialize_relationship_states(
             row["valid_from"] = start
             row["valid_to"] = end
             row["status"] = "active"
-            materialized.append(row)
+            triple_materialized.append(row)
+        _apply_latest_closed_segment_payloads(triple_materialized, ordered)
+        materialized.extend(triple_materialized)
     return materialized
+
+
+def _apply_latest_closed_segment_payloads(
+    materialized: List[Dict[str, Any]],
+    ordered: List[Dict[str, Any]],
+) -> None:
+    """Keep evidence added after closure attached to its historical segment."""
+    for snapshot in ordered:
+        if str(snapshot.get("status") or "") == "active":
+            continue
+        valid_from = _optional_float(snapshot.get("valid_from"))
+        valid_to = _optional_float(snapshot.get("valid_to"))
+        if valid_from is None or valid_to is None:
+            continue
+        for index, relationship in enumerate(materialized):
+            relationship_start = _optional_float(relationship.get("valid_from"))
+            relationship_end = _optional_float(relationship.get("valid_to"))
+            if (
+                relationship_start is None
+                or relationship_end is None
+                or not _same_timestamp(relationship_start, valid_from)
+                or not _same_timestamp(relationship_end, valid_to)
+                or str(relationship.get("claim_fingerprint") or "")
+                != str(snapshot.get("claim_fingerprint") or "")
+                or str(relationship.get("scope_key") or "global")
+                != str(snapshot.get("scope_key") or "global")
+            ):
+                continue
+            replacement = dict(snapshot)
+            replacement["valid_from"] = relationship_start
+            replacement["valid_to"] = relationship_end
+            replacement["status"] = "active"
+            materialized[index] = replacement
+            break
+
+
+def _same_timestamp(left: float, right: float) -> bool:
+    return abs(left - right) <= 1e-6
 
 
 def _deduplicate_snapshot_rows(
@@ -191,7 +232,11 @@ def _active_relationship_states(
     return states
 
 
-def _state_start(states: List[Dict[str, Any]], index: int) -> float:
+def _state_start(
+    ordered: List[Dict[str, Any]],
+    states: List[Dict[str, Any]],
+    index: int,
+) -> float:
     state = states[index]
     valid_from = _optional_float(state["row"].get("valid_from"))
     recorded_at = float(state["first_recorded_at"])
@@ -207,8 +252,20 @@ def _state_start(states: List[Dict[str, Any]], index: int) -> float:
             if value is not None
         ]
         return min(provenance_times, default=recorded_at)
-    previous_recorded_at = float(states[index - 1]["first_recorded_at"])
-    if valid_from is not None and valid_from >= previous_recorded_at:
+    previous_inactive_closures = [
+        _optional_float(snapshot.get("valid_to"))
+        or float(snapshot.get("_version_recorded_at") or 0.0)
+        for snapshot in ordered[
+            int(states[index - 1]["last_index"]) + 1 : int(state["first_index"])
+        ]
+        if str(snapshot.get("status") or "") != "active"
+    ]
+    previous_inactive_closure = max(previous_inactive_closures, default=None)
+    if (
+        valid_from is not None
+        and previous_inactive_closure is not None
+        and valid_from >= previous_inactive_closure - 1e-6
+    ):
         return valid_from
     return recorded_at
 

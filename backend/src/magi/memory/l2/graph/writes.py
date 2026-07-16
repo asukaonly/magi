@@ -178,6 +178,35 @@ def _prefer_longer_evidence_text(*, existing: str, new: str) -> str:
     return new if len(new) > len(existing) else existing
 
 
+def _relationship_covers_observed_at(
+    relationship: Mapping[str, Any],
+    observed_at: float,
+    *,
+    require_closed: bool = False,
+) -> bool:
+    """Return whether evidence belongs to this relationship validity segment."""
+    valid_from = (
+        float(relationship["valid_from"]) if relationship["valid_from"] is not None else None
+    )
+    if valid_from is None:
+        valid_from = (
+            float(relationship["first_observed_at"])
+            if relationship["first_observed_at"] is not None
+            else None
+        )
+    valid_to = float(relationship["valid_to"]) if relationship["valid_to"] is not None else None
+    expires_at = (
+        float(relationship["expires_at"]) if relationship["expires_at"] is not None else None
+    )
+    if require_closed and valid_to is None:
+        return False
+    return (
+        (valid_from is None or observed_at >= valid_from)
+        and (valid_to is None or observed_at < valid_to)
+        and (expires_at is None or observed_at < expires_at)
+    )
+
+
 class _GraphWriteHostProtocol(Protocol):
     db_path: str
 
@@ -296,9 +325,7 @@ class L2StoreGraphWriteMixin:
             valid_to=_optional_mapping_float(edge_write, "valid_to"),
             evidence_class=_optional_mapping_text(edge_write, "evidence_class"),
             scope=(
-                dict(edge_write["scope"])
-                if isinstance(edge_write.get("scope"), Mapping)
-                else None
+                dict(edge_write["scope"]) if isinstance(edge_write.get("scope"), Mapping) else None
             ),
         )
 
@@ -419,9 +446,7 @@ class L2StoreGraphWriteMixin:
         if rule is not None and rule.exclusive_group:
             predicate_slot = f"exclusive:{rule.exclusive_group}"
         elif rule is not None and rule.opposite_predicates:
-            family = ":".join(
-                sorted({normalized_predicate, *rule.opposite_predicates})
-            )
+            family = ":".join(sorted({normalized_predicate, *rule.opposite_predicates}))
             predicate_slot = f"opposites:{family}:{object_id}"
         return relationship_slot_key(
             subject_id=subject_id,
@@ -694,6 +719,16 @@ class L2StoreGraphWriteMixin:
         write: _KnowledgeEdgeWrite,
         existing: Mapping[str, Any],
     ) -> None:
+        if str(existing["status"] or "") != "active" or not _relationship_covers_observed_at(
+            existing,
+            write.observed_at,
+        ):
+            logger.info(
+                "L2 relationship evidence fell outside the authoritative segment",
+                triple_id=triple_id,
+                observed_at=write.observed_at,
+            )
+            return
         merged = _merge_edge_evidence(
             existing=existing,
             new_event_ids=write.evidence_event_ids,
@@ -728,7 +763,20 @@ class L2StoreGraphWriteMixin:
         if not triple_id:
             return
         existing = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
-        if existing is None or str(existing["status"]) == "active":
+        if (
+            existing is None
+            or str(existing["status"]) == "active"
+            or not _relationship_covers_observed_at(
+                existing,
+                write.observed_at,
+                require_closed=True,
+            )
+        ):
+            logger.info(
+                "L2 historical relationship evidence had no matching closed segment",
+                triple_id=triple_id,
+                observed_at=write.observed_at,
+            )
             return
         merged = _merge_edge_evidence(
             existing=existing,
@@ -779,6 +827,14 @@ class L2StoreGraphWriteMixin:
                 status="conflicted",
             )
         else:
+            if existing["authority_ref"]:
+                logger.info(
+                    "L2 conflicting evidence left authoritative relationship unchanged",
+                    triple_id=triple_id,
+                    authoritative_triple_id=authoritative_triple_id,
+                    observed_at=write.observed_at,
+                )
+                return
             await self._update_existing_knowledge_edge(
                 db=db,
                 triple_id=triple_id,

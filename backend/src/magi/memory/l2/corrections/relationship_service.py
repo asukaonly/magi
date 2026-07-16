@@ -116,7 +116,17 @@ class RelationshipCorrectionService:
                 replacement = _normalize_replacement(command, before, effective_at)
                 replacement_id = str(replacement["triple_id"]) if replacement is not None else None
                 if replacement_id and replacement_id != command.triple_id:
-                    await _ensure_replacement_absent(db, replacement_id)
+                    replacement_exists = await _ensure_replacement_reactivatable(
+                        db,
+                        replacement_id,
+                        effective_at=effective_at,
+                    )
+                    if replacement_exists:
+                        await _ensure_initial_version(
+                            db,
+                            replacement_id,
+                            now=now - 0.000001,
+                        )
 
                 correction = NewMemoryCorrection(
                     correction_id=correction_id,
@@ -191,9 +201,7 @@ class RelationshipCorrectionService:
                         updated_at=now,
                     )
                     affected_subjects = list(
-                        dict.fromkeys(
-                            [*_affected_subject_keys(before, replacement), *l3_subjects]
-                        )
+                        dict.fromkeys([*_affected_subject_keys(before, replacement), *l3_subjects])
                     )
                     subject_revisions: dict[str, int] = {}
                     for subject_key in affected_subjects:
@@ -335,9 +343,7 @@ class RelationshipCorrectionService:
                         correction.before,
                         correction.replacement,
                     )
-                    affected_subjects = list(
-                        dict.fromkeys([*affected_subjects, *l3_subjects])
-                    )
+                    affected_subjects = list(dict.fromkeys([*affected_subjects, *l3_subjects]))
                     subject_revisions: dict[str, int] = {}
                     for subject_key in affected_subjects:
                         revision = await self.repository.bump_subject_revision(
@@ -548,10 +554,7 @@ def _is_future_situation_change(
     effective_at: float,
     now: float,
 ) -> bool:
-    return (
-        correction_kind == CorrectionKind.SITUATION_CHANGED
-        and float(effective_at) > float(now)
-    )
+    return correction_kind == CorrectionKind.SITUATION_CHANGED and float(effective_at) > float(now)
 
 
 def _ensure_effective_at_not_before_relationship(
@@ -618,14 +621,28 @@ def _normalize_replacement(
     }
 
 
-async def _ensure_replacement_absent(
+async def _ensure_replacement_reactivatable(
     db: aiosqlite.Connection,
     triple_id: str,
-) -> None:
-    if await _load_edge(db, triple_id) is not None:
+    *,
+    effective_at: float,
+) -> bool:
+    existing = await _load_edge(db, triple_id)
+    if existing is None:
+        return False
+    status = str(existing["status"] or "")
+    if status != "deprecated":
         raise MemoryCorrectionConflictError(
             "Replacement relationship already exists and must be corrected directly"
         )
+    if str(existing["status_reason"] or "") == "user_forget":
+        raise MemoryCorrectionConflictError("Forgotten relationships cannot be reactivated")
+    valid_to = existing["valid_to"]
+    if valid_to is None or float(valid_to) > float(effective_at) + 0.000001:
+        raise MemoryCorrectionConflictError(
+            "Replacement relationship overlaps an existing validity period"
+        )
+    return True
 
 
 async def _close_original_edge(
@@ -810,11 +827,85 @@ async def _restore_original_edge(
         raise MemoryCorrectionValidationError(
             f"Correction snapshot is missing relationship fields: {', '.join(missing)}"
         )
+    restored = dict(before)
+    evidence_snapshot = await _latest_relationship_evidence_for_segment(
+        db,
+        triple_id=triple_id,
+        before=before,
+    )
+    if evidence_snapshot is not None:
+        for column in (
+            "confidence",
+            "evidence_event_ids",
+            "evidence_text",
+            "natural_summary",
+            "observation_count",
+            "first_observed_at",
+            "last_observed_at",
+            "last_confirmed_at",
+        ):
+            restored[column] = evidence_snapshot[column]
     assignments = ", ".join(f"{column} = ?" for column in _RESTORABLE_RELATIONSHIP_COLUMNS)
-    values = [before[column] for column in _RESTORABLE_RELATIONSHIP_COLUMNS]
+    values = [restored[column] for column in _RESTORABLE_RELATIONSHIP_COLUMNS]
     await db.execute(
         f"UPDATE knowledge_graph SET {assignments}, updated_at = ? WHERE triple_id = ?",
         (*values, now, triple_id),
+    )
+
+
+async def _latest_relationship_evidence_for_segment(
+    db: aiosqlite.Connection,
+    *,
+    triple_id: str,
+    before: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    current = await _load_edge(db, triple_id)
+    if current is not None:
+        current_snapshot = dict(current)
+        if _same_relationship_evidence_segment(before, current_snapshot):
+            return current_snapshot
+    async with db.execute(
+        """
+        SELECT * FROM knowledge_graph_versions
+        WHERE triple_id = ? AND governance_complete = 1
+        ORDER BY created_at DESC, version_id DESC
+        """,
+        (triple_id,),
+    ) as cursor:
+        versions = await cursor.fetchall()
+    for version in versions:
+        version_snapshot = dict(version)
+        if _same_relationship_evidence_segment(before, version_snapshot):
+            return version_snapshot
+    return None
+
+
+def _same_relationship_evidence_segment(
+    before: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> bool:
+    """Return whether current evidence still belongs to the corrected segment."""
+    identity_columns = (
+        "subject_id",
+        "predicate",
+        "object_id",
+        "scope_key",
+        "claim_fingerprint",
+    )
+    if any(
+        str(before.get(column) or "") != str(current.get(column) or "")
+        for column in identity_columns
+    ):
+        return False
+    before_start = before.get("valid_from")
+    current_start = current.get("valid_from")
+    if before_start is None or current_start is None:
+        return before_start is None and current_start is None
+    return math.isclose(
+        float(before_start),
+        float(current_start),
+        rel_tol=0.0,
+        abs_tol=1e-6,
     )
 
 

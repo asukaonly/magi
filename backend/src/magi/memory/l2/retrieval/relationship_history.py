@@ -165,9 +165,7 @@ async def _batch_list_governed_relationship_history(
         candidates_by_entity[str(entity_id)].add(str(triple_id))
     candidate_triple_ids = list(
         dict.fromkeys(
-            triple_id
-            for entity_id in unique_ids
-            for triple_id in candidates_by_entity[entity_id]
+            triple_id for entity_id in unique_ids for triple_id in candidates_by_entity[entity_id]
         )
     )
     if not candidate_triple_ids:
@@ -341,7 +339,21 @@ def _build_batch_historical_candidate_query(
                        PARTITION BY bucket_entity_id, triple_id
                        ORDER BY sort_at, source_order, snapshot_id
                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                   ) AS previous_active_at
+                   ) AS previous_active_at,
+                   MAX(
+                       CASE
+                           WHEN status != 'active' THEN COALESCE(valid_to, sort_at)
+                       END
+                   ) OVER (
+                       PARTITION BY bucket_entity_id, triple_id
+                       ORDER BY sort_at, source_order, snapshot_id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ) AS previous_inactive_closure,
+                   MAX(CASE WHEN status != 'active' THEN sort_at END) OVER (
+                       PARTITION BY bucket_entity_id, triple_id
+                       ORDER BY sort_at, source_order, snapshot_id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ) AS previous_inactive_recorded_at
             FROM snapshot_states
         ), state_starts AS (
             SELECT *,
@@ -365,7 +377,9 @@ def _build_batch_historical_candidate_query(
                            END
                        )
                        WHEN valid_from IS NOT NULL
-                            AND valid_from >= previous_active_at THEN valid_from
+                            AND previous_inactive_closure IS NOT NULL
+                            AND previous_inactive_recorded_at >= previous_active_at
+                            AND valid_from >= previous_inactive_closure THEN valid_from
                        ELSE sort_at
                    END AS state_start
             FROM ordered_states
@@ -560,7 +574,21 @@ def _build_historical_candidate_query(
                        PARTITION BY triple_id
                        ORDER BY sort_at, source_order, snapshot_id
                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                   ) AS previous_active_at
+                   ) AS previous_active_at,
+                   MAX(
+                       CASE
+                           WHEN status != 'active' THEN COALESCE(valid_to, sort_at)
+                       END
+                   ) OVER (
+                       PARTITION BY triple_id
+                       ORDER BY sort_at, source_order, snapshot_id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ) AS previous_inactive_closure,
+                   MAX(CASE WHEN status != 'active' THEN sort_at END) OVER (
+                       PARTITION BY triple_id
+                       ORDER BY sort_at, source_order, snapshot_id
+                       ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                   ) AS previous_inactive_recorded_at
             FROM snapshot_states
         ), state_starts AS (
             SELECT *,
@@ -584,7 +612,9 @@ def _build_historical_candidate_query(
                            END
                        )
                        WHEN valid_from IS NOT NULL
-                            AND valid_from >= previous_active_at THEN valid_from
+                            AND previous_inactive_closure IS NOT NULL
+                            AND previous_inactive_recorded_at >= previous_active_at
+                            AND valid_from >= previous_inactive_closure THEN valid_from
                        ELSE sort_at
                    END AS state_start
             FROM ordered_states

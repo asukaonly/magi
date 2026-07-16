@@ -896,6 +896,13 @@ rules are evaluated against when the candidate evidence was observed, so evidenc
 from before a scheduled change cannot be governed as though the change had already
 happened.
 
+When the same relationship becomes true again after an intervening state, it
+reuses the relationship identity but starts a new, non-overlapping validity
+segment. Immutable snapshots retain every segment, and later evidence can update
+only the segment whose validity interval covers when that evidence was observed.
+Reverting a correction restores evidence from the matching segment without
+mixing evidence from a later recurrence.
+
 Raw L1 evidence is preserved for audit and narrative history, but it does not
 bypass an active correction. For fact-authoritative modes, an L1 event that
 supports an active assertion or relationship correction is removed before
