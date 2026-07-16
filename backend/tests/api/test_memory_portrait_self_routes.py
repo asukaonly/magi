@@ -229,8 +229,9 @@ def test_hides_stale_cached_portrait_when_metadata_rebuild_fails():
 
     body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
 
-    assert body["is_cold_start"] is True
-    assert body["cold_start_reason"] == "no_understanding"
+    assert body["is_cold_start"] is False
+    assert body["is_stale"] is True
+    assert body["cold_start_reason"] is None
     portrait_repo.upsert.assert_not_awaited()
 
 

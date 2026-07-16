@@ -36,12 +36,14 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
             {t('memory.portrait.world.summaryTitle')}
           </h2>
           <div className="mt-8 grid gap-x-14 gap-y-10 md:grid-cols-2" data-testid="portrait-world-groups">
-            {visibleGroups.map((group) => (
-              <article
-                key={group.id}
-                data-testid={`portrait-world-branch-${group.id}`}
-                className="min-w-0"
-              >
+            {visibleGroups.map((group) => {
+              const detailItems = group.summary ? group.items : group.items.slice(4);
+              return (
+                <article
+                  key={group.id}
+                  data-testid={`portrait-world-branch-${group.id}`}
+                  className="min-w-0"
+                >
                 <h3 className="text-xs font-semibold text-[hsl(var(--memory-muted))]">
                   {t(`memory.portrait.world.groups.${group.id}`)}
                 </h3>
@@ -70,17 +72,17 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                       </div>
                     ))
                   )}
-                  {group.summary && group.items.length > 0 ? (
+                  {detailItems.length > 0 ? (
                     <details className="group/details pt-1">
                       <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
                         {t('memory.portrait.world.inspectItems', {
                           defaultValue: '查看 {{count}} 条具体信息',
-                          count: group.items.length,
+                          count: detailItems.length,
                         })}
                         <ChevronDown className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" aria-hidden="true" />
                       </summary>
                       <div className="mt-2 space-y-2">
-                        {group.items.map((item) => (
+                        {detailItems.map((item) => (
                           <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 py-2.5">
                             <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
                             {item.assertionId ? (
@@ -112,8 +114,9 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                     </details>
                   ) : null}
                 </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
           </div>
         </div>
       ) : null}

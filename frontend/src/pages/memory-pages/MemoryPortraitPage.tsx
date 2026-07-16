@@ -47,6 +47,24 @@ const PortraitEmptyState = () => {
   );
 };
 
+const PortraitLoadError = ({ onRetry }: { onRetry: () => void }) => {
+  const { t } = useTranslation('app');
+
+  return (
+    <div className="max-w-md text-center">
+      <h1 className="text-xl font-semibold text-[hsl(var(--memory-title))]">
+        {t('memory.portrait.loadFailed.title')}
+      </h1>
+      <p className="mt-3 text-sm leading-6 text-[hsl(var(--memory-body))]">
+        {t('memory.portrait.loadFailed.body')}
+      </p>
+      <Button className="mt-5" variant="secondary" onClick={onRetry}>
+        {t('memory.portrait.loadFailed.retry')}
+      </Button>
+    </div>
+  );
+};
+
 export const MemoryPortraitPage = () => {
   const { t } = useTranslation('app');
   const setActivePanel = useChatShellStore((state) => state.setActivePanel);
@@ -128,24 +146,24 @@ export const MemoryPortraitPage = () => {
               {t('memory.portrait.loading', { defaultValue: '正在读取关于你的内容…' })}
             </p>
           ) : loadError ? (
-            <div className="max-w-md text-center">
-              <h1 className="text-xl font-semibold text-[hsl(var(--memory-title))]">
-                {t('memory.portrait.loadFailed.title', { defaultValue: '暂时没能读取关于你的内容' })}
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-[hsl(var(--memory-body))]">
-                {t('memory.portrait.loadFailed.body', { defaultValue: '已有内容没有丢失，请稍后再试。' })}
-              </p>
-              <Button className="mt-5" variant="secondary" onClick={() => void loadPortrait()}>
-                {t('memory.portrait.loadFailed.retry', { defaultValue: '重新读取' })}
-              </Button>
-            </div>
+            <PortraitLoadError onRetry={() => void loadPortrait()} />
           ) : null}
         </section>
       </MemoryPageFrame>
     );
   }
 
-  if (payload.is_cold_start) {
+  if (payload.is_stale) {
+    return (
+      <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
+        <section className="mx-auto flex min-h-[clamp(28rem,68vh,42rem)] w-full max-w-5xl items-center justify-center px-4">
+          <PortraitLoadError onRetry={() => void loadPortrait()} />
+        </section>
+      </MemoryPageFrame>
+    );
+  }
+
+  if (payload.is_cold_start && correctionTarget === null) {
     return (
       <MemoryPageFrame title={t('memory.portrait.title')} description={t('memory.portrait.subtitle')} hideHeader>
         <PortraitEmptyState />

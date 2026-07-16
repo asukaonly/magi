@@ -60,12 +60,16 @@ def build_router() -> APIRouter:
 async def _get_self_portrait(user_id: str) -> dict[str, Any]:
     l2 = _resolve_l2()
     profile_projection = await _load_profile_projection(user_id)
-    portrait_projection = await _load_or_build_portrait_projection(
+    portrait_projection, rebuild_failed = await _load_or_build_portrait_projection(
         user_id=user_id,
         l2=l2,
         profile_projection=profile_projection,
     )
-    return _portrait_payload(portrait_projection, user_id=user_id)
+    return _portrait_payload(
+        portrait_projection,
+        user_id=user_id,
+        rebuild_failed=rebuild_failed,
+    )
 
 
 async def _load_or_build_portrait_projection(
@@ -73,7 +77,7 @@ async def _load_or_build_portrait_projection(
     user_id: str,
     l2: Any,
     profile_projection: Any,
-) -> UserPortraitProjection | None:
+) -> tuple[UserPortraitProjection | None, bool]:
     portrait_repo = _resolve_portrait_repo()
     cached = await _load_portrait_projection(portrait_repo, user_id)
     if cached is not None:
@@ -88,7 +92,7 @@ async def _load_or_build_portrait_projection(
             logger.debug("self portrait: freshness check failed: %s", exc)
             is_stale = False
         if not is_stale:
-            return cached
+            return cached, False
 
     rebuilt = await _build_portrait_projection(
         user_id=user_id,
@@ -96,14 +100,14 @@ async def _load_or_build_portrait_projection(
         profile_projection=profile_projection,
     )
     if rebuilt is None:
-        return None
+        return None, True
     if portrait_repo is None:
-        return rebuilt
+        return rebuilt, False
     try:
-        return await portrait_repo.upsert(rebuilt)
+        return await portrait_repo.upsert(rebuilt), False
     except Exception as exc:
         logger.debug("self portrait: projection persistence failed: %s", exc)
-        return rebuilt
+        return rebuilt, False
 
 
 async def _load_profile_projection(user_id: str) -> Any:
@@ -150,6 +154,7 @@ def _portrait_payload(
     projection: UserPortraitProjection | None,
     *,
     user_id: str,
+    rebuild_failed: bool = False,
 ) -> dict[str, Any]:
     if projection is None:
         projection = UserPortraitProjection(
@@ -165,14 +170,14 @@ def _portrait_payload(
         "review": projection.review or {"items": []},
         "recent": projection.recent or {"items": []},
     }
-    is_cold_start = not _projection_has_content(projection)
+    is_cold_start = not rebuild_failed and not _projection_has_content(projection)
     return {
         "generated_at": projection.generated_at or time.time(),
         "self_view": self_view,
         "is_cold_start": is_cold_start,
         "cold_start_line": None,
         "cold_start_reason": "no_understanding" if is_cold_start else None,
-        "is_stale": False,
+        "is_stale": rebuild_failed,
     }
 
 

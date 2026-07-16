@@ -117,6 +117,43 @@ describe('MemoryPortraitPage', () => {
     expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
   });
 
+  it('shows a retryable error instead of an empty state when rebuilding fails', async () => {
+    vi.mocked(memoryPortraitSelfApi.get)
+      .mockResolvedValueOnce({
+        generated_at: 0,
+        self_view: {
+          world: { total_count: 0, groups: [] },
+          review: { items: [] },
+          recent: { items: [] },
+        },
+        is_cold_start: false,
+        cold_start_line: null,
+        cold_start_reason: null,
+        is_stale: true,
+      })
+      .mockResolvedValueOnce({
+        generated_at: 1,
+        self_view: {
+          world: { total_count: 0, groups: [] },
+          review: { items: [] },
+          recent: { items: [] },
+        },
+        is_cold_start: true,
+        cold_start_line: null,
+        cold_start_reason: 'no_understanding',
+        is_stale: false,
+      });
+
+    renderPage();
+
+    expect(await screen.findByRole('heading', {
+      name: '暂时没能读取关于你的内容',
+    })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '还在认识你' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+    expect(await screen.findByRole('heading', { name: '还在认识你' })).toBeInTheDocument();
+  });
+
   it('renders an actionable cold-start state without an empty portrait shell', async () => {
     vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
       generated_at: 0,
@@ -244,6 +281,42 @@ describe('MemoryPortraitPage', () => {
     expect(screen.getByText('画像页面')).toBeInTheDocument();
     expect(screen.getByText('正在验证 L2 页面模型')).toBeInTheDocument();
     expect(screen.getByText('已形成 3 条理解')).toBeInTheDocument();
+  });
+
+  it('keeps every unsummarized portrait item available for correction', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      generated_at: 0,
+      self_view: {
+        world: {
+          total_count: 5,
+          groups: [{
+            id: 'preferences',
+            items: [1, 2, 3, 4, 5].map((index) => ({
+              id: `preference-${index}`,
+              text: `偏好 ${index}`,
+              source: '',
+              source_key: null,
+              assertion_id: `assert-${index}`,
+              basis_count: 1,
+              basis_refs: [],
+            })),
+          }],
+        },
+        review: { items: [] },
+        recent: { items: [] },
+      },
+      is_cold_start: false,
+      cold_start_line: null,
+      cold_start_reason: null,
+      is_stale: false,
+    });
+
+    renderPage();
+
+    const preferences = await screen.findByTestId('portrait-world-branch-preferences');
+    fireEvent.click(within(preferences).getByText('查看并修正 1 条具体记忆'));
+    fireEvent.click(within(preferences).getByRole('button', { name: '修正 偏好 5' }));
+    expect(await screen.findByRole('dialog', { name: '修正这条记忆' })).toBeInTheDocument();
   });
 
   it('renders recent interests and projects as readable temporary signals', async () => {
@@ -583,20 +656,30 @@ describe('MemoryPortraitPage', () => {
   });
 
   it('asks for confirmation before removing an inaccurate review item', async () => {
-    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
-      generated_at: 0,
-      self_view: {
-        world: { total_count: 0, groups: [] },
-        review: {
-          items: [{
-            id: 'review-1', text: '我每天跑步', source: '', source_key: null,
-            assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200,
-          }],
+    vi.mocked(memoryPortraitSelfApi.get)
+      .mockResolvedValueOnce({
+        generated_at: 0,
+        self_view: {
+          world: { total_count: 0, groups: [] },
+          review: {
+            items: [{
+              id: 'review-1', text: '我每天跑步', source: '', source_key: null,
+              assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200,
+            }],
+          },
+          recent: { items: [] },
         },
-        recent: { items: [] },
-      },
-      is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
-    });
+        is_cold_start: false, cold_start_line: null, cold_start_reason: null, is_stale: false,
+      })
+      .mockResolvedValueOnce({
+        generated_at: 1,
+        self_view: {
+          world: { total_count: 0, groups: [] },
+          review: { items: [] },
+          recent: { items: [] },
+        },
+        is_cold_start: true, cold_start_line: null, cold_start_reason: 'no_understanding', is_stale: false,
+      });
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction-remove', request_id: 'request-remove', actor_id: 'user:self',
@@ -619,6 +702,8 @@ describe('MemoryPortraitPage', () => {
 
     await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
     expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
+    expect(await within(dialog).findByText('已经按你的意思修正')).toBeInTheDocument();
+    expect(memoryPortraitSelfApi.get).toHaveBeenCalledTimes(2);
   });
 
   it('lets users open an exact long-term memory from a grouped summary and correct it', async () => {
