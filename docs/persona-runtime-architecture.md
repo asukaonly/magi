@@ -464,13 +464,17 @@ Post-generation cleanup should correct deterministic quality issues before valid
 
 Bootstrap first-meeting prompts are separate from normal registers. They should guide a short first-contact opening without requiring the persona to conceal being AI or to claim physical-human experiences outside the persona config. When the user starts the first real chat from onboarding by answering an ordinary-life question, that submitted turn consumes the same one-shot first-contact state; the chat page must not inject a second opening afterward.
 
-Onboarding persona preview prompts are also separate from the full chat runtime.
-They should remain lightweight and skip memory, tools, relationship depth,
-dynamic state, and trigger classification, but they must include enough of the
-seed persona to be recognizable: stable identity, baseline voice, ordinary chat
-behavior, tone-down rules, and a small set of examples that demonstrate both
-voice and restraint. Preview prompts should make the test-chat scene explicit so
-the model answers in character instead of explaining the persona card.
+Onboarding persona preview must use the same first-turn prompt assembly,
+`PersonaTurnPlanner`, universal chat voice rules, and conversation-rhythm
+validation as normal chat. It must not maintain a separate, reduced persona
+prompt. Preset personas and unsaved generated personas both provide their full
+config to this path, so registers, examples, quiet hours, triggers, and dynamic
+rules are interpreted by the same planner. The preview is an ephemeral session
+with no tool catalog or durable chat, memory, relationship, milestone, or
+emotional-state store; those inputs therefore remain naturally empty, as they do
+for a new conversation without prior context. Validated rhythm segments may be
+shown as separate bubbles, while subsequent preview turns send them back to the
+model as one assistant turn.
 
 ## Migration From Current Code
 

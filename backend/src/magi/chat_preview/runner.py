@@ -3,10 +3,8 @@
 The single public function is ``run_preview``. It must:
 - Force the `core` scenario model (caller supplies the model id explicitly)
 - Skip tool invocation entirely
-- Skip the memory pipeline entirely
-- Skip context_decider routing
+- Receive an already-assembled normal first-chat system prompt
 - Stream output tokens via an async generator
-- Build the system prompt from the persona seed via a caller-supplied loader
 
 Dependencies are injected (persona loader + llm caller) so unit tests don't
 need the real persona registry or LLM provider.

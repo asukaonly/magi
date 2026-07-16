@@ -298,6 +298,7 @@ Design expectations:
 - persona deletion is soft deletion. Ordinary persona lists hide deleted records, while historical chat rendering may use `include_deleted` registry lookups so old messages can still resolve their persona identity.
 - personality content should remain language-aware
 - persona behavior should be planned per turn by the Personality Layer before prompt rendering; final response prompts should receive only the selected register, quiet-hour clamps, active triggers, relationship modifiers, and dynamic-state modulations for that turn
+- onboarding persona preview should reuse normal first-turn persona prompt assembly and reply rhythm for both presets and unsaved generated personas; it should omit tools and durable writes, while unavailable history, memory, and relationship inputs remain naturally empty
 - ordinary low-performance persona expression should be valid most of the time; personality should usually appear through attention bias, judgment, and conversational stance rather than constant catchphrases
 - state-transition behavior should be replaced by signature triggers and quiet-hour clamps; analysis, worker, and tool-result rendering should use task or analysis registers instead of inheriting casual-chat performance
 - first-run persona setup should stay simpler than the full editor

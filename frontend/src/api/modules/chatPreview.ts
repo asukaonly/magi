@@ -9,22 +9,15 @@
 
 import { resolveApiBaseUrl } from '../client';
 import type { LLMConfig } from './config';
+import type { PersonalityConfig } from './personas';
 
 export interface PreviewTurn {
   role: 'user' | 'assistant';
   content: string;
 }
 
-/**
- * Inline, unsaved persona identity for previewing a freshly-generated persona
- * (onboarding) before it exists as a seed. Mirrors the backend
- * `PreviewPersonaOverride`.
- */
-export interface PreviewPersonaOverride {
-  name: string;
-  identity_statement: string;
-  sentence_style: string;
-}
+/** Complete inline persona config for an unsaved onboarding draft. */
+export type PreviewPersonaOverride = PersonalityConfig;
 
 export interface ChatPreviewRequest {
   /** A known persona seed. Omit when sending `persona_override` instead. */
@@ -45,7 +38,7 @@ export interface ChatPreviewRequest {
    */
   llm_override?: LLMConfig;
   /**
-   * Optional inline persona identity. Used to preview an onboarding-generated
+   * Optional complete inline persona config. Used to preview an onboarding-generated
    * (unsaved) persona; exactly one of `seed_slug` / `persona_override` must be
    * provided.
    */

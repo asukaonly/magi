@@ -468,6 +468,7 @@ describe('PersonaPreviewChat', () => {
         vocab_available: [],
         vocab_avoided: [],
         structural_quirks: [],
+        chattiness: 0.8,
       },
       registers: {},
       quiet_hours: [],
@@ -550,15 +551,37 @@ describe('PersonaPreviewChat', () => {
     await waitFor(() => {
       expect(mockStream).toHaveBeenCalledWith(
         expect.objectContaining({
-          persona_override: {
-            name: 'Sage',
-            identity_statement: 'a patient mentor',
-            sentence_style: 'measured and kind',
-          },
+          persona_override: generated,
           llm_override: llmConfig,
         }),
       );
     });
+  });
+
+  it('renders validated rhythm segments as bubbles and collapses them in history', async () => {
+    mockStream
+      .mockImplementationOnce(() => makeAsyncIter(['first reply‖second reply']))
+      .mockImplementationOnce(() => makeAsyncIter(['third reply']));
+
+    renderPersonaPreview({ previews });
+    const input = screen.getByPlaceholderText(/composerPlaceholder/i);
+    const sendButton = screen.getByRole('button', { name: /^(personaPreview\.)?send$/i });
+
+    await userEvent.type(input, 'first question');
+    await userEvent.click(sendButton);
+    await waitFor(() => expect(screen.getByText('second reply')).toBeInTheDocument());
+
+    expect(screen.getAllByTestId('persona-preview-assistant-bubble')).toHaveLength(2);
+    expect(screen.getByText('first reply')).toBeInTheDocument();
+
+    await userEvent.type(input, 'second question');
+    await userEvent.click(sendButton);
+    await waitFor(() => expect(screen.getByText('third reply')).toBeInTheDocument());
+
+    expect(mockStream.mock.calls[1][0].history).toEqual([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first reply\nsecond reply' },
+    ]);
   });
 
   it('disables every persona control and keeps confirmation errors visible', () => {

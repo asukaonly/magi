@@ -9,6 +9,32 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from magi.api.routers.chat_preview_routes import build_default_chat_preview_router
+from magi.personality.loader import PersonalityConfig
+
+
+def _persona_config(name: str = "Nova") -> PersonalityConfig:
+    return PersonalityConfig.from_dict(
+        {
+            "name": name,
+            "identity_core": {
+                "identity_statement": "A calm, curious companion.",
+                "values_loved": ["honesty"],
+                "attention_biases": ["the user's emotional tone"],
+            },
+            "idiolect": {
+                "sentence_style": "Short and warm.",
+                "structural_quirks": ["Uses short chat messages."],
+                "chattiness": 0.8,
+            },
+            "registers": {
+                "chat": {
+                    "description": "Ordinary conversation",
+                    "behavior": "Use short sentences and a quick rhythm.",
+                    "examples": ["[User: hi]\n* Good: hey."],
+                }
+            },
+        }
+    )
 
 
 @pytest.fixture
@@ -17,10 +43,10 @@ def app_with_preview():
         for chunk in ["hi", " ", "there"]:
             yield chunk
 
-    def fake_loader(seed_slug: str, locale: str) -> str:
+    def fake_loader(seed_slug: str, locale: str) -> PersonalityConfig:
         if seed_slug == "ghost":
             raise ValueError("unknown seed: ghost")
-        return f"<system prompt for {seed_slug} ({locale})>"
+        return _persona_config(f"{seed_slug}-{locale}")
 
     # The LLM deps now receive the request's optional ``llm_override``; the
     # fakes ignore it but must accept the positional arg.
@@ -114,7 +140,7 @@ def test_post_preview_threads_llm_override_to_deps() -> None:
     app = FastAPI()
     app.include_router(
         build_default_chat_preview_router(
-            persona_loader_dep=lambda: (lambda slug, locale: f"<prompt {slug}>"),
+            persona_loader_dep=lambda: (lambda slug, locale: _persona_config(slug)),
             llm_call_dep=llm_call_dep,
             core_model_dep=core_model_dep,
         ),
@@ -160,10 +186,10 @@ def _capture_prompt_app(captured: dict) -> FastAPI:
         captured["system_prompt"] = system_prompt
         yield "ok"
 
-    def fake_loader(seed_slug: str, locale: str) -> str:
+    def fake_loader(seed_slug: str, locale: str) -> PersonalityConfig:
         if not seed_slug:
             raise ValueError("unknown seed: ")
-        return f"<seed prompt for {seed_slug} ({locale})>"
+        return _persona_config(f"{seed_slug}-{locale}")
 
     app = FastAPI()
     app.include_router(
@@ -176,8 +202,8 @@ def _capture_prompt_app(captured: dict) -> FastAPI:
     return app
 
 
-def test_post_preview_accepts_persona_override() -> None:
-    """An inline persona_override drives the system prompt without a seed_slug."""
+def test_post_preview_accepts_complete_persona_override() -> None:
+    """An unsaved persona uses the normal prompt with its complete behavior config."""
     captured: dict[str, str] = {}
     client = TestClient(_capture_prompt_app(captured))
     with client.stream(
@@ -188,8 +214,22 @@ def test_post_preview_accepts_persona_override() -> None:
             "message": {"role": "user", "content": "hi"},
             "persona_override": {
                 "name": "Aria",
-                "identity_statement": "a calm, curious companion",
-                "sentence_style": "short and warm",
+                "identity_core": {
+                    "identity_statement": "a calm, curious companion",
+                    "values_loved": ["honesty"],
+                },
+                "idiolect": {
+                    "sentence_style": "short and warm",
+                    "structural_quirks": ["Never turns casual chat into a list."],
+                    "chattiness": 0.9,
+                },
+                "registers": {
+                    "chat": {
+                        "description": "ordinary chat",
+                        "behavior": "Use short sentences and quick particles.",
+                        "examples": ["[User: hello]\n* Good: hey."],
+                    }
+                },
             },
         },
     ) as response:
@@ -197,10 +237,18 @@ def test_post_preview_accepts_persona_override() -> None:
         b"".join(response.iter_bytes())
 
     prompt = captured["system_prompt"]
-    # The override (not the seed loader) supplied the prompt.
+    # The complete override (not the seed loader) supplied the normal prompt.
+    assert "# System Definition" in prompt
+    assert "# Persona Runtime Plan" in prompt
+    assert "# Persona Turn Steer" in prompt
     assert "Aria" in prompt
     assert "a calm, curious companion" in prompt
     assert "short and warm" in prompt
+    assert "Use short sentences and quick particles." in prompt
+    assert "[User: hello]" in prompt
+    assert "Most replies are 1-3 lines." in prompt
+    assert "# Tool Use Guidance" not in prompt
+    assert "Persona preview scene" not in prompt
     assert "seed prompt" not in prompt
 
 
@@ -244,39 +292,53 @@ async def test_stream_preview_text_yields_visible_text_with_thinking_off() -> No
     assert bridge.kwargs["messages"] == [{"role": "user", "content": "hi"}]
 
 
-def test_resolve_persona_prompt_reads_locale_preset() -> None:
+def test_resolve_persona_config_reads_locale_preset() -> None:
     """The production resolver reads personalities/{locale}/{slug}.json.
 
     Regression: the old loader searched only non-locale paths, so real seeds
     (which live under personalities/{locale}/) raised 'unknown seed'.
     """
-    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+    from magi.api.routers.chat_preview_routes import _resolve_persona_config
 
-    prompt = _resolve_persona_prompt("echo_ai_assistant", "zh")
-    assert prompt.startswith("You are ")
-    assert "Language style:" in prompt
+    config = _resolve_persona_config("echo_ai_assistant", "zh")
+    assert config.name
+    assert config.identity_core.identity_statement
+    assert config.idiolect.sentence_style
 
 
-def test_resolve_persona_prompt_includes_seed_preview_behavior_rules() -> None:
-    """Onboarding preview should show the persona's behavior, not just a bio."""
-    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+@pytest.mark.asyncio
+async def test_seed_preview_uses_normal_first_chat_prompt() -> None:
+    """Bundled personas use normal identity, planner, examples, and empty context."""
+    from magi.api.routers.chat_preview_routes import _resolve_persona_config
+    from magi.chat_preview import build_preview_system_prompt
 
-    prompt = _resolve_persona_prompt("seven_hacker", "zh")
+    config = _resolve_persona_config("seven_hacker", "zh")
+    prompt = await build_preview_system_prompt(
+        persona_config=config,
+        user_message="第一次见面，你会怎么和我相处？",
+    )
 
-    assert "Persona preview" in prompt
+    assert "# System Definition" in prompt
+    assert "# Persona Runtime Plan" in prompt
+    assert "# Persona Turn Steer" in prompt
+    assert "Most replies are 1-3 lines." in prompt
     assert "默认 1-3 句" in prompt
     assert "不用bullet list处理日常对话" in prompt
-    assert "[User: 几点了？]" in prompt
-    assert "* Good: 4 点。" in prompt
+    assert "## Relevant Persona Examples" in prompt
+    assert "* Good:" in prompt
+    assert "# Memory Library" in prompt
+    assert "* (empty)" in prompt
+    assert "# Tool Use Guidance" not in prompt
+    assert "Persona preview scene" not in prompt
     assert "seven_guard_down" not in prompt
     assert "当场认大哥" not in prompt
 
 
-def test_resolve_persona_prompt_unknown_seed_raises() -> None:
-    from magi.api.routers.chat_preview_routes import _resolve_persona_prompt
+def test_resolve_persona_config_unknown_seed_raises() -> None:
+    from magi.api.routers.chat_preview_routes import _resolve_persona_config
 
     with pytest.raises(ValueError):
-        _resolve_persona_prompt("does_not_exist", "zh")
+        _resolve_persona_config("does_not_exist", "zh")
 
 
 def test_post_preview_threads_locale_to_loader() -> None:
@@ -286,10 +348,10 @@ def test_post_preview_threads_locale_to_loader() -> None:
     async def fake_llm(*, system_prompt, messages, model):
         yield "ok"
 
-    def fake_loader(seed_slug: str, locale: str) -> str:
+    def fake_loader(seed_slug: str, locale: str) -> PersonalityConfig:
         seen["seed_slug"] = seed_slug
         seen["locale"] = locale
-        return "<prompt>"
+        return _persona_config(seed_slug)
 
     app = FastAPI()
     app.include_router(
@@ -328,3 +390,31 @@ def test_post_preview_requires_seed_or_override() -> None:
         },
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_finalize_preview_text_preserves_valid_chat_bubbles(monkeypatch) -> None:
+    from magi.api.routers.chat_preview_routes import _finalize_preview_text
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    monkeypatch.setattr(
+        ResponseRhythmPlanner,
+        "_is_enabled",
+        staticmethod(lambda: True),
+    )
+    result = await _finalize_preview_text("first short message‖second short message")
+    assert result == "first short message‖second short message"
+
+
+@pytest.mark.asyncio
+async def test_finalize_preview_text_strips_invalid_bubble_markers(monkeypatch) -> None:
+    from magi.api.routers.chat_preview_routes import _finalize_preview_text
+    from magi.chat.task_agent.rhythm import ResponseRhythmPlanner
+
+    monkeypatch.setattr(
+        ResponseRhythmPlanner,
+        "_is_enabled",
+        staticmethod(lambda: True),
+    )
+    result = await _finalize_preview_text("one‖two‖three‖four‖five‖six‖seven")
+    assert result == "one two three four five six seven"

@@ -24,6 +24,7 @@ export interface Idiolect {
   vocab_available: string[];
   vocab_avoided: string[];
   structural_quirks: string[];
+  chattiness?: number;
 }
 
 export interface PersonaRegister {
@@ -81,6 +82,7 @@ export interface BootstrapConfig {
   style_instruction: string;
   opening_line: string;
   max_rounds: number;
+  opening_examples?: string[];
 }
 
 export interface PersonalityConfig {
@@ -173,6 +175,7 @@ export const DEFAULT_IDIOLECT: Idiolect = {
   vocab_available: [],
   vocab_avoided: [],
   structural_quirks: [],
+  chattiness: 0.5,
 };
 
 export const DEFAULT_SIGNATURE_TRIGGERS: SignatureTrigger[] = [

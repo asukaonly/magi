@@ -15,6 +15,7 @@ import { PersonaPreviewStarterChips } from './PersonaPreviewStarterChips';
 import { PersonaProfilePanel } from './PersonaProfilePanel';
 
 const MAX_USER_TURNS_PER_PERSONA = 5;
+const PREVIEW_SEGMENT_SENTINEL = '‖';
 
 /**
  * An onboarding-generated persona draft with its final stable registry ID.
@@ -63,6 +64,28 @@ export interface PersonaPreviewChatProps {
 }
 
 type TranscriptMap = Record<string, PreviewTurn[]>;
+
+function collapsePreviewHistory(turns: PreviewTurn[]): PreviewTurn[] {
+  return turns.reduce<PreviewTurn[]>((history, turn) => {
+    const previous = history[history.length - 1];
+    if (turn.role === 'assistant' && previous?.role === 'assistant') {
+      history[history.length - 1] = {
+        role: 'assistant',
+        content: `${previous.content}\n${turn.content}`,
+      };
+      return history;
+    }
+    history.push({ ...turn });
+    return history;
+  }, []);
+}
+
+function splitPreviewReply(content: string): string[] {
+  return content
+    .split(PREVIEW_SEGMENT_SENTINEL)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
 
 interface RailItem {
   slug: string;
@@ -250,19 +273,19 @@ export function PersonaPreviewChat({
     });
   }, []);
 
-  const updateLastAssistantContent = useCallback(
-    (seedSlug: string, deltaText: string) => {
+  const finalizeAssistantContent = useCallback(
+    (seedSlug: string, content: string) => {
       setTranscripts((prev) => {
         const list = prev[seedSlug] ?? [];
         const lastIdx = list.length - 1;
         if (lastIdx < 0 || list[lastIdx].role !== 'assistant') return prev;
-        const updated: PreviewTurn = {
-          role: 'assistant',
-          content: list[lastIdx].content + deltaText,
-        };
+        const segments = splitPreviewReply(content);
+        const assistantTurns = (segments.length > 0 ? segments : [content]).map<PreviewTurn>(
+          (segment) => ({ role: 'assistant', content: segment }),
+        );
         return {
           ...prev,
-          [seedSlug]: [...list.slice(0, lastIdx), updated],
+          [seedSlug]: [...list.slice(0, lastIdx), ...assistantTurns],
         };
       });
     },
@@ -273,20 +296,17 @@ export function PersonaPreviewChat({
     if (disabled || !activeSeed || !draft.trim() || busy || capReached) return;
     const userTurn: PreviewTurn = { role: 'user', content: draft.trim() };
     const seed = activeSeed;
-    const snapshotHistory = transcripts[seed] ?? [];
+    const snapshotHistory = collapsePreviewHistory(transcripts[seed] ?? []);
     // A custom (unsaved) persona has no seed file — preview it inline.
     const personaOverride =
       activeItem?.isCustom && activeItem.config
-        ? {
-            name: activeItem.config.name,
-            identity_statement: activeItem.config.identity_core.identity_statement,
-            sentence_style: activeItem.config.idiolect.sentence_style,
-          }
+        ? activeItem.config
         : undefined;
     appendTurn(seed, userTurn);
     appendTurn(seed, { role: 'assistant', content: '' });
     setDraft('');
     setBusy(true);
+    let responseText = '';
     try {
       for await (const chunk of streamChatPreview({
         seed_slug: personaOverride ? undefined : seed,
@@ -296,10 +316,12 @@ export function PersonaPreviewChat({
         message: userTurn,
         llm_override: llmConfig,
       })) {
-        updateLastAssistantContent(seed, chunk);
+        responseText += chunk;
       }
+      finalizeAssistantContent(seed, responseText);
     } catch (err) {
-      updateLastAssistantContent(seed, `\n[error: ${(err as Error).message}]`);
+      const prefix = responseText ? `${responseText}\n` : '';
+      finalizeAssistantContent(seed, `${prefix}[error: ${(err as Error).message}]`);
     } finally {
       setBusy(false);
     }
@@ -314,7 +336,7 @@ export function PersonaPreviewChat({
     locale,
     llmConfig,
     appendTurn,
-    updateLastAssistantContent,
+    finalizeAssistantContent,
   ]);
 
   const handleChipPick = useCallback((prompt: string) => {
@@ -655,6 +677,11 @@ export function PersonaPreviewChat({
                     className={`mb-2 flex ${turn.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <span
+                      data-testid={
+                        turn.role === 'assistant'
+                          ? 'persona-preview-assistant-bubble'
+                          : 'persona-preview-user-bubble'
+                      }
                       className={`inline-block max-w-[80%] whitespace-pre-wrap border border-border/55 bg-card px-4 py-2.5 text-sm text-foreground shadow-sm ${
                         turn.role === 'user'
                           ? 'rounded-xl rounded-tr-sm'

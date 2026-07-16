@@ -7519,30 +7519,58 @@ export interface components {
              */
             readonly locale: string;
             readonly message: components["schemas"]["PreviewTurn"];
-            /** @description Optional inline persona identity (onboarding) */
+            /** @description Optional complete inline persona config (onboarding) */
             readonly persona_override?: components["schemas"]["PreviewPersonaOverride"] | null;
             /** Seed Slug */
             readonly seed_slug?: string | null;
         };
         /**
          * PreviewPersonaOverride
-         * @description Inline, unsaved persona identity for previewing a freshly-generated
-         *     persona (onboarding) before it exists as a seed. Carries the same three
-         *     fields the seed loader distills into a flat preview system prompt.
+         * @description Complete unsaved persona config for onboarding preview chat.
          */
         readonly PreviewPersonaOverride: {
             /**
-             * Identity Statement
+             * Appearance Prompt
              * @default
              */
-            readonly identity_statement: string;
+            readonly appearance_prompt: string;
+            /**
+             * Avatar
+             * @default
+             */
+            readonly avatar: string;
+            readonly bootstrap?: components["schemas"]["BootstrapConfigModel"] | null;
+            /**
+             * Description
+             * @default
+             */
+            readonly description: string;
+            /** Dynamic State Rules */
+            readonly dynamic_state_rules?: {
+                readonly [key: string]: string;
+            };
+            readonly identity_core?: components["schemas"]["IdentityCoreModel"];
+            readonly idiolect?: components["schemas"]["IdiolectModel"];
+            /** Interim Lines */
+            readonly interim_lines?: {
+                readonly [key: string]: readonly string[];
+            };
+            /** Milestone Conditions */
+            readonly milestone_conditions?: {
+                readonly [key: string]: string;
+            };
             /** Name */
             readonly name: string;
-            /**
-             * Sentence Style
-             * @default
-             */
-            readonly sentence_style: string;
+            /** Persona Layers */
+            readonly persona_layers?: readonly components["schemas"]["PersonaLayerModel-Input"][];
+            /** Quiet Hours */
+            readonly quiet_hours?: readonly components["schemas"]["QuietHourModel"][];
+            /** Registers */
+            readonly registers?: {
+                readonly [key: string]: components["schemas"]["RegisterModel"];
+            };
+            /** Signature Triggers */
+            readonly signature_triggers?: readonly components["schemas"]["SignatureTriggerModel"][];
         };
         /** PreviewTurn */
         readonly PreviewTurn: {

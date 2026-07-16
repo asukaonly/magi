@@ -7,6 +7,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from magi.config.models import LLMSettings
+from magi.api.routers.personality_config_schemas import PersonalityConfigModel
 
 
 class PreviewTurn(BaseModel):
@@ -14,14 +15,10 @@ class PreviewTurn(BaseModel):
     content: str = Field(min_length=1)
 
 
-class PreviewPersonaOverride(BaseModel):
-    """Inline, unsaved persona identity for previewing a freshly-generated
-    persona (onboarding) before it exists as a seed. Carries the same three
-    fields the seed loader distills into a flat preview system prompt."""
+class PreviewPersonaOverride(PersonalityConfigModel):
+    """Complete unsaved persona config for onboarding preview chat."""
 
     name: str = Field(min_length=1)
-    identity_statement: str = Field(default="")
-    sentence_style: str = Field(default="")
 
 
 class PreviewMessageRequest(BaseModel):
@@ -37,5 +34,5 @@ class PreviewMessageRequest(BaseModel):
         None, description="Optional unsaved LLM configuration override (onboarding)"
     )
     persona_override: Optional[PreviewPersonaOverride] = Field(
-        None, description="Optional inline persona identity (onboarding)"
+        None, description="Optional complete inline persona config (onboarding)"
     )
