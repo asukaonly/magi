@@ -13,6 +13,7 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ...context_scope.models import normalize_context_scope
 from ..corrections.fingerprints import (
     assertion_claim_fingerprint,
     assertion_slot_key,
@@ -165,8 +166,7 @@ def _normalized_assertion_target(candidate: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "target_entity_type": target_entity_type,
         "target_entity_id": (
-            normalize_store_entity_ref(candidate.get("target_entity_id"), target_entity_type)
-            or ""
+            normalize_store_entity_ref(candidate.get("target_entity_id"), target_entity_type) or ""
         ),
         "target_scope": str(candidate.get("target_scope", "global")).strip() or "global",
         "temporal_scope": str(candidate.get("temporal_scope", "session")).strip() or "session",
@@ -202,7 +202,7 @@ def _normalized_assertion_context(
 
 def _normalized_assertion_governance(candidate: Dict[str, Any]) -> Dict[str, Any]:
     raw_scope = candidate.get("scope")
-    scope = dict(raw_scope) if isinstance(raw_scope, dict) else {}
+    scope = normalize_context_scope(raw_scope if raw_scope is not None else {})
     slot_key_value = assertion_slot_key(
         entity_type=str(candidate["entity_type"]),
         entity_id=str(candidate["entity_id"]),
@@ -603,10 +603,8 @@ class L2StoreAssertionMixin:
         if row is None:
             return self._governed_noop_result(policy, candidate)
         evidence = sorted(
-            set(json.loads(row["evidence_events"] or "[]")).union(
-                candidate["evidence_events"]
-            )
-        )[-max_evidence_event_ids():]
+            set(json.loads(row["evidence_events"] or "[]")).union(candidate["evidence_events"])
+        )[-max_evidence_event_ids() :]
         valid_to = float(row["valid_to"]) if row["valid_to"] is not None else None
         last_validated_at = max(
             float(row["last_validated_at"]),

@@ -3196,7 +3196,7 @@
         },
         "scope_refinement": {
           "title": "It is only true sometimes",
-          "description": "Use it only for a specific project, activity, place, or person."
+          "description": "Use it only in the project you choose."
         }
       },
       "recordErrorActionLabel": "How should this be handled?",
@@ -3210,7 +3210,6 @@
         "removeHint": "Do not treat this as information about you in the future."
       },
       "correctValue": "Correct content",
-      "scopeValueHint": "If the content itself is right, leave it unchanged.",
     "correctRelationObject": "Correct related object",
     "correctRelationObjectHint": "Keep the subject and relationship meaning, and choose the correct object.",
     "entitySearch": "Search related objects",
@@ -3219,27 +3218,32 @@
     "entitySearchFailed": "More objects could not be searched right now. The current options are still available.",
     "entityOption": "{{name}} · {{type}}",
       "effectiveAt": "When did this change start?",
-      "scopeLabel": "When is this true?",
-      "scopeType": "Situation type",
-      "scopeValue": "Specific situation",
+      "scopeLabel": "Which project does this apply to?",
+      "projectHint": "This memory will be used only in the project you choose. Projects come from connected workspaces.",
+      "projectLoading": "Loading available projects…",
+      "projectLoadFailed": "The project list is temporarily unavailable.",
+      "projectRetry": "Retry",
+      "projectEmpty": "There are no available projects yet. Connect a workspace before limiting this memory to a project.",
+      "projectSearch": "Search projects",
+      "projectSearchPlaceholder": "Search by project name",
+      "projectSelect": "Choose a project",
+      "projectSelectPlaceholder": "Choose a project",
+      "projectNoMatches": "No matching projects were found.",
       "scopes": {
         "project": "Project",
         "activity": "Activity",
         "place": "Place",
-        "person": "Person"
-      },
-      "scopePlaceholders": {
-        "project": "For example: Magi",
-        "activity": "For example: while coding",
-        "place": "For example: at the office",
-        "person": "For example: when talking with Alex"
+        "person": "Person",
+        "time": "Time",
+        "custom": "Context",
+        "other": "Context"
       },
       "reason": "Additional note (optional)",
       "reasonHint": "Helps you understand why this change was made later.",
       "impact": {
         "recordError": "After saving, related answers will use this correction. The original source and change record stay intact.",
         "situationChanged": "After saving, the old state remains valid before the chosen time and the new state applies afterward. Related content will update next.",
-        "scopeRefinement": "After saving, this memory is used only in the situation you enter and stays out of other answers."
+        "scopeRefinement": "After saving, this memory is used only in the selected project and stays out of answers for other projects."
       },
       "validation": {
         "form": "Check the form before saving.",
@@ -3247,7 +3251,8 @@
         "replacement_unchanged": "The new content matches the current content. Enter what actually changed.",
         "effective_at_required": "Choose when the change started.",
         "effective_at_invalid": "That change time is invalid. Choose it again.",
-        "scope_required": "Enter the specific situation where this applies.",
+        "scope_required": "Choose the project where this applies.",
+        "scope_unavailable": "That project is not available. Choose another one.",
         "relation_object_required": "Choose the correct related object.",
         "relation_object_unchanged": "Choose an object different from the current one.",
         "relation_object_unavailable": "That object is not available. Choose another one."
@@ -3256,6 +3261,9 @@
       "conflict": "This memory changed just now, so the current version will not be overwritten. Return to the latest list and open it again.",
       "targetChanged": "This memory changed or no longer exists, so it will not be overwritten. Review the latest content and open it again.",
       "effectiveAtBeforeTarget": "The change time cannot be earlier than when this memory began. Choose a later time.",
+      "replacementUnchanged": "The new content matches this memory. Enter what actually changed.",
+      "scopeUnchanged": "This memory is already limited to that project. Choose another project.",
+      "projectChanged": "That project can no longer be used for this memory. The project list has been refreshed; choose again.",
       "saveFailed": "The correction could not be saved yet. Your input is still here, so you can retry."
     },
     "close": "Close",
@@ -3300,21 +3308,24 @@
         "effectiveAt": "From: ",
         "scope": "Applies to: ",
         "noLongerUsed": "Do not use this content",
-        "anotherObject": "Object {{id}}",
+        "anotherObject": "Another object",
         "revert": "Revert this correction",
+        "confirmRevertTitle": "Revert this correction?",
         "confirmRevert": "Reverting restores the understanding from before this correction.",
         "confirmRevertAction": "Confirm revert",
       "revertConflict": "This memory changed just now. We loaded the latest history; review it before trying again.",
       "revertFailed": "This correction could not be reverted yet. Try again later.",
       "revertSuccess": "Correction reverted",
       "scopeEntry": "{{label}}: {{value}}",
+      "scopeNameUnavailable": "Name unavailable",
       "scopeSeparator": ", ",
         "versions": "View content changes",
         "currentVersion": "Current version",
         "plannedVersion": "Scheduled",
         "pastVersion": "Past version",
         "versionPeriod": "{{status}} · {{from}} to {{to}}",
-      "versionFrom": "{{status}} · from {{from}}"
+      "versionFrom": "{{status}} · from {{from}}",
+      "versionScope": "{{meta}} · {{scope}}"
     },
     "refreshFailed": "The correction is active, but the list could not refresh yet.",
     "latestRefreshFailed": "The latest content could not be loaded yet. Try again in a moment."

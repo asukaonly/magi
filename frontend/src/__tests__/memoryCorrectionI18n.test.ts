@@ -9,6 +9,7 @@ import enApp from '@/i18n/locales/en/app.json';
 import zhCnApp from '@/i18n/locales/zh-CN/app.json';
 
 type TranslationTree = Record<string, unknown>;
+const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
 const flatten = (
   value: TranslationTree,
@@ -63,6 +64,7 @@ describe('memory correction i18n', () => {
       'memory.correction.scopes.project': 'Project',
       'memory.correction.scopes.person': 'Person',
       'memory.correction.history.scopeEntry': '{{label}}: {{value}}',
+      'memory.correction.history.scopeNameUnavailable': 'Name unavailable',
       'memory.correction.history.scopeSeparator': ', ',
     };
     const t = ((key: string, options?: Record<string, unknown>) => {
@@ -70,8 +72,15 @@ describe('memory correction i18n', () => {
       return template.replace(/\{\{(\w+)\}\}/g, (_match, name) => String(options?.[name] ?? ''));
     }) as TFunction<'app'>;
 
-    expect(formatCorrectionScope({ project: 'Magi', person: 'Alex' }, t)).toBe(
-      'Project: Magi, Person: Alex'
+    expect(formatCorrectionScope({
+      all_of: [
+        { dimension: 'project', context_id: MAGI_CONTEXT_ID },
+        { dimension: 'person', context_id: `ctx_person_${'b'.repeat(64)}` },
+      ],
+    }, t, {
+      [MAGI_CONTEXT_ID]: 'Magi',
+    })).toBe(
+      'Project: Magi, Person: Name unavailable'
     );
     expect(correctionLocale('zh')).toBe('zh-CN');
     expect(correctionLocale('en-US')).toBe('en');

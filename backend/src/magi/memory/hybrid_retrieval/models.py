@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
+from ..context_scope.models import ContextResolutionSignals
+
 
 # ---------------------------------------------------------------------------
 # RetrievalQuery / RetrievalPayload  (existing contracts, extended)
@@ -35,6 +37,9 @@ class RetrievalQuery:
     # Resolved product context used by correction-scoped L2 claims. Empty
     # means global context and must never match a scoped refinement.
     context_scope: Dict[str, Any] = field(default_factory=dict)
+    # Trusted local signals resolved by HybridRetrievalService at its single
+    # entry point. Callers do not turn these values into identities themselves.
+    context_signals: ContextResolutionSignals | None = None
     limit: int = 10
     # Original user message text for the current turn. Used by echo filtering
     # so the L1 event of the just-typed user message is suppressed even when
@@ -146,10 +151,16 @@ class L2Conditions:
     entities: Optional[List[str]] = None
     subject_hint: Optional[str] = None
     predicate_family: Optional[str] = None
-    relation_intent: Optional[str] = None  # English relation phrase from LLM, for embedding predicate resolution (RFC #65 P1)
-    predicate_source: Optional[str] = None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
+    relation_intent: Optional[str] = (
+        None  # English relation phrase from LLM, for embedding predicate resolution (RFC #65 P1)
+    )
+    predicate_source: Optional[str] = (
+        None  # "explicit"|"embedding"|"llm_family"|"keyword_fallback" (RFC #65 P1)
+    )
     allowed_evidence_classes: Optional[set[str]] = None
-    evidence_focus_source: Optional[str] = None  # "llm" | "rule_heuristic" | "family_fallback" | None
+    evidence_focus_source: Optional[str] = (
+        None  # "llm" | "rule_heuristic" | "family_fallback" | None
+    )
     entity_types: Optional[List[str]] = None
     predicates: Optional[List[str]] = None
     trait_families: Optional[List[str]] = None
@@ -164,7 +175,9 @@ class L2Conditions:
     context_scope: Dict[str, Any] = field(default_factory=dict)
     semantic_frame: Optional["L2SemanticFrame"] = None
     allow_soft_edges: bool = True  # permit SEMANTIC_CONTEXT soft-edge sparse fallback (RFC #65 P2)
-    hop2_target_type: Optional[str] = None  # FINAL answer entity type for 2-hop queries (RFC #65 P3)
+    hop2_target_type: Optional[str] = (
+        None  # FINAL answer entity type for 2-hop queries (RFC #65 P3)
+    )
     limit: int = 20
 
 

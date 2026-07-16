@@ -3,14 +3,20 @@
 from __future__ import annotations
 
 import time
-import uuid
 from typing import Protocol, cast
 
 import aiosqlite
 
+from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
-from .catalog import _merge_evidence_json
+from ...graph.identity_rekey import (
+    RelationshipIdentityRekeyResult,
+    rekey_relationship_identity,
+    rewrite_materialized_relationship_references,
+)
 from ...ontology import PREDICATE_REGISTRY
+
+logger = get_logger("magi.memory.l2.entities.maintenance")
 
 
 class _PredicateMaintenanceStatsProtocol(Protocol):
@@ -34,18 +40,43 @@ class L2EntityPredicateMaintenanceMixin:
 
         async with sqlite_connection_async(host._db_path) as db:
             db.row_factory = aiosqlite.Row
-            rows = await _fetch_active_knowledge_graph_rows(db)
             consolidated = 0
+            invalidated_vector_ids: set[str] = set()
+            rewritten_references: dict[str, str] = {}
             now = time.time()
-            for row in rows:
-                core_predicates = _matching_core_predicates(row, core_preds_by_group)
-                if not core_predicates:
-                    continue
-                await _consolidate_open_predicate_row(db, row, core_predicates, now)
-                consolidated += 1
-            if consolidated:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                rows = await _fetch_active_knowledge_graph_rows(db)
+                for row in rows:
+                    core_predicates = _matching_core_predicates(row, core_preds_by_group)
+                    if not core_predicates:
+                        continue
+                    result = await _consolidate_open_predicate_row(db, row, core_predicates, now)
+                    if result.triple_id is None:
+                        continue
+                    invalidated_vector_ids.update(result.invalidated_vector_ids)
+                    rewritten_references.update(result.rewritten_reference_ids)
+                    consolidated += 1
+                await rewrite_materialized_relationship_references(
+                    db,
+                    rewritten_references,
+                )
                 await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
             stats.open_predicates_consolidated = consolidated
+        vector_index = getattr(host, "_edge_vector_index", None)
+        if vector_index is not None:
+            for triple_id in sorted(invalidated_vector_ids):
+                try:
+                    await vector_index.delete_entity(entity_id=triple_id)
+                except Exception as exc:
+                    logger.warning(
+                        "L2 relationship vector cleanup failed",
+                        triple_id=triple_id,
+                        error=str(exc),
+                    )
 
     def _predicate_maintenance_host(self) -> _PredicateMaintenanceHostProtocol:
         return self  # type: ignore[return-value]
@@ -56,8 +87,7 @@ async def _fetch_active_knowledge_graph_rows(db: aiosqlite.Connection) -> list[a
         list[aiosqlite.Row],
         await db.execute_fetchall("""
             SELECT triple_id, subject_id, predicate, object_id,
-                   evidence_event_ids, observation_count, confidence,
-                   first_observed_at, last_observed_at
+                   scope_key
             FROM knowledge_graph
             WHERE status = 'active'
             """),
@@ -91,12 +121,18 @@ async def _consolidate_open_predicate_row(
     row: aiosqlite.Row,
     core_predicates: list[str],
     now: float,
-) -> None:
+) -> RelationshipIdentityRekeyResult:
     existing = await _fetch_existing_core_predicates(db, row, core_predicates)
-    if existing:
-        await _merge_open_predicate_into_existing(db, row, existing[0], now)
-        return
-    await _rewrite_open_predicate(db, row, core_predicates[0], now)
+    target_predicate = str(existing[0]["predicate"]) if existing else core_predicates[0]
+    return await rekey_relationship_identity(
+        db,
+        source_triple_id=str(row["triple_id"]),
+        subject_id=str(row["subject_id"]),
+        predicate=target_predicate,
+        object_id=str(row["object_id"]),
+        now=now,
+        rewrite_materialized_references=False,
+    )
 
 
 async def _fetch_existing_core_predicates(
@@ -115,68 +151,19 @@ async def _fetch_existing_core_predicates(
             FROM knowledge_graph
             WHERE subject_id = ? AND object_id = ?
               AND predicate IN ({placeholders})
+              AND scope_key = ?
               AND triple_id != ? AND status = 'active'
+            ORDER BY predicate, triple_id
             """,
-            (row["subject_id"], row["object_id"], *core_predicates, row["triple_id"]),
+            (
+                row["subject_id"],
+                row["object_id"],
+                *core_predicates,
+                row["scope_key"],
+                row["triple_id"],
+            ),
         ),
     )
-
-
-async def _merge_open_predicate_into_existing(
-    db: aiosqlite.Connection,
-    row: aiosqlite.Row,
-    duplicate: aiosqlite.Row,
-    now: float,
-) -> None:
-    await db.execute(
-        """
-        UPDATE knowledge_graph
-        SET evidence_event_ids = ?, observation_count = ?,
-            first_observed_at = ?, last_observed_at = ?,
-            confidence = ?, updated_at = ?
-        WHERE triple_id = ?
-        """,
-        (*_merged_predicate_values(row, duplicate), now, str(duplicate["triple_id"])),
-    )
-    await db.execute(
-        "DELETE FROM knowledge_graph WHERE triple_id = ?",
-        (row["triple_id"],),
-    )
-
-
-def _merged_predicate_values(
-    row: aiosqlite.Row, duplicate: aiosqlite.Row
-) -> tuple[str, int, float, float, float]:
-    evidence = _merge_evidence_json(
-        str(row["evidence_event_ids"]),
-        str(duplicate["evidence_event_ids"]),
-    )
-    observation_count = int(row["observation_count"]) + int(duplicate["observation_count"])
-    first_observed_at = min(float(row["first_observed_at"]), float(duplicate["first_observed_at"]))
-    last_observed_at = max(float(row["last_observed_at"]), float(duplicate["last_observed_at"]))
-    confidence = max(float(row["confidence"]), float(duplicate["confidence"]))
-    return evidence, observation_count, first_observed_at, last_observed_at, confidence
-
-
-async def _rewrite_open_predicate(
-    db: aiosqlite.Connection,
-    row: aiosqlite.Row,
-    target_predicate: str,
-    now: float,
-) -> None:
-    await db.execute(
-        """
-        UPDATE knowledge_graph
-        SET predicate = ?, triple_id = ?, updated_at = ?
-        WHERE triple_id = ?
-        """,
-        (target_predicate, _canonical_triple_id(row, target_predicate), now, row["triple_id"]),
-    )
-
-
-def _canonical_triple_id(row: aiosqlite.Row, target_predicate: str) -> str:
-    triple_key = f"{row['subject_id']}:{target_predicate}:{row['object_id']}"
-    return f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, triple_key)}"
 
 
 def _predicate_synonym_group(predicate: str) -> str | None:

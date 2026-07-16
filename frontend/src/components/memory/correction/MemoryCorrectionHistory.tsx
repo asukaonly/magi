@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import {
   createMemoryCorrectionRequestId,
+  canRevertMemoryCorrection,
   formatMemoryCorrectionValue,
   type MemoryCorrectionUiTarget,
 } from './memoryCorrectionModel';
@@ -28,6 +29,8 @@ interface MemoryCorrectionHistoryProps {
   onConflict?: () => void | Promise<void>;
 }
 
+const EMPTY_CONTEXT_LABELS: Readonly<Record<string, string>> = {};
+
 export function MemoryCorrectionHistory({
   target,
   refreshKey = 0,
@@ -42,6 +45,10 @@ export function MemoryCorrectionHistory({
   const [revertingId, setRevertingId] = useState<string | null>(null);
   const [revertAttempt, setRevertAttempt] = useState<{ correctionId: string; requestId: string } | null>(null);
   const loadRequestRef = useRef(0);
+  const revertInFlightRef = useRef(false);
+  const historyTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const revertButtonRefs = useRef(new Map<string, HTMLButtonElement>());
+  const revertCancelButtonRef = useRef<HTMLButtonElement | null>(null);
   const locale = correctionLocale(i18n.resolvedLanguage || i18n.language);
   const historyLoadFailed = t('memory.correction.history.loadFailed', {
     defaultValue: '暂时没能读取修改记录。',
@@ -74,13 +81,50 @@ export function MemoryCorrectionHistory({
     };
   }, [loadHistory, refreshKey]);
 
+  useEffect(() => {
+    if (confirmingId) revertCancelButtonRef.current?.focus();
+  }, [confirmingId]);
+
   const corrections = useMemo(
     () => [...(history?.corrections ?? [])].sort((left, right) => right.created_at - left.created_at),
     [history]
   );
-  const latestActiveId = corrections.find((correction) => correction.state === 'active')?.correction_id ?? null;
+  const contextLabels = history?.context_labels ?? EMPTY_CONTEXT_LABELS;
+
+  const focusRevertControl = (correctionId: string) => {
+    const focus = () => {
+      const trigger = revertButtonRefs.current.get(correctionId);
+      if (trigger && !trigger.disabled) {
+        trigger.focus();
+        return;
+      }
+      historyTitleRef.current?.focus();
+    };
+    if (typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(focus);
+    } else {
+      window.setTimeout(focus, 0);
+    }
+  };
+
+  const beginRevertConfirmation = (correctionId: string) => {
+    setConfirmingId(correctionId);
+    setRevertAttempt((current) => (
+      current?.correctionId === correctionId
+        ? current
+        : { correctionId, requestId: createMemoryCorrectionRequestId() }
+    ));
+  };
+
+  const cancelRevertConfirmation = (correctionId: string) => {
+    setConfirmingId(null);
+    setRevertAttempt(null);
+    focusRevertControl(correctionId);
+  };
 
   const handleRevert = async (correction: MemoryCorrectionRecord) => {
+    if (revertInFlightRef.current) return;
+    revertInFlightRef.current = true;
     const requestId = revertAttempt?.correctionId === correction.correction_id
       ? revertAttempt.requestId
       : createMemoryCorrectionRequestId();
@@ -90,35 +134,55 @@ export function MemoryCorrectionHistory({
     setRevertingId(correction.correction_id);
     setError(null);
     try {
-      await memoryApi.revertCorrection(correction.correction_id, requestId);
+      try {
+        await memoryApi.revertCorrection(correction.correction_id, requestId);
+      } catch (caught) {
+        const clientError = toApiClientError(caught);
+        if (clientError.status === 409 || clientError.status === 404) {
+          setConfirmingId(null);
+          setRevertAttempt(null);
+          await loadHistory();
+          setError(t('memory.correction.history.revertConflict', {
+            defaultValue: '这条记忆已经发生变化或不再存在。我们已重新读取最新记录，请从最新内容重新操作。',
+          }));
+          await runHistoryCallback(
+            onConflict,
+            'Failed to refresh memory after correction revert conflict'
+          );
+        } else {
+          setConfirmingId(null);
+          setError(t('memory.correction.history.revertFailed', {
+            defaultValue: '暂时没能撤销这次修正，请稍后重试。',
+          }));
+        }
+        return;
+      }
+
       setConfirmingId(null);
       setRevertAttempt(null);
       await loadHistory();
-      await onReverted?.();
-    } catch (caught) {
-      const clientError = toApiClientError(caught);
-      if (clientError.status === 409 || clientError.status === 404) {
-        setConfirmingId(null);
-        setRevertAttempt(null);
-        await loadHistory();
-        setError(t('memory.correction.history.revertConflict', {
-          defaultValue: '这条记忆已经发生变化或不再存在。我们已重新读取最新记录，请从最新内容重新操作。',
-        }));
-        await onConflict?.();
-      } else {
-        setError(t('memory.correction.history.revertFailed', {
-          defaultValue: '暂时没能撤销这次修正，请稍后重试。',
-        }));
-      }
+      await runHistoryCallback(
+        onReverted,
+        'Failed to refresh memory after successful correction revert'
+      );
     } finally {
-      setRevertingId(null);
+      revertInFlightRef.current = false;
+      setRevertingId((current) => (
+        current === correction.correction_id ? null : current
+      ));
+      focusRevertControl(correction.correction_id);
     }
   };
 
   return (
     <section className="border-t border-[hsl(var(--memory-divider)/0.46)] py-5" aria-labelledby="memory-correction-history-title">
       <div className="flex items-center justify-between gap-3">
-        <h3 id="memory-correction-history-title" className="flex items-center gap-2 text-sm font-semibold text-[hsl(var(--memory-title))]">
+        <h3
+          ref={historyTitleRef}
+          id="memory-correction-history-title"
+          tabIndex={-1}
+          className="flex items-center gap-2 rounded-sm text-sm font-semibold text-[hsl(var(--memory-title))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.18)]"
+        >
           <History className="h-4 w-4" aria-hidden="true" />
           {t('memory.correction.history.title', { defaultValue: '修正记录' })}
         </h3>
@@ -140,16 +204,19 @@ export function MemoryCorrectionHistory({
         </p>
       ) : (
         <div className="mt-4 space-y-3">
-          {corrections.map((correction) => {
-            const canRevert = correction.correction_id === latestActiveId && correction.state === 'active';
+          {corrections.map((correction, index) => {
+            const canRevert = canRevertMemoryCorrection(correction, corrections);
             const isConfirming = confirmingId === correction.correction_id;
             const isReverting = revertingId === correction.correction_id;
+            const confirmationId = `memory-correction-revert-confirmation-${index}`;
+            const confirmationTitleId = `${confirmationId}-title`;
+            const confirmationDescriptionId = `${confirmationId}-description`;
             const isScheduled = correction.state === 'active'
               && Boolean(correction.effective_at && correction.effective_at > Date.now() / 1000);
             return (
-              <article key={correction.correction_id} className="rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.46)] px-4 py-3">
+              <article key={correction.correction_id} className="min-w-0 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.46)] px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">
                       {kindLabel(correction.correction_kind, t)}
                     </div>
@@ -173,10 +240,15 @@ export function MemoryCorrectionHistory({
                   </span>
                 </div>
 
-                <CorrectionChangeSummary target={target} correction={correction} locale={locale} />
+                <CorrectionChangeSummary
+                  target={target}
+                  correction={correction}
+                  locale={locale}
+                  contextLabels={contextLabels}
+                />
 
                 {correction.reason ? (
-                  <p className="mt-2 text-xs leading-5 text-[hsl(var(--memory-body))]">
+                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
                     {t('memory.correction.history.reason', { defaultValue: '说明：{{reason}}', reason: correction.reason })}
                   </p>
                 ) : null}
@@ -184,23 +256,32 @@ export function MemoryCorrectionHistory({
                 {canRevert ? (
                   <div className="mt-3 border-t border-[hsl(var(--memory-divider)/0.45)] pt-3">
                     {isConfirming ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="text-xs leading-5 text-[hsl(var(--memory-body))]">
+                      <div
+                        id={confirmationId}
+                        role="alertdialog"
+                        aria-labelledby={confirmationTitleId}
+                        aria-describedby={confirmationDescriptionId}
+                        className="flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <p id={confirmationTitleId} className="sr-only">
+                          {t('memory.correction.history.confirmRevertTitle', {
+                            defaultValue: '确认撤销这次修正？',
+                          })}
+                        </p>
+                        <p id={confirmationDescriptionId} className="text-xs leading-5 text-[hsl(var(--memory-body))]">
                           {t('memory.correction.history.confirmRevert', {
                             defaultValue: '撤销后会恢复到这次修正之前的理解。',
                           })}
                         </p>
                         <div className="flex gap-2">
                           <Button
+                            ref={revertCancelButtonRef}
                             type="button"
                             size="sm"
                             variant="ghost"
                             className="min-h-9"
-                            onClick={() => {
-                              setConfirmingId(null);
-                              setRevertAttempt(null);
-                            }}
-                            disabled={isReverting}
+                            onClick={() => cancelRevertConfirmation(correction.correction_id)}
+                            disabled={revertingId !== null}
                           >
                             {t('memory.correction.cancel', { defaultValue: '取消' })}
                           </Button>
@@ -210,7 +291,7 @@ export function MemoryCorrectionHistory({
                             variant="outline"
                             className="min-h-9"
                             onClick={() => void handleRevert(correction)}
-                            disabled={isReverting}
+                            disabled={revertingId !== null}
                           >
                             {isReverting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                             {t('memory.correction.history.confirmRevertAction', { defaultValue: '确认撤销' })}
@@ -219,17 +300,18 @@ export function MemoryCorrectionHistory({
                       </div>
                     ) : (
                       <Button
+                        ref={(node) => {
+                          if (node) revertButtonRefs.current.set(correction.correction_id, node);
+                          else revertButtonRefs.current.delete(correction.correction_id);
+                        }}
                         type="button"
                         size="sm"
                         variant="ghost"
                         className="min-h-9 px-2 text-[hsl(var(--memory-body))]"
-                        onClick={() => {
-                          setConfirmingId(correction.correction_id);
-                          setRevertAttempt({
-                            correctionId: correction.correction_id,
-                            requestId: createMemoryCorrectionRequestId(),
-                          });
-                        }}
+                        aria-controls={confirmationId}
+                        aria-haspopup="dialog"
+                        onClick={() => beginRevertConfirmation(correction.correction_id)}
+                        disabled={revertingId !== null}
                       >
                         <RotateCcw className="mr-2 h-4 w-4" aria-hidden="true" />
                         {t('memory.correction.history.revert', { defaultValue: '撤销这次修正' })}
@@ -252,11 +334,11 @@ export function MemoryCorrectionHistory({
           <ol className="mt-2 space-y-2 border-l border-[hsl(var(--memory-divider)/0.65)] pl-4">
             {history.versions.map((version, index) => (
               <li key={versionKey(version, index)} className="text-xs leading-5 text-[hsl(var(--memory-body))]">
-                <div className="font-medium text-[hsl(var(--memory-title))]">
+                <div className="break-words font-medium text-[hsl(var(--memory-title))]">
                   {versionSummary(target, version, t)}
                 </div>
-                <div className="mt-0.5 text-[hsl(var(--memory-muted))]">
-                  {versionMeta(version, t, locale)}
+                <div className="mt-0.5 break-words text-[hsl(var(--memory-muted))]">
+                  {versionMeta(version, t, locale, contextLabels)}
                 </div>
               </li>
             ))}
@@ -282,28 +364,36 @@ function CorrectionChangeSummary({
   target,
   correction,
   locale,
+  contextLabels,
 }: {
   target: MemoryCorrectionUiTarget;
   correction: MemoryCorrectionRecord;
   locale?: string;
+  contextLabels: Readonly<Record<string, string>>;
 }) {
   const { t } = useTranslation('app');
   const before = correctionValue(target, correction.before, t);
   const after = correction.replacement
     ? correctionValue(target, correction.replacement, t)
     : t('memory.correction.history.noLongerUsed', { defaultValue: '不再使用这条内容' });
-  const scope = formatCorrectionScope(correction.scope, t);
+  const scope = formatCorrectionScope(correction.scope, t, contextLabels);
+
+  const isScopeRefinement = correction.correction_kind === 'scope_refinement';
 
   return (
     <div className="mt-3 space-y-1 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
-      <div>
-        <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.before', { defaultValue: '原来：' })}</span>
-        {before}
-      </div>
-      <div>
-        <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.after', { defaultValue: '改为：' })}</span>
-        {after}
-      </div>
+      {!isScopeRefinement ? (
+        <>
+          <div>
+            <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.before', { defaultValue: '原来：' })}</span>
+            {before}
+          </div>
+          <div>
+            <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.after', { defaultValue: '改为：' })}</span>
+            {after}
+          </div>
+        </>
+      ) : null}
       {correction.effective_at ? (
         <div>
           <span className="text-[hsl(var(--memory-muted))]">{t('memory.correction.history.effectiveAt', { defaultValue: '从：' })}</span>
@@ -318,6 +408,18 @@ function CorrectionChangeSummary({
       ) : null}
     </div>
   );
+}
+
+async function runHistoryCallback(
+  callback: (() => void | Promise<void>) | undefined,
+  failureMessage: string
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback();
+  } catch (error) {
+    console.error(failureMessage, error);
+  }
 }
 
 function kindLabel(kind: MemoryCorrectionKind, t: ReturnType<typeof useTranslation<'app'>>['t']): string {
@@ -346,8 +448,7 @@ function correctionValue(
   }
   if (naturalSummary) return naturalSummary;
   const objectName = t('memory.correction.history.anotherObject', {
-    defaultValue: '对象 {{id}}',
-    id: objectId,
+    defaultValue: '另一个对象',
   });
   return `${target.relationship.subjectName} ${target.relationship.predicateLabel} ${objectName}`;
 }
@@ -363,7 +464,8 @@ function versionSummary(
 function versionMeta(
   version: Record<string, unknown>,
   t: ReturnType<typeof useTranslation<'app'>>['t'],
-  locale?: string
+  locale: string | undefined,
+  contextLabels: Readonly<Record<string, string>>
 ): string {
   const status = String(version.status ?? version.validation_state ?? '').toLowerCase();
   const from = optionalNumber(version.valid_from ?? version.first_inferred_at ?? version.first_observed_at);
@@ -383,21 +485,33 @@ function versionMeta(
       ? t('memory.correction.history.currentVersion', { defaultValue: '当前版本' })
       : t('memory.correction.history.pastVersion', { defaultValue: '历史版本' });
   }
+  let meta: string;
   if (from && to) {
-    return t('memory.correction.history.versionPeriod', {
+    meta = t('memory.correction.history.versionPeriod', {
       defaultValue: '{{status}} · {{from}} 至 {{to}}',
       status: statusText,
       from: formatCorrectionTime(from, locale),
       to: formatCorrectionTime(to, locale),
     });
+  } else {
+    meta = from
+      ? t('memory.correction.history.versionFrom', {
+          defaultValue: '{{status}} · 从 {{from}} 开始',
+          status: statusText,
+          from: formatCorrectionTime(from, locale),
+        })
+      : statusText;
   }
-  return from
-    ? t('memory.correction.history.versionFrom', {
-        defaultValue: '{{status}} · 从 {{from}} 开始',
-        status: statusText,
-        from: formatCorrectionTime(from, locale),
+  const scope = version.scope && typeof version.scope === 'object' && !Array.isArray(version.scope)
+    ? formatCorrectionScope(version.scope as Record<string, unknown>, t, contextLabels)
+    : null;
+  return scope
+    ? t('memory.correction.history.versionScope', {
+        defaultValue: '{{meta}} · {{scope}}',
+        meta,
+        scope,
       })
-    : statusText;
+    : meta;
 }
 
 function versionKey(version: Record<string, unknown>, index: number): string {

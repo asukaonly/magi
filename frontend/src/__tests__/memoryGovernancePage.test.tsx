@@ -7,6 +7,8 @@ import { MemoryGovernancePage } from '@/pages/memory-pages/MemoryGovernancePage'
 import { memoryApi } from '@/api/modules/memory';
 import { useMemory } from '@/hooks/useMemory';
 
+const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -28,6 +30,7 @@ vi.mock('@/api/modules/memory', () => ({
     reconsolidateEpisodes: vi.fn(),
     applyCorrection: vi.fn(),
     getCorrectionHistory: vi.fn(),
+    getCorrectionContextOptions: vi.fn(),
     revertCorrection: vi.fn(),
     getL2Entities: vi.fn(),
   },
@@ -225,10 +228,18 @@ const renderPage = () => render(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
+    items: [{
+      context_id: MAGI_CONTEXT_ID,
+      dimension: 'project',
+      label: 'Magi',
+    }],
+  });
   vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
     target: { kind: 'assertion', id: 'assert_1' },
     versions: [],
     corrections: [],
+    context_labels: {},
   });
   vi.mocked(memoryApi.getL2Entities).mockResolvedValue({
     items: [],
@@ -252,6 +263,7 @@ const renderRelationshipCorrection = async (user: ReturnType<typeof userEvent.se
     target: { kind: 'edge', id: 'rel_1' },
     versions: [],
     corrections: [],
+    context_labels: {},
   });
 
   renderPage();
@@ -345,6 +357,7 @@ describe('MemoryGovernancePage', () => {
       target: { kind: 'edge', id: 'rel_1' },
       versions: [],
       corrections: [],
+      context_labels: {},
     });
     const user = userEvent.setup();
 
@@ -744,7 +757,7 @@ describe('MemoryGovernancePage', () => {
           before: { trait_value: '直白' },
           replacement: { value: '详细一些' },
           replacement_target_id: 'assert_2',
-          effective_at: 1719374400,
+          effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
           created_at: 1719374400,
           state: 'active',
         },
@@ -765,7 +778,7 @@ describe('MemoryGovernancePage', () => {
     await user.clear(valueInput);
     await user.type(valueInput, '详细一些');
     fireEvent.change(within(dialog).getByLabelText('从什么时候开始变化？'), {
-      target: { value: '2024-06-26T12:00' },
+      target: { value: '2099-06-26T12:00' },
     });
     await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
 
@@ -778,11 +791,12 @@ describe('MemoryGovernancePage', () => {
       target: { kind: 'assertion', id: 'assert_1' },
       correction_kind: 'situation_changed',
       replacement: { value: '详细一些' },
-      effective_at: Math.floor(new Date('2024-06-26T12:00').getTime() / 1000),
+      effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
       expected_updated_at: 1719301200,
     }));
     expect(await within(dialog).findByText('详细一些')).toBeInTheDocument();
-    expect(within(dialog).getByText('相关总结会在后台继续更新，不影响这次修正生效。')).toBeInTheDocument();
+    expect(within(dialog).getByText('到设定时间后，相关总结会自动更新。')).toBeInTheDocument();
+    expect(within(dialog).queryByText('相关总结会在后台继续更新，不影响这次修正生效。')).not.toBeInTheDocument();
   });
 
   it('corrects a relationship object without exposing internal identifiers', async () => {
@@ -798,6 +812,7 @@ describe('MemoryGovernancePage', () => {
       target: { kind: 'edge', id: 'rel_1' },
       versions: [],
       corrections: [],
+      context_labels: {},
     });
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
@@ -841,7 +856,7 @@ describe('MemoryGovernancePage', () => {
     expect(await within(dialog).findByText('用户 使用 Magi')).toBeInTheDocument();
   });
 
-  it('limits an assertion to the situation chosen on the memory page', async () => {
+  it('limits an assertion to a workspace project chosen on the memory page', async () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_scope_assertion',
@@ -855,11 +870,14 @@ describe('MemoryGovernancePage', () => {
         before: { trait_value: '直白' },
         replacement: { value: '直白' },
         replacement_target_id: 'assert_scope',
-        scope: { activity: '代码评审' },
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
-      current_claim: { trait_value: '直白', scope: { activity: '代码评审' } },
+      current_claim: {
+        trait_value: '直白',
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
+      },
       derivation_state: 'completed',
       created: true,
     });
@@ -873,8 +891,7 @@ describe('MemoryGovernancePage', () => {
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
 
     await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
-    await user.selectOptions(within(dialog).getByLabelText('情况类型'), 'activity');
-    await user.type(within(dialog).getByLabelText('具体情况'), '代码评审');
+    await user.selectOptions(await within(dialog).findByLabelText('选择项目'), MAGI_CONTEXT_ID);
     await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
 
     await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
@@ -882,12 +899,12 @@ describe('MemoryGovernancePage', () => {
       target: { kind: 'assertion', id: 'assert_1' },
       correction_kind: 'scope_refinement',
       replacement: { value: '直白' },
-      scope: { activity: '代码评审' },
+      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       expected_updated_at: 1719301200,
     }));
   });
 
-  it('limits a relationship to the situation chosen on the memory page', async () => {
+  it('limits a relationship to a workspace project chosen on the memory page', async () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_scope_edge',
@@ -901,11 +918,14 @@ describe('MemoryGovernancePage', () => {
         before: { object_id: 'tool_codex' },
         replacement: {},
         replacement_target_id: 'rel_1',
-        scope: { project: 'Magi' },
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
-      current_claim: { object_id: 'tool_codex', scope: { project: 'Magi' } },
+      current_claim: {
+        object_id: 'tool_codex',
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
+      },
       derivation_state: 'completed',
       created: true,
     });
@@ -913,8 +933,7 @@ describe('MemoryGovernancePage', () => {
     const dialog = await renderRelationshipCorrection(user);
 
     await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
-    await user.selectOptions(within(dialog).getByLabelText('情况类型'), 'project');
-    await user.type(within(dialog).getByLabelText('具体情况'), 'Magi');
+    await user.selectOptions(await within(dialog).findByLabelText('选择项目'), MAGI_CONTEXT_ID);
     await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
 
     await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
@@ -922,7 +941,7 @@ describe('MemoryGovernancePage', () => {
       target: { kind: 'edge', id: 'rel_1' },
       correction_kind: 'scope_refinement',
       replacement: {},
-      scope: { project: 'Magi' },
+      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       expected_updated_at: 1719301200,
     }));
   });
@@ -1072,6 +1091,7 @@ describe('MemoryGovernancePage', () => {
           state: 'active',
         },
       ],
+      context_labels: {},
     });
     vi.mocked(memoryApi.revertCorrection).mockResolvedValue({
       correction: {

@@ -5,6 +5,7 @@ import time
 import aiosqlite
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.service import (
     MemoryCorrectionConflictError,
@@ -17,6 +18,7 @@ async def _seed_assertion(
     *,
     trait_value: str = "Hangzhou",
     evidence_events: list[str] | None = None,
+    scope: dict | None = None,
 ) -> str:
     now = time.time() - 3600
     return await store.upsert_assertion_candidate(
@@ -35,6 +37,7 @@ async def _seed_assertion(
             "first_inferred_at": now,
             "last_validated_at": now,
             "temporal_scope": "persistent",
+            "scope": scope,
         }
     )
 
@@ -44,6 +47,131 @@ async def _fetch_all(db_path: str, query: str, args: tuple = ()) -> list[dict]:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, args) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+
+@pytest.mark.parametrize(
+    ("suffix", "correction_kind", "kwargs", "message"),
+    [
+        (
+            "record-scope",
+            CorrectionKind.RECORD_ERROR,
+            {
+                "replacement_value": "Shanghai",
+                "scope": context_scope(project="magi"),
+            },
+            "scope is only supported for scope_refinement",
+        ),
+        (
+            "changed-scope",
+            CorrectionKind.SITUATION_CHANGED,
+            {
+                "replacement_value": "Shanghai",
+                "effective_at": 1.0,
+                "scope": context_scope(project="magi"),
+            },
+            "scope is only supported for scope_refinement",
+        ),
+        (
+            "record-time",
+            CorrectionKind.RECORD_ERROR,
+            {"replacement_value": "Shanghai", "effective_at": 1.0},
+            "effective_at is only supported for situation_changed",
+        ),
+        (
+            "scope-time",
+            CorrectionKind.SCOPE_REFINEMENT,
+            {
+                "replacement_value": "Shanghai",
+                "scope": context_scope(project="magi"),
+                "effective_at": 1.0,
+            },
+            "effective_at is only supported for situation_changed",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_assertion_correction_rejects_fields_for_other_meanings(
+    l2_store_with_schema,
+    suffix: str,
+    correction_kind: CorrectionKind,
+    kwargs: dict,
+    message: str,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+
+    with pytest.raises(MemoryCorrectionValidationError, match=message):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id=f"request-invalid-{suffix}",
+            actor_id="user:u1",
+            correction_kind=correction_kind,
+            **kwargs,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("correction_kind", "extra"),
+    [
+        (CorrectionKind.RECORD_ERROR, {}),
+        (CorrectionKind.SITUATION_CHANGED, {"effective_at": time.time()}),
+    ],
+)
+async def test_assertion_correction_rejects_unchanged_replacement(
+    l2_store_with_schema,
+    correction_kind: CorrectionKind,
+    extra: dict,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store, trait_value="Hangzhou")
+
+    with pytest.raises(MemoryCorrectionValidationError, match="must change the assertion"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id=f"request-unchanged-{correction_kind}",
+            actor_id="user:u1",
+            correction_kind=correction_kind,
+            replacement_value="  HANGZHOU  ",
+            **extra,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assertion_scope_refinement_rejects_existing_scope(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    existing_scope = context_scope(project="magi")
+    assertion_id = await _seed_assertion(store, scope=existing_scope)
+
+    with pytest.raises(MemoryCorrectionValidationError, match="must change the scope"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="request-unchanged-assertion-scope",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+            replacement_value="Hangzhou",
+            scope=existing_scope,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assertion_scope_refinement_cannot_change_the_claim(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store, trait_value="Hangzhou")
+
+    with pytest.raises(MemoryCorrectionValidationError, match="cannot change the assertion"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="request-scope-and-value-change",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+            replacement_value="Shanghai",
+            scope=context_scope(project="magi"),
+        )
 
 
 @pytest.mark.asyncio
@@ -252,26 +380,125 @@ async def test_scope_refinement_only_reads_in_matching_context(l2_store_with_sch
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement_value="Shanghai",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
 
     assert result is not None
-    assert result["current_assertion"]["scope"] == {"project": "magi"}
+    assert result["current_assertion"]["scope"] == context_scope(project="magi")
     assert await store.list_current_assertions(entity_id="user:u1") == []
     assert (
         await store.list_current_assertions(
             entity_id="user:u1",
-            context_scope={"project": "another"},
+            context_scope=context_scope(project="another"),
         )
         == []
     )
     matching = await store.list_current_assertions(
         entity_id="user:u1",
-        context_scope={"project": "magi"},
+        context_scope=context_scope(project="magi"),
     )
     assert [item["assertion_id"] for item in matching] == [
         result["current_assertion"]["assertion_id"]
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("correction_kind", "extra"),
+    [
+        (CorrectionKind.RECORD_ERROR, {}),
+        (CorrectionKind.SITUATION_CHANGED, {"effective_at": time.time() - 60}),
+    ],
+)
+async def test_correction_preserves_existing_assertion_scope(
+    l2_store_with_schema,
+    correction_kind: CorrectionKind,
+    extra: dict,
+) -> None:
+    store = l2_store_with_schema
+    project_scope = context_scope(project="magi")
+    assertion_id = await _seed_assertion(store, scope=project_scope)
+
+    result = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id=f"preserve-assertion-scope-{correction_kind}",
+        actor_id="user:u1",
+        correction_kind=correction_kind,
+        replacement_value="Shanghai",
+        **extra,
+    )
+    repeated = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id=f"preserve-assertion-scope-{correction_kind}",
+        actor_id="user:u1",
+        correction_kind=correction_kind,
+        replacement_value="Shanghai",
+        **extra,
+    )
+
+    assert result is not None and repeated is not None
+    assert repeated["created"] is False
+    assert result["current_assertion"]["scope"] == project_scope
+    assert result["correction"]["scope"] == project_scope
+    assert await store.list_current_assertions(entity_id="user:u1") == []
+    matching = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=project_scope,
+    )
+    assert [item["assertion_id"] for item in matching] == [
+        result["current_assertion"]["assertion_id"]
+    ]
+    assert (
+        await store.list_current_assertions(
+            entity_id="user:u1",
+            context_scope=context_scope(project="another"),
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_newer_assertion_correction_in_another_scope_does_not_block_revert(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    first_scope = context_scope(project="magi")
+    second_scope = context_scope(project="another")
+    first_id = await _seed_assertion(store, scope=first_scope)
+    second_id = await _seed_assertion(store, scope=second_scope)
+    first = await store.apply_assertion_correction(
+        assertion_id=first_id,
+        request_id="correct-first-project-assertion",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+    )
+    await store.apply_assertion_correction(
+        assertion_id=second_id,
+        request_id="correct-second-project-assertion",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Beijing",
+    )
+
+    reverted = await store.revert_assertion_correction(
+        correction_id=first["correction"]["correction_id"],
+        request_id="revert-first-project-assertion",
+        actor_id="user:u1",
+    )
+
+    assert reverted is not None
+    assert reverted["current_assertion"]["assertion_id"] == first_id
+    first_current = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=first_scope,
+    )
+    second_current = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=second_scope,
+    )
+    assert [item["trait_value"] for item in first_current] == ["Hangzhou"]
+    assert [item["trait_value"] for item in second_current] == ["Beijing"]
 
 
 @pytest.mark.asyncio
@@ -304,6 +531,101 @@ async def test_request_id_is_idempotent(l2_store_with_schema):
     )
     assert counts == [{"corrections": 1, "revisions": 1}]
     assert await store.list_current_assertions(entity_id="user:u1")
+
+
+@pytest.mark.asyncio
+async def test_request_id_retry_ignores_transport_only_fields(l2_store_with_schema):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    command = {
+        "assertion_id": assertion_id,
+        "request_id": "request-idempotent-transport",
+        "actor_id": "user:u1",
+        "correction_kind": CorrectionKind.RECORD_ERROR,
+        "replacement_value": "Shanghai",
+        "reason": "  The original record was wrong  ",
+        "audit_event_id": "audit-first",
+    }
+
+    first = await store.apply_assertion_correction(**command)
+    second = await store.apply_assertion_correction(
+        **{
+            **command,
+            "audit_event_id": "audit-retry",
+            "expected_updated_at": -1.0,
+        }
+    )
+
+    assert first is not None and second is not None
+    assert first["created"] is True
+    assert second["created"] is False
+    assert first["correction"]["correction_id"] == second["correction"]["correction_id"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"assertion_id": "assertion:another"},
+        {"actor_id": "user:another"},
+        {"replacement_value": "Beijing"},
+        {"reason": "A different reason"},
+        {
+            "scope": {
+                "all_of": [
+                    {
+                        "dimension": "project",
+                        "context_id": "ctx_project_" + "a" * 64,
+                    }
+                ]
+            }
+        },
+        {"source_event_id": "evt:another"},
+        {
+            "correction_kind": CorrectionKind.SITUATION_CHANGED,
+            "effective_at": time.time() + 3600,
+        },
+    ],
+)
+async def test_request_id_reuse_with_different_assertion_intent_conflicts(
+    l2_store_with_schema,
+    changes,
+):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    command = {
+        "assertion_id": assertion_id,
+        "request_id": "request-id-bound-to-intent",
+        "actor_id": "user:u1",
+        "correction_kind": CorrectionKind.RECORD_ERROR,
+        "replacement_value": "Shanghai",
+        "reason": "The original record was wrong",
+    }
+    await store.apply_assertion_correction(**command)
+
+    with pytest.raises(MemoryCorrectionConflictError, match="different correction"):
+        await store.apply_assertion_correction(**{**command, **changes})
+
+
+@pytest.mark.asyncio
+async def test_request_id_reuse_with_different_effective_time_conflicts(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    effective_at = time.time() + 3600
+    command = {
+        "assertion_id": assertion_id,
+        "request_id": "request-id-bound-to-effective-time",
+        "actor_id": "user:u1",
+        "correction_kind": CorrectionKind.SITUATION_CHANGED,
+        "replacement_value": "Shanghai",
+        "effective_at": effective_at,
+    }
+    await store.apply_assertion_correction(**command)
+
+    with pytest.raises(MemoryCorrectionConflictError, match="different correction"):
+        await store.apply_assertion_correction(**{**command, "effective_at": effective_at + 60})
 
 
 @pytest.mark.asyncio

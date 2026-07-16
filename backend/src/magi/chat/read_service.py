@@ -115,6 +115,10 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         """List sessions without blocking the event loop."""
         return await self._run_threaded("list_sessions", user_id, limit)
 
+    async def alist_workspace_paths(self, user_id: str) -> list[str]:
+        """List all non-deleted session workspaces without loading sessions."""
+        return await self._run_threaded("list_workspace_paths", user_id)
+
     async def arename_session(
         self, user_id: str, session_id: str, title: str
     ) -> ChatSessionRenameResult:

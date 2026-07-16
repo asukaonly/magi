@@ -26,9 +26,7 @@ from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 @pytest.fixture(autouse=True)
 def _isolate_orchestration_store(monkeypatch):
     store = SimpleNamespace(
-        clear_all=AsyncMock(
-            return_value={"orchestrations": 0, "worker_results": 0}
-        )
+        clear_all=AsyncMock(return_value={"orchestrations": 0, "worker_results": 0})
     )
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_orchestration_store",
@@ -56,9 +54,7 @@ def _isolate_user_message_clear_boundary(monkeypatch):
             return self.generation, 0
 
     queue = _FakeRuntimeCommandQueue()
-    sensor_hub = SimpleNamespace(
-        discard_stale_user_messages=AsyncMock(return_value=0)
-    )
+    sensor_hub = SimpleNamespace(discard_stale_user_messages=AsyncMock(return_value=0))
     monkeypatch.setattr(
         "magi.api.routers.memory._resolve_runtime_command_queue",
         lambda: queue,
@@ -272,7 +268,14 @@ class _FakeL2EntityCatalog:
 
     async def list_entities(self, limit: int = 100, offset: int = 0, **kwargs):
         self.entity_kwargs = {"limit": limit, "offset": offset, **kwargs}
-        return [{"entity_id": "user:u1", "canonical_name": "User U1", "entity_type": "user", "aliases": []}]
+        return [
+            {
+                "entity_id": "user:u1",
+                "canonical_name": "User U1",
+                "entity_type": "user",
+                "aliases": [],
+            }
+        ]
 
     async def count_mentions(self):
         return 1
@@ -515,7 +518,9 @@ def test_memory_search_unavailable_returns_localized_detail(monkeypatch):
 def test_l2_episode_empty_annotation_returns_localized_detail(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
 
     client = TestClient(app)
     with language_context("zh-CN"):
@@ -561,7 +566,9 @@ def test_l0_sessions_api_prefers_chat_summary_titles_and_short_ids(monkeypatch):
             }
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+    )
 
     client = TestClient(app)
     response = client.get("/api/memory/l0/sessions")
@@ -615,7 +622,9 @@ def test_l0_sessions_api_treats_new_session_title_as_generic(monkeypatch):
             }
 
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
-    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+    )
 
     client = TestClient(app)
     response = client.get("/api/memory/l0/sessions")
@@ -630,7 +639,9 @@ def test_memory_procedures_api_lists_skills(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -697,7 +708,10 @@ def test_memory_eval_query_api_returns_normalized_hits(monkeypatch):
                 trace={"intent_source": "rule"},
             )
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -753,8 +767,13 @@ def test_memory_eval_query_api_can_answer_with_llm(monkeypatch):
     def fake_log(message, **kwargs):
         log_calls.append((message, kwargs))
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
     monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
 
     client = TestClient(app)
@@ -844,8 +863,13 @@ def test_memory_eval_query_api_uses_evidence_bundles_for_answer_synthesis(monkey
             _ = scenario
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -944,8 +968,13 @@ def test_memory_eval_query_api_uses_timeline_summary_for_answer_synthesis(monkey
             _ = scenario
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1050,8 +1079,14 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
         async def chat(self, messages, max_tokens=None, temperature=0.7, **kwargs):
             _ = (max_tokens, temperature, kwargs)
             prompt = messages[-1]["content"]
-            assert "Use relative time expressions in the evidence when comparing event order." in prompt
-            assert "Do not rely only on replay timestamps if the content itself gives a clearer time relation." in prompt
+            assert (
+                "Use relative time expressions in the evidence when comparing event order."
+                in prompt
+            )
+            assert (
+                "Do not rely only on replay timestamps if the content itself gives a clearer time relation."
+                in prompt
+            )
             assert "Prefer the absolute form over repeating the relative phrase" in prompt
             return '"Data Analysis using Python" webinar'
 
@@ -1060,8 +1095,13 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
             _ = scenario
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1079,8 +1119,14 @@ def test_memory_eval_query_api_guides_llm_to_compare_relative_time_expressions(m
     assert response.status_code == 200
     body = response.json()
     assert body["answer"] == '"Data Analysis using Python" webinar'
-    assert "Use relative time expressions in the evidence when comparing event order." in body["answer_trace"]["prompt"]
-    assert "Prefer the absolute form over repeating the relative phrase" in body["answer_trace"]["prompt"]
+    assert (
+        "Use relative time expressions in the evidence when comparing event order."
+        in body["answer_trace"]["prompt"]
+    )
+    assert (
+        "Prefer the absolute form over repeating the relative phrase"
+        in body["answer_trace"]["prompt"]
+    )
 
 
 def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypatch):
@@ -1191,8 +1237,13 @@ def test_memory_eval_query_api_prioritizes_timeline_over_noisy_bundles(monkeypat
             _ = scenario
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1270,8 +1321,13 @@ def test_memory_eval_query_api_strips_articles_from_short_choice_answers(monkeyp
             _ = scenario
             return _FakeLLMAdapter()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1327,8 +1383,13 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     def fake_log(message, **kwargs):
         log_calls.append((message, kwargs))
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
-    monkeypatch.setattr("magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_scenario_llm_pool", lambda: _FakeLLMPool()
+    )
     monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
 
     client = TestClient(app)
@@ -1344,13 +1405,19 @@ def test_memory_eval_query_api_logs_full_answer_llm_messages(monkeypatch):
     )
 
     assert response.status_code == 200
-    synthesis_log = next(kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis started")
+    synthesis_log = next(
+        kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis started"
+    )
     logged_messages = synthesis_log["llm_messages"]
     assert "==== SYSTEM MESSAGE ====" in logged_messages
     assert "==== USER MESSAGE ====" in logged_messages
     assert "retrieved memory evidence only" in logged_messages
     assert "What food do I prefer?" in logged_messages
-    completed_log = next(kwargs for message, kwargs in log_calls if message == "Eval query answer synthesis completed")
+    completed_log = next(
+        kwargs
+        for message, kwargs in log_calls
+        if message == "Eval query answer synthesis completed"
+    )
     assert completed_log["raw_answer"] == "Sushi"
     assert completed_log["answer"] == "Sushi"
 
@@ -1379,7 +1446,10 @@ def test_memory_eval_query_api_logs_retrieval_timing(monkeypatch):
     def fake_log(message, **kwargs):
         log_calls.append((message, kwargs))
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
     monkeypatch.setattr("magi.api.routers.memory.logger.info", fake_log)
 
     client = TestClient(app)
@@ -1415,7 +1485,10 @@ def test_memory_eval_query_api_supports_l1_only_fast_path(monkeypatch):
 
     fake_memory = _FakeUnifiedMemory()
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _ExplodingHybridRetrievalService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _ExplodingHybridRetrievalService(),
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: fake_memory)
 
     client = TestClient(app)
@@ -1454,7 +1527,10 @@ def test_memory_search_api_uses_runtime_hybrid_retrieval_service(monkeypatch):
                 trace={"intent_source": "rule"},
             )
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1486,7 +1562,10 @@ def test_memory_search_api_omits_query_mode_for_auto(monkeypatch):
                 trace={"requested_query_mode": None},
             )
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_hybrid_retrieval_service", lambda: _FakeHybridRetrievalService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_hybrid_retrieval_service",
+        lambda: _FakeHybridRetrievalService(),
+    )
 
     client = TestClient(app)
     response = client.post(
@@ -1566,7 +1645,9 @@ def test_memory_l3_summaries_api_filters_type_and_category(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1585,7 +1666,9 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1600,7 +1683,9 @@ def test_memory_l2_lab_api_exposes_entities_and_manual_actions(monkeypatch):
     )
     replay_response = client.post("/api/memory/l2/extract/evt-manual-1")
     reconcile_response = client.post("/api/memory/l2/reconcile", json={"entity_ids": ["user:u1"]})
-    materialize_response = client.post("/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]})
+    materialize_response = client.post(
+        "/api/memory/l2/snapshot-refresh", json={"entity_ids": ["user:u1"]}
+    )
     flush_response = client.post("/api/memory/l2/microbatch-flush")
     update_rule_response = client.put(
         "/api/memory/l2/conflict-rules/ENDORSES",
@@ -1674,7 +1759,11 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
         "query": "codex",
         "include_inactive": False,
     }
-    assert fake_memory.l2_entity_catalog.entity_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
+    assert fake_memory.l2_entity_catalog.entity_kwargs == {
+        "limit": 20,
+        "offset": 40,
+        "query": "codex",
+    }
     assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
     assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l2.snapshot_count_kwargs == {"query": "codex"}
@@ -1700,11 +1789,15 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     assert fake_memory.l2.assertion_count_kwargs["include_inactive"] is True
 
 
-def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(monkeypatch):
+def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(
+    monkeypatch,
+):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1721,7 +1814,9 @@ def test_memory_l2_statistics_api_exposes_pipeline_breakdown(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1754,7 +1849,9 @@ def test_memory_l2_pending_api_reports_queue_backlog(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1775,7 +1872,9 @@ def test_memory_background_pending_api_reports_embedding_backlog(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -1804,8 +1903,12 @@ def test_memory_clear_api_clears_all_layers(
         async def aclear_all_sessions(self) -> int:
             return 4
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
-    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+    )
 
     client = TestClient(app)
     response = client.delete("/api/memory/clear")
@@ -1861,9 +1964,7 @@ def test_memory_clear_recovers_all_dependencies_when_chat_pause_fails(monkeypatc
     unified = _FakeUnifiedMemory()
     unified.clear_all_memory = AsyncMock()  # type: ignore[method-assign]
     task_agent_manager = SimpleNamespace(
-        pause_chat_work_and_cancel_all=AsyncMock(
-            side_effect=RuntimeError("chat pause failed")
-        ),
+        pause_chat_work_and_cancel_all=AsyncMock(side_effect=RuntimeError("chat pause failed")),
         resume_chat_work=AsyncMock(side_effect=RuntimeError("chat resume failed")),
     )
     rebuild_pause = AsyncMock()
@@ -2370,8 +2471,12 @@ def test_registered_memory_clear_api_is_public(monkeypatch):
         async def aclear_all_sessions(self) -> int:
             return 4
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
-    monkeypatch.setattr("magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.get_chat_read_service", lambda: _FakeChatReadService()
+    )
 
     client = TestClient(app)
     response = client.delete("/api/memory/clear")
@@ -2387,7 +2492,9 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _FakeUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)
@@ -2401,7 +2508,9 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["items"][0]["retention_class"] == "compressible"
     assert body["items"][0]["id"] == 101
     assert body["items"][0]["idempotency_key"] == "chat:session-1:turn-1"
-    assert body["items"][0]["metadata_json"] == {"activity_snapshot": {"source_app": "Chrome", "title": "hello"}}
+    assert body["items"][0]["metadata_json"] == {
+        "activity_snapshot": {"source_app": "Chrome", "title": "hello"}
+    }
     assert body["items"][0]["embedding_status"] == "ready"
     assert body["items"][0]["embedding_profile_id"] == "profile-a"
     assert body["total"] == 12
@@ -2520,7 +2629,9 @@ def test_memory_l1_event_delete_route_soft_deletes_public_event(monkeypatch):
 
 def test_memory_governance_action_routes_are_publicly_allowlisted():
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
-    route_methods = {route.path: route.methods for route in public.routes if hasattr(route, "methods")}
+    route_methods = {
+        route.path: route.methods for route in public.routes if hasattr(route, "methods")
+    }
 
     assert "DELETE" in route_methods["/l1/events/{event_id}"]
     assert "PATCH" in route_methods["/l2/edges/{triple_id}/reject"]
@@ -2530,7 +2641,9 @@ def test_memory_governance_action_routes_are_publicly_allowlisted():
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
     class _RejectingL2Store(_FakeL2Store):
         async def upsert_graph_conflict_rule(self, payload):
-            raise ValueError("exclusive_group is required when exclusive_resolution overrides the default")
+            raise ValueError(
+                "exclusive_group is required when exclusive_resolution overrides the default"
+            )
 
     class _RejectingUnifiedMemory(_FakeUnifiedMemory):
         def __init__(self):
@@ -2540,7 +2653,9 @@ def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
-    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: _RejectingUnifiedMemory())
+    monkeypatch.setattr(
+        "magi.api.routers.memory._resolve_unified_memory", lambda: _RejectingUnifiedMemory()
+    )
     monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
 
     client = TestClient(app)

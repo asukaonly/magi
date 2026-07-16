@@ -33,6 +33,7 @@ _PUBLIC_ROUTE_METHODS: dict[str, dict[str, set[str]]] = {
         "/l2/assertions/{assertion_id}/correct": {"POST"},
         "/l2/corrections": {"GET", "POST"},
         "/l2/corrections/{correction_id}/revert": {"POST"},
+        "/l2/context-options": {"GET"},
         "/l2/edges/{triple_id}/reject": {"PATCH"},
         "/l2/entities": {"GET"},
         "/l2/mentions": {"GET"},

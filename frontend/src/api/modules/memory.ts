@@ -228,6 +228,21 @@ export type MemoryCorrectionTargetKind = 'assertion' | 'edge';
 export type MemoryCorrectionKind = 'record_error' | 'situation_changed' | 'scope_refinement';
 export type MemoryCorrectionState = 'active' | 'reverted';
 export type MemoryCorrectionDerivationState = 'pending' | 'running' | 'completed' | 'failed';
+export type MemoryCorrectionContextDimension = 'project' | 'activity' | 'place' | 'person' | 'time';
+export type MemoryCorrectionWritableContextDimension = 'project';
+
+export interface MemoryCorrectionContextCondition<
+  Dimension extends MemoryCorrectionContextDimension = MemoryCorrectionContextDimension,
+> {
+  dimension: Dimension;
+  context_id: string;
+}
+
+export interface MemoryCorrectionScope<
+  Dimension extends MemoryCorrectionContextDimension = MemoryCorrectionContextDimension,
+> {
+  all_of: MemoryCorrectionContextCondition<Dimension>[];
+}
 
 export interface MemoryCorrectionTarget {
   kind: MemoryCorrectionTargetKind;
@@ -241,7 +256,7 @@ export interface MemoryCorrectionRequest {
   replacement?: Record<string, unknown> | null;
   reason?: string | null;
   effective_at?: number | null;
-  scope?: Record<string, unknown> | null;
+  scope?: MemoryCorrectionScope<MemoryCorrectionWritableContextDimension> | null;
   source_event_id?: string | null;
   expected_updated_at?: number | null;
 }
@@ -261,7 +276,7 @@ export interface MemoryCorrectionRecord {
   reason?: string | null;
   replacement?: Record<string, unknown> | null;
   effective_at?: number | null;
-  scope?: Record<string, unknown> | null;
+  scope?: MemoryCorrectionScope | null;
   source_event_id?: string | null;
   audit_event_id?: string | null;
   replacement_target_id?: string | null;
@@ -281,6 +296,17 @@ export interface MemoryCorrectionHistoryResponse {
   target: MemoryCorrectionTarget;
   versions: Array<Record<string, unknown>>;
   corrections: MemoryCorrectionRecord[];
+  context_labels: Record<string, string>;
+}
+
+export interface MemoryCorrectionContextOption {
+  context_id: string;
+  dimension: 'project';
+  label: string;
+}
+
+export interface MemoryCorrectionContextOptionsResponse {
+  items: MemoryCorrectionContextOption[];
 }
 
 export interface L2Entity {
@@ -934,6 +960,8 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<MemoryCorrectionHistoryResponse>('/memory/l2/corrections', {
       params: { target_kind: targetKind, target_id: targetId },
     })),
+  getCorrectionContextOptions: async (): Promise<MemoryCorrectionContextOptionsResponse> =>
+    unwrapMemoryResponse(await api.get<MemoryCorrectionContextOptionsResponse>('/memory/l2/context-options')),
   revertCorrection: async (correctionId: string, requestId: string): Promise<MemoryCorrectionCommandResponse> =>
     unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>(
       `/memory/l2/corrections/${encodeURIComponent(correctionId)}/revert`,

@@ -10,6 +10,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Mapping
 
+import aiosqlite
+
 from ...core.sqlite import sqlite_connection_async
 from ...core.logger import get_logger
 from ..event_contracts import MemoryEvent
@@ -18,10 +20,17 @@ from ..clear_generation import (
     current_memory_clear_generation,
     ensure_memory_clear_state,
 )
+from ..context_scope.cache_epoch import invalidate_context_caches
+from ..context_scope.catalog import clear_user_contexts
+from .corrections.fingerprints import (
+    relationship_claim_fingerprint,
+    relationship_slot_key,
+)
 from .graph_conflicts import (
     GraphConflictRule,
     build_exclusive_group_index,
     build_graph_conflict_matrix,
+    relationship_predicate_slot,
 )
 from .models import L2KnowledgeEdgeWrite, L2TomAssertionWrite
 from .corrections.repository import (
@@ -44,6 +53,11 @@ from .governance.forgetting import L2StoreForgettingMixin
 from .graph.conflicts import L2StoreGraphConflictMixin
 from .graph.edge_embeddings import L2StoreEdgeEmbeddingMixin
 from .graph.fact_kind import L2StoreFactKindMixin
+from .graph.identity_rekey import (
+    refresh_relationship_governance_history_for_predicate,
+    rekey_relationship_identity,
+)
+from .graph.rule_convergence import converge_existing_graph_conflicts
 from .graph.writes import L2StoreGraphWriteMixin
 from .projection.jobs import L2ProjectionJobStoreMixin
 from .retrieval.queries import L2StoreQueryMixin
@@ -91,6 +105,7 @@ class L2CognitionStore(
         ] = {}
         self._memory_correction_job_wakeup: Callable[[], Awaitable[None]] | None = None
         self._memory_correction_job_lock = asyncio.Lock()
+        self._graph_conflict_rule_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Verify cognition schema (alembic-managed) is reachable."""
@@ -114,39 +129,130 @@ class L2CognitionStore(
         rule: GraphConflictRule | Mapping[str, Any],
     ) -> Dict[str, Any]:
         """Persist and activate a graph conflict rule."""
+        async with self._graph_conflict_rule_lock:
+            return await self._upsert_graph_conflict_rule_locked(rule)
+
+    async def _upsert_graph_conflict_rule_locked(
+        self,
+        rule: GraphConflictRule | Mapping[str, Any],
+    ) -> Dict[str, Any]:
         normalized = (
             rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
         )
         now = time.time()
         await self.initialize()
+        previous_rules = dict(self._graph_conflict_rules)
+        previous_exclusive_index = dict(self._exclusive_group_index)
+        next_rules = dict(previous_rules)
+        next_rules[normalized.predicate] = normalized
+        affected_subjects: set[str] = set()
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO graph_conflict_rules(
-                    predicate, opposite_predicates, opposite_resolution, exclusive_group,
-                    exclusive_scope, exclusive_resolution, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(predicate) DO UPDATE SET
-                    opposite_predicates = excluded.opposite_predicates,
-                    opposite_resolution = excluded.opposite_resolution,
-                    exclusive_group = excluded.exclusive_group,
-                    exclusive_scope = excluded.exclusive_scope,
-                    exclusive_resolution = excluded.exclusive_resolution,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    normalized.predicate,
-                    json.dumps(list(normalized.opposite_predicates), ensure_ascii=False),
-                    normalized.opposite_resolution,
-                    normalized.exclusive_group,
-                    normalized.exclusive_scope,
-                    normalized.exclusive_resolution,
-                    now,
-                    now,
-                ),
-            )
-            await self._reload_graph_conflict_rules(db)
-            await db.commit()
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO graph_conflict_rules(
+                        predicate, opposite_predicates, opposite_resolution, exclusive_group,
+                        exclusive_scope, exclusive_resolution, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(predicate) DO UPDATE SET
+                        opposite_predicates = excluded.opposite_predicates,
+                        opposite_resolution = excluded.opposite_resolution,
+                        exclusive_group = excluded.exclusive_group,
+                        exclusive_scope = excluded.exclusive_scope,
+                        exclusive_resolution = excluded.exclusive_resolution,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        normalized.predicate,
+                        json.dumps(list(normalized.opposite_predicates), ensure_ascii=False),
+                        normalized.opposite_resolution,
+                        normalized.exclusive_group,
+                        normalized.exclusive_scope,
+                        normalized.exclusive_resolution,
+                        now,
+                        now,
+                    ),
+                )
+                async with db.execute(
+                    """
+                    SELECT triple_id, subject_id, predicate, object_id, slot_key,
+                           claim_fingerprint, scope_key
+                    FROM knowledge_graph
+                    WHERE predicate = ?
+                    ORDER BY triple_id
+                    """,
+                    (normalized.predicate,),
+                ) as cursor:
+                    affected_edges = await cursor.fetchall()
+                for edge in affected_edges:
+                    expected_slot = relationship_slot_key(
+                        subject_id=str(edge["subject_id"]),
+                        predicate=str(edge["predicate"]),
+                        object_id=str(edge["object_id"]),
+                        predicate_slot=relationship_predicate_slot(
+                            next_rules,
+                            predicate=str(edge["predicate"]),
+                            object_id=str(edge["object_id"]),
+                        ),
+                    )
+                    expected_fingerprint = relationship_claim_fingerprint(
+                        slot_key_value=expected_slot,
+                        subject_id=str(edge["subject_id"]),
+                        predicate=str(edge["predicate"]),
+                        object_id=str(edge["object_id"]),
+                        scope_key_value=str(edge["scope_key"] or "global"),
+                    )
+                    if (
+                        str(edge["slot_key"] or "") == expected_slot
+                        and str(edge["claim_fingerprint"] or "") == expected_fingerprint
+                    ):
+                        continue
+                    await rekey_relationship_identity(
+                        db,
+                        source_triple_id=str(edge["triple_id"]),
+                        subject_id=str(edge["subject_id"]),
+                        predicate=str(edge["predicate"]),
+                        object_id=str(edge["object_id"]),
+                        now=now,
+                    )
+                await refresh_relationship_governance_history_for_predicate(
+                    db,
+                    predicate=normalized.predicate,
+                )
+                convergence = await converge_existing_graph_conflicts(
+                    db,
+                    rule=normalized,
+                    rules=next_rules,
+                    now=now,
+                )
+                if convergence.loser_ids:
+                    repository = MemoryCorrectionRepository(self.db_path)
+                    l3_subjects = await repository.invalidate_l3_insights_on_connection(
+                        db,
+                        source_kind="edge",
+                        source_ids=convergence.loser_ids,
+                        subject_keys=convergence.subject_keys,
+                        updated_at=now,
+                    )
+                    affected_subjects.update(convergence.subject_keys)
+                    affected_subjects.update(l3_subjects)
+                    for subject_key in sorted(affected_subjects):
+                        await repository.bump_subject_revision(
+                            db,
+                            subject_key=subject_key,
+                            updated_at=now,
+                        )
+                await self._reload_graph_conflict_rules(db)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                self._graph_conflict_rules = previous_rules
+                self._exclusive_group_index = previous_exclusive_index
+                raise
+        for subject_key in sorted(affected_subjects):
+            mark_subject_changed(self.db_path, subject_key)
         return normalized.to_record()
 
     def build_rule_graph_candidates(self, event: MemoryEvent) -> list[L2KnowledgeEdgeWrite]:
@@ -176,9 +282,7 @@ class L2CognitionStore(
 
     async def current_subject_revision(self, subject_key: str) -> int:
         """Return the correction revision governing derived views for a subject."""
-        return await MemoryCorrectionRepository(self.db_path).current_subject_revision(
-            subject_key
-        )
+        return await MemoryCorrectionRepository(self.db_path).current_subject_revision(subject_key)
 
     async def active_correction_evidence_event_ids(
         self,
@@ -186,9 +290,9 @@ class L2CognitionStore(
     ) -> set[str]:
         """Return L1 evidence IDs deferred to active correction-governed claims."""
         await self.initialize()
-        return await MemoryCorrectionRepository(
-            self.db_path
-        ).active_correction_evidence_event_ids(event_ids)
+        return await MemoryCorrectionRepository(self.db_path).active_correction_evidence_event_ids(
+            event_ids
+        )
 
     async def current_clear_generation(self) -> int:
         """Return the durable generation advanced by destructive clears."""
@@ -298,9 +402,7 @@ class L2CognitionStore(
             async with sqlite_connection_async(self.db_path) as db:
                 await db.execute("BEGIN IMMEDIATE")
                 try:
-                    async with db.execute(
-                        "SELECT COUNT(*) FROM tom_trait_assertions"
-                    ) as cursor:
+                    async with db.execute("SELECT COUNT(*) FROM tom_trait_assertions") as cursor:
                         row = await cursor.fetchone()
                         count = int(row[0]) if row else 0
                     await advance_memory_clear_generation(db)
@@ -308,11 +410,18 @@ class L2CognitionStore(
                         "SELECT name FROM sqlite_master WHERE type = 'table'"
                     ) as cursor:
                         existing_tables = {str(row[0]) for row in await cursor.fetchall()}
+                    if {
+                        "memory_context_catalog",
+                        "memory_context_aliases",
+                        "memory_context_bindings",
+                    }.issubset(existing_tables):
+                        await clear_user_contexts(db)
                     for table in _SHARED_USER_MEMORY_TABLES:
                         if table not in existing_tables:
                             continue
                         await db.execute(f"DELETE FROM {table}")
                     await db.commit()
+                    invalidate_context_caches(self.db_path)
                 except Exception:
                     await db.rollback()
                     raise
@@ -324,6 +433,7 @@ _SHARED_USER_MEMORY_TABLES = (
     "memory_derivation_jobs",
     "memory_derivation_dependencies",
     "memory_correction_evidence_events",
+    "memory_relationship_conflict_effects",
     "memory_correction_rules",
     "memory_corrections",
     "memory_subject_revisions",

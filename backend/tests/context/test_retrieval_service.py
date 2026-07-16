@@ -39,7 +39,9 @@ class _FakeUnifiedMemory:
 
 
 class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
-    async def test_build_retrieved_memory_payload_loads_l0_and_task_preferences_without_hybrid_query(self) -> None:
+    async def test_build_retrieved_memory_payload_loads_l0_and_task_preferences_without_hybrid_query(
+        self,
+    ) -> None:
         retrieval_service = MagicMock()
         service = ContextRetrievalService(
             unified_memory=_FakeUnifiedMemory(),
@@ -57,7 +59,9 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["l0_workbench"][0]["session"], "s1")
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
-        self.assertEqual(payload["l4_procedural_memory"][0]["summary"], "Prefer: 改代码前先讲完成标准")
+        self.assertEqual(
+            payload["l4_procedural_memory"][0]["summary"], "Prefer: 改代码前先讲完成标准"
+        )
         retrieval_service.query.assert_not_called()
 
     async def test_build_retrieved_memory_payload_appends_task_preferences_from_l4(self) -> None:
@@ -105,17 +109,25 @@ class TestContextRetrievalService(unittest.IsolatedAsyncioTestCase):
             session_id="s1",
             query="switch jobs",
             task_category="chat",
+            context_text="I meant this repository",
+            workspace_path="/work/magi",
             allowed_layers=("L0", "L4"),
         )
 
         retrieval_service.query.assert_called_once()
+        request = retrieval_service.query.call_args.args[0]
+        self.assertEqual(request.context_signals.workspace_path, "/work/magi")
+        self.assertEqual(request.context_signals.user_text, "I meant this repository")
+        self.assertEqual(request.context_signals.task_category, "chat")
 
         self.assertEqual(payload["l0_workbench"][0]["summary"], "Current goal")
         self.assertEqual(payload["l2_entity_cards"], [])
         self.assertEqual(payload["l3_reflection_memory"], [])
         self.assertEqual(payload["l4_procedural_memory"][0]["skill_name"], "browser.open")
 
-    async def test_build_retrieved_memory_payload_requires_injected_service_for_hybrid_queries(self) -> None:
+    async def test_build_retrieved_memory_payload_requires_injected_service_for_hybrid_queries(
+        self,
+    ) -> None:
         service = ContextRetrievalService(unified_memory=object(), retrieval_service=None)
 
         with self.assertRaises(RuntimeError):

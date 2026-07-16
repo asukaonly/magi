@@ -1,8 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Loader2, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { toApiClientError } from '@/api/client';
-import { memoryApi, type MemoryCorrectionCommandResponse, type MemoryCorrectionKind } from '@/api/modules/memory';
+import {
+  memoryApi,
+  type MemoryCorrectionCommandResponse,
+  type MemoryCorrectionContextOption,
+  type MemoryCorrectionKind,
+} from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -20,6 +25,7 @@ import {
   createInitialMemoryCorrectionDraft,
   createMemoryCorrectionRequestId,
   formatMemoryCorrectionValue,
+  selectableProjectContextOptions,
   validateMemoryCorrectionDraft,
   type MemoryCorrectionDraft,
   type MemoryCorrectionEntityOption,
@@ -27,6 +33,7 @@ import {
   type MemoryCorrectionValidationErrors,
   type MemoryCorrectionValidationField,
 } from './memoryCorrectionModel';
+import { MemoryCorrectionProjectSelect } from './MemoryCorrectionProjectSelect';
 import {
   correctionLocale,
   formatCorrectionEntityType,
@@ -56,19 +63,21 @@ const CORRECTION_KINDS: MemoryCorrectionKind[] = [
   'scope_refinement',
 ];
 
-const SCOPE_TYPES: MemoryCorrectionDraft['scopeType'][] = [
-  'project',
-  'activity',
-  'place',
-  'person',
-];
+const CONTEXT_SCOPE_ERROR_CODES = new Set([
+  'context_scope_unknown',
+  'context_scope_not_workspace_bound',
+  'context_scope_dimension_mismatch',
+]);
 
 const CORRECTION_FIELD_IDS: Record<MemoryCorrectionValidationField, string> = {
   value: 'memory-correction-value',
   effectiveAt: 'memory-correction-effective-at',
-  scopeValue: 'memory-correction-scope-value',
+  scopeContextId: 'memory-correction-scope-context',
   relationObjectId: 'memory-correction-object',
 };
+
+type ProjectContextLoadState = 'idle' | 'loading' | 'ready' | 'error';
+type ProjectContextLoadResult = 'ready' | 'empty' | 'error' | 'stale';
 
 export function MemoryCorrectionDialog({
   open,
@@ -91,10 +100,47 @@ export function MemoryCorrectionDialog({
   const [entityOptions, setEntityOptions] = useState<MemoryCorrectionEntityOption[]>([]);
   const [entitySearchLoading, setEntitySearchLoading] = useState(false);
   const [entitySearchError, setEntitySearchError] = useState(false);
+  const [projectContextOptions, setProjectContextOptions] = useState<MemoryCorrectionContextOption[]>([]);
+  const [projectContextLoadState, setProjectContextLoadState] = useState<ProjectContextLoadState>('idle');
   const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
   const previousTargetRef = useRef<string | null>(null);
   const initialDraftRef = useRef<MemoryCorrectionDraft | null>(null);
   const submittingRef = useRef(false);
+  const projectContextRequestRef = useRef(0);
+  const needsRelationshipObjectOptions = Boolean(
+    target?.kind === 'edge'
+    && draft
+    && (
+      draft.correctionKind === 'situation_changed'
+      || (
+        draft.correctionKind === 'record_error'
+        && draft.recordErrorAction === 'replace'
+      )
+    )
+  );
+
+  const loadProjectContextOptions = useCallback(async (): Promise<ProjectContextLoadResult> => {
+    const requestId = projectContextRequestRef.current + 1;
+    projectContextRequestRef.current = requestId;
+    setProjectContextLoadState('loading');
+    try {
+      const response = await memoryApi.getCorrectionContextOptions();
+      if (requestId !== projectContextRequestRef.current) return 'stale';
+      const options = selectableProjectContextOptions(response.items ?? []);
+      setProjectContextOptions(options);
+      setProjectContextLoadState('ready');
+      return options.length > 0 ? 'ready' : 'empty';
+    } catch {
+      if (requestId !== projectContextRequestRef.current) return 'stale';
+      setProjectContextOptions([]);
+      setProjectContextLoadState('error');
+      return 'error';
+    }
+  }, []);
+
+  const retryProjectContextOptions = useCallback(async () => {
+    focusProjectContextLoadResult(await loadProjectContextOptions());
+  }, [loadProjectContextOptions]);
 
   useEffect(() => {
     const targetKey = target ? `${target.kind}:${target.id}` : null;
@@ -118,15 +164,38 @@ export function MemoryCorrectionDialog({
     setEntityOptions(target.kind === 'edge' ? target.entityOptions : []);
     setEntitySearchLoading(false);
     setEntitySearchError(false);
+    projectContextRequestRef.current += 1;
+    setProjectContextOptions([]);
+    setProjectContextLoadState('idle');
     setDiscardConfirmOpen(false);
   }, [draft, initialCorrectionKind, initialRecordErrorAction, open, target]);
 
   useEffect(() => {
-    if (!open) setDiscardConfirmOpen(false);
+    if (!open) {
+      previousTargetRef.current = null;
+      projectContextRequestRef.current += 1;
+      setProjectContextOptions([]);
+      setProjectContextLoadState('idle');
+      setDiscardConfirmOpen(false);
+    }
   }, [open]);
 
+  useEffect(() => () => {
+    projectContextRequestRef.current += 1;
+  }, []);
+
   useEffect(() => {
-    if (!open || target?.kind !== 'edge') return;
+    if (
+      open
+      && draft?.correctionKind === 'scope_refinement'
+      && projectContextLoadState === 'idle'
+    ) {
+      void loadProjectContextOptions();
+    }
+  }, [draft?.correctionKind, loadProjectContextOptions, open, projectContextLoadState]);
+
+  useEffect(() => {
+    if (!open || target?.kind !== 'edge' || !needsRelationshipObjectOptions) return;
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       setEntitySearchLoading(true);
@@ -157,7 +226,7 @@ export function MemoryCorrectionDialog({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [entitySearch, open, target]);
+  }, [entitySearch, needsRelationshipObjectOptions, open, target]);
 
   const effectiveTarget = useMemo<MemoryCorrectionUiTarget | null>(() => {
     if (!target || target.kind === 'assertion') return target;
@@ -165,8 +234,10 @@ export function MemoryCorrectionDialog({
   }, [entityOptions, target]);
 
   const validation = useMemo(
-    () => (effectiveTarget && draft ? validateMemoryCorrectionDraft(effectiveTarget, draft) : null),
-    [draft, effectiveTarget]
+    () => (effectiveTarget && draft
+      ? validateMemoryCorrectionDraft(effectiveTarget, draft, projectContextOptions)
+      : null),
+    [draft, effectiveTarget, projectContextOptions]
   );
   const hasUnsavedChanges = useMemo(
     () => Boolean(
@@ -203,10 +274,15 @@ export function MemoryCorrectionDialog({
     if (submittingRef.current || !effectiveTarget || !draft) return;
     setSubmitted(true);
     if (!validation?.valid) {
-      focusFirstInvalidCorrectionField(validation?.errors ?? {});
+      focusFirstInvalidCorrectionField(validation?.errors ?? {}, effectiveTarget);
       return;
     }
-    const payload = buildMemoryCorrectionRequest(effectiveTarget, draft, requestId);
+    const payload = buildMemoryCorrectionRequest(
+      effectiveTarget,
+      draft,
+      requestId,
+      projectContextOptions
+    );
     if (!payload) return;
 
     submittingRef.current = true;
@@ -221,6 +297,7 @@ export function MemoryCorrectionDialog({
       );
     } catch (caught) {
       const clientError = toApiClientError(caught);
+      const validationCode = correctionValidationCode(clientError.details) ?? clientError.code;
       if (clientError.status === 409 || clientError.status === 404) {
         setConflicted(true);
         setError(t('memory.correction.errors.targetChanged', {
@@ -232,12 +309,39 @@ export function MemoryCorrectionDialog({
         );
       } else if (
         clientError.status === 422
-        && correctionValidationCode(clientError.details) === 'effective_at_before_target'
+        && validationCode === 'effective_at_before_target'
       ) {
         setError(t('memory.correction.errors.effectiveAtBeforeTarget', {
           defaultValue: '变化时间不能早于这条记忆开始生效的时间，请重新选择。',
         }));
         focusCorrectionField('effectiveAt');
+      } else if (
+        clientError.status === 422
+        && validationCode === 'replacement_unchanged'
+      ) {
+        setError(t('memory.correction.errors.replacementUnchanged', {
+          defaultValue: '填写的内容和当前记忆相同，请写下实际变化后的内容。',
+        }));
+        focusCorrectionField(effectiveTarget.kind === 'assertion' ? 'value' : 'relationObjectId');
+      } else if (
+        clientError.status === 422
+        && validationCode === 'scope_unchanged'
+      ) {
+        setError(t('memory.correction.errors.scopeUnchanged', {
+          defaultValue: '这条记忆已经只用于这个项目，请选择其他项目。',
+        }));
+        focusCorrectionField('scopeContextId');
+      } else if (
+        clientError.status === 422
+        && CONTEXT_SCOPE_ERROR_CODES.has(validationCode)
+      ) {
+        setDraft((current) => current ? { ...current, scopeContextId: '' } : current);
+        setRequestId(createMemoryCorrectionRequestId());
+        setProjectContextOptions([]);
+        setError(t('memory.correction.errors.projectChanged', {
+          defaultValue: '这个项目已不可用于记忆限定。项目列表已经更新，请重新选择。',
+        }));
+        void loadProjectContextOptions().then(focusProjectContextLoadResult);
       } else {
         setError(t('memory.correction.errors.saveFailed', {
           defaultValue: '暂时没能保存。你填写的内容还在，可以稍后重试。',
@@ -257,6 +361,7 @@ export function MemoryCorrectionDialog({
     }
     if (!nextOpen) {
       previousTargetRef.current = null;
+      projectContextRequestRef.current += 1;
       setDiscardConfirmOpen(false);
     }
     onOpenChange(nextOpen);
@@ -264,6 +369,7 @@ export function MemoryCorrectionDialog({
 
   const discardAndClose = () => {
     previousTargetRef.current = null;
+    projectContextRequestRef.current += 1;
     setDiscardConfirmOpen(false);
     onOpenChange(false);
   };
@@ -275,7 +381,7 @@ export function MemoryCorrectionDialog({
   const isSituationChanged = draft.correctionKind === 'situation_changed';
   const isScopeRefinement = draft.correctionKind === 'scope_refinement';
   const showReplacement = isAssertion
-    ? !isRecordError || draft.recordErrorAction === 'replace'
+    ? isSituationChanged || (isRecordError && draft.recordErrorAction === 'replace')
     : isSituationChanged || (isRecordError && draft.recordErrorAction === 'replace');
 
   return (
@@ -289,6 +395,7 @@ export function MemoryCorrectionDialog({
           <CorrectionSuccess
             target={effectiveTarget}
             result={result}
+            contextOptions={projectContextOptions}
             onDone={() => handleOpenChange(false)}
           />
         ) : (
@@ -311,7 +418,7 @@ export function MemoryCorrectionDialog({
                 <h3 id="memory-correction-current" className="text-xs font-semibold text-muted-foreground">
                   {t('memory.correction.currentLabel', { defaultValue: '当前记住的是' })}
                 </h3>
-                <p className="mt-2 rounded-xl bg-muted/55 px-4 py-3 text-sm font-medium leading-6 text-foreground">
+                <p className="mt-2 break-words rounded-xl bg-muted/55 px-4 py-3 text-sm font-medium leading-6 text-foreground">
                   {effectiveTarget.statement}
                 </p>
               </section>
@@ -353,7 +460,7 @@ export function MemoryCorrectionDialog({
                               ? '纠正错误内容，或让 Magi 不再使用它。'
                               : kind === 'situation_changed'
                                 ? '保留过去的情况，从你选择的时间开始使用新内容。'
-                                : '只有在指定的项目、活动、地点或人物下才使用。',
+                                : '只在你选择的项目中使用。',
                           })}
                         </span>
                       </button>
@@ -395,9 +502,6 @@ export function MemoryCorrectionDialog({
                   <FormField
                     label={t('memory.correction.correctValue', { defaultValue: '正确内容' })}
                     htmlFor="memory-correction-value"
-                    hint={isScopeRefinement
-                      ? t('memory.correction.scopeValueHint', { defaultValue: '如果内容本身没错，可以保持原样。' })
-                      : undefined}
                     error={validationError('value')}
                   >
                     <Input
@@ -483,57 +587,17 @@ export function MemoryCorrectionDialog({
               ) : null}
 
               {isScopeRefinement ? (
-                <fieldset>
-                  <legend className="text-sm font-semibold text-foreground">
-                    {t('memory.correction.scopeLabel', { defaultValue: '在什么情况下成立？' })}
-                  </legend>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-[160px_1fr]">
-                    <select
-                      aria-label={t('memory.correction.scopeType', { defaultValue: '情况类型' })}
-                      value={draft.scopeType}
-                      onChange={(event) => updateDraft({ scopeType: event.target.value as MemoryCorrectionDraft['scopeType'] })}
-                      className="h-11 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      {SCOPE_TYPES.map((scopeType) => (
-                        <option key={scopeType} value={scopeType}>
-                          {t(`memory.correction.scopes.${scopeType}`, {
-                            defaultValue: scopeType === 'project'
-                              ? '某个项目'
-                              : scopeType === 'activity'
-                                ? '某种活动'
-                                : scopeType === 'place'
-                                  ? '某个地点'
-                                  : '和某个人有关',
-                          })}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      id="memory-correction-scope-value"
-                      aria-label={t('memory.correction.scopeValue', { defaultValue: '具体情况' })}
-                      value={draft.scopeValue}
-                      onChange={(event) => updateDraft({ scopeValue: event.target.value })}
-                      maxLength={200}
-                      placeholder={t(`memory.correction.scopePlaceholders.${draft.scopeType}`, {
-                        defaultValue: draft.scopeType === 'project'
-                          ? '例如：Magi'
-                          : draft.scopeType === 'activity'
-                            ? '例如：写代码时'
-                            : draft.scopeType === 'place'
-                              ? '例如：公司'
-                              : '例如：和小王聊天时',
-                      })}
-                      aria-invalid={Boolean(submitted && validation?.errors.scopeValue)}
-                      aria-errormessage={validationError('scopeValue') ? 'memory-correction-scope-value-error' : undefined}
-                      className="h-11"
-                    />
-                  </div>
-                  {validationError('scopeValue') ? (
-                    <p id="memory-correction-scope-value-error" className="mt-2 text-xs leading-5 text-destructive">
-                      {validationError('scopeValue')}
-                    </p>
-                  ) : null}
-                </fieldset>
+                <MemoryCorrectionProjectSelect
+                  key={`${effectiveTarget.kind}:${effectiveTarget.id}`}
+                  options={projectContextOptions}
+                  value={draft.scopeContextId}
+                  onChange={(scopeContextId) => updateDraft({ scopeContextId })}
+                  loading={projectContextLoadState === 'idle' || projectContextLoadState === 'loading'}
+                  loadError={projectContextLoadState === 'error'}
+                  onRetry={() => void retryProjectContextOptions()}
+                  validationError={validationError('scopeContextId')}
+                  submitted={submitted}
+                />
               ) : null}
 
               <FormField
@@ -560,7 +624,7 @@ export function MemoryCorrectionDialog({
                         defaultValue: '保存后，变化时间之前仍保留旧情况，之后使用新情况。相关内容会随后重新整理。',
                       })
                     : t('memory.correction.impact.scopeRefinement', {
-                        defaultValue: '保存后，这条记忆只会在你填写的情况下使用，其他情况下不会带入回答。',
+                        defaultValue: '保存后，这条记忆只会在所选项目中使用，其他项目不会带入回答。',
                       })}
               </div>
 
@@ -579,7 +643,10 @@ export function MemoryCorrectionDialog({
                 type="button"
                 className="min-h-11"
                 onClick={() => conflicted ? handleOpenChange(false) : void handleSubmit()}
-                disabled={submitting}
+                disabled={submitting || (
+                  isScopeRefinement
+                  && (projectContextLoadState !== 'ready' || projectContextOptions.length === 0)
+                )}
               >
                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : null}
                 {conflicted
@@ -688,10 +755,12 @@ function FormField({
 function CorrectionSuccess({
   target,
   result,
+  contextOptions,
   onDone,
 }: {
   target: MemoryCorrectionUiTarget;
   result: MemoryCorrectionCommandResponse;
+  contextOptions: readonly MemoryCorrectionContextOption[];
   onDone: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
@@ -701,7 +770,10 @@ function CorrectionSuccess({
   const effectiveAt = result.correction.effective_at
     ? formatCorrectionTime(result.correction.effective_at, locale)
     : null;
-  const scope = formatCorrectionScope(result.correction.scope, t);
+  const contextLabels = Object.fromEntries(
+    contextOptions.map((option) => [option.context_id, option.label])
+  );
+  const scope = formatCorrectionScope(result.correction.scope, t, contextLabels);
   const isFutureChange = Boolean(
     result.correction.effective_at
       && result.correction.effective_at > Date.now() / 1000 + 1
@@ -733,7 +805,7 @@ function CorrectionSuccess({
                 ? t('memory.correction.success.futureLabel', { defaultValue: '从设定时间起会这样理解' })
                 : t('memory.correction.success.currentLabel', { defaultValue: '现在会这样理解' })}
             </div>
-            <p className="mt-2 text-sm font-medium leading-6 text-foreground">{currentValue}</p>
+            <p className="mt-2 break-words text-sm font-medium leading-6 text-foreground">{currentValue}</p>
           </div>
         ) : null}
         {effectiveAt || scope ? (
@@ -743,7 +815,7 @@ function CorrectionSuccess({
                 <dt className="shrink-0 text-muted-foreground">
                   {t('memory.correction.success.effectiveAt', { defaultValue: '从什么时候起' })}
                 </dt>
-                <dd className="font-medium text-foreground">{effectiveAt}</dd>
+                <dd className="min-w-0 break-words font-medium text-foreground">{effectiveAt}</dd>
               </div>
             ) : null}
             {scope ? (
@@ -751,7 +823,7 @@ function CorrectionSuccess({
                 <dt className="shrink-0 text-muted-foreground">
                   {t('memory.correction.success.scope', { defaultValue: '在什么情况下' })}
                 </dt>
-                <dd className="font-medium text-foreground">{scope}</dd>
+                <dd className="min-w-0 break-words font-medium text-foreground">{scope}</dd>
               </div>
             ) : null}
           </dl>
@@ -803,7 +875,8 @@ function correctionValidationFallback(code: string): string {
     replacement_unchanged: '新内容和当前内容相同，请填写实际变化后的内容。',
     effective_at_required: '请选择变化开始的时间。',
     effective_at_invalid: '变化时间无效，请重新选择。',
-    scope_required: '请填写具体适用的情况。',
+    scope_required: '请选择适用的项目。',
+    scope_unavailable: '这个项目目前不可用，请重新选择。',
     relation_object_required: '请选择正确的关系对象。',
     relation_object_unchanged: '请选择一个与当前不同的对象。',
     relation_object_unavailable: '这个对象目前不可用，请重新选择。',
@@ -817,26 +890,46 @@ function correctionDraftFingerprint(draft: MemoryCorrectionDraft): string {
     recordErrorAction: draft.recordErrorAction,
     value: draft.value,
     effectiveAt: draft.effectiveAt,
-    scopeType: draft.scopeType,
-    scopeValue: draft.scopeValue,
+    scopeContextId: draft.scopeContextId,
     reason: draft.reason,
     relationObjectId: draft.relationObjectId,
   });
 }
 
-function focusFirstInvalidCorrectionField(errors: MemoryCorrectionValidationErrors): void {
-  const firstInvalidField = (Object.keys(CORRECTION_FIELD_IDS) as MemoryCorrectionValidationField[])
+function focusFirstInvalidCorrectionField(
+  errors: MemoryCorrectionValidationErrors,
+  target: MemoryCorrectionUiTarget
+): void {
+  const fieldOrder: MemoryCorrectionValidationField[] = target.kind === 'edge'
+    ? ['relationObjectId', 'effectiveAt', 'scopeContextId', 'value']
+    : ['value', 'effectiveAt', 'scopeContextId', 'relationObjectId'];
+  const firstInvalidField = fieldOrder
     .find((field) => Boolean(errors[field]));
   if (firstInvalidField) focusCorrectionField(firstInvalidField);
 }
 
 function focusCorrectionField(field: MemoryCorrectionValidationField): void {
-  const focus = () => document.getElementById(CORRECTION_FIELD_IDS[field])?.focus();
+  focusCorrectionElement(CORRECTION_FIELD_IDS[field]);
+}
+
+function focusCorrectionElement(elementId: string): void {
+  const focus = () => document.getElementById(elementId)?.focus();
   if (typeof window.requestAnimationFrame === 'function') {
     window.requestAnimationFrame(focus);
   } else {
     window.setTimeout(focus, 0);
   }
+}
+
+function focusProjectContextLoadResult(result: ProjectContextLoadResult): void {
+  const elementId = result === 'ready'
+    ? CORRECTION_FIELD_IDS.scopeContextId
+    : result === 'empty'
+      ? 'memory-correction-project-empty'
+      : result === 'error'
+        ? 'memory-correction-project-retry'
+        : null;
+  if (elementId) focusCorrectionElement(elementId);
 }
 
 function isPendingReviewClaim(claim: Record<string, unknown>): boolean {

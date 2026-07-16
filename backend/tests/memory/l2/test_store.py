@@ -6,7 +6,14 @@ import aiosqlite
 import pytest
 
 from magi.events.events import Event, EventLevel, EventTypes
-from magi.memory.event_contracts import IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth, normalize_runtime_event
+from magi.memory.event_contracts import (
+    IngestTarget,
+    MemoryDomain,
+    MemoryEvent,
+    RetentionClass,
+    TomDepth,
+    normalize_runtime_event,
+)
 
 
 async def _build_user_message(text: str, *, correlation_id: str, timestamp: float):
@@ -19,8 +26,9 @@ async def _build_user_message(text: str, *, correlation_id: str, timestamp: floa
             correlation_id=correlation_id,
             metadata={"user_id": "u1"},
             timestamp=timestamp,
-        event_id=correlation_id),
-        )
+            event_id=correlation_id,
+        ),
+    )
 
 
 async def _build_group_timeline_message(text: str, *, correlation_id: str, timestamp: float):
@@ -77,8 +85,9 @@ async def _build_contradiction(text: str, *, correlation_id: str, timestamp: flo
             correlation_id=correlation_id,
             metadata={"user_id": "u1"},
             timestamp=timestamp,
-        event_id=correlation_id),
-        )
+            event_id=correlation_id,
+        ),
+    )
 
 
 def _migrated_l2_db_path(tmp_path):
@@ -324,8 +333,12 @@ async def test_count_tom_assertions_applies_list_filters(tmp_path):
         confidence=0.86,
     )
     assertions = await store.list_tom_assertions(trait_families=["preference_profile"])
-    rejected_assertion = next(item for item in assertions if item["trait_name"] == "favorite_language")
-    await store.apply_user_feedback(assertion_id=rejected_assertion["assertion_id"], feedback="rejected")
+    rejected_assertion = next(
+        item for item in assertions if item["trait_name"] == "favorite_language"
+    )
+    await store.apply_user_feedback(
+        assertion_id=rejected_assertion["assertion_id"], feedback="rejected"
+    )
 
     count = await store.count_tom_assertions(
         validation_states=["tentative", "contradicted"],
@@ -413,7 +426,7 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
     ):
         await _apply_rule_candidates(
             store,
-            await _build_user_message(text, correlation_id=correlation_id, timestamp=timestamp)
+            await _build_user_message(text, correlation_id=correlation_id, timestamp=timestamp),
         )
 
     await _apply_rule_candidates(
@@ -422,7 +435,7 @@ async def test_contradiction_downgrades_existing_assertion(tmp_path):
             "I actually feel calm and relaxed about work now.",
             correlation_id="evt-4",
             timestamp=1710275000.0,
-        )
+        ),
     )
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
@@ -444,7 +457,7 @@ async def test_group_content_avoids_deep_psychology(tmp_path):
             "The group felt tense and Alice openly praised Bob.",
             correlation_id="evt-1",
             timestamp=1710000000.0,
-        )
+        ),
     )
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
@@ -578,7 +591,9 @@ async def test_corroborate_edge_idempotent_on_identical_evidence_replay(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_upsert_knowledge_edge_keeps_first_and_last_observed_bounds_for_out_of_order_events(tmp_path):
+async def test_upsert_knowledge_edge_keeps_first_and_last_observed_bounds_for_out_of_order_events(
+    tmp_path,
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -688,7 +703,9 @@ async def test_preference_reversal_deprecates_opposite_graph_edge(tmp_path):
     assert len(active_edges) == 1
     assert active_edges[0]["predicate"] == "DISLIKES"
 
-    deprecated_like_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
+    deprecated_like_edges = await store.get_relationships(
+        subject_id="user:u1", limit=10, status="deprecated"
+    )
     assert len(deprecated_like_edges) == 1
     assert deprecated_like_edges[0]["predicate"] == "LIKES"
     assert deprecated_like_edges[0]["deprecated_by"] == active_edges[0]["triple_id"]
@@ -875,7 +892,9 @@ async def test_refresh_snapshot_ignores_expired_temporary_assertions(tmp_path):
     assert snapshot["core_traits"]["stress_level"] == "high"
     assert snapshot["current_context"]["active_assertion_count"] == 1
     assert snapshot["current_context"]["expired_assertion_count"] == 1
-    assert any(item["trait_name"] == "annoyance" and item["expires_at"] is not None for item in assertions)
+    assert any(
+        item["trait_name"] == "annoyance" and item["expires_at"] is not None for item in assertions
+    )
 
 
 @pytest.mark.asyncio
@@ -1043,7 +1062,9 @@ async def test_custom_opposite_rule_can_mark_existing_edge_conflicted(tmp_path):
     )
 
     active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
-    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
+    conflicted_edges = await store.get_relationships(
+        subject_id="user:u1", limit=10, status="conflicted"
+    )
 
     assert len(active_edges) == 1
     assert active_edges[0]["triple_id"] == reject_id
@@ -1097,7 +1118,9 @@ async def test_exclusive_group_rule_deprecates_cross_predicate_edges(tmp_path):
     )
 
     active_edges = await store.get_relationships(subject_id="user:u1", limit=10)
-    deprecated_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="deprecated")
+    deprecated_edges = await store.get_relationships(
+        subject_id="user:u1", limit=10, status="deprecated"
+    )
 
     assert len(active_edges) == 1
     assert active_edges[0]["triple_id"] == live_id
@@ -1195,14 +1218,406 @@ async def test_upserted_graph_conflict_rule_changes_runtime_conflict_behavior(tm
         source_type="chat",
     )
 
-    conflicted_edges = await store.get_relationships(subject_id="user:u1", limit=10, status="conflicted")
+    conflicted_edges = await store.get_relationships(
+        subject_id="user:u1", limit=10, status="conflicted"
+    )
 
     assert len(conflicted_edges) == 1
     assert conflicted_edges[0]["predicate"] == "ENDORSES"
 
 
 @pytest.mark.asyncio
-async def test_upsert_graph_conflict_rule_normalizes_predicates_and_deduplicates_opposites(tmp_path):
+async def test_conflict_rule_change_converges_existing_exclusive_edges(tmp_path):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    developer_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:developer",
+        object_type="role",
+        evidence_event_ids=["evt-role-developer"],
+        confidence=0.9,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    designer_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:designer",
+        object_type="role",
+        evidence_event_ids=["evt-role-designer"],
+        confidence=0.7,
+        observed_at=1710000100.0,
+        source_type="chat",
+    )
+    snapshot = await store.refresh_entity_snapshot(
+        entity_id="user:u1",
+        entity_type="user",
+    )
+    assert snapshot is not None
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            INSERT INTO summaries(
+                summary_id, summary_type, summary_category, period_start,
+                period_end, content, source_event_ids, source_event_count,
+                created_at, updated_at, source_revision, derivation_state
+            ) VALUES ('insight-role', 'insight', 'identity', 0, 1,
+                      'The user has two project roles.', '[]', 0, 1, 1, 0, 'current')
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO memory_derivation_dependencies(
+                artifact_kind, artifact_id, source_kind, source_id,
+                subject_key, source_revision, created_at
+            ) VALUES ('l3_insight', 'insight-role', 'edge', ?, 'user:u1', 0, 1)
+            """,
+            (developer_id,),
+        )
+        await db.commit()
+
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "CURRENT_PROJECT_ROLE",
+            "exclusive_group": "current_project_role",
+        }
+    )
+
+    developer = await store.get_relationship(triple_id=developer_id)
+    designer = await store.get_relationship(triple_id=designer_id)
+    active = await store.get_relationships(subject_id="user:u1", status="active")
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT status FROM knowledge_graph_versions
+            WHERE triple_id = ? ORDER BY created_at, version_id
+            """,
+            (developer_id,),
+        ) as cursor:
+            version_statuses = [str(row["status"]) for row in await cursor.fetchall()]
+        async with db.execute(
+            "SELECT derivation_state FROM summaries WHERE summary_id = 'insight-role'"
+        ) as cursor:
+            insight_state = str((await cursor.fetchone())["derivation_state"])
+
+    assert [row["triple_id"] for row in active] == [designer_id]
+    assert designer["status"] == "active"
+    assert developer["status"] == "deprecated"
+    assert developer["status_reason"] == "graph_conflict_rule"
+    assert developer["deprecated_by"] == designer_id
+    assert developer["slot_key"] == designer["slot_key"]
+    assert version_statuses[-2:] == ["active", "deprecated"]
+    assert insight_state == "stale"
+    assert await store.current_subject_revision("user:u1") == 1
+    assert await store.get_tom_snapshot(entity_id="user:u1", entity_type="user") is None
+
+
+@pytest.mark.asyncio
+async def test_conflict_rule_change_rejects_multiple_user_authorities(tmp_path):
+    from magi.memory.l2.corrections.models import CorrectionKind
+    from magi.memory.l2.graph.rule_convergence import GraphConflictConvergenceError
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    first_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:first-raw",
+        object_type="role",
+        evidence_event_ids=["evt-first-raw"],
+        confidence=0.8,
+        observed_at=time.time(),
+        source_type="chat",
+    )
+    second_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:second-raw",
+        object_type="role",
+        evidence_event_ids=["evt-second-raw"],
+        confidence=0.8,
+        observed_at=time.time(),
+        source_type="chat",
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=first_id,
+        request_id="authority-first-role",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "role:developer", "object_type": "role"},
+    )
+    second = await store.apply_relationship_correction(
+        triple_id=second_id,
+        request_id="authority-second-role",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "role:designer", "object_type": "role"},
+    )
+    assert first is not None and second is not None
+    first_replacement = first["current_relationship"]
+    second_replacement = second["current_relationship"]
+
+    with pytest.raises(GraphConflictConvergenceError, match="multiple active user corrections"):
+        await store.upsert_graph_conflict_rule(
+            {
+                "predicate": "CURRENT_PROJECT_ROLE",
+                "exclusive_group": "current_project_role",
+            }
+        )
+
+    rules = await store.list_graph_conflict_rules()
+    assert all(rule["predicate"] != "CURRENT_PROJECT_ROLE" for rule in rules)
+    after_first = await store.get_relationship(triple_id=first_replacement["triple_id"])
+    after_second = await store.get_relationship(triple_id=second_replacement["triple_id"])
+    assert after_first["status"] == after_second["status"] == "active"
+    assert after_first["slot_key"] == first_replacement["slot_key"]
+    assert after_second["slot_key"] == second_replacement["slot_key"]
+    assert after_first["slot_key"] != after_second["slot_key"]
+
+
+@pytest.mark.asyncio
+async def test_conflict_rule_change_prefers_one_user_authority(tmp_path):
+    from magi.memory.l2.corrections.models import CorrectionKind
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    raw_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:raw",
+        object_type="role",
+        evidence_event_ids=["evt-role-raw"],
+        confidence=0.7,
+        observed_at=time.time() - 100,
+        source_type="chat",
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=raw_id,
+        request_id="authoritative-project-role",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "role:developer", "object_type": "role"},
+    )
+    assert corrected is not None
+    authority_id = corrected["current_relationship"]["triple_id"]
+    newer_ordinary_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:designer",
+        object_type="role",
+        evidence_event_ids=["evt-role-newer"],
+        confidence=0.99,
+        observed_at=time.time(),
+        source_type="chat",
+    )
+
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "CURRENT_PROJECT_ROLE",
+            "exclusive_group": "current_project_role",
+        }
+    )
+
+    authority = await store.get_relationship(triple_id=authority_id)
+    ordinary = await store.get_relationship(triple_id=newer_ordinary_id)
+    assert authority["status"] == "active"
+    assert ordinary["status"] == "deprecated"
+    assert ordinary["deprecated_by"] == authority_id
+
+
+@pytest.mark.asyncio
+async def test_conflict_rule_change_rekeys_existing_correction_governance(tmp_path):
+    from magi.memory.l2.corrections.models import CorrectionKind
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    original_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:developer",
+        object_type="role",
+        evidence_event_ids=["evt-role-original"],
+        confidence=0.8,
+        observed_at=1710000000.0,
+        source_type="chat",
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="correct-role-before-rule",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "role:designer", "object_type": "role"},
+    )
+    assert corrected is not None
+    replacement_id = corrected["current_relationship"]["triple_id"]
+    previous_slot = corrected["current_relationship"]["slot_key"]
+    previous_updated_at = corrected["current_relationship"]["updated_at"]
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE knowledge_graph
+            SET embedding_status = 'ready', embedding_profile_id = 'profile-before-rule',
+                last_embedded_at = 1710000001.0
+            WHERE triple_id = ?
+            """,
+            (replacement_id,),
+        )
+        await db.commit()
+
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "CURRENT_PROJECT_ROLE",
+            "exclusive_group": "current_project_role",
+        }
+    )
+
+    original = await store.get_relationship(triple_id=original_id)
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    history = await store.get_relationship_correction_history(triple_id=replacement_id)
+    correction = history["corrections"][0]
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT embedding_profile_id, last_embedded_at
+            FROM knowledge_graph WHERE triple_id = ?
+            """,
+            (replacement_id,),
+        ) as cursor:
+            embedding_state = await cursor.fetchone()
+    assert original["slot_key"] == replacement["slot_key"]
+    assert replacement["slot_key"] != previous_slot
+    assert replacement["updated_at"] == previous_updated_at
+    assert replacement["embedding_status"] == "ready"
+    assert embedding_state["embedding_profile_id"] == "profile-before-rule"
+    assert embedding_state["last_embedded_at"] == 1710000001.0
+    assert correction["slot_key"] == original["slot_key"]
+    assert correction["before"]["slot_key"] == original["slot_key"]
+    assert correction["replacement"]["slot_key"] == replacement["slot_key"]
+
+    replayed_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:developer",
+        object_type="role",
+        evidence_event_ids=["evt-role-replay"],
+        confidence=0.9,
+        observed_at=1710000100.0,
+        source_type="chat",
+    )
+    assert replayed_id == original_id
+    replayed = await store.get_relationship(triple_id=original_id)
+    assert replayed["status"] == "user_rejected"
+    assert replayed["evidence_event_ids"] == ["evt-role-original"]
+
+    competing_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:manager",
+        object_type="role",
+        evidence_event_ids=["evt-role-competing"],
+        confidence=0.9,
+        observed_at=time.time() + 1.0,
+        source_type="chat",
+    )
+    competing = await store.get_relationship(triple_id=competing_id)
+    assert competing["status"] == "conflicted"
+    assert competing["deprecated_by"] == replacement_id
+
+
+@pytest.mark.asyncio
+async def test_conflict_rule_change_refreshes_history_without_current_replacement(tmp_path):
+    import json
+
+    from magi.memory.l2.corrections.models import CorrectionKind
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    original_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:developer",
+        object_type="role",
+        evidence_event_ids=["evt-history-original"],
+        confidence=0.8,
+        observed_at=time.time(),
+        source_type="chat",
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="correct-missing-history-role",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "role:designer", "object_type": "role"},
+    )
+    assert corrected is not None
+    replacement_id = corrected["current_relationship"]["triple_id"]
+    correction_id = corrected["correction"]["correction_id"]
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            "DELETE FROM knowledge_graph WHERE triple_id = ?",
+            (replacement_id,),
+        )
+        await db.commit()
+
+    await store.upsert_graph_conflict_rule(
+        {
+            "predicate": "CURRENT_PROJECT_ROLE",
+            "exclusive_group": "current_project_role",
+        }
+    )
+
+    original = await store.get_relationship(triple_id=original_id)
+    async with aiosqlite.connect(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM memory_corrections WHERE correction_id = ?",
+            (correction_id,),
+        ) as cursor:
+            correction = await cursor.fetchone()
+        async with db.execute(
+            """
+            SELECT * FROM memory_correction_rules
+            WHERE correction_id = ? AND rule_kind = 'authoritative_slot'
+            """,
+            (correction_id,),
+        ) as cursor:
+            authority_rule = await cursor.fetchone()
+        async with db.execute(
+            "SELECT slot_key FROM knowledge_graph_versions WHERE triple_id = ?",
+            (replacement_id,),
+        ) as cursor:
+            replacement_versions = await cursor.fetchall()
+
+    replacement_payload = json.loads(correction["replacement_json"])
+    assert replacement_payload["slot_key"] == original["slot_key"]
+    assert authority_rule["slot_key"] == original["slot_key"]
+    assert replacement_versions
+    assert all(row["slot_key"] == original["slot_key"] for row in replacement_versions)
+
+
+@pytest.mark.asyncio
+async def test_upsert_graph_conflict_rule_normalizes_predicates_and_deduplicates_opposites(
+    tmp_path,
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -1262,7 +1677,9 @@ async def test_apply_user_feedback_confirmed_promotes_confidence(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message("I have been really stressed.", correlation_id="evt-fb-1", timestamp=1710000000.0)
+    event = await _build_user_message(
+        "I have been really stressed.", correlation_id="evt-fb-1", timestamp=1710000000.0
+    )
     await _apply_rule_candidates(store, event)
     assertions = await store.list_tom_assertions(entity_id="user:u1")
     assert len(assertions) == 1
@@ -1270,7 +1687,9 @@ async def test_apply_user_feedback_confirmed_promotes_confidence(tmp_path):
     assert assertions[0]["validation_state"] == "corroborated"
     original_confidence = assertions[0]["confidence_score"]
 
-    result = await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="confirmed")
+    result = await store.apply_user_feedback(
+        assertion_id=assertions[0]["assertion_id"], feedback="confirmed"
+    )
 
     assert result is not None
     assert result["user_feedback"] == "confirmed"
@@ -1284,11 +1703,15 @@ async def test_apply_user_feedback_rejected_drops_confidence(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message("I have been really stressed.", correlation_id="evt-fb-2", timestamp=1710000000.0)
+    event = await _build_user_message(
+        "I have been really stressed.", correlation_id="evt-fb-2", timestamp=1710000000.0
+    )
     await _apply_rule_candidates(store, event)
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
-    result = await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="rejected")
+    result = await store.apply_user_feedback(
+        assertion_id=assertions[0]["assertion_id"], feedback="rejected"
+    )
 
     assert result is not None
     assert result["user_feedback"] == "rejected"
@@ -1401,11 +1824,15 @@ async def test_reconcile_respects_user_confirmed_feedback(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message("I have been really stressed.", correlation_id="evt-rc-1", timestamp=1710000000.0)
+    event = await _build_user_message(
+        "I have been really stressed.", correlation_id="evt-rc-1", timestamp=1710000000.0
+    )
     await _apply_rule_candidates(store, event)
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
-    await store.apply_user_feedback(assertion_id=assertions[0]["assertion_id"], feedback="confirmed")
+    await store.apply_user_feedback(
+        assertion_id=assertions[0]["assertion_id"], feedback="confirmed"
+    )
 
     outcomes = await store.reconcile_entity(entity_id="user:u1")
     assert len(outcomes) == 1
@@ -1418,7 +1845,9 @@ async def test_reconcile_respects_user_rejected_feedback(tmp_path):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    event = await _build_user_message("I have been really stressed.", correlation_id="evt-rc-2", timestamp=1710000000.0)
+    event = await _build_user_message(
+        "I have been really stressed.", correlation_id="evt-rc-2", timestamp=1710000000.0
+    )
     await _apply_rule_candidates(store, event)
     assertions = await store.list_tom_assertions(entity_id="user:u1")
 
@@ -1442,8 +1871,12 @@ async def test_snapshot_excludes_user_rejected_assertions(tmp_path):
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     now = time.time()
     # Create two assertions — one will be rejected
-    for i, text in enumerate(["I have been really stressed.", "I have been really stressed."], start=1):
-        event = await _build_user_message(text, correlation_id=f"evt-snap-{i}", timestamp=now + i * 100)
+    for i, text in enumerate(
+        ["I have been really stressed.", "I have been really stressed."], start=1
+    ):
+        event = await _build_user_message(
+            text, correlation_id=f"evt-snap-{i}", timestamp=now + i * 100
+        )
         await _apply_rule_candidates(store, event)
 
     assertions = await store.list_tom_assertions(entity_id="user:u1")
@@ -1539,7 +1972,8 @@ async def test_mark_projection_jobs_running_only_transitions_queued(tmp_path):
 
     # A stale duplicate batch tries to mark the same event running again.
     affected = await store.mark_projection_jobs_running(
-        ["evt-already-done"], consumer_name="w2",
+        ["evt-already-done"],
+        consumer_name="w2",
     )
     assert affected == 0
 
@@ -1730,7 +2164,9 @@ async def test_claim_ready_projection_jobs_waits_for_owner_to_fill_batch(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_claim_ready_projection_jobs_claims_full_chunks_and_leaves_remainder_pending(tmp_path):
+async def test_claim_ready_projection_jobs_claims_full_chunks_and_leaves_remainder_pending(
+    tmp_path,
+):
     from magi.memory.l2.store import L2CognitionStore
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
@@ -1813,10 +2249,14 @@ async def test_claim_ready_projection_jobs_claims_underfilled_owner_after_wait_t
 
 
 @pytest.mark.asyncio
-async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state(tmp_path, monkeypatch: pytest.MonkeyPatch):
+async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     from magi.memory.l2.store import L2CognitionStore
 
-    monkeypatch.setattr("magi.memory.l2.projection.queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 9999)
+    monkeypatch.setattr(
+        "magi.memory.l2.projection.queue.DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD", 9999
+    )
 
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
@@ -1838,8 +2278,12 @@ async def test_claim_ready_projection_jobs_uses_min_ready_events_in_steady_state
         limit=20,
     )
 
-    assert [item["event_id"] for item in claimed] == [f"evt-owner-steady-{index}" for index in range(8)]
-    assert all(item["effective_batch_owner"] == "chrome_history:Default:github.com" for item in claimed)
+    assert [item["event_id"] for item in claimed] == [
+        f"evt-owner-steady-{index}" for index in range(8)
+    ]
+    assert all(
+        item["effective_batch_owner"] == "chrome_history:Default:github.com" for item in claimed
+    )
 
 
 @pytest.mark.asyncio
@@ -1887,7 +2331,9 @@ async def test_claim_ready_projection_jobs_merges_low_frequency_owners_in_catch_
         f"evt-owner-catch-b-{index}" for index in range(10)
     }
     assert {item["event_id"] for item in claimed} == expected_event_ids
-    assert all(item["effective_batch_owner"] == "chrome_history:Default:catchup:2" for item in claimed)
+    assert all(
+        item["effective_batch_owner"] == "chrome_history:Default:catchup:2" for item in claimed
+    )
 
 
 @pytest.mark.asyncio
@@ -2254,7 +2700,9 @@ async def test_corroborate_keeps_longer_evidence_text(tmp_path):
 
     edge = await store.get_relationship(triple_id=tid)
     assert edge is not None
-    assert edge["evidence_text"] == "this is a much longer evidence text describing the relationship"
+    assert (
+        edge["evidence_text"] == "this is a much longer evidence text describing the relationship"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2397,19 +2845,37 @@ async def test_batch_get_relationships_returns_grouped_by_entity(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="LIKES", object_id="food:ramen", object_type="food",
-        evidence_event_ids=["e1"], confidence=0.5, observed_at=1710000000.0, source_type="chat",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["e1"],
+        confidence=0.5,
+        observed_at=1710000000.0,
+        source_type="chat",
     )
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="DISLIKES", object_id="food:sushi", object_type="food",
-        evidence_event_ids=["e2"], confidence=0.4, observed_at=1710001000.0, source_type="chat",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["e2"],
+        confidence=0.4,
+        observed_at=1710001000.0,
+        source_type="chat",
     )
     await store.upsert_knowledge_edge(
-        subject_id="person:alice", subject_type="person",
-        predicate="LIKES", object_id="food:pasta", object_type="food",
-        evidence_event_ids=["e3"], confidence=0.6, observed_at=1710002000.0, source_type="chat",
+        subject_id="person:alice",
+        subject_type="person",
+        predicate="LIKES",
+        object_id="food:pasta",
+        object_type="food",
+        evidence_event_ids=["e3"],
+        confidence=0.6,
+        observed_at=1710002000.0,
+        source_type="chat",
     )
 
     result = await store.batch_get_relationships(
@@ -2431,9 +2897,15 @@ async def test_batch_get_relationships_incoming_direction(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="FOLLOWS", object_id="person:alice", object_type="person",
-        evidence_event_ids=["e1"], confidence=0.5, observed_at=1710000000.0, source_type="chat",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="FOLLOWS",
+        object_id="person:alice",
+        object_type="person",
+        evidence_event_ids=["e1"],
+        confidence=0.5,
+        observed_at=1710000000.0,
+        source_type="chat",
     )
 
     result = await store.batch_get_relationships(
@@ -2452,9 +2924,15 @@ async def test_batch_get_relationships_both_direction_deduplicates(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="person:alice", subject_type="person",
-        predicate="KNOWS", object_id="person:bob", object_type="person",
-        evidence_event_ids=["e1"], confidence=0.5, observed_at=1710000000.0, source_type="chat",
+        subject_id="person:alice",
+        subject_type="person",
+        predicate="KNOWS",
+        object_id="person:bob",
+        object_type="person",
+        evidence_event_ids=["e1"],
+        confidence=0.5,
+        observed_at=1710000000.0,
+        source_type="chat",
     )
 
     result = await store.batch_get_relationships(
@@ -2472,14 +2950,26 @@ async def test_batch_get_relationships_target_object_id_filter(tmp_path):
     await store.initialize()
 
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="LIKES", object_id="food:ramen", object_type="food",
-        evidence_event_ids=["e1"], confidence=0.5, observed_at=1710000000.0, source_type="chat",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:ramen",
+        object_type="food",
+        evidence_event_ids=["e1"],
+        confidence=0.5,
+        observed_at=1710000000.0,
+        source_type="chat",
     )
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="LIKES", object_id="food:sushi", object_type="food",
-        evidence_event_ids=["e2"], confidence=0.5, observed_at=1710001000.0, source_type="chat",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["e2"],
+        confidence=0.5,
+        observed_at=1710001000.0,
+        source_type="chat",
     )
 
     result = await store.batch_get_relationships(
@@ -2509,24 +2999,40 @@ async def test_batch_list_tom_assertions_returns_grouped(tmp_path):
     store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
     await store.initialize()
 
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1", "entity_type": "user",
-        "trait_family": "preference", "trait_name": "food_taste",
-        "trait_value": "spicy", "confidence_score": 0.5,
-        "evidence_events": ["e1"], "volatility_index": 0.3,
-        "source_domain": "user_authored", "inference_depth": "direct",
-        "validation_state": "tentative",
-        "first_inferred_at": 1710000000.0, "last_validated_at": 1710000000.0,
-    })
-    await store.upsert_assertion_candidate({
-        "entity_id": "person:alice", "entity_type": "person",
-        "trait_family": "personality", "trait_name": "mood",
-        "trait_value": "cheerful", "confidence_score": 0.6,
-        "evidence_events": ["e2"], "volatility_index": 0.2,
-        "source_domain": "user_authored", "inference_depth": "direct",
-        "validation_state": "tentative",
-        "first_inferred_at": 1710000000.0, "last_validated_at": 1710000000.0,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference",
+            "trait_name": "food_taste",
+            "trait_value": "spicy",
+            "confidence_score": 0.5,
+            "evidence_events": ["e1"],
+            "volatility_index": 0.3,
+            "source_domain": "user_authored",
+            "inference_depth": "direct",
+            "validation_state": "tentative",
+            "first_inferred_at": 1710000000.0,
+            "last_validated_at": 1710000000.0,
+        }
+    )
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:alice",
+            "entity_type": "person",
+            "trait_family": "personality",
+            "trait_name": "mood",
+            "trait_value": "cheerful",
+            "confidence_score": 0.6,
+            "evidence_events": ["e2"],
+            "volatility_index": 0.2,
+            "source_domain": "user_authored",
+            "inference_depth": "direct",
+            "validation_state": "tentative",
+            "first_inferred_at": 1710000000.0,
+            "last_validated_at": 1710000000.0,
+        }
+    )
 
     result = await store.batch_list_tom_assertions(
         entity_ids=["user:u1", "person:alice"],
@@ -2547,15 +3053,23 @@ async def test_batch_list_tom_assertions_filters_trait_families(tmp_path):
     await store.initialize()
 
     for family in ("preference", "personality"):
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1", "entity_type": "user",
-            "trait_family": family, "trait_name": f"test_{family}",
-            "trait_value": "val", "confidence_score": 0.5,
-            "evidence_events": ["e1"], "volatility_index": 0.3,
-            "source_domain": "user_authored", "inference_depth": "direct",
-            "validation_state": "tentative",
-            "first_inferred_at": 1710000000.0, "last_validated_at": 1710000000.0,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": family,
+                "trait_name": f"test_{family}",
+                "trait_value": "val",
+                "confidence_score": 0.5,
+                "evidence_events": ["e1"],
+                "volatility_index": 0.3,
+                "source_domain": "user_authored",
+                "inference_depth": "direct",
+                "validation_state": "tentative",
+                "first_inferred_at": 1710000000.0,
+                "last_validated_at": 1710000000.0,
+            }
+        )
 
     result = await store.batch_list_tom_assertions(
         entity_ids=["user:u1"],
@@ -2585,21 +3099,31 @@ async def test_batch_get_tom_snapshots_returns_multiple(tmp_path):
 
     # Create assertions and refresh snapshots to populate tom_snapshots table
     for eid, etype in [("user:u1", "user"), ("person:alice", "person")]:
-        await store.upsert_assertion_candidate({
-            "entity_id": eid, "entity_type": etype,
-            "trait_family": "personality", "trait_name": "mood",
-            "trait_value": "happy", "confidence_score": 0.5,
-            "evidence_events": ["e1"], "volatility_index": 0.3,
-            "source_domain": "user_authored", "inference_depth": "direct",
-            "validation_state": "corroborated",
-            "first_inferred_at": 1710000000.0, "last_validated_at": 1710000000.0,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": eid,
+                "entity_type": etype,
+                "trait_family": "personality",
+                "trait_name": "mood",
+                "trait_value": "happy",
+                "confidence_score": 0.5,
+                "evidence_events": ["e1"],
+                "volatility_index": 0.3,
+                "source_domain": "user_authored",
+                "inference_depth": "direct",
+                "validation_state": "corroborated",
+                "first_inferred_at": 1710000000.0,
+                "last_validated_at": 1710000000.0,
+            }
+        )
         await store.refresh_entity_snapshot(entity_id=eid, entity_type=etype)
 
-    result = await store.batch_get_tom_snapshots(entities=[
-        {"entity_id": "user:u1", "entity_type": "user"},
-        {"entity_id": "person:alice", "entity_type": "person"},
-    ])
+    result = await store.batch_get_tom_snapshots(
+        entities=[
+            {"entity_id": "user:u1", "entity_type": "user"},
+            {"entity_id": "person:alice", "entity_type": "person"},
+        ]
+    )
     assert len(result) == 2
     entity_ids = {r["entity_id"] for r in result}
     assert "user:u1" in entity_ids
@@ -2630,26 +3154,41 @@ async def test_search_edges_by_embedding_returns_filtered_edges(tmp_path):
 
     # Insert two edges
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="LIKES", object_id="food:sushi", object_type="food",
-        evidence_event_ids=["e1"], confidence=0.8, source_type="llm",
-        extraction_method="phase2", evidence_text="User loves sushi",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:sushi",
+        object_type="food",
+        evidence_event_ids=["e1"],
+        confidence=0.8,
+        source_type="llm",
+        extraction_method="phase2",
+        evidence_text="User loves sushi",
         observed_at=1000.0,
     )
     await store.upsert_knowledge_edge(
-        subject_id="user:u1", subject_type="user",
-        predicate="DISLIKES", object_id="food:natto", object_type="food",
-        evidence_event_ids=["e2"], confidence=0.7, source_type="llm",
-        extraction_method="phase2", evidence_text="User hates natto",
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:natto",
+        object_type="food",
+        evidence_event_ids=["e2"],
+        confidence=0.7,
+        source_type="llm",
+        extraction_method="phase2",
+        evidence_text="User hates natto",
         observed_at=1000.0,
     )
 
     # Manually deprecate the natto edge and get triple IDs
     async with aiosqlite.connect(str(tmp_path / "l2.db")) as conn:
         conn.row_factory = aiosqlite.Row
-        rows = [dict(r) async for r in await conn.execute(
-            "SELECT triple_id, predicate FROM knowledge_graph ORDER BY predicate"
-        )]
+        rows = [
+            dict(r)
+            async for r in await conn.execute(
+                "SELECT triple_id, predicate FROM knowledge_graph ORDER BY predicate"
+            )
+        ]
         assert len(rows) == 2
         natto_row = next(r for r in rows if r["predicate"] == "DISLIKES")
         sushi_row = next(r for r in rows if r["predicate"] == "LIKES")
@@ -2772,23 +3311,25 @@ async def test_non_temporary_trait_still_requires_multiple_evidence(tmp_path):
 
     # Directly insert a non-temporary assertion with 1 evidence
     now = time.time()
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "preference_profile",
-        "trait_name": "preference.coffee",
-        "trait_value": "likes_dark_roast",
-        "confidence_score": 0.25,
-        "validation_state": "tentative",
-        "temporal_scope": "stable",
-        "decay_policy": "evidence_only",
-        "evidence_events": ["evt-pref-1"],
-        "volatility_index": 0.3,
-        "source_domain": "chat",
-        "inference_depth": "defensive_psychology",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "preference.coffee",
+            "trait_value": "likes_dark_roast",
+            "confidence_score": 0.25,
+            "validation_state": "tentative",
+            "temporal_scope": "stable",
+            "decay_policy": "evidence_only",
+            "evidence_events": ["evt-pref-1"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "defensive_psychology",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     outcomes = await store.reconcile_entity(
         entity_id="user:u1",
@@ -2819,23 +3360,25 @@ async def test_expire_session_decay_assertions_expires_tentative(tmp_path):
     # assertions deliberately survive session end (see sibling test). Only a
     # NON-temporary trait still lands tentative on one observation, so that
     # is what session-end expiry applies to now.
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "interest",
-        "trait_name": "interest.topic_crypto",
-        "trait_value": "curious",
-        "confidence_score": 0.25,
-        "validation_state": "tentative",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-interest-1"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "defensive_psychology",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "interest",
+            "trait_name": "interest.topic_crypto",
+            "trait_value": "curious",
+            "confidence_score": 0.25,
+            "validation_state": "tentative",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-interest-1"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "defensive_psychology",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
     assert expired_count == 1
@@ -2853,23 +3396,25 @@ async def test_expire_session_decay_does_not_touch_corroborated(tmp_path):
     await store.initialize()
     now = time.time()
 
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "happy",
-        "confidence_score": 0.60,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-mood-1", "evt-mood-2"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "defensive_psychology",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "happy",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-mood-1", "evt-mood-2"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "defensive_psychology",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     expired_count = await store.expire_session_decay_assertions(entity_ids=["user:u1"])
     assert expired_count == 0
@@ -2894,42 +3439,46 @@ async def test_snapshot_includes_emerging_signals(tmp_path):
     now = time.time()
 
     # Insert a tentative assertion (single evidence, won't promote without reconcile)
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "preference_profile",
-        "trait_name": "preference.coffee",
-        "trait_value": "likes_strong_coffee",
-        "confidence_score": 0.25,
-        "validation_state": "tentative",
-        "temporal_scope": "persistent",
-        "decay_policy": "",
-        "evidence_events": ["evt-1"],
-        "volatility_index": 0.3,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "preference.coffee",
+            "trait_value": "likes_strong_coffee",
+            "confidence_score": 0.25,
+            "validation_state": "tentative",
+            "temporal_scope": "persistent",
+            "decay_policy": "",
+            "evidence_events": ["evt-1"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     # Also insert a corroborated assertion so snapshot isn't empty
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "happy",
-        "confidence_score": 0.60,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-2", "evt-3"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "happy",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-2", "evt-3"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
@@ -2960,23 +3509,25 @@ async def test_snapshot_emerging_signals_empty_when_no_tentative(tmp_path):
 
     now = time.time()
 
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "focused",
-        "confidence_score": 0.60,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-1", "evt-2"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "focused",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-1", "evt-2"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
@@ -2996,28 +3547,32 @@ async def test_snapshot_mood_trajectory_tracks_temporal_assertions(tmp_path):
     # Insert assertions from different temporal families at different times.
     # Note: upsert deduplicates by (entity_id, trait_name, target_entity_id),
     # so each entry must have a distinct trait_name.
-    for i, (family, name, value, offset) in enumerate([
-        ("mood", "mood", "calm", -1800),                    # 30min ago
-        ("stress", "stress_level", "high", -3600),           # 1h ago
-        ("engagement", "engagement", "focused", -600),       # 10min ago
-    ]):
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": family,
-            "trait_name": name,
-            "trait_value": value,
-            "confidence_score": 0.60,
-            "validation_state": "corroborated",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": [f"evt-{i}"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now + offset,
-            "last_validated_at": now + offset,
-        })
+    for i, (family, name, value, offset) in enumerate(
+        [
+            ("mood", "mood", "calm", -1800),  # 30min ago
+            ("stress", "stress_level", "high", -3600),  # 1h ago
+            ("engagement", "engagement", "focused", -600),  # 10min ago
+        ]
+    ):
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": family,
+                "trait_name": name,
+                "trait_value": value,
+                "confidence_score": 0.60,
+                "validation_state": "corroborated",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": [f"evt-{i}"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now + offset,
+                "last_validated_at": now + offset,
+            }
+        )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
@@ -3051,46 +3606,50 @@ async def test_snapshot_mood_trajectory_includes_expired_assertions(tmp_path):
     now = time.time()
 
     # First: insert a mood=sad assertion and snapshot
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "sad",
-        "confidence_score": 0.70,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-1"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now - 3600,
-        "last_validated_at": now - 3600,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "sad",
+            "confidence_score": 0.70,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-1"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now - 3600,
+            "last_validated_at": now - 3600,
+        }
+    )
     snap1 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snap1 is not None
     assert len(snap1.get("mood_trajectory", [])) == 1
     assert snap1["mood_trajectory"][0]["value"] == "sad"
 
     # Second: update the same assertion to mood=happy and snapshot again
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "happy",
-        "confidence_score": 0.80,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-2"],
-        "volatility_index": 0.3,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "happy",
+            "confidence_score": 0.80,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-2"],
+            "volatility_index": 0.3,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
     snap2 = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snap2 is not None
 
@@ -3112,42 +3671,46 @@ async def test_snapshot_mood_trajectory_excludes_non_temporal_families(tmp_path)
     now = time.time()
 
     # Insert a preference assertion (not a temporal family)
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "preference_profile",
-        "trait_name": "preference.coffee",
-        "trait_value": "likes_strong_coffee",
-        "confidence_score": 0.90,
-        "validation_state": "stable",
-        "temporal_scope": "persistent",
-        "decay_policy": "",
-        "evidence_events": ["evt-1", "evt-2", "evt-3"],
-        "volatility_index": 0.1,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "preference.coffee",
+            "trait_value": "likes_strong_coffee",
+            "confidence_score": 0.90,
+            "validation_state": "stable",
+            "temporal_scope": "persistent",
+            "decay_policy": "",
+            "evidence_events": ["evt-1", "evt-2", "evt-3"],
+            "volatility_index": 0.1,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     # Insert a mood assertion so snapshot isn't trivial
-    await store.upsert_assertion_candidate({
-        "entity_id": "user:u1",
-        "entity_type": "user",
-        "trait_family": "mood",
-        "trait_name": "mood",
-        "trait_value": "content",
-        "confidence_score": 0.60,
-        "validation_state": "corroborated",
-        "temporal_scope": "session",
-        "decay_policy": "session_decay",
-        "evidence_events": ["evt-4"],
-        "volatility_index": 0.5,
-        "source_domain": "chat",
-        "inference_depth": "direct",
-        "first_inferred_at": now,
-        "last_validated_at": now,
-    })
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "mood",
+            "trait_name": "mood",
+            "trait_value": "content",
+            "confidence_score": 0.60,
+            "validation_state": "corroborated",
+            "temporal_scope": "session",
+            "decay_policy": "session_decay",
+            "evidence_events": ["evt-4"],
+            "volatility_index": 0.5,
+            "source_domain": "chat",
+            "inference_depth": "direct",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
 
     snapshot = await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
     assert snapshot is not None
@@ -3174,23 +3737,25 @@ async def test_snapshot_mood_trajectory_capped_at_limit(tmp_path):
 
     # Simulate accumulation by alternating mood values and refreshing each time
     for i in range(count):
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": f"mood_{i}",
-            "confidence_score": 0.60,
-            "validation_state": "corroborated",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": [f"evt-{i}"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now + i * 600,
-            "last_validated_at": now + i * 600,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": f"mood_{i}",
+                "confidence_score": 0.60,
+                "validation_state": "corroborated",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": [f"evt-{i}"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now + i * 600,
+                "last_validated_at": now + i * 600,
+            }
+        )
         await store.refresh_entity_snapshot(entity_id="user:u1", entity_type="user")
 
     snapshot = await store.get_tom_snapshot(entity_id="user:u1", entity_type="user")
@@ -3513,7 +4078,9 @@ async def test_session_scope_value_change_updates_in_place(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_session_scope_value_change_honors_contradicted_confidence_config(tmp_path, monkeypatch):
+async def test_session_scope_value_change_honors_contradicted_confidence_config(
+    tmp_path, monkeypatch
+):
     """Session-scope value changes clamp contradicted confidence via config."""
     from magi.config.models import AppConfig
     import magi.config

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from ..core.sqlite import sqlite_connection_async
+from .context_scope.cache_epoch import invalidate_context_caches
+from .context_scope.catalog import clear_user_contexts
 
 _SHARED_AUXILIARY_USER_TABLES = (
     "embedding_rebuild_job_layers",
@@ -20,14 +22,19 @@ async def clear_shared_auxiliary_memory(db_path: str) -> None:
     async with sqlite_connection_async(db_path) as db:
         await db.execute("BEGIN IMMEDIATE")
         try:
-            async with db.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ) as cursor:
+            async with db.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
                 existing_tables = {str(row[0]) for row in await cursor.fetchall()}
+            if {
+                "memory_context_catalog",
+                "memory_context_aliases",
+                "memory_context_bindings",
+            }.issubset(existing_tables):
+                await clear_user_contexts(db)
             for table in _SHARED_AUXILIARY_USER_TABLES:
                 if table in existing_tables:
                     await db.execute(f"DELETE FROM {table}")
             await db.commit()
+            invalidate_context_caches(db_path)
         except Exception:
             await db.rollback()
             raise

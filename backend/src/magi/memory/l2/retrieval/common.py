@@ -9,7 +9,8 @@ from typing import Any, Dict, Protocol
 
 import aiosqlite
 
-from ..corrections.fingerprints import SUPPORTED_SCOPE_FIELDS, scope_specificity
+from ...context_scope.models import context_conditions
+from ..corrections.fingerprints import scope_specificity
 from ..corrections.fingerprints import scope_key as correction_scope_key
 
 SCOPED_QUERY_OVERFETCH_FACTOR = 8
@@ -33,15 +34,13 @@ def bounded_scoped_candidate_limit(limit: int) -> int:
 
 def matching_scope_keys(context_scope: Mapping[str, Any]) -> list[str]:
     """Return indexed scope identities for every subset of a query context."""
-    items = sorted(
-        (str(key), value)
-        for key, value in context_scope.items()
-        if str(key) in SUPPORTED_SCOPE_FIELDS
-    )
+    conditions = context_conditions(context_scope)
     keys = ["global"]
-    for size in range(1, len(items) + 1):
-        for subset in combinations(items, size):
-            keys.append(correction_scope_key(dict(subset)))
+    for size in range(1, len(conditions) + 1):
+        for subset in combinations(conditions, size):
+            keys.append(
+                correction_scope_key({"all_of": [condition.to_dict() for condition in subset]})
+            )
     return keys
 
 
@@ -61,6 +60,7 @@ def select_governed_range_rows(
     a scoped override starts, while preventing two concurrent scope variants
     from leaking into the same range answer.
     """
+
     def priority(row: Dict[str, Any]) -> tuple[int, float, str]:
         return (
             scope_specificity(row.get("scope")),

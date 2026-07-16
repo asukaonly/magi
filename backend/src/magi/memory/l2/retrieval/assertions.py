@@ -120,7 +120,7 @@ class L2StoreAssertionQueryMixin:
             query += f" AND scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
             query += (
-                " ORDER BY (SELECT COUNT(*) FROM json_each(scope_json)) DESC,"
+                " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
                 " updated_at DESC LIMIT ?"
             )
             args.append(bounded_scoped_candidate_limit(limit))
@@ -243,7 +243,7 @@ class L2StoreAssertionQueryMixin:
             query += f" AND assertions.scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
             ordering = (
-                "(SELECT COUNT(*) FROM json_each(assertions.scope_json)) DESC, "
+                "json_array_length(assertions.scope_json, '$.all_of') DESC, "
                 "assertions.updated_at DESC"
             )
             candidate_limit = bounded_scoped_candidate_limit(requested_limit)

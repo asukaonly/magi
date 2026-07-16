@@ -120,9 +120,7 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
     assert (
         asyncio.run(
-            memory.l2.get_memory_correction_derivation_state(
-                body["correction"]["correction_id"]
-            )
+            memory.l2.get_memory_correction_derivation_state(body["correction"]["correction_id"])
         )
         == "completed"
     )
@@ -183,9 +181,7 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
     asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
     assert (
         asyncio.run(
-            memory.l2.get_memory_correction_derivation_state(
-                body["correction"]["correction_id"]
-            )
+            memory.l2.get_memory_correction_derivation_state(body["correction"]["correction_id"])
         )
         == "completed"
     )
@@ -251,6 +247,28 @@ def test_memory_correction_api_rejects_unbounded_user_input(tmp_path, monkeypatc
     assert invalid_timestamp.status_code == 422
 
 
+def test_assertion_correction_api_rejects_unknown_replacement_fields(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "assertion-unknown-replacement-field",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {
+                "value": "Shanghai",
+                "object_id": "place:shanghai",
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert "Unsupported assertion replacement fields" in str(response.json()["detail"])
+
+
 def test_memory_correction_api_returns_stable_time_boundary_code(tmp_path, monkeypatch):
     memory = _memory(tmp_path)
     assertion_id = _seed_assertion(memory)
@@ -271,6 +289,37 @@ def test_memory_correction_api_returns_stable_time_boundary_code(tmp_path, monke
 
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "effective_at_before_target"
+
+
+def test_memory_correction_api_binds_request_id_to_original_intent(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    request = {
+        "request_id": "bound-correction-request",
+        "target": {"kind": "assertion", "id": assertion_id},
+        "correction_kind": "record_error",
+        "replacement": {"value": "Shanghai"},
+        "reason": "The old city was incorrect",
+    }
+
+    created = client.post("/api/memory/l2/corrections", json=request)
+    retried = client.post("/api/memory/l2/corrections", json=request)
+    changed = client.post(
+        "/api/memory/l2/corrections",
+        json={**request, "replacement": {"value": "Beijing"}},
+    )
+
+    assert created.status_code == 200
+    assert created.json()["created"] is True
+    assert retried.status_code == 200
+    assert retried.json()["created"] is False
+    assert (
+        retried.json()["correction"]["correction_id"]
+        == created.json()["correction"]["correction_id"]
+    )
+    assert changed.status_code == 409
+    assert changed.json()["detail"] == "request_id was already used for a different correction"
 
 
 def test_memory_correction_routes_are_publicly_reachable() -> None:

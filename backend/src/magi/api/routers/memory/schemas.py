@@ -6,7 +6,7 @@ import json
 import math
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class RetrievalRequest(BaseModel):
@@ -156,18 +156,89 @@ class AssertionCorrectionRequest(BaseModel):
 
 
 class MemoryCorrectionTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     kind: Literal["assertion", "edge"]
     id: str = Field(..., min_length=1, max_length=200)
 
 
+class MemoryContextCondition(BaseModel):
+    """One stable condition in a correction context scope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: Literal["project"]
+    context_id: str = Field(
+        ...,
+        pattern=r"^ctx_project_[0-9a-f]{64}$",
+    )
+
+    @model_validator(mode="after")
+    def _context_id_matches_dimension(self) -> "MemoryContextCondition":
+        if not self.context_id.startswith(f"ctx_{self.dimension}_"):
+            raise ValueError("context_id does not match dimension")
+        return self
+
+
+class MemoryContextScope(BaseModel):
+    """Stable conjunction of context identities."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    all_of: List[MemoryContextCondition] = Field(..., min_length=1, max_length=1)
+
+    @field_validator("all_of")
+    @classmethod
+    def _one_condition_per_dimension(
+        cls,
+        value: List[MemoryContextCondition],
+    ) -> List[MemoryContextCondition]:
+        dimensions = [item.dimension for item in value]
+        if len(set(dimensions)) != len(dimensions):
+            raise ValueError("scope contains duplicate dimensions")
+        return value
+
+
+class MemoryStoredContextCondition(BaseModel):
+    """A stable condition returned from persisted memory history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dimension: Literal["project", "activity", "place", "person", "time"]
+    context_id: str = Field(
+        ...,
+        pattern=r"^ctx_(project|activity|place|person|time)_[0-9a-f]{64}$",
+    )
+
+    @model_validator(mode="after")
+    def _context_id_matches_dimension(self) -> "MemoryStoredContextCondition":
+        if not self.context_id.startswith(f"ctx_{self.dimension}_"):
+            raise ValueError("context_id does not match dimension")
+        return self
+
+
+class MemoryStoredContextScope(BaseModel):
+    """Stable scope returned from persisted memory history."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    all_of: List[MemoryStoredContextCondition] = Field(
+        ...,
+        min_length=1,
+        max_length=5,
+    )
+
+
 class MemoryCorrectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     request_id: str = Field(..., min_length=1, max_length=200)
     target: MemoryCorrectionTarget
     correction_kind: Literal["record_error", "situation_changed", "scope_refinement"]
     replacement: Optional[Dict[str, Any]] = None
     reason: Optional[str] = Field(default=None, max_length=2000)
     effective_at: Optional[float] = None
-    scope: Optional[Dict[str, Any]] = None
+    scope: Optional[MemoryContextScope] = None
     source_event_id: Optional[str] = Field(default=None, max_length=200)
     expected_updated_at: Optional[float] = None
 
@@ -186,18 +257,6 @@ class MemoryCorrectionRequest(BaseModel):
                 raise ValueError(f"replacement {key} is too long")
         return value
 
-    @field_validator("scope")
-    @classmethod
-    def _limit_scope(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-        if value is None:
-            return None
-        if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > 2000:
-            raise ValueError("scope is too large")
-        for item in value.values():
-            if isinstance(item, str) and len(item) > 200:
-                raise ValueError("scope value is too long")
-        return value
-
     @field_validator("effective_at", "expected_updated_at")
     @classmethod
     def _require_finite_timestamp(cls, value: Optional[float]) -> Optional[float]:
@@ -207,6 +266,8 @@ class MemoryCorrectionRequest(BaseModel):
 
 
 class MemoryCorrectionRevertRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     request_id: str = Field(..., min_length=1, max_length=200)
 
 
@@ -225,7 +286,7 @@ class MemoryCorrectionRecord(BaseModel):
     reason: Optional[str] = None
     replacement: Optional[Dict[str, Any]] = None
     effective_at: Optional[float] = None
-    scope: Optional[Dict[str, Any]] = None
+    scope: Optional[MemoryStoredContextScope] = None
     source_event_id: Optional[str] = None
     audit_event_id: Optional[str] = None
     replacement_target_id: Optional[str] = None
@@ -245,6 +306,17 @@ class MemoryCorrectionHistoryResponse(BaseModel):
     target: MemoryCorrectionTarget
     versions: List[Dict[str, Any]] = Field(default_factory=list)
     corrections: List[MemoryCorrectionRecord] = Field(default_factory=list)
+    context_labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class MemoryContextOptionResponse(BaseModel):
+    context_id: str = Field(..., pattern=r"^ctx_project_[0-9a-f]{64}$")
+    dimension: Literal["project"]
+    label: str
+
+
+class MemoryContextOptionsResponse(BaseModel):
+    items: List[MemoryContextOptionResponse] = Field(default_factory=list)
 
 
 class EpisodeAnnotationRequest(BaseModel):

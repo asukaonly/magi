@@ -3,13 +3,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   MEMORY_CORRECTION_VALIDATION_ERROR_CODES,
   buildMemoryCorrectionRequest,
+  canRevertMemoryCorrection,
   createInitialMemoryCorrectionDraft,
   createMemoryCorrectionRequestId,
   formatMemoryCorrectionValue,
+  selectableProjectContextOptions,
   validateMemoryCorrectionDraft,
   type MemoryCorrectionDraft,
   type MemoryCorrectionUiTarget,
 } from '@/components/memory/correction/memoryCorrectionModel';
+import type { MemoryCorrectionRecord } from '@/api/modules/memory';
+
+const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
+const WEBSITE_CONTEXT_ID = `ctx_project_${'b'.repeat(64)}`;
+const UNKNOWN_CONTEXT_ID = `ctx_project_${'9'.repeat(64)}`;
 
 const assertionTarget: MemoryCorrectionUiTarget = {
   kind: 'assertion',
@@ -49,6 +56,16 @@ const edgeTarget: MemoryCorrectionUiTarget = {
   ],
 };
 
+const projectOptions = [{
+  context_id: MAGI_CONTEXT_ID,
+  dimension: 'project' as const,
+  label: 'Magi',
+}, {
+  context_id: WEBSITE_CONTEXT_ID,
+  dimension: 'project' as const,
+  label: '个人网站',
+}];
+
 const makeDraft = (
   target: MemoryCorrectionUiTarget,
   overrides: Partial<MemoryCorrectionDraft> = {}
@@ -87,8 +104,7 @@ describe('createInitialMemoryCorrectionDraft', () => {
       recordErrorAction: 'replace',
       value: '直白',
       effectiveAt: '',
-      scopeType: 'project',
-      scopeValue: '',
+      scopeContextId: '',
       reason: '',
       relationObjectId: '',
     });
@@ -113,6 +129,50 @@ describe('formatMemoryCorrectionValue', () => {
   it('renders stored list and value-envelope assertions for people', () => {
     expect(formatMemoryCorrectionValue('["子涵", "哈基米"]')).toBe('子涵、哈基米');
     expect(formatMemoryCorrectionValue('{"value":["子涵","哈基米"]}')).toBe('子涵、哈基米');
+  });
+});
+
+describe('canRevertMemoryCorrection', () => {
+  const correction = (
+    id: string,
+    createdAt: number,
+    contextId: string,
+    overrides: Partial<MemoryCorrectionRecord> = {}
+  ): MemoryCorrectionRecord => ({
+    correction_id: id,
+    request_id: `request-${id}`,
+    actor_id: 'user:local_user',
+    target_kind: 'assertion',
+    target_id: `assertion-${id}`,
+    slot_key: 'assertion-slot',
+    claim_fingerprint: `claim-${id}`,
+    correction_kind: 'record_error',
+    before: {},
+    created_at: createdAt,
+    state: 'active',
+    scope: {
+      all_of: [{ dimension: 'project', context_id: contextId }],
+    },
+    replacement_target_id: `replacement-${id}`,
+    ...overrides,
+  });
+
+  it('allows the latest correction in each independent project', () => {
+    const first = correction('first', 1, MAGI_CONTEXT_ID);
+    const second = correction('second', 2, WEBSITE_CONTEXT_ID);
+
+    expect(canRevertMemoryCorrection(first, [first, second])).toBe(true);
+    expect(canRevertMemoryCorrection(second, [first, second])).toBe(true);
+  });
+
+  it('requires a dependent correction in the same project to be reverted first', () => {
+    const first = correction('first', 1, MAGI_CONTEXT_ID);
+    const second = correction('second', 2, MAGI_CONTEXT_ID, {
+      target_id: first.replacement_target_id ?? '',
+    });
+
+    expect(canRevertMemoryCorrection(first, [first, second])).toBe(false);
+    expect(canRevertMemoryCorrection(second, [first, second])).toBe(true);
   });
 });
 
@@ -162,23 +222,30 @@ describe('validateMemoryCorrectionDraft', () => {
     });
   });
 
-  it('allows the current assertion value for a scoped refinement but requires a scope', () => {
+  it('allows the current assertion value for a scoped refinement but requires an available project', () => {
     const missingScope = makeDraft(assertionTarget, {
       correctionKind: 'scope_refinement',
       value: '直白',
-      scopeValue: '   ',
+      scopeContextId: '   ',
+    });
+    const unavailableScope = makeDraft(assertionTarget, {
+      correctionKind: 'scope_refinement',
+      value: '直白',
+      scopeContextId: UNKNOWN_CONTEXT_ID,
     });
     const valid = makeDraft(assertionTarget, {
       correctionKind: 'scope_refinement',
       value: '直白',
-      scopeType: 'activity',
-      scopeValue: '代码评审',
+      scopeContextId: MAGI_CONTEXT_ID,
     });
 
-    expect(validateMemoryCorrectionDraft(assertionTarget, missingScope).errors.scopeValue).toBe(
+    expect(validateMemoryCorrectionDraft(assertionTarget, missingScope, projectOptions).errors.scopeContextId).toBe(
       MEMORY_CORRECTION_VALIDATION_ERROR_CODES.SCOPE_REQUIRED
     );
-    expect(validateMemoryCorrectionDraft(assertionTarget, valid)).toEqual({
+    expect(validateMemoryCorrectionDraft(assertionTarget, unavailableScope, projectOptions).errors.scopeContextId).toBe(
+      MEMORY_CORRECTION_VALIDATION_ERROR_CODES.SCOPE_UNAVAILABLE
+    );
+    expect(validateMemoryCorrectionDraft(assertionTarget, valid, projectOptions)).toEqual({
       valid: true,
       errors: {},
     });
@@ -204,11 +271,10 @@ describe('validateMemoryCorrectionDraft', () => {
     const draft = makeDraft(edgeTarget, {
       correctionKind: 'scope_refinement',
       relationObjectId: edgeTarget.kind === 'edge' ? edgeTarget.relationship.objectId : '',
-      scopeType: 'person',
-      scopeValue: '小林',
+      scopeContextId: MAGI_CONTEXT_ID,
     });
 
-    expect(validateMemoryCorrectionDraft(edgeTarget, draft)).toEqual({
+    expect(validateMemoryCorrectionDraft(edgeTarget, draft, projectOptions)).toEqual({
       valid: true,
       errors: {},
     });
@@ -262,18 +328,17 @@ describe('buildMemoryCorrectionRequest', () => {
     });
   });
 
-  it('builds an assertion scope refinement even when the value is unchanged', () => {
+  it('keeps the assertion value unchanged when only its scope is refined', () => {
     const draft = makeDraft(assertionTarget, {
       correctionKind: 'scope_refinement',
-      value: '直白',
-      scopeType: 'place',
-      scopeValue: '办公室',
+      value: '不应被带入请求',
+      scopeContextId: MAGI_CONTEXT_ID,
     });
 
-    expect(buildMemoryCorrectionRequest(assertionTarget, draft)).toMatchObject({
+    expect(buildMemoryCorrectionRequest(assertionTarget, draft, draft.requestId, projectOptions)).toMatchObject({
       correction_kind: 'scope_refinement',
       replacement: { value: '直白' },
-      scope: { place: '办公室' },
+      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
     });
   });
 
@@ -281,14 +346,18 @@ describe('buildMemoryCorrectionRequest', () => {
     const draft = makeDraft(structuredAssertionTarget, {
       correctionKind: 'scope_refinement',
       value: '子涵、哈基米',
-      scopeType: 'project',
-      scopeValue: 'Magi',
+      scopeContextId: MAGI_CONTEXT_ID,
     });
 
-    expect(buildMemoryCorrectionRequest(structuredAssertionTarget, draft)).toMatchObject({
+    expect(buildMemoryCorrectionRequest(
+      structuredAssertionTarget,
+      draft,
+      draft.requestId,
+      projectOptions
+    )).toMatchObject({
       correction_kind: 'scope_refinement',
       replacement: { value: '["子涵", "哈基米"]' },
-      scope: { project: 'Magi' },
+      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
     });
   });
 
@@ -311,16 +380,15 @@ describe('buildMemoryCorrectionRequest', () => {
     const draft = makeDraft(edgeTarget, {
       correctionKind: 'scope_refinement',
       relationObjectId: 'tool:magi',
-      scopeType: 'project',
-      scopeValue: '个人网站',
+      scopeContextId: WEBSITE_CONTEXT_ID,
     });
 
-    expect(buildMemoryCorrectionRequest(edgeTarget, draft)).toEqual({
+    expect(buildMemoryCorrectionRequest(edgeTarget, draft, draft.requestId, projectOptions)).toEqual({
       request_id: 'request-1',
       target: { kind: 'edge', id: 'edge-1' },
       correction_kind: 'scope_refinement',
       replacement: {},
-      scope: { project: '个人网站' },
+      scope: { all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }] },
       expected_updated_at: 1719301300,
     });
   });
@@ -337,5 +405,24 @@ describe('buildMemoryCorrectionRequest', () => {
     expect(buildMemoryCorrectionRequest(assertionTarget, draft, 'request-2')?.request_id).toBe(
       'request-2'
     );
+  });
+});
+
+describe('selectableProjectContextOptions', () => {
+  it('keeps only valid labeled project contexts', () => {
+    expect(selectableProjectContextOptions([
+      projectOptions[0],
+      { ...projectOptions[0], label: 'Duplicate Magi' },
+      {
+        context_id: `ctx_project_${'e'.repeat(64)}`,
+        dimension: 'project',
+        label: '   ',
+      },
+      {
+        context_id: `ctx_activity_${'1'.repeat(64)}`,
+        dimension: 'activity',
+        label: 'Code review',
+      },
+    ])).toEqual([projectOptions[0]]);
   });
 });

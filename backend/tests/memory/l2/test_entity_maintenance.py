@@ -6,11 +6,23 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import aiosqlite
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
+from magi.memory.l2.corrections.fingerprints import (
+    relationship_claim_fingerprint,
+    relationship_slot_key,
+    relationship_triple_id,
+    scope_key,
+)
+from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_entity_id
+from magi.memory.l2.graph.identity_rekey import (
+    rekey_relationship_identity,
+    relationship_slot_key_on_connection,
+)
 from magi.memory.l2.store import L2CognitionStore
 
 
@@ -31,6 +43,127 @@ async def _init_schema(db_path: str) -> None:
     await store.initialize()
     catalog = L2EntityCatalog(db_path=db_path)
     await catalog.initialize()
+
+
+@pytest.mark.asyncio
+async def test_relationship_rekey_uses_default_conflict_slots() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+        store = L2CognitionStore(db_path=db_path)
+        await store.initialize()
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            likes_slot = await relationship_slot_key_on_connection(
+                db,
+                subject_id="user:self",
+                predicate="LIKES",
+                object_id="food:ramen",
+            )
+            dislikes_slot = await relationship_slot_key_on_connection(
+                db,
+                subject_id="user:self",
+                predicate="DISLIKES",
+                object_id="food:ramen",
+            )
+
+        assert likes_slot == store.relationship_slot_key_for(
+            subject_id="user:self",
+            predicate="LIKES",
+            object_id="food:ramen",
+        )
+        assert dislikes_slot == store.relationship_slot_key_for(
+            subject_id="user:self",
+            predicate="DISLIKES",
+            object_id="food:ramen",
+        )
+        assert likes_slot == dislikes_slot
+
+
+@pytest.mark.asyncio
+async def test_relationship_rekey_preserves_conflict_effect_ownership(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    victim_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="food:ramen-alias",
+        object_type="food",
+        evidence_event_ids=["evt-dislike-alias"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="chat",
+    )
+    target_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="food:udon",
+        object_type="food",
+        evidence_event_ids=["evt-like-udon"],
+        confidence=0.8,
+        observed_at=time.time() - 30,
+        source_type="chat",
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=target_id,
+        request_id="correct-to-ramen-alias",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "food:ramen-alias", "object_type": "food"},
+    )
+    assert corrected is not None
+    replacement_id = corrected["current_relationship"]["triple_id"]
+
+    async with sqlite_connection_async(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        await db.execute("BEGIN IMMEDIATE")
+        victim_rekey = await rekey_relationship_identity(
+            db,
+            source_triple_id=victim_id,
+            subject_id="user:u1",
+            predicate="DISLIKES",
+            object_id="food:ramen-canonical",
+            now=time.time(),
+        )
+        replacement_rekey = await rekey_relationship_identity(
+            db,
+            source_triple_id=replacement_id,
+            subject_id="user:u1",
+            predicate="LIKES",
+            object_id="food:ramen-canonical",
+            now=time.time(),
+        )
+        await db.commit()
+
+    assert victim_rekey.triple_id is not None
+    assert replacement_rekey.triple_id is not None
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT victim_triple_id, replacement_triple_id
+            FROM memory_relationship_conflict_effects
+            WHERE correction_id = ?
+            """,
+            (corrected["correction"]["correction_id"],),
+        ) as cursor:
+            effect = await cursor.fetchone()
+    assert effect is not None
+    assert effect[0] == victim_rekey.triple_id
+    assert effect[1] == replacement_rekey.triple_id
+
+    reverted = await store.revert_relationship_correction(
+        correction_id=corrected["correction"]["correction_id"],
+        request_id="revert-ramen-alias-correction",
+        actor_id="user:u1",
+    )
+    assert reverted is not None
+    restored = await store.get_relationship(triple_id=victim_rekey.triple_id)
+    assert restored is not None
+    assert restored["status"] == "active"
+    assert restored["deprecated_by"] is None
 
 
 @pytest.mark.asyncio
@@ -80,13 +213,431 @@ async def test_ghost_object_id_rewrites_to_catalog_entity() -> None:
         assert stats.ghost_edges_rewritten >= 1
 
         async with sqlite_connection_async(db_path) as db:
+            rewritten_triple_id = relationship_triple_id(
+                subject_id="user:self",
+                predicate="USES",
+                object_id="software:twitter-handle",
+            )
             async with db.execute(
                 "SELECT object_id FROM knowledge_graph WHERE triple_id = ?",
-                ("triple_test_ghost",),
+                (rewritten_triple_id,),
             ) as cur:
                 row = await cur.fetchone()
         assert row is not None
         assert row[0] == "software:twitter-handle"
+
+
+@pytest.mark.asyncio
+async def test_ghost_rewrite_rekeys_relationship_governance_references() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.upsert_entity(
+            entity_id="food:ramen-canonical",
+            canonical_name="Ramen",
+            entity_type="food",
+        )
+        ghost_id = _canonical_entity_id("food", "Ramen")
+        project_scope = {
+            "all_of": [
+                {
+                    "dimension": "project",
+                    "context_id": f"ctx_project_{'a' * 64}",
+                }
+            ]
+        }
+        store = L2CognitionStore(db_path=db_path)
+        old_triple_id = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id=ghost_id,
+            object_type="food",
+            evidence_event_ids=["evt-ghost"],
+            confidence=0.8,
+            observed_at=time.time(),
+            source_type="chat",
+            scope=project_scope,
+        )
+        corrected = await store.apply_relationship_correction(
+            triple_id=old_triple_id,
+            request_id="correct-ghost-relationship",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"object_id": "food:soba", "object_type": "food"},
+        )
+        assert corrected is not None
+        correction_id = corrected["correction"]["correction_id"]
+        scope_key_value = scope_key(project_scope)
+        new_triple_id = relationship_triple_id(
+            subject_id="user:self",
+            predicate="LIKES",
+            object_id="food:ramen-canonical",
+            scope_key_value=scope_key_value,
+        )
+        new_slot_key = store.relationship_slot_key_for(
+            subject_id="user:self",
+            predicate="LIKES",
+            object_id="food:ramen-canonical",
+        )
+        new_fingerprint = relationship_claim_fingerprint(
+            slot_key_value=new_slot_key,
+            subject_id="user:self",
+            predicate="LIKES",
+            object_id="food:ramen-canonical",
+            scope_key_value=scope_key_value,
+        )
+
+        async with sqlite_connection_async(db_path) as db:
+            now = time.time()
+            await db.execute(
+                """
+                INSERT INTO memory_derivation_dependencies(
+                    artifact_kind, artifact_id, source_kind, source_id,
+                    subject_key, source_revision, created_at
+                ) VALUES ('snapshot', 'snapshot-user', 'edge', ?, 'user:self', 1, ?)
+                """,
+                (old_triple_id, now),
+            )
+            await db.execute(
+                """
+                INSERT INTO tom_snapshots(
+                    snapshot_id, entity_id, entity_type, relationship_topology,
+                    active_record_ids, last_updated_at, created_at
+                ) VALUES (?, 'user:self', 'user', ?, ?, ?, ?)
+                """,
+                (
+                    "snapshot-user",
+                    json.dumps({"edge": f"edge:{old_triple_id}"}),
+                    json.dumps([old_triple_id]),
+                    now,
+                    now,
+                ),
+            )
+            await db.commit()
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            min_mentions_to_keep=99,
+            merge_fragments=False,
+            prune_orphans=False,
+            clean_stale_snapshots=False,
+        )
+        assert stats.ghost_edges_rewritten >= 1
+
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            edge = await (
+                await db.execute(
+                    "SELECT * FROM knowledge_graph WHERE triple_id = ?",
+                    (new_triple_id,),
+                )
+            ).fetchone()
+            correction = await (
+                await db.execute(
+                    "SELECT * FROM memory_corrections WHERE correction_id = ?",
+                    (correction_id,),
+                )
+            ).fetchone()
+            version_rows = await (
+                await db.execute(
+                    "SELECT * FROM knowledge_graph_versions WHERE triple_id = ?",
+                    (new_triple_id,),
+                )
+            ).fetchall()
+            dependency = await (
+                await db.execute(
+                    "SELECT source_id FROM memory_derivation_dependencies "
+                    "WHERE artifact_id = 'snapshot-user'"
+                )
+            ).fetchone()
+            snapshot = await (
+                await db.execute(
+                    "SELECT relationship_topology, active_record_ids "
+                    "FROM tom_snapshots WHERE snapshot_id = 'snapshot-user'"
+                )
+            ).fetchone()
+            old_refs = await (
+                await db.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM knowledge_graph WHERE triple_id = ?) +
+                        (SELECT COUNT(*) FROM knowledge_graph_versions WHERE triple_id = ?) +
+                        (SELECT COUNT(*) FROM memory_derivation_dependencies
+                         WHERE source_kind = 'edge' AND source_id = ?)
+                    """,
+                    (old_triple_id, old_triple_id, old_triple_id),
+                )
+            ).fetchone()
+
+        assert edge is not None
+        assert edge["object_id"] == "food:ramen-canonical"
+        assert edge["slot_key"] == new_slot_key
+        assert edge["claim_fingerprint"] == new_fingerprint
+        assert correction is not None
+        assert correction["target_id"] == new_triple_id
+        assert correction["slot_key"] == new_slot_key
+        assert correction["claim_fingerprint"] == new_fingerprint
+        before = json.loads(correction["before_json"])
+        assert before["triple_id"] == new_triple_id
+        assert before["object_id"] == "food:ramen-canonical"
+        assert before["slot_key"] == new_slot_key
+        assert before["claim_fingerprint"] == new_fingerprint
+        assert version_rows
+        assert all(row["object_id"] == "food:ramen-canonical" for row in version_rows)
+        assert all(row["slot_key"] == new_slot_key for row in version_rows)
+        assert all(row["claim_fingerprint"] == new_fingerprint for row in version_rows)
+        assert dependency["source_id"] == new_triple_id
+        assert json.loads(snapshot["relationship_topology"])["edge"] == f"edge:{new_triple_id}"
+        assert json.loads(snapshot["active_record_ids"]) == [new_triple_id]
+        assert old_refs[0] == 0
+
+        reverted = await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="revert-correct-ghost-relationship",
+            actor_id="user:self",
+        )
+        assert reverted is not None
+        assert reverted["current_relationship"]["triple_id"] == new_triple_id
+        assert reverted["current_relationship"]["object_id"] == "food:ramen-canonical"
+
+
+@pytest.mark.asyncio
+async def test_ghost_rewrite_collision_keeps_authoritative_correction_history() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+        catalog = L2EntityCatalog(db_path=db_path)
+        await catalog.upsert_entity(
+            entity_id="food:ramen-canonical",
+            canonical_name="Ramen",
+            entity_type="food",
+        )
+        ghost_id = _canonical_entity_id("food", "Ramen")
+        store = L2CognitionStore(db_path=db_path)
+        original_id = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:udon",
+            object_type="food",
+            evidence_event_ids=["evt-udon"],
+            confidence=0.7,
+            observed_at=time.time(),
+            source_type="chat",
+        )
+        corrected = await store.apply_relationship_correction(
+            triple_id=original_id,
+            request_id="correct-to-ghost-ramen",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"object_id": ghost_id, "object_type": "food"},
+        )
+        assert corrected is not None
+        ghost_triple_id = corrected["current_relationship"]["triple_id"]
+        correction_id = corrected["correction"]["correction_id"]
+        canonical_triple_id = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="LIKES",
+            object_id="food:ramen-canonical",
+            object_type="food",
+            evidence_event_ids=["evt-canonical"],
+            confidence=0.6,
+            observed_at=time.time(),
+            source_type="sensor",
+        )
+
+        maint = L2EntityMaintenance(db_path=db_path)
+        stats = await maint.run(
+            min_mentions_to_keep=99,
+            merge_fragments=False,
+            prune_orphans=False,
+        )
+        assert stats.ghost_rows_merged == 1
+
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            current = await (
+                await db.execute(
+                    "SELECT * FROM knowledge_graph WHERE triple_id = ?",
+                    (canonical_triple_id,),
+                )
+            ).fetchone()
+            duplicates = await (
+                await db.execute(
+                    """
+                    SELECT COUNT(*) FROM knowledge_graph
+                    WHERE subject_id = 'user:self' AND predicate = 'LIKES'
+                      AND object_id = 'food:ramen-canonical' AND scope_key = 'global'
+                    """
+                )
+            ).fetchone()
+            correction = await (
+                await db.execute(
+                    "SELECT * FROM memory_corrections WHERE correction_id = ?",
+                    (correction_id,),
+                )
+            ).fetchone()
+            versions = await (
+                await db.execute(
+                    "SELECT * FROM knowledge_graph_versions WHERE triple_id = ?",
+                    (canonical_triple_id,),
+                )
+            ).fetchall()
+            stale_versions = await (
+                await db.execute(
+                    "SELECT COUNT(*) FROM knowledge_graph_versions WHERE triple_id = ?",
+                    (ghost_triple_id,),
+                )
+            ).fetchone()
+
+        assert current is not None
+        assert current["authority_ref"] == f"correction:{correction_id}"
+        assert current["status"] == "active"
+        assert set(json.loads(current["evidence_event_ids"])) == {"evt-canonical"}
+        assert duplicates[0] == 1
+        assert correction["replacement_target_id"] == canonical_triple_id
+        replacement = json.loads(correction["replacement_json"])
+        assert replacement["triple_id"] == canonical_triple_id
+        assert replacement["object_id"] == "food:ramen-canonical"
+        assert len(versions) >= 2
+        assert stale_versions[0] == 0
+
+        reverted = await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="revert-correct-to-ghost-ramen",
+            actor_id="user:self",
+        )
+        assert reverted is not None
+        assert reverted["current_relationship"]["triple_id"] == original_id
+
+
+@pytest.mark.asyncio
+async def test_predicate_consolidation_rekeys_correction_replacement() -> None:
+    from unittest.mock import patch
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "m.db")
+        await _init_schema(db_path)
+        store = L2CognitionStore(db_path=db_path)
+        original_id = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate="ADORES",
+            object_id="topic:old",
+            object_type="topic",
+            evidence_event_ids=["evt-old"],
+            confidence=0.7,
+            observed_at=time.time(),
+            source_type="chat",
+        )
+        corrected = await store.apply_relationship_correction(
+            triple_id=original_id,
+            request_id="correct-open-predicate-object",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"object_id": "topic:ml", "object_type": "topic"},
+        )
+        assert corrected is not None
+        open_replacement_id = corrected["current_relationship"]["triple_id"]
+        correction_id = corrected["correction"]["correction_id"]
+
+        from magi.memory.l2.ontology import get_predicate_synonym_group
+
+        def synonym_group(predicate: str) -> str | None:
+            if predicate.strip().upper() == "ADORES":
+                return "affinity"
+            return get_predicate_synonym_group(predicate)
+
+        with patch(
+            "magi.memory.l2.entities.maintenance.get_predicate_synonym_group",
+            side_effect=synonym_group,
+        ):
+            stats = await L2EntityMaintenance(db_path=db_path).run(
+                resolve_ghosts=False,
+                merge_fragments=False,
+                prune_orphans=False,
+                expire_future_intents=False,
+                expire_decayed_assertions=False,
+                clean_stale_snapshots=False,
+                reconcile_stale=False,
+            )
+        assert stats.open_predicates_consolidated == 1
+
+        new_predicate = "INTERESTED_IN"
+        new_triple_id = relationship_triple_id(
+            subject_id="user:self",
+            predicate=new_predicate,
+            object_id="topic:ml",
+        )
+        new_slot_key = relationship_slot_key(
+            subject_id="user:self",
+            predicate=new_predicate,
+            object_id="topic:ml",
+        )
+        new_fingerprint = relationship_claim_fingerprint(
+            slot_key_value=new_slot_key,
+            subject_id="user:self",
+            predicate=new_predicate,
+            object_id="topic:ml",
+        )
+        async with sqlite_connection_async(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            edge = await (
+                await db.execute(
+                    "SELECT * FROM knowledge_graph WHERE triple_id = ?",
+                    (new_triple_id,),
+                )
+            ).fetchone()
+            correction = await (
+                await db.execute(
+                    "SELECT * FROM memory_corrections WHERE correction_id = ?",
+                    (correction_id,),
+                )
+            ).fetchone()
+            rule = await (
+                await db.execute(
+                    """
+                    SELECT * FROM memory_correction_rules
+                    WHERE correction_id = ? AND rule_kind = 'authoritative_slot'
+                    """,
+                    (correction_id,),
+                )
+            ).fetchone()
+            stale_refs = await (
+                await db.execute(
+                    """
+                    SELECT
+                        (SELECT COUNT(*) FROM knowledge_graph WHERE triple_id = ?) +
+                        (SELECT COUNT(*) FROM knowledge_graph_versions WHERE triple_id = ?)
+                    """,
+                    (open_replacement_id, open_replacement_id),
+                )
+            ).fetchone()
+
+        assert edge is not None
+        assert edge["predicate"] == new_predicate
+        assert edge["slot_key"] == new_slot_key
+        assert edge["claim_fingerprint"] == new_fingerprint
+        assert correction["replacement_target_id"] == new_triple_id
+        replacement = json.loads(correction["replacement_json"])
+        assert replacement["triple_id"] == new_triple_id
+        assert replacement["predicate"] == new_predicate
+        assert replacement["slot_key"] == new_slot_key
+        assert replacement["claim_fingerprint"] == new_fingerprint
+        assert rule["slot_key"] == new_slot_key
+        assert rule["claim_fingerprint"] == new_fingerprint
+        assert stale_refs[0] == 0
+
+        reverted = await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="revert-correct-open-predicate-object",
+            actor_id="user:self",
+        )
+        assert reverted is not None
+        assert reverted["current_relationship"]["triple_id"] == original_id
 
 
 @pytest.mark.asyncio
@@ -137,9 +688,14 @@ async def test_ghost_object_id_rewrites_by_evidence_text() -> None:
         assert stats.ghost_edges_rewritten >= 1
 
         async with sqlite_connection_async(db_path) as db:
+            rewritten_triple_id = relationship_triple_id(
+                subject_id="user:self",
+                predicate="LISTENED",
+                object_id="media:1ee3b9131dd8",
+            )
             async with db.execute(
                 "SELECT object_id FROM knowledge_graph WHERE triple_id = ?",
-                ("triple_guichao_ghost",),
+                (rewritten_triple_id,),
             ) as cur:
                 row = await cur.fetchone()
         assert row is not None
@@ -233,7 +789,9 @@ async def test_prune_orphan_single_mention_no_graph() -> None:
         )
         assert stats.orphans_pruned >= 1
         async with sqlite_connection_async(db_path) as db:
-            async with db.execute("SELECT COUNT(*) FROM entity_catalog WHERE entity_id = ?", ("person:nobody",)) as cur:
+            async with db.execute(
+                "SELECT COUNT(*) FROM entity_catalog WHERE entity_id = ?", ("person:nobody",)
+            ) as cur:
                 assert (await cur.fetchone())[0] == 0
 
 
@@ -412,6 +970,7 @@ async def test_maintenance_leaves_pending_edges_even_with_embedding_service() ->
         )
 
         import magi.memory.l2.entities.maintenance as em_module
+
         original_pipeline = em_module.MemoryEmbeddingPipeline
         em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
 
@@ -449,26 +1008,27 @@ async def test_expire_decayed_assertions_fast_decay():
 
         now = time.time()
         old_time = now - 5 * 3600  # 5 hours ago (> 4h FAST_DECAY_TTL)
-        recent_time = now - 1 * 3600  # 1 hour ago (< 4h)
 
         # Old fast_decay assertion — should be expired
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "trigger",
-            "trait_name": "annoyance",
-            "trait_value": "high",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "momentary",
-            "decay_policy": "fast_decay",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.7,
-            "source_domain": "chat",
-            "inference_depth": "defensive_psychology",
-            "first_inferred_at": old_time,
-            "last_validated_at": old_time,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "trigger",
+                "trait_name": "annoyance",
+                "trait_value": "high",
+                "confidence_score": 0.25,
+                "validation_state": "tentative",
+                "temporal_scope": "momentary",
+                "decay_policy": "fast_decay",
+                "evidence_events": ["evt-1"],
+                "volatility_index": 0.7,
+                "source_domain": "chat",
+                "inference_depth": "defensive_psychology",
+                "first_inferred_at": old_time,
+                "last_validated_at": old_time,
+            }
+        )
         # Backdate the updated_at
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
@@ -478,23 +1038,25 @@ async def test_expire_decayed_assertions_fast_decay():
             await db.commit()
 
         # Recent fast_decay assertion — should survive
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u2",
-            "entity_type": "user",
-            "trait_family": "trigger",
-            "trait_name": "frustration",
-            "trait_value": "medium",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "momentary",
-            "decay_policy": "fast_decay",
-            "evidence_events": ["evt-2"],
-            "volatility_index": 0.7,
-            "source_domain": "chat",
-            "inference_depth": "defensive_psychology",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u2",
+                "entity_type": "user",
+                "trait_family": "trigger",
+                "trait_name": "frustration",
+                "trait_value": "medium",
+                "confidence_score": 0.25,
+                "validation_state": "tentative",
+                "temporal_scope": "momentary",
+                "decay_policy": "fast_decay",
+                "evidence_events": ["evt-2"],
+                "volatility_index": 0.7,
+                "source_domain": "chat",
+                "inference_depth": "defensive_psychology",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
         # This one was updated recently, no need to backdate
 
         maint = L2EntityMaintenance(db_path=db_path)
@@ -528,23 +1090,25 @@ async def test_expire_decayed_assertions_session_decay():
         now = time.time()
         old_time = now - 25 * 3600  # 25 hours ago (> 24h SESSION_DECAY_TTL)
 
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "happy",
-            "confidence_score": 0.25,
-            "validation_state": "corroborated",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "defensive_psychology",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": "happy",
+                "confidence_score": 0.25,
+                "validation_state": "corroborated",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-1"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "defensive_psychology",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
                 "UPDATE tom_trait_assertions SET updated_at = ? WHERE entity_id = 'user:u1'",
@@ -580,23 +1144,25 @@ async def test_expire_decayed_assertions_skips_already_rejected():
         now = time.time()
         old_time = now - 25 * 3600
 
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "sad",
-            "confidence_score": 0.10,
-            "validation_state": "user_rejected",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "defensive_psychology",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": "sad",
+                "confidence_score": 0.10,
+                "validation_state": "user_rejected",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-1"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "defensive_psychology",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
                 "UPDATE tom_trait_assertions SET updated_at = ? WHERE entity_id = 'user:u1'",
@@ -617,9 +1183,7 @@ async def test_expire_decayed_assertions_skips_already_rejected():
 
         # user_rejected is hidden from default retrieval reads (#134); inspect it
         # explicitly to confirm the decay GC left it untouched.
-        assertions = await store.list_tom_assertions(
-            entity_id="user:u1", include_inactive=True
-        )
+        assertions = await store.list_tom_assertions(entity_id="user:u1", include_inactive=True)
         assert assertions[0]["validation_state"] == "user_rejected"
 
 
@@ -643,23 +1207,25 @@ async def test_reconcile_stale_entities_promotes_tentative():
 
         # Insert a temporary trait assertion with 1 evidence (tentative).
         # After A1 change, reconciliation should promote it to corroborated.
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "stress",
-            "trait_name": "stress_level",
-            "trait_value": "high",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": old_time,
-            "last_validated_at": old_time,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "stress",
+                "trait_name": "stress_level",
+                "trait_value": "high",
+                "confidence_score": 0.25,
+                "validation_state": "tentative",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-1"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": old_time,
+                "last_validated_at": old_time,
+            }
+        )
         # Backdate so maintenance considers this stale
         async with sqlite_connection_async(db_path) as db:
             await db.execute(
@@ -698,23 +1264,25 @@ async def test_reconcile_stale_skips_recent_entities():
         now = time.time()
 
         # Insert a tentative assertion that was just updated (not stale)
-        await store.upsert_assertion_candidate({
-            "entity_id": "user:u1",
-            "entity_type": "user",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "happy",
-            "confidence_score": 0.25,
-            "validation_state": "tentative",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-1"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "user:u1",
+                "entity_type": "user",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": "happy",
+                "confidence_score": 0.25,
+                "validation_state": "tentative",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-1"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
 
         maint = L2EntityMaintenance(db_path=db_path, cognition_store=store)
         stats = await maint.run(
@@ -765,6 +1333,7 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
         # We'll patch the synonym group to map it to "affinity" (same group as LIKES).
         async with sqlite_connection_async(db_path) as db:
             import uuid as _uuid
+
             tid_open = str(_uuid.uuid5(_uuid.NAMESPACE_URL, "user:self:ADORES:food:ramen"))
             await db.execute(
                 """
@@ -774,21 +1343,39 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
                     first_observed_at, last_observed_at, created_at, updated_at, status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (tid_open, "user:self", "user", "ADORES", "food:ramen", "food",
-                 0.6, json.dumps(["evt-open-1", "evt-open-2"]), 2,
-                 now, now, now, now, "active"),
+                (
+                    tid_open,
+                    "user:self",
+                    "user",
+                    "ADORES",
+                    "food:ramen",
+                    "food",
+                    0.6,
+                    json.dumps(["evt-open-1", "evt-open-2"]),
+                    2,
+                    now,
+                    now,
+                    now,
+                    now,
+                    "active",
+                ),
             )
             await db.commit()
 
         # Patch synonym group so ADORES maps to "affinity" group (which contains LIKES)
-        original_fn = __import__("magi.memory.l2.ontology", fromlist=["get_predicate_synonym_group"]).get_predicate_synonym_group
+        original_fn = __import__(
+            "magi.memory.l2.ontology", fromlist=["get_predicate_synonym_group"]
+        ).get_predicate_synonym_group
 
         def patched_synonym_group(predicate: str) -> str | None:
             if predicate.strip().upper() == "ADORES":
                 return "affinity"
             return original_fn(predicate)
 
-        with patch("magi.memory.l2.entities.maintenance.get_predicate_synonym_group", side_effect=patched_synonym_group):
+        with patch(
+            "magi.memory.l2.entities.maintenance.get_predicate_synonym_group",
+            side_effect=patched_synonym_group,
+        ):
             maint = L2EntityMaintenance(db_path=db_path)
             stats = await maint.run(
                 resolve_ghosts=False,
@@ -797,7 +1384,7 @@ async def test_consolidate_open_predicates_merges_evidence_on_duplicate():
                 expire_future_intents=False,
                 expire_decayed_assertions=False,
                 reconcile_stale=False,
-                )
+            )
 
         assert stats.open_predicates_consolidated == 1
 
@@ -841,42 +1428,46 @@ async def test_tom_ghost_rewrite_handles_unique_conflict():
         now = time.time()
 
         # Insert assertion for the ghost entity (higher confidence)
-        await store.upsert_assertion_candidate({
-            "entity_id": ghost_id,
-            "entity_type": "person",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "happy",
-            "confidence_score": 0.9,
-            "validation_state": "tentative",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-ghost"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": ghost_id,
+                "entity_type": "person",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": "happy",
+                "confidence_score": 0.9,
+                "validation_state": "tentative",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-ghost"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
 
         # Insert assertion for the target entity with same trait key (lower confidence)
-        await store.upsert_assertion_candidate({
-            "entity_id": "person:alice-canon",
-            "entity_type": "person",
-            "trait_family": "mood",
-            "trait_name": "mood",
-            "trait_value": "sad",
-            "confidence_score": 0.3,
-            "validation_state": "tentative",
-            "temporal_scope": "session",
-            "decay_policy": "session_decay",
-            "evidence_events": ["evt-target"],
-            "volatility_index": 0.5,
-            "source_domain": "chat",
-            "inference_depth": "direct",
-            "first_inferred_at": now,
-            "last_validated_at": now,
-        })
+        await store.upsert_assertion_candidate(
+            {
+                "entity_id": "person:alice-canon",
+                "entity_type": "person",
+                "trait_family": "mood",
+                "trait_name": "mood",
+                "trait_value": "sad",
+                "confidence_score": 0.3,
+                "validation_state": "tentative",
+                "temporal_scope": "session",
+                "decay_policy": "session_decay",
+                "evidence_events": ["evt-target"],
+                "volatility_index": 0.5,
+                "source_domain": "chat",
+                "inference_depth": "direct",
+                "first_inferred_at": now,
+                "last_validated_at": now,
+            }
+        )
 
         maint = L2EntityMaintenance(db_path=db_path)
         stats = await maint.run(
@@ -906,8 +1497,6 @@ async def test_tom_ghost_rewrite_handles_unique_conflict():
 @pytest.mark.asyncio
 async def test_concurrent_run_is_skipped():
     """A second concurrent run() call should be skipped while the first is running."""
-    import asyncio
-
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -950,9 +1539,21 @@ async def test_archive_stale_low_confidence_edges():
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "triple_archive_low", "user:self", "user", "LIKES", "food:sushi", "food",
-                    0.2, "[]", 3,
-                    old_ts, old_ts, old_ts, old_ts, "active", "explicit_fact",
+                    "triple_archive_low",
+                    "user:self",
+                    "user",
+                    "LIKES",
+                    "food:sushi",
+                    "food",
+                    0.2,
+                    "[]",
+                    3,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    "active",
+                    "explicit_fact",
                 ),
             )
             # Single observation + very old → should be archived
@@ -965,10 +1566,21 @@ async def test_archive_stale_low_confidence_edges():
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "triple_archive_single", "user:self", "user", "KNOWS", "person:bob", "person",
-                    0.8, "[]", 1,
-                    now - 200 * 86400, now - 200 * 86400, now - 200 * 86400, now - 200 * 86400,
-                    "active", "explicit_fact",
+                    "triple_archive_single",
+                    "user:self",
+                    "user",
+                    "KNOWS",
+                    "person:bob",
+                    "person",
+                    0.8,
+                    "[]",
+                    1,
+                    now - 200 * 86400,
+                    now - 200 * 86400,
+                    now - 200 * 86400,
+                    now - 200 * 86400,
+                    "active",
+                    "explicit_fact",
                 ),
             )
             # Recent high-confidence → should stay active
@@ -981,9 +1593,21 @@ async def test_archive_stale_low_confidence_edges():
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "triple_keep_active", "user:self", "user", "USES", "software:vscode", "software",
-                    0.9, "[]", 5,
-                    now, now, now, now, "active", "explicit_fact",
+                    "triple_keep_active",
+                    "user:self",
+                    "user",
+                    "USES",
+                    "software:vscode",
+                    "software",
+                    0.9,
+                    "[]",
+                    5,
+                    now,
+                    now,
+                    now,
+                    now,
+                    "active",
+                    "explicit_fact",
                 ),
             )
             # future_intent should NOT be archived (has its own TTL)
@@ -996,18 +1620,34 @@ async def test_archive_stale_low_confidence_edges():
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    "triple_future", "user:self", "user", "WANTS_TO", "activity:travel", "activity",
-                    0.1, "[]", 1,
-                    old_ts, old_ts, old_ts, old_ts, "active", "future_intent",
+                    "triple_future",
+                    "user:self",
+                    "user",
+                    "WANTS_TO",
+                    "activity:travel",
+                    "activity",
+                    0.1,
+                    "[]",
+                    1,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    "active",
+                    "future_intent",
                 ),
             )
             await db.commit()
 
         maint = L2EntityMaintenance(db_path=db_path)
         stats = await maint.run(
-            resolve_ghosts=False, merge_fragments=False, prune_orphans=False,
-            expire_future_intents=False, expire_decayed_assertions=False,
-            reconcile_stale=False, consolidate_open_predicates=False,
+            resolve_ghosts=False,
+            merge_fragments=False,
+            prune_orphans=False,
+            expire_future_intents=False,
+            expire_decayed_assertions=False,
+            reconcile_stale=False,
+            consolidate_open_predicates=False,
         )
         assert stats.edges_archived == 2
 
@@ -1035,6 +1675,7 @@ async def test_archived_edge_warms_back_on_new_evidence():
 
         # Compute the same triple_id that upsert_knowledge_edge will use
         import uuid as _uuid
+
         triple_id = f"triple_{_uuid.uuid5(_uuid.NAMESPACE_DNS, 'user:self:LIKES:food:ramen')}"
 
         # Insert an archived edge directly
@@ -1048,9 +1689,21 @@ async def test_archived_edge_warms_back_on_new_evidence():
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    triple_id, "user:self", "user", "LIKES", "food:ramen", "food",
-                    0.2, json.dumps(["e_old"]), 2,
-                    old_ts, old_ts, old_ts, old_ts, "archived", "explicit_fact",
+                    triple_id,
+                    "user:self",
+                    "user",
+                    "LIKES",
+                    "food:ramen",
+                    "food",
+                    0.2,
+                    json.dumps(["e_old"]),
+                    2,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    old_ts,
+                    "archived",
+                    "explicit_fact",
                 ),
             )
             await db.commit()
@@ -1142,6 +1795,7 @@ async def test_maintenance_does_not_embed_pending_edges() -> None:
         )
 
         import magi.memory.l2.entities.maintenance as em_module
+
         original_pipeline = em_module.MemoryEmbeddingPipeline
         em_module.MemoryEmbeddingPipeline = lambda **kwargs: mock_pipeline_cls
 

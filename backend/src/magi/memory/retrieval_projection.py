@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, Iterable
 
+from .context_scope.models import normalize_context_resolution_signals
 from .hybrid_retrieval.models import HistoricalRecallPayload, RetrievalPayload, RetrievalQuery
 from .retrieval_projection_findings import build_findings as _build_findings
 from .retrieval_projection_refs import (
@@ -221,6 +222,7 @@ def _coerce_request(request: RetrievalQuery | dict[str, Any]) -> RetrievalQuery:
         domain_filters=list(request.get("domain_filters") or []),
         summary_categories=list(request.get("summary_categories") or []),
         context_scope=dict(request.get("context_scope") or {}),
+        context_signals=normalize_context_resolution_signals(request.get("context_signals")),
         limit=int(request.get("limit") or 10),
         exclude_user_text=request.get("exclude_user_text"),
         conversation_context=request.get("conversation_context"),

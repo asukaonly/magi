@@ -1632,6 +1632,26 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
+    readonly "/api/memory/l2/context-options": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Get Memory Context Options
+         * @description Return only active workspace-bound projects selectable by users.
+         */
+        readonly get: operations["get_memory_context_options_api_memory_l2_context_options_get"];
+        readonly put?: never;
+        readonly post?: never;
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
     readonly "/api/memory/l2/corrections": {
         readonly parameters: {
             readonly query?: never;
@@ -6297,6 +6317,44 @@ export interface components {
              */
             readonly retention_days: number;
         };
+        /**
+         * MemoryContextCondition
+         * @description One stable condition in a correction context scope.
+         */
+        readonly MemoryContextCondition: {
+            /** Context Id */
+            readonly context_id: string;
+            /**
+             * Dimension
+             * @constant
+             */
+            readonly dimension: "project";
+        };
+        /** MemoryContextOptionResponse */
+        readonly MemoryContextOptionResponse: {
+            /** Context Id */
+            readonly context_id: string;
+            /**
+             * Dimension
+             * @constant
+             */
+            readonly dimension: "project";
+            /** Label */
+            readonly label: string;
+        };
+        /** MemoryContextOptionsResponse */
+        readonly MemoryContextOptionsResponse: {
+            /** Items */
+            readonly items?: readonly components["schemas"]["MemoryContextOptionResponse"][];
+        };
+        /**
+         * MemoryContextScope
+         * @description Stable conjunction of context identities.
+         */
+        readonly MemoryContextScope: {
+            /** All Of */
+            readonly all_of: readonly components["schemas"]["MemoryContextCondition"][];
+        };
         /** MemoryCorrectionCommandResponse */
         readonly MemoryCorrectionCommandResponse: {
             readonly correction: components["schemas"]["MemoryCorrectionRecord"];
@@ -6316,6 +6374,10 @@ export interface components {
         };
         /** MemoryCorrectionHistoryResponse */
         readonly MemoryCorrectionHistoryResponse: {
+            /** Context Labels */
+            readonly context_labels?: {
+                readonly [key: string]: string;
+            };
             /** Corrections */
             readonly corrections?: readonly components["schemas"]["MemoryCorrectionRecord"][];
             readonly target: components["schemas"]["MemoryCorrectionTarget"];
@@ -6361,10 +6423,7 @@ export interface components {
             readonly reverted_at?: number | null;
             /** Reverted By */
             readonly reverted_by?: string | null;
-            /** Scope */
-            readonly scope?: {
-                readonly [key: string]: unknown;
-            } | null;
+            readonly scope?: components["schemas"]["MemoryStoredContextScope"] | null;
             /** Slot Key */
             readonly slot_key: string;
             /** Source Event Id */
@@ -6401,10 +6460,7 @@ export interface components {
             } | null;
             /** Request Id */
             readonly request_id: string;
-            /** Scope */
-            readonly scope?: {
-                readonly [key: string]: unknown;
-            } | null;
+            readonly scope?: components["schemas"]["MemoryContextScope"] | null;
             /** Source Event Id */
             readonly source_event_id?: string | null;
             readonly target: components["schemas"]["MemoryCorrectionTarget"];
@@ -6591,6 +6647,27 @@ export interface components {
              * @default 8
              */
             readonly top_k: number;
+        };
+        /**
+         * MemoryStoredContextCondition
+         * @description A stable condition returned from persisted memory history.
+         */
+        readonly MemoryStoredContextCondition: {
+            /** Context Id */
+            readonly context_id: string;
+            /**
+             * Dimension
+             * @enum {string}
+             */
+            readonly dimension: "project" | "activity" | "place" | "person" | "time";
+        };
+        /**
+         * MemoryStoredContextScope
+         * @description Stable scope returned from persisted memory history.
+         */
+        readonly MemoryStoredContextScope: {
+            /** All Of */
+            readonly all_of: readonly components["schemas"]["MemoryStoredContextCondition"][];
         };
         /**
          * MessageLabelRequest
@@ -11815,6 +11892,26 @@ export interface operations {
                 };
                 content: {
                     readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly get_memory_context_options_api_memory_l2_context_options_get: {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["MemoryContextOptionsResponse"];
                 };
             };
         };

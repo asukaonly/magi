@@ -87,6 +87,7 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
         if winner_id == loser_id:
             return
         now = time.time()
+        invalidated_vector_ids: set[str] = set()
         async with sqlite_connection_async(host._db_path) as db:
             await db.execute("BEGIN IMMEDIATE")
             try:
@@ -113,8 +114,12 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     )
                 await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (loser_id,))
 
-                await self._merge_kg_ids_locked(db, "subject_id", loser_id, winner_id, now)
-                await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
+                invalidated_vector_ids.update(
+                    await self._merge_kg_ids_locked(db, "subject_id", loser_id, winner_id, now)
+                )
+                invalidated_vector_ids.update(
+                    await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
+                )
 
                 await db.execute(
                     "UPDATE tom_trait_assertions SET entity_id = ? WHERE entity_id = ?",
@@ -138,6 +143,7 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
             except Exception:
                 await db.rollback()
                 raise
+        await self._delete_invalidated_edge_vectors(invalidated_vector_ids)
 
     async def _prune_orphan_low_mention_entities(
         self,

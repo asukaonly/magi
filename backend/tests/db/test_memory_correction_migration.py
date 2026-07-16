@@ -15,6 +15,46 @@ from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.memory.l2.store import L2CognitionStore
 
 
+def test_relationship_conflict_effect_migration_builds_durable_ledger(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v13_stable_context_scopes")
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(memory_relationship_conflict_effects)")
+        }
+        indexes = {
+            str(row[1])
+            for row in connection.execute("PRAGMA index_list(memory_relationship_conflict_effects)")
+        }
+
+    assert {
+        "effect_id",
+        "correction_id",
+        "victim_triple_id",
+        "replacement_triple_id",
+        "pre_status",
+        "pre_status_reason",
+        "pre_deprecated_by",
+        "pre_deprecated_at",
+        "pre_valid_to",
+        "effective_at",
+        "created_at",
+        "restored_at",
+    } <= columns
+    assert {
+        "idx_relationship_conflict_effects_correction",
+        "idx_relationship_conflict_effects_victim",
+        "idx_relationship_conflict_effects_replacement",
+    } <= indexes
+
+
 def test_scheduled_transition_migration_marks_only_due_changes_applied(
     tmp_path: Path,
 ) -> None:
@@ -41,7 +81,7 @@ def test_scheduled_transition_migration_marks_only_due_changes_applied(
                     "request-past",
                     "assertion-old-past",
                     "claim-old-past",
-                    '{"entity_id":"user:u1"}',
+                    '{"entity_id":"user:u1","trait_value":"Past original"}',
                     '{"value":"Past replacement"}',
                     now - 60,
                     "assertion-new-past",
@@ -52,7 +92,7 @@ def test_scheduled_transition_migration_marks_only_due_changes_applied(
                     "request-future",
                     "assertion-old-future",
                     "claim-old-future",
-                    '{"entity_id":"user:u1"}',
+                    '{"entity_id":"user:u1","trait_value":"Future original"}',
                     '{"value":"Future replacement"}',
                     now + 600,
                     "assertion-new-future",
@@ -71,13 +111,15 @@ def test_scheduled_transition_migration_marks_only_due_changes_applied(
         indexes = {
             str(row[1]) for row in connection.execute("PRAGMA index_list(memory_corrections)")
         }
-        markers = dict(connection.execute(
-            """
+        markers = dict(
+            connection.execute(
+                """
             SELECT correction_id, transition_applied_at
             FROM memory_corrections
             ORDER BY correction_id
             """
-        ).fetchall())
+            ).fetchall()
+        )
 
     assert "transition_applied_at" in columns
     assert "idx_memory_corrections_due_transition" in indexes
@@ -251,9 +293,7 @@ def test_relationship_version_snapshot_migration_quarantines_incomplete_history(
     assert historical == []
 
     asyncio.run(store.reject_edge(triple_id="triple-legacy"))
-    assert asyncio.run(
-        store.active_correction_evidence_event_ids(["event-1"])
-    ) == {"event-1"}
+    assert asyncio.run(store.active_correction_evidence_event_ids(["event-1"])) == {"event-1"}
     unavailable_legacy_history = asyncio.run(
         store.list_current_relationships(
             subject_id="user:u1",
@@ -269,9 +309,7 @@ def test_relationship_version_snapshot_migration_quarantines_incomplete_history(
             effective_at=150,
         )
     )
-    assert [item["triple_id"] for item in historical_after_new_write] == [
-        "triple-legacy"
-    ]
+    assert [item["triple_id"] for item in historical_after_new_write] == ["triple-legacy"]
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(
             """
@@ -300,7 +338,8 @@ def test_correction_evidence_migration_fails_closed_on_malformed_json(
                 'correction-invalid-evidence', 'request-invalid-evidence',
                 'user:u1', 'assertion', 'assert-invalid', 'slot-invalid',
                 'claim-invalid', 'record_error',
-                '{"evidence_events":"[broken"}', 'active', 100
+                '{"trait_value":"Old value","evidence_events":"[broken"}',
+                'active', 100
             )
             """
         )
@@ -319,7 +358,7 @@ def test_correction_evidence_migration_fails_closed_on_malformed_json(
                     "assert-object",
                     "slot-object",
                     "claim-object",
-                    '{"evidence_events":{"event_id":"candidate-object"}}',
+                    '{"trait_value":"Old value","evidence_events":{"event_id":"candidate-object"}}',
                 ),
                 (
                     "correction-number-evidence",
@@ -327,7 +366,7 @@ def test_correction_evidence_migration_fails_closed_on_malformed_json(
                     "assert-number",
                     "slot-number",
                     "claim-number",
-                    '{"evidence_events":123}',
+                    '{"trait_value":"Old value","evidence_events":123}',
                 ),
                 (
                     "correction-array-object-evidence",
@@ -335,7 +374,7 @@ def test_correction_evidence_migration_fails_closed_on_malformed_json(
                     "assert-array-object",
                     "slot-array-object",
                     "claim-array-object",
-                    '{"evidence_events":["candidate-valid",{"event_id":"candidate-bad"}]}',
+                    '{"trait_value":"Old value","evidence_events":["candidate-valid",{"event_id":"candidate-bad"}]}',
                 ),
             ],
         )
@@ -524,6 +563,6 @@ def test_legacy_l3_insights_without_dependencies_are_quarantined(tmp_path: Path)
             connection.load_extension(sqlite_vec.loadable_path())
         finally:
             connection.enable_load_extension(False)
-        assert connection.execute(
-            "SELECT COUNT(*) FROM l3_summary_chunk_vec_test"
-        ).fetchone() == (0,)
+        assert connection.execute("SELECT COUNT(*) FROM l3_summary_chunk_vec_test").fetchone() == (
+            0,
+        )

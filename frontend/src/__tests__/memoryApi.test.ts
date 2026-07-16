@@ -1,11 +1,27 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 
 import { api } from '@/api/client';
-import { memoryApi } from '@/api/modules/memory';
+import {
+  memoryApi,
+  type MemoryCorrectionContextDimension,
+  type MemoryCorrectionRecord,
+  type MemoryCorrectionRequest,
+} from '@/api/modules/memory';
+
+const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
 
 describe('memoryApi endpoints', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('allows only project scopes in writes while retaining all stored dimensions', () => {
+    type WritableScope = NonNullable<MemoryCorrectionRequest['scope']>;
+    type StoredScope = NonNullable<MemoryCorrectionRecord['scope']>;
+
+    expectTypeOf<WritableScope['all_of'][number]['dimension']>().toEqualTypeOf<'project'>();
+    expectTypeOf<StoredScope['all_of'][number]['dimension']>()
+      .toEqualTypeOf<MemoryCorrectionContextDimension>();
   });
 
   it('loads an episode detail by id', async () => {
@@ -83,7 +99,7 @@ describe('memoryApi endpoints', () => {
       target: { kind: 'assertion' as const, id: 'assertion-1' },
       correction_kind: 'scope_refinement' as const,
       replacement: { value: '直白' },
-      scope: { activity: '代码评审' },
+      scope: { all_of: [{ dimension: 'project' as const, context_id: MAGI_CONTEXT_ID }] },
       expected_updated_at: 1719301200,
     };
     const response = {
@@ -98,7 +114,7 @@ describe('memoryApi endpoints', () => {
         correction_kind: 'scope_refinement' as const,
         before: { trait_value: '直白' },
         replacement: { value: '直白' },
-        scope: { activity: '代码评审' },
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active' as const,
       },
@@ -122,6 +138,7 @@ describe('memoryApi endpoints', () => {
       target: { kind: 'edge' as const, id: 'edge-1' },
       versions: [],
       corrections: [],
+      context_labels: {},
     };
     const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
       success: true,
@@ -134,6 +151,25 @@ describe('memoryApi endpoints', () => {
     expect(getSpy).toHaveBeenCalledWith('/memory/l2/corrections', {
       params: { target_kind: 'edge', target_id: 'edge-1' },
     });
+  });
+
+  it('loads workspace-bound project options for correction scopes', async () => {
+    const response = {
+      items: [{
+        context_id: MAGI_CONTEXT_ID,
+        dimension: 'project' as const,
+        label: 'Magi',
+      }],
+    };
+    const getSpy = vi.spyOn(api, 'get').mockResolvedValue({
+      success: true,
+      message: 'ok',
+      data: response,
+    });
+
+    await expect(memoryApi.getCorrectionContextOptions()).resolves.toEqual(response);
+
+    expect(getSpy).toHaveBeenCalledWith('/memory/l2/context-options');
   });
 
   it('encodes a correction id before posting a revert request', async () => {

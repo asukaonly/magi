@@ -1,5 +1,7 @@
 import type {
+  MemoryCorrectionContextOption,
   MemoryCorrectionKind,
+  MemoryCorrectionRecord,
   MemoryCorrectionRequest,
 } from '@/api/modules/memory';
 
@@ -43,7 +45,8 @@ export type MemoryCorrectionUiTarget =
   | MemoryCorrectionEdgeTarget;
 
 export type MemoryCorrectionRecordErrorAction = 'replace' | 'remove';
-export type MemoryCorrectionScopeType = 'project' | 'activity' | 'place' | 'person';
+
+const PROJECT_CONTEXT_ID_PATTERN = /^ctx_project_[a-f0-9]{64}$/;
 
 export interface MemoryCorrectionDraft {
   requestId: string;
@@ -51,8 +54,7 @@ export interface MemoryCorrectionDraft {
   recordErrorAction: MemoryCorrectionRecordErrorAction;
   value: string;
   effectiveAt: string;
-  scopeType: MemoryCorrectionScopeType;
-  scopeValue: string;
+  scopeContextId: string;
   reason: string;
   relationObjectId: string;
 }
@@ -63,6 +65,7 @@ export const MEMORY_CORRECTION_VALIDATION_ERROR_CODES = {
   EFFECTIVE_AT_REQUIRED: 'effective_at_required',
   EFFECTIVE_AT_INVALID: 'effective_at_invalid',
   SCOPE_REQUIRED: 'scope_required',
+  SCOPE_UNAVAILABLE: 'scope_unavailable',
   RELATION_OBJECT_REQUIRED: 'relation_object_required',
   RELATION_OBJECT_UNCHANGED: 'relation_object_unchanged',
   RELATION_OBJECT_UNAVAILABLE: 'relation_object_unavailable',
@@ -74,7 +77,7 @@ export type MemoryCorrectionValidationErrorCode =
 export type MemoryCorrectionValidationField =
   | 'value'
   | 'effectiveAt'
-  | 'scopeValue'
+  | 'scopeContextId'
   | 'relationObjectId';
 
 export type MemoryCorrectionValidationErrors = Partial<
@@ -103,15 +106,15 @@ export const createInitialMemoryCorrectionDraft = (
   recordErrorAction: 'replace',
   value: target.kind === 'assertion' ? assertionDisplayValue(target) : '',
   effectiveAt: '',
-  scopeType: 'project',
-  scopeValue: '',
+  scopeContextId: '',
   reason: '',
   relationObjectId: target.kind === 'edge' ? target.relationship.objectId : '',
 });
 
 export const validateMemoryCorrectionDraft = (
   target: MemoryCorrectionUiTarget,
-  draft: MemoryCorrectionDraft
+  draft: MemoryCorrectionDraft,
+  contextOptions: readonly MemoryCorrectionContextOption[] = []
 ): MemoryCorrectionValidationResult => {
   const errors: MemoryCorrectionValidationErrors = {};
 
@@ -125,11 +128,10 @@ export const validateMemoryCorrectionDraft = (
   }
 
   if (draft.correctionKind === 'scope_refinement') {
-    if (target.kind === 'assertion' && !draft.value.trim()) {
-      errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_REQUIRED;
-    }
-    if (!draft.scopeValue.trim()) {
-      errors.scopeValue = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.SCOPE_REQUIRED;
+    if (!draft.scopeContextId.trim()) {
+      errors.scopeContextId = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.SCOPE_REQUIRED;
+    } else if (!findSelectableProjectContextOption(contextOptions, draft.scopeContextId)) {
+      errors.scopeContextId = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.SCOPE_UNAVAILABLE;
     }
   }
 
@@ -142,9 +144,10 @@ export const validateMemoryCorrectionDraft = (
 export const buildMemoryCorrectionRequest = (
   target: MemoryCorrectionUiTarget,
   draft: MemoryCorrectionDraft,
-  requestId: string = draft.requestId
+  requestId: string = draft.requestId,
+  contextOptions: readonly MemoryCorrectionContextOption[] = []
 ): MemoryCorrectionRequest | null => {
-  if (!validateMemoryCorrectionDraft(target, draft).valid) {
+  if (!validateMemoryCorrectionDraft(target, draft, contextOptions).valid) {
     return null;
   }
 
@@ -162,14 +165,20 @@ export const buildMemoryCorrectionRequest = (
   }
 
   if (draft.correctionKind === 'scope_refinement') {
+    const selectedContext = findSelectableProjectContextOption(
+      contextOptions,
+      draft.scopeContextId
+    );
+    if (!selectedContext) return null;
     request.replacement = target.kind === 'assertion'
-      ? {
-          value: draft.value.trim() === assertionDisplayValue(target).trim()
-            ? target.currentValue.trim()
-            : draft.value.trim(),
-        }
+      ? { value: target.currentValue.trim() }
       : {};
-    request.scope = { [draft.scopeType]: draft.scopeValue.trim() };
+    request.scope = {
+      all_of: [{
+        dimension: 'project',
+        context_id: selectedContext.context_id,
+      }],
+    };
     return request;
   }
 
@@ -198,6 +207,86 @@ export const buildMemoryCorrectionRequest = (
 
   return request;
 };
+
+export const isSelectableProjectContextOption = (
+  option: unknown
+): option is MemoryCorrectionContextOption => {
+  if (!option || typeof option !== 'object' || Array.isArray(option)) return false;
+  const candidate = option as Record<string, unknown>;
+  return candidate.dimension === 'project'
+    && typeof candidate.context_id === 'string'
+    && PROJECT_CONTEXT_ID_PATTERN.test(candidate.context_id)
+    && typeof candidate.label === 'string'
+    && Boolean(candidate.label.trim());
+};
+
+export const selectableProjectContextOptions = (
+  options: readonly unknown[]
+): MemoryCorrectionContextOption[] => {
+  const uniqueOptions = new Map<string, MemoryCorrectionContextOption>();
+  for (const option of options) {
+    if (!isSelectableProjectContextOption(option)) continue;
+    if (!uniqueOptions.has(option.context_id)) {
+      uniqueOptions.set(option.context_id, option);
+    }
+  }
+  return [...uniqueOptions.values()];
+};
+
+export const findSelectableProjectContextOption = (
+  options: readonly MemoryCorrectionContextOption[],
+  contextId: string
+): MemoryCorrectionContextOption | undefined => {
+  const normalizedContextId = contextId.trim();
+  if (!normalizedContextId) return undefined;
+  return options.find(
+    (option) => isSelectableProjectContextOption(option)
+      && option.context_id === normalizedContextId
+  );
+};
+
+export const canRevertMemoryCorrection = (
+  correction: MemoryCorrectionRecord,
+  corrections: readonly MemoryCorrectionRecord[]
+): boolean => {
+  if (correction.state !== 'active') return false;
+  const scopeKey = correctionScopeIdentity(correction.scope);
+  return !corrections.some((candidate) => {
+    if (
+      candidate.correction_id === correction.correction_id
+      || candidate.state !== 'active'
+      || candidate.created_at < correction.created_at
+      || (
+        candidate.created_at === correction.created_at
+        && candidate.correction_id < correction.correction_id
+      )
+    ) {
+      return false;
+    }
+    if (
+      candidate.target_id === correction.target_id
+      || candidate.target_id === correction.replacement_target_id
+    ) {
+      return true;
+    }
+    return candidate.slot_key === correction.slot_key
+      && correctionScopeIdentity(candidate.scope) === scopeKey;
+  });
+};
+
+const correctionScopeIdentity = (
+  scope: MemoryCorrectionRecord['scope']
+): string => JSON.stringify(
+  [...(scope?.all_of ?? [])]
+    .map((condition) => ({
+      dimension: condition.dimension,
+      context_id: condition.context_id,
+    }))
+    .sort((left, right) => (
+      left.dimension.localeCompare(right.dimension)
+      || left.context_id.localeCompare(right.context_id)
+    ))
+);
 
 const validateChangedReplacement = (
   target: MemoryCorrectionUiTarget,

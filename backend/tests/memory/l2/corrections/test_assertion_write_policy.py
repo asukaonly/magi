@@ -4,7 +4,9 @@ import time
 
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.core.sqlite import sqlite_connection_async
+from magi.memory.context_scope import ContextScopeError
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.policy import (
     CorrectionPolicyAction,
@@ -40,6 +42,24 @@ def _candidate(
     if scope is not None:
         candidate["scope"] = scope
     return candidate
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid_scope",
+    ["magi", [], False, {"project": "magi"}],
+)
+async def test_assertion_write_rejects_invalid_scope_without_writing_global(
+    l2_store_with_schema,
+    invalid_scope,
+) -> None:
+    candidate = _candidate("Hangzhou", "evt-invalid-scope")
+    candidate["scope"] = invalid_scope
+
+    with pytest.raises(ContextScopeError):
+        await l2_store_with_schema.upsert_assertion_candidate(candidate)
+
+    assert await l2_store_with_schema.list_current_assertions(entity_id="user:u1") == []
 
 
 @pytest.mark.asyncio
@@ -222,9 +242,7 @@ async def test_scheduled_rules_follow_candidate_observation_time(l2_store_with_s
     assert same_value_id == assertion_id
     assert third_value_id == assertion_id
     assert old_value_id == assertion_id
-    stored_replacement = await store.get_tom_assertion(
-        assertion_id=replacement["assertion_id"]
-    )
+    stored_replacement = await store.get_tom_assertion(assertion_id=replacement["assertion_id"])
     assert stored_replacement["evidence_events"] == []
     historical = await store.get_tom_assertion(assertion_id=assertion_id)
     assert historical["evidence_events"] == ["evt-before-change", "evt-original"]
@@ -247,7 +265,7 @@ async def test_scope_refinement_requires_context_and_allows_other_scopes(
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement_value="Shanghai",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     magi_id = corrected["current_assertion"]["assertion_id"]
 
@@ -258,24 +276,65 @@ async def test_scope_refinement_requires_context_and_allows_other_scopes(
     assert await store.list_current_assertions(entity_id="user:u1") == []
 
     same_id = await store.upsert_assertion_candidate(
-        _candidate("Shanghai", "evt-magi", scope={"project": "magi"})
+        _candidate("Shanghai", "evt-magi", scope=context_scope(project="magi"))
     )
     assert same_id == magi_id
     other_id = await store.upsert_assertion_candidate(
-        _candidate("Beijing", "evt-other", scope={"project": "another"})
+        _candidate("Beijing", "evt-other", scope=context_scope(project="another"))
     )
     assert other_id != magi_id
 
     magi_current = await store.list_current_assertions(
         entity_id="user:u1",
-        context_scope={"project": "magi"},
+        context_scope=context_scope(project="magi"),
     )
     other_current = await store.list_current_assertions(
         entity_id="user:u1",
-        context_scope={"project": "another"},
+        context_scope=context_scope(project="another"),
     )
     assert [item["assertion_id"] for item in magi_current] == [magi_id]
     assert [item["assertion_id"] for item in other_current] == [other_id]
+
+
+@pytest.mark.asyncio
+async def test_scope_refinement_blocks_only_the_original_scoped_claim_on_replay(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    source_scope = context_scope(project="source-project")
+    destination_scope = context_scope(project="destination-project")
+    assertion_id = await store.upsert_assertion_candidate(
+        _candidate("Shanghai", "evt-source", scope=source_scope)
+    )
+    corrected = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="move-scoped-assertion",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+        replacement_value="Shanghai",
+        scope=destination_scope,
+    )
+    destination_id = corrected["current_assertion"]["assertion_id"]
+
+    replayed_id = await store.upsert_assertion_candidate(
+        _candidate("Shanghai", "evt-source-replay", scope=source_scope)
+    )
+    alternative_id = await store.upsert_assertion_candidate(
+        _candidate("Beijing", "evt-source-alternative", scope=source_scope)
+    )
+
+    assert replayed_id == assertion_id
+    assert alternative_id not in {assertion_id, destination_id}
+    source_current = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=source_scope,
+    )
+    destination_current = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=destination_scope,
+    )
+    assert [item["assertion_id"] for item in source_current] == [alternative_id]
+    assert [item["assertion_id"] for item in destination_current] == [destination_id]
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from ..bootstrap.context import RuntimeBootstrapContext, require_initialized
 from ..bootstrap.lifecycle import LifecycleModule
 from ..core.logger import get_logger
@@ -10,6 +12,7 @@ from .channel_sessions import ChatChannelSessionProvisioner
 from .conversation_log import ChatRunConsumedEventsStore, ConversationLog
 from .projector import ChatProjector
 from .store import ChatStore
+from .workspace_identity import claim_existing_session_workspaces
 
 logger = get_logger(__name__)
 
@@ -34,6 +37,10 @@ class ChatStoreModule(LifecycleModule):
         chat_db_path = str(runtime_paths.chat_db_path)
         store = ChatStore(db_path=chat_db_path)
         await store.initialize()
+        claimed_workspace_count = await asyncio.to_thread(
+            claim_existing_session_workspaces,
+            chat_db_path,
+        )
         self._context.chat.store = store
         self._context.chat.channel_session_provisioner = ChatChannelSessionProvisioner(
             chat_store=store,
@@ -54,7 +61,10 @@ class ChatStoreModule(LifecycleModule):
             consumed_events_store=self._consumed_events_store,
         )
         self._context.chat.module = self
-        logger.info("Chat store started")
+        logger.info(
+            "Chat store started",
+            claimed_workspace_count=claimed_workspace_count,
+        )
 
     async def shutdown(self) -> None:
         if self._context.chat.store is not None:

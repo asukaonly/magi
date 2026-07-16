@@ -81,17 +81,17 @@ class CorrectionPolicyEvaluator:
                     rule,
                 )
 
-        if scope_key == "global":
-            scope_rule = next(
-                (
-                    rule
-                    for rule in rules
-                    if rule["rule_kind"] == CorrectionRuleKind.SCOPE_ONLY.value
-                ),
-                None,
-            )
-            if scope_rule is not None:
-                return _decision(CorrectionPolicyAction.REQUIRES_SCOPE, scope_rule)
+        scope_rule = next(
+            (
+                rule
+                for rule in rules
+                if rule["rule_kind"] == CorrectionRuleKind.SCOPE_ONLY.value
+                and rule["claim_fingerprint"] == claim_fingerprint
+            ),
+            None,
+        )
+        if scope_rule is not None:
+            return _decision(CorrectionPolicyAction.REQUIRES_SCOPE, scope_rule)
 
         for rule in rules:
             if rule["rule_kind"] != CorrectionRuleKind.CLOSE_BEFORE.value:
@@ -123,10 +123,17 @@ class CorrectionPolicyEvaluator:
                 None,
             )
             if scheduled_authority is not None:
-                return _decision(
-                    CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
-                    scheduled_authority,
-                )
+                if scheduled_authority["claim_fingerprint"] == claim_fingerprint:
+                    return _decision(
+                        CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+                        scheduled_authority,
+                    )
+                if target_kind == CorrectionTargetKind.ASSERTION:
+                    return _decision(
+                        CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+                        scheduled_authority,
+                    )
+                return CorrectionPolicyDecision(CorrectionPolicyAction.ACCEPT_ACTIVE)
             return CorrectionPolicyDecision(CorrectionPolicyAction.ACCEPT_ACTIVE)
         if authoritative_rule["claim_fingerprint"] == claim_fingerprint:
             return _decision(CorrectionPolicyAction.ACCEPT_ACTIVE, authoritative_rule)

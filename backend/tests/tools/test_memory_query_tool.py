@@ -82,7 +82,7 @@ class TestMemoryQueryTool:
         param_names = [p.name for p in schema.parameters]
         assert "query" in param_names
         assert "time_range" in param_names
-        assert "context_scope" in param_names
+        assert "context_scope" not in param_names
         # `sources` was deliberately removed — the LLM has no reliable
         # mapping from natural language to concrete source identifiers
         # and the resulting filter was a post-rank exclude that threw
@@ -226,8 +226,8 @@ class TestMemoryQueryTool:
         assert request.session_id is None
 
     @pytest.mark.asyncio
-    async def test_tool_execution_passes_scope_and_as_of_time(self):
-        """Resolved condition scope and point-in-time intent must reach retrieval."""
+    async def test_tool_execution_passes_context_signals_and_as_of_time(self):
+        """Trusted local signals and point-in-time intent must reach retrieval."""
         from magi.tools.builtin.memory_query_tool import MemoryQueryTool
 
         fake_service = MagicMock(name="retrieval_service")
@@ -251,15 +251,51 @@ class TestMemoryQueryTool:
                 "query": "当时在 Magi 项目里我住在哪里",
                 "query_mode": "exact_fact",
                 "time_range": {"as_of": 1234.0},
-                "context_scope": {"project": "magi", "activity": "coding"},
             },
-            _make_context(fake_mq=fake_mq, env_vars={"user_id": "u1"}),
+            _make_context(
+                fake_mq=fake_mq,
+                workspace="/tmp/magi",
+                env_vars={
+                    "user_id": "u1",
+                    "current_user_text": "当时在 Magi 项目里我住在哪里",
+                    "intent": "coding",
+                    "memory_context_workspace": "/tmp/magi",
+                },
+            ),
         )
 
         assert result.success is True
         request = fake_mq.query.await_args.args[0]
         assert request.time_range == {"as_of": 1234.0}
-        assert request.context_scope == {"project": "magi", "activity": "coding"}
+        assert request.context_scope == {}
+        assert request.context_signals.workspace_path == "/tmp/magi"
+        assert request.context_signals.user_text == "当时在 Magi 项目里我住在哪里"
+        assert request.context_signals.task_category == "coding"
+
+    @pytest.mark.asyncio
+    async def test_tool_execution_does_not_treat_fallback_workspace_as_memory_context(
+        self,
+    ):
+        """A tool execution fallback directory is not a trusted chat project."""
+        from magi.tools.builtin.memory_query_tool import MemoryQueryTool
+        from magi.memory.hybrid_retrieval.models import RetrievalPayload
+
+        fake_service = MagicMock(name="retrieval_service")
+        fake_service.query = AsyncMock(return_value=RetrievalPayload())
+        fake_mq = _make_fake_mq(fake_service)
+
+        result = await MemoryQueryTool().execute(
+            {"query": "what did we decide?"},
+            _make_context(
+                fake_mq=fake_mq,
+                workspace="/tmp/fallback-cwd",
+                env_vars={"user_id": "u1"},
+            ),
+        )
+
+        assert result.success is True
+        request = fake_mq.query.await_args.args[0]
+        assert request.context_signals.workspace_path is None
 
     @pytest.mark.asyncio
     async def test_tool_execution_passes_explicit_session_when_provided(self):
@@ -316,7 +352,7 @@ class TestMemoryQueryTool:
         # Sanity-check that legitimate params are still there.
         assert "query" in properties
         assert "time_range" in properties
-        assert "context_scope" in properties
+        assert "context_scope" not in properties
         assert "query_mode" in properties
 
     @pytest.mark.asyncio

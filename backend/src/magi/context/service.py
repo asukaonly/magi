@@ -94,6 +94,11 @@ class ContextAssemblyService:
             user_message=user_message,
             task_category=task_category,
         )
+        resolved_workspace_path = await self._resolve_workspace_path(
+            user_id=user_id,
+            session_id=session_id,
+            workspace_path=workspace_path,
+        )
         retrieved_memory_payload = self._empty_retrieval_payload()
         if (
             allow_implicit_memory
@@ -106,14 +111,10 @@ class ContextAssemblyService:
                 session_id=session_id,
                 query=policy.retrieval_query,
                 task_category=task_category,
+                context_text=user_message,
+                workspace_path=resolved_workspace_path,
                 allowed_layers=policy.allowed_layers,
             )
-
-        resolved_workspace_path = await self._resolve_workspace_path(
-            user_id=user_id,
-            session_id=session_id,
-            workspace_path=workspace_path,
-        )
         (
             prompt_memory,
             prompt_persona_name,

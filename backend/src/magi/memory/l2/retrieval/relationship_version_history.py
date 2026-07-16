@@ -125,33 +125,63 @@ def _apply_latest_closed_segment_payloads(
     ordered: List[Dict[str, Any]],
 ) -> None:
     """Keep evidence added after closure attached to its historical segment."""
-    for snapshot in ordered:
-        if str(snapshot.get("status") or "") == "active":
+    for index, relationship in enumerate(materialized):
+        relationship_start = _optional_float(relationship.get("valid_from"))
+        relationship_end = _optional_float(relationship.get("valid_to"))
+        if relationship_start is None or relationship_end is None:
             continue
-        valid_from = _optional_float(snapshot.get("valid_from"))
-        valid_to = _optional_float(snapshot.get("valid_to"))
-        if valid_from is None or valid_to is None:
+        candidates = [
+            snapshot
+            for snapshot in ordered
+            if _closed_snapshot_matches_segment(
+                snapshot,
+                relationship,
+                segment_start=relationship_start,
+                segment_end=relationship_end,
+            )
+        ]
+        if not candidates:
             continue
-        for index, relationship in enumerate(materialized):
-            relationship_start = _optional_float(relationship.get("valid_from"))
-            relationship_end = _optional_float(relationship.get("valid_to"))
-            if (
-                relationship_start is None
-                or relationship_end is None
-                or not _same_timestamp(relationship_start, valid_from)
-                or not _same_timestamp(relationship_end, valid_to)
-                or str(relationship.get("claim_fingerprint") or "")
-                != str(snapshot.get("claim_fingerprint") or "")
-                or str(relationship.get("scope_key") or "global")
-                != str(snapshot.get("scope_key") or "global")
-            ):
-                continue
-            replacement = dict(snapshot)
-            replacement["valid_from"] = relationship_start
-            replacement["valid_to"] = relationship_end
-            replacement["status"] = "active"
-            materialized[index] = replacement
-            break
+        immutable = [
+            snapshot
+            for snapshot in candidates
+            if not str(snapshot.get("_governed_version_id") or "").startswith("current:")
+        ]
+        replacement = dict(max(immutable or candidates, key=_snapshot_recorded_order))
+        replacement["valid_from"] = relationship_start
+        replacement["valid_to"] = relationship_end
+        replacement["status"] = "active"
+        materialized[index] = replacement
+
+
+def _closed_snapshot_matches_segment(
+    snapshot: Mapping[str, Any],
+    relationship: Mapping[str, Any],
+    *,
+    segment_start: float,
+    segment_end: float,
+) -> bool:
+    if str(snapshot.get("status") or "") == "active":
+        return False
+    valid_from = _optional_float(snapshot.get("valid_from"))
+    valid_to = _optional_float(snapshot.get("valid_to"))
+    return (
+        valid_from is not None
+        and valid_to is not None
+        and _same_timestamp(segment_start, valid_from)
+        and _same_timestamp(segment_end, valid_to)
+        and str(relationship.get("claim_fingerprint") or "")
+        == str(snapshot.get("claim_fingerprint") or "")
+        and str(relationship.get("scope_key") or "global")
+        == str(snapshot.get("scope_key") or "global")
+    )
+
+
+def _snapshot_recorded_order(snapshot: Mapping[str, Any]) -> tuple[float, str]:
+    return (
+        float(snapshot.get("_version_recorded_at") or 0.0),
+        str(snapshot.get("_governed_version_id") or ""),
+    )
 
 
 def _same_timestamp(left: float, right: float) -> bool:
@@ -166,9 +196,19 @@ def _deduplicate_snapshot_rows(
         if deduplicated and _snapshot_payload_key(deduplicated[-1]) == _snapshot_payload_key(
             snapshot
         ):
-            if str(snapshot.get("_governed_version_id") or "").startswith("current:"):
+            previous = deduplicated[-1]
+            previous_is_current = str(previous.get("_governed_version_id") or "").startswith(
+                "current:"
+            )
+            snapshot_is_current = str(snapshot.get("_governed_version_id") or "").startswith(
+                "current:"
+            )
+            if previous_is_current and not snapshot_is_current:
                 replacement = dict(snapshot)
-                replacement["_version_recorded_at"] = deduplicated[-1].get("_version_recorded_at")
+                replacement["_version_recorded_at"] = min(
+                    float(previous.get("_version_recorded_at") or 0.0),
+                    float(snapshot.get("_version_recorded_at") or 0.0),
+                )
                 deduplicated[-1] = replacement
             continue
         deduplicated.append(snapshot)
@@ -190,8 +230,11 @@ def _relationship_state_key(snapshot: Mapping[str, Any]) -> tuple[Any, ...]:
         snapshot.get("claim_fingerprint"),
         snapshot.get("scope_key"),
         snapshot.get("subject_id"),
+        snapshot.get("subject_type"),
         snapshot.get("predicate"),
         snapshot.get("object_id"),
+        snapshot.get("object_type"),
+        snapshot.get("fact_kind"),
         snapshot.get("confidence"),
         tuple(snapshot.get("evidence_event_ids") or []),
         snapshot.get("evidence_text"),

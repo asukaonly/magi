@@ -18,6 +18,11 @@ from .models import (
     MemoryCorrection,
     NewMemoryCorrection,
 )
+from .relationship_conflict_effects import (
+    apply_relationship_conflict_effects,
+    load_relationship_graph_conflict_rules,
+    relationship_conflict_effects_on_connection,
+)
 
 
 DEFAULT_DERIVATION_MAX_ATTEMPTS = 5
@@ -66,9 +71,7 @@ class MemoryCorrectionRepository:
                             updated_at=correction.created_at,
                         )
                         for subject_key in dict.fromkeys(
-                            str(item).strip()
-                            for item in subject_keys
-                            if str(item).strip()
+                            str(item).strip() for item in subject_keys if str(item).strip()
                         )
                     }
                 await db.commit()
@@ -352,6 +355,24 @@ class MemoryCorrectionRepository:
                         correction.target_id,
                         correction.replacement_target_id or "",
                     ]
+                    if correction.target_kind == CorrectionTargetKind.EDGE:
+                        if correction.replacement is not None:
+                            graph_conflict_rules = await load_relationship_graph_conflict_rules(db)
+                            await apply_relationship_conflict_effects(
+                                db,
+                                replacement=correction.replacement,
+                                correction_id=correction.correction_id,
+                                graph_conflict_rules=graph_conflict_rules,
+                                effective_at=float(correction.effective_at or activated_at),
+                                now=activated_at,
+                            )
+                        conflict_effects = await relationship_conflict_effects_on_connection(
+                            db,
+                            correction_id=correction.correction_id,
+                            replacement_id=correction.replacement_target_id,
+                        )
+                        source_ids.extend(conflict_effects.edge_ids)
+                        subjects = list(dict.fromkeys([*subjects, *conflict_effects.subject_keys]))
                     l3_subjects = await self.invalidate_l3_insights_on_connection(
                         db,
                         source_kind=source_kind,
@@ -359,9 +380,7 @@ class MemoryCorrectionRepository:
                         subject_keys=subjects,
                         updated_at=activated_at,
                     )
-                    affected_subjects = list(
-                        dict.fromkeys([*subjects, *sorted(l3_subjects)])
-                    )
+                    affected_subjects = list(dict.fromkeys([*subjects, *sorted(l3_subjects)]))
                     for subject_key in affected_subjects:
                         revision = await self.bump_subject_revision(
                             db,
@@ -605,8 +624,7 @@ class MemoryCorrectionRepository:
         if any(str(status) == "running" for status, _ in rows):
             return "running"
         if any(
-            str(status) == "pending"
-            or (str(status) == "failed" and next_retry_at is not None)
+            str(status) == "pending" or (str(status) == "failed" and next_retry_at is not None)
             for status, next_retry_at in rows
         ):
             return "pending"
@@ -887,13 +905,13 @@ class MemoryCorrectionRepository:
     ) -> set[str]:
         """Invalidate direct dependants and keep stale same-subject rebuilds queued."""
         normalized_ids = list(
-            dict.fromkeys(str(source_id).strip() for source_id in source_ids if str(source_id).strip())
+            dict.fromkeys(
+                str(source_id).strip() for source_id in source_ids if str(source_id).strip()
+            )
         )
         normalized_subjects = list(
             dict.fromkeys(
-                str(subject_key).strip()
-                for subject_key in subject_keys
-                if str(subject_key).strip()
+                str(subject_key).strip() for subject_key in subject_keys if str(subject_key).strip()
             )
         )
         if not normalized_ids and not normalized_subjects:

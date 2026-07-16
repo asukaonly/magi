@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import asdict
-from typing import Any, Dict, Optional, Protocol, cast
+from typing import Any, Dict, Mapping, Optional, Protocol, cast
 
 import aiosqlite
 
@@ -18,30 +18,20 @@ from ..corrections.models import (
 )
 from ..corrections.repository import MemoryCorrectionRepository
 from ..corrections.service import MemoryCorrectionService
+from ..graph_conflicts import GraphConflictRule
 
 logger = get_logger(__name__)
 
 
 class _ForgettingHostProtocol(Protocol):
     db_path: str
+    _graph_conflict_rules: Mapping[str, GraphConflictRule]
 
-    async def initialize(self) -> None:
-        ...
+    async def initialize(self) -> None: ...
 
-    async def get_relationship(self, *, triple_id: str) -> Optional[Dict[str, Any]]:
-        ...
+    async def get_relationship(self, *, triple_id: str) -> Optional[Dict[str, Any]]: ...
 
-    def relationship_slot_key_for(
-        self,
-        *,
-        subject_id: str,
-        predicate: str,
-        object_id: str,
-    ) -> str:
-        ...
-
-    async def wake_memory_correction_jobs(self) -> bool:
-        ...
+    async def wake_memory_correction_jobs(self) -> bool: ...
 
 
 class L2StoreForgettingMixin:
@@ -88,20 +78,22 @@ class L2StoreForgettingMixin:
         """Apply a governed correction to one relationship."""
         host = cast(_ForgettingHostProtocol, self)
         await host.initialize()
-        current = await host.get_relationship(triple_id=triple_id)
-        if current is None:
+        existing_request = await MemoryCorrectionRepository(host.db_path).get_by_request_id(
+            request_id
+        )
+        current = (
+            existing_request.before
+            if existing_request is not None
+            and existing_request.target_kind == CorrectionTargetKind.EDGE
+            else await host.get_relationship(triple_id=triple_id)
+        )
+        if current is None and existing_request is None:
             return None
         normalized_replacement = dict(replacement) if replacement is not None else None
-        if normalized_replacement is not None:
-            subject_id = str(normalized_replacement.get("subject_id") or current["subject_id"])
-            predicate = str(normalized_replacement.get("predicate") or current["predicate"])
-            object_id = str(normalized_replacement.get("object_id") or current["object_id"])
-            normalized_replacement["slot_key"] = host.relationship_slot_key_for(
-                subject_id=subject_id,
-                predicate=predicate,
-                object_id=object_id,
-            )
-        result = await MemoryCorrectionService(host.db_path).apply_relationship_correction(
+        result = await MemoryCorrectionService(
+            host.db_path,
+            graph_conflict_rules=host._graph_conflict_rules,
+        ).apply_relationship_correction(
             ApplyRelationshipCorrectionCommand(
                 triple_id=triple_id,
                 request_id=request_id,
@@ -175,9 +167,9 @@ class L2StoreForgettingMixin:
         """Return immutable versions and corrections for a relationship."""
         host = cast(_ForgettingHostProtocol, self)
         await host.initialize()
-        history = await MemoryCorrectionService(
-            host.db_path
-        ).get_relationship_correction_history(triple_id=triple_id)
+        history = await MemoryCorrectionService(host.db_path).get_relationship_correction_history(
+            triple_id=triple_id
+        )
         return {
             "versions": history["versions"],
             "corrections": [asdict(item) for item in history["corrections"]],

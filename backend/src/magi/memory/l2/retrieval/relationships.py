@@ -88,10 +88,7 @@ class L2StoreRelationshipQueryMixin:
                 sql += f" AND object_id IN ({placeholders})"
                 args.extend(unique_entity_ids)
             elif direction == "both":
-                sql += (
-                    f" AND (subject_id IN ({placeholders})"
-                    f" OR object_id IN ({placeholders}))"
-                )
+                sql += f" AND (subject_id IN ({placeholders})" f" OR object_id IN ({placeholders}))"
                 args.extend(unique_entity_ids)
                 args.extend(unique_entity_ids)
             else:
@@ -147,7 +144,7 @@ class L2StoreRelationshipQueryMixin:
             sql += f" AND scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
             sql += (
-                " ORDER BY (SELECT COUNT(*) FROM json_each(scope_json)) DESC,"
+                " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
                 " updated_at DESC LIMIT ?"
             )
             args.append(bounded_scoped_candidate_limit(limit))
@@ -281,7 +278,7 @@ class L2StoreRelationshipQueryMixin:
             query += f" AND relationships.scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
             ordering = (
-                "(SELECT COUNT(*) FROM json_each(candidates.scope_json)) DESC, "
+                "json_array_length(candidates.scope_json, '$.all_of') DESC, "
                 "candidates.updated_at DESC"
             )
             candidate_limit = bounded_scoped_candidate_limit(requested_limit)

@@ -112,6 +112,7 @@ class _RegisteredToolExecutor:
                 "trace_parent_span_id": trace_parent_span_id,
                 "trace_tool_call_id": request.tool_call.id,
                 "current_user_text": request.user_message or "",
+                "memory_context_workspace": request.execution_workspace or "",
             },
             permissions=permissions,
             cancellation=request.token,
@@ -247,9 +248,7 @@ class _RegisteredToolExecutor:
             "[FunctionCalling] Slow scan tool: %s | workspace=%s | path=%s | elapsed_ms=%.1f | args=%s",
             request.tool_name,
             request.workspace_root,
-            self._host._resolve_scan_root_path(
-                arguments.get("path"), request.execution_workspace
-            ),
+            self._host._resolve_scan_root_path(arguments.get("path"), request.execution_workspace),
             execution_time * 1000,
             arguments,
         )

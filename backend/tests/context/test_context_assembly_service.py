@@ -97,6 +97,8 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             session_id="s1",
             query="帮我回忆昨天聊过的重构方案",
             task_category="chat",
+            context_text="帮我回忆昨天聊过的重构方案",
+            workspace_path=None,
             allowed_layers=("L0",),
         )
         self.assertIn("# Recent Tool Errors", package.system_prompt)
@@ -137,6 +139,8 @@ class TestContextAssemblyService(unittest.IsolatedAsyncioTestCase):
             session_id="s1",
             query="按之前那套流程修一下这个 bug",
             task_category="code_execution",
+            context_text="按之前那套流程修一下这个 bug",
+            workspace_path=None,
             allowed_layers=("L0", "L4"),
         )
         retrieval = package.prompt_context.self_memory.retrieval_memory

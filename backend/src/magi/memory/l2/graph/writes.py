@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import time
-import uuid
 from dataclasses import dataclass, replace
 from typing import Any, Iterable, List, Mapping, Protocol, cast
 
@@ -12,13 +11,19 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
+from ...context_scope import normalize_context_scope
 from ..corrections.fingerprints import (
     canonical_scope_json,
     relationship_claim_fingerprint,
     relationship_slot_key,
+    relationship_triple_id,
     scope_key,
 )
 from ..corrections.policy import CorrectionPolicyAction, CorrectionPolicyEvaluator
+from ..corrections.relationship_conflict_effects import (
+    record_relationship_shadow_conflict_effect,
+)
+from ..graph_conflicts import relationship_predicate_slot
 from .versions import append_knowledge_graph_version
 from ..ontology import are_predicates_synonymous
 from ..storage.utils import (
@@ -59,8 +64,12 @@ class _KnowledgeEdgeWrite:
 
     @property
     def triple_id(self) -> str:
-        triple_key = f"{self.subject_id}:{self.predicate}:{self.object_id}"
-        return f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, triple_key)}"
+        return relationship_triple_id(
+            subject_id=self.subject_id,
+            predicate=self.predicate,
+            object_id=self.object_id,
+            scope_key_value=self.scope_key,
+        )
 
     @property
     def insert_valid_from(self) -> float:
@@ -89,7 +98,7 @@ class _KnowledgeEdgeInput:
     valid_from: float | None
     valid_to: float | None
     evidence_class: str | None
-    scope: Mapping[str, Any] | None
+    scope: object | None
 
 
 @dataclass(frozen=True)
@@ -227,6 +236,7 @@ class _GraphWriteHostProtocol(Protocol):
         subject_id: str,
         predicate: str,
         object_id: str,
+        scope_key: str,
         observed_at: float,
         now: float,
     ) -> None: ...
@@ -324,9 +334,7 @@ class L2StoreGraphWriteMixin:
             valid_from=_optional_mapping_float(edge_write, "valid_from"),
             valid_to=_optional_mapping_float(edge_write, "valid_to"),
             evidence_class=_optional_mapping_text(edge_write, "evidence_class"),
-            scope=(
-                dict(edge_write["scope"]) if isinstance(edge_write.get("scope"), Mapping) else None
-            ),
+            scope=edge_write.get("scope"),
         )
 
     async def _upsert_knowledge_edge_on_connection(
@@ -372,10 +380,12 @@ class L2StoreGraphWriteMixin:
             )
             return policy.target_id or triple_id
         if policy.action == CorrectionPolicyAction.CREATE_SHADOW:
+            assert policy.correction_id is not None
             await self._upsert_conflicted_relationship(
                 db=db,
                 triple_id=triple_id,
                 write=write,
+                correction_id=policy.correction_id,
                 authoritative_triple_id=policy.authoritative_target_id,
             )
             return triple_id
@@ -417,6 +427,7 @@ class L2StoreGraphWriteMixin:
             subject_id=write.subject_id,
             predicate=write.predicate,
             object_id=write.object_id,
+            scope_key=write.scope_key,
             observed_at=write.observed_at,
             now=write.now,
         )
@@ -441,18 +452,15 @@ class L2StoreGraphWriteMixin:
     ) -> str:
         """Return the governed slot for a relationship candidate."""
         normalized_predicate = str(predicate).strip().upper()
-        rule = self._graph_conflict_rules.get(normalized_predicate)
-        predicate_slot: str | None = None
-        if rule is not None and rule.exclusive_group:
-            predicate_slot = f"exclusive:{rule.exclusive_group}"
-        elif rule is not None and rule.opposite_predicates:
-            family = ":".join(sorted({normalized_predicate, *rule.opposite_predicates}))
-            predicate_slot = f"opposites:{family}:{object_id}"
         return relationship_slot_key(
             subject_id=subject_id,
             predicate=normalized_predicate,
             object_id=object_id,
-            predicate_slot=predicate_slot,
+            predicate_slot=relationship_predicate_slot(
+                self._graph_conflict_rules,
+                predicate=normalized_predicate,
+                object_id=object_id,
+            ),
         )
 
     def _with_edge_governance_identity(
@@ -502,7 +510,7 @@ class L2StoreGraphWriteMixin:
         normalized_object_id = (
             normalize_store_entity_ref(edge.object_id, normalized_object_type) or edge.object_id
         )
-        normalized_scope = dict(edge.scope or {})
+        normalized_scope = normalize_context_scope(edge.scope)
         normalized_scope_key = scope_key(normalized_scope)
 
         return _KnowledgeEdgeWrite(
@@ -816,15 +824,17 @@ class L2StoreGraphWriteMixin:
         db: aiosqlite.Connection,
         triple_id: str,
         write: _KnowledgeEdgeWrite,
+        correction_id: str,
         authoritative_triple_id: str | None,
     ) -> None:
+        if not authoritative_triple_id:
+            raise ValueError("Authoritative relationship id is required for a shadow")
         existing = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
         if existing is None:
             await self._insert_knowledge_edge(
                 db=db,
                 triple_id=triple_id,
                 write=write,
-                status="conflicted",
             )
         else:
             if existing["authority_ref"]:
@@ -841,6 +851,36 @@ class L2StoreGraphWriteMixin:
                 write=write,
                 existing=existing,
             )
+        victim = await self._fetch_existing_knowledge_edge(db=db, triple_id=triple_id)
+        assert victim is not None
+        await record_relationship_shadow_conflict_effect(
+            db,
+            correction_id=correction_id,
+            victim=victim,
+            replacement_id=authoritative_triple_id,
+            now=write.now,
+        )
+        async with db.execute(
+            """
+            SELECT MAX(created_at)
+            FROM knowledge_graph_versions
+            WHERE triple_id = ?
+            """,
+            (triple_id,),
+        ) as cursor:
+            latest_version = await cursor.fetchone()
+        latest_created_at = (
+            float(latest_version[0])
+            if latest_version is not None and latest_version[0] is not None
+            else write.now
+        )
+        preimage_created_at = max(write.now, latest_created_at + 0.000001)
+        await append_knowledge_graph_version(
+            db,
+            triple_id=triple_id,
+            correction_id=correction_id,
+            created_at=preimage_created_at,
+        )
         await db.execute(
             """
             UPDATE knowledge_graph
@@ -853,7 +893,8 @@ class L2StoreGraphWriteMixin:
         await append_knowledge_graph_version(
             db,
             triple_id=triple_id,
-            created_at=write.now,
+            correction_id=correction_id,
+            created_at=preimage_created_at + 0.000001,
         )
 
     async def corroborate_edge(

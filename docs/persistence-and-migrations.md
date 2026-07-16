@@ -15,7 +15,7 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 |------|-------|-------|
 | `data/chat/chat.db` | chat | sessions, turns, messages, attachments, context summaries, user-turn delivery checkpoints |
 | `data/memory/l1_events.db` | memory L1 + L1-projected chat sessions | normalized event log, embeddings, FTS, entity links |
-| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, summaries, procedural skills |
+| `data/memory/memory.db` | memory L0 / L2 / L3 / L4 | working memory, knowledge graph, ToM, correction history, stable context identities, summaries, procedural skills |
 | `runtime/runtime_trace.db` | runtime trace | trace turns / spans / llm calls / tools, plugin ingress events |
 | `runtime/llm_usage.db` | llm | per-request usage + cost telemetry, daily rollups |
 | `data/app/persona_registry.db` | personality | personas, active persona |
@@ -31,6 +31,18 @@ keeps state across multiple SQLite files, grouped by lifecycle ownership:
 | `data/identity/identity.db` | identity | external channel identity to canonical user mapping |
 | `data/batch/batch.db` | batch | batch job and item manifests |
 | `data/memory/self_memory_v2.db` | (reserved) | — |
+
+The stable-context migration converts legacy free-text correction scopes into
+typed local identities. Scoped relationship IDs and uniqueness are rebuilt at
+the same boundary, and all version, correction, dependency, snapshot, profile,
+and portrait references are rewritten together. Malformed scopes are isolated
+instead of becoming global. Alias collisions retire losing current claims and
+invalidate affected derived views so they can be rebuilt from the surviving
+governed records.
+
+Relationship correction side effects are stored separately from mutable
+relationship rows. This lets revert restore only the state still owned by the
+correction and preserve evidence added after the correction was created.
 
 Each subsystem owns the schema for its own file. There is no
 cross-file foreign-key enforcement.

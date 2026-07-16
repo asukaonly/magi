@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.config.models import AppConfig
 from magi.memory.hybrid_retrieval.mode_registry import MODE_REGISTRY
 from magi.memory.hybrid_retrieval.models import (
@@ -21,7 +22,10 @@ from magi.memory.hybrid_retrieval.models import (
     SemanticConstraint,
     TimeRange,
 )
-from magi.memory.hybrid_retrieval.service import HybridRetrievalService, build_retrieval_config_from_app_config
+from magi.memory.hybrid_retrieval.service import (
+    HybridRetrievalService,
+    build_retrieval_config_from_app_config,
+)
 
 
 def _make_memory(**stores):
@@ -31,6 +35,7 @@ def _make_memory(**stores):
     mem.l1 = stores.get("l1")
     mem.l2 = stores.get("l2")
     if mem.l2 is not None and hasattr(mem.l2, "batch_list_tom_assertions"):
+
         async def _batch_current_assertions(**kwargs):
             rows = mem.l2.list_current_assertions.return_value
             if isinstance(rows, list) and rows:
@@ -45,9 +50,7 @@ def _make_memory(**stores):
             grouped = mem.l2.batch_get_relationships.return_value
             return grouped if isinstance(grouped, dict) else {}
 
-        mem.l2.batch_list_current_assertions = AsyncMock(
-            side_effect=_batch_current_assertions
-        )
+        mem.l2.batch_list_current_assertions = AsyncMock(side_effect=_batch_current_assertions)
         mem.l2.batch_list_current_relationships = AsyncMock(
             side_effect=_batch_current_relationships
         )
@@ -60,6 +63,7 @@ def _make_memory(**stores):
 def _make_l1_store(events=None):
     """Build a properly mocked L1 store for triple-path L1Handler."""
     import tempfile
+
     l1 = AsyncMock()
     l1.db_path = tempfile.mktemp(suffix=".db")
     l1.bm25_search.return_value = [(e["event_id"], -1.0) for e in (events or [])]
@@ -95,6 +99,7 @@ def _make_governance_l2_store(l2=None):
 def _make_l3_store(tmp_path, summaries=None):
     """Build a mock L3 store with a real temp db for keyword path SQL."""
     import sqlite3
+
     db_path = str(tmp_path / "l3_mock.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -125,6 +130,7 @@ def _make_l3_store(tmp_path, summaries=None):
 def _make_l4_store(tmp_path, skills=None):
     """Build a mock L4 store with a real temp db for keyword path SQL."""
     import sqlite3
+
     db_path = str(tmp_path / "l4_mock.db")
     conn = sqlite3.connect(db_path)
     conn.executescript("""
@@ -217,7 +223,7 @@ async def test_comparison_backstop_preserves_request_scope_and_decision_time():
     )
     time_range = TimeRange(as_of=1_700_000_000.0)
     decision = IntentDecision(source="llm", time_range=time_range)
-    request = _make_request(context_scope={"project": "magi", "activity": "coding"})
+    request = _make_request(context_scope=context_scope(project="magi", activity="coding"))
     svc._rule_backstop_reason = MagicMock(return_value=None)
     svc._comparison_backstop_queries = MagicMock(return_value=["expanded comparison"])
     svc._execute_and_merge_plans = AsyncMock()
@@ -233,10 +239,7 @@ async def test_comparison_backstop_preserves_request_scope_and_decision_time():
 
     plans = svc._execute_and_merge_plans.await_args.args[0]
     assert len(plans) == 1
-    assert plans[0].conditions.context_scope == {
-        "project": "magi",
-        "activity": "coding",
-    }
+    assert plans[0].conditions.context_scope == context_scope(project="magi", activity="coding")
     assert plans[0].time_range == time_range
 
 
@@ -247,7 +250,7 @@ async def test_query_expansion_preserves_request_scope_and_time():
         config=RetrievalConfig(intent_decider_llm_enabled=False),
     )
     time_range = TimeRange(start=1_700_000_000.0, end=1_700_086_400.0)
-    request = _make_request(context_scope={"project": "magi", "place": "home"})
+    request = _make_request(context_scope=context_scope(project="magi", place="home"))
     with (
         patch(
             "magi.memory.hybrid_retrieval.query_expander.QueryExpander.expand",
@@ -267,7 +270,7 @@ async def test_query_expansion_preserves_request_scope_and_time():
         )
 
     plan = execute_mock.await_args.args[0]
-    assert plan.conditions.context_scope == {"project": "magi", "place": "home"}
+    assert plan.conditions.context_scope == context_scope(project="magi", place="home")
     assert plan.time_range == time_range
 
 
@@ -309,9 +312,7 @@ async def test_fact_authoritative_l1_fails_closed_without_l2_governance():
         _make_memory(l2=None),
         config=RetrievalConfig(intent_decider_llm_enabled=False),
     )
-    payload = RetrievalPayload(
-        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
-    )
+    payload = RetrievalPayload(l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}])
 
     await service._apply_l1_correction_governance(
         payload,
@@ -321,9 +322,7 @@ async def test_fact_authoritative_l1_fails_closed_without_l2_governance():
 
     assert payload.l1_events == []
     assert payload.trace["l1_correction_governance"] == "failed_closed"
-    assert payload.trace["l1_correction_governance_reason"] == (
-        "l2_governance_unavailable"
-    )
+    assert payload.trace["l1_correction_governance_reason"] == ("l2_governance_unavailable")
 
 
 @pytest.mark.asyncio
@@ -350,9 +349,7 @@ async def test_fact_authoritative_l1_drops_only_unknown_id_when_lookup_succeeds(
         host=service,
     )
 
-    assert payload.l1_events == [
-        {"event_id": "evt-known", "content": "governable record"}
-    ]
+    assert payload.l1_events == [{"event_id": "evt-known", "content": "governable record"}]
     assert payload.trace["l1_correction_governance"] == "failed_closed"
     assert payload.trace["l1_correction_governance_reason"] == "missing_event_id"
     assert payload.trace["l1_correction_governance_dropped_count"] == 1
@@ -376,9 +373,7 @@ async def test_fact_authoritative_l1_fails_closed_on_invalid_l2_contract(
         _make_memory(l2=l2),
         config=RetrievalConfig(intent_decider_llm_enabled=False),
     )
-    payload = RetrievalPayload(
-        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
-    )
+    payload = RetrievalPayload(l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}])
 
     await service._apply_l1_correction_governance(
         payload,
@@ -414,9 +409,7 @@ async def test_fact_authoritative_l1_fails_closed_on_invalid_lookup_result(
         _make_memory(l2=l2),
         config=RetrievalConfig(intent_decider_llm_enabled=False),
     )
-    payload = RetrievalPayload(
-        l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}]
-    )
+    payload = RetrievalPayload(l1_events=[{"event_id": "evt-1", "content": "unverifiable fact"}])
 
     await service._apply_l1_correction_governance(
         payload,
@@ -426,9 +419,7 @@ async def test_fact_authoritative_l1_fails_closed_on_invalid_lookup_result(
 
     assert payload.l1_events == []
     assert payload.trace["l1_correction_governance"] == "failed_closed"
-    assert payload.trace["l1_correction_governance_reason"] == (
-        "lookup_invalid_result"
-    )
+    assert payload.trace["l1_correction_governance_reason"] == ("lookup_invalid_result")
 
 
 class TestServiceBasicFlow:
@@ -465,7 +456,10 @@ class TestServiceBasicFlow:
         assert len(result.l0_workbench) == 1
         assert result.l0_workbench[0]["session"]["id"] == "s1"
         assert result.l0_workbench[0]["goals"] == ["g1"]
-        assert result.l0_workbench[0]["execution_summary"]["active_run_summary"] == "Investigate the login issue"
+        assert (
+            result.l0_workbench[0]["execution_summary"]["active_run_summary"]
+            == "Investigate the login issue"
+        )
         l0.get_prompt_workbench_projection.assert_awaited_once_with("s1")
         l0.get_workbench.assert_not_called()
 
@@ -512,8 +506,13 @@ class TestServiceLayerRouting:
             return []
 
         execute_plan_mock = AsyncMock(side_effect=execute_plan_stub)
-        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
-            await svc.query(_make_request(query="那次日本旅行发生了什么", query_mode="episode_recall"))
+        with patch(
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
+            new=execute_plan_mock,
+        ):
+            await svc.query(
+                _make_request(query="那次日本旅行发生了什么", query_mode="episode_recall")
+            )
 
         l2_plans = [
             call.args[0]
@@ -537,7 +536,9 @@ class TestServiceLayerRouting:
 
     @pytest.mark.asyncio
     async def test_event_stream_mode_queries_l1_only(self):
-        l1 = _make_l1_store([{"event_id": "e1", "content": "test query happened", "timestamp": 1000.0}])
+        l1 = _make_l1_store(
+            [{"event_id": "e1", "content": "test query happened", "timestamp": 1000.0}]
+        )
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
@@ -660,10 +661,22 @@ class TestServiceLayerRouting:
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {
-            "user:u1": [{"triple_id": "triple-1", "subject_id": "user:u1", "object_id": "place:shanghai", "status": "active"}],
+            "user:u1": [
+                {
+                    "triple_id": "triple-1",
+                    "subject_id": "user:u1",
+                    "object_id": "place:shanghai",
+                    "status": "active",
+                }
+            ],
         }
         l2.list_current_relationships.return_value = [
-            {"triple_id": "triple-1", "subject_id": "user:u1", "object_id": "place:shanghai", "status": "active"}
+            {
+                "triple_id": "triple-1",
+                "subject_id": "user:u1",
+                "object_id": "place:shanghai",
+                "status": "active",
+            }
         ]
         l2.list_current_assertions.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
@@ -707,10 +720,22 @@ class TestServiceLayerRouting:
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {
-            "user:u1": [{"triple_id": "triple-in", "subject_id": "user:u1", "object_id": "person:x", "status": "active"}],
+            "user:u1": [
+                {
+                    "triple_id": "triple-in",
+                    "subject_id": "user:u1",
+                    "object_id": "person:x",
+                    "status": "active",
+                }
+            ],
         }
         l2.list_current_relationships.return_value = [
-            {"triple_id": "triple-in", "subject_id": "person:x", "object_id": "user:u1", "status": "active"}
+            {
+                "triple_id": "triple-in",
+                "subject_id": "person:x",
+                "object_id": "user:u1",
+                "status": "active",
+            }
         ]
         l2.list_current_assertions.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
@@ -738,7 +763,9 @@ class TestServiceLayerRouting:
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {}
         l2.batch_list_tom_assertions.return_value = {"user:u1": [{"assertion_id": "assert-1"}]}
-        l2.list_current_assertions.return_value = [{"assertion_id": "assert-1", "entity_id": "user:u1"}]
+        l2.list_current_assertions.return_value = [
+            {"assertion_id": "assert-1", "entity_id": "user:u1"}
+        ]
         l2.list_current_relationships.return_value = []
         entity_catalog = AsyncMock()
         entity_catalog.resolve_query_entities.return_value = [
@@ -767,7 +794,14 @@ class TestServiceLayerRouting:
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {
-            "user:u1": [{"triple_id": "triple-1", "predicate": "KNOWS", "subject_id": "user:u1", "status": "active"}],
+            "user:u1": [
+                {
+                    "triple_id": "triple-1",
+                    "predicate": "KNOWS",
+                    "subject_id": "user:u1",
+                    "status": "active",
+                }
+            ],
         }
         l2.batch_list_tom_assertions.return_value = {
             "user:u1": [{"assertion_id": "assert-1", "confidence_score": 0.8}],
@@ -876,14 +910,31 @@ class TestServiceLayerRouting:
 
         execute_plan_mock = AsyncMock(
             side_effect=[
-                {"entity_cards": [], "relationships": [{"triple_id": "rel-1", "predicate": "VISITED"}], "assertions": []},
-                [{"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}],
+                {
+                    "entity_cards": [],
+                    "relationships": [{"triple_id": "rel-1", "predicate": "VISITED"}],
+                    "assertions": [],
+                },
+                [
+                    {
+                        "event_id": "evt-1",
+                        "content": "Went to a cafe in Hangzhou",
+                        "timestamp": 150.0,
+                        "session_id": "s1",
+                    }
+                ],
             ]
         )
-        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
+        with patch(
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
+            new=execute_plan_mock,
+        ):
             result = await svc.query(_make_request(query="最近在杭州的时候喜欢去哪些咖啡馆"))
 
-        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
+        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == [
+            "L2",
+            "L1",
+        ]
         l1_plan = execute_plan_mock.await_args_list[1].args[0]
         assert isinstance(l1_plan.conditions, L1Conditions)
         assert l1_plan.time_range is not None
@@ -891,7 +942,12 @@ class TestServiceLayerRouting:
         assert l1_plan.time_range.end == 200.0
         assert result.l2_relationships == [{"triple_id": "rel-1", "predicate": "VISITED"}]
         assert result.l1_events == [
-            {"event_id": "evt-1", "content": "Went to a cafe in Hangzhou", "timestamp": 150.0, "session_id": "s1"}
+            {
+                "event_id": "evt-1",
+                "content": "Went to a cafe in Hangzhou",
+                "timestamp": 150.0,
+                "session_id": "s1",
+            }
         ]
 
     @pytest.mark.asyncio
@@ -938,14 +994,31 @@ class TestServiceLayerRouting:
 
         execute_plan_mock = AsyncMock(
             side_effect=[
-                {"entity_cards": [], "relationships": [{"triple_id": "rel-creator-1", "predicate": "FOLLOWS"}], "assertions": []},
-                [{"event_id": "evt-creator-1", "content": "Watched a Bilibili creator", "timestamp": 150.0, "session_id": "s1"}],
+                {
+                    "entity_cards": [],
+                    "relationships": [{"triple_id": "rel-creator-1", "predicate": "FOLLOWS"}],
+                    "assertions": [],
+                },
+                [
+                    {
+                        "event_id": "evt-creator-1",
+                        "content": "Watched a Bilibili creator",
+                        "timestamp": 150.0,
+                        "session_id": "s1",
+                    }
+                ],
             ]
         )
-        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=execute_plan_mock):
+        with patch(
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
+            new=execute_plan_mock,
+        ):
             result = await svc.query(_make_request(query="最近在B站的时候喜欢看哪些up主"))
 
-        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == ["L2", "L1"]
+        assert [call.args[0].layer for call in execute_plan_mock.await_args_list[:2]] == [
+            "L2",
+            "L1",
+        ]
         l1_plan = execute_plan_mock.await_args_list[1].args[0]
         assert isinstance(l1_plan.conditions, L1Conditions)
         assert l1_plan.time_range is not None
@@ -953,9 +1026,13 @@ class TestServiceLayerRouting:
         assert l1_plan.time_range.end == 200.0
         assert result.l2_relationships == [{"triple_id": "rel-creator-1", "predicate": "FOLLOWS"}]
         assert result.l1_events == [
-            {"event_id": "evt-creator-1", "content": "Watched a Bilibili creator", "timestamp": 150.0, "session_id": "s1"}
+            {
+                "event_id": "evt-creator-1",
+                "content": "Watched a Bilibili creator",
+                "timestamp": 150.0,
+                "session_id": "s1",
+            }
         ]
-
 
     @pytest.mark.asyncio
     async def test_graph_mode_self_hint_binds_user_even_without_pronoun(self):
@@ -1001,7 +1078,9 @@ class TestServiceLayerRouting:
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_get_relationships.return_value = {
-            "user:local_user": [{"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}],
+            "user:local_user": [
+                {"triple_id": "t1", "subject_id": "user:local_user", "status": "active"}
+            ],
         }
         l2.batch_list_tom_assertions.return_value = {
             "user:local_user": [{"assertion_id": "a1", "confidence_score": 0.8}],
@@ -1065,7 +1144,11 @@ class TestServiceFallback:
         import time
         from magi.memory.l1.event_store import L1EventStore
         from magi.memory.event_contracts import (
-            IngestTarget, MemoryDomain, MemoryEvent, RetentionClass, TomDepth,
+            IngestTarget,
+            MemoryDomain,
+            MemoryEvent,
+            RetentionClass,
+            TomDepth,
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1113,7 +1196,9 @@ class TestServiceFallback:
                 fallback_trigger_threshold=1,
             )
             svc = HybridRetrievalService(mem, config=config)
-            result = await svc.query(_make_request(query="something", session_id=None, user_id=None))
+            result = await svc.query(
+                _make_request(query="something", session_id=None, user_id=None)
+            )
             assert len(result.l1_events) >= 1, f"Expected L1 results, trace={result.trace}"
             assert result.trace.get("fallback_triggered") is not True
 
@@ -1128,7 +1213,9 @@ class TestServiceFallback:
         )
         rule_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="Effective Time Management Data Analysis using Python", limit=10),
+            conditions=L1Conditions(
+                content_query="Effective Time Management Data Analysis using Python", limit=10
+            ),
             is_fallback=False,
         )
         svc._intent_decider.decide = AsyncMock(
@@ -1187,7 +1274,9 @@ class TestServiceFallback:
         )
         rule_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="Effective Time Management Data Analysis using Python", limit=10),
+            conditions=L1Conditions(
+                content_query="Effective Time Management Data Analysis using Python", limit=10
+            ),
             is_fallback=False,
         )
         svc._intent_decider.decide = AsyncMock(
@@ -1249,12 +1338,18 @@ class TestServiceFallback:
                 )
             )
 
-        assert {event["event_id"] for event in result.l1_events} == {"evt-webinar", "evt-generic", "evt-workshop"}
+        assert {event["event_id"] for event in result.l1_events} == {
+            "evt-webinar",
+            "evt-generic",
+            "evt-workshop",
+        }
         assert result.trace["rule_backstop_triggered"] is True
         assert result.trace["rule_backstop_reason"] == "missing_quoted_coverage"
 
     @pytest.mark.asyncio
-    async def test_rule_backstop_runs_when_llm_primary_misses_an_unquoted_comparison_candidate(self):
+    async def test_rule_backstop_runs_when_llm_primary_misses_an_unquoted_comparison_candidate(
+        self,
+    ):
         mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
@@ -1323,7 +1418,9 @@ class TestServiceFallback:
         assert result.trace["rule_backstop_reason"] == "missing_comparison_coverage"
 
     @pytest.mark.asyncio
-    async def test_rule_backstop_runs_when_unquoted_comparison_spans_only_appear_in_one_noisy_event(self):
+    async def test_rule_backstop_runs_when_unquoted_comparison_spans_only_appear_in_one_noisy_event(
+        self,
+    ):
         mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
@@ -1400,12 +1497,18 @@ class TestServiceFallback:
                 )
             )
 
-        assert {event["event_id"] for event in result.l1_events} == {"evt-mixed", "evt-bike", "evt-car"}
+        assert {event["event_id"] for event in result.l1_events} == {
+            "evt-mixed",
+            "evt-bike",
+            "evt-car",
+        }
         assert result.trace["rule_backstop_triggered"] is True
         assert result.trace["rule_backstop_reason"] == "missing_comparison_coverage"
 
     @pytest.mark.asyncio
-    async def test_comparison_backstop_runs_candidate_queries_when_rule_backstop_still_misses_coverage(self):
+    async def test_comparison_backstop_runs_candidate_queries_when_rule_backstop_still_misses_coverage(
+        self,
+    ):
         mem = _make_memory(l2=_make_governance_l2_store())
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
@@ -1415,7 +1518,10 @@ class TestServiceFallback:
         )
         rule_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="Which vehicle did I take care of first in February, the bike or the car?", limit=10),
+            conditions=L1Conditions(
+                content_query="Which vehicle did I take care of first in February, the bike or the car?",
+                limit=10,
+            ),
             is_fallback=False,
         )
         svc._intent_decider.decide = AsyncMock(
@@ -1470,7 +1576,7 @@ class TestServiceFallback:
                 _make_request(
                     query="Which vehicle did I take care of first in February, the bike or the car?"
                 )
-        )
+            )
 
         assert {event["event_id"] for event in result.l1_events} == {"evt-mixed", "evt-car"}
         assert result.trace["comparison_backstop_triggered"] is True
@@ -1534,7 +1640,10 @@ class TestServiceFallback:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         rule_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="Which vehicle did I take care of first in February, the bike or the car?", limit=10),
+            conditions=L1Conditions(
+                content_query="Which vehicle did I take care of first in February, the bike or the car?",
+                limit=10,
+            ),
             is_fallback=False,
         )
         svc._intent_decider.decide = AsyncMock(
@@ -1593,7 +1702,9 @@ class TestServiceFallback:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         llm_plan = LayerQueryPlan(
             layer="L1",
-            conditions=L1Conditions(content_query="The Crown vs Game of Thrones watch order", limit=10),
+            conditions=L1Conditions(
+                content_query="The Crown vs Game of Thrones watch order", limit=10
+            ),
             is_fallback=False,
         )
         rule_plan = LayerQueryPlan(
@@ -1727,15 +1838,24 @@ class TestServiceEvidencePackaging:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
-                plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="gps issue", limit=5))],
+                plans=[
+                    LayerQueryPlan(
+                        layer="L1", conditions=L1Conditions(content_query="gps issue", limit=5)
+                    )
+                ],
                 source="rule_fallback",
                 reasoning="test",
             )
         )
 
         hit = dict(session_events[2], reranker_score=0.9)
-        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=AsyncMock(return_value=[hit])):
-            result = await svc.query(_make_request(query="What was the first issue after the first service?"))
+        with patch(
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
+            new=AsyncMock(return_value=[hit]),
+        ):
+            result = await svc.query(
+                _make_request(query="What was the first issue after the first service?")
+            )
 
         assert len(result.l1_evidence_bundles) == 1
         bundle = result.l1_evidence_bundles[0]
@@ -1771,21 +1891,31 @@ class TestServiceEvidencePackaging:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
-                plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="event order", limit=5))],
+                plans=[
+                    LayerQueryPlan(
+                        layer="L1", conditions=L1Conditions(content_query="event order", limit=5)
+                    )
+                ],
                 source="rule_fallback",
                 reasoning="test",
             )
         )
 
         scored_events = [dict(e, reranker_score=0.8) for e in session_events]
-        with patch("magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan", new=AsyncMock(return_value=scored_events)):
+        with patch(
+            "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
+            new=AsyncMock(return_value=scored_events),
+        ):
             result = await svc.query(
                 _make_request(
                     query="Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?"
                 )
             )
 
-        assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [["e1"], ["e2"]]
+        assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [
+            ["e1"],
+            ["e2"],
+        ]
         assert result.trace["l1_timeline_summary_count"] == 2
 
     @pytest.mark.asyncio
@@ -1847,7 +1977,14 @@ class TestServiceEvidencePackaging:
         svc = HybridRetrievalService(mem, config=RetrievalConfig(intent_decider_llm_enabled=False))
         svc._intent_decider.decide = AsyncMock(
             return_value=IntentDecision(
-                plans=[LayerQueryPlan(layer="L1", conditions=L1Conditions(content_query="first issue after first service", limit=5))],
+                plans=[
+                    LayerQueryPlan(
+                        layer="L1",
+                        conditions=L1Conditions(
+                            content_query="first issue after first service", limit=5
+                        ),
+                    )
+                ],
                 source="rule_fallback",
                 reasoning="test",
             )
@@ -1857,9 +1994,16 @@ class TestServiceEvidencePackaging:
             "magi.memory.hybrid_retrieval.service_plan_execution.execute_layer_plan",
             new=AsyncMock(return_value=[service_session_events[2], issue_session_events[0]]),
         ):
-            result = await svc.query(_make_request(query="What was the first issue I had with my new car after its first service?"))
+            result = await svc.query(
+                _make_request(
+                    query="What was the first issue I had with my new car after its first service?"
+                )
+            )
 
-        assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [["e1"], ["e5"]]
+        assert [item["supporting_event_ids"] for item in result.l1_timeline_summary] == [
+            ["e1"],
+            ["e5"],
+        ]
 
 
 class TestL2TemporalInjection:
@@ -1868,7 +2012,9 @@ class TestL2TemporalInjection:
     @pytest.mark.asyncio
     async def test_temporal_query_defaults_exact_fact_without_explicit_mode(self):
         """Without explicit query_mode, defaults to exact_fact (no keyword classification)."""
-        l1 = _make_l1_store([{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}])
+        l1 = _make_l1_store(
+            [{"event_id": "e1", "content": "I got a smoker today", "timestamp": 1000.0}]
+        )
         l2 = AsyncMock()
         l2.batch_get_tom_snapshots.return_value = []
         l2.batch_list_tom_assertions.return_value = {}
@@ -1920,7 +2066,7 @@ class TestL2TemporalInjection:
         request = _make_request(
             query="Summarize my activity",
             time_range={"as_of": as_of},
-            context_scope={"project": "magi", "activity": "coding"},
+            context_scope=context_scope(project="magi", activity="coding"),
         )
         decision = IntentDecision(
             plans=[

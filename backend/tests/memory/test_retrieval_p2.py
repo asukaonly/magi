@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.memory.hybrid_retrieval.graph_spreader import (
     GraphSpreader,
     _parse_evidence_ids,
@@ -63,9 +64,7 @@ def _mock_l2_store(edge_map: dict[str, list[dict]]) -> AsyncMock:
     async def batch_list_current_relationships(*, entity_ids, **kwargs):
         return {entity_id: list(edge_map.get(entity_id, [])) for entity_id in entity_ids}
 
-    store.batch_list_current_relationships = AsyncMock(
-        side_effect=batch_list_current_relationships
-    )
+    store.batch_list_current_relationships = AsyncMock(side_effect=batch_list_current_relationships)
     return store
 
 
@@ -131,14 +130,24 @@ class TestGraphSpreader:
     async def test_decay_reduces_activation(self):
         edges = {
             "entity_a": [
-                _make_edge("entity_a", "LIKES", "entity_b",
-                           confidence=1.0, observation_count=1,
-                           evidence_event_ids=["evt_hop1"]),
+                _make_edge(
+                    "entity_a",
+                    "LIKES",
+                    "entity_b",
+                    confidence=1.0,
+                    observation_count=1,
+                    evidence_event_ids=["evt_hop1"],
+                ),
             ],
             "entity_b": [
-                _make_edge("entity_b", "RELATED", "entity_c",
-                           confidence=1.0, observation_count=1,
-                           evidence_event_ids=["evt_hop2"]),
+                _make_edge(
+                    "entity_b",
+                    "RELATED",
+                    "entity_c",
+                    confidence=1.0,
+                    observation_count=1,
+                    evidence_event_ids=["evt_hop2"],
+                ),
             ],
         }
         store = _mock_l2_store(edges)
@@ -175,8 +184,12 @@ class TestGraphSpreader:
     async def test_exclude_event_ids(self):
         edges = {
             "entity_a": [
-                _make_edge("entity_a", "LIKES", "entity_b",
-                           evidence_event_ids=["evt_include", "evt_exclude"]),
+                _make_edge(
+                    "entity_a",
+                    "LIKES",
+                    "entity_b",
+                    evidence_event_ids=["evt_include", "evt_exclude"],
+                ),
             ],
         }
         store = _mock_l2_store(edges)
@@ -189,13 +202,12 @@ class TestGraphSpreader:
     @pytest.mark.asyncio
     async def test_store_error_handled_gracefully(self):
         store = AsyncMock()
-        store.batch_list_current_relationships = AsyncMock(
-            side_effect=RuntimeError("db error")
-        )
+        store.batch_list_current_relationships = AsyncMock(side_effect=RuntimeError("db error"))
         spreader = GraphSpreader(store, max_hops=1)
         result = await spreader.spread(["entity_a"])
         assert result.scored_event_ids == {}
         assert result.edges_traversed == 0
+
 
 class TestParseEvidenceIds:
     def test_json_string(self):
@@ -241,13 +253,17 @@ class TestL1HandlerGraphSpreading:
         handler = L1Handler(store, config, l2_store=l2_store)
 
         # Patch _fetch_and_filter and reranker to avoid DB ops
-        handler._fetch_and_filter = AsyncMock(return_value=[
-            {"event_id": "evt1", "content": "test", "timestamp": 1000},
-        ])
+        handler._fetch_and_filter = AsyncMock(
+            return_value=[
+                {"event_id": "evt1", "content": "test", "timestamp": 1000},
+            ]
+        )
         handler._reranker = MagicMock()
-        handler._reranker.rerank = AsyncMock(return_value=[
-            {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
-        ])
+        handler._reranker.rerank = AsyncMock(
+            return_value=[
+                {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
+            ]
+        )
 
         results = await handler.execute(L1Conditions(content_query="test", limit=5))
         assert len(results) >= 1
@@ -268,11 +284,13 @@ class TestL1HandlerGraphSpreading:
         store.filter_ids_by_user = AsyncMock(return_value=[])
         store.fetch_events = AsyncMock(return_value=[])
 
-        l2_store = _mock_l2_store({
-            "ent_a": [
-                _make_edge("ent_a", "LIKES", "ent_b", evidence_event_ids=["evt_graph"]),
-            ],
-        })
+        l2_store = _mock_l2_store(
+            {
+                "ent_a": [
+                    _make_edge("ent_a", "LIKES", "ent_b", evidence_event_ids=["evt_graph"]),
+                ],
+            }
+        )
 
         config = RetrievalConfig(graph_spreading_enabled=True)
         from magi.memory.hybrid_retrieval.handlers import L1Handler
@@ -282,25 +300,29 @@ class TestL1HandlerGraphSpreading:
         # Seed entity resolution returns one entity so graph spreading runs
         store.resolve_event_entities = AsyncMock(return_value=["ent_a"])
 
-        handler._fetch_and_filter = AsyncMock(return_value=[
-            {"event_id": "evt1", "content": "test", "timestamp": 1000},
-        ])
+        handler._fetch_and_filter = AsyncMock(
+            return_value=[
+                {"event_id": "evt1", "content": "test", "timestamp": 1000},
+            ]
+        )
         handler._reranker = MagicMock()
-        handler._reranker.rerank = AsyncMock(return_value=[
-            {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
-        ])
+        handler._reranker.rerank = AsyncMock(
+            return_value=[
+                {"event_id": "evt1", "content": "test", "retrieval_score": 1.0},
+            ]
+        )
 
         results = await handler.execute(
             L1Conditions(
                 content_query="test",
-                context_scope={"project": "magi"},
+                context_scope=context_scope(project="magi"),
                 limit=5,
             ),
             TimeRange(as_of=123.0),
         )
         assert len(results) >= 1
         graph_kwargs = l2_store.batch_list_current_relationships.await_args.kwargs
-        assert graph_kwargs["context_scope"] == {"project": "magi"}
+        assert graph_kwargs["context_scope"] == context_scope(project="magi")
         assert graph_kwargs["effective_at"] == 123.0
         assert graph_kwargs["include_history"] is True
 
@@ -308,7 +330,7 @@ class TestL1HandlerGraphSpreading:
         await handler.execute(
             L1Conditions(
                 content_query="test",
-                context_scope={"project": "magi"},
+                context_scope=context_scope(project="magi"),
                 limit=5,
             ),
             TimeRange(start=future_start),

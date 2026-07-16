@@ -105,21 +105,6 @@ def _time_range_parameter() -> ToolParameter:
     )
 
 
-def _context_scope_parameter() -> ToolParameter:
-    return ToolParameter(
-        name="context_scope",
-        type=ParameterType.OBJECT,
-        description=(
-            "Optional resolved context for condition-scoped memories. Use only concrete "
-            "dimensions known from the current conversation: project, activity, place, "
-            "or person. Example: {\"project\": \"magi\", \"activity\": \"coding\"}. "
-            "Omit it for ordinary global recall; an omitted scope never matches a "
-            "scoped memory."
-        ),
-        required=False,
-    )
-
-
 def _query_mode_parameter() -> ToolParameter:
     return ToolParameter(
         name="query_mode",
@@ -197,7 +182,6 @@ def _memory_query_parameters(
         _time_range_parameter(),
         _query_mode_parameter(),
         _summary_categories_parameter(plugin_projection_service),
-        _context_scope_parameter(),
         _limit_parameter(),
         _conversation_context_parameter(),
     ]
@@ -329,7 +313,11 @@ class MemoryQueryTool(Tool):
             source_filters=[],
             domain_filters=parameters.get("domains", []) or [],
             summary_categories=parameters.get("summary_categories", []) or [],
-            context_scope=dict(parameters.get("context_scope") or {}),
+            context_signals={
+                "workspace_path": context.env_vars.get("memory_context_workspace") or None,
+                "user_text": current_user_text or parameters["query"],
+                "task_category": context.env_vars.get("intent") or "",
+            },
             limit=parameters.get("limit", 20),
             exclude_user_text=current_user_text,
             conversation_context=self._build_conversation_context(mq, parameters),

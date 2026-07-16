@@ -8,8 +8,8 @@ import aiosqlite
 
 from ....core.logger import get_logger
 from ..graph_conflicts import (
-    DEFAULT_GRAPH_CONFLICT_RULES,
     GraphConflictRule,
+    build_graph_conflict_matrix,
     build_exclusive_group_index,
     iter_opposite_predicates,
 )
@@ -33,6 +33,7 @@ class L2StoreGraphConflictMixin:
         subject_id: str,
         predicate: str,
         object_id: str,
+        scope_key: str,
         observed_at: float,
         now: float,
     ) -> None:
@@ -50,13 +51,21 @@ class L2StoreGraphConflictMixin:
                 query="""
                 UPDATE knowledge_graph
                 SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
-                WHERE subject_id = ? AND object_id = ? AND predicate = ? AND triple_id != ? AND status = 'active'
+                WHERE subject_id = ? AND object_id = ? AND predicate = ?
+                  AND scope_key = ? AND triple_id != ? AND status = 'active'
+                  AND (valid_from IS NULL OR valid_from <= ?)
+                  AND (valid_to IS NULL OR valid_to > ?)
+                  AND (expires_at IS NULL OR expires_at > ?)
                 """,
                 args=(
                     subject_id,
                     object_id,
                     opposite_predicate,
+                    scope_key,
                     triple_id,
+                    observed_at,
+                    observed_at,
+                    observed_at,
                 ),
             )
 
@@ -77,15 +86,23 @@ class L2StoreGraphConflictMixin:
             query=f"""
             UPDATE knowledge_graph
             SET status = ?, deprecated_by = ?, deprecated_at = ?, updated_at = ?
-            WHERE subject_id = ? AND predicate IN ({placeholders}) AND triple_id != ? AND status = 'active'
+            WHERE subject_id = ? AND predicate IN ({placeholders})
+              AND scope_key = ? AND triple_id != ? AND status = 'active'
               AND (predicate != ? OR object_id != ?)
+              AND (valid_from IS NULL OR valid_from <= ?)
+              AND (valid_to IS NULL OR valid_to > ?)
+              AND (expires_at IS NULL OR expires_at > ?)
             """,
             args=(
                 subject_id,
                 *group_predicates,
+                scope_key,
                 triple_id,
                 predicate,
                 object_id,
+                observed_at,
+                observed_at,
+                observed_at,
             ),
         )
 
@@ -140,7 +157,7 @@ class L2StoreGraphConflictMixin:
 
     async def _reload_graph_conflict_rules(self, db: aiosqlite.Connection) -> None:
         db.row_factory = aiosqlite.Row
-        rules: dict[str, GraphConflictRule] = {}
+        rules = build_graph_conflict_matrix(self._seed_graph_conflict_rules)
         async with db.execute(
             """
             SELECT predicate, opposite_predicates, opposite_resolution,
@@ -153,9 +170,6 @@ class L2StoreGraphConflictMixin:
         for row in rows:
             rule = GraphConflictRule.from_mapping(dict(row))
             rules[rule.predicate] = rule
-
-        if not rules:
-            rules = dict(DEFAULT_GRAPH_CONFLICT_RULES)
 
         self._graph_conflict_rules = rules
         self._exclusive_group_index = build_exclusive_group_index(self._graph_conflict_rules)

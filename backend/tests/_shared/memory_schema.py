@@ -16,7 +16,12 @@ import aiosqlite
 
 _MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[2]
-    / "src" / "magi" / "db" / "migrations" / "memory_shared" / "versions"
+    / "src"
+    / "magi"
+    / "db"
+    / "migrations"
+    / "memory_shared"
+    / "versions"
 )
 
 MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
@@ -31,6 +36,8 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v10_relationship_version_snapshot.py",
     "v11_correction_evidence_governance.py",
     "v12_scheduled_correction_transitions.py",
+    "v13_stable_context_scopes.py",
+    "v14_relationship_conflict_effects.py",
 )
 
 
@@ -47,7 +54,9 @@ def _load_migration(filename: str) -> ModuleType:
 async def apply_memory_shared_schema(db_path: str) -> None:
     """Apply the memory_shared release baseline to a fresh sqlite file."""
     for filename in MEMORY_SHARED_MIGRATIONS:
-        sql = _load_migration(filename).SCHEMA_SQL
+        migration = _load_migration(filename)
+        fresh_schema = getattr(migration, "schema_sql_for_fresh_database", None)
+        sql = fresh_schema() if fresh_schema is not None else migration.SCHEMA_SQL
         async with aiosqlite.connect(db_path) as db:
             # executescript runs its own implicit COMMIT — no explicit commit needed.
             await db.executescript(sql)

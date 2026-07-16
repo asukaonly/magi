@@ -402,7 +402,7 @@ def _build_batch_historical_candidate_query(
             FROM state_starts
         ), eligible_candidates AS (
             SELECT bucket_entity_id, triple_id,
-                   MAX((SELECT COUNT(*) FROM json_each(scope_json))) AS specificity,
+                   MAX(json_array_length(scope_json, '$.all_of')) AS specificity,
                    MAX(sort_at) AS latest_at
             FROM candidate_states
             WHERE {scope_clause}
@@ -637,7 +637,7 @@ def _build_historical_candidate_query(
             FROM state_starts
         ), ranked_candidates AS (
             SELECT triple_id,
-                   MAX((SELECT COUNT(*) FROM json_each(scope_json))) AS specificity,
+                   MAX(json_array_length(scope_json, '$.all_of')) AS specificity,
                    MAX(sort_at) AS latest_at
             FROM candidate_states
             WHERE {scope_clause}

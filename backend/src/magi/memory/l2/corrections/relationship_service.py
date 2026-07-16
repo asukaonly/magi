@@ -13,13 +13,17 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..graph.versions import append_knowledge_graph_version, list_knowledge_graph_versions
+from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
+from ..storage.utils import normalize_store_entity_ref, normalize_store_entity_type
 from .cache_signals import mark_subject_changed
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
     canonical_scope_json,
     relationship_claim_fingerprint,
     relationship_slot_key,
+    relationship_triple_id,
     scope_key,
+    stored_context_scope,
 )
 from .models import (
     ApplyRelationshipCorrectionCommand,
@@ -33,6 +37,13 @@ from .models import (
     RelationshipCorrectionResult,
 )
 from .repository import MemoryCorrectionRepository
+from .relationship_conflict_effects import (
+    RelationshipConflictEffects,
+    apply_relationship_conflict_effects,
+    load_relationship_graph_conflict_rules,
+    restore_relationship_conflict_effects,
+)
+from .request_identity import correction_request_matches
 from .service import MemoryCorrectionConflictError, MemoryCorrectionValidationError
 
 _RESTORABLE_RELATIONSHIP_COLUMNS = (
@@ -70,20 +81,37 @@ _RESTORABLE_RELATIONSHIP_COLUMNS = (
     "scope_key",
     "scope_json",
 )
+_ALLOWED_REPLACEMENT_FIELDS = frozenset(
+    {
+        "subject_id",
+        "subject_type",
+        "predicate",
+        "object_id",
+        "object_type",
+        "fact_kind",
+    }
+)
 
 
 class RelationshipCorrectionService:
     """Apply and revert durable relationship corrections."""
 
-    def __init__(self, db_path: str):
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        graph_conflict_rules: Mapping[str, GraphConflictRule] | None = None,
+    ):
         self.db_path = db_path
         self.repository = MemoryCorrectionRepository(db_path)
+        self._graph_conflict_rules = (
+            dict(graph_conflict_rules) if graph_conflict_rules is not None else None
+        )
 
     async def apply(
         self,
         command: ApplyRelationshipCorrectionCommand,
     ) -> RelationshipCorrectionResult | None:
-        _validate_command(command)
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -94,8 +122,11 @@ class RelationshipCorrectionService:
                     command.request_id,
                 )
                 if existing_correction is not None:
+                    _ensure_relationship_retry_matches(existing_correction, command)
                     await db.commit()
                     return _existing_result(existing_correction)
+                graph_conflict_rules = await self._load_graph_conflict_rules(db)
+                _validate_command(command)
                 row = await _load_edge(db, command.triple_id)
                 if row is None:
                     await db.commit()
@@ -113,7 +144,19 @@ class RelationshipCorrectionService:
                     now=now,
                 )
                 correction_id = f"correction_{uuid.uuid4().hex}"
-                replacement = _normalize_replacement(command, before, effective_at)
+                replacement = _normalize_replacement(
+                    command,
+                    before,
+                    effective_at,
+                    graph_conflict_rules=graph_conflict_rules,
+                )
+                replacement_scope = _effective_relationship_scope(command, before)
+                _ensure_relationship_correction_changes_claim(
+                    before,
+                    command,
+                    replacement,
+                    replacement_scope,
+                )
                 replacement_id = str(replacement["triple_id"]) if replacement is not None else None
                 if replacement_id and replacement_id != command.triple_id:
                     replacement_exists = await _ensure_replacement_reactivatable(
@@ -145,7 +188,7 @@ class RelationshipCorrectionService:
                         if command.correction_kind == CorrectionKind.SITUATION_CHANGED
                         else None
                     ),
-                    scope=(dict(command.scope) if command.scope else None),
+                    scope=(replacement_scope or None),
                     source_event_id=command.source_event_id,
                     audit_event_id=command.audit_event_id,
                     replacement_target_id=replacement_id,
@@ -165,6 +208,7 @@ class RelationshipCorrectionService:
                     correction_id=correction_id,
                     created_at=now,
                 )
+                conflict_effects = RelationshipConflictEffects()
                 if replacement is not None:
                     await _write_authoritative_replacement(
                         db,
@@ -179,6 +223,15 @@ class RelationshipCorrectionService:
                         correction_id=correction_id,
                         created_at=now + 0.000001,
                     )
+                    if not transition_is_future:
+                        conflict_effects = await apply_relationship_conflict_effects(
+                            db,
+                            replacement=replacement,
+                            correction_id=correction_id,
+                            graph_conflict_rules=graph_conflict_rules,
+                            effective_at=effective_at,
+                            now=now + 0.000002,
+                        )
                 for rule in _build_rules(
                     correction_id=correction_id,
                     command=command,
@@ -193,16 +246,26 @@ class RelationshipCorrectionService:
                 affected_subjects: list[str] = []
                 subject_revision: int | None = None
                 if not transition_is_future:
+                    correction_subjects = list(
+                        dict.fromkeys(
+                            [
+                                *_affected_subject_keys(before, replacement),
+                                *conflict_effects.subject_keys,
+                            ]
+                        )
+                    )
                     l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
                         db,
                         source_kind="edge",
-                        source_ids=[command.triple_id],
-                        subject_keys=_affected_subject_keys(before, replacement),
+                        source_ids=[
+                            command.triple_id,
+                            replacement_id or "",
+                            *conflict_effects.edge_ids,
+                        ],
+                        subject_keys=correction_subjects,
                         updated_at=now,
                     )
-                    affected_subjects = list(
-                        dict.fromkeys([*_affected_subject_keys(before, replacement), *l3_subjects])
-                    )
+                    affected_subjects = list(dict.fromkeys([*correction_subjects, *l3_subjects]))
                     subject_revisions: dict[str, int] = {}
                     for subject_key in affected_subjects:
                         revision = await self.repository.bump_subject_revision(
@@ -245,6 +308,16 @@ class RelationshipCorrectionService:
             current_triple_id=replacement_id,
             subject_revision=subject_revision,
         )
+
+    async def _load_graph_conflict_rules(
+        self,
+        db: aiosqlite.Connection,
+    ) -> dict[str, GraphConflictRule]:
+        if self._graph_conflict_rules is not None:
+            return self._graph_conflict_rules
+        rules = await load_relationship_graph_conflict_rules(db)
+        self._graph_conflict_rules = rules
+        return rules
 
     async def revert(
         self,
@@ -299,6 +372,12 @@ class RelationshipCorrectionService:
                         correction_id=correction_id,
                         created_at=now,
                     )
+                conflict_effects = await restore_relationship_conflict_effects(
+                    db,
+                    correction_id=correction_id,
+                    replacement_id=replacement_id,
+                    now=now + 0.000001,
+                )
                 await _restore_original_edge(
                     db,
                     triple_id=correction.target_id,
@@ -326,24 +405,29 @@ class RelationshipCorrectionService:
                 affected_subjects: list[str] = []
                 subject_revision: int | None = None
                 if not transition_was_pending:
+                    correction_subjects = list(
+                        dict.fromkeys(
+                            [
+                                *_affected_subject_keys(
+                                    correction.before,
+                                    correction.replacement,
+                                ),
+                                *conflict_effects.subject_keys,
+                            ]
+                        )
+                    )
                     l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
                         db,
                         source_kind="edge",
                         source_ids=[
                             correction.target_id,
                             correction.replacement_target_id or "",
+                            *conflict_effects.edge_ids,
                         ],
-                        subject_keys=_affected_subject_keys(
-                            correction.before,
-                            correction.replacement,
-                        ),
+                        subject_keys=correction_subjects,
                         updated_at=now,
                     )
-                    affected_subjects = _affected_subject_keys(
-                        correction.before,
-                        correction.replacement,
-                    )
-                    affected_subjects = list(dict.fromkeys([*affected_subjects, *l3_subjects]))
+                    affected_subjects = list(dict.fromkeys([*correction_subjects, *l3_subjects]))
                     subject_revisions: dict[str, int] = {}
                     for subject_key in affected_subjects:
                         revision = await self.repository.bump_subject_revision(
@@ -450,10 +534,94 @@ def _validate_command(command: ApplyRelationshipCorrectionCommand) -> None:
     if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
         if command.replacement is None or not command.scope:
             raise MemoryCorrectionValidationError("scope_refinement requires replacement and scope")
+    if command.correction_kind != CorrectionKind.SCOPE_REFINEMENT and command.scope:
+        raise MemoryCorrectionValidationError("scope is only supported for scope_refinement")
+    if (
+        command.correction_kind != CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+    ):
+        raise MemoryCorrectionValidationError(
+            "effective_at is only supported for situation_changed"
+        )
+    _reject_embedded_replacement_scope(command)
+    _reject_unknown_replacement_fields(command)
     unknown_scope_keys = set(command.scope or {}) - SUPPORTED_SCOPE_FIELDS
     if unknown_scope_keys:
         unknown = ", ".join(sorted(str(item) for item in unknown_scope_keys))
         raise MemoryCorrectionValidationError(f"Unsupported scope fields: {unknown}")
+
+
+def _ensure_relationship_retry_matches(
+    existing: MemoryCorrection,
+    command: ApplyRelationshipCorrectionCommand,
+) -> None:
+    _reject_embedded_replacement_scope(command)
+    _reject_unknown_replacement_fields(command)
+    if command.correction_kind != CorrectionKind.SCOPE_REFINEMENT and command.scope:
+        raise MemoryCorrectionConflictError(
+            "request_id was already used for a different correction"
+        )
+    if (
+        command.correction_kind != CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+    ):
+        raise MemoryCorrectionConflictError(
+            "request_id was already used for a different correction"
+        )
+    expected_replacement = _relationship_claim_fields(
+        command.replacement,
+        existing.before,
+    )
+    expected_scope = _effective_relationship_scope(command, existing.before)
+    stored_replacement = _relationship_claim_fields(
+        existing.replacement,
+        existing.before,
+    )
+    expected_effective_at = (
+        float(command.effective_at)
+        if command.correction_kind == CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+        else None
+    )
+    if correction_request_matches(
+        existing,
+        actor_id=command.actor_id,
+        target_kind=CorrectionTargetKind.EDGE,
+        target_id=command.triple_id,
+        correction_kind=command.correction_kind,
+        reason=command.reason,
+        replacement=expected_replacement,
+        stored_replacement=stored_replacement,
+        effective_at=expected_effective_at,
+        scope=expected_scope,
+        source_event_id=command.source_event_id,
+    ):
+        return
+    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+
+
+def _reject_embedded_replacement_scope(
+    command: ApplyRelationshipCorrectionCommand,
+) -> None:
+    embedded_scope_fields = {
+        "scope",
+        "scope_json",
+        "scope_key",
+    }.intersection(command.replacement or {})
+    if embedded_scope_fields:
+        raise MemoryCorrectionValidationError(
+            "relationship replacement scope must use the top-level scope field"
+        )
+
+
+def _reject_unknown_replacement_fields(
+    command: ApplyRelationshipCorrectionCommand,
+) -> None:
+    unknown_fields = set(command.replacement or {}) - _ALLOWED_REPLACEMENT_FIELDS
+    if not unknown_fields:
+        return
+    unknown = ", ".join(sorted(str(item) for item in unknown_fields))
+    raise MemoryCorrectionValidationError(f"Unsupported replacement fields: {unknown}")
 
 
 def _ensure_correctable(
@@ -581,23 +749,35 @@ def _normalize_replacement(
     command: ApplyRelationshipCorrectionCommand,
     before: Mapping[str, Any],
     effective_at: float,
+    *,
+    graph_conflict_rules: Mapping[str, GraphConflictRule],
 ) -> dict[str, Any] | None:
     if command.replacement is None:
         return None
-    raw = dict(command.replacement)
-    subject_id = str(raw.get("subject_id") or before["subject_id"])
-    subject_type = str(raw.get("subject_type") or before["subject_type"])
-    predicate = str(raw.get("predicate") or before["predicate"]).strip().upper()
-    object_id = str(raw.get("object_id") or before["object_id"])
-    object_type = str(raw.get("object_type") or before["object_type"])
-    triple_key = f"{subject_id}:{predicate}:{object_id}"
-    triple_id = f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, triple_key)}"
-    replacement_scope = dict(command.scope or raw.get("scope") or {})
+    claim = _relationship_claim_fields(command.replacement, before)
+    assert claim is not None
+    subject_id = claim["subject_id"]
+    subject_type = claim["subject_type"]
+    predicate = claim["predicate"]
+    object_id = claim["object_id"]
+    object_type = claim["object_type"]
+    replacement_scope = _effective_relationship_scope(command, before)
     replacement_scope_key = scope_key(replacement_scope)
-    slot_key_value = str(raw.get("slot_key") or "") or relationship_slot_key(
+    triple_id = relationship_triple_id(
         subject_id=subject_id,
         predicate=predicate,
         object_id=object_id,
+        scope_key_value=replacement_scope_key,
+    )
+    slot_key_value = relationship_slot_key(
+        subject_id=subject_id,
+        predicate=predicate,
+        object_id=object_id,
+        predicate_slot=relationship_predicate_slot(
+            graph_conflict_rules,
+            predicate=predicate,
+            object_id=object_id,
+        ),
     )
     return {
         "triple_id": triple_id,
@@ -606,7 +786,7 @@ def _normalize_replacement(
         "predicate": predicate,
         "object_id": object_id,
         "object_type": object_type,
-        "fact_kind": str(raw.get("fact_kind") or before["fact_kind"]),
+        "fact_kind": claim["fact_kind"],
         "slot_key": slot_key_value,
         "claim_fingerprint": relationship_claim_fingerprint(
             slot_key_value=slot_key_value,
@@ -619,6 +799,96 @@ def _normalize_replacement(
         "scope_json": canonical_scope_json(replacement_scope),
         "valid_from": effective_at,
     }
+
+
+def _relationship_claim_fields(
+    replacement: Mapping[str, Any] | None,
+    before: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Normalize only caller-controlled relationship claim fields."""
+    if replacement is None:
+        return None
+    raw = dict(replacement)
+    subject_type = normalize_store_entity_type(
+        str(raw.get("subject_type") or before["subject_type"])
+    ) or str(before["subject_type"])
+    object_type = normalize_store_entity_type(
+        str(raw.get("object_type") or before["object_type"])
+    ) or str(before["object_type"])
+    raw_object_id = str(raw.get("object_id") or before["object_id"])
+    return {
+        "subject_id": str(raw.get("subject_id") or before["subject_id"]),
+        "subject_type": subject_type,
+        "predicate": str(raw.get("predicate") or before["predicate"]).strip().upper(),
+        "object_id": (normalize_store_entity_ref(raw_object_id, object_type) or raw_object_id),
+        "object_type": object_type,
+        "fact_kind": str(raw.get("fact_kind") or before["fact_kind"]),
+    }
+
+
+def _effective_relationship_scope(
+    command: ApplyRelationshipCorrectionCommand,
+    before: Mapping[str, Any],
+) -> dict[str, list[dict[str, str]]]:
+    if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+        return dict(command.scope or {})
+    return stored_context_scope(before)
+
+
+def _ensure_relationship_correction_changes_claim(
+    before: Mapping[str, Any],
+    command: ApplyRelationshipCorrectionCommand,
+    replacement: Mapping[str, Any] | None,
+    replacement_scope: Mapping[str, Any],
+) -> None:
+    if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+        assert replacement is not None
+        before_claim = (
+            str(before.get("subject_id") or "").strip(),
+            str(before.get("subject_type") or "").strip(),
+            str(before.get("predicate") or "").strip().upper(),
+            str(before.get("object_id") or "").strip(),
+            str(before.get("object_type") or "").strip(),
+            str(before.get("fact_kind") or "").strip(),
+        )
+        replacement_claim = (
+            str(replacement.get("subject_id") or "").strip(),
+            str(replacement.get("subject_type") or "").strip(),
+            str(replacement.get("predicate") or "").strip().upper(),
+            str(replacement.get("object_id") or "").strip(),
+            str(replacement.get("object_type") or "").strip(),
+            str(replacement.get("fact_kind") or "").strip(),
+        )
+        if replacement_claim != before_claim:
+            raise MemoryCorrectionValidationError(
+                "scope_refinement cannot change the relationship",
+                code="scope_refinement_changes_claim",
+            )
+        if canonical_scope_json(replacement_scope) == canonical_scope_json(
+            stored_context_scope(before)
+        ):
+            raise MemoryCorrectionValidationError(
+                "scope_refinement must change the scope",
+                code="scope_unchanged",
+            )
+        return
+    if replacement is None:
+        return
+    before_identity = (
+        str(before.get("subject_id") or "").strip(),
+        str(before.get("predicate") or "").strip().upper(),
+        str(before.get("object_id") or "").strip(),
+    )
+    replacement_identity = (
+        str(replacement.get("subject_id") or "").strip(),
+        str(replacement.get("predicate") or "").strip().upper(),
+        str(replacement.get("object_id") or "").strip(),
+    )
+    if replacement_identity == before_identity:
+        raise MemoryCorrectionValidationError(
+            "replacement must change the relationship",
+            code="replacement_unchanged",
+        )
 
 
 async def _ensure_replacement_reactivatable(
@@ -847,9 +1117,17 @@ async def _restore_original_edge(
             restored[column] = evidence_snapshot[column]
     assignments = ", ".join(f"{column} = ?" for column in _RESTORABLE_RELATIONSHIP_COLUMNS)
     values = [restored[column] for column in _RESTORABLE_RELATIONSHIP_COLUMNS]
-    await db.execute(
+    cursor = await db.execute(
         f"UPDATE knowledge_graph SET {assignments}, updated_at = ? WHERE triple_id = ?",
         (*values, now, triple_id),
+    )
+    if cursor.rowcount > 0:
+        return
+    columns = ("triple_id", *_RESTORABLE_RELATIONSHIP_COLUMNS, "updated_at")
+    placeholders = ", ".join("?" for _ in columns)
+    await db.execute(
+        f"INSERT INTO knowledge_graph({', '.join(columns)}) VALUES ({placeholders})",
+        (triple_id, *values, now),
     )
 
 
@@ -915,20 +1193,40 @@ async def _has_newer_correction(
 ) -> bool:
     async with db.execute(
         """
-        SELECT 1 FROM memory_corrections
+        SELECT * FROM memory_corrections
         WHERE target_kind = 'edge' AND state = 'active' AND correction_id != ?
-          AND created_at >= ?
+          AND (created_at > ? OR (created_at = ? AND correction_id > ?))
           AND (slot_key = ? OR target_id = ?)
-        LIMIT 1
         """,
         (
             correction.correction_id,
             correction.created_at,
+            correction.created_at,
+            correction.correction_id,
             correction.slot_key,
             correction.replacement_target_id or "",
         ),
     ) as cursor:
-        return await cursor.fetchone() is not None
+        rows = await cursor.fetchall()
+    return any(
+        _newer_correction_blocks_revert(
+            correction,
+            MemoryCorrection.from_row(dict(row)),
+        )
+        for row in rows
+    )
+
+
+def _newer_correction_blocks_revert(
+    correction: MemoryCorrection,
+    candidate: MemoryCorrection,
+) -> bool:
+    if candidate.target_id in {
+        correction.target_id,
+        correction.replacement_target_id,
+    }:
+        return True
+    return canonical_scope_json(candidate.scope) == canonical_scope_json(correction.scope)
 
 
 def _existing_result(correction: MemoryCorrection) -> RelationshipCorrectionResult:

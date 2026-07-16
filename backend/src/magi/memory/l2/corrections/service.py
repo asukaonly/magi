@@ -16,13 +16,16 @@ from ..assertions.settings import (
     USER_REJECTED_CONFIDENCE,
     assertion_float_setting,
 )
+from ..graph_conflicts import GraphConflictRule
 from .cache_signals import mark_subject_changed
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
     assertion_claim_fingerprint,
     assertion_slot_key,
+    canonical_claim_value,
     canonical_scope_json,
     scope_key,
+    stored_context_scope,
 )
 from .models import (
     ApplyAssertionCorrectionCommand,
@@ -38,6 +41,7 @@ from .models import (
     RelationshipCorrectionResult,
 )
 from .repository import MemoryCorrectionRepository
+from .request_identity import correction_request_matches, normalized_optional_text
 
 _INACTIVE_ASSERTION_STATUSES = {
     "archived",
@@ -105,9 +109,15 @@ class MemoryCorrectionValidationError(ValueError):
 class MemoryCorrectionService:
     """Apply and revert assertion corrections in one SQLite transaction."""
 
-    def __init__(self, db_path: str):
+    def __init__(
+        self,
+        db_path: str,
+        *,
+        graph_conflict_rules: Mapping[str, GraphConflictRule] | None = None,
+    ):
         self.db_path = db_path
         self.repository = MemoryCorrectionRepository(db_path)
+        self.graph_conflict_rules = graph_conflict_rules
 
     async def apply_relationship_correction(
         self,
@@ -116,7 +126,10 @@ class MemoryCorrectionService:
         """Apply a governed relationship correction."""
         from .relationship_service import RelationshipCorrectionService
 
-        return await RelationshipCorrectionService(self.db_path).apply(command)
+        return await RelationshipCorrectionService(
+            self.db_path,
+            graph_conflict_rules=self.graph_conflict_rules,
+        ).apply(command)
 
     async def revert_relationship_correction(
         self,
@@ -142,16 +155,13 @@ class MemoryCorrectionService:
         """Return immutable versions and corrections for a relationship."""
         from .relationship_service import RelationshipCorrectionService
 
-        return await RelationshipCorrectionService(self.db_path).history(
-            triple_id=triple_id
-        )
+        return await RelationshipCorrectionService(self.db_path).history(triple_id=triple_id)
 
     async def apply_assertion_correction(
         self,
         command: ApplyAssertionCorrectionCommand,
     ) -> AssertionCorrectionResult | None:
         """Apply one idempotent correction to the current assertion version."""
-        _validate_assertion_command(command)
         now = time.time()
 
         async with sqlite_connection_async(self.db_path) as db:
@@ -163,8 +173,11 @@ class MemoryCorrectionService:
                     command.request_id,
                 )
                 if existing_correction is not None:
+                    _ensure_assertion_retry_matches(existing_correction, command)
                     await db.commit()
                     return _result_for_existing_correction(existing_correction)
+
+                _validate_assertion_command(command)
 
                 row = await _load_assertion(db, command.assertion_id)
                 if row is None:
@@ -186,7 +199,12 @@ class MemoryCorrectionService:
                 replacement_id = (
                     f"assert_{uuid.uuid4().hex}" if command.replacement_value is not None else None
                 )
-                replacement_scope = dict(command.scope or {})
+                replacement_scope = _effective_assertion_scope(command, before)
+                _ensure_assertion_correction_changes_claim(
+                    before,
+                    command,
+                    replacement_scope,
+                )
                 replacement_scope_key = scope_key(replacement_scope)
                 replacement_fingerprint = (
                     assertion_claim_fingerprint(
@@ -460,10 +478,116 @@ def _validate_assertion_command(command: ApplyAssertionCorrectionCommand) -> Non
             raise MemoryCorrectionValidationError("scope_refinement requires replacement_value")
         if not command.scope:
             raise MemoryCorrectionValidationError("scope_refinement requires scope")
+    if command.correction_kind != CorrectionKind.SCOPE_REFINEMENT and command.scope:
+        raise MemoryCorrectionValidationError("scope is only supported for scope_refinement")
+    if (
+        command.correction_kind != CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+    ):
+        raise MemoryCorrectionValidationError(
+            "effective_at is only supported for situation_changed"
+        )
     unknown_scope_keys = set(command.scope or {}) - _ALLOWED_SCOPE_KEYS
     if unknown_scope_keys:
         unknown = ", ".join(sorted(str(item) for item in unknown_scope_keys))
         raise MemoryCorrectionValidationError(f"Unsupported scope fields: {unknown}")
+
+
+def _ensure_assertion_retry_matches(
+    existing: MemoryCorrection,
+    command: ApplyAssertionCorrectionCommand,
+) -> None:
+    """Reject reuse of an idempotency key for different user intent."""
+    if command.correction_kind != CorrectionKind.SCOPE_REFINEMENT and command.scope:
+        raise MemoryCorrectionConflictError(
+            "request_id was already used for a different correction"
+        )
+    if (
+        command.correction_kind != CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+    ):
+        raise MemoryCorrectionConflictError(
+            "request_id was already used for a different correction"
+        )
+    expected_scope = _effective_assertion_scope(command, existing.before)
+    expected_replacement = (
+        {
+            "value": normalized_optional_text(command.replacement_value),
+            "scope": expected_scope,
+        }
+        if command.replacement_value is not None
+        else None
+    )
+    stored_replacement = (
+        {
+            "value": normalized_optional_text(existing.replacement.get("value")),
+            "scope": dict(existing.replacement.get("scope") or {}),
+        }
+        if existing.replacement is not None
+        else None
+    )
+    expected_effective_at = (
+        float(command.effective_at)
+        if command.correction_kind == CorrectionKind.SITUATION_CHANGED
+        and command.effective_at is not None
+        else None
+    )
+    if correction_request_matches(
+        existing,
+        actor_id=command.actor_id,
+        target_kind=CorrectionTargetKind.ASSERTION,
+        target_id=command.assertion_id,
+        correction_kind=command.correction_kind,
+        reason=command.reason,
+        replacement=expected_replacement,
+        stored_replacement=stored_replacement,
+        effective_at=expected_effective_at,
+        scope=expected_scope,
+        source_event_id=command.source_event_id,
+    ):
+        return
+    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+
+
+def _effective_assertion_scope(
+    command: ApplyAssertionCorrectionCommand,
+    before: Mapping[str, Any],
+) -> dict[str, list[dict[str, str]]]:
+    if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+        return dict(command.scope or {})
+    return stored_context_scope(before)
+
+
+def _ensure_assertion_correction_changes_claim(
+    before: Mapping[str, Any],
+    command: ApplyAssertionCorrectionCommand,
+    replacement_scope: Mapping[str, Any],
+) -> None:
+    if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+        if canonical_claim_value(command.replacement_value) != canonical_claim_value(
+            before.get("trait_value")
+        ):
+            raise MemoryCorrectionValidationError(
+                "scope_refinement cannot change the assertion value",
+                code="scope_refinement_changes_claim",
+            )
+        if canonical_scope_json(replacement_scope) == canonical_scope_json(
+            stored_context_scope(before)
+        ):
+            raise MemoryCorrectionValidationError(
+                "scope_refinement must change the scope",
+                code="scope_unchanged",
+            )
+        return
+    if command.replacement_value is None:
+        return
+    if canonical_claim_value(command.replacement_value) == canonical_claim_value(
+        before.get("trait_value")
+    ):
+        raise MemoryCorrectionValidationError(
+            "replacement_value must change the assertion",
+            code="replacement_unchanged",
+        )
 
 
 def _ensure_assertion_is_correctable(
@@ -561,10 +685,7 @@ def _is_future_situation_change(
     effective_at: float,
     now: float,
 ) -> bool:
-    return (
-        correction_kind == CorrectionKind.SITUATION_CHANGED
-        and float(effective_at) > float(now)
-    )
+    return correction_kind == CorrectionKind.SITUATION_CHANGED and float(effective_at) > float(now)
 
 
 def _ensure_effective_at_not_before_assertion(
@@ -800,14 +921,39 @@ async def _has_newer_active_correction(
 ) -> bool:
     async with db.execute(
         """
-        SELECT 1 FROM memory_corrections
+        SELECT * FROM memory_corrections
         WHERE target_kind = 'assertion' AND slot_key = ? AND state = 'active'
-          AND correction_id != ? AND created_at >= ?
-        LIMIT 1
+          AND correction_id != ?
+          AND (created_at > ? OR (created_at = ? AND correction_id > ?))
         """,
-        (correction.slot_key, correction.correction_id, correction.created_at),
+        (
+            correction.slot_key,
+            correction.correction_id,
+            correction.created_at,
+            correction.created_at,
+            correction.correction_id,
+        ),
     ) as cursor:
-        return await cursor.fetchone() is not None
+        rows = await cursor.fetchall()
+    return any(
+        _newer_correction_blocks_revert(
+            correction,
+            MemoryCorrection.from_row(dict(row)),
+        )
+        for row in rows
+    )
+
+
+def _newer_correction_blocks_revert(
+    correction: MemoryCorrection,
+    candidate: MemoryCorrection,
+) -> bool:
+    if candidate.target_id in {
+        correction.target_id,
+        correction.replacement_target_id,
+    }:
+        return True
+    return canonical_scope_json(candidate.scope) == canonical_scope_json(correction.scope)
 
 
 async def _restore_original_assertion(

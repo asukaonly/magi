@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,7 @@ from .storage.messages import MESSAGE_SELECT_COLUMNS, ChatMessagePersistenceMixi
 from .storage.serialization import build_user_message_payload_json
 from .storage.sessions import ChatSessionPersistenceMixin
 from .storage.turns import ChatTurnPersistenceMixin
+from .workspace_identity import claim_workspace_identity
 
 
 class ChatTurnConflictError(ValueError):
@@ -133,6 +135,8 @@ class ChatStore(
         normalized_runtime_envelope = _normalize_runtime_envelope(runtime_envelope)
         runtime_envelope_json = _serialize_runtime_envelope(normalized_runtime_envelope)
         normalized_request_fingerprint = str(request_fingerprint or "").strip()
+        committed_workspace_path: str | None = None
+        previous_workspace_path: str | None = None
         async with sqlite_connection_async(self.db_path, profile="mixed") as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
@@ -169,6 +173,18 @@ class ChatStore(
                     )
 
                 existing_session = await self._fetch_session_row(db, session_id=session_id)
+                self._validate_user_turn_session(
+                    existing_session,
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                previous_workspace_path = _row_optional_text(
+                    existing_session,
+                    "workspace_path",
+                )
+                committed_workspace_path = (
+                    _runtime_workspace_path(normalized_runtime_envelope) or previous_workspace_path
+                )
                 await self._upsert_user_turn_session(
                     db,
                     existing_session=existing_session,
@@ -176,6 +192,7 @@ class ChatStore(
                     user_id=user_id,
                     session_preview=session_preview,
                     created_at_ms=created_at_ms,
+                    workspace_path=committed_workspace_path,
                 )
                 await self._insert_user_turn_row(
                     db,
@@ -217,6 +234,11 @@ class ChatStore(
             except BaseException:
                 await db.rollback()
                 raise
+        if committed_workspace_path is not None:
+            await asyncio.to_thread(
+                claim_workspace_identity,
+                committed_workspace_path,
+            )
         return CreateUserTurnResult(
             message=message,
             created=True,
@@ -224,6 +246,24 @@ class ChatStore(
             runtime_enqueued=False,
             runtime_envelope=normalized_runtime_envelope,
         )
+
+    @staticmethod
+    def _validate_user_turn_session(
+        existing_session: Any,
+        *,
+        session_id: str,
+        user_id: str,
+    ) -> None:
+        """Prevent a new turn from taking over or reviving an existing session."""
+        if existing_session is None:
+            return
+        if str(existing_session["user_id"] or "") != str(user_id):
+            raise ChatTurnConflictError(f"Session '{session_id}' belongs to a different user")
+        if (
+            existing_session["archived_at_ms"] is not None
+            or existing_session["deleted_at_ms"] is not None
+        ):
+            raise ChatTurnConflictError(f"Session '{session_id}' is not available")
 
     async def load_user_turn_once(
         self,
@@ -431,6 +471,7 @@ class ChatStore(
         user_id: str,
         session_preview: str,
         created_at_ms: int,
+        workspace_path: str | None,
     ) -> None:
         await self._upsert_session_with_connection(
             db,
@@ -440,6 +481,7 @@ class ChatStore(
                 user_id=user_id,
                 session_preview=session_preview,
                 created_at_ms=created_at_ms,
+                workspace_path=workspace_path,
             ),
         )
 
@@ -451,6 +493,7 @@ class ChatStore(
         user_id: str,
         session_preview: str,
         created_at_ms: int,
+        workspace_path: str | None,
     ) -> ChatSessionRecord:
         return ChatSessionRecord(
             session_id=session_id,
@@ -465,7 +508,7 @@ class ChatStore(
             last_message_preview=session_preview,
             last_user_message_preview=session_preview,
             message_count=_row_int(existing_session, "message_count", 0) + 1,
-            workspace_path=_row_optional_text(existing_session, "workspace_path"),
+            workspace_path=workspace_path,
             history_version=_row_int(existing_session, "history_version", 0) + 1,
             archived_at_ms=_row_optional_int(existing_session, "archived_at_ms"),
             deleted_at_ms=_row_optional_int(existing_session, "deleted_at_ms"),
@@ -636,6 +679,14 @@ def _normalize_runtime_envelope(value: object) -> dict[str, Any]:
     if not isinstance(normalized, dict):
         raise TypeError("Runtime delivery envelope must be an object")
     return normalized
+
+
+def _runtime_workspace_path(runtime_envelope: dict[str, Any]) -> str | None:
+    """Read the accepted workspace path from a normalized delivery envelope."""
+    raw_path = runtime_envelope.get("workspace_path")
+    if not isinstance(raw_path, str):
+        return None
+    return raw_path.strip() or None
 
 
 def _serialize_runtime_envelope(value: object) -> str:

@@ -22,27 +22,52 @@ export const formatCorrectionTime = (value: number, locale?: string): string => 
 };
 
 export const formatCorrectionScope = (
-  scope: Record<string, unknown> | null | undefined,
-  t: AppTranslation
+  scope: { all_of?: unknown } | null | undefined,
+  t: AppTranslation,
+  contextLabels: Readonly<Record<string, string>> = {}
 ): string | null => {
   if (!scope) return null;
-  const labels: Record<string, string> = {
-    project: t('memory.correction.scopes.project', { defaultValue: '项目' }),
-    activity: t('memory.correction.scopes.activity', { defaultValue: '活动' }),
-    place: t('memory.correction.scopes.place', { defaultValue: '地点' }),
-    person: t('memory.correction.scopes.person', { defaultValue: '人物' }),
-  };
-  const entries = Object.entries(scope)
-    .filter(([key, value]) => key in labels && String(value ?? '').trim())
-    .map(([key, value]) => t('memory.correction.history.scopeEntry', {
+  const allOf = Array.isArray(scope.all_of) ? scope.all_of : [];
+  const entries = allOf.flatMap((condition) => {
+    if (!condition || typeof condition !== 'object' || Array.isArray(condition)) return [];
+    const candidate = condition as Record<string, unknown>;
+    const dimension = String(candidate.dimension ?? '').trim().toLowerCase();
+    const contextId = String(candidate.context_id ?? '').trim();
+    if (!dimension || !contextId) return [];
+    const label = scopeDimensionLabel(dimension, t);
+    const contextLabel = String(contextLabels[contextId] ?? '').trim();
+    return [t('memory.correction.history.scopeEntry', {
       defaultValue: '{{label}}: {{value}}',
-      label: labels[key],
-      value: String(value).trim(),
-    }));
+      label,
+      value: contextLabel || t('memory.correction.history.scopeNameUnavailable', {
+        defaultValue: '名称暂不可用',
+      }),
+    })];
+  });
   if (entries.length === 0) return null;
   return entries.join(t('memory.correction.history.scopeSeparator', {
     defaultValue: ', ',
   }));
+};
+
+const scopeDimensionLabel = (
+  dimension: string,
+  t: AppTranslation
+): string => {
+  const defaults: Record<string, string> = {
+    project: '项目',
+    activity: '活动',
+    place: '地点',
+    person: '人物',
+    time: '时间',
+    custom: '情境',
+  };
+  return t(`memory.correction.scopes.${dimension}`, {
+    defaultValue: defaults[dimension]
+      ?? t('memory.correction.scopes.other', {
+        defaultValue: '情境',
+      }),
+  });
 };
 
 export const formatCorrectionEntityType = (

@@ -107,6 +107,7 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
         "memory_derivation_dependencies",
         "memory_derivation_jobs",
         "memory_correction_evidence_events",
+        "memory_relationship_conflict_effects",
         "memory_correction_rules",
         "memory_corrections",
         "memory_subject_revisions",
@@ -127,9 +128,7 @@ async def test_clear_waits_for_running_correction_work(tmp_path) -> None:
     await apply_memory_shared_schema(db_path)
     store = L2CognitionStore(db_path=db_path)
     await store.initialize()
-    assertion_id = await store.upsert_assertion_candidate(
-        _assertion_candidate(now=time.time())
-    )
+    assertion_id = await store.upsert_assertion_candidate(_assertion_candidate(now=time.time()))
     correction = await MemoryCorrectionService(db_path).apply_assertion_correction(
         ApplyAssertionCorrectionCommand(
             assertion_id=assertion_id,

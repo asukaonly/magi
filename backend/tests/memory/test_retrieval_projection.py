@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from _shared.context_scope import context_scope
 from magi.memory.hybrid_retrieval.models import RetrievalPayload, RetrievalQuery
 from magi.memory.retrieval_projection import project_historical_recall
 
@@ -497,6 +498,7 @@ def test_project_historical_recall_infers_answer_kind_from_findings_before_query
 def test_coerce_request_propagates_all_fields_from_dict() -> None:
     """The dict request path must preserve every retrieval control."""
     from magi.memory.hybrid_retrieval.models import ConversationTurn
+    from magi.memory.context_scope.models import ContextResolutionSignals
     from magi.memory.retrieval_projection import _coerce_request
 
     turn = ConversationTurn(role="user", content="hi", timestamp=1.0)
@@ -510,7 +512,12 @@ def test_coerce_request_propagates_all_fields_from_dict() -> None:
             "source_filters": ["chrome"],
             "domain_filters": ["d.com"],
             "summary_categories": ["work"],
-            "context_scope": {"project": "magi"},
+            "context_scope": context_scope(project="magi"),
+            "context_signals": {
+                "workspace_path": "/tmp/magi",
+                "user_text": "what happened here?",
+                "task_category": "coding",
+            },
             "limit": 5,
             "exclude_user_text": "echo",
             "conversation_context": [turn],
@@ -519,7 +526,12 @@ def test_coerce_request_propagates_all_fields_from_dict() -> None:
     assert coerced.exclude_user_text == "echo"
     assert coerced.conversation_context == [turn]
     assert coerced.summary_categories == ["work"]
-    assert coerced.context_scope == {"project": "magi"}
+    assert coerced.context_scope == context_scope(project="magi")
+    assert coerced.context_signals == ContextResolutionSignals(
+        workspace_path="/tmp/magi",
+        user_text="what happened here?",
+        task_category="coding",
+    )
     assert coerced.source_filters == ["chrome"]
     assert coerced.domain_filters == ["d.com"]
     assert coerced.limit == 5

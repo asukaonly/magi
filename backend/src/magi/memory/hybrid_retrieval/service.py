@@ -7,6 +7,11 @@ from dataclasses import dataclass, replace as dc_replace
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from ...config import AppConfig
+from ..context_scope import (
+    ContextScopeResolver,
+    merge_context_scopes,
+    normalize_context_scope,
+)
 from .correction_evidence_governance import decide_l1_correction_evidence
 from .handlers import L1Handler, L2Handler, L3Handler, L4Handler
 from .evidence.session_bundles import EvidenceBundleMixin
@@ -175,6 +180,12 @@ class HybridRetrievalService(
         self._llm_provider_bridge = llm_provider_bridge
         self._result_fusion = ResultFusion(self._config)
         self._manifest_selector = ManifestSelector(self._config)
+        memory_db_path = getattr(unified_memory, "memory_db_path", None)
+        self._context_scope_resolver = (
+            ContextScopeResolver(memory_db_path)
+            if isinstance(memory_db_path, str) and memory_db_path.strip()
+            else None
+        )
 
         # Build handlers from available stores
         l2_store = unified_memory.l2 if unified_memory.l2 else None
@@ -234,6 +245,7 @@ class HybridRetrievalService(
         """Execute a layer-aware retrieval query."""
         self._refresh_runtime_config()
         self._refresh_handlers()
+        request = await self._resolve_context_scope(request)
 
         mode_context = self._resolve_query_mode_context(request)
         request = mode_context.request
@@ -269,6 +281,36 @@ class HybridRetrievalService(
             request=request,
             recall_shape=recall_shape,
             payload=result,
+        )
+
+    async def _resolve_context_scope(self, request: RetrievalQuery) -> RetrievalQuery:
+        """Resolve every retrieval caller through the same local context path."""
+        explicit_scope = normalize_context_scope(request.context_scope)
+        resolved_scope: dict[str, Any] = {}
+        if self._context_scope_resolver is not None and request.context_signals is not None:
+            try:
+                resolved_scope = await self._context_scope_resolver.resolve(request.context_signals)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "automatic context resolution failed; using explicit or global scope "
+                    "(error_type=%s)",
+                    type(exc).__name__,
+                )
+        explicit_dimensions = {str(item["dimension"]) for item in explicit_scope.get("all_of", [])}
+        compatible_resolved_conditions = [
+            item
+            for item in resolved_scope.get("all_of", [])
+            if str(item["dimension"]) not in explicit_dimensions
+        ]
+        compatible_resolved_scope = (
+            {"all_of": compatible_resolved_conditions} if compatible_resolved_conditions else {}
+        )
+        return dc_replace(
+            request,
+            context_scope=merge_context_scopes(
+                explicit_scope,
+                compatible_resolved_scope,
+            ),
         )
 
     def _resolve_query_mode_context(self, request: RetrievalQuery) -> _QueryModeContext:
@@ -347,6 +389,7 @@ class HybridRetrievalService(
                 "resolved_query_mode": mode_context.resolved_mode,
                 "sources": request.source_filters,
                 "domains": request.domain_filters,
+                "context_scope": dict(request.context_scope or {}),
             }
         )
         if mode_context.indexical_trace:
@@ -519,9 +562,7 @@ class HybridRetrievalService(
             or ""
         )
         mode_plan = MODE_REGISTRY.get(mode)
-        retrieval_scopes = set(
-            getattr(mode_plan, "l1_retrieval_scopes", None) or []
-        )
+        retrieval_scopes = set(getattr(mode_plan, "l1_retrieval_scopes", None) or [])
         if "fact_authoritative" not in retrieval_scopes:
             return None
         l2_store = getattr(self._memory, "l2", None)
@@ -533,9 +574,7 @@ class HybridRetrievalService(
             )
             payload.trace["structured_recall_correction_governance"] = decision.status
             if decision.reason is not None:
-                payload.trace["structured_recall_correction_governance_reason"] = (
-                    decision.reason
-                )
+                payload.trace["structured_recall_correction_governance_reason"] = decision.reason
             payload.trace["structured_recall_correction_governance_dropped_count"] = (
                 len(event_ids)
                 if decision.drop_all
@@ -547,9 +586,7 @@ class HybridRetrievalService(
                 )
             )
             if decision.drop_all:
-                raise RuntimeError(
-                    "Structured recall correction governance failed closed"
-                )
+                raise RuntimeError("Structured recall correction governance failed closed")
             return set(decision.blocked_event_ids)
 
         return blocklist

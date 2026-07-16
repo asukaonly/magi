@@ -21,6 +21,8 @@ class ContextRetrievalService:
         session_id: str | None,
         query: str,
         task_category: str,
+        context_text: str = "",
+        workspace_path: str | None = None,
         allowed_layers: tuple[str, ...] = ("L0",),
     ) -> dict[str, Any]:
         if self._unified_memory is None:
@@ -52,6 +54,11 @@ class ContextRetrievalService:
                 query_mode=None,
                 source_filters=[],
                 domain_filters=[],
+                context_signals={
+                    "workspace_path": workspace_path,
+                    "user_text": context_text or query,
+                    "task_category": task_category,
+                },
                 limit=10,
             )
         )
@@ -79,7 +86,9 @@ class ContextRetrievalService:
 
     @staticmethod
     def _normalize_allowed_layers(allowed_layers: tuple[str, ...] | list[str]) -> tuple[str, ...]:
-        normalized = tuple(str(layer).strip().upper() for layer in allowed_layers if str(layer).strip())
+        normalized = tuple(
+            str(layer).strip().upper() for layer in allowed_layers if str(layer).strip()
+        )
         return normalized or ("L0",)
 
     async def _load_l0_workbench(self, session_id: str | None) -> list[dict[str, Any]]:

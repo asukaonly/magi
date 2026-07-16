@@ -10,6 +10,7 @@ from typing import Protocol, cast
 from ...core.logger import get_logger
 from ...core.sqlite import connect_sqlite
 from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
+from ..workspace_identity import claim_workspace_identity
 from .models import ChatSessionRenameResult, ChatSessionSummary, SessionWorkspaceUpdateResult
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
@@ -52,7 +53,7 @@ def _insert_or_return_session(
     record: ChatSessionRecord,
     normalized_user_id: str,
     normalized_client_session_id: str | None,
-) -> str:
+) -> tuple[str, bool]:
     conn = host._get_conn()
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -72,7 +73,7 @@ def _insert_or_return_session(
                     and existing["deleted_at_ms"] is None
                 ):
                     conn.commit()
-                    return normalized_client_session_id
+                    return normalized_client_session_id, False
                 raise ValueError("Client session ID is not available")
 
         conn.execute(
@@ -107,7 +108,7 @@ def _insert_or_return_session(
     except BaseException:
         conn.rollback()
         raise
-    return str(record.session_id)
+    return str(record.session_id), True
 
 
 class ChatSessionOperationsMixin:
@@ -135,12 +136,15 @@ class ChatSessionOperationsMixin:
             session_id=normalized_client_session_id,
             workspace_path=host._normalize_workspace_path(workspace_path),
         )
-        return _insert_or_return_session(
+        session_id, created = _insert_or_return_session(
             host=host,
             record=record,
             normalized_user_id=normalized_user_id,
             normalized_client_session_id=normalized_client_session_id,
         )
+        if created:
+            claim_workspace_identity(record.workspace_path)
+        return session_id
 
     def get_session_summary(self, user_id: str, session_id: str) -> ChatSessionSummary | None:
         host = cast(_ChatSessionOperationsHost, self)
@@ -256,6 +260,30 @@ class ChatSessionOperationsMixin:
 
         return [host._row_to_session_summary(row) for row in rows]
 
+    def list_workspace_paths(self, user_id: str) -> list[str]:
+        """List every distinct workspace used by non-deleted sessions."""
+        host = cast(_ChatSessionOperationsHost, self)
+        normalized_user_id = str(user_id).strip()
+        if not normalized_user_id or not host._chat_db_path.exists():
+            return []
+        rows = (
+            host._get_conn()
+            .execute(
+                f"""
+            SELECT DISTINCT TRIM(workspace_path) AS workspace_path
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ?
+              AND deleted_at_ms IS NULL
+              AND workspace_path IS NOT NULL
+              AND TRIM(workspace_path) != ''
+            ORDER BY workspace_path COLLATE NOCASE, workspace_path
+            """,
+                (normalized_user_id,),
+            )
+            .fetchall()
+        )
+        return [str(row["workspace_path"]) for row in rows]
+
     def rename_session(self, user_id: str, session_id: str, title: str) -> ChatSessionRenameResult:
         host = cast(_ChatSessionOperationsHost, self)
         normalized_user_id = str(user_id).strip()
@@ -294,6 +322,20 @@ class ChatSessionOperationsMixin:
         if not normalized_user_id or not normalized_session_id:
             raise ValueError("User ID and session ID are required")
         conn = host._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            f"""
+            SELECT workspace_path
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE session_id = ?
+              AND user_id = ?
+              AND deleted_at_ms IS NULL
+            """,
+            (normalized_session_id, normalized_user_id),
+        ).fetchone()
+        if existing is None:
+            conn.rollback()
+            raise ValueError("Session not found")
         cur = conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
@@ -305,9 +347,11 @@ class ChatSessionOperationsMixin:
             """,
             (normalized_workspace_path, normalized_session_id, normalized_user_id),
         )
-        conn.commit()
         if cur.rowcount <= 0:
+            conn.rollback()
             raise ValueError("Session not found")
+        conn.commit()
+        claim_workspace_identity(normalized_workspace_path)
         return SessionWorkspaceUpdateResult(
             session_id=normalized_session_id,
             workspace_path=normalized_workspace_path,

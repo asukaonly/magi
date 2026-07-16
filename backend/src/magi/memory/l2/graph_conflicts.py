@@ -38,8 +38,12 @@ class GraphConflictRule:
                 else:
                     opposite_predicates = [opposite_predicates]
             except json.JSONDecodeError:
-                opposite_predicates = [item.strip() for item in opposite_predicates.split(",") if item.strip()]
-        normalized_opposites = _normalize_opposite_predicates(opposite_predicates, predicate=predicate)
+                opposite_predicates = [
+                    item.strip() for item in opposite_predicates.split(",") if item.strip()
+                ]
+        normalized_opposites = _normalize_opposite_predicates(
+            opposite_predicates, predicate=predicate
+        )
         opposite_resolution = _normalize_action(
             payload.get("opposite_resolution", DEFAULT_GRAPH_CONFLICT_ACTION),
             field_name="opposite_resolution",
@@ -116,7 +120,9 @@ def build_graph_conflict_matrix(
         return matrix
 
     for predicate, rule in overrides.items():
-        normalized = rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
+        normalized = (
+            rule if isinstance(rule, GraphConflictRule) else GraphConflictRule.from_mapping(rule)
+        )
         matrix[str(predicate)] = normalized
     return matrix
 
@@ -130,10 +136,26 @@ def build_exclusive_group_index(
         if not rule.exclusive_group:
             continue
         grouped.setdefault(rule.exclusive_group, []).append(predicate)
-    return {
-        group: tuple(sorted(set(predicates)))
-        for group, predicates in grouped.items()
-    }
+    return {group: tuple(sorted(set(predicates))) for group, predicates in grouped.items()}
+
+
+def relationship_predicate_slot(
+    rules: Mapping[str, GraphConflictRule],
+    *,
+    predicate: str,
+    object_id: str,
+) -> str | None:
+    """Return the conflict-aware predicate slot shared by writes and corrections."""
+    normalized_predicate = str(predicate).strip().upper()
+    rule = rules.get(normalized_predicate)
+    if rule is None:
+        return None
+    if rule.exclusive_group:
+        return f"exclusive:{rule.exclusive_group}"
+    if rule.opposite_predicates:
+        family = ":".join(sorted({normalized_predicate, *rule.opposite_predicates}))
+        return f"opposites:{family}:{object_id}"
+    return None
 
 
 def iter_opposite_predicates(rule: GraphConflictRule) -> Iterable[str]:
@@ -202,8 +224,12 @@ def _validate_rule_combinations(
 ) -> None:
     del predicate
     if not opposite_predicates and opposite_resolution != DEFAULT_GRAPH_CONFLICT_ACTION:
-        raise ValueError("opposite_predicates are required when opposite_resolution overrides the default")
+        raise ValueError(
+            "opposite_predicates are required when opposite_resolution overrides the default"
+        )
     if exclusive_group is None and exclusive_resolution != DEFAULT_GRAPH_CONFLICT_ACTION:
-        raise ValueError("exclusive_group is required when exclusive_resolution overrides the default")
+        raise ValueError(
+            "exclusive_group is required when exclusive_resolution overrides the default"
+        )
     if not opposite_predicates and not exclusive_group:
         raise ValueError("graph conflict rule must define at least one conflict mechanism")

@@ -201,7 +201,7 @@ The durable design is documented in [Persona Runtime Architecture](./persona-run
 - `<workspace>/.magi/`
   Optional project-local overlay for team-shareable project instructions, rules, skills, safe project settings, and gitignored local runtime/cache/traces. It is created only by explicit workspace initialization or by a feature that needs generated workspace-local state.
 
-Workspace storage is an overlay, not a second global database. Core path infrastructure owns workspace identity, path resolution, generated directory creation, local `.gitignore` guards, and state manifests. Context may read project knowledge from the overlay; agent runtime, tools, and plugins may use scoped cache/runtime directories through the workspace path facade; memory projection remains the only route into durable memory databases.
+Workspace storage is an overlay, not a second global database. Core path infrastructure owns workspace identity, path resolution, generated directory creation, local `.gitignore` guards, and state manifests. A random durable identity is written under the gitignored local overlay only when chat commits a workspace association or an explicit workspace-state feature needs it; read-only discovery does not modify the workspace. Copies and ordinary path switches receive new identities, so the product never merges projects by guessing that a missing old path means a move. Context may read project knowledge from the overlay; agent runtime, tools, and plugins may use scoped cache/runtime directories through the workspace path facade; memory projection remains the only route into durable memory databases.
 
 Chat ownership is now intentionally separated by domain:
 

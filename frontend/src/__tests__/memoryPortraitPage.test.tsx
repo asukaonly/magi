@@ -6,6 +6,8 @@ import { MemoryPortraitPage } from '@/pages/memory-pages/MemoryPortraitPage';
 import { memoryPortraitSelfApi } from '@/api/modules/memoryPortraitSelf';
 import { memoryApi } from '@/api/modules/memory';
 
+const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
+
 vi.mock('react-i18next', async () => {
   const labels: Record<string, string> = {
     'memory.portrait.title': '画像',
@@ -79,6 +81,7 @@ vi.mock('@/api/modules/memory', () => ({
     submitAssertionFeedback: vi.fn(),
     correctAssertion: vi.fn(),
     applyCorrection: vi.fn(),
+    getCorrectionContextOptions: vi.fn(),
   },
 }));
 
@@ -88,7 +91,16 @@ const renderPage = () => render(
   </MemoryRouter>
 );
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
+    items: [{
+      context_id: MAGI_CONTEXT_ID,
+      dimension: 'project',
+      label: 'Magi',
+    }],
+  });
+});
 
 describe('MemoryPortraitPage', () => {
   it('shows a retryable error when the first portrait load fails', async () => {
@@ -560,13 +572,13 @@ describe('MemoryPortraitPage', () => {
         before: { trait_value: '["子涵", "哈基米"]' },
         replacement: { value: '["子涵", "哈基米"]' },
         replacement_target_id: 'assert-structured-scoped',
-        scope: { project: 'Magi' },
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
         trait_value: '["子涵", "哈基米"]',
-        scope: { project: 'Magi' },
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       },
       derivation_state: 'completed',
       created: true,
@@ -579,8 +591,9 @@ describe('MemoryPortraitPage', () => {
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
     expect(within(dialog).getByLabelText('正确内容')).toHaveValue('子涵、哈基米');
     fireEvent.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
-    fireEvent.change(within(dialog).getByLabelText('情况类型'), { target: { value: 'project' } });
-    fireEvent.change(within(dialog).getByLabelText('具体情况'), { target: { value: 'Magi' } });
+    fireEvent.change(await within(dialog).findByLabelText('选择项目'), {
+      target: { value: MAGI_CONTEXT_ID },
+    });
     fireEvent.click(within(dialog).getByRole('button', { name: '保存修正' }));
 
     await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
@@ -588,7 +601,7 @@ describe('MemoryPortraitPage', () => {
       target: { kind: 'assertion', id: 'assert-structured' },
       correction_kind: 'scope_refinement',
       replacement: { value: '["子涵", "哈基米"]' },
-      scope: { project: 'Magi' },
+      scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       expected_updated_at: 1719301200,
     }));
   });

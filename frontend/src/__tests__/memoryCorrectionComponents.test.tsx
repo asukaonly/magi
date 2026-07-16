@@ -7,6 +7,14 @@ import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrect
 import MemoryCorrectionHistory from '@/components/memory/correction/MemoryCorrectionHistory';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 
+const projectContextId = (character: string) => `ctx_project_${character.repeat(64)}`;
+const MAGI_CONTEXT_ID = projectContextId('a');
+const WEBSITE_CONTEXT_ID = projectContextId('b');
+const OLD_CONTEXT_ID = projectContextId('c');
+const NEW_CONTEXT_ID = projectContextId('d');
+const FRESH_CONTEXT_ID = projectContextId('e');
+const STALE_CONTEXT_ID = projectContextId('f');
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -23,6 +31,7 @@ vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
     applyCorrection: vi.fn(),
     getCorrectionHistory: vi.fn(),
+    getCorrectionContextOptions: vi.fn(),
     revertCorrection: vi.fn(),
     getL2Entities: vi.fn(),
   },
@@ -92,6 +101,13 @@ const apiError = (status: number) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
+    items: [{
+      context_id: MAGI_CONTEXT_ID,
+      dimension: 'project',
+      label: 'Magi',
+    }],
+  });
   vi.mocked(memoryApi.getL2Entities).mockResolvedValue({
     items: [],
     total: 0,
@@ -169,6 +185,42 @@ describe('MemoryCorrectionDialog request safety', () => {
       expect(within(dialog).getByText('请选择变化开始的时间。')).toBeInTheDocument();
     });
     await waitFor(() => expect(effectiveAtInput).toHaveFocus());
+  });
+
+  it('focuses the first visible relationship error before the change time', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={relationshipTarget}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /以前是这样，现在变了/ }));
+    const objectSelect = within(dialog).getByLabelText('正确的关系对象');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByText('请选择一个与当前不同的对象。')).toBeInTheDocument();
+    expect(within(dialog).getByText('请选择变化开始的时间。')).toBeInTheDocument();
+    await waitFor(() => expect(objectSelect).toHaveFocus());
+  });
+
+  it('wraps a long unbroken memory statement inside the dialog', async () => {
+    const statement = `记忆${'x'.repeat(600)}`;
+
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={{ ...assertionTarget, statement }}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    expect(within(dialog).getByText(statement)).toHaveClass('break-words');
   });
 
   it('submits once and locks the draft while the request is pending', async () => {
@@ -389,6 +441,251 @@ describe('MemoryCorrectionDialog request safety', () => {
     expect(await within(dialog).findByText('已经把这条待确认内容标为不准确，之后不会用它来了解你。'))
       .toBeInTheDocument();
   });
+
+  it('shows backend-disambiguated project names and sends only the selected stable id', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
+      items: [{
+        context_id: MAGI_CONTEXT_ID,
+        dimension: 'project',
+        label: 'magi · first',
+      }, {
+        context_id: WEBSITE_CONTEXT_ID,
+        dimension: 'project',
+        label: 'magi · second',
+      }],
+    });
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
+      correction: {
+        ...correctionResponse().correction,
+        correction_kind: 'scope_refinement',
+        replacement: { value: '直白' },
+        scope: { all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }] },
+      },
+      current_claim: {
+        trait_value: '直白',
+        scope: { all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }] },
+      },
+    }));
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    expect(within(dialog).queryByLabelText('情况类型')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('具体情况')).not.toBeInTheDocument();
+    const search = await within(dialog).findByLabelText('搜索项目');
+    const projectSelect = within(dialog).getByLabelText('选择项目');
+    expect(within(projectSelect).getByRole('option', { name: 'magi · first' })).toBeInTheDocument();
+    expect(within(projectSelect).getByRole('option', { name: 'magi · second' })).toBeInTheDocument();
+    await user.type(search, 'second');
+    expect(within(projectSelect).queryByRole('option', { name: 'magi · first' })).not.toBeInTheDocument();
+    expect(within(projectSelect).getByRole('option', { name: 'magi · second' })).toBeInTheDocument();
+    await user.selectOptions(projectSelect, WEBSITE_CONTEXT_ID);
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledOnce());
+    const payload = vi.mocked(memoryApi.applyCorrection).mock.calls[0][0];
+    expect(payload.scope).toEqual({
+      all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }],
+    });
+    expect(JSON.stringify(payload.scope)).not.toContain('magi · second');
+    expect(await within(dialog).findByText(/项目[:：] magi · second/)).toBeInTheDocument();
+  });
+
+  it('does not load relationship objects when only the project scope changes', async () => {
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={relationshipTarget}
+        initialCorrectionKind="scope_refinement"
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    expect(await within(dialog).findByLabelText('选择项目')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('正确的关系对象')).not.toBeInTheDocument();
+    expect(memoryApi.getL2Entities).not.toHaveBeenCalled();
+  });
+
+  it('keeps scoped correction unavailable until a failed project load is retried', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions)
+      .mockRejectedValueOnce(new Error('temporarily unavailable'))
+      .mockResolvedValueOnce({
+        items: [{
+          context_id: MAGI_CONTEXT_ID,
+          dimension: 'project',
+          label: 'Magi',
+        }],
+      });
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('暂时无法读取项目列表');
+    expect(within(dialog).getByRole('button', { name: '保存修正' })).toBeDisabled();
+    await user.click(within(dialog).getByRole('button', { name: '重试' }));
+    expect(await within(dialog).findByLabelText('选择项目')).toBeInTheDocument();
+    expect(memoryApi.getCorrectionContextOptions).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(within(dialog).getByLabelText('选择项目')).toHaveFocus());
+  });
+
+  it('returns focus to the retry control when project loading fails again', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions)
+      .mockRejectedValueOnce(new Error('temporarily unavailable'))
+      .mockRejectedValueOnce(new Error('still unavailable'));
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    const retry = await within(dialog).findByRole('button', { name: '重试' });
+    await user.click(retry);
+
+    await waitFor(() => expect(within(dialog).getByRole('button', { name: '重试' })).toHaveFocus());
+    expect(memoryApi.getCorrectionContextOptions).toHaveBeenCalledTimes(2);
+  });
+
+  it('moves focus to the empty project explanation after a successful retry', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions)
+      .mockRejectedValueOnce(new Error('temporarily unavailable'))
+      .mockResolvedValueOnce({ items: [] });
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    await user.click(await within(dialog).findByRole('button', { name: '重试' }));
+
+    const emptyStatus = await within(dialog).findByRole('status');
+    expect(emptyStatus).toHaveTextContent('还没有可选项目');
+    await waitFor(() => expect(emptyStatus).toHaveFocus());
+  });
+
+  it('explains when no workspace project can be selected', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({ items: [] });
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    expect(await within(dialog).findByText(/还没有可选项目/)).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '保存修正' })).toBeDisabled();
+  });
+
+  it('refreshes projects and clears the selection when the server rejects a stale context', async () => {
+    vi.mocked(memoryApi.getCorrectionContextOptions)
+      .mockResolvedValueOnce({
+        items: [{
+          context_id: OLD_CONTEXT_ID,
+          dimension: 'project',
+          label: '旧项目',
+        }],
+      })
+      .mockResolvedValueOnce({
+        items: [{
+          context_id: NEW_CONTEXT_ID,
+          dimension: 'project',
+          label: '新项目',
+        }],
+      });
+    vi.mocked(memoryApi.applyCorrection).mockRejectedValue({
+      isAxiosError: true,
+      message: 'HTTP 422',
+      response: {
+        status: 422,
+        data: { detail: { code: 'context_scope_unknown' } },
+      },
+    });
+    const user = userEvent.setup();
+
+    render(
+      <MemoryCorrectionDialog open target={assertionTarget} onOpenChange={vi.fn()} />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    const projectSelect = await within(dialog).findByLabelText('选择项目');
+    await user.type(within(dialog).getByLabelText('搜索项目'), '旧');
+    await user.selectOptions(projectSelect, OLD_CONTEXT_ID);
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('项目列表已经更新');
+    await waitFor(() => expect(memoryApi.getCorrectionContextOptions).toHaveBeenCalledTimes(2));
+    const refreshedSelect = await within(dialog).findByLabelText('选择项目');
+    expect(within(dialog).getByLabelText('搜索项目')).toHaveValue('');
+    expect(refreshedSelect).toHaveValue('');
+    expect(within(refreshedSelect).getByRole('option', { name: '新项目' })).toBeInTheDocument();
+  });
+
+  it('ignores a project response that arrives after the dialog closes', async () => {
+    let resolveFirstRequest: ((value: Awaited<ReturnType<typeof memoryApi.getCorrectionContextOptions>>) => void) | undefined;
+    const firstRequest = new Promise<Awaited<ReturnType<typeof memoryApi.getCorrectionContextOptions>>>((resolve) => {
+      resolveFirstRequest = resolve;
+    });
+    vi.mocked(memoryApi.getCorrectionContextOptions)
+      .mockReturnValueOnce(firstRequest)
+      .mockResolvedValueOnce({
+        items: [{
+          context_id: FRESH_CONTEXT_ID,
+          dimension: 'project',
+          label: '当前项目',
+        }],
+      });
+    const { rerender } = render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        initialCorrectionKind="scope_refinement"
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByText('正在读取可选项目…')).toBeInTheDocument();
+    rerender(
+      <MemoryCorrectionDialog
+        open={false}
+        target={assertionTarget}
+        initialCorrectionKind="scope_refinement"
+        onOpenChange={vi.fn()}
+      />
+    );
+    rerender(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        initialCorrectionKind="scope_refinement"
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const projectSelect = await screen.findByLabelText('选择项目');
+    expect(within(projectSelect).getByRole('option', { name: '当前项目' })).toBeInTheDocument();
+    resolveFirstRequest?.({
+      items: [{
+        context_id: STALE_CONTEXT_ID,
+        dimension: 'project',
+        label: '过期项目',
+      }],
+    });
+    await waitFor(() => expect(within(projectSelect).queryByRole('option', { name: '过期项目' })).not.toBeInTheDocument());
+  });
 });
 
 describe('MemoryCorrectionHistory request safety', () => {
@@ -407,11 +704,112 @@ describe('MemoryCorrectionHistory request safety', () => {
     state: 'active' as const,
   };
 
+  it('shows project names for structured scopes in corrections and versions', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [{
+        assertion_id: 'assertion-scoped',
+        trait_value: '直白',
+        status: 'stable',
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
+      }],
+      corrections: [{
+        ...correction,
+        correction_kind: 'scope_refinement',
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
+      }],
+      context_labels: { [MAGI_CONTEXT_ID]: 'Magi · archived' },
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findAllByText(/项目[:：] Magi · archived/)).toHaveLength(2);
+    expect(screen.queryByText('原来：')).not.toBeInTheDocument();
+    expect(screen.queryByText('改为：')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(MAGI_CONTEXT_ID);
+    expect(memoryApi.getCorrectionContextOptions).not.toHaveBeenCalled();
+  });
+
+  it('moves focus into and back out of the inline revert confirmation', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [correction],
+      context_labels: {},
+    });
+    const user = userEvent.setup();
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    const revertButton = await screen.findByRole('button', { name: '撤销这次修正' });
+    await user.click(revertButton);
+    expect(screen.getByRole('alertdialog', { name: '确认撤销这次修正？' })).toBeInTheDocument();
+    const cancelButton = screen.getByRole('button', { name: '取消' });
+    await waitFor(() => expect(cancelButton).toHaveFocus());
+    await user.click(cancelButton);
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '撤销这次修正' })).toHaveFocus());
+  });
+
+  it('hides internal context ids when a historical label is unavailable', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        correction_kind: 'scope_refinement',
+        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText(/项目[:：] 名称暂不可用/)).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(MAGI_CONTEXT_ID);
+    expect(memoryApi.getCorrectionContextOptions).not.toHaveBeenCalled();
+  });
+
+  it('wraps long correction reasons and historical values', async () => {
+    const longReason = `说明${'r'.repeat(600)}`;
+    const longValue = `内容${'v'.repeat(600)}`;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [{
+        assertion_id: 'assertion-long',
+        trait_value: longValue,
+        status: 'stable',
+      }],
+      corrections: [{ ...correction, reason: longReason }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText(`说明：${longReason}`)).toHaveClass('break-words');
+    expect(screen.getByText(longValue)).toHaveClass('break-words');
+  });
+
+  it('does not load project names for history without scoped records', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [correction],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('当前有效')).toBeInTheDocument();
+    expect(memoryApi.getCorrectionContextOptions).not.toHaveBeenCalled();
+  });
+
   it('reuses one request id when reverting is retried after a network failure', async () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [],
       corrections: [correction],
+      context_labels: {},
     });
     vi.mocked(memoryApi.revertCorrection)
       .mockRejectedValueOnce(new Error('response lost'))
@@ -427,6 +825,9 @@ describe('MemoryCorrectionHistory request safety', () => {
     await user.click(await screen.findByRole('button', { name: '撤销这次修正' }));
     await user.click(screen.getByRole('button', { name: '确认撤销' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('暂时没能撤销');
+    const retryRevert = screen.getByRole('button', { name: '撤销这次修正' });
+    await waitFor(() => expect(retryRevert).toHaveFocus());
+    await user.click(retryRevert);
     await user.click(screen.getByRole('button', { name: '确认撤销' }));
 
     await waitFor(() => expect(memoryApi.revertCorrection).toHaveBeenCalledTimes(2));
@@ -435,11 +836,97 @@ describe('MemoryCorrectionHistory request safety', () => {
     );
   });
 
+  it('does not report a successful revert as failed when follow-up refreshes fail', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory)
+      .mockResolvedValueOnce({
+        target: { kind: 'assertion', id: 'assertion-1' },
+        versions: [],
+        corrections: [correction],
+        context_labels: {},
+      })
+      .mockRejectedValueOnce(new Error('history refresh failed'));
+    vi.mocked(memoryApi.revertCorrection).mockResolvedValue(correctionResponse({
+      correction: { ...correction, state: 'reverted', reverted_at: 1719301400 },
+      current_claim: { trait_value: '直白' },
+      created: false,
+    }));
+    const onReverted = vi.fn().mockRejectedValue(new Error('parent refresh failed'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const user = userEvent.setup();
+
+    render(<MemoryCorrectionHistory target={assertionTarget} onReverted={onReverted} />);
+
+    await user.click(await screen.findByRole('button', { name: '撤销这次修正' }));
+    await user.click(screen.getByRole('button', { name: '确认撤销' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('暂时没能读取修改记录');
+    expect(screen.queryByText('暂时没能撤销这次修正，请稍后重试。')).not.toBeInTheDocument();
+    expect(memoryApi.revertCorrection).toHaveBeenCalledOnce();
+    expect(onReverted).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to refresh memory after successful correction revert',
+      expect.any(Error)
+    );
+  });
+
+  it('allows only one project correction to be reverted at a time', async () => {
+    const secondCorrection = {
+      ...correction,
+      correction_id: 'correction-second-project',
+      request_id: 'request-second-project',
+      target_id: 'assertion-second-project',
+      claim_fingerprint: 'claim-second-project',
+      replacement_target_id: 'assertion-second-project-new',
+      created_at: correction.created_at + 1,
+      scope: { all_of: [{ dimension: 'project' as const, context_id: WEBSITE_CONTEXT_ID }] },
+    };
+    const firstCorrection = {
+      ...correction,
+      target_id: 'assertion-first-project',
+      replacement_target_id: 'assertion-first-project-new',
+      scope: { all_of: [{ dimension: 'project' as const, context_id: MAGI_CONTEXT_ID }] },
+    };
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [firstCorrection, secondCorrection],
+      context_labels: {
+        [MAGI_CONTEXT_ID]: 'Magi',
+        [WEBSITE_CONTEXT_ID]: 'Website',
+      },
+    });
+    let resolveRevert: (value: MemoryCorrectionCommandResponse) => void = () => undefined;
+    vi.mocked(memoryApi.revertCorrection).mockImplementation(() => new Promise((resolve) => {
+      resolveRevert = resolve;
+    }));
+    const user = userEvent.setup();
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    const revertButtons = await screen.findAllByRole('button', { name: '撤销这次修正' });
+    expect(revertButtons).toHaveLength(2);
+    await user.click(revertButtons[0]);
+    const confirmButton = screen.getByRole('button', { name: '确认撤销' });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    await waitFor(() => expect(memoryApi.revertCorrection).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: '撤销这次修正' })).toBeDisabled();
+
+    resolveRevert(correctionResponse({
+      correction: { ...secondCorrection, state: 'reverted', reverted_at: 1719301400 },
+      current_claim: { trait_value: '直白' },
+      created: false,
+    }));
+    await waitFor(() => expect(memoryApi.getCorrectionHistory).toHaveBeenCalledTimes(2));
+  });
+
   it.each([404, 409])('reloads history after an HTTP %s revert response', async (status) => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [],
       corrections: [correction],
+      context_labels: {},
     });
     vi.mocked(memoryApi.revertCorrection).mockRejectedValue(apiError(status));
     const onConflict = vi.fn();
@@ -486,6 +973,7 @@ describe('MemoryCorrectionHistory request safety', () => {
         },
       ],
       corrections: [],
+      context_labels: {},
     });
 
     render(<MemoryCorrectionHistory target={relationshipTarget} />);
@@ -497,7 +985,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key');
   });
 
-  it('uses the saved summary or object id instead of a vague historical object label', async () => {
+  it('uses the saved summary or a neutral fallback without exposing object ids', async () => {
     const target: MemoryCorrectionUiTarget = {
       ...relationshipTarget,
       entityOptions: [{ id: 'tool:magi', name: 'Magi', type: 'software' }],
@@ -519,6 +1007,7 @@ describe('MemoryCorrectionHistory request safety', () => {
         valid_to: 1719301400,
       }],
       corrections: [],
+      context_labels: {},
     });
 
     render(<MemoryCorrectionHistory target={target} />);
@@ -526,8 +1015,8 @@ describe('MemoryCorrectionHistory request safety', () => {
     await screen.findByText('还没有修正过这条记忆。');
     fireEvent.click(screen.getByText('查看内容变化'));
     expect(screen.getByText('你 使用 Legacy Tool')).toBeInTheDocument();
-    expect(screen.getByText('你 使用 对象 tool:deleted')).toBeInTheDocument();
-    expect(screen.queryByText(/另一个对象/)).not.toBeInTheDocument();
+    expect(screen.getByText('你 使用 另一个对象')).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('tool:deleted');
     expect(memoryApi.getL2Entities).not.toHaveBeenCalled();
   });
 
@@ -541,6 +1030,7 @@ describe('MemoryCorrectionHistory request safety', () => {
         correction_kind: 'situation_changed',
         effective_at: now + 3600,
       }],
+      context_labels: {},
     });
 
     render(<MemoryCorrectionHistory target={assertionTarget} />);
@@ -569,6 +1059,7 @@ describe('MemoryCorrectionHistory request safety', () => {
         },
       ],
       corrections: [],
+      context_labels: {},
     });
 
     render(<MemoryCorrectionHistory target={assertionTarget} />);
@@ -591,6 +1082,7 @@ describe('MemoryCorrectionHistory request safety', () => {
         valid_to: now - 60,
       }],
       corrections: [],
+      context_labels: {},
     });
 
     render(<MemoryCorrectionHistory target={assertionTarget} />);

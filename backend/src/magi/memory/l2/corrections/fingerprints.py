@@ -6,14 +6,19 @@ import hashlib
 import json
 import re
 import unicodedata
+import uuid
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from ...context_scope.models import (
+    canonical_context_scope,
+    context_conditions,
+    normalize_context_scope,
+)
+
 _WHITESPACE_RE = re.compile(r"\s+")
 GLOBAL_SCOPE_KEY = "global"
-SUPPORTED_SCOPE_FIELDS = frozenset(
-    {"project", "activity", "place", "person", "time_range"}
-)
+SUPPORTED_SCOPE_FIELDS = frozenset({"all_of"})
 
 
 def _normalized_text(value: Any) -> str:
@@ -50,10 +55,8 @@ def canonical_claim_value(value: Any) -> str:
 
 
 def canonical_scope_json(scope: Mapping[str, Any] | None) -> str:
-    """Serialize a controlled correction scope in a stable order."""
-    if not scope:
-        return "{}"
-    return json.dumps(scope, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """Serialize an identity-based correction scope in a stable order."""
+    return canonical_context_scope(scope)
 
 
 def scope_key(scope: Mapping[str, Any] | None) -> str:
@@ -62,6 +65,19 @@ def scope_key(scope: Mapping[str, Any] | None) -> str:
     if canonical == "{}":
         return GLOBAL_SCOPE_KEY
     return f"scope_{_stable_digest(canonical)}"
+
+
+def stored_context_scope(snapshot: Mapping[str, Any]) -> dict[str, list[dict[str, str]]]:
+    """Return the validated context scope stored in a claim snapshot."""
+    raw_scope: object = snapshot.get("scope_json")
+    if raw_scope in (None, ""):
+        raw_scope = snapshot.get("scope")
+    if isinstance(raw_scope, str):
+        try:
+            raw_scope = json.loads(raw_scope)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Stored context scope is malformed") from exc
+    return normalize_context_scope(raw_scope)
 
 
 def scope_matches(
@@ -74,23 +90,18 @@ def scope_matches(
     query context intentionally matches only global claims, preventing scoped
     refinements from leaking into ordinary recall.
     """
-    claim = dict(claim_scope or {})
-    context = dict(context_scope or {})
+    claim = set(context_conditions(claim_scope))
+    context = set(context_conditions(context_scope))
     if not claim:
         return True
     if not context:
         return False
-    for key, value in claim.items():
-        if key not in context:
-            return False
-        if canonical_claim_value(context[key]) != canonical_claim_value(value):
-            return False
-    return True
+    return claim <= context
 
 
 def scope_specificity(scope: Mapping[str, Any] | None) -> int:
     """Return the deterministic precedence of a matching claim scope."""
-    return len(dict(scope or {}))
+    return len(context_conditions(scope))
 
 
 def assertion_slot_key(
@@ -150,6 +161,20 @@ def relationship_claim_fingerprint(
     )
 
 
+def relationship_triple_id(
+    *,
+    subject_id: str,
+    predicate: str,
+    object_id: str,
+    scope_key_value: str = GLOBAL_SCOPE_KEY,
+) -> str:
+    """Return a stable relationship row id without collapsing distinct scopes."""
+    triple_key = f"{subject_id}:{predicate}:{object_id}"
+    if scope_key_value != GLOBAL_SCOPE_KEY:
+        triple_key = f"{triple_key}:{scope_key_value}"
+    return f"triple_{uuid.uuid5(uuid.NAMESPACE_DNS, triple_key)}"
+
+
 __all__ = [
     "GLOBAL_SCOPE_KEY",
     "SUPPORTED_SCOPE_FIELDS",
@@ -159,7 +184,9 @@ __all__ = [
     "canonical_scope_json",
     "relationship_claim_fingerprint",
     "relationship_slot_key",
+    "relationship_triple_id",
     "scope_matches",
     "scope_specificity",
     "scope_key",
+    "stored_context_scope",
 ]

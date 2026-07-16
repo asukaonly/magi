@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.memory.l2.retrieval import relationship_history
 from magi.memory.l2.retrieval.common import bounded_scoped_candidate_limit
 from magi.memory.hybrid_retrieval.l2_handler import L2Handler
@@ -199,18 +200,18 @@ async def test_hybrid_assertion_recall_requires_matching_scope(l2_store_with_sch
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement_value="Shanghai",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     assert corrected is not None
     handler = L2Handler(store)
 
     global_result = await handler.execute(_assertion_conditions(), user_id="u1")
     mismatch = await handler.execute(
-        _assertion_conditions(context_scope={"project": "other"}),
+        _assertion_conditions(context_scope=context_scope(project="other")),
         user_id="u1",
     )
     matching = await handler.execute(
-        _assertion_conditions(context_scope={"project": "magi"}),
+        _assertion_conditions(context_scope=context_scope(project="magi")),
         user_id="u1",
     )
 
@@ -232,26 +233,26 @@ async def test_hybrid_assertion_recall_prefers_most_specific_matching_scope(
     await _seed_location_assertion(
         store,
         value="Project",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
         evidence_event="evt-assertion-project",
     )
     await _seed_location_assertion(
         store,
         value="Activity",
-        scope={"project": "magi", "activity": "coding"},
+        scope=context_scope(project="magi", activity="coding"),
         evidence_event="evt-assertion-activity",
     )
     handler = L2Handler(store)
 
     result = await handler.execute(
         _assertion_conditions(
-            context_scope={"project": "magi", "activity": "coding", "place": "home"}
+            context_scope=context_scope(project="magi", activity="coding", place="home")
         ),
         user_id="u1",
     )
     spanning = await handler.execute(
         _assertion_conditions(
-            context_scope={"project": "magi", "activity": "coding", "place": "home"}
+            context_scope=context_scope(project="magi", activity="coding", place="home")
         ),
         TimeRange(start=time.time() - 3500, end=time.time() + 1),
         user_id="u1",
@@ -277,14 +278,14 @@ async def test_scoped_assertion_masks_global_only_while_scope_is_valid(
     await _seed_location_assertion(
         store,
         value="Project",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
         evidence_event="evt-project-history",
         observed_at=scoped_from,
     )
     handler = L2Handler(store)
 
     result = await handler.execute(
-        _assertion_conditions(context_scope={"project": "magi"}),
+        _assertion_conditions(context_scope=context_scope(project="magi")),
         TimeRange(start=base, end=time.time()),
         user_id="u1",
     )
@@ -356,9 +357,7 @@ async def test_governed_batch_recall_preserves_each_entity_limit(l2_store_with_s
     assert len(assertions["user:a"]) == 1
     assert [item["assertion_id"] for item in assertions["user:b"]] == [b_assertion]
     assert len(relationships["user:a"]) == 1
-    assert [item["triple_id"] for item in relationships["user:b"]] == [
-        b_relationship
-    ]
+    assert [item["triple_id"] for item in relationships["user:b"]] == [b_relationship]
 
 
 @pytest.mark.asyncio
@@ -381,7 +380,7 @@ async def test_governed_batch_view_uses_batch_store_boundaries() -> None:
     )
     view = GovernedL2RecallView(
         store,
-        context_scope={"project": "magi"},
+        context_scope=context_scope(project="magi"),
         effective_at=123.0,
         effective_range=(100.0, 123.0),
         include_relationship_history=True,
@@ -446,9 +445,7 @@ async def test_governed_historical_batch_keeps_each_entity_candidate_window(
     )
 
     assert len(relationships["user:a"]) == 1
-    assert [item["triple_id"] for item in relationships["user:b"]] == [
-        b_relationship
-    ]
+    assert [item["triple_id"] for item in relationships["user:b"]] == [b_relationship]
 
 
 @pytest.mark.asyncio
@@ -487,9 +484,7 @@ async def test_hybrid_relationship_recall_respects_scheduled_change_and_as_of(
     )
 
     assert [item["object_id"] for item in before["relationships"]] == ["place:hangzhou"]
-    assert [item["object_id"] for item in historical["relationships"]] == [
-        "place:hangzhou"
-    ]
+    assert [item["object_id"] for item in historical["relationships"]] == ["place:hangzhou"]
     assert [item["object_id"] for item in after["relationships"]] == ["place:shanghai"]
     assert {item["object_id"] for item in spanning["relationships"]} == {
         "place:hangzhou",
@@ -519,9 +514,7 @@ async def test_chat_recall_keeps_governed_relationship_correction_without_l1_eve
 
     result = await handler.execute(_relationship_conditions(), user_id="u1")
 
-    assert [item["object_id"] for item in result["relationships"]] == [
-        "place:shanghai"
-    ]
+    assert [item["object_id"] for item in result["relationships"]] == ["place:shanghai"]
     l1.filter_ids_by_user.assert_not_awaited()
 
 
@@ -563,12 +556,10 @@ async def test_future_start_only_range_recalls_scheduled_assertion_and_relations
         user_id="u1",
     )
 
-    assert [item["trait_value"] for item in assertion_result["assertions"]] == [
-        "Shanghai"
+    assert [item["trait_value"] for item in assertion_result["assertions"]] == ["Shanghai"]
+    assert [item["object_id"] for item in relationship_result["relationships"]] == [
+        "place:shanghai"
     ]
-    assert [
-        item["object_id"] for item in relationship_result["relationships"]
-    ] == ["place:shanghai"]
 
 
 @pytest.mark.asyncio
@@ -581,26 +572,24 @@ async def test_hybrid_relationship_recall_requires_matching_scope(l2_store_with_
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement={},
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     assert corrected is not None
     handler = L2Handler(store)
 
     global_result = await handler.execute(_relationship_conditions(), user_id="u1")
     mismatch = await handler.execute(
-        _relationship_conditions(context_scope={"project": "other"}),
+        _relationship_conditions(context_scope=context_scope(project="other")),
         user_id="u1",
     )
     matching = await handler.execute(
-        _relationship_conditions(context_scope={"project": "magi"}),
+        _relationship_conditions(context_scope=context_scope(project="magi")),
         user_id="u1",
     )
 
     assert global_result["relationships"] == []
     assert mismatch["relationships"] == []
-    assert [item["object_id"] for item in matching["relationships"]] == [
-        "place:shanghai"
-    ]
+    assert [item["object_id"] for item in matching["relationships"]] == ["place:shanghai"]
 
 
 @pytest.mark.asyncio
@@ -646,7 +635,7 @@ async def test_fact_authoritative_l1_suppresses_all_correction_kinds(
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement={},
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     memory = SimpleNamespace(
         l0=None,
@@ -808,17 +797,13 @@ async def test_shared_evidence_event_stays_blocked_until_every_correction_is_rev
     )
     assert first is not None and second is not None
 
-    assert await store.active_correction_evidence_event_ids(["evt-shared"]) == {
-        "evt-shared"
-    }
+    assert await store.active_correction_evidence_event_ids(["evt-shared"]) == {"evt-shared"}
     await store.revert_assertion_correction(
         correction_id=first["correction"]["correction_id"],
         request_id="shared-event-revert-first",
         actor_id="user:u1",
     )
-    assert await store.active_correction_evidence_event_ids(["evt-shared"]) == {
-        "evt-shared"
-    }
+    assert await store.active_correction_evidence_event_ids(["evt-shared"]) == {"evt-shared"}
     await store.revert_assertion_correction(
         correction_id=second["correction"]["correction_id"],
         request_id="shared-event-revert-second",
@@ -860,18 +845,14 @@ async def test_reverting_latest_replacement_restores_only_its_evidence_event(
     assert second is not None
 
     candidates = ["evt-original", "evt-replacement-first"]
-    assert await store.active_correction_evidence_event_ids(candidates) == set(
-        candidates
-    )
+    assert await store.active_correction_evidence_event_ids(candidates) == set(candidates)
     await store.revert_assertion_correction(
         correction_id=second["correction"]["correction_id"],
         request_id="replacement-chain-revert-second",
         actor_id="user:u1",
     )
 
-    assert await store.active_correction_evidence_event_ids(candidates) == {
-        "evt-original"
-    }
+    assert await store.active_correction_evidence_event_ids(candidates) == {"evt-original"}
 
 
 @pytest.mark.asyncio
@@ -890,16 +871,14 @@ async def test_new_correction_evidence_parser_accepts_two_nested_json_layers(
             slot_key="slot-nested",
             claim_fingerprint="claim-nested",
             correction_kind=CorrectionKind.RECORD_ERROR,
-            before={
-                "evidence_events": json.dumps(json.dumps(["evt-nested"]))
-            },
+            before={"evidence_events": json.dumps(json.dumps(["evt-nested"]))},
             created_at=now,
         )
     )
 
-    assert await store.active_correction_evidence_event_ids(
-        ["evt-nested", "evt-unrelated"]
-    ) == {"evt-nested"}
+    assert await store.active_correction_evidence_event_ids(["evt-nested", "evt-unrelated"]) == {
+        "evt-nested"
+    }
 
 
 @pytest.mark.asyncio
@@ -918,16 +897,15 @@ async def test_new_correction_evidence_parser_fails_closed_on_nonstring_item(
             slot_key="slot-invalid-item",
             claim_fingerprint="claim-invalid-item",
             correction_kind=CorrectionKind.RECORD_ERROR,
-            before={
-                "evidence_events": ["evt-valid", {"event_id": "evt-invalid"}]
-            },
+            before={"evidence_events": ["evt-valid", {"event_id": "evt-invalid"}]},
             created_at=now,
         )
     )
 
-    assert await store.active_correction_evidence_event_ids(
-        ["candidate-a", "candidate-b"]
-    ) == {"candidate-a", "candidate-b"}
+    assert await store.active_correction_evidence_event_ids(["candidate-a", "candidate-b"]) == {
+        "candidate-a",
+        "candidate-b",
+    }
 
 
 @pytest.mark.asyncio
@@ -948,9 +926,7 @@ async def test_correction_evidence_lookup_handles_large_structured_recall_batch(
     )
 
     candidates = [f"evt-{index}" for index in range(2_000)]
-    assert await store.active_correction_evidence_event_ids(candidates) == {
-        "evt-1200"
-    }
+    assert await store.active_correction_evidence_event_ids(candidates) == {"evt-1200"}
 
 
 @pytest.mark.asyncio
@@ -973,9 +949,7 @@ async def test_graph_spread_respects_future_relationship_change(l2_store_with_sc
     current = await spreader.spread(["user:u1"])
     future = await spreader.spread(
         ["user:u1"],
-        temporal_bounds=governed_temporal_bounds(
-            TimeRange(as_of=effective_at + 1)
-        ),
+        temporal_bounds=governed_temporal_bounds(TimeRange(as_of=effective_at + 1)),
     )
 
     assert "place:hangzhou" in current.discovered_entities
@@ -998,14 +972,14 @@ async def test_graph_spread_keeps_scoped_relationship_out_of_global_query(
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement={},
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     spreader = GraphSpreader(store, max_hops=1)
 
     global_result = await spreader.spread(["user:u1"])
     scoped_result = await spreader.spread(
         ["user:u1"],
-        context_scope={"project": "magi", "activity": "coding"},
+        context_scope=context_scope(project="magi", activity="coding"),
     )
 
     assert "place:shanghai" not in global_result.discovered_entities
@@ -1035,7 +1009,7 @@ async def test_edge_vector_overfetch_fills_limit_after_governance(
             scope=scope,
         )
 
-    scoped_id = await seed("topic:scoped", scope={"project": "magi"})
+    scoped_id = await seed("topic:scoped", scope=context_scope(project="magi"))
     future_id = await seed("topic:future", valid_from=now + 3600)
     rejected_id = await seed("topic:rejected")
     await store.reject_edge(triple_id=rejected_id)
@@ -1083,7 +1057,7 @@ async def test_edge_vector_overfetch_grows_within_cap_when_first_window_is_filte
                 observed_at=now - 60,
                 source_type="conversation",
                 extraction_method="explicit",
-                scope={"project": "magi"},
+                scope=context_scope(project="magi"),
             )
         )
     global_id = await store.upsert_knowledge_edge(
@@ -1099,8 +1073,7 @@ async def test_edge_vector_overfetch_grows_within_cap_when_first_window_is_filte
         extraction_method="explicit",
     )
     raw_candidates = [
-        await store.get_relationship(triple_id=triple_id)
-        for triple_id in [*scoped_ids, global_id]
+        await store.get_relationship(triple_id=triple_id) for triple_id in [*scoped_ids, global_id]
     ]
 
     async def vector_search(**kwargs):  # type: ignore[no-untyped-def]
@@ -1117,8 +1090,7 @@ async def test_edge_vector_overfetch_grows_within_cap_when_first_window_is_filte
 
     assert [item["triple_id"] for item in results] == [global_id]
     requested_limits = [
-        int(call.kwargs["limit"])
-        for call in store.search_edges_by_embedding.call_args_list
+        int(call.kwargs["limit"]) for call in store.search_edges_by_embedding.call_args_list
     ]
     assert requested_limits == [9, 18]
     assert max(requested_limits) <= 256
@@ -1133,7 +1105,7 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
     await _seed_location_assertion(
         store,
         value="Scoped winner",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
         evidence_event="evt-scoped-winner",
     )
     scoped_edge_id = await store.upsert_knowledge_edge(
@@ -1147,7 +1119,7 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
         observed_at=time.time() - 120,
         source_type="conversation",
         extraction_method="explicit",
-        scope={"project": "magi"},
+        scope=context_scope(project="magi"),
     )
     for index in range(48):
         observed_at = time.time()
@@ -1182,11 +1154,13 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
             extraction_method="explicit",
         )
 
-    context_scope = {
-        **{f"extra_{index}": f"value-{index}" for index in range(12)},
-        "project": "magi",
-        "activity": "coding",
-    }
+    query_context_scope = context_scope(
+        project="magi",
+        activity="coding",
+        place="home",
+        person="alice",
+        time="day",
+    )
     loaded_candidate_counts: list[int] = []
     original_materializer = relationship_history._materialize_relationship_states
 
@@ -1203,11 +1177,11 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
     )
     assertions = await store.list_current_assertions(
         entity_id="user:u1",
-        context_scope=context_scope,
+        context_scope=query_context_scope,
         limit=1,
     )
     relationships = await store.list_current_relationships(
-        context_scope=context_scope,
+        context_scope=query_context_scope,
         effective_at=time.time(),
         limit=1,
     )
@@ -1218,21 +1192,38 @@ async def test_scoped_reads_stay_bounded_without_losing_specific_winner(
 
 
 @pytest.mark.asyncio
-async def test_memory_query_tool_passes_superset_scope_through_real_hybrid_recall(
+async def test_memory_query_tool_passes_trusted_workspace_through_real_hybrid_recall(
     l2_store_with_schema,
+    tmp_path,
 ):
     """The chat-facing tool must reach scoped claims through the real service."""
     from types import SimpleNamespace
 
+    from magi.core.workspace import WorkspacePaths, WorkspaceStateStore
     from magi.memory.hybrid_retrieval import build_query
     from magi.memory.hybrid_retrieval.models import ConversationTurn, RetrievalConfig
     from magi.memory.hybrid_retrieval.service import HybridRetrievalService
+    from magi.memory.context_scope import context_id_for_workspace
     from magi.memory.retrieval_projection import project_historical_recall
     from magi.tools.builtin.memory_query_tool import MemoryQueryTool
     from magi.tools.schema import ToolExecutionContext
     from magi_plugin_sdk.capabilities import ToolCapabilities
 
     store = l2_store_with_schema
+    magi_workspace = tmp_path / "Magi"
+    other_workspace = tmp_path / "Other"
+    magi_workspace.mkdir()
+    other_workspace.mkdir()
+    WorkspaceStateStore(WorkspacePaths.from_root(magi_workspace)).claim_identity()
+    WorkspaceStateStore(WorkspacePaths.from_root(other_workspace)).claim_identity()
+    magi_scope = {
+        "all_of": [
+            {
+                "dimension": "project",
+                "context_id": context_id_for_workspace(str(magi_workspace)),
+            }
+        ]
+    }
     assertion_id = await _seed_location_assertion(store, value="Shanghai")
     corrected = await store.apply_assertion_correction(
         assertion_id=assertion_id,
@@ -1240,7 +1231,7 @@ async def test_memory_query_tool_passes_superset_scope_through_real_hybrid_recal
         actor_id="user:u1",
         correction_kind=CorrectionKind.SCOPE_REFINEMENT,
         replacement_value="Shanghai",
-        scope={"project": "magi"},
+        scope=magi_scope,
     )
     assert corrected is not None
 
@@ -1282,23 +1273,35 @@ async def test_memory_query_tool_passes_superset_scope_through_real_hybrid_recal
             return await service.query(request)
 
     tool = MemoryQueryTool()
-    context = ToolExecutionContext(
+    hidden_context = ToolExecutionContext(
         agent_id="agent-1",
         capabilities=ToolCapabilities(memory_query=_MemoryQueryPort()),
-        env_vars={"user_id": "u1"},
+        workspace=str(other_workspace),
+        env_vars={
+            "user_id": "u1",
+            "memory_context_workspace": str(other_workspace),
+        },
+    )
+    visible_context = hidden_context.model_copy(
+        update={
+            "workspace": str(magi_workspace),
+            "env_vars": {
+                "user_id": "u1",
+                "memory_context_workspace": str(magi_workspace),
+            },
+        }
     )
 
     hidden = await tool.execute(
         {"query": "Where do I live?", "query_mode": "exact_fact"},
-        context,
+        hidden_context,
     )
     visible = await tool.execute(
         {
             "query": "Where do I live in the Magi project?",
             "query_mode": "exact_fact",
-            "context_scope": {"project": "magi", "activity": "coding"},
         },
-        context,
+        visible_context,
     )
 
     assert hidden.success is True

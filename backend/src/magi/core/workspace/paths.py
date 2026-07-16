@@ -18,6 +18,7 @@ WORKSPACE_STATE_SCHEMA_VERSION = 1
 
 _LOCAL_GITIGNORE_LINES = (
     "# Magi local workspace state",
+    "/.gitignore",
     "local/",
     "cache/",
     "runtime/",
@@ -53,9 +54,7 @@ def _safe_segment(raw_value: str, label: str) -> str:
     raw = str(raw_value or "").strip()
     if not raw:
         raise ValueError(f"{label} is required")
-    normalized = "".join(
-        char if char.isalnum() or char in {"-", "_", "."} else "_" for char in raw
-    )
+    normalized = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in raw)
     if normalized in {".", ".."}:
         raise ValueError(f"{label} is invalid")
     return normalized

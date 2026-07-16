@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, is_dataclass
 from typing import Literal
 
 from fastapi import HTTPException, Query, status
 
+from .....memory.context_scope import ContextCatalog, ContextScopeError
 from .....memory.event_contracts import generate_event_id
 from .....memory.l2.corrections.models import CorrectionKind, CorrectionTargetKind
 from .....memory.l2.corrections.repository import MemoryCorrectionRepository
@@ -34,6 +37,22 @@ async def apply_memory_correction(
     """Apply one assertion or relationship correction through the shared service."""
     unified_memory = _require_l2_memory()
     l2 = unified_memory.l2
+    requested_scope = body.scope.model_dump() if body.scope is not None else None
+    repository = MemoryCorrectionRepository(l2.db_path)
+    existing_request = await repository.get_by_request_id(body.request_id)
+    if existing_request is None:
+        try:
+            scope = await ContextCatalog(l2.db_path).validate_correction_scope(requested_scope)
+        except ContextScopeError as exc:
+            existing_request = await repository.get_by_request_id(body.request_id)
+            if existing_request is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={"code": exc.code, "message": str(exc)},
+                ) from exc
+            scope = requested_scope or {}
+    else:
+        scope = requested_scope or {}
     audit_event_id = (
         None if body.source_event_id is not None else generate_event_id(prefix="correction_audit")
     )
@@ -49,7 +68,7 @@ async def apply_memory_correction(
                 replacement_value=replacement_value,
                 reason=body.reason,
                 effective_at=body.effective_at,
-                scope=body.scope,
+                scope=scope or None,
                 source_event_id=body.source_event_id,
                 audit_event_id=audit_event_id,
                 expected_updated_at=body.expected_updated_at,
@@ -64,7 +83,7 @@ async def apply_memory_correction(
                 replacement=body.replacement,
                 reason=body.reason,
                 effective_at=body.effective_at,
-                scope=body.scope,
+                scope=scope or None,
                 source_event_id=body.source_event_id,
                 audit_event_id=audit_event_id,
                 expected_updated_at=body.expected_updated_at,
@@ -115,11 +134,15 @@ async def get_memory_correction_history(
             raise _target_not_found()
         history = await l2.get_relationship_correction_history(triple_id=target_id)
         versions = history["versions"]
+    context_labels = await ContextCatalog(l2.db_path).get_context_labels(
+        _referenced_context_ids(versions, history["corrections"])
+    )
     return MemoryCorrectionHistoryResponse.model_validate(
         {
             "target": {"kind": target_kind, "id": target_id},
             "versions": versions,
             "corrections": history["corrections"],
+            "context_labels": context_labels,
         }
     )
 
@@ -183,11 +206,15 @@ def _require_l2_memory():
 def _assertion_replacement_value(body: MemoryCorrectionRequest) -> str | None:
     if body.replacement is None:
         return None
-    value = body.replacement.get("value")
-    if value is None or not str(value).strip():
+    unknown_fields = set(body.replacement) - {"value"}
+    if unknown_fields:
+        unknown = ", ".join(sorted(str(item) for item in unknown_fields))
         raise MemoryCorrectionValidationError(
-            "Assertion replacement must contain a non-empty value"
+            f"Unsupported assertion replacement fields: {unknown}"
         )
+    value = body.replacement.get("value")
+    if value is None:
+        return None
     return str(value).strip()
 
 
@@ -218,6 +245,32 @@ def _validation_error_detail(
     if not error.code:
         return str(error)
     return {"code": error.code, "message": str(error)}
+
+
+def _referenced_context_ids(*values: object) -> set[str]:
+    found: set[str] = set()
+
+    def visit(value: object) -> None:
+        if is_dataclass(value) and not isinstance(value, type):
+            visit(asdict(value))
+            return
+        if isinstance(value, Mapping):
+            context_id = value.get("context_id")
+            if isinstance(context_id, str) and context_id.strip():
+                found.add(context_id.strip())
+            for nested in value.values():
+                visit(nested)
+            return
+        if isinstance(value, Sequence) and not isinstance(
+            value,
+            (str, bytes, bytearray),
+        ):
+            for nested in value:
+                visit(nested)
+
+    for value in values:
+        visit(value)
+    return found
 
 
 def _target_not_found() -> HTTPException:

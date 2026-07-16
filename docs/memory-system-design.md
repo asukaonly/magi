@@ -903,6 +903,58 @@ rules are evaluated against when the candidate evidence was observed, so evidenc
 from before a scheduled change cannot be governed as though the change had already
 happened.
 
+Correction scopes use stable local context identities rather than free-text
+labels. The stored contract is an `all_of` list of typed context IDs; an empty
+retrieval context matches global claims only. The ordinary product currently
+exposes only projects that are bound to real chat workspaces. Activity, place,
+person, and legacy time identities remain internal until each has an equally
+trustworthy user-selectable registry. Retrieval resolves the current context once
+at the shared entry point without an LLM or network request. A durably bound
+workspace is authoritative for the project dimension; a project name mentioned
+in ordinary message text cannot switch recall away from that workspace. Text
+aliases are considered only when no trusted workspace is available.
+
+Workspace identities are claimed only after chat persistence commits a real
+workspace association. Listing or reading workspaces never creates local state,
+and an unclaimed or unreadable workspace remains global rather than receiving an
+invented project scope. Copies, path reuse, and ordinary session path changes get
+new identities even when the old path has disappeared; the runtime does not infer
+that a move occurred from filesystem state alone. A future move operation may
+preserve identity only when the user expresses that intent explicitly.
+
+Corrections that change or remove content inherit the exact scope of the source
+claim. Only `scope_refinement` may choose a different scope, and it preserves the
+claim itself rather than combining a content edit with a scope change. The service rejects
+unchanged replacements, unchanged refinements, unknown replacement fields, and
+caller-supplied governance identities. Relationships with identical subject,
+predicate, and object values may coexist in different project scopes; conflict
+resolution, replay protection, correction history, and revert eligibility are
+evaluated independently in each scope.
+
+Relationship corrections use the graph's conflict rules within that exact
+scope. Every relationship suppressed by a correction is recorded with the
+state it had immediately before suppression. Revert restores only effects that
+are still owned by that correction, so new evidence written while the
+correction is active is preserved. A future-dated correction leaves current
+relationships untouched until its effective time, applies all conflict effects
+atomically when it activates, and retains evidence that was waiting before the
+transition. Periodic recovery applies any activation missed while the runtime
+was offline.
+
+When relationship identities or conflict rules change, stored relationships,
+corrections, versions, and recorded correction effects are updated together.
+Changing a conflict rule also converges existing relationships immediately. If
+that convergence would leave more than one distinct active user-authoritative
+relationship in the same conflict set, the rule update is rejected as a whole.
+
+Legacy free-text scopes are migrated to isolated identities, and malformed
+legacy scopes must never be widened to global memory. When relationship identity
+changes during migration or entity maintenance, every correction, version,
+dependency, and derived reference must move with it. If legacy aliases collapse
+multiple current claims into one scope, the migration chooses one current winner,
+retires incompatible rules, and invalidates derived views for rebuilding rather
+than publishing stale references.
+
 When the same relationship becomes true again after an intervening state, it
 reuses the relationship identity but starts a new, non-overlapping validity
 segment. Immutable snapshots retain every segment, and later evidence can update
