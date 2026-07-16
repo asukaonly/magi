@@ -11621,6 +11621,7 @@ export interface operations {
                 readonly limit?: number;
                 readonly offset?: number;
                 readonly query?: string | null;
+                readonly include_inactive?: boolean;
             };
             readonly header?: never;
             readonly path?: never;
@@ -12928,6 +12929,7 @@ export interface operations {
                 readonly limit?: number;
                 readonly offset?: number;
                 readonly query?: string | null;
+                readonly include_inactive?: boolean;
             };
             readonly header?: never;
             readonly path?: never;

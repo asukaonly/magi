@@ -19,6 +19,7 @@ async def _edge(
     *,
     object_id: str,
     event_id: str,
+    predicate: str = "CURRENT_LIVES_IN",
     observed_at: float | None = None,
     scope: dict | None = None,
     expires_at: float | None = None,
@@ -27,7 +28,7 @@ async def _edge(
     return await store.upsert_knowledge_edge(
         subject_id="user:u1",
         subject_type="user",
-        predicate="CURRENT_LIVES_IN",
+        predicate=predicate,
         object_id=object_id,
         object_type="place",
         evidence_event_ids=[event_id],
@@ -39,6 +40,54 @@ async def _edge(
         expires_at=expires_at,
         evidence_class=evidence_class,
     )
+
+
+@pytest.mark.asyncio
+async def test_relationship_history_follows_multi_step_nonexclusive_replacement_chain(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        predicate="LIKES",
+        object_id="place:hangzhou",
+        event_id="evt-original",
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="replace-liked-place-first",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+    )
+    assert first is not None
+    middle_id = first["current_relationship"]["triple_id"]
+    second = await store.apply_relationship_correction(
+        triple_id=middle_id,
+        request_id="replace-liked-place-second",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+    )
+    assert second is not None
+    current_id = second["current_relationship"]["triple_id"]
+
+    history = await store.get_relationship_correction_history(triple_id=current_id)
+
+    assert [item["request_id"] for item in history["corrections"]] == [
+        "replace-liked-place-first",
+        "replace-liked-place-second",
+    ]
+    assert [
+        (item["object_id"], item["status"])
+        for item in history["versions"]
+    ] == [
+        ("place:hangzhou", "active"),
+        ("place:hangzhou", "user_rejected"),
+        ("place:shanghai", "active"),
+        ("place:shanghai", "user_rejected"),
+        ("place:beijing", "active"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -171,6 +220,30 @@ async def test_relationship_situation_change_keeps_pre_change_evidence_historica
     assert historical["evidence_event_ids"] == ["evt-before-move", "evt-original"]
     active = await store.list_current_relationships(subject_id="user:u1")
     assert [item["triple_id"] for item in active] == [current_id]
+
+
+@pytest.mark.asyncio
+async def test_situation_change_rejects_time_before_relationship_started(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    observed_at = time.time() - 3600
+    triple_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-original",
+        observed_at=observed_at,
+    )
+
+    with pytest.raises(MemoryCorrectionValidationError, match="relationship start time"):
+        await store.apply_relationship_correction(
+            triple_id=triple_id,
+            request_id="relationship-before-start",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SITUATION_CHANGED,
+            replacement={"object_id": "place:shanghai", "object_type": "place"},
+            effective_at=observed_at - 1,
+        )
 
 
 @pytest.mark.asyncio

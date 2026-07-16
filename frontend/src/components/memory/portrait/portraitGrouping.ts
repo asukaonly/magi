@@ -9,9 +9,11 @@ export type PortraitWorldGroupId = PortraitSelfViewWorldGroupId;
 export interface PortraitDisplayItem {
   id: string;
   text: string;
+  correctionValue?: string | null;
   source: string;
   sourceKey: string | null;
   assertionId: string | null;
+  updatedAt?: number | null;
   claimKind?: string | null;
 }
 
@@ -56,9 +58,11 @@ const displayItem = (item: PortraitSelfViewItem): PortraitDisplayItem => {
   return {
     id: item.id,
     text: item.text,
+    correctionValue: item.correction_value ?? null,
     source: source.label,
     sourceKey: source.key,
     assertionId: item.assertion_id,
+    updatedAt: item.updated_at ?? null,
     claimKind: item.claim_kind ?? null,
   };
 };

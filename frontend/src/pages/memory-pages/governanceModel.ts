@@ -39,6 +39,28 @@ export interface LayerRecord {
   impact?: Array<{ label: string; value: number | string }>;
   listCells?: Record<string, { value: number | string; tone?: 'default' | 'muted' | 'status' }>;
   details?: Array<{ label: string; value: number | string }>;
+      correction?:
+    | {
+        kind: 'assertion';
+        correctable: boolean;
+        currentValue: string;
+        expectedUpdatedAt?: number;
+      }
+    | {
+        kind: 'edge';
+        correctable: boolean;
+        expectedUpdatedAt?: number;
+        relationship: {
+          subjectId: string;
+          subjectType: string;
+          subjectName: string;
+          predicate: string;
+          predicateLabel: string;
+          objectId: string;
+          objectType: string;
+          objectName: string;
+        };
+      };
 }
 
 export interface LayerTableColumn {
@@ -94,6 +116,15 @@ export type GovernanceLabelFn = (key: string, defaultValue: string, values?: Rec
 export const RECORD_PAGE_SIZE = 20;
 
 const toList = <T,>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : []);
+
+const NON_CURRENT_ASSERTION_STATUSES = new Set([
+  'archived',
+  'expired',
+  'invalidated',
+  'shadow',
+  'superseded',
+  'user_rejected',
+]);
 
 export const toFiniteNumber = (value: unknown, fallback = 0): number => {
   const numeric = typeof value === 'number' ? value : Number(value);
@@ -234,6 +265,13 @@ function getReadableStatus(value: unknown, label: GovernanceLabelFn, fallback?: 
     ['corroborated', label('statuses.corroborated', '已验证')],
     ['verified', label('statuses.corroborated', '已验证')],
     ['expired', label('statuses.expired', '已过期')],
+    ['archived', label('statuses.archived', '已归档')],
+    ['deprecated', label('statuses.superseded', '已替代')],
+    ['superseded', label('statuses.superseded', '已替代')],
+    ['conflicted', label('statuses.conflicted', '有冲突')],
+    ['invalidated', label('statuses.invalidated', '已失效')],
+    ['user_rejected', label('statuses.userRejected', '已否定')],
+    ['shadow', label('statuses.shadow', '待确认')],
     ['pending', label('statuses.pending', '待处理')],
     ['queued', label('statuses.pending', '待处理')],
     ['invalid', label('statuses.invalid', '无效')],
@@ -598,6 +636,11 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
     const entityName = getAssertionEntityName(assertion.entity_id, entityNamesById, label);
     const traitLabel = getAssertionTraitLabel(assertion.trait_name, label);
     const traitValue = safeText(assertion.trait_value, '');
+    const lifecycleStatus = safeText(
+      assertion.status,
+      safeText(assertion.validation_state, 'active'),
+    );
+    const correctable = !NON_CURRENT_ASSERTION_STATUSES.has(lifecycleStatus.toLowerCase());
     return {
       id: safeText(assertion.assertion_id, label('fallbacks.unknownRecord', '未知记录')),
       layer: 'l2',
@@ -606,7 +649,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       title: getAssertionStatement(entityName, traitLabel, traitValue, label),
       type: label('recordTypes.assertion', '断言'),
       source: getReadableSource(assertion.source_domain, label),
-      status: getReadableStatus(assertion.validation_state, label),
+      status: getReadableStatus(lifecycleStatus, label),
       updatedAt: assertion.last_validated_at,
       evidenceCount: evidenceEvents.length,
       summary: traitValue
@@ -621,7 +664,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
         source: { value: getReadableSource(assertion.source_domain, label) },
         evidenceCount: { value: evidenceEvents.length, tone: 'muted' },
         updatedAt: { value: formatTime(assertion.last_validated_at) },
-        status: { value: getReadableStatus(assertion.validation_state, label), tone: 'status' },
+        status: { value: getReadableStatus(lifecycleStatus, label), tone: 'status' },
       },
       details: [
         { label: label('fields.subject', '对象'), value: entityName },
@@ -629,6 +672,12 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
         { label: label('fields.assertionValue', '判断内容'), value: traitValue || '-' },
         { label: label('fields.inferenceDepth', '形成方式'), value: safeText(assertion.inference_depth, '-') },
       ],
+      correction: {
+        kind: 'assertion',
+        correctable,
+        currentValue: traitValue,
+        expectedUpdatedAt: assertion.updated_at ?? undefined,
+      },
     };
   });
 
@@ -673,6 +722,21 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
         { label: label('fields.object', '客体'), value: objectName },
         { label: label('fields.observations', '观察'), value: toFiniteNumber(relation.observation_count) },
       ],
+      correction: {
+        kind: 'edge',
+        correctable: String(relation.status).toLowerCase() === 'active',
+        expectedUpdatedAt: relation.updated_at ?? undefined,
+        relationship: {
+          subjectId: relation.subject_id,
+          subjectType: relation.subject_type,
+          subjectName,
+          predicate: relation.predicate,
+          predicateLabel,
+          objectId: relation.object_id,
+          objectType: relation.object_type,
+          objectName,
+        },
+      },
     };
   });
 

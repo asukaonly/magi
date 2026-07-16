@@ -862,6 +862,23 @@ Users can interact with L2 artifacts directly:
 - **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs
 
+The product exposes this agency through two complementary surfaces. **About You**
+keeps its grouped summaries read-only and lets the user open the exact source
+behind a long-term understanding or a review item. Assertion-backed items use the
+governed correction flow, while profile-backed items open Personal Profile because
+that is their authoritative source. Confirmation remains a quick action; rejection
+and editing open the same governed correction flow. **Manage Memory** provides the
+complete assertion and relationship flow, including the
+three user meanings (the record was wrong, the situation changed, or the claim
+only applies in a specific context), an impact explanation before saving,
+immutable history, and revert for the latest active correction. Superseded and
+user-rejected records remain discoverable there so their history and valid revert
+actions are not lost. Snapshots,
+portrait summaries, and L3 summaries remain read-only projections; users correct
+their supporting assertions or relationships instead of editing derived output.
+Raw L1 events are historical evidence and are deleted or forgotten through their
+own explicit controls, never "corrected" as if the captured event had not happened.
+
 Durable correction is separate from chat answer rechecking. The public correction
 surface is `POST /api/memory/l2/corrections`, with history at
 `GET /api/memory/l2/corrections` and revert at

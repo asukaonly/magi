@@ -1,12 +1,16 @@
 import { useTranslation } from 'react-i18next';
+import { ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { PortraitWorldGroup } from './portraitGrouping';
 
 interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
   totalCount: number;
+  onCorrect: (assertionId: string) => void;
+  onEditProfile: () => void;
 }
 
-export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) => {
+export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile }: PortraitWorldMapProps) => {
   const { t } = useTranslation('app');
   const visibleGroups = groups.filter((group) => group.summary || group.items.length > 0);
 
@@ -48,11 +52,65 @@ export const PortraitWorldMap = ({ groups, totalCount }: PortraitWorldMapProps) 
                     </p>
                   ) : (
                     group.items.slice(0, 4).map((item) => (
-                      <p key={item.id} className="text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">
-                        {item.text}
-                      </p>
+                      <div key={item.id} className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
+                        {item.assertionId ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                            onClick={() => onCorrect(item.assertionId as string)}
+                            aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
+                          >
+                            <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                            {t('memory.portrait.world.correct', { defaultValue: '修正' })}
+                          </Button>
+                        ) : null}
+                      </div>
                     ))
                   )}
+                  {group.summary && group.items.length > 0 ? (
+                    <details className="group/details pt-1">
+                      <summary className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-[hsl(var(--memory-muted))] outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--memory-accent)/0.14)]">
+                        {t('memory.portrait.world.inspectItems', {
+                          defaultValue: '查看 {{count}} 条具体信息',
+                          count: group.items.length,
+                        })}
+                        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open/details:rotate-180" aria-hidden="true" />
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        {group.items.map((item) => (
+                          <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 py-2.5">
+                            <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
+                            {item.assertionId ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                                onClick={() => onCorrect(item.assertionId as string)}
+                                aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
+                              >
+                                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                                {t('memory.portrait.world.correct', { defaultValue: '修正' })}
+                              </Button>
+                            ) : item.sourceKey === 'user_profile_projection' ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
+                                onClick={onEditProfile}
+                              >
+                                {t('memory.portrait.world.editProfile', { defaultValue: '修改个人资料' })}
+                              </Button>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
                 </div>
               </article>
             ))}

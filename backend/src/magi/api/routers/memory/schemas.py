@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import math
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -168,6 +170,40 @@ class MemoryCorrectionRequest(BaseModel):
     scope: Optional[Dict[str, Any]] = None
     source_event_id: Optional[str] = Field(default=None, max_length=200)
     expected_updated_at: Optional[float] = None
+
+    @field_validator("replacement")
+    @classmethod
+    def _limit_replacement(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if value is None:
+            return None
+        if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > 8000:
+            raise ValueError("replacement is too large")
+        replacement_value = value.get("value")
+        if replacement_value is not None and len(str(replacement_value)) > 2000:
+            raise ValueError("replacement value is too long")
+        for key in ("subject_id", "subject_type", "predicate", "object_id", "object_type"):
+            if key in value and len(str(value[key])) > 200:
+                raise ValueError(f"replacement {key} is too long")
+        return value
+
+    @field_validator("scope")
+    @classmethod
+    def _limit_scope(cls, value: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if value is None:
+            return None
+        if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > 2000:
+            raise ValueError("scope is too large")
+        for item in value.values():
+            if isinstance(item, str) and len(item) > 200:
+                raise ValueError("scope value is too long")
+        return value
+
+    @field_validator("effective_at", "expected_updated_at")
+    @classmethod
+    def _require_finite_timestamp(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and (not math.isfinite(value) or value <= 0):
+            raise ValueError("timestamp must be a positive finite number")
+        return value
 
 
 class MemoryCorrectionRevertRequest(BaseModel):

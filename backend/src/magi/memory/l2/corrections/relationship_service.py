@@ -106,6 +106,7 @@ class RelationshipCorrectionService:
                 await _ensure_initial_version(db, command.triple_id, now=now)
 
                 effective_at = _effective_at(command, now)
+                _ensure_effective_at_not_before_relationship(before, command, effective_at)
                 correction_id = f"correction_{uuid.uuid4().hex}"
                 replacement = _normalize_replacement(command, before, effective_at)
                 replacement_id = str(replacement["triple_id"]) if replacement is not None else None
@@ -367,13 +368,28 @@ class RelationshipCorrectionService:
             slot_key_value = str(edge_row["slot_key"] or "") if edge_row else ""
             async with db.execute(
                 """
-                SELECT * FROM memory_corrections
-                WHERE target_kind = 'edge'
-                  AND (
-                    (? != '' AND slot_key = ?)
-                    OR target_id = ?
-                    OR replacement_target_id = ?
-                  )
+                WITH RECURSIVE correction_lineage AS (
+                    SELECT * FROM memory_corrections
+                    WHERE target_kind = 'edge'
+                      AND (
+                        (? != '' AND slot_key = ?)
+                        OR target_id = ?
+                        OR replacement_target_id = ?
+                      )
+
+                    UNION
+
+                    SELECT candidate.*
+                    FROM memory_corrections AS candidate
+                    JOIN correction_lineage AS known
+                      ON (known.slot_key != '' AND candidate.slot_key = known.slot_key)
+                      OR candidate.target_id = known.target_id
+                      OR candidate.target_id = known.replacement_target_id
+                      OR candidate.replacement_target_id = known.target_id
+                      OR candidate.replacement_target_id = known.replacement_target_id
+                    WHERE candidate.target_kind = 'edge'
+                )
+                SELECT * FROM correction_lineage
                 ORDER BY created_at
                 """,
                 (slot_key_value, slot_key_value, triple_id, triple_id),
@@ -509,6 +525,26 @@ def _effective_at(command: ApplyRelationshipCorrectionCommand, now: float) -> fl
         assert command.effective_at is not None
         return float(command.effective_at)
     return now
+
+
+def _ensure_effective_at_not_before_relationship(
+    before: Mapping[str, Any],
+    command: ApplyRelationshipCorrectionCommand,
+    effective_at: float,
+) -> None:
+    if command.correction_kind != CorrectionKind.SITUATION_CHANGED:
+        return
+    valid_from = float(
+        before.get("valid_from")
+        or before.get("first_observed_at")
+        or before.get("created_at")
+        or 0.0
+    )
+    if valid_from > 0 and effective_at < valid_from - 0.000001:
+        raise MemoryCorrectionValidationError(
+            "effective_at cannot be earlier than the relationship start time",
+            code="effective_at_before_target",
+        )
 
 
 def _normalize_replacement(

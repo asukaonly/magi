@@ -19,6 +19,7 @@ from .portrait_signal_policy import (
     assertion_portrait_role,
     classify_assertion_portrait,
 )
+from .portrait_values import correction_value as _correction_value
 from .portrait_values import display_value as _display_value
 
 PORTRAIT_ASSERTION_FAMILIES = (
@@ -325,12 +326,18 @@ def _item_from_assertion(assertion: dict[str, Any]) -> dict[str, Any] | None:
     return {
         "id": assertion_id or f"{_text(assertion.get('trait_name'))}:{text}",
         "text": text,
+        "correction_value": _correction_value(assertion.get("trait_value")),
         "source": "",
         "source_key": source_key,
         "assertion_id": assertion_id or None,
         "basis_count": _evidence_count(assertion),
         "basis_refs": refs,
         "claim_kind": decision.claim_kind,
+        "updated_at": _optional_float(
+            assertion.get("updated_at")
+            or assertion.get("last_validated_at")
+            or assertion.get("created_at")
+        ),
     }
 
 
@@ -422,6 +429,13 @@ def _string_list(value: Any) -> list[str]:
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _optional_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 __all__ = ["UserPortraitLLMClient", "UserPortraitProjectionBuilder"]

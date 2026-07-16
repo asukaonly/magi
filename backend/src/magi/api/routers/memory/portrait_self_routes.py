@@ -95,7 +95,9 @@ async def _load_or_build_portrait_projection(
         l2=l2,
         profile_projection=profile_projection,
     )
-    if rebuilt is None or portrait_repo is None:
+    if rebuilt is None:
+        return None
+    if portrait_repo is None:
         return rebuilt
     try:
         return await portrait_repo.upsert(rebuilt)

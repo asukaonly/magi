@@ -1,15 +1,12 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import type { PortraitDisplayItem } from './portraitGrouping';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
 interface PortraitReviewQueueProps {
   items: PortraitDisplayItem[];
   onConfirm: (assertionId: string) => Promise<void>;
-  onReject: (assertionId: string) => Promise<void>;
-  onCorrect: (assertionId: string, value: string) => Promise<void>;
+  onRequestCorrection: (item: PortraitDisplayItem, action: 'replace' | 'remove') => void;
 }
 
 const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | null => {
@@ -27,32 +24,13 @@ const sourceText = (item: PortraitDisplayItem, t: TFunction<'app'>): string | nu
 export const PortraitReviewQueue = ({
   items,
   onConfirm,
-  onReject,
-  onCorrect,
+  onRequestCorrection,
 }: PortraitReviewQueueProps) => {
   const { t } = useTranslation('app');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   if (items.length === 0) {
     return null;
   }
-
-  const updateDraft = (item: PortraitDisplayItem, value: string) => {
-    setDrafts((current) => ({ ...current, [item.id]: value }));
-  };
-
-  const startEdit = (item: PortraitDisplayItem) => {
-    setEditingId(item.id);
-    setDrafts((current) => ({ ...current, [item.id]: current[item.id] ?? item.text }));
-  };
-
-  const saveEdit = async (item: PortraitDisplayItem) => {
-    const value = (drafts[item.id] ?? item.text).trim();
-    if (!item.assertionId || !value) return;
-    await onCorrect(item.assertionId, value);
-    setEditingId(null);
-  };
 
   return (
     <section
@@ -70,7 +48,6 @@ export const PortraitReviewQueue = ({
 
       <div className="mt-4 space-y-2">
         {items.map((item) => {
-          const isEditing = editingId === item.id;
           const source = sourceText(item, t);
           return (
             <article key={item.id} className="flex flex-col gap-4 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.34)] px-4 py-4 lg:flex-row lg:items-start lg:justify-between">
@@ -79,45 +56,14 @@ export const PortraitReviewQueue = ({
                 {source ? <p className="text-xs text-[hsl(var(--memory-muted))]">{source}</p> : null}
               </div>
 
-              {isEditing ? (
-                <div className="flex w-full flex-col gap-2 lg:w-[360px]">
-                  <Input
-                    aria-label={t('memory.portrait.review.editLabel')}
-                    value={drafts[item.id] ?? item.text}
-                    onChange={(event) => updateDraft(item, event.target.value)}
-                    className="h-9 rounded-lg border-[hsl(var(--memory-input-border)/0.52)] bg-[hsl(var(--memory-input-bg))] text-sm"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setEditingId(null)}
-                      className="h-8 rounded-lg px-3 text-[hsl(var(--memory-body))]"
-                    >
-                      {t('memory.portrait.review.actions.cancel')}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void saveEdit(item)}
-                      disabled={!item.assertionId}
-                      className="h-8 rounded-lg px-3 text-[hsl(var(--memory-title))]"
-                    >
-                      {t('memory.portrait.review.actions.save')}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
                     onClick={() => item.assertionId && void onConfirm(item.assertionId)}
                     disabled={!item.assertionId}
-                    className="h-8 rounded-lg px-3 text-[hsl(var(--memory-title))]"
+                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-title))]"
                   >
                     {t('memory.portrait.review.actions.confirm')}
                   </Button>
@@ -125,9 +71,9 @@ export const PortraitReviewQueue = ({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => item.assertionId && void onReject(item.assertionId)}
+                    onClick={() => item.assertionId && onRequestCorrection(item, 'remove')}
                     disabled={!item.assertionId}
-                    className="h-8 rounded-lg px-3 text-[hsl(var(--memory-body))]"
+                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
                   >
                     {t('memory.portrait.review.actions.reject')}
                   </Button>
@@ -135,14 +81,13 @@ export const PortraitReviewQueue = ({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    onClick={() => startEdit(item)}
+                    onClick={() => item.assertionId && onRequestCorrection(item, 'replace')}
                     disabled={!item.assertionId}
-                    className="h-8 rounded-lg px-3 text-[hsl(var(--memory-body))]"
+                    className="min-h-9 rounded-lg px-3 text-[hsl(var(--memory-body))]"
                   >
                     {t('memory.portrait.review.actions.edit')}
                   </Button>
-                </div>
-              )}
+              </div>
             </article>
           );
         })}

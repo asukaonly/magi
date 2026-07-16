@@ -3076,6 +3076,13 @@
     "portrait": {
       "title": "About you",
       "subtitle": "How Magi sees you.",
+      "loading": "Loading what Magi knows about you…",
+      "loadFailed": {
+        "title": "Could not load what Magi knows about you",
+        "body": "Your existing information is still safe. Try again in a moment.",
+        "retry": "Try again"
+      },
+      "refreshFailed": "The correction is active, but About You could not refresh yet.",
       "segments": {
         "identity": "Identity",
         "state": "Right now",
@@ -3087,6 +3094,10 @@
         "title": "About you",
         "summaryTitle": "How Magi currently understands you",
         "meta": "{{count}} understandings formed",
+        "inspectItems": "View {{count}} details",
+        "correct": "Correct",
+        "correctItem": "Correct {{value}}",
+        "editProfile": "Edit personal profile",
         "groups": {
           "identity": "Identity",
           "projects": "Long-term projects",
@@ -3167,6 +3178,136 @@
       },
       "emptyStateIntro": "Magi doesn't know much about you yet. Add a memory or let me see your activity:",
       "manualEntry": "Add a memory manually"
+    },
+    "correction": {
+      "title": "Correct this memory",
+      "description": "Tell Magi what is wrong. The original source stays intact, and future answers use the corrected understanding.",
+      "currentLabel": "Currently remembered as",
+      "kindLabel": "What needs correcting?",
+      "kinds": {
+        "record_error": {
+          "title": "This was never correct",
+          "description": "Correct the content, or stop Magi from using it."
+        },
+        "situation_changed": {
+          "title": "It was true, but changed",
+          "description": "Keep the past state and use the new one from the time you choose."
+        },
+        "scope_refinement": {
+          "title": "It is only true sometimes",
+          "description": "Use it only for a specific project, activity, place, or person."
+        }
+      },
+      "recordErrorActionLabel": "How should this be handled?",
+      "actions": {
+        "replaceAssertion": "Replace with the correct content",
+        "replaceAssertionHint": "Use the content you enter from now on.",
+        "replaceRelation": "The related object is wrong",
+        "replaceRelationHint": "Keep the relationship meaning and choose the correct object.",
+        "removeAssertion": "This memory does not exist",
+        "removeRelation": "This relationship does not exist",
+        "removeHint": "Do not treat this as information about you in the future."
+      },
+      "correctValue": "Correct content",
+      "scopeValueHint": "If the content itself is right, leave it unchanged.",
+    "correctRelationObject": "Correct related object",
+    "correctRelationObjectHint": "Keep the subject and relationship meaning, and choose the correct object.",
+    "entitySearch": "Search related objects",
+    "entitySearchPlaceholder": "Search all objects by name",
+    "entitySearching": "Searching…",
+    "entitySearchFailed": "More objects could not be searched right now. The current options are still available.",
+    "entityOption": "{{name}} · {{type}}",
+      "effectiveAt": "When did this change start?",
+      "scopeLabel": "When is this true?",
+      "scopeType": "Situation type",
+      "scopeValue": "Specific situation",
+      "scopes": {
+        "project": "Project",
+        "activity": "Activity",
+        "place": "Place",
+        "person": "Person"
+      },
+      "scopePlaceholders": {
+        "project": "For example: Magi",
+        "activity": "For example: while coding",
+        "place": "For example: at the office",
+        "person": "For example: when talking with Alex"
+      },
+      "reason": "Additional note (optional)",
+      "reasonHint": "Helps you understand why this change was made later.",
+      "impact": {
+        "recordError": "After saving, related answers will use this correction. The original source and change record stay intact.",
+        "situationChanged": "After saving, the old state remains valid before the chosen time and the new state applies afterward. Related content will update next.",
+        "scopeRefinement": "After saving, this memory is used only in the situation you enter and stays out of other answers."
+      },
+      "validation": {
+        "form": "Check the form before saving.",
+        "replacement_required": "Enter the correct content.",
+        "replacement_unchanged": "The new content matches the current content. Enter what actually changed.",
+        "effective_at_required": "Choose when the change started.",
+        "effective_at_invalid": "That change time is invalid. Choose it again.",
+        "scope_required": "Enter the specific situation where this applies.",
+        "relation_object_required": "Choose the correct related object.",
+        "relation_object_unchanged": "Choose an object different from the current one.",
+        "relation_object_unavailable": "That object is not available. Choose another one."
+      },
+    "errors": {
+      "conflict": "This memory changed just now, so the current version will not be overwritten. Return to the latest list and open it again.",
+      "targetChanged": "This memory changed or no longer exists, so it will not be overwritten. Review the latest content and open it again.",
+      "effectiveAtBeforeTarget": "The change time cannot be earlier than when this memory began. Choose a later time.",
+      "saveFailed": "The correction could not be saved yet. Your input is still here, so you can retry."
+    },
+    "close": "Close",
+      "cancel": "Cancel",
+      "viewLatest": "View latest content",
+      "removeSubmit": "Confirm and stop using it",
+      "save": "Save correction",
+      "success": {
+        "title": "Corrected as requested",
+      "replaced": "Related answers will now use the current understanding below.",
+      "replacedInFuture": "Related answers will use the understanding below after the scheduled time.",
+      "removed": "The original content will no longer be treated as information about you.",
+      "currentLabel": "Current understanding",
+      "futureLabel": "Understanding from the scheduled time onward",
+      "effectiveAt": "Effective from",
+      "scope": "Applies when",
+      "backgroundUpdate": "Related summaries will keep updating in the background without delaying this correction.",
+      "backgroundUpdateFailed": "The correction is active, but related summaries could not be updated yet. Check back later.",
+      "done": "Done"
+      },
+      "history": {
+        "title": "Correction history",
+        "count": "{{count}} change(s)",
+        "loading": "Loading correction history…",
+        "empty": "This memory has not been corrected yet.",
+      "loadFailed": "Correction history is temporarily unavailable.",
+      "retry": "Retry",
+        "active": "Currently active",
+        "reverted": "Reverted",
+        "reason": "Note: {{reason}}",
+        "before": "Before: ",
+        "after": "After: ",
+        "effectiveAt": "From: ",
+        "scope": "Applies to: ",
+        "noLongerUsed": "Do not use this content",
+        "anotherObject": "Another object",
+        "revert": "Revert this correction",
+        "confirmRevert": "Reverting restores the understanding from before this correction.",
+        "confirmRevertAction": "Confirm revert",
+      "revertConflict": "This memory changed just now. We loaded the latest history; review it before trying again.",
+      "revertFailed": "This correction could not be reverted yet. Try again later.",
+      "revertSuccess": "Correction reverted",
+      "scopeEntry": "{{label}}: {{value}}",
+      "scopeSeparator": ", ",
+        "versions": "View content changes",
+        "currentVersion": "Current version",
+        "plannedVersion": "Scheduled",
+        "pastVersion": "Past version",
+        "versionPeriod": "{{status}} · {{from}} to {{to}}",
+      "versionFrom": "{{status}} · from {{from}}"
+    },
+    "refreshFailed": "The correction is active, but the list could not refresh yet.",
+    "latestRefreshFailed": "The latest content could not be loaded yet. Try again in a moment."
     },
     "governance": {
       "title": "Memory management",
@@ -3331,6 +3472,12 @@
         "stable": "Stable",
         "corroborated": "Verified",
         "expired": "Expired",
+        "archived": "Archived",
+        "superseded": "Replaced",
+        "conflicted": "Conflicted",
+        "invalidated": "Invalidated",
+        "userRejected": "Rejected",
+        "shadow": "Needs review",
         "pending": "Pending",
         "invalid": "Invalid",
         "pendingCount": "{{count}} pending",
@@ -3464,6 +3611,7 @@
       },
       "drawer": {
         "title": "Record details",
+        "close": "Close",
         "empty": "Choose a record to inspect details.",
         "context": "{{category}} · {{source}}",
         "noSummary": "No summary available.",
@@ -3481,6 +3629,7 @@
         "expandInternalInfo": "Expand",
         "safeActions": "Maintenance actions",
         "noActions": "This record type can only be inspected for now.",
+        "historicalMemoryHint": "This is a historical record. You can review its correction history or revert the latest correction.",
         "reprocessEventHint": "Send this raw event through structured extraction again to update entities, assertions, and relationships.",
         "reprocessEntityHint": "Recheck this entity's merges, relationships, and conflict state.",
         "reprocessUnavailableHint": "This record type can be inspected here, but cannot be regenerated from this drawer yet.",
@@ -3492,6 +3641,7 @@
           "reprocessEntityReadable": "Recheck entity",
           "reprocessUnavailable": "Not reprocessable",
           "invalidate": "Mark invalid",
+          "correctMemory": "Correct this memory",
           "delete": "Delete",
           "deleteEvent": "Delete raw event",
           "cascadeForget": "Cascade forget (including downstream)",

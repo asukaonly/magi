@@ -29,6 +29,15 @@ def display_value(value: Any) -> str:
     return _text(parsed)
 
 
+def correction_value(value: Any) -> str:
+    """Return the stored assertion value used for a lossless correction round trip."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return _text(value)
+
+
 def snapshot_recent_values(snapshot: Mapping[str, Any] | None) -> list[str]:
     """Return per-trait display values from a ToM snapshot's ``core_traits``.
 
@@ -69,4 +78,4 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-__all__ = ["display_value", "snapshot_recent_values"]
+__all__ = ["correction_value", "display_value", "snapshot_recent_values"]

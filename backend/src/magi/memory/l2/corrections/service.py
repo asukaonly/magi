@@ -42,6 +42,8 @@ from .repository import MemoryCorrectionRepository
 _INACTIVE_ASSERTION_STATUSES = {
     "archived",
     "expired",
+    "invalidated",
+    "shadow",
     "superseded",
     "user_rejected",
 }
@@ -94,6 +96,10 @@ class MemoryCorrectionConflictError(RuntimeError):
 
 class MemoryCorrectionValidationError(ValueError):
     """Raised when correction semantics are incomplete or not executable."""
+
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
 
 
 class MemoryCorrectionService:
@@ -170,6 +176,7 @@ class MemoryCorrectionService:
                 old_slot_key, old_claim_fingerprint = await _ensure_assertion_identity(db, before)
                 old_scope_key = str(before.get("scope_key") or "global")
                 effective_at = _effective_at(command, now)
+                _ensure_effective_at_not_before_assertion(before, command, effective_at)
                 correction_id = f"correction_{uuid.uuid4().hex}"
                 replacement_id = (
                     f"assert_{uuid.uuid4().hex}" if command.replacement_value is not None else None
@@ -525,6 +532,26 @@ def _effective_at(command: ApplyAssertionCorrectionCommand, now: float) -> float
         assert command.effective_at is not None
         return float(command.effective_at)
     return now
+
+
+def _ensure_effective_at_not_before_assertion(
+    before: Mapping[str, Any],
+    command: ApplyAssertionCorrectionCommand,
+    effective_at: float,
+) -> None:
+    if command.correction_kind != CorrectionKind.SITUATION_CHANGED:
+        return
+    valid_from = float(
+        before.get("valid_from")
+        or before.get("first_inferred_at")
+        or before.get("created_at")
+        or 0.0
+    )
+    if valid_from > 0 and effective_at < valid_from - 0.000001:
+        raise MemoryCorrectionValidationError(
+            "effective_at cannot be earlier than the assertion start time",
+            code="effective_at_before_target",
+        )
 
 
 async def _deactivate_original_assertion(

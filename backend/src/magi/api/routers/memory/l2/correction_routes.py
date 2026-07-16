@@ -72,7 +72,12 @@ async def apply_memory_correction(
             current_claim_key = "current_relationship"
     except MemoryCorrectionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except (MemoryCorrectionValidationError, ValueError) as exc:
+    except MemoryCorrectionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_validation_error_detail(exc),
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
@@ -150,7 +155,12 @@ async def revert_memory_correction(
             current_claim_key = "current_relationship"
     except MemoryCorrectionConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    except (MemoryCorrectionValidationError, ValueError) as exc:
+    except MemoryCorrectionValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=_validation_error_detail(exc),
+        ) from exc
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
@@ -200,6 +210,14 @@ async def _command_response(
             "created": result["created"],
         }
     )
+
+
+def _validation_error_detail(
+    error: MemoryCorrectionValidationError,
+) -> str | dict[str, str]:
+    if not error.code:
+        return str(error)
+    return {"code": error.code, "message": str(error)}
 
 
 def _target_not_found() -> HTTPException:

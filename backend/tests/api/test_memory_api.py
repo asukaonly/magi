@@ -1654,10 +1654,26 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
         response = client.get(endpoint, params={"query": "codex", "limit": 20, "offset": 40})
         assert response.status_code == 200
 
-    assert fake_memory.l2.relationship_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
-    assert fake_memory.l2.relationship_count_kwargs == {"query": "codex"}
-    assert fake_memory.l2.assertion_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
-    assert fake_memory.l2.assertion_count_kwargs == {"query": "codex"}
+    assert fake_memory.l2.relationship_kwargs == {
+        "limit": 20,
+        "offset": 40,
+        "query": "codex",
+        "include_inactive": False,
+    }
+    assert fake_memory.l2.relationship_count_kwargs == {
+        "query": "codex",
+        "include_inactive": False,
+    }
+    assert fake_memory.l2.assertion_kwargs == {
+        "limit": 20,
+        "offset": 40,
+        "query": "codex",
+        "include_inactive": False,
+    }
+    assert fake_memory.l2.assertion_count_kwargs == {
+        "query": "codex",
+        "include_inactive": False,
+    }
     assert fake_memory.l2_entity_catalog.entity_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l2_entity_catalog.entity_count_kwargs == {"query": "codex"}
     assert fake_memory.l2.snapshot_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
@@ -1666,6 +1682,22 @@ def test_memory_object_list_apis_forward_query_to_selected_category(monkeypatch)
     assert fake_memory.l3.summary_count_kwargs == {"query": "codex"}
     assert fake_memory.l4.skill_kwargs == {"limit": 20, "offset": 40, "query": "codex"}
     assert fake_memory.l4.skill_count_kwargs == {"query": "codex"}
+
+    relations_with_history = client.get(
+        "/api/memory/l2/relations",
+        params={"include_inactive": True},
+    )
+    assertions_with_history = client.get(
+        "/api/memory/l2/assertions",
+        params={"include_inactive": True},
+    )
+
+    assert relations_with_history.status_code == 200
+    assert assertions_with_history.status_code == 200
+    assert fake_memory.l2.relationship_kwargs["include_inactive"] is True
+    assert fake_memory.l2.relationship_count_kwargs["include_inactive"] is True
+    assert fake_memory.l2.assertion_kwargs["include_inactive"] is True
+    assert fake_memory.l2.assertion_count_kwargs["include_inactive"] is True
 
 
 def test_memory_identity_links_api_returns_empty_payload_when_identity_mapping_is_unavailable(monkeypatch):

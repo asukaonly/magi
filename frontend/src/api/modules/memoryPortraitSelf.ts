@@ -9,11 +9,13 @@ export type PortraitSelfViewWorldGroupId =
 export interface PortraitSelfViewItem {
   id: string;
   text: string;
+  correction_value?: string | null;
   source: string;
   source_key: string | null;
   assertion_id: string | null;
   basis_count: number;
   basis_refs: string[];
+  updated_at?: number | null;
   claim_kind?:
     | 'identity_fact'
     | 'active_work'

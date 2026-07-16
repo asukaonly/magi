@@ -3074,6 +3074,13 @@
     "portrait": {
       "title": "关于你",
       "subtitle": "Magi 眼中的你。",
+      "loading": "正在读取关于你的内容…",
+      "loadFailed": {
+        "title": "暂时没能读取关于你的内容",
+        "body": "已有内容没有丢失，请稍后再试。",
+        "retry": "重新读取"
+      },
+      "refreshFailed": "修正已经生效，但“关于你”暂时没有刷新。",
       "segments": {
         "identity": "身份",
         "state": "当下",
@@ -3085,6 +3092,10 @@
         "title": "关于你",
         "summaryTitle": "Magi 目前这样理解你",
         "meta": "已形成 {{count}} 条理解",
+        "inspectItems": "查看 {{count}} 条具体信息",
+        "correct": "修正",
+        "correctItem": "修正 {{value}}",
+        "editProfile": "修改个人资料",
         "groups": {
           "identity": "身份信息",
           "projects": "长期项目",
@@ -3165,6 +3176,136 @@
       },
       "emptyStateIntro": "magi 对你的了解还很有限。来加一条记忆，或者让我看看你的活动：",
       "manualEntry": "手动添加一条记忆"
+    },
+    "correction": {
+      "title": "修正这条记忆",
+      "description": "告诉 Magi 哪里不对。原始来源会保留，之后的回答会使用修正后的理解。",
+      "currentLabel": "当前记住的是",
+      "kindLabel": "哪里需要修正？",
+      "kinds": {
+        "record_error": {
+          "title": "这条记忆本来就不对",
+          "description": "纠正错误内容，或让 Magi 不再使用它。"
+        },
+        "situation_changed": {
+          "title": "以前是这样，现在变了",
+          "description": "保留过去的情况，从你选择的时间开始使用新内容。"
+        },
+        "scope_refinement": {
+          "title": "只在某些情况下是这样",
+          "description": "只有在指定的项目、活动、地点或人物下才使用。"
+        }
+      },
+      "recordErrorActionLabel": "希望怎么处理？",
+      "actions": {
+        "replaceAssertion": "改成正确内容",
+        "replaceAssertionHint": "以后使用你填写的正确内容。",
+        "replaceRelation": "关系对象写错了",
+        "replaceRelationHint": "关系含义不变，改成正确的对象。",
+        "removeAssertion": "这条记忆不存在",
+        "removeRelation": "这段关系不存在",
+        "removeHint": "以后不再把它当作你的信息。"
+      },
+      "correctValue": "正确内容",
+      "scopeValueHint": "如果内容本身没错，可以保持原样。",
+    "correctRelationObject": "正确的关系对象",
+    "correctRelationObjectHint": "主体和关系含义保持不变，只选择正确的对象。",
+    "entitySearch": "搜索关系对象",
+    "entitySearchPlaceholder": "输入名称搜索全部对象",
+    "entitySearching": "正在搜索…",
+    "entitySearchFailed": "暂时无法搜索更多对象，已保留当前选项。",
+    "entityOption": "{{name}} · {{type}}",
+      "effectiveAt": "从什么时候开始变化？",
+      "scopeLabel": "在什么情况下成立？",
+      "scopeType": "情况类型",
+      "scopeValue": "具体情况",
+      "scopes": {
+        "project": "项目",
+        "activity": "活动",
+        "place": "地点",
+        "person": "人物"
+      },
+      "scopePlaceholders": {
+        "project": "例如：Magi",
+        "activity": "例如：写代码时",
+        "place": "例如：公司",
+        "person": "例如：和小王聊天时"
+      },
+      "reason": "补充说明（可选）",
+      "reasonHint": "帮助你以后看懂这次修改为什么发生。",
+      "impact": {
+        "recordError": "保存后，之后相关的回答会使用这次修正；原始来源和修改记录仍会保留。",
+        "situationChanged": "保存后，变化时间之前仍保留旧情况，之后使用新情况。相关内容会随后重新整理。",
+        "scopeRefinement": "保存后，这条记忆只会在你填写的情况下使用，其他情况下不会带入回答。"
+      },
+      "validation": {
+        "form": "请检查填写内容后再保存。",
+        "replacement_required": "请填写正确内容。",
+        "replacement_unchanged": "新内容和当前内容相同，请填写实际变化后的内容。",
+        "effective_at_required": "请选择变化开始的时间。",
+        "effective_at_invalid": "变化时间无效，请重新选择。",
+        "scope_required": "请填写具体适用的情况。",
+        "relation_object_required": "请选择正确的关系对象。",
+        "relation_object_unchanged": "请选择一个与当前不同的对象。",
+        "relation_object_unavailable": "这个对象目前不可用，请重新选择。"
+      },
+    "errors": {
+      "conflict": "这条记忆刚刚发生了变化，当前内容不会被覆盖。请返回最新列表后重新打开。",
+      "targetChanged": "这条记忆已经发生变化或不再存在，当前内容不会被覆盖。请查看最新内容后重新打开。",
+      "effectiveAtBeforeTarget": "变化时间不能早于这条记忆开始生效的时间，请重新选择。",
+      "saveFailed": "暂时没能保存。你填写的内容还在，可以稍后重试。"
+    },
+    "close": "关闭",
+    "cancel": "取消",
+      "viewLatest": "查看最新内容",
+      "removeSubmit": "确认不再使用",
+      "save": "保存修正",
+      "success": {
+        "title": "已经按你的意思修正",
+      "replaced": "之后相关的回答会使用下面这条当前理解。",
+      "replacedInFuture": "到设定时间后，相关回答会使用下面这条理解。",
+      "removed": "之后不会再把原来的内容当作你的信息。",
+      "currentLabel": "现在会这样理解",
+      "futureLabel": "从设定时间起会这样理解",
+      "effectiveAt": "从什么时候起",
+      "scope": "在什么情况下",
+      "backgroundUpdate": "相关总结会在后台继续更新，不影响这次修正生效。",
+      "backgroundUpdateFailed": "这次修正已经生效，但相关总结暂时没能更新；你可以稍后再查看。",
+      "done": "完成"
+      },
+      "history": {
+        "title": "修正记录",
+        "count": "{{count}} 次",
+        "loading": "正在读取修改记录…",
+        "empty": "还没有修正过这条记忆。",
+      "loadFailed": "暂时没能读取修改记录。",
+      "retry": "重试",
+        "active": "当前有效",
+        "reverted": "已撤销",
+        "reason": "说明：{{reason}}",
+        "before": "原来：",
+        "after": "改为：",
+        "effectiveAt": "从：",
+        "scope": "适用于：",
+        "noLongerUsed": "不再使用这条内容",
+        "anotherObject": "另一个对象",
+        "revert": "撤销这次修正",
+        "confirmRevert": "撤销后会恢复到这次修正之前的理解。",
+        "confirmRevertAction": "确认撤销",
+      "revertConflict": "这条记忆刚刚发生了变化。我们已重新读取最新记录，请再确认一次。",
+      "revertFailed": "暂时没能撤销这次修正，请稍后重试。",
+      "revertSuccess": "已撤销这次修正",
+      "scopeEntry": "{{label}}：{{value}}",
+      "scopeSeparator": "，",
+        "versions": "查看内容变化",
+        "currentVersion": "当前版本",
+        "plannedVersion": "计划生效",
+        "pastVersion": "历史版本",
+        "versionPeriod": "{{status}} · {{from}} 至 {{to}}",
+      "versionFrom": "{{status}} · 从 {{from}} 开始"
+    },
+    "refreshFailed": "修正已经生效，但列表暂时没有刷新。",
+    "latestRefreshFailed": "暂时无法读取最新内容，请稍后再试。"
     },
     "governance": {
       "title": "记忆管理",
@@ -3329,6 +3470,12 @@
         "stable": "稳定",
         "corroborated": "已验证",
         "expired": "已过期",
+        "archived": "已归档",
+        "superseded": "已替代",
+        "conflicted": "有冲突",
+        "invalidated": "已失效",
+        "userRejected": "已否定",
+        "shadow": "待确认",
         "pending": "待处理",
         "invalid": "无效",
         "pendingCount": "待确认 {{count}}",
@@ -3462,6 +3609,7 @@
       },
       "drawer": {
         "title": "记录详情",
+        "close": "关闭",
         "empty": "选择一条记录查看详情。",
         "context": "{{category}} · {{source}}",
         "noSummary": "暂无摘要。",
@@ -3479,6 +3627,7 @@
         "expandInternalInfo": "展开查看",
         "safeActions": "维护操作",
         "noActions": "这个类型目前只能查看。",
+        "historicalMemoryHint": "这是历史记录，可查看修正历史或撤销最新修正。",
         "reprocessEventHint": "把这条原始事件重新送入结构抽取，更新实体、断言和关系。",
         "reprocessEntityHint": "重新核对这个实体的合并、关系和冲突状态。",
         "reprocessUnavailableHint": "这类记录目前只能查看，不能从这里重新生成。",
@@ -3490,6 +3639,7 @@
           "reprocessEntityReadable": "重新核对",
           "reprocessUnavailable": "不可重新处理",
           "invalidate": "标记无效",
+          "correctMemory": "修正这条记忆",
           "delete": "删除",
           "deleteEvent": "删除原始事件",
           "cascadeForget": "连带遗忘（包含下游）",

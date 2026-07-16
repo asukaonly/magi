@@ -146,7 +146,10 @@ export interface PaginationParams {
   offset?: number;
 }
 
-export type MemoryListQueryParams = PaginationParams & { query?: string };
+export type MemoryListQueryParams = PaginationParams & {
+  query?: string;
+  include_inactive?: boolean;
+};
 
 export interface L1EventQueryParams {
   limit?: number;
@@ -178,6 +181,8 @@ export interface L2Relation {
   first_observed_at?: number;
   last_observed_at?: number;
   updated_at?: number;
+  fact_kind?: string;
+  scope?: Record<string, unknown> | null;
 }
 
 export interface L2AssertionConflictContext {
@@ -208,6 +213,11 @@ export interface L2Assertion {
   last_validated_at: number;
   user_feedback: string | null;
   user_feedback_at: number | null;
+  created_at?: number | null;
+  updated_at?: number | null;
+  valid_from?: number | null;
+  valid_to?: number | null;
+  scope?: Record<string, unknown> | null;
   status?: string | null;
   superseded_by?: string | null;
   superseded_at?: number | null;

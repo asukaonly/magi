@@ -218,6 +218,61 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
     assert reverted.json()["current_claim"]["object_id"] == "place:hangzhou"
 
 
+def test_memory_correction_api_rejects_unbounded_user_input(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    base = {
+        "request_id": "bounded-correction",
+        "target": {"kind": "assertion", "id": assertion_id},
+        "correction_kind": "scope_refinement",
+    }
+
+    oversized_value = client.post(
+        "/api/memory/l2/corrections",
+        json={**base, "replacement": {"value": "x" * 2001}, "scope": {"project": "Magi"}},
+    )
+    oversized_scope = client.post(
+        "/api/memory/l2/corrections",
+        json={**base, "replacement": {"value": "Shanghai"}, "scope": {"project": "x" * 201}},
+    )
+    invalid_timestamp = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            **base,
+            "correction_kind": "situation_changed",
+            "replacement": {"value": "Shanghai"},
+            "effective_at": 0,
+        },
+    )
+
+    assert oversized_value.status_code == 422
+    assert oversized_scope.status_code == 422
+    assert invalid_timestamp.status_code == 422
+
+
+def test_memory_correction_api_returns_stable_time_boundary_code(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    assert memory.l2 is not None
+    assertion = asyncio.run(memory.l2.get_tom_assertion(assertion_id=assertion_id))
+    client = _client(monkeypatch, memory)
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "correction-before-start",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "situation_changed",
+            "replacement": {"value": "Shanghai"},
+            "effective_at": float(assertion["first_inferred_at"]) - 1,
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "effective_at_before_target"
+
+
 def test_memory_correction_routes_are_publicly_reachable() -> None:
     public = _build_public_router(memory_router, _PUBLIC_ROUTE_METHODS["memory"])
     route_methods: dict[str, set[str]] = {}

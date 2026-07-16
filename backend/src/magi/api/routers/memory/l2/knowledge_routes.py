@@ -21,14 +21,23 @@ async def list_l2_relations(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
+    include_inactive: bool = Query(default=False),
 ):
     """List knowledge graph relations."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2.get_relationships(limit=limit, offset=offset, query=query),
-        unified_memory.l2.count_relationships(query=query),
+        unified_memory.l2.get_relationships(
+            limit=limit,
+            offset=offset,
+            query=query,
+            include_inactive=include_inactive,
+        ),
+        unified_memory.l2.count_relationships(
+            query=query,
+            include_inactive=include_inactive,
+        ),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
@@ -38,14 +47,23 @@ async def list_l2_assertions(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     query: str | None = Query(default=None),
+    include_inactive: bool = Query(default=False),
 ):
     """List ToM trait assertions."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     items, total = await asyncio.gather(
-        unified_memory.l2.list_tom_assertions(limit=limit, offset=offset, query=query),
-        unified_memory.l2.count_tom_assertions(query=query),
+        unified_memory.l2.list_tom_assertions(
+            limit=limit,
+            offset=offset,
+            query=query,
+            include_inactive=include_inactive,
+        ),
+        unified_memory.l2.count_tom_assertions(
+            query=query,
+            include_inactive=include_inactive,
+        ),
     )
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 

@@ -26,6 +26,10 @@ vi.mock('@/api/modules/memory', () => ({
     forgetEpisode: vi.fn(),
     rejectL2Edge: vi.fn(),
     reconsolidateEpisodes: vi.fn(),
+    applyCorrection: vi.fn(),
+    getCorrectionHistory: vi.fn(),
+    revertCorrection: vi.fn(),
+    getL2Entities: vi.fn(),
   },
 }));
 
@@ -107,6 +111,7 @@ const baseMemoryState = {
       inference_depth: 'explicit',
       first_inferred_at: 1719300000,
       last_validated_at: 1719301200,
+      updated_at: 1719301200,
       user_feedback: null,
       user_feedback_at: null,
     },
@@ -220,8 +225,42 @@ const renderPage = () => render(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+    target: { kind: 'assertion', id: 'assert_1' },
+    versions: [],
+    corrections: [],
+  });
+  vi.mocked(memoryApi.getL2Entities).mockResolvedValue({
+    items: [],
+    total: 0,
+    limit: 100,
+    offset: 0,
+  });
   vi.mocked(useMemory).mockReturnValue(baseMemoryState as ReturnType<typeof useMemory>);
 });
+
+const renderRelationshipCorrection = async (user: ReturnType<typeof userEvent.setup>) => {
+  vi.mocked(useMemory).mockReturnValue({
+    ...baseMemoryState,
+    l2Entities: [
+      ...baseMemoryState.l2Entities,
+      { entity_id: 'tool_codex', canonical_name: 'Codex', entity_type: 'software', aliases: [] },
+      { entity_id: 'tool_magi', canonical_name: 'Magi', entity_type: 'software', aliases: [] },
+    ],
+  } as ReturnType<typeof useMemory>);
+  vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+    target: { kind: 'edge', id: 'rel_1' },
+    versions: [],
+    corrections: [],
+  });
+
+  renderPage();
+  await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+  await user.click(await screen.findByRole('button', { name: /^打开记录 用户 使用 Codex$/i }));
+  const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+  await user.click(within(drawer).getByRole('button', { name: '修正这条记忆' }));
+  return screen.findByRole('dialog', { name: '修正这条记忆' });
+};
 
 describe('MemoryGovernancePage', () => {
   it('starts with streamlined navigation and compact status summary', async () => {
@@ -247,6 +286,98 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByText('稳定')).not.toBeInTheDocument();
     expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
+  });
+
+  it('shows an old assertion as historical without offering another correction', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Assertions: [{
+        ...baseMemoryState.l2Assertions[0],
+        status: 'user_rejected',
+        validation_state: 'stable',
+      }],
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    const recordButton = await screen.findByRole('button', { name: /直白/ });
+    expect(recordButton).toHaveTextContent('已否定');
+    await user.click(recordButton);
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).queryByRole('button', { name: '修正这条记忆' })).not.toBeInTheDocument();
+    expect(within(drawer).getByText('这是历史记录，可查看修正历史或撤销最新修正。')).toBeInTheDocument();
+    expect(memoryApi.getCorrectionHistory).toHaveBeenCalledWith('assertion', 'assert_1');
+  });
+
+  it('shows an invalidated assertion as historical without offering another correction', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Assertions: [{
+        ...baseMemoryState.l2Assertions[0],
+        status: 'invalidated',
+        validation_state: 'stable',
+      }],
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    const recordButton = await screen.findByRole('button', { name: /直白/ });
+    expect(recordButton).toHaveTextContent('已失效');
+    await user.click(recordButton);
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).queryByRole('button', { name: '修正这条记忆' })).not.toBeInTheDocument();
+    expect(within(drawer).getByText('这是历史记录，可查看修正历史或撤销最新修正。')).toBeInTheDocument();
+  });
+
+  it('keeps an old relationship available for history without offering correction', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [{
+        ...baseMemoryState.l2Relations[0],
+        status: 'deprecated',
+      }],
+    } as ReturnType<typeof useMemory>);
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'edge', id: 'rel_1' },
+      versions: [],
+      corrections: [],
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+    const recordButton = await screen.findByRole('button', { name: /^打开记录 用户 使用 Codex$/i });
+    expect(recordButton).toHaveTextContent('已替代');
+    await user.click(recordButton);
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).queryByRole('button', { name: '修正这条记忆' })).not.toBeInTheDocument();
+    expect(within(drawer).getByText('这是历史记录，可查看修正历史或撤销最新修正。')).toBeInTheDocument();
+    expect(memoryApi.getCorrectionHistory).toHaveBeenCalledWith('edge', 'rel_1');
+  });
+
+  it('localizes a conflicted relationship and keeps it read-only', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Relations: [{
+        ...baseMemoryState.l2Relations[0],
+        status: 'conflicted',
+      }],
+    } as ReturnType<typeof useMemory>);
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+    const recordButton = await screen.findByRole('button', { name: /^打开记录 用户 使用 Codex$/i });
+    expect(recordButton).toHaveTextContent('有冲突');
+    await user.click(recordButton);
+
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(drawer).queryByRole('button', { name: '修正这条记忆' })).not.toBeInTheDocument();
   });
 
   it('turns an empty object category into a useful next step', async () => {
@@ -298,17 +429,17 @@ describe('MemoryGovernancePage', () => {
     expect(screen.getByRole('button', { name: /^打开记录 用户 去过 huzhou$/ })).toBeInTheDocument();
 
     await waitFor(() => {
-      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: 'codex' });
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: 'codex', include_inactive: true });
     });
 
     await user.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => {
-      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 20, query: 'codex' });
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 20, query: 'codex', include_inactive: true });
     });
 
     await user.clear(search);
     await waitFor(() => {
-      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0 });
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, include_inactive: true });
     });
   });
 
@@ -331,7 +462,7 @@ describe('MemoryGovernancePage', () => {
     fireEvent.compositionEnd(search);
 
     await waitFor(() => {
-      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: '梅' });
+      expect(baseMemoryState.loadL2Relations).toHaveBeenLastCalledWith({ limit: 20, offset: 0, query: '梅', include_inactive: true });
     });
   });
 
@@ -549,10 +680,24 @@ describe('MemoryGovernancePage', () => {
     expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
-  it('marks assertions and relations invalid from the drawer', async () => {
-    vi.mocked(memoryApi.rejectL2Edge).mockResolvedValue({
-      ...baseMemoryState.l2Relations[0],
-      status: 'user_rejected',
+  it('removes an incorrect assertion through the governed correction flow', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_1',
+        request_id: 'request_1',
+        actor_id: 'user:self',
+        target_kind: 'assertion',
+        target_id: 'assert_1',
+        slot_key: 'slot_1',
+        claim_fingerprint: 'claim_1',
+        correction_kind: 'record_error',
+        before: { trait_value: '直白' },
+        created_at: 1719301300,
+        state: 'active',
+      },
+      current_claim: { trait_value: '直白', status: 'user_rejected' },
+      derivation_state: 'completed',
+      created: true,
     });
     const user = userEvent.setup();
 
@@ -561,21 +706,407 @@ describe('MemoryGovernancePage', () => {
     await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
     await user.click(await screen.findByRole('button', { name: /直白/ }));
     const assertionDrawer = await screen.findByRole('dialog', { name: '记录详情' });
-    const assertionReject = within(assertionDrawer).getByRole('button', { name: '标记无效' });
-    expect(assertionReject).toBeEnabled();
-    await user.click(assertionReject);
-    expect(baseMemoryState.submitAssertionFeedback).toHaveBeenCalledWith('assert_1', 'rejected');
+    expect(await within(assertionDrawer).findByText('还没有修正过这条记忆。')).toBeInTheDocument();
+    await user.click(within(assertionDrawer).getByRole('button', { name: '修正这条记忆' }));
 
-    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
-    await user.click(await screen.findByRole('button', { name: /^打开记录 用户 使用 codex$/ }));
-    const relationDrawer = await screen.findByRole('dialog', { name: '记录详情' });
-    const relationReject = within(relationDrawer).getByRole('button', { name: '标记无效' });
-    expect(relationReject).toBeEnabled();
-    await user.click(relationReject);
-    await waitFor(() => {
-      expect(memoryApi.rejectL2Edge).toHaveBeenCalledWith('rel_1');
+    const correctionDialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(correctionDialog).getByRole('button', { name: /这条记忆不存在/ }));
+    await user.click(within(correctionDialog).getByRole('button', { name: '确认不再使用' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'assertion', id: 'assert_1' },
+      correction_kind: 'record_error',
+      expected_updated_at: 1719301200,
+    }));
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
+    expect(await within(correctionDialog).findByText('已经按你的意思修正')).toBeInTheDocument();
+    expect(within(correctionDialog).getByText('之后不会再把原来的内容当作你的信息。')).toBeInTheDocument();
+
+    await user.click(within(correctionDialog).getByRole('button', { name: '完成' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记录详情' })).not.toBeInTheDocument());
+    expect(baseMemoryState.loadL2Assertions).toHaveBeenCalledWith({ limit: 20, offset: 0, include_inactive: true });
+  });
+
+  it('records a changed assertion with its effective time and keeps failed input', async () => {
+    vi.mocked(memoryApi.applyCorrection)
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce({
+        correction: {
+          correction_id: 'correction_2',
+          request_id: 'request_2',
+          actor_id: 'user:self',
+          target_kind: 'assertion',
+          target_id: 'assert_1',
+          slot_key: 'slot_1',
+          claim_fingerprint: 'claim_1',
+          correction_kind: 'situation_changed',
+          before: { trait_value: '直白' },
+          replacement: { value: '详细一些' },
+          replacement_target_id: 'assert_2',
+          effective_at: 1719374400,
+          created_at: 1719374400,
+          state: 'active',
+        },
+        current_claim: { trait_value: '详细一些' },
+        derivation_state: 'pending',
+        created: true,
+      });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    await user.click(within(await screen.findByRole('dialog', { name: '记录详情' })).getByRole('button', { name: '修正这条记忆' }));
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+
+    await user.click(within(dialog).getByRole('button', { name: /以前是这样，现在变了/ }));
+    const valueInput = within(dialog).getByLabelText('正确内容');
+    await user.clear(valueInput);
+    await user.type(valueInput, '详细一些');
+    fireEvent.change(within(dialog).getByLabelText('从什么时候开始变化？'), {
+      target: { value: '2024-06-26T12:00' },
     });
-    expect(baseMemoryState.loadL2Relations).toHaveBeenCalledWith({ limit: 20, offset: 0 });
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('你填写的内容还在');
+    expect(valueInput).toHaveValue('详细一些');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(2));
+    expect(memoryApi.applyCorrection).toHaveBeenLastCalledWith(expect.objectContaining({
+      target: { kind: 'assertion', id: 'assert_1' },
+      correction_kind: 'situation_changed',
+      replacement: { value: '详细一些' },
+      effective_at: Math.floor(new Date('2024-06-26T12:00').getTime() / 1000),
+      expected_updated_at: 1719301200,
+    }));
+    expect(await within(dialog).findByText('详细一些')).toBeInTheDocument();
+    expect(within(dialog).getByText('相关总结会在后台继续更新，不影响这次修正生效。')).toBeInTheDocument();
+  });
+
+  it('corrects a relationship object without exposing internal identifiers', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l2Entities: [
+        ...baseMemoryState.l2Entities,
+        { entity_id: 'tool_codex', canonical_name: 'Codex', entity_type: 'software', aliases: [] },
+        { entity_id: 'tool_magi', canonical_name: 'Magi', entity_type: 'software', aliases: [] },
+      ],
+    } as ReturnType<typeof useMemory>);
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'edge', id: 'rel_1' },
+      versions: [],
+      corrections: [],
+    });
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_edge',
+        request_id: 'request_edge',
+        actor_id: 'user:self',
+        target_kind: 'edge',
+        target_id: 'rel_1',
+        slot_key: 'slot_edge',
+        claim_fingerprint: 'claim_edge',
+        correction_kind: 'record_error',
+        before: { object_id: 'tool_codex' },
+        replacement: { object_id: 'tool_magi', object_type: 'software' },
+        replacement_target_id: 'rel_2',
+        created_at: 1719301300,
+        state: 'active',
+      },
+      current_claim: { object_id: 'tool_magi' },
+      derivation_state: 'completed',
+      created: true,
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /关系图谱/ }));
+    await user.click(await screen.findByRole('button', { name: /^打开记录 用户 使用 Codex$/i }));
+    const relationDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(within(relationDrawer).queryByText('tool_codex')).not.toBeInTheDocument();
+    await user.click(within(relationDrawer).getByRole('button', { name: '修正这条记忆' }));
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.selectOptions(within(dialog).getByLabelText('正确的关系对象'), 'tool_magi');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'edge', id: 'rel_1' },
+      correction_kind: 'record_error',
+      replacement: { object_id: 'tool_magi', object_type: 'software' },
+      expected_updated_at: 1719301200,
+    }));
+    expect(await within(dialog).findByText('用户 使用 Magi')).toBeInTheDocument();
+  });
+
+  it('limits an assertion to the situation chosen on the memory page', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_scope_assertion',
+        request_id: 'request_scope_assertion',
+        actor_id: 'user:self',
+        target_kind: 'assertion',
+        target_id: 'assert_1',
+        slot_key: 'slot_1',
+        claim_fingerprint: 'claim_1',
+        correction_kind: 'scope_refinement',
+        before: { trait_value: '直白' },
+        replacement: { value: '直白' },
+        replacement_target_id: 'assert_scope',
+        scope: { activity: '代码评审' },
+        created_at: 1719301300,
+        state: 'active',
+      },
+      current_claim: { trait_value: '直白', scope: { activity: '代码评审' } },
+      derivation_state: 'completed',
+      created: true,
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    await user.click(within(drawer).getByRole('button', { name: '修正这条记忆' }));
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    await user.selectOptions(within(dialog).getByLabelText('情况类型'), 'activity');
+    await user.type(within(dialog).getByLabelText('具体情况'), '代码评审');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'assertion', id: 'assert_1' },
+      correction_kind: 'scope_refinement',
+      replacement: { value: '直白' },
+      scope: { activity: '代码评审' },
+      expected_updated_at: 1719301200,
+    }));
+  });
+
+  it('limits a relationship to the situation chosen on the memory page', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_scope_edge',
+        request_id: 'request_scope_edge',
+        actor_id: 'user:self',
+        target_kind: 'edge',
+        target_id: 'rel_1',
+        slot_key: 'slot_edge',
+        claim_fingerprint: 'claim_edge',
+        correction_kind: 'scope_refinement',
+        before: { object_id: 'tool_codex' },
+        replacement: {},
+        replacement_target_id: 'rel_1',
+        scope: { project: 'Magi' },
+        created_at: 1719301300,
+        state: 'active',
+      },
+      current_claim: { object_id: 'tool_codex', scope: { project: 'Magi' } },
+      derivation_state: 'completed',
+      created: true,
+    });
+    const user = userEvent.setup();
+    const dialog = await renderRelationshipCorrection(user);
+
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    await user.selectOptions(within(dialog).getByLabelText('情况类型'), 'project');
+    await user.type(within(dialog).getByLabelText('具体情况'), 'Magi');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'edge', id: 'rel_1' },
+      correction_kind: 'scope_refinement',
+      replacement: {},
+      scope: { project: 'Magi' },
+      expected_updated_at: 1719301200,
+    }));
+  });
+
+  it('records when a relationship changed and what replaced it', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_changed_edge',
+        request_id: 'request_changed_edge',
+        actor_id: 'user:self',
+        target_kind: 'edge',
+        target_id: 'rel_1',
+        slot_key: 'slot_edge',
+        claim_fingerprint: 'claim_edge',
+        correction_kind: 'situation_changed',
+        before: { object_id: 'tool_codex' },
+        replacement: { object_id: 'tool_magi', object_type: 'software' },
+        replacement_target_id: 'rel_2',
+        effective_at: 1719374400,
+        created_at: 1719374400,
+        state: 'active',
+      },
+      current_claim: { object_id: 'tool_magi' },
+      derivation_state: 'completed',
+      created: true,
+    });
+    const user = userEvent.setup();
+    const dialog = await renderRelationshipCorrection(user);
+
+    await user.click(within(dialog).getByRole('button', { name: /以前是这样，现在变了/ }));
+    await user.selectOptions(within(dialog).getByLabelText('正确的关系对象'), 'tool_magi');
+    fireEvent.change(within(dialog).getByLabelText('从什么时候开始变化？'), {
+      target: { value: '2024-06-26T12:00' },
+    });
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+      target: { kind: 'edge', id: 'rel_1' },
+      correction_kind: 'situation_changed',
+      replacement: { object_id: 'tool_magi', object_type: 'software' },
+      effective_at: Math.floor(new Date('2024-06-26T12:00').getTime() / 1000),
+      expected_updated_at: 1719301200,
+    }));
+  });
+
+  it('removes a relationship only after explicit confirmation', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_remove_edge',
+        request_id: 'request_remove_edge',
+        actor_id: 'user:self',
+        target_kind: 'edge',
+        target_id: 'rel_1',
+        slot_key: 'slot_edge',
+        claim_fingerprint: 'claim_edge',
+        correction_kind: 'record_error',
+        before: { object_id: 'tool_codex' },
+        created_at: 1719301300,
+        state: 'active',
+      },
+      current_claim: null,
+      derivation_state: 'completed',
+      created: true,
+    });
+    const user = userEvent.setup();
+    const dialog = await renderRelationshipCorrection(user);
+
+    await user.click(within(dialog).getByRole('button', { name: /这段关系不存在/ }));
+    expect(memoryApi.applyCorrection).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: '确认不再使用' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(1));
+    const request = vi.mocked(memoryApi.applyCorrection).mock.calls[0][0];
+    expect(request).toMatchObject({
+      target: { kind: 'edge', id: 'rel_1' },
+      correction_kind: 'record_error',
+      expected_updated_at: 1719301200,
+    });
+    expect(request).not.toHaveProperty('replacement');
+  });
+
+  it.each([404, 409])('does not overwrite a memory after an HTTP %s response', async (status) => {
+    vi.mocked(memoryApi.applyCorrection).mockRejectedValue({
+      isAxiosError: true,
+      message: 'Target changed',
+      response: {
+        status,
+        data: { detail: status === 404 ? 'Correction target not found' : 'Assertion changed after it was loaded' },
+      },
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    await user.click(within(await screen.findByRole('dialog', { name: '记录详情' })).getByRole('button', { name: '修正这条记忆' }));
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    const input = within(dialog).getByLabelText('正确内容');
+    await user.clear(input);
+    await user.type(input, '更简洁');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('当前内容不会被覆盖');
+    expect(input).toHaveValue('更简洁');
+    expect(within(dialog).queryByRole('button', { name: '保存修正' })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: '查看最新内容' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '记录详情' })).not.toBeInTheDocument());
+    expect(baseMemoryState.loadL2Assertions).toHaveBeenCalledWith({ limit: 20, offset: 0, include_inactive: true });
+  });
+
+  it('shows correction history and only reverts the latest active correction after confirmation', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assert_1' },
+      versions: [
+        { assertion_id: 'assert_1', trait_value: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
+        { assertion_id: 'assert_2', trait_value: '详细一些', status: 'active', valid_from: 1719301300 },
+      ],
+      corrections: [
+        {
+          correction_id: 'correction_old',
+          request_id: 'request_old',
+          actor_id: 'user:self',
+          target_kind: 'assertion',
+          target_id: 'assert_1',
+          slot_key: 'slot_1',
+          claim_fingerprint: 'claim_1',
+          correction_kind: 'record_error',
+          before: { trait_value: '旧内容' },
+          replacement: { value: '直白' },
+          created_at: 1719301200,
+          state: 'active',
+        },
+        {
+          correction_id: 'correction_latest',
+          request_id: 'request_latest',
+          actor_id: 'user:self',
+          target_kind: 'assertion',
+          target_id: 'assert_1',
+          slot_key: 'slot_1',
+          claim_fingerprint: 'claim_1',
+          correction_kind: 'situation_changed',
+          before: { trait_value: '直白' },
+          replacement: { value: '详细一些' },
+          created_at: 1719301300,
+          state: 'active',
+        },
+      ],
+    });
+    vi.mocked(memoryApi.revertCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction_latest',
+        request_id: 'request_latest',
+        actor_id: 'user:self',
+        target_kind: 'assertion',
+        target_id: 'assert_1',
+        slot_key: 'slot_1',
+        claim_fingerprint: 'claim_1',
+        correction_kind: 'situation_changed',
+        before: { trait_value: '直白' },
+        created_at: 1719301300,
+        state: 'reverted',
+      },
+      current_claim: { trait_value: '直白' },
+      derivation_state: 'pending',
+      created: false,
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /断言 偏好/ }));
+    await user.click(await screen.findByRole('button', { name: /直白/ }));
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    expect(await within(drawer).findByText('2 次')).toBeInTheDocument();
+    expect(within(drawer).getAllByRole('button', { name: '撤销这次修正' })).toHaveLength(1);
+    await user.click(within(drawer).getByRole('button', { name: '撤销这次修正' }));
+    expect(within(drawer).getByText('撤销后会恢复到这次修正之前的理解。')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('button', { name: '确认撤销' }));
+
+    await waitFor(() => expect(memoryApi.revertCorrection).toHaveBeenCalledWith(
+      'correction_latest',
+      expect.any(String)
+    ));
   });
 
   it('keeps manual chapter consolidation available', async () => {

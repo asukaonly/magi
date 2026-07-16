@@ -135,7 +135,103 @@ def test_rebuilds_portrait_when_newer_assertion_exists():
         for group in body["self_view"]["world"]["groups"]
     }
     assert [item["text"] for item in items["preferences"]] == ["新画像"]
+    assert items["preferences"][0]["updated_at"] == 200.0
     portrait_repo.upsert.assert_awaited_once()
+
+
+def test_rebuilds_time_fresh_cache_missing_correction_version_metadata():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    cached = _portrait(generated_at=300.0)
+    cached.world["groups"][0]["items"][0]["assertion_id"] = "assert-current"
+    cached.world["groups"][0]["items"][0]["updated_at"] = 200.0
+    portrait_repo.get = AsyncMock(return_value=cached)
+    portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
+    l2 = MagicMock()
+    l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
+    l2.list_current_assertions = AsyncMock(
+        return_value=[
+            {
+                "assertion_id": "assert-current",
+                "trait_family": "interest_profile",
+                "trait_name": "interest.magi",
+                "trait_value": "Magi 记忆系统",
+                "validation_state": "stable",
+                "source_domain": "conversation",
+                "temporal_scope": "stable",
+                "updated_at": 200.0,
+            }
+        ]
+    )
+
+    body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
+
+    groups = {
+        group["id"]: group
+        for group in body["self_view"]["world"]["groups"]
+    }
+    item = groups["preferences"]["items"][0]
+    assert item["assertion_id"] == "assert-current"
+    assert item["updated_at"] == 200.0
+    assert item["correction_value"] == "Magi 记忆系统"
+    portrait_repo.upsert.assert_awaited_once()
+
+
+def test_portrait_keeps_structured_assertion_value_for_correction_round_trip():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    portrait_repo.get = AsyncMock(return_value=None)
+    portrait_repo.upsert = AsyncMock(side_effect=lambda projection: projection)
+    l2 = MagicMock()
+    l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
+    l2.list_current_assertions = AsyncMock(
+        return_value=[
+            {
+                "assertion_id": "assert-structured",
+                "trait_family": "interest_profile",
+                "trait_name": "interest.companions",
+                "trait_value": '["子涵", "哈基米"]',
+                "validation_state": "stable",
+                "source_domain": "conversation",
+                "temporal_scope": "stable",
+                "updated_at": 200.0,
+            }
+        ]
+    )
+
+    body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
+
+    items = {
+        group["id"]: group["items"]
+        for group in body["self_view"]["world"]["groups"]
+    }
+    item = items["preferences"][0]
+    assert item["text"] == "子涵、哈基米"
+    assert item["correction_value"] == '["子涵", "哈基米"]'
+
+
+def test_hides_stale_cached_portrait_when_metadata_rebuild_fails():
+    profile_repo = MagicMock()
+    profile_repo.get = AsyncMock(return_value=None)
+    portrait_repo = MagicMock()
+    cached = _portrait(generated_at=300.0)
+    cached.world["groups"][0]["items"][0]["assertion_id"] = "assert-current"
+    portrait_repo.get = AsyncMock(return_value=cached)
+    portrait_repo.upsert = AsyncMock()
+    l2 = MagicMock()
+    l2.current_subject_revision = AsyncMock(return_value=0)
+    l2.current_clear_generation = AsyncMock(return_value=0)
+    l2.list_current_assertions = AsyncMock(side_effect=RuntimeError("temporary failure"))
+
+    body = _get(profile_repo=profile_repo, portrait_repo=portrait_repo, l2=l2)
+
+    assert body["is_cold_start"] is True
+    assert body["cold_start_reason"] == "no_understanding"
+    portrait_repo.upsert.assert_not_awaited()
 
 
 def test_builds_clean_world_review_and_recent_sections_from_governed_inputs():

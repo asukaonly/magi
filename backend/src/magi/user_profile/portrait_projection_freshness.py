@@ -16,6 +16,8 @@ async def portrait_projection_is_stale(
     profile_projection: UserProfileProjection | None = None,
 ) -> bool:
     """Return true when a newer profile or governed assertion input exists."""
+    if _missing_correction_version_metadata(projection):
+        return True
     newest_input_at = _profile_timestamp(profile_projection)
     entity_id = f"user:{user_id}"
     if l2_store is not None:
@@ -25,6 +27,39 @@ async def portrait_projection_is_stale(
         _float_value(projection.updated_at),
     )
     return newest_input_at > projection_at + 0.000001
+
+
+def _missing_correction_version_metadata(projection: UserPortraitProjection) -> bool:
+    """Invalidate portrait caches missing lossless correction metadata.
+
+    Assertion-backed portrait items need their source ``updated_at`` value for
+    optimistic concurrency checks and their stored ``correction_value`` so a
+    display-formatted value is never written back as a different assertion. A
+    rebuilt projection persists both values, after which normal timestamp
+    freshness checks apply.
+    """
+    containers: list[Any] = []
+    for group in (projection.world or {}).get("groups") or []:
+        if not isinstance(group, dict):
+            return True
+        containers.append(group.get("items") or [])
+    containers.extend(
+        [
+            (projection.review or {}).get("items") or [],
+            (projection.recent or {}).get("items") or [],
+        ]
+    )
+    for items in containers:
+        if not isinstance(items, list):
+            return True
+        for item in items:
+            if not isinstance(item, dict) or not item.get("assertion_id"):
+                continue
+            if not _float_value(item.get("updated_at")) > 0.0:
+                return True
+            if "correction_value" not in item:
+                return True
+    return False
 
 
 async def _latest_assertion_timestamp(l2_store: Any, entity_id: str) -> float:

@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { ChevronDown, Loader2, RefreshCw, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import MemoryCorrectionHistory from '@/components/memory/correction/MemoryCorrectionHistory';
+import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import {
   Sheet,
   SheetContent,
@@ -21,8 +23,11 @@ export function RecordDrawer({
   onOpenChange,
   label,
   actionLoading,
+  correctionTarget,
   onReplay,
-  onInvalidate,
+  onCorrect,
+  onCorrectionReverted,
+  onCorrectionConflict,
   onDelete,
   onCascadeForget,
 }: {
@@ -31,21 +36,25 @@ export function RecordDrawer({
   onOpenChange: (open: boolean) => void;
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
   actionLoading: boolean;
+  correctionTarget: MemoryCorrectionUiTarget | null;
   onReplay: () => void;
-  onInvalidate: () => void;
+  onCorrect: () => void;
+  onCorrectionReverted: () => void | Promise<void>;
+  onCorrectionConflict: () => void | Promise<void>;
   onDelete: () => void;
   onCascadeForget: () => void;
 }) {
   const replayAction = record ? getReplayActionCopy(record, label) : null;
-  const canInvalidate = record?.categoryId === 'assertions' || record?.categoryId === 'relations';
+  const canCorrect = Boolean(correctionTarget && record?.correction?.correctable);
   const canDelete = record?.categoryId === 'events';
   const canCascadeForget = record?.categoryId === 'entities';
-  const hasMaintenanceActions = Boolean(replayAction || canInvalidate || canDelete || canCascadeForget);
+  const hasMaintenanceActions = Boolean(replayAction || canCorrect || canDelete || canCascadeForget);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
+        closeLabel={label('drawer.close', '关闭')}
         className="flex !w-[min(96vw,760px)] !max-w-[760px] flex-col overflow-y-auto border-[hsl(var(--memory-border)/0.65)] bg-[hsl(var(--memory-panel))] p-0"
       >
         <SheetHeader className="border-b border-[hsl(var(--memory-divider)/0.58)] px-6 py-5">
@@ -148,6 +157,14 @@ export function RecordDrawer({
               </details>
             </DrawerSection>
 
+            {correctionTarget ? (
+              <MemoryCorrectionHistory
+                target={correctionTarget}
+                onReverted={onCorrectionReverted}
+                onConflict={onCorrectionConflict}
+              />
+            ) : null}
+
             <div className="mt-auto border-t border-[hsl(var(--memory-divider)/0.58)] py-5">
               <div className="text-sm font-semibold text-[hsl(var(--memory-title))]">{label('drawer.safeActions', '维护操作')}</div>
               {replayAction ? <p className="mt-1.5 text-xs leading-5 text-[hsl(var(--memory-muted))]">{replayAction.hint}</p> : null}
@@ -159,10 +176,10 @@ export function RecordDrawer({
                       {replayAction.buttonLabel}
                     </Button>
                   ) : null}
-                  {canInvalidate ? (
-                    <Button variant="outline" className="h-9 rounded-lg" onClick={onInvalidate} disabled={actionLoading}>
+                  {canCorrect ? (
+                    <Button variant="outline" className="min-h-11 rounded-lg" onClick={onCorrect} disabled={actionLoading}>
                       {actionLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <SlidersHorizontal className="mr-2 h-4 w-4" />}
-                      {label('drawer.actions.invalidate', '标记无效')}
+                      {label('drawer.actions.correctMemory', '修正这条记忆')}
                     </Button>
                   ) : null}
                   {canDelete ? (
@@ -180,7 +197,9 @@ export function RecordDrawer({
                 </div>
               ) : (
                 <p className="mt-2 text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                  {label('drawer.noActions', '这个类型目前只能查看。')}
+                  {correctionTarget
+                    ? label('drawer.historicalMemoryHint', '这是历史记录，可查看修正历史或撤销最新修正。')
+                    : label('drawer.noActions', '这个类型目前只能查看。')}
                 </p>
               )}
             </div>

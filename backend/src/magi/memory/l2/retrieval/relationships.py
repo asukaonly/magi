@@ -362,12 +362,19 @@ class L2StoreRelationshipQueryMixin:
             )
         return "relationships.subject_id = requested.entity_id"
 
-    async def count_relationships(self, *, query: str | None = None) -> int:
-        """Count all active relationships in the knowledge graph."""
+    async def count_relationships(
+        self,
+        *,
+        query: str | None = None,
+        include_inactive: bool = False,
+    ) -> int:
+        """Count relationships, optionally including governed historical rows."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
-        sql = "SELECT COUNT(*) FROM knowledge_graph WHERE status = 'active'"
+        sql = "SELECT COUNT(*) FROM knowledge_graph WHERE 1=1"
         args: list[Any] = []
+        if not include_inactive:
+            sql += " AND status = 'active'"
         search_sql, search_args = build_like_search_clause(
             [
                 "triple_id",
@@ -408,12 +415,16 @@ class L2StoreRelationshipQueryMixin:
         temporal_clause: Optional[tuple[str, list[Any]]] = None,
         evidence_classes: Optional[List[str]] = None,
         query: str | None = None,
+        include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         """Query the knowledge graph."""
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         search_query = query
-        if status_filters:
+        if include_inactive:
+            sql = "SELECT * FROM knowledge_graph WHERE 1=1"
+            args: list[Any] = []
+        elif status_filters:
             placeholders = ", ".join("?" for _ in status_filters)
             sql = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
             args: list[Any] = [str(item).strip() for item in status_filters]

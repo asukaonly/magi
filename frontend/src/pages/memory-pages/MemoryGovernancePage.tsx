@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import { memoryApi, type EpisodeReconsolidateResult } from '@/api/modules/memory';
+import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
+import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame from './MemoryPageFrame';
@@ -30,6 +33,9 @@ export const MemoryGovernancePage = () => {
   const [recordLoadError, setRecordLoadError] = useState<string | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [recordActionLoading, setRecordActionLoading] = useState(false);
+  const [correctionDialogOpen, setCorrectionDialogOpen] = useState(false);
+  const [correctionSaved, setCorrectionSaved] = useState(false);
+  const [correctionConflict, setCorrectionConflict] = useState(false);
   const [reconsolidateResult, setReconsolidateResult] = useState<EpisodeReconsolidateResult | null>(null);
   const [reconsolidateError, setReconsolidateError] = useState<string | null>(null);
   const [baseLayerCounts, setBaseLayerCounts] = useState<Partial<Record<MaintenanceCategoryId, number>>>({});
@@ -100,6 +106,40 @@ export const MemoryGovernancePage = () => {
     ...(isRecordSearchActive ? { query: normalizedRecordSearchQuery } : {}),
   }), [currentPage, isRecordSearchActive, normalizedRecordSearchQuery]);
 
+  const correctionTarget = useMemo<MemoryCorrectionUiTarget | null>(() => {
+    if (!selectedRecord?.correction) return null;
+    if (selectedRecord.correction.kind === 'assertion') {
+      return {
+        kind: 'assertion',
+        id: selectedRecord.id,
+        statement: selectedRecord.title,
+        currentValue: selectedRecord.correction.currentValue,
+        expectedUpdatedAt: selectedRecord.correction.expectedUpdatedAt,
+      };
+    }
+
+    const entityOptions = memory.l2Entities.map((entity) => ({
+      id: entity.entity_id,
+      name: entity.canonical_name,
+      type: entity.entity_type,
+    }));
+    const relationship = selectedRecord.correction.relationship;
+    if (!entityOptions.some((entity) => entity.id === relationship.subjectId)) {
+      entityOptions.push({ id: relationship.subjectId, name: relationship.subjectName, type: relationship.subjectType });
+    }
+    if (!entityOptions.some((entity) => entity.id === relationship.objectId)) {
+      entityOptions.push({ id: relationship.objectId, name: relationship.objectName, type: relationship.objectType });
+    }
+    return {
+      kind: 'edge',
+      id: selectedRecord.id,
+      statement: selectedRecord.title,
+      expectedUpdatedAt: selectedRecord.correction.expectedUpdatedAt,
+      relationship,
+      entityOptions,
+    };
+  }, [memory.l2Entities, selectedRecord]);
+
   const loadCategoryRecords = useCallback(async (
     category: MaintenanceCategoryId,
     params: ReturnType<typeof currentPageParams>
@@ -121,10 +161,10 @@ export const MemoryGovernancePage = () => {
         loaded = await memory.loadL2Entities(params);
         break;
       case 'assertions':
-        loaded = await memory.loadL2Assertions(params);
+        loaded = await memory.loadL2Assertions({ ...params, include_inactive: true });
         break;
       case 'relations':
-        loaded = await memory.loadL2Relations(params);
+        loaded = await memory.loadL2Relations({ ...params, include_inactive: true });
         break;
       case 'snapshots':
         loaded = await memory.loadL2Snapshots(params);
@@ -153,34 +193,36 @@ export const MemoryGovernancePage = () => {
     memory.loadL4Skills,
   ]);
 
-  const refreshCategory = async (category: MaintenanceCategoryId) => {
+  const refreshCategory = async (category: MaintenanceCategoryId): Promise<boolean> => {
     const params = currentPageParams();
+    let loaded: boolean | void = true;
     switch (category) {
       case 'sessions':
-        await memory.loadL0Sessions(params);
+        loaded = await memory.loadL0Sessions(params);
         break;
       case 'events':
-        await memory.queryL1Events(params);
+        loaded = await memory.queryL1Events(params);
         break;
       case 'entities':
-        await memory.loadL2Entities(params);
+        loaded = await memory.loadL2Entities(params);
         break;
       case 'assertions':
-        await memory.loadL2Assertions(params);
+        loaded = await memory.loadL2Assertions({ ...params, include_inactive: true });
         break;
       case 'relations':
-        await memory.loadL2Relations(params);
+        loaded = await memory.loadL2Relations({ ...params, include_inactive: true });
         break;
       case 'snapshots':
-        await memory.loadL2Snapshots(params);
+        loaded = await memory.loadL2Snapshots(params);
         break;
       case 'summaries':
-        await memory.loadL3Summaries(params);
+        loaded = await memory.loadL3Summaries(params);
         break;
       case 'skills':
-        await memory.loadL4Skills(params);
+        loaded = await memory.loadL4Skills(params);
         break;
     }
+    return loaded !== false;
   };
 
   useEffect(() => {
@@ -240,23 +282,11 @@ export const MemoryGovernancePage = () => {
     }
   };
 
-  const handleInvalidateSelected = async () => {
+  const refreshSelectedCorrectionTarget = async () => {
     if (!selectedRecord) return;
-    setRecordActionLoading(true);
-    try {
-      if (selectedRecord.categoryId === 'assertions') {
-        await memory.submitAssertionFeedback(selectedRecord.id, 'rejected');
-        await refreshCategory('assertions');
-        setSelectedRecord(null);
-        return;
-      }
-      if (selectedRecord.categoryId === 'relations') {
-        await memoryApi.rejectL2Edge(selectedRecord.id);
-        await refreshCategory('relations');
-        setSelectedRecord(null);
-      }
-    } finally {
-      setRecordActionLoading(false);
+    if (selectedRecord.categoryId === 'assertions' || selectedRecord.categoryId === 'relations') {
+      const refreshed = await refreshCategory(selectedRecord.categoryId);
+      return refreshed;
     }
   };
 
@@ -416,16 +446,60 @@ export const MemoryGovernancePage = () => {
 
       <RecordDrawer
         record={selectedRecord}
-        open={selectedRecord !== null}
+        open={selectedRecord !== null && !correctionDialogOpen}
         onOpenChange={(open) => {
           if (!open) setSelectedRecord(null);
         }}
         label={label}
         actionLoading={memory.l2ActionLoading || recordActionLoading}
+        correctionTarget={correctionTarget}
         onReplay={() => void handleReplaySelected()}
-        onInvalidate={() => void handleInvalidateSelected()}
+        onCorrect={() => {
+          setCorrectionSaved(false);
+          setCorrectionConflict(false);
+          setCorrectionDialogOpen(true);
+        }}
+        onCorrectionReverted={async () => {
+          const refreshed = await refreshSelectedCorrectionTarget();
+          setSelectedRecord(null);
+          toast.success(t('memory.correction.history.revertSuccess', { defaultValue: '已撤销这次修正' }));
+          if (refreshed === false) {
+            toast.warning(t('memory.correction.refreshFailed', { defaultValue: '修正已撤销，但列表暂时没有刷新。' }));
+          }
+        }}
+        onCorrectionConflict={async () => {
+          await refreshSelectedCorrectionTarget();
+        }}
         onDelete={() => void handleDeleteSelected()}
         onCascadeForget={() => void handleCascadeForgetSelected()}
+      />
+      <MemoryCorrectionDialog
+        open={correctionDialogOpen}
+        target={correctionTarget}
+        onOpenChange={(open) => {
+          setCorrectionDialogOpen(open);
+          if (!open && (correctionSaved || correctionConflict)) {
+            setCorrectionSaved(false);
+            setCorrectionConflict(false);
+            setSelectedRecord(null);
+          }
+        }}
+        onSaved={async () => {
+          setCorrectionSaved(true);
+          const refreshed = await refreshSelectedCorrectionTarget();
+          if (refreshed === false) {
+            toast.warning(t('memory.correction.refreshFailed', { defaultValue: '修正已保存，但列表暂时没有刷新。' }));
+          }
+        }}
+        onConflict={async () => {
+          setCorrectionConflict(true);
+          const refreshed = await refreshSelectedCorrectionTarget();
+          if (refreshed === false) {
+            toast.warning(t('memory.correction.latestRefreshFailed', {
+              defaultValue: '暂时无法读取最新内容，请稍后再试。',
+            }));
+          }
+        }}
       />
     </MemoryPageFrame>
   );

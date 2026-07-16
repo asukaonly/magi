@@ -6,7 +6,10 @@ import aiosqlite
 import pytest
 
 from magi.memory.l2.corrections.models import CorrectionKind
-from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
+from magi.memory.l2.corrections.service import (
+    MemoryCorrectionConflictError,
+    MemoryCorrectionValidationError,
+)
 
 
 async def _seed_assertion(
@@ -145,6 +148,77 @@ async def test_situation_changed_closes_old_version_at_effective_time(l2_store_w
         "Shanghai",
     ]
     assert history["corrections"][0]["effective_at"] == pytest.approx(effective_at)
+
+
+@pytest.mark.asyncio
+async def test_situation_change_rejects_time_before_assertion_started(l2_store_with_schema):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    original = await store.get_tom_assertion(assertion_id=assertion_id)
+
+    with pytest.raises(MemoryCorrectionValidationError, match="assertion start time"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="request-before-assertion-start",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SITUATION_CHANGED,
+            replacement_value="Shanghai",
+            effective_at=float(original["first_inferred_at"]) - 1,
+        )
+
+
+@pytest.mark.asyncio
+async def test_shadow_assertion_cannot_be_corrected(l2_store_with_schema):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET status = 'shadow', validation_state = 'shadow'
+            WHERE assertion_id = ?
+            """,
+            (assertion_id,),
+        )
+        await db.commit()
+
+    with pytest.raises(MemoryCorrectionConflictError, match="no longer current"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="request-shadow-assertion",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement_value="Shanghai",
+        )
+
+    assert await store.list_assertion_corrections(assertion_id=assertion_id) == []
+
+
+@pytest.mark.asyncio
+async def test_invalidated_assertion_cannot_be_corrected(l2_store_with_schema):
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    async with aiosqlite.connect(store.db_path) as db:
+        await db.execute(
+            """
+            UPDATE tom_trait_assertions
+            SET status = 'invalidated', validation_state = 'invalidated'
+            WHERE assertion_id = ?
+            """,
+            (assertion_id,),
+        )
+        await db.commit()
+
+    with pytest.raises(MemoryCorrectionConflictError, match="no longer current"):
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="request-invalidated-assertion",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement_value="Shanghai",
+        )
+
+    assert await store.list_assertion_corrections(assertion_id=assertion_id) == []
 
 
 @pytest.mark.asyncio
