@@ -152,7 +152,6 @@ async def handle_memory_correction_derivations(
         if (
             scheduler is not None
             and next_wakeup_at is not None
-            and next_wakeup_at < now + CORRECTION_DERIVATION_SWEEP_INTERVAL_SECONDS
         ):
             retry_scheduled = await _schedule_correction_retry(
                 scheduler,

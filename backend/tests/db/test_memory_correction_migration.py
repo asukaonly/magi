@@ -4,13 +4,85 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
 from pathlib import Path
 
 import sqlite_vec
+import pytest
 from alembic import command
 
 from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.memory.l2.store import L2CognitionStore
+
+
+def test_scheduled_transition_migration_marks_only_due_changes_applied(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    target = next(item for item in MIGRATION_TARGETS if item.name == "memory_shared")
+    config = _build_config(target, db_path)
+    command.upgrade(config, "v11_correction_evidence_governance")
+    now = time.time()
+
+    with sqlite3.connect(db_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO memory_corrections(
+                correction_id, request_id, actor_id, target_kind, target_id,
+                slot_key, claim_fingerprint, correction_kind, before_json,
+                replacement_json, effective_at, replacement_target_id, state,
+                created_at
+            ) VALUES (?, ?, 'user:u1', 'assertion', ?, 'slot-home', ?,
+                      'situation_changed', ?, ?, ?, ?, 'active', ?)
+            """,
+            [
+                (
+                    "correction-past",
+                    "request-past",
+                    "assertion-old-past",
+                    "claim-old-past",
+                    '{"entity_id":"user:u1"}',
+                    '{"value":"Past replacement"}',
+                    now - 60,
+                    "assertion-new-past",
+                    now - 120,
+                ),
+                (
+                    "correction-future",
+                    "request-future",
+                    "assertion-old-future",
+                    "claim-old-future",
+                    '{"entity_id":"user:u1"}',
+                    '{"value":"Future replacement"}',
+                    now + 600,
+                    "assertion-new-future",
+                    now,
+                ),
+            ],
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(memory_corrections)")
+        }
+        indexes = {
+            str(row[1]) for row in connection.execute("PRAGMA index_list(memory_corrections)")
+        }
+        markers = dict(connection.execute(
+            """
+            SELECT correction_id, transition_applied_at
+            FROM memory_corrections
+            ORDER BY correction_id
+            """
+        ).fetchall())
+
+    assert "transition_applied_at" in columns
+    assert "idx_memory_corrections_due_transition" in indexes
+    assert markers["correction-future"] is None
+    assert markers["correction-past"] == pytest.approx(now - 120)
 
 
 def test_memory_correction_migration_backfills_rejected_claims(tmp_path: Path) -> None:

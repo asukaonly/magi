@@ -30,6 +30,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v9_memory_clear_generation.py",
     "v10_relationship_version_snapshot.py",
     "v11_correction_evidence_governance.py",
+    "v12_scheduled_correction_transitions.py",
 )
 
 

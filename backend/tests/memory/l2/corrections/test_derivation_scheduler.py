@@ -22,6 +22,7 @@ from magi.memory.l2.derive_schedule import (
     SCHEDULE_ID_L2_CORRECTION_RETRY,
     L2DeriveScheduleContrib,
     _schedule_correction_retry,
+    handle_memory_correction_derivations,
 )
 from magi.scheduler.service import SchedulerService
 
@@ -577,3 +578,46 @@ async def test_correction_retry_schedule_coalesces_to_earliest_wakeup(tmp_path) 
         assert abs(next_run_at - (now + 10)) < 1.0
     finally:
         await scheduler.stop()
+
+
+async def test_far_future_transition_gets_exact_retry_schedule() -> None:
+    wakeup_at = time.time() + 86_400
+    cognition_store = SimpleNamespace(
+        process_memory_correction_jobs=AsyncMock(
+            return_value={
+                "completed": 0,
+                "failed": 0,
+                "superseded": 0,
+                "activated": 0,
+            }
+        ),
+        next_memory_correction_job_wakeup_at=AsyncMock(return_value=wakeup_at),
+    )
+
+    @asynccontextmanager
+    async def memory_operation_guard():
+        yield
+
+    unified = SimpleNamespace(
+        l2=cognition_store,
+        l2_pipeline=SimpleNamespace(_cognition_store=cognition_store),
+        memory_operation_guard=memory_operation_guard,
+    )
+    config = SimpleNamespace(
+        agent=SimpleNamespace(memory=SimpleNamespace(l2=SimpleNamespace(enabled=True)))
+    )
+    scheduler = SimpleNamespace(schedule_once_earliest=AsyncMock())
+
+    with (
+        patch("magi.memory.l2.derive_schedule.get_config", return_value=config),
+        patch("magi.memory.l2.derive_schedule.get_unified_memory", return_value=unified),
+    ):
+        result = await handle_memory_correction_derivations(
+            SimpleNamespace(),
+            scheduler=scheduler,
+        )
+
+    assert result.success is True
+    assert result.stats["retry_scheduled"] is True
+    scheduler.schedule_once_earliest.assert_awaited_once()
+    assert scheduler.schedule_once_earliest.await_args.kwargs["run_at"] == wakeup_at

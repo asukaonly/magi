@@ -29,7 +29,7 @@ from .corrections.repository import (
     DEFAULT_DERIVATION_STALE_RUNNING_SECONDS,
     MemoryCorrectionRepository,
 )
-from .corrections.cache_signals import mark_all_subjects_changed
+from .corrections.cache_signals import mark_all_subjects_changed, mark_subject_changed
 from .projection.queue import ProjectionJobQueue
 from .assertions.contradictions import L2StoreContradictionMixin
 from .assertions.feedback import L2StoreFeedbackMixin
@@ -250,12 +250,18 @@ class L2CognitionStore(
         from .corrections.derivations import CorrectionDerivationRunner
 
         async with self.memory_correction_job_guard():
+            repository = MemoryCorrectionRepository(self.db_path)
+            activated, subject_revisions = await repository.activate_due_situation_changes(
+                limit=limit,
+            )
+            for subject_key in subject_revisions:
+                mark_subject_changed(self.db_path, subject_key)
             if recover_stale_after_seconds is not None:
-                await MemoryCorrectionRepository(self.db_path).recover_stale_running_jobs(
+                await repository.recover_stale_running_jobs(
                     stale_after_seconds=recover_stale_after_seconds,
                     max_attempts=max_attempts,
                 )
-            return await CorrectionDerivationRunner(
+            stats = await CorrectionDerivationRunner(
                 db_path=self.db_path,
                 l2_store=self,
                 l3_store=l3_store,
@@ -265,6 +271,7 @@ class L2CognitionStore(
                 recover_interrupted=recover_interrupted,
                 max_attempts=max_attempts,
             )
+            return {**stats, "activated": activated}
 
     async def next_memory_correction_job_wakeup_at(
         self,

@@ -223,6 +223,62 @@ async def test_relationship_situation_change_keeps_pre_change_evidence_historica
 
 
 @pytest.mark.asyncio
+async def test_future_relationship_change_blocks_early_replacement_evidence(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    effective_at = time.time() + 600
+    old_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-original",
+        observed_at=time.time() - 60,
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=old_id,
+        request_id="future-city-write-boundary",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert corrected is not None
+    replacement_id = corrected["current_relationship"]["triple_id"]
+
+    same_value_id = await _edge(
+        store,
+        object_id="place:shanghai",
+        event_id="evt-early-replacement",
+        observed_at=effective_at - 10,
+    )
+    third_value_id = await _edge(
+        store,
+        object_id="place:beijing",
+        event_id="evt-early-third",
+        observed_at=effective_at - 10,
+    )
+    old_value_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-change",
+        observed_at=effective_at - 10,
+    )
+
+    assert same_value_id == old_id
+    assert third_value_id == old_id
+    assert old_value_id == old_id
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert replacement["evidence_event_ids"] == []
+    historical = await store.get_relationship(triple_id=old_id)
+    assert historical["evidence_event_ids"] == ["evt-before-change", "evt-original"]
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM knowledge_graph WHERE object_id = 'place:beijing'"
+        ) as cursor:
+            assert int((await cursor.fetchone())[0]) == 0
+
+
+@pytest.mark.asyncio
 async def test_situation_change_rejects_time_before_relationship_started(
     l2_store_with_schema,
 ):

@@ -246,7 +246,8 @@ class L2StoreFeedbackMixin:
         await host.wake_memory_correction_jobs()
         changed_assertion_id = result.current_assertion_id or assertion_id
         current_assertion = await host.get_tom_assertion(assertion_id=changed_assertion_id)
-        await _notify_feedback_assertion_changed(host, current_assertion)
+        if result.subject_revision is not None:
+            await _notify_feedback_assertion_changed(host, current_assertion)
         logger.info(
             "L2 assertion correction applied",
             correction_id=result.correction.correction_id,
@@ -283,7 +284,8 @@ class L2StoreFeedbackMixin:
         current_assertion = await host.get_tom_assertion(
             assertion_id=result.current_assertion_id or result.correction.target_id
         )
-        await _notify_feedback_assertion_changed(host, current_assertion)
+        if result.subject_revision is not None:
+            await _notify_feedback_assertion_changed(host, current_assertion)
         return {
             "correction": asdict(result.correction),
             "current_assertion": current_assertion,

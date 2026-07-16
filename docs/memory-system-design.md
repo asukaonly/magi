@@ -891,7 +891,10 @@ its time or scope, and an executable rule that guards future writes. An incorrec
 claim is blocked from becoming current again when old events are replayed or a
 source is resynchronized. A changed situation closes the previous time range;
 a scoped refinement is only current when the query scope matches. Replacement
-claims do not inherit evidence that supported the rejected value.
+claims do not inherit evidence that supported the rejected value. Time-bounded
+rules are evaluated against when the candidate evidence was observed, so evidence
+from before a scheduled change cannot be governed as though the change had already
+happened.
 
 Raw L1 evidence is preserved for audit and narrative history, but it does not
 bypass an active correction. For fact-authoritative modes, an L1 event that
@@ -908,7 +911,11 @@ Correction-sensitive derived views use a monotonically increasing subject
 revision. Snapshots, profile projections, portrait projections, and dependent L3
 insights are hidden as soon as their source revision is stale, then rebuilt by
 durable retryable jobs. Failed rebuilds therefore reduce available context instead
-of leaking a known-wrong view. Page-originated corrections also create a permanent
+of leaking a known-wrong view. A future-dated situation change stores its time
+range immediately but advances the subject revision only when that time arrives.
+The pending transition is durable and idempotent; the scheduler keeps the earliest
+activation time while the periodic sweep recovers missed wakeups. Page-originated
+corrections also create a permanent
 L1 audit event with `cognition_eligible=false`; a chat-originated correction points
 to its existing L1 source event instead. These audit records explain the user
 action but can never become evidence for a new user fact.

@@ -107,6 +107,11 @@ class RelationshipCorrectionService:
 
                 effective_at = _effective_at(command, now)
                 _ensure_effective_at_not_before_relationship(before, command, effective_at)
+                transition_is_future = _is_future_situation_change(
+                    command.correction_kind,
+                    effective_at=effective_at,
+                    now=now,
+                )
                 correction_id = f"correction_{uuid.uuid4().hex}"
                 replacement = _normalize_replacement(command, before, effective_at)
                 replacement_id = str(replacement["triple_id"]) if replacement is not None else None
@@ -175,35 +180,38 @@ class RelationshipCorrectionService:
                     now=now,
                 ):
                     await self.repository.insert_rule(db, rule)
-                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
-                    db,
-                    source_kind="edge",
-                    source_ids=[command.triple_id],
-                    subject_keys=_affected_subject_keys(before, replacement),
-                    updated_at=now,
-                )
-                affected_subjects = list(
-                    dict.fromkeys(
-                        [*_affected_subject_keys(before, replacement), *l3_subjects]
-                    )
-                )
-                subject_revisions: dict[str, int] = {}
-                for subject_key in affected_subjects:
-                    revision = await self.repository.bump_subject_revision(
+                affected_subjects: list[str] = []
+                subject_revision: int | None = None
+                if not transition_is_future:
+                    l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
                         db,
-                        subject_key=subject_key,
+                        source_kind="edge",
+                        source_ids=[command.triple_id],
+                        subject_keys=_affected_subject_keys(before, replacement),
                         updated_at=now,
                     )
-                    subject_revisions[subject_key] = revision
-                    await self.repository.enqueue_subject_derivations(
-                        db,
-                        correction_id=correction_id,
-                        subject_key=subject_key,
-                        target_revision=revision,
-                        include_l3=subject_key in l3_subjects,
-                        now=now,
+                    affected_subjects = list(
+                        dict.fromkeys(
+                            [*_affected_subject_keys(before, replacement), *l3_subjects]
+                        )
                     )
-                subject_revision = subject_revisions[str(before["subject_id"])]
+                    subject_revisions: dict[str, int] = {}
+                    for subject_key in affected_subjects:
+                        revision = await self.repository.bump_subject_revision(
+                            db,
+                            subject_key=subject_key,
+                            updated_at=now,
+                        )
+                        subject_revisions[subject_key] = revision
+                        await self.repository.enqueue_subject_derivations(
+                            db,
+                            correction_id=correction_id,
+                            subject_key=subject_key,
+                            target_revision=revision,
+                            include_l3=subject_key in l3_subjects,
+                            now=now,
+                        )
+                    subject_revision = subject_revisions[str(before["subject_id"])]
                 if command.audit_event_id is not None:
                     await self.repository.enqueue_derivation_job(
                         db,
@@ -247,6 +255,10 @@ class RelationshipCorrectionService:
                     await db.commit()
                     return None
                 correction = MemoryCorrection.from_row(dict(correction_row))
+                transition_was_pending = (
+                    correction.correction_kind == CorrectionKind.SITUATION_CHANGED
+                    and correction_row["transition_applied_at"] is None
+                )
                 if correction.target_kind != CorrectionTargetKind.EDGE:
                     raise MemoryCorrectionValidationError(
                         "Correction does not target a relationship"
@@ -303,43 +315,46 @@ class RelationshipCorrectionService:
                     """,
                     (now, f"{actor_id}:{request_id}", correction_id),
                 )
-                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
-                    db,
-                    source_kind="edge",
-                    source_ids=[
-                        correction.target_id,
-                        correction.replacement_target_id or "",
-                    ],
-                    subject_keys=_affected_subject_keys(
-                        correction.before,
-                        correction.replacement,
-                    ),
-                    updated_at=now,
-                )
-                affected_subjects = _affected_subject_keys(
-                    correction.before,
-                    correction.replacement,
-                )
-                affected_subjects = list(
-                    dict.fromkeys([*affected_subjects, *l3_subjects])
-                )
-                subject_revisions: dict[str, int] = {}
-                for subject_key in affected_subjects:
-                    revision = await self.repository.bump_subject_revision(
+                affected_subjects: list[str] = []
+                subject_revision: int | None = None
+                if not transition_was_pending:
+                    l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
                         db,
-                        subject_key=subject_key,
+                        source_kind="edge",
+                        source_ids=[
+                            correction.target_id,
+                            correction.replacement_target_id or "",
+                        ],
+                        subject_keys=_affected_subject_keys(
+                            correction.before,
+                            correction.replacement,
+                        ),
                         updated_at=now,
                     )
-                    subject_revisions[subject_key] = revision
-                    await self.repository.enqueue_subject_derivations(
-                        db,
-                        correction_id=correction_id,
-                        subject_key=subject_key,
-                        target_revision=revision,
-                        include_l3=subject_key in l3_subjects,
-                        now=now,
+                    affected_subjects = _affected_subject_keys(
+                        correction.before,
+                        correction.replacement,
                     )
-                subject_revision = subject_revisions[str(correction.before["subject_id"])]
+                    affected_subjects = list(
+                        dict.fromkeys([*affected_subjects, *l3_subjects])
+                    )
+                    subject_revisions: dict[str, int] = {}
+                    for subject_key in affected_subjects:
+                        revision = await self.repository.bump_subject_revision(
+                            db,
+                            subject_key=subject_key,
+                            updated_at=now,
+                        )
+                        subject_revisions[subject_key] = revision
+                        await self.repository.enqueue_subject_derivations(
+                            db,
+                            correction_id=correction_id,
+                            subject_key=subject_key,
+                            target_revision=revision,
+                            include_l3=subject_key in l3_subjects,
+                            now=now,
+                        )
+                    subject_revision = subject_revisions[str(correction.before["subject_id"])]
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -525,6 +540,18 @@ def _effective_at(command: ApplyRelationshipCorrectionCommand, now: float) -> fl
         assert command.effective_at is not None
         return float(command.effective_at)
     return now
+
+
+def _is_future_situation_change(
+    correction_kind: CorrectionKind,
+    *,
+    effective_at: float,
+    now: float,
+) -> bool:
+    return (
+        correction_kind == CorrectionKind.SITUATION_CHANGED
+        and float(effective_at) > float(now)
+    )
 
 
 def _ensure_effective_at_not_before_relationship(

@@ -57,16 +57,20 @@ class MemoryCorrectionRepository:
                 await self.insert_correction(db, correction)
                 for rule in rules:
                     await self.insert_rule(db, rule)
-                revisions = {
-                    subject_key: await self.bump_subject_revision(
-                        db,
-                        subject_key=subject_key,
-                        updated_at=correction.created_at,
-                    )
-                    for subject_key in dict.fromkeys(
-                        str(item).strip() for item in subject_keys if str(item).strip()
-                    )
-                }
+                revisions = {}
+                if not _transition_is_pending(correction):
+                    revisions = {
+                        subject_key: await self.bump_subject_revision(
+                            db,
+                            subject_key=subject_key,
+                            updated_at=correction.created_at,
+                        )
+                        for subject_key in dict.fromkeys(
+                            str(item).strip()
+                            for item in subject_keys
+                            if str(item).strip()
+                        )
+                    }
                 await db.commit()
             except Exception:
                 await db.rollback()
@@ -91,8 +95,9 @@ class MemoryCorrectionRepository:
                 correction_id, request_id, actor_id, target_kind, target_id,
                 slot_key, claim_fingerprint, correction_kind, reason, before_json,
                 replacement_json, effective_at, scope_json, source_event_id,
-                audit_event_id, replacement_target_id, state, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)
+                audit_event_id, replacement_target_id, state, created_at,
+                transition_applied_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             (
                 correction.correction_id,
@@ -112,6 +117,7 @@ class MemoryCorrectionRepository:
                 _optional_text(correction.audit_event_id),
                 _optional_text(correction.replacement_target_id),
                 correction.created_at,
+                _initial_transition_applied_at(correction),
             ),
         )
         evidence_event_ids = _correction_evidence_event_ids(correction)
@@ -303,6 +309,91 @@ class MemoryCorrectionRepository:
         assert row is not None
         return int(row[0])
 
+    async def activate_due_situation_changes(
+        self,
+        *,
+        limit: int = 25,
+        now: float | None = None,
+    ) -> tuple[int, dict[str, int]]:
+        """Advance revisions for due situation changes exactly once."""
+        activated_at = float(now if now is not None else time.time())
+        bounded_limit = max(1, int(limit))
+        activated_count = 0
+        subject_revisions: dict[str, int] = {}
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    """
+                    SELECT *
+                    FROM memory_corrections
+                    WHERE correction_kind = 'situation_changed'
+                      AND state = 'active'
+                      AND transition_applied_at IS NULL
+                      AND effective_at IS NOT NULL
+                      AND effective_at <= ?
+                    ORDER BY effective_at, created_at, correction_id
+                    LIMIT ?
+                    """,
+                    (activated_at, bounded_limit),
+                ) as cursor:
+                    due_rows = await cursor.fetchall()
+
+                for row in due_rows:
+                    correction = MemoryCorrection.from_row(dict(row))
+                    subjects = _correction_subject_keys(correction)
+                    source_kind = (
+                        "assertion"
+                        if correction.target_kind == CorrectionTargetKind.ASSERTION
+                        else "edge"
+                    )
+                    source_ids = [
+                        correction.target_id,
+                        correction.replacement_target_id or "",
+                    ]
+                    l3_subjects = await self.invalidate_l3_insights_on_connection(
+                        db,
+                        source_kind=source_kind,
+                        source_ids=source_ids,
+                        subject_keys=subjects,
+                        updated_at=activated_at,
+                    )
+                    affected_subjects = list(
+                        dict.fromkeys([*subjects, *sorted(l3_subjects)])
+                    )
+                    for subject_key in affected_subjects:
+                        revision = await self.bump_subject_revision(
+                            db,
+                            subject_key=subject_key,
+                            updated_at=activated_at,
+                        )
+                        subject_revisions[subject_key] = revision
+                        await self.enqueue_subject_derivations(
+                            db,
+                            correction_id=correction.correction_id,
+                            subject_key=subject_key,
+                            target_revision=revision,
+                            include_l3=subject_key in l3_subjects,
+                            now=activated_at,
+                        )
+                    cursor = await db.execute(
+                        """
+                        UPDATE memory_corrections
+                        SET transition_applied_at = ?
+                        WHERE correction_id = ?
+                          AND state = 'active'
+                          AND transition_applied_at IS NULL
+                        """,
+                        (activated_at, correction.correction_id),
+                    )
+                    activated_count += int(cursor.rowcount or 0)
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return activated_count, subject_revisions
+
     async def enqueue_derivation_job(
         self,
         db: aiosqlite.Connection,
@@ -460,6 +551,13 @@ class MemoryCorrectionRepository:
                         )
                     )
                     OR status = 'running'
+                    UNION ALL
+                    SELECT effective_at AS ready_at
+                    FROM memory_corrections
+                    WHERE correction_kind = 'situation_changed'
+                      AND state = 'active'
+                      AND transition_applied_at IS NULL
+                      AND effective_at IS NOT NULL
                 )
                 WHERE ready_at IS NOT NULL
                 """,
@@ -479,6 +577,15 @@ class MemoryCorrectionRepository:
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
+                SELECT correction_kind, state, transition_applied_at
+                FROM memory_corrections
+                WHERE correction_id = ?
+                """,
+                (correction_id,),
+            ) as cursor:
+                correction_row = await cursor.fetchone()
+            async with db.execute(
+                """
                 SELECT status, next_retry_at
                 FROM memory_derivation_jobs
                 WHERE correction_id = ?
@@ -488,6 +595,13 @@ class MemoryCorrectionRepository:
                 rows = await cursor.fetchall()
         if any(str(status) == "failed" and next_retry_at is None for status, next_retry_at in rows):
             return "failed"
+        if (
+            correction_row is not None
+            and str(correction_row[0]) == "situation_changed"
+            and str(correction_row[1]) == "active"
+            and correction_row[2] is None
+        ):
+            return "pending"
         if any(str(status) == "running" for status, _ in rows):
             return "running"
         if any(
@@ -829,6 +943,38 @@ class MemoryCorrectionRepository:
             tuple(artifact_ids),
         )
         return {str(row[1]) for row in rows if str(row[1]).strip()}
+
+
+def _initial_transition_applied_at(correction: NewMemoryCorrection) -> float | None:
+    if correction.correction_kind.value != "situation_changed":
+        return None
+    if _transition_is_pending(correction):
+        return None
+    return float(correction.created_at)
+
+
+def _transition_is_pending(correction: NewMemoryCorrection) -> bool:
+    return (
+        correction.correction_kind.value == "situation_changed"
+        and correction.effective_at is not None
+        and float(correction.effective_at) > float(correction.created_at)
+    )
+
+
+def _correction_subject_keys(correction: MemoryCorrection) -> list[str]:
+    if correction.target_kind == CorrectionTargetKind.ASSERTION:
+        entity_id = str(correction.before.get("entity_id") or "").strip()
+        return [entity_id] if entity_id else []
+
+    keys: list[str] = []
+    for payload in (correction.before, correction.replacement or {}):
+        subject_id = str(payload.get("subject_id") or "").strip()
+        object_id = str(payload.get("object_id") or "").strip()
+        if subject_id:
+            keys.append(subject_id)
+        if ":" in object_id:
+            keys.append(object_id)
+    return list(dict.fromkeys(keys))
 
 
 def _json_mapping(value: Mapping[str, Any] | None) -> str | None:

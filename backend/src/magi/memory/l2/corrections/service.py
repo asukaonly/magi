@@ -177,6 +177,11 @@ class MemoryCorrectionService:
                 old_scope_key = str(before.get("scope_key") or "global")
                 effective_at = _effective_at(command, now)
                 _ensure_effective_at_not_before_assertion(before, command, effective_at)
+                transition_is_future = _is_future_situation_change(
+                    command.correction_kind,
+                    effective_at=effective_at,
+                    now=now,
+                )
                 correction_id = f"correction_{uuid.uuid4().hex}"
                 replacement_id = (
                     f"assert_{uuid.uuid4().hex}" if command.replacement_value is not None else None
@@ -257,26 +262,28 @@ class MemoryCorrectionService:
                     now=now,
                 ):
                     await self.repository.insert_rule(db, rule)
-                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
-                    db,
-                    source_kind="assertion",
-                    source_ids=[command.assertion_id],
-                    subject_keys=[str(before["entity_id"])],
-                    updated_at=now,
-                )
-                subject_revision = await self.repository.bump_subject_revision(
-                    db,
-                    subject_key=str(before["entity_id"]),
-                    updated_at=now,
-                )
-                await self.repository.enqueue_subject_derivations(
-                    db,
-                    correction_id=correction_id,
-                    subject_key=str(before["entity_id"]),
-                    target_revision=subject_revision,
-                    include_l3=str(before["entity_id"]) in l3_subjects,
-                    now=now,
-                )
+                subject_revision: int | None = None
+                if not transition_is_future:
+                    l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                        db,
+                        source_kind="assertion",
+                        source_ids=[command.assertion_id],
+                        subject_keys=[str(before["entity_id"])],
+                        updated_at=now,
+                    )
+                    subject_revision = await self.repository.bump_subject_revision(
+                        db,
+                        subject_key=str(before["entity_id"]),
+                        updated_at=now,
+                    )
+                    await self.repository.enqueue_subject_derivations(
+                        db,
+                        correction_id=correction_id,
+                        subject_key=str(before["entity_id"]),
+                        target_revision=subject_revision,
+                        include_l3=str(before["entity_id"]) in l3_subjects,
+                        now=now,
+                    )
                 if command.audit_event_id is not None:
                     await self.repository.enqueue_derivation_job(
                         db,
@@ -291,7 +298,8 @@ class MemoryCorrectionService:
                 await db.rollback()
                 raise
 
-        mark_subject_changed(self.db_path, str(before["entity_id"]))
+        if not transition_is_future:
+            mark_subject_changed(self.db_path, str(before["entity_id"]))
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
@@ -320,6 +328,10 @@ class MemoryCorrectionService:
                     await db.commit()
                     return None
                 correction = MemoryCorrection.from_row(dict(row))
+                transition_was_pending = (
+                    correction.correction_kind == CorrectionKind.SITUATION_CHANGED
+                    and row["transition_applied_at"] is None
+                )
                 if correction.target_kind != CorrectionTargetKind.ASSERTION:
                     raise MemoryCorrectionValidationError("Correction does not target an assertion")
                 if correction.state == CorrectionState.REVERTED:
@@ -361,35 +373,38 @@ class MemoryCorrectionService:
                     """,
                     (now, f"{actor_id}:{request_id}", correction_id),
                 )
-                l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
-                    db,
-                    source_kind="assertion",
-                    source_ids=[
-                        correction.target_id,
-                        correction.replacement_target_id or "",
-                    ],
-                    subject_keys=[str(correction.before["entity_id"])],
-                    updated_at=now,
-                )
-                subject_revision = await self.repository.bump_subject_revision(
-                    db,
-                    subject_key=str(correction.before["entity_id"]),
-                    updated_at=now,
-                )
-                await self.repository.enqueue_subject_derivations(
-                    db,
-                    correction_id=correction_id,
-                    subject_key=str(correction.before["entity_id"]),
-                    target_revision=subject_revision,
-                    include_l3=str(correction.before["entity_id"]) in l3_subjects,
-                    now=now,
-                )
+                subject_revision: int | None = None
+                if not transition_was_pending:
+                    l3_subjects = await self.repository.invalidate_l3_insights_on_connection(
+                        db,
+                        source_kind="assertion",
+                        source_ids=[
+                            correction.target_id,
+                            correction.replacement_target_id or "",
+                        ],
+                        subject_keys=[str(correction.before["entity_id"])],
+                        updated_at=now,
+                    )
+                    subject_revision = await self.repository.bump_subject_revision(
+                        db,
+                        subject_key=str(correction.before["entity_id"]),
+                        updated_at=now,
+                    )
+                    await self.repository.enqueue_subject_derivations(
+                        db,
+                        correction_id=correction_id,
+                        subject_key=str(correction.before["entity_id"]),
+                        target_revision=subject_revision,
+                        include_l3=str(correction.before["entity_id"]) in l3_subjects,
+                        now=now,
+                    )
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
 
-        mark_subject_changed(self.db_path, str(correction.before["entity_id"]))
+        if subject_revision is not None:
+            mark_subject_changed(self.db_path, str(correction.before["entity_id"]))
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
@@ -538,6 +553,18 @@ def _effective_at(command: ApplyAssertionCorrectionCommand, now: float) -> float
         assert command.effective_at is not None
         return float(command.effective_at)
     return now
+
+
+def _is_future_situation_change(
+    correction_kind: CorrectionKind,
+    *,
+    effective_at: float,
+    now: float,
+) -> bool:
+    return (
+        correction_kind == CorrectionKind.SITUATION_CHANGED
+        and float(effective_at) > float(now)
+    )
 
 
 def _ensure_effective_at_not_before_assertion(

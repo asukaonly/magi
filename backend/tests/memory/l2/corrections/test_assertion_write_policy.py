@@ -4,7 +4,12 @@ import time
 
 import pytest
 
+from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.corrections.models import CorrectionKind
+from magi.memory.l2.corrections.policy import (
+    CorrectionPolicyAction,
+    CorrectionPolicyEvaluator,
+)
 
 
 def _candidate(
@@ -137,6 +142,97 @@ async def test_pre_change_evidence_only_updates_historical_version(l2_store_with
     assert len(shadows) == 1
     current = await store.list_current_assertions(entity_id="user:u1")
     assert [item["assertion_id"] for item in current] == [replacement_id]
+
+
+@pytest.mark.asyncio
+async def test_scheduled_rules_follow_candidate_observation_time(l2_store_with_schema):
+    store = l2_store_with_schema
+    effective_at = time.time() + 600
+    assertion_id = await store.upsert_assertion_candidate(
+        _candidate("Hangzhou", "evt-original", observed_at=time.time() - 60)
+    )
+    corrected = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="future-rule-window",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert corrected is not None
+    correction = corrected["correction"]
+    replacement = corrected["current_assertion"]
+    evaluator = CorrectionPolicyEvaluator()
+
+    async with sqlite_connection_async(store.db_path) as db:
+        old_before = await evaluator.evaluate_assertion(
+            db,
+            {
+                "slot_key": correction["slot_key"],
+                "claim_fingerprint": correction["claim_fingerprint"],
+                "scope_key": "global",
+                "last_validated_at": effective_at - 1,
+            },
+        )
+        old_after = await evaluator.evaluate_assertion(
+            db,
+            {
+                "slot_key": correction["slot_key"],
+                "claim_fingerprint": correction["claim_fingerprint"],
+                "scope_key": "global",
+                "last_validated_at": effective_at + 1,
+            },
+        )
+        replacement_before = await evaluator.evaluate_assertion(
+            db,
+            {
+                "slot_key": correction["slot_key"],
+                "claim_fingerprint": replacement["claim_fingerprint"],
+                "scope_key": "global",
+                "last_validated_at": effective_at - 1,
+            },
+        )
+        replacement_at_boundary = await evaluator.evaluate_assertion(
+            db,
+            {
+                "slot_key": correction["slot_key"],
+                "claim_fingerprint": replacement["claim_fingerprint"],
+                "scope_key": "global",
+                "last_validated_at": effective_at,
+            },
+        )
+
+    assert old_before.action == CorrectionPolicyAction.ACCEPT_HISTORICAL
+    assert old_after.action == CorrectionPolicyAction.CREATE_SHADOW
+    assert replacement_before.action == CorrectionPolicyAction.BLOCKED_BY_CORRECTION
+    assert replacement_before.correction_id == correction["correction_id"]
+    assert replacement_at_boundary.action == CorrectionPolicyAction.ACCEPT_ACTIVE
+    assert replacement_at_boundary.correction_id == correction["correction_id"]
+
+    same_value_id = await store.upsert_assertion_candidate(
+        _candidate("Shanghai", "evt-early-replacement", observed_at=effective_at - 10)
+    )
+    third_value_id = await store.upsert_assertion_candidate(
+        _candidate("Beijing", "evt-early-third", observed_at=effective_at - 10)
+    )
+    old_value_id = await store.upsert_assertion_candidate(
+        _candidate("Hangzhou", "evt-before-change", observed_at=effective_at - 10)
+    )
+
+    assert same_value_id == assertion_id
+    assert third_value_id == assertion_id
+    assert old_value_id == assertion_id
+    stored_replacement = await store.get_tom_assertion(
+        assertion_id=replacement["assertion_id"]
+    )
+    assert stored_replacement["evidence_events"] == []
+    historical = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert historical["evidence_events"] == ["evt-before-change", "evt-original"]
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM tom_trait_assertions WHERE trait_value = 'Beijing'"
+        ) as cursor:
+            assert int((await cursor.fetchone())[0]) == 0
 
 
 @pytest.mark.asyncio
