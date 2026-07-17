@@ -28,6 +28,9 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
         raise ValueError(f"Experience draft not found: {draft_id}")
     created_experience_id = str(draft.get("created_experience_id") or "").strip()
     if draft.get("status") == "completed" and created_experience_id:
+        experience = await store.get_experience(experience_id=created_experience_id)
+        if experience is None or str(experience.get("status") or "") != "active":
+            raise ValueError(f"Draft experience is no longer active: {created_experience_id}")
         return created_experience_id
     if draft["status"] != "editing":
         raise ValueError(f"Experience draft is not editable: {draft_id}")
@@ -40,6 +43,10 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
     )
     if not episode_ids and not event_ids:
         raise ValueError("Experience draft has no selected evidence")
+    await store.validate_experience_sources(
+        episode_ids=episode_ids,
+        event_ids=event_ids,
+    )
 
     experience_id = _experience_id_for_draft(draft_id)
     experience = await store.get_experience(experience_id=experience_id)
@@ -57,9 +64,11 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
             source_event_count=len(event_ids),
         )
     else:
-        await store.update_experience(
+        if str(experience.get("status") or "") != "active":
+            raise ValueError(f"Draft experience is no longer active: {experience_id}")
+        updated = await store.update_experience(
             experience_id=experience_id,
-            status="active",
+            expected_status="active",
             title=str(draft["title"]),
             time_start=float(draft["time_start"]),
             time_end=float(draft["time_end"]),
@@ -67,6 +76,8 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
             magi_interpretation=str(draft["one_sentence_review"]),
             user_cover_asset_ref=draft.get("user_cover_asset_ref"),
         )
+        if not updated:
+            raise ValueError(f"Draft experience changed during creation: {experience_id}")
     members = [
         {
             "member_type": "episode",
@@ -85,17 +96,55 @@ async def create_experience_from_draft(store: Any, *, draft_id: str) -> str:
         }
         for event_id in event_ids
     )
-    await store.replace_experience_members(experience_id=experience_id, members=members)
-    await store.replace_experience_chapters(
-        experience_id=experience_id,
-        chapters=chapters,
-    )
+    try:
+        replaced = await store.replace_experience_members(
+            experience_id=experience_id,
+            members=members,
+            expected_status="active",
+        )
+    except ValueError:
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+        )
+        raise
+    if replaced != len(members):
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+        )
+        raise ValueError("Draft evidence changed during creation")
+    try:
+        chapters_replaced = await store.replace_experience_chapters(
+            experience_id=experience_id,
+            chapters=chapters,
+            expected_status="active",
+        )
+    except ValueError:
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+        )
+        raise
+    if not chapters_replaced:
+        raise ValueError("Draft experience changed during creation")
     await store.recompute_experience_counts(experience_id=experience_id)
-    await store.update_experience_draft(
+    completed = await store.update_experience_draft(
         draft_id=draft_id,
+        expected_status="editing",
         status="completed",
         created_experience_id=experience_id,
     )
+    if not completed:
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+        )
+        raise ValueError("Draft changed during creation")
     return experience_id
 
 

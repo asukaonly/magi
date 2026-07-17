@@ -7,7 +7,11 @@ import {
   createInitialMemoryCorrectionDraft,
   createMemoryCorrectionRequestId,
   formatMemoryCorrectionValue,
+  isMemoryCorrectionScopeOccupied,
+  memoryCorrectionHistoryStatus,
+  memoryCorrectionLifecycleStatus,
   selectableProjectContextOptions,
+  shouldExplainUnavailableMemoryCorrectionRevert,
   validateMemoryCorrectionDraft,
   type MemoryCorrectionDraft,
   type MemoryCorrectionUiTarget,
@@ -134,45 +138,150 @@ describe('formatMemoryCorrectionValue', () => {
 
 describe('canRevertMemoryCorrection', () => {
   const correction = (
-    id: string,
-    createdAt: number,
-    contextId: string,
     overrides: Partial<MemoryCorrectionRecord> = {}
   ): MemoryCorrectionRecord => ({
-    correction_id: id,
-    request_id: `request-${id}`,
-    actor_id: 'user:local_user',
-    target_kind: 'assertion',
-    target_id: `assertion-${id}`,
-    slot_key: 'assertion-slot',
-    claim_fingerprint: `claim-${id}`,
+    correction_id: 'correction-1',
     correction_kind: 'record_error',
     before: {},
-    created_at: createdAt,
+    created_at: 1,
     state: 'active',
-    scope: {
-      all_of: [{ dimension: 'project', context_id: contextId }],
-    },
-    replacement_target_id: `replacement-${id}`,
+    can_revert: true,
     ...overrides,
   });
 
-  it('allows the latest correction in each independent project', () => {
-    const first = correction('first', 1, MAGI_CONTEXT_ID);
-    const second = correction('second', 2, WEBSITE_CONTEXT_ID);
-
-    expect(canRevertMemoryCorrection(first, [first, second])).toBe(true);
-    expect(canRevertMemoryCorrection(second, [first, second])).toBe(true);
+  it('uses the server decision as the only source of revert eligibility', () => {
+    expect(canRevertMemoryCorrection(correction())).toBe(true);
+    expect(canRevertMemoryCorrection(correction({ can_revert: false }))).toBe(false);
+    expect(canRevertMemoryCorrection(correction({ can_revert: undefined }))).toBe(false);
   });
 
-  it('requires a dependent correction in the same project to be reverted first', () => {
-    const first = correction('first', 1, MAGI_CONTEXT_ID);
-    const second = correction('second', 2, MAGI_CONTEXT_ID, {
-      target_id: first.replacement_target_id ?? '',
+  it('does not allow cancelled or reverted corrections to be reverted', () => {
+    const cancelled = correction({
+      transition_cancelled_at: 2,
+    });
+    const reverted = correction({
+      state: 'reverted',
     });
 
-    expect(canRevertMemoryCorrection(first, [first, second])).toBe(false);
-    expect(canRevertMemoryCorrection(second, [first, second])).toBe(true);
+    expect(canRevertMemoryCorrection(cancelled)).toBe(false);
+    expect(canRevertMemoryCorrection(reverted)).toBe(false);
+  });
+});
+
+describe('memory correction lifecycle presentation', () => {
+  const base: MemoryCorrectionRecord = {
+    correction_id: 'correction-1',
+    correction_kind: 'situation_changed',
+    before: {},
+    created_at: 100,
+    state: 'active',
+    effective_at: 200,
+  };
+
+  it('uses the recorded transition result instead of assuming a due change is active', () => {
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      transition_applied_at: null,
+    }, 300)).toBe('scheduled');
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      transition_applied_at: 250,
+    }, 300)).toBe('active');
+  });
+
+  it('gives cancelled and reverted states precedence over scheduling', () => {
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      transition_cancelled_at: 150,
+      transition_applied_at: null,
+    }, 300)).toBe('cancelled');
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      state: 'reverted',
+      transition_applied_at: null,
+    }, 300)).toBe('reverted');
+  });
+
+  it('keeps a forget-affected correction in its real lifecycle state', () => {
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      target_forgotten: true,
+      forget_affected: true,
+      transition_applied_at: 250,
+    }, 300)).toBe('active');
+  });
+
+  it('does not present an applied transition as a cancelled plan after forgetting', () => {
+    expect(memoryCorrectionLifecycleStatus({
+      ...base,
+      transition_applied_at: 220,
+      transition_cancelled_at: 250,
+      forget_affected: true,
+      content_redacted: true,
+    }, 300)).toBe('active');
+  });
+
+  it('keeps the future-time fallback for responses without transition state', () => {
+    expect(memoryCorrectionLifecycleStatus(base, 150)).toBe('scheduled');
+    expect(memoryCorrectionLifecycleStatus(base, 250)).toBe('active');
+  });
+
+  it('presents an active redacted record as deleted content without changing its lifecycle', () => {
+    const correction = {
+      ...base,
+      transition_applied_at: 220,
+      content_redacted: true,
+    };
+
+    expect(memoryCorrectionLifecycleStatus(correction, 300)).toBe('active');
+    expect(memoryCorrectionHistoryStatus(correction, 300)).toBe('content_deleted');
+    expect(memoryCorrectionHistoryStatus({
+      ...base,
+      transition_applied_at: null,
+      content_redacted: true,
+    }, 300)).toBe('content_deleted');
+  });
+});
+
+describe('unavailable correction revert explanation', () => {
+  const activeCorrection: MemoryCorrectionRecord = {
+    correction_id: 'correction-1',
+    correction_kind: 'record_error',
+    before: {},
+    created_at: 100,
+    state: 'active',
+    can_revert: false,
+  };
+
+  it('explains a server-denied active correction without inventing a reason', () => {
+    expect(shouldExplainUnavailableMemoryCorrectionRevert(activeCorrection, 300)).toBe(true);
+  });
+
+  it('does not duplicate explanations for resolved or forget-affected corrections', () => {
+    expect(shouldExplainUnavailableMemoryCorrectionRevert({
+      ...activeCorrection,
+      state: 'reverted',
+    }, 300)).toBe(false);
+    expect(shouldExplainUnavailableMemoryCorrectionRevert({
+      ...activeCorrection,
+      forget_affected: true,
+    }, 300)).toBe(false);
+    expect(shouldExplainUnavailableMemoryCorrectionRevert({
+      ...activeCorrection,
+      content_redacted: true,
+    }, 300)).toBe(false);
+    expect(shouldExplainUnavailableMemoryCorrectionRevert({
+      ...activeCorrection,
+      can_revert: true,
+    }, 300)).toBe(false);
+  });
+});
+
+describe('memory correction conflict classification', () => {
+  it('treats assertion and relationship scope occupancy the same way', () => {
+    expect(isMemoryCorrectionScopeOccupied('assertion_scope_occupied')).toBe(true);
+    expect(isMemoryCorrectionScopeOccupied('relationship_scope_occupied')).toBe(true);
+    expect(isMemoryCorrectionScopeOccupied('memory_forgotten')).toBe(false);
   });
 });
 

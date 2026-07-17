@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Protocol, cast
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Protocol, cast
 
 import aiosqlite
 
@@ -15,6 +16,11 @@ from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ...operation_barrier import optional_operation_guard
+from ...source_event_governance import (
+    govern_source_events_by_time_range,
+    source_event_derivation_block_ids,
+    source_event_tombstone_ids,
+)
 from ..evidence.links import (
     build_summary_event_link_rows,
     build_summary_task_link_rows,
@@ -23,10 +29,32 @@ from ..evidence.links import (
     row_to_summary_task_link,
 )
 from ..models import L3Candidate
+from ..source_event_governance import active_summary_predicate
 from .schema import SUMMARY_CHUNKS_TABLE
 from .serialization import decode_optional_json, encode_optional_json, row_to_summary_dict
 
 _UNRESOLVED_EXISTING_SUMMARY = object()
+
+
+class ForgottenSummarySourceEventError(RuntimeError):
+    """Raised when a summary write references globally forgotten evidence."""
+
+
+class SummaryWriteGuardRejected(RuntimeError):
+    """Raised when a source becomes inactive before summary persistence."""
+
+
+def _decode_summary_source_event_ids(value: Any) -> tuple[list[str], bool]:
+    """Decode stored summary evidence without trusting malformed legacy data."""
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, json.JSONDecodeError):
+        return [], True
+    if not isinstance(decoded, list):
+        return [], True
+    if any(not isinstance(event_id, str) or not event_id.strip() for event_id in decoded):
+        return [], True
+    return list(dict.fromkeys(event_id.strip() for event_id in decoded)), False
 
 
 class _L3SummaryPersistenceHostProtocol(Protocol):
@@ -37,6 +65,11 @@ class _L3SummaryPersistenceHostProtocol(Protocol):
     _vector_index: SqliteVecIndex | None
 
     async def initialize(self) -> None: ...
+
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, float]: ...
 
     def embedding_mutation_guard(self) -> Any: ...
 
@@ -91,6 +124,141 @@ def _summary_from_new_candidate(
 class L3SummaryPersistenceMixin:
     """Summary row persistence, listing, deletion, and evidence link helpers."""
 
+    async def forget_source_events(self, event_ids: List[str]) -> int:
+        """Hide summaries derived from deleted L1 events and remove their evidence."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        normalized = list(dict.fromkeys(normalize_event_ids(event_ids)))
+        if not normalized:
+            return 0
+        target_ids = set(normalized)
+        candidate_json = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+
+        async with optional_operation_guard(host._operation_guard_factory):
+            await host.initialize()
+            async with host.embedding_mutation_guard():
+                async with sqlite_connection_async(host.db_path) as db:
+                    async with db.execute(
+                        f"""
+                        SELECT chunks.chunk_id
+                        FROM {SUMMARY_CHUNKS_TABLE} AS chunks
+                        JOIN summaries ON summaries.summary_id = chunks.summary_id
+                        WHERE EXISTS (
+                            SELECT 1 FROM summary_event_links AS links
+                            WHERE links.summary_id = summaries.summary_id
+                              AND links.event_id IN (
+                                  SELECT CAST(value AS TEXT) FROM json_each(?)
+                              )
+                        ) OR EXISTS (
+                            SELECT 1
+                            FROM json_each(CASE
+                                WHEN json_valid(summaries.source_event_ids)
+                                    THEN summaries.source_event_ids
+                                ELSE '[]'
+                            END) AS source
+                            WHERE CAST(source.value AS TEXT) IN (
+                                SELECT CAST(value AS TEXT) FROM json_each(?)
+                            )
+                        )
+                        """,
+                        (candidate_json, candidate_json),
+                    ) as cursor:
+                        chunk_ids = [str(row[0]) for row in await cursor.fetchall()]
+
+                # Delete vectors before changing durable rows. A vector failure keeps the
+                # source event visible so the complete operation can be retried safely.
+                await host._delete_summary_vectors_unlocked(chunk_ids)
+
+                async with sqlite_connection_async(host.db_path) as db:
+                    db.row_factory = aiosqlite.Row
+                    await db.execute("BEGIN IMMEDIATE")
+                    try:
+                        async with db.execute(
+                            """
+                            SELECT * FROM summaries
+                            WHERE EXISTS (
+                                SELECT 1 FROM summary_event_links AS links
+                                WHERE links.summary_id = summaries.summary_id
+                                  AND links.event_id IN (
+                                      SELECT CAST(value AS TEXT) FROM json_each(?)
+                                  )
+                            ) OR EXISTS (
+                                SELECT 1
+                                FROM json_each(CASE
+                                    WHEN json_valid(summaries.source_event_ids)
+                                        THEN summaries.source_event_ids
+                                    ELSE '[]'
+                                END) AS source
+                                WHERE CAST(source.value AS TEXT) IN (
+                                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                                )
+                            )
+                            ORDER BY summary_id
+                            """,
+                            (candidate_json, candidate_json),
+                        ) as cursor:
+                            summaries = await cursor.fetchall()
+
+                        now = time.time()
+                        for summary in summaries:
+                            summary_id = str(summary["summary_id"])
+                            async with db.execute(
+                                """
+                                SELECT event_id FROM summary_event_links
+                                WHERE summary_id = ? ORDER BY created_at, event_id
+                                """,
+                                (summary_id,),
+                            ) as cursor:
+                                link_ids = [str(row[0]) for row in await cursor.fetchall()]
+                            source_ids, malformed = _decode_summary_source_event_ids(
+                                summary["source_event_ids"]
+                            )
+                            retained_ids = (
+                                []
+                                if malformed
+                                else [
+                                    event_id
+                                    for event_id in dict.fromkeys([*source_ids, *link_ids])
+                                    if event_id not in target_ids
+                                ]
+                            )
+                            await db.execute(
+                                """
+                                DELETE FROM summary_event_links
+                                WHERE summary_id = ? AND event_id IN (
+                                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                                )
+                                """,
+                                (summary_id, candidate_json),
+                            )
+                            await host._detach_summary_embedding_on_connection(
+                                db,
+                                summary_id=summary_id,
+                            )
+                            await db.execute(
+                                "DELETE FROM l3_summaries_fts WHERE summary_id = ?",
+                                (summary_id,),
+                            )
+                            await db.execute(
+                                """
+                                UPDATE summaries
+                                SET source_event_ids = ?, source_event_count = ?,
+                                    derivation_state = ?, updated_at = ?
+                                WHERE summary_id = ?
+                                """,
+                                (
+                                    json.dumps(retained_ids, ensure_ascii=False),
+                                    len(retained_ids),
+                                    "stale" if retained_ids else "retired",
+                                    now,
+                                    summary_id,
+                                ),
+                            )
+                        await db.commit()
+                    except Exception:
+                        await db.rollback()
+                        raise
+        return len(summaries)
+
     async def count_summaries(
         self,
         *,
@@ -102,7 +270,7 @@ class L3SummaryPersistenceMixin:
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
         search_query = query
-        sql = "SELECT COUNT(*) FROM summaries WHERE derivation_state = 'current'"
+        sql = f"SELECT COUNT(*) FROM summaries WHERE {active_summary_predicate()}"
         args: list[Any] = []
         if start_time is not None:
             sql += " AND created_at >= ?"
@@ -149,7 +317,7 @@ class L3SummaryPersistenceMixin:
         """List most recent summaries."""
         host = cast(_L3SummaryPersistenceHostProtocol, self)
         await host.initialize()
-        sql = "SELECT * FROM summaries WHERE derivation_state = 'current'"
+        sql = f"SELECT * FROM summaries WHERE {active_summary_predicate()}"
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
             [
@@ -200,7 +368,7 @@ class L3SummaryPersistenceMixin:
         placeholders = ", ".join("?" for _ in normalized)
         sql = f"""
             SELECT * FROM summaries
-            WHERE derivation_state = 'current'
+            WHERE {active_summary_predicate()}
               AND summary_category IN ({placeholders})
         """
         args: List[Any] = list(normalized)
@@ -230,10 +398,10 @@ class L3SummaryPersistenceMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT *
                 FROM summaries
-                WHERE derivation_state = 'current' AND period_end < ?
+                WHERE {active_summary_predicate()} AND period_end < ?
                 ORDER BY period_end ASC, updated_at ASC
                 LIMIT ?
                 """,
@@ -302,6 +470,7 @@ class L3SummaryPersistenceMixin:
         candidate: L3Candidate,
         source_task_ids: Optional[list[str]] = None,
         summary_overrides: Optional[Dict[str, Any]] = None,
+        write_guard: Callable[[aiosqlite.Connection], Awaitable[bool]] | None = None,
     ) -> Dict[str, Any]:
         """Persist a structured L3 candidate and its evidence links.
 
@@ -321,6 +490,10 @@ class L3SummaryPersistenceMixin:
                     db.row_factory = aiosqlite.Row
                     await db.execute("BEGIN IMMEDIATE")
                     try:
+                        if write_guard is not None and not await write_guard(db):
+                            raise SummaryWriteGuardRejected(
+                                "Summary sources changed before persistence"
+                            )
                         insight_key = (candidate.insight_key or "").strip() or None
                         existing_summary = (
                             await self._find_summary_by_insight_key_on_connection(
@@ -331,11 +504,9 @@ class L3SummaryPersistenceMixin:
                             else None
                         )
                         if existing_summary is not None:
-                            detached_chunk_ids = (
-                                await host._detach_summary_embedding_on_connection(
-                                    db,
-                                    summary_id=str(existing_summary["summary_id"]),
-                                )
+                            detached_chunk_ids = await host._detach_summary_embedding_on_connection(
+                                db,
+                                summary_id=str(existing_summary["summary_id"]),
                             )
                         summary = await self.upsert_candidate_on_connection(
                             db,
@@ -374,6 +545,11 @@ class L3SummaryPersistenceMixin:
             )
         else:
             existing_summary = cast(Optional[Dict[str, Any]], resolved_existing_summary)
+        if existing_summary is not None:
+            existing_summary = await self._without_governed_summary_sources(
+                db,
+                existing_summary,
+            )
         summary = self._build_candidate_summary(
             candidate=candidate,
             existing_summary=existing_summary,
@@ -389,6 +565,25 @@ class L3SummaryPersistenceMixin:
             source_task_ids=source_task_ids,
         )
         return summary
+
+    @staticmethod
+    async def _without_governed_summary_sources(
+        db: aiosqlite.Connection,
+        existing_summary: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Drop blocked old evidence before merging an independent replacement."""
+        existing_event_ids = normalize_event_ids(existing_summary.get("source_event_ids") or [])
+        blocked_event_ids = await source_event_tombstone_ids(db, existing_event_ids)
+        blocked_event_ids.update(await source_event_derivation_block_ids(db, existing_event_ids))
+        if not blocked_event_ids:
+            return existing_summary
+        filtered = dict(existing_summary)
+        filtered_event_ids = [
+            event_id for event_id in existing_event_ids if event_id not in blocked_event_ids
+        ]
+        filtered["source_event_ids"] = filtered_event_ids
+        filtered["source_event_count"] = len(filtered_event_ids)
+        return filtered
 
     def _build_candidate_summary(
         self,
@@ -570,9 +765,9 @@ class L3SummaryPersistenceMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT * FROM summaries
-                WHERE derivation_state = 'current'
+                WHERE {active_summary_predicate()}
                   AND summary_category = 'episodic'
                   AND json_extract(insight_metadata, '$.source_episode_id') = ?
                 ORDER BY updated_at DESC
@@ -592,9 +787,9 @@ class L3SummaryPersistenceMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT * FROM summaries
-                WHERE derivation_state = 'current'
+                WHERE {active_summary_predicate()}
                   AND summary_category = 'episodic'
                   AND json_extract(insight_metadata, '$.source_experience_id') = ?
                 ORDER BY updated_at DESC
@@ -620,7 +815,7 @@ class L3SummaryPersistenceMixin:
                 SELECT DISTINCT event_id
                 FROM summary_event_links AS links
                 JOIN summaries ON summaries.summary_id = links.summary_id
-                WHERE summaries.derivation_state = 'current'
+                WHERE {active_summary_predicate("summaries")}
                   AND links.event_id IN ({placeholders})
                 """,
                 tuple(normalized_ids),
@@ -642,6 +837,45 @@ class L3SummaryPersistenceMixin:
         summary: Dict[str, Any],
     ) -> None:
         """Store one summary row and its search text in the caller transaction."""
+        host = cast(_L3SummaryPersistenceHostProtocol, self)
+        source_event_ids = normalize_event_ids(summary.get("source_event_ids") or [])
+        source_timestamps = await host.resolve_evidence_timestamps(source_event_ids)
+        for event_id, observed_at in source_timestamps.items():
+            await govern_source_events_by_time_range(
+                db,
+                event_ids=(event_id,),
+                observed_from=observed_at,
+            )
+        unresolved_event_ids = [
+            event_id for event_id in source_event_ids if event_id not in source_timestamps
+        ]
+        if unresolved_event_ids:
+            try:
+                fallback_start = float(summary["period_start"])
+                fallback_end = float(summary["period_end"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ForgottenSummarySourceEventError(
+                    "Summary sources require a valid occurrence period"
+                ) from exc
+            if not math.isfinite(fallback_start) or not math.isfinite(fallback_end):
+                raise ForgottenSummarySourceEventError(
+                    "Summary sources require a valid occurrence period"
+                )
+            await govern_source_events_by_time_range(
+                db,
+                event_ids=unresolved_event_ids,
+                observed_from=fallback_start,
+                observed_to=fallback_end,
+            )
+        forgotten_event_ids = await source_event_tombstone_ids(db, source_event_ids)
+        projection_blocked_event_ids = await source_event_derivation_block_ids(
+            db,
+            source_event_ids,
+        )
+        if forgotten_event_ids or projection_blocked_event_ids:
+            raise ForgottenSummarySourceEventError(
+                "Summary source events were forgotten before persistence"
+            )
         insight_key_raw = summary.get("insight_key")
         insight_key: str | None = None
         if isinstance(insight_key_raw, str):
@@ -780,4 +1014,8 @@ class L3SummaryPersistenceMixin:
         return decode_optional_json(value)
 
 
-__all__ = ["L3SummaryPersistenceMixin"]
+__all__ = [
+    "ForgottenSummarySourceEventError",
+    "L3SummaryPersistenceMixin",
+    "SummaryWriteGuardRejected",
+]

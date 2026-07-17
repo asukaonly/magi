@@ -40,8 +40,13 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/plugins/{plugin_id}/update" in paths
     assert "/api/plugins/{plugin_id}/settings/resources/{resource_name}" in paths
     assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/start" in paths
-    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll" in paths
-    assert "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel" in paths
+    assert (
+        "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/poll" in paths
+    )
+    assert (
+        "/api/plugins/{plugin_id}/settings/actions/{action_id}/sessions/{session_id}/cancel"
+        in paths
+    )
     assert "/api/sensors/status" in paths
     assert "/api/sensors/{source_name}/flush-state" in paths
     assert "/api/sensors/{source_name}/authorize" in paths
@@ -73,18 +78,16 @@ def test_register_api_routes_keeps_only_supported_public_surfaces() -> None:
     assert "/api/memory/l2/episodes/reconsolidate" in paths
 
 
-def test_register_api_routes_exposes_l2_assertion_feedback_and_correction() -> None:
-    # Memory Portrait "confirm/deny" and L2 Lab "correct" call these mutation
-    # endpoints; they 404 in the app unless registered on the public surface.
+def test_register_api_routes_exposes_only_l2_assertion_confirmation_feedback() -> None:
     app = FastAPI()
     register_api_routes(app)
     openapi_paths = app.openapi()["paths"]
 
     feedback = openapi_paths.get("/api/memory/l2/assertions/{assertion_id}/feedback", {})
-    correct = openapi_paths.get("/api/memory/l2/assertions/{assertion_id}/correct", {})
 
-    assert "patch" in feedback, "assertion feedback (confirm/deny) PATCH must be public"
-    assert "post" in correct, "assertion correction POST must be public"
+    assert "patch" in feedback, "assertion confirmation PATCH must be public"
+    assert "/api/memory/l2/assertions/{assertion_id}/correct" not in openapi_paths
+    assert "/api/memory/l2/edges/{triple_id}/reject" not in openapi_paths
 
 
 def test_register_api_routes_excludes_deprecated_and_internal_surfaces() -> None:

@@ -79,7 +79,6 @@ vi.mock('@/api/modules/memoryPortraitSelf', () => ({
 vi.mock('@/api/modules/memory', () => ({
   memoryApi: {
     submitAssertionFeedback: vi.fn(),
-    correctAssertion: vi.fn(),
     applyCorrection: vi.fn(),
     getCorrectionContextOptions: vi.fn(),
   },
@@ -488,16 +487,9 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction-1',
-        request_id: 'request-1',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert-1',
-        slot_key: 'slot-1',
-        claim_fingerprint: 'claim-1',
         correction_kind: 'record_error',
         before: { trait_value: 'Magi 记忆体验' },
         replacement: { value: 'Magi 关于你页面' },
-        replacement_target_id: 'assert-2',
         created_at: 1719301300,
         state: 'active',
       },
@@ -562,23 +554,15 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction-structured',
-        request_id: 'request-structured',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert-structured',
-        slot_key: 'slot-structured',
-        claim_fingerprint: 'claim-structured',
         correction_kind: 'scope_refinement',
         before: { trait_value: '["子涵", "哈基米"]' },
         replacement: { value: '["子涵", "哈基米"]' },
-        replacement_target_id: 'assert-structured-scoped',
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
         trait_value: '["子涵", "哈基米"]',
-        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       },
       derivation_state: 'completed',
       created: true,
@@ -635,16 +619,9 @@ describe('MemoryPortraitPage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction-refresh-failure',
-        request_id: 'request-refresh-failure',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert-1',
-        slot_key: 'slot-1',
-        claim_fingerprint: 'claim-1',
         correction_kind: 'record_error',
         before: { trait_value: 'Magi 记忆体验' },
         replacement: { value: 'Magi 关于你页面' },
-        replacement_target_id: 'assert-2',
         created_at: 1719301300,
         state: 'active',
       },
@@ -695,8 +672,7 @@ describe('MemoryPortraitPage', () => {
       });
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
-        correction_id: 'correction-remove', request_id: 'request-remove', actor_id: 'user:self',
-        target_kind: 'assertion', target_id: 'assert-1', slot_key: 'slot-1', claim_fingerprint: 'claim-1',
+        correction_id: 'correction-remove',
         correction_kind: 'record_error', before: { trait_value: '我每天跑步' }, created_at: 1719301300, state: 'active',
       },
       current_claim: null,

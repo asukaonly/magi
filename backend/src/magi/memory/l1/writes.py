@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +26,11 @@ from ..evidence import (
 )
 from ..event_contracts import MemoryEvent, author_type_code, content_type_code
 from ..hybrid_retrieval.fts_utils import tokenize_for_fts
-from .chat_sessions import project_chat_event_to_session
+from .chat_sessions import (
+    project_chat_event_to_session,
+    rebuild_chat_session_projection as rebuild_chat_session_projection_row,
+    retire_chat_session_projection as retire_chat_session_projection_row,
+)
 from .event_payload_store import L1_EVENT_PAYLOAD_TABLE
 from .embeddings.common import (
     EVENT_CHUNKS_TABLE,
@@ -158,6 +163,35 @@ class L1EventWriteMixin:
         self._log_store_success(event)
         await host._schedule_event_embedding(event)
         return result.event_id
+
+    async def rebuild_chat_session_projection(self, session_id: str) -> None:
+        """Refresh one L1 session preview after selective source deletion."""
+        host = cast(L1EventWriteHostProtocol, self)
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("Chat session ID must not be empty")
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            await rebuild_chat_session_projection_row(
+                db,
+                session_id=normalized_session_id,
+            )
+            await db.commit()
+
+    async def retire_chat_session_projection(self, session_id: str) -> None:
+        """Scrub one L1 session preview after whole-session deletion."""
+        host = cast(L1EventWriteHostProtocol, self)
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("Chat session ID must not be empty")
+        await host.initialize()
+        async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+            await retire_chat_session_projection_row(
+                db,
+                session_id=normalized_session_id,
+                deleted_at=time.time(),
+            )
+            await db.commit()
 
     @staticmethod
     def _log_store_attempt(event: MemoryEvent) -> None:
@@ -697,30 +731,424 @@ class L1EventWriteMixin:
 
     async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool:
         """Soft-delete an event."""
+        return bool(await self.mark_deleted_many([event_id], deleted_at=deleted_at))
+
+    async def mark_deleted_many(
+        self,
+        event_ids: list[str],
+        *,
+        deleted_at: Optional[float] = None,
+    ) -> int:
+        """Soft-delete a bounded set of active events and return the changed count."""
         host = cast(L1EventWriteHostProtocol, self)
         await host.initialize()
-        deleted_timestamp = float(deleted_at or time.time())
+        normalized = list(
+            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
+        )
+        if not normalized:
+            return 0
+        deleted_timestamp = float(deleted_at if deleted_at is not None else time.time())
         async with host.embedding_mutation_guard():
-            chunk_ids = await host._list_chunk_ids_for_event(event_id)
             async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
-                cursor = await db.execute(
-                    f"UPDATE {FACT_EVENTS_TABLE} SET deleted_at = ? WHERE event_id = ?",
-                    (deleted_timestamp, event_id),
+                chunk_ids = await _chunk_ids_for_events(db, normalized)
+                await _delete_chunk_vectors(host, chunk_ids)
+                deleted_count = await _soft_delete_event_rows(
+                    db,
+                    event_ids=normalized,
+                    deleted_at=deleted_timestamp,
                 )
-                if cursor.rowcount > 0:
-                    await db.execute(
-                        "DELETE FROM l1_events_fts WHERE event_id = ?",
-                        (event_id,),
-                    )
-                    await db.execute(
-                        f"DELETE FROM {EVENT_CHUNKS_TABLE} WHERE event_id = ?",
-                        (event_id,),
-                    )
                 await db.commit()
-            if cursor.rowcount > 0 and host._vector_index is not None:
-                for chunk_id in chunk_ids:
-                    await host._vector_index.delete_entity(entity_id=chunk_id)
-            return cursor.rowcount > 0
+            return deleted_count
+
+    async def list_active_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return one stable page of active events linked to an entity."""
+        normalized_entity_id = str(entity_id).strip()
+        if not normalized_entity_id:
+            raise ValueError("entity_id must not be empty")
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_active_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT events.event_id
+                FROM {FACT_EVENTS_TABLE} AS events
+                INNER JOIN l1_event_entities AS links
+                    ON links.event_id = events.event_id
+                WHERE events.deleted_at IS NULL
+                  AND links.entity_id = ?
+                  AND events.event_id > ?
+                ORDER BY events.event_id
+                LIMIT ?
+            """,
+            selector_args=(normalized_entity_id,),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_raw_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return raw entity-linked rows, including previously hidden events."""
+        normalized_entity_id = str(entity_id).strip()
+        if not normalized_entity_id:
+            raise ValueError("entity_id must not be empty")
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT events.event_id
+                FROM {FACT_EVENTS_TABLE} AS events
+                INNER JOIN l1_event_entities AS links
+                    ON links.event_id = events.event_id
+                WHERE links.entity_id = ?
+                  AND events.event_id > ?
+                ORDER BY events.event_id
+                LIMIT ?
+            """,
+            selector_args=(normalized_entity_id,),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_active_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return one stable page of active events in an inclusive time range."""
+        range_start = float(start)
+        range_end = float(end)
+        if not math.isfinite(range_start) or not math.isfinite(range_end):
+            raise ValueError("time range must be finite")
+        if range_end <= range_start:
+            raise ValueError("end must be greater than start")
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_active_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND timestamp >= ? AND timestamp <= ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """,
+            selector_args=(range_start, range_end),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_raw_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return raw rows in an inclusive time range, including hidden rows."""
+        range_start = float(start)
+        range_end = float(end)
+        if not math.isfinite(range_start) or not math.isfinite(range_end):
+            raise ValueError("time range must be finite")
+        if range_end <= range_start:
+            raise ValueError("end must be greater than start")
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE timestamp >= ? AND timestamp <= ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """,
+            selector_args=(range_start, range_end),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_active_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return active events projected from one chat session or its turns."""
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_ids = list(
+            dict.fromkeys(str(turn_id).strip() for turn_id in turn_ids if str(turn_id).strip())
+        )
+        if not normalized_user_id:
+            raise ValueError("user_id must not be empty")
+        if not normalized_session_id and not normalized_turn_ids:
+            return []
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        selector_parts: list[str] = []
+        selector_args: list[Any] = []
+        if normalized_session_id:
+            selector_parts.append("session_id = ?")
+            selector_args.append(normalized_session_id)
+        if normalized_turn_ids:
+            selector_parts.append("turn_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))")
+            selector_args.append(
+                json.dumps(normalized_turn_ids, ensure_ascii=False, separators=(",", ":"))
+            )
+        return await _list_active_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND (user_id = ? OR user_id IS NULL OR TRIM(user_id) = '')
+                  AND ({' OR '.join(selector_parts)})
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """,
+            selector_args=(normalized_user_id, *selector_args),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_raw_event_ids_by_chat_sources(
+        self,
+        *,
+        user_id: str,
+        session_id: str | None = None,
+        turn_ids: list[str] | tuple[str, ...] = (),
+        message_ids: list[str] | tuple[str, ...] = (),
+        include_session: bool = True,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return raw chat projections for an exact owner and source snapshot."""
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_ids = list(
+            dict.fromkeys(str(item).strip() for item in turn_ids if str(item).strip())
+        )
+        normalized_message_ids = list(
+            dict.fromkeys(str(item).strip() for item in message_ids if str(item).strip())
+        )
+        if not normalized_user_id:
+            raise ValueError("user_id must not be empty")
+        selector_parts: list[str] = []
+        selector_args: list[Any] = []
+        if include_session and normalized_session_id:
+            selector_parts.append("session_id = ?")
+            selector_args.append(normalized_session_id)
+        if normalized_turn_ids:
+            selector_parts.append("turn_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))")
+            selector_args.append(
+                json.dumps(normalized_turn_ids, ensure_ascii=False, separators=(",", ":"))
+            )
+        if normalized_message_ids:
+            selector_parts.append(
+                "source_item_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))"
+            )
+            selector_args.append(
+                json.dumps(normalized_message_ids, ensure_ascii=False, separators=(",", ":"))
+            )
+        if not selector_parts:
+            return []
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE (user_id = ? OR user_id IS NULL OR TRIM(user_id) = '')
+                  AND ({' OR '.join(selector_parts)})
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """,
+            selector_args=(normalized_user_id, *selector_args),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_active_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return active events projected from exactly one chat message."""
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            raise ValueError("Chat user, session, and message IDs must not be empty")
+        host = cast(L1EventWriteHostProtocol, self)
+        await host.initialize()
+        return await _list_active_event_ids(
+            host,
+            selector_sql=f"""
+                SELECT event_id
+                FROM {FACT_EVENTS_TABLE}
+                WHERE deleted_at IS NULL
+                  AND (user_id = ? OR user_id IS NULL OR TRIM(user_id) = '')
+                  AND session_id = ?
+                  AND source_item_id = ?
+                  AND event_id > ?
+                ORDER BY event_id
+                LIMIT ?
+            """,
+            selector_args=(normalized_user_id, normalized_session_id, normalized_message_id),
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_raw_event_ids_by_chat_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+        after_event_id: str = "",
+        limit: int = 500,
+    ) -> list[str]:
+        """Return raw rows projected from one owner's exact chat message."""
+        return await self.list_raw_event_ids_by_chat_sources(
+            user_id=user_id,
+            session_id=session_id,
+            message_ids=(message_id,),
+            include_session=False,
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+
+async def _list_active_event_ids(
+    host: L1EventWriteHostProtocol,
+    *,
+    selector_sql: str,
+    selector_args: tuple[Any, ...],
+    after_event_id: str,
+    limit: int,
+) -> list[str]:
+    return await _list_event_ids(
+        host,
+        selector_sql=selector_sql,
+        selector_args=selector_args,
+        after_event_id=after_event_id,
+        limit=limit,
+    )
+
+
+async def _list_event_ids(
+    host: L1EventWriteHostProtocol,
+    *,
+    selector_sql: str,
+    selector_args: tuple[Any, ...],
+    after_event_id: str,
+    limit: int,
+) -> list[str]:
+    page_size = max(1, min(int(limit), 1000))
+    async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
+        async with db.execute(
+            selector_sql,
+            (*selector_args, str(after_event_id), page_size),
+        ) as cursor:
+            return [str(row[0]) for row in await cursor.fetchall()]
+
+
+async def _soft_delete_event_rows(
+    db: aiosqlite.Connection,
+    *,
+    event_ids: list[str],
+    deleted_at: float,
+) -> int:
+    """Soft-delete one bounded event batch after external vectors are gone."""
+    event_ids_json = json.dumps(event_ids, ensure_ascii=False, separators=(",", ":"))
+    updated = await db.execute(
+        f"""
+        UPDATE {FACT_EVENTS_TABLE}
+        SET deleted_at = ?
+        WHERE deleted_at IS NULL
+          AND event_id IN (
+              SELECT CAST(value AS TEXT) FROM json_each(?)
+          )
+        """,
+        (deleted_at, event_ids_json),
+    )
+    await db.execute(
+        """
+        DELETE FROM l1_events_fts
+        WHERE event_id IN (
+            SELECT CAST(value AS TEXT) FROM json_each(?)
+        )
+        """,
+        (event_ids_json,),
+    )
+    await db.execute(
+        f"""
+        DELETE FROM {EVENT_CHUNKS_TABLE}
+        WHERE event_id IN (
+            SELECT CAST(value AS TEXT) FROM json_each(?)
+        )
+        """,
+        (event_ids_json,),
+    )
+    return max(int(updated.rowcount or 0), 0)
+
+
+async def _chunk_ids_for_events(
+    db: aiosqlite.Connection,
+    event_ids: list[str],
+) -> list[str]:
+    event_ids_json = json.dumps(event_ids, ensure_ascii=False, separators=(",", ":"))
+    async with db.execute(
+        f"""
+        SELECT chunk_id
+        FROM {EVENT_CHUNKS_TABLE}
+        WHERE event_id IN (
+            SELECT CAST(value AS TEXT) FROM json_each(?)
+        )
+        ORDER BY chunk_id
+        """,
+        (event_ids_json,),
+    ) as cursor:
+        return [str(row[0]) for row in await cursor.fetchall()]
+
+
+async def _delete_chunk_vectors(
+    host: L1EventWriteHostProtocol,
+    chunk_ids: list[str],
+) -> None:
+    if host._vector_index is None:
+        return
+    for chunk_id in chunk_ids:
+        await host._vector_index.delete_entity(entity_id=chunk_id)
 
 
 __all__ = [

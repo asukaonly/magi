@@ -11,6 +11,11 @@ from typing import Any
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from .source_event_governance import (
+    active_skill_predicate,
+    link_skill_source_event,
+    skill_accepts_source_event,
+)
 from .storage.records import sync_skill_fts
 
 TASK_PREFERENCE_CATEGORY = "task_preference"
@@ -81,7 +86,13 @@ class L4TaskPreferenceMixin:
             return None
 
         await self.initialize()
+        await self.retire_governed_skill_identity(
+            skill_name=draft.storage_skill_name,
+            skill_category=TASK_PREFERENCE_CATEGORY,
+        )
         skill_id = await self._upsert_task_preference(draft)
+        if skill_id is None:
+            return None
 
         await self._schedule_skill_embedding(
             skill_id=skill_id,
@@ -91,10 +102,17 @@ class L4TaskPreferenceMixin:
         )
         return skill_id
 
-    async def _upsert_task_preference(self, draft: _TaskPreferenceDraft) -> str:
+    async def _upsert_task_preference(self, draft: _TaskPreferenceDraft) -> str | None:
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            if draft.turn_id and not await skill_accepts_source_event(
+                db,
+                event_id=draft.turn_id,
+            ):
+                await db.rollback()
+                return None
             existing = await _fetch_existing_task_preference(db, draft.storage_skill_name)
 
             if existing is None:
@@ -118,6 +136,14 @@ class L4TaskPreferenceMixin:
                     now=now,
                 )
                 replace_existing = True
+
+            if draft.turn_id:
+                await link_skill_source_event(
+                    db,
+                    skill_id=skill_id,
+                    event_id=draft.turn_id,
+                    created_at=now,
+                )
 
             await sync_skill_fts(
                 db,
@@ -148,10 +174,11 @@ class L4TaskPreferenceMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT *
-                FROM procedural_skills
-                WHERE skill_category = ? AND deleted_at IS NULL
+                FROM procedural_skills AS skills
+                WHERE skills.skill_category = ?
+                  AND {active_skill_predicate("skills")}
                 ORDER BY updated_at DESC
                 LIMIT ?
                 """,
@@ -247,10 +274,12 @@ async def _fetch_existing_task_preference(
     storage_skill_name: str,
 ) -> aiosqlite.Row | None:
     async with db.execute(
-        """
-        SELECT skill_id, source_event_ids, total_attempts, success_count
-        FROM procedural_skills
-        WHERE skill_name = ? AND skill_category = ? AND deleted_at IS NULL
+        f"""
+        SELECT skills.skill_id, skills.source_event_ids,
+               skills.total_attempts, skills.success_count
+        FROM procedural_skills AS skills
+        WHERE skills.skill_name = ? AND skills.skill_category = ?
+          AND {active_skill_predicate("skills")}
         """,
         (storage_skill_name, TASK_PREFERENCE_CATEGORY),
     ) as cursor:

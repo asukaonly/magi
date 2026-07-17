@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { memoryApi, type EpisodeReconsolidateResult } from '@/api/modules/memory';
+import { manualEntriesApi } from '@/api/modules/manualEntries';
 import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
 import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -19,6 +20,10 @@ import {
   type MaintenanceCategoryId,
 } from './governanceModel';
 import { LayerWorkspace } from './governance/GovernanceLayerWorkspace';
+import {
+  GovernanceDestructiveActionDialog,
+  type GovernanceDestructiveAction,
+} from './governance/GovernanceDestructiveActionDialog';
 import { ManualMaintenancePanel, TaskMaintenancePanel, ForgetMaintenancePanel, DiagnosticsPanel } from './governance/GovernanceMaintenancePanels';
 import { RecordDrawer } from './governance/GovernanceRecordDrawer';
 
@@ -33,6 +38,9 @@ export const MemoryGovernancePage = () => {
   const [recordLoadError, setRecordLoadError] = useState<string | null>(null);
   const [reconsolidating, setReconsolidating] = useState(false);
   const [recordActionLoading, setRecordActionLoading] = useState(false);
+  const [destructiveAction, setDestructiveAction] = useState<GovernanceDestructiveAction | null>(null);
+  const [destructiveActionError, setDestructiveActionError] = useState<string | null>(null);
+  const [deleteRawEntityEvents, setDeleteRawEntityEvents] = useState(false);
   const [correctionDialogOpen, setCorrectionDialogOpen] = useState(false);
   const [correctionSaved, setCorrectionSaved] = useState(false);
   const [correctionConflict, setCorrectionConflict] = useState(false);
@@ -41,6 +49,7 @@ export const MemoryGovernancePage = () => {
   const [baseLayerCounts, setBaseLayerCounts] = useState<Partial<Record<MaintenanceCategoryId, number>>>({});
   const skipNextBaseCountUpdate = useRef(false);
   const recordRequestId = useRef(0);
+  const destructiveActionInFlight = useRef(false);
 
   const memory = useMemory({ initialLoadScope: 'all' });
 
@@ -95,7 +104,7 @@ export const MemoryGovernancePage = () => {
   const displayPageCount = pageCount;
   const pendingAssertionCount = toFiniteNumber(memory.stats.attention?.pending_assertions);
   const openBreakerCount = toFiniteNumber(memory.stats.l4?.open_circuit_breakers);
-  const l1EventCount = toFiniteNumber(memory.stats.l1?.event_count) || memory.l1Total;
+  const l1EventCount = memory.l1Total ?? toFiniteNumber(memory.stats.l1?.event_count);
   const extractSkippedCount = toFiniteNumber(memory.l2Stats?.extract_skipped);
   const objectCount = navigationLayers.reduce((sum, layer) => sum + layer.count, 0);
   const hasMemoryData = objectCount > 0 || l1EventCount > 0;
@@ -291,25 +300,80 @@ export const MemoryGovernancePage = () => {
   };
 
   const handleDeleteSelected = async () => {
-    if (!selectedRecord || selectedRecord.categoryId !== 'events') return;
+    if (
+      destructiveActionInFlight.current ||
+      !selectedRecord ||
+      selectedRecord.categoryId !== 'events'
+    ) return;
+    destructiveActionInFlight.current = true;
     setRecordActionLoading(true);
+    setDestructiveActionError(null);
     try {
-      await memoryApi.deleteL1Event(selectedRecord.id);
-      await refreshCategory('events');
+      const isManualEntry = selectedRecord.sourceKind === 'manual_entry';
+      if (isManualEntry) {
+        const entryId = String(selectedRecord.sourceItemId || '').trim();
+        if (!entryId) {
+          throw new Error('Manual entry source identity is unavailable');
+        }
+        await manualEntriesApi.remove(entryId);
+      } else {
+        await memoryApi.deleteL1Event(selectedRecord.id);
+      }
+      const refreshed = await refreshCategory('events');
+      setDestructiveAction(null);
       setSelectedRecord(null);
+      toast.success(
+        isManualEntry
+          ? label('destructiveConfirm.manualEntrySuccess', '手记和相关记忆已删除')
+          : label('destructiveConfirm.eventSuccess', '原始事件已删除')
+      );
+      if (!refreshed) {
+        toast.warning(label('destructiveConfirm.refreshFailed', '删除已完成，但列表暂时没有刷新。'));
+      }
+    } catch {
+      const message = label(
+        'destructiveConfirm.eventError',
+        '没有收到删除完成的确认。请重试；重复操作不会多删内容。'
+      );
+      setDestructiveActionError(message);
+      toast.error(message);
     } finally {
+      destructiveActionInFlight.current = false;
       setRecordActionLoading(false);
     }
   };
 
   const handleCascadeForgetSelected = async () => {
-    if (!selectedRecord || selectedRecord.categoryId !== 'entities') return;
+    if (
+      destructiveActionInFlight.current ||
+      !selectedRecord ||
+      selectedRecord.categoryId !== 'entities'
+    ) return;
+    destructiveActionInFlight.current = true;
     setRecordActionLoading(true);
+    setDestructiveActionError(null);
     try {
-      await memoryApi.forgetEntity(selectedRecord.id, false);
-      await refreshCategory('entities');
+      await memoryApi.forgetEntity(selectedRecord.id, deleteRawEntityEvents);
+      const refreshed = await refreshCategory('entities');
+      setDestructiveAction(null);
       setSelectedRecord(null);
+      toast.success(
+        deleteRawEntityEvents
+          ? label('destructiveConfirm.entityWithHistorySuccess', '实体及相关原始记录已遗忘')
+          : label('destructiveConfirm.entitySuccess', '实体记忆已遗忘，原始历史仍保留')
+      );
+      if (!refreshed) {
+        toast.warning(label('destructiveConfirm.refreshFailed', '遗忘已完成，但列表暂时没有刷新。'));
+      }
+    } catch {
+      const message = label(
+        'destructiveConfirm.entityError',
+        '没有收到遗忘完成的确认。请重试；重复操作不会多删内容。'
+      );
+      setDestructiveActionError(message);
+      toast.error(message);
     } finally {
+      destructiveActionInFlight.current = false;
       setRecordActionLoading(false);
     }
   };
@@ -435,7 +499,17 @@ export const MemoryGovernancePage = () => {
           </TabsContent>
 
           <TabsContent value="forget" className="mt-0 overflow-y-auto">
-            <ForgetMaintenancePanel label={label} />
+            <ForgetMaintenancePanel
+              label={label}
+              onOpenObjects={(layer) => {
+                setActiveLayer(layer);
+                setActivePage(1);
+                if (recordSearchQuery.trim()) skipNextBaseCountUpdate.current = true;
+                setRecordSearchQuery('');
+                setSelectedRecord(null);
+                setActiveTab('objects');
+              }}
+            />
           </TabsContent>
 
           <TabsContent value="diagnostics" className="mt-0 overflow-y-auto">
@@ -446,7 +520,7 @@ export const MemoryGovernancePage = () => {
 
       <RecordDrawer
         record={selectedRecord}
-        open={selectedRecord !== null && !correctionDialogOpen}
+        open={selectedRecord !== null && !correctionDialogOpen && destructiveAction === null}
         onOpenChange={(open) => {
           if (!open) setSelectedRecord(null);
         }}
@@ -470,8 +544,42 @@ export const MemoryGovernancePage = () => {
         onCorrectionConflict={async () => {
           await refreshSelectedCorrectionTarget();
         }}
-        onDelete={() => void handleDeleteSelected()}
-        onCascadeForget={() => void handleCascadeForgetSelected()}
+        onDelete={() => {
+          setDestructiveActionError(null);
+          setDestructiveAction('delete_event');
+        }}
+        onCascadeForget={() => {
+          setDeleteRawEntityEvents(false);
+          setDestructiveActionError(null);
+          setDestructiveAction('forget_entity');
+        }}
+      />
+      <GovernanceDestructiveActionDialog
+        action={destructiveAction}
+        record={selectedRecord}
+        open={destructiveAction !== null}
+        loading={recordActionLoading}
+        error={destructiveActionError}
+        deleteRawEntityEvents={deleteRawEntityEvents}
+        onDeleteRawEntityEventsChange={(checked) => {
+          setDeleteRawEntityEvents(checked);
+          setDestructiveActionError(null);
+        }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDestructiveAction(null);
+            setDestructiveActionError(null);
+            setDeleteRawEntityEvents(false);
+          }
+        }}
+        onConfirm={() => {
+          if (destructiveAction === 'delete_event') {
+            void handleDeleteSelected();
+          } else if (destructiveAction === 'forget_entity') {
+            void handleCascadeForgetSelected();
+          }
+        }}
+        label={label}
       />
       <MemoryCorrectionDialog
         open={correctionDialogOpen}

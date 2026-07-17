@@ -14,6 +14,7 @@ import { useChatTraceDrawer } from '@/hooks/useChatTraceDrawer';
 import { useChatExecutionControls } from '@/hooks/useChatExecutionControls';
 import { useConversationStore } from '@/stores';
 import { ChatComposerPane } from '@/components/chat/ChatComposerPane';
+import { ChatClearHistoryDialog } from '@/components/chat/ChatClearHistoryDialog';
 import { SystemSuggestionTopBar } from '@/components/chat/SystemSuggestionTopBar';
 import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSideCard';
 import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
@@ -138,6 +139,7 @@ export const ChatPage: React.FC = () => {
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
   const removeMessage = useConversationStore((state) => state.removeMessage);
+  const clearSessionHistory = useConversationStore((state) => state.clearSessionHistory);
   const resetConversation = useConversationStore((state) => state.reset);
 
   const [historyImagePreview, setHistoryImagePreview] = useState<HistoryImagePreview | null>(null);
@@ -333,6 +335,39 @@ export const ChatPage: React.FC = () => {
 
   const [toolDialogDescriptor, setToolDialogDescriptor] = useState<CommandDescriptor | null>(null);
   const [skillDialogDescriptor, setSkillDialogDescriptor] = useState<SkillCommandDescriptor | null>(null);
+  const [clearHistorySessionId, setClearHistorySessionId] = useState<string | null>(null);
+  const [clearHistoryLoading, setClearHistoryLoading] = useState(false);
+  const [clearHistoryError, setClearHistoryError] = useState<string | null>(null);
+  const clearHistoryInFlightRef = useRef(false);
+
+  const handleConfirmClearHistory = React.useCallback(async () => {
+    const targetSessionId = String(clearHistorySessionId || '').trim();
+    if (!targetSessionId || clearHistoryInFlightRef.current) return;
+
+    clearHistoryInFlightRef.current = true;
+    setClearHistoryLoading(true);
+    setClearHistoryError(null);
+    try {
+      const result = await messagesApi.clearHistory(DEFAULT_USER_ID, targetSessionId);
+      if (!result.success) {
+        throw new Error('Clear history request was not completed');
+      }
+      clearSessionHistory(targetSessionId);
+      if (currentSessionId === targetSessionId) {
+        clearPendingResponseTurnRef.current();
+        resetTraceDrawer();
+      }
+      setClearHistorySessionId(null);
+      toast.success(t('chat.clearHistoryDialog.success'));
+    } catch {
+      const message = t('chat.clearHistoryDialog.error');
+      setClearHistoryError(message);
+      toast.error(message);
+    } finally {
+      clearHistoryInFlightRef.current = false;
+      setClearHistoryLoading(false);
+    }
+  }, [clearHistorySessionId, clearSessionHistory, currentSessionId, resetTraceDrawer, t]);
 
   const handleInternalCommand = React.useCallback(
     async (action: 'clear' | 'new-session' | 'cancel' | 'help') => {
@@ -342,8 +377,8 @@ export const ChatPage: React.FC = () => {
             toast.warning(t('chat.sessionRequired'));
             return;
           }
-          await messagesApi.clearHistory(DEFAULT_USER_ID, currentSessionId);
-          toast.success(t('chat.cleared'));
+          setClearHistoryError(null);
+          setClearHistorySessionId(currentSessionId);
           return;
         }
         if (action === 'new-session') {
@@ -768,6 +803,19 @@ export const ChatPage: React.FC = () => {
         descriptor={skillDialogDescriptor}
         onClose={() => setSkillDialogDescriptor(null)}
         onSubmit={runSkillExpansion}
+      />
+
+      <ChatClearHistoryDialog
+        open={clearHistorySessionId !== null}
+        loading={clearHistoryLoading}
+        error={clearHistoryError}
+        onOpenChange={(open) => {
+          if (!open) {
+            setClearHistorySessionId(null);
+            setClearHistoryError(null);
+          }
+        }}
+        onConfirm={() => void handleConfirmClearHistory()}
       />
 
       <ChatPageOverlays

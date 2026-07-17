@@ -9,6 +9,8 @@ from typing import Any, Literal
 from ..core.sqlite import sqlite_connection_async
 
 TimelineCoverPreferenceMode = Literal["asset", "hidden"]
+TimelineCoverAssetSource = Literal["current_period", "custom_upload"]
+TIMELINE_COVER_ASSET_SOURCES = frozenset({"current_period", "custom_upload"})
 
 
 class TimelineCoverPreferenceStore:
@@ -22,8 +24,7 @@ class TimelineCoverPreferenceStore:
         if self._initialized:
             return
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
+            await db.execute("""
                 CREATE TABLE IF NOT EXISTS timeline_cover_preferences (
                     scope_key TEXT PRIMARY KEY,
                     scale TEXT NOT NULL,
@@ -34,14 +35,11 @@ class TimelineCoverPreferenceStore:
                     source TEXT NOT NULL DEFAULT 'current_period',
                     updated_at REAL NOT NULL
                 )
-                """
-            )
-            await db.execute(
-                """
+                """)
+            await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_timeline_cover_preferences_period
                 ON timeline_cover_preferences(scale, period_start, period_end)
-                """
-            )
+                """)
             await db.commit()
         self._initialized = True
 
@@ -73,16 +71,19 @@ class TimelineCoverPreferenceStore:
         period_end: float,
         mode: TimelineCoverPreferenceMode,
         asset_ref: str | None = None,
-        source: str = "current_period",
+        source: TimelineCoverAssetSource = "current_period",
     ) -> dict[str, Any]:
         if mode not in {"asset", "hidden"}:
             raise ValueError(f"Unsupported timeline cover mode: {mode}")
+        if source not in TIMELINE_COVER_ASSET_SOURCES:
+            raise ValueError(f"Unsupported timeline cover source: {source}")
         normalized_asset_ref = (asset_ref or "").strip()
         if mode == "asset" and not normalized_asset_ref:
             raise ValueError("Timeline cover asset mode requires asset_ref")
+        persisted_source = source
         if mode == "hidden":
             normalized_asset_ref = ""
-            source = "hidden"
+            persisted_source = "hidden"
 
         await self.initialize()
         scope_key = self._scope_key(scale=scale, period_start=period_start, period_end=period_end)
@@ -110,7 +111,7 @@ class TimelineCoverPreferenceStore:
                     float(period_end),
                     mode,
                     normalized_asset_ref or None,
-                    source or "current_period",
+                    persisted_source,
                     updated_at,
                 ),
             )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from typing import Any, Dict, List
 
@@ -10,6 +11,8 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..corrections.fingerprints import scope_matches
+from ..corrections.forget_governance import forget_rules_for_claims
+from ..corrections.models import CorrectionTargetKind
 from .common import (
     L2RetrievalQueryHostProtocol,
     bounded_scoped_candidate_limit,
@@ -86,6 +89,7 @@ async def _list_governed_relationship_history(
     snapshots = [_relationship_version_to_dict(dict(row)) for row in version_rows]
     snapshots.extend(_current_relationship_snapshot(host, row) for row in current_rows)
     relationships = _materialize_relationship_states(snapshots)
+    relationships = await _apply_relationship_forget_rules(host, relationships)
     relationships = [
         relationship
         for relationship in relationships
@@ -195,6 +199,7 @@ async def _batch_list_governed_relationship_history(
     snapshots = [_relationship_version_to_dict(dict(row)) for row in version_rows]
     snapshots.extend(_current_relationship_snapshot(host, row) for row in current_rows)
     materialized = _materialize_relationship_states(snapshots)
+    materialized = await _apply_relationship_forget_rules(host, materialized)
     result: Dict[str, List[Dict[str, Any]]] = {}
     requested_limit = max(1, int(limit_per_entity))
     for entity_id in unique_ids:
@@ -241,6 +246,170 @@ async def _batch_list_governed_relationship_history(
     return result
 
 
+async def _apply_relationship_forget_rules(
+    host: L2RetrievalQueryHostProtocol,
+    relationships: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    if not relationships:
+        return relationships
+    async with sqlite_connection_async(host.db_path) as db:
+        rules_by_claim = await forget_rules_for_claims(
+            db,
+            target_kind=CorrectionTargetKind.EDGE,
+            claim_fingerprints=(
+                str(relationship.get("claim_fingerprint") or "") for relationship in relationships
+            ),
+        )
+    governed: List[Dict[str, Any]] = []
+    for relationship in relationships:
+        fingerprint = str(relationship.get("claim_fingerprint") or "")
+        segments = [relationship]
+        for rule in rules_by_claim.get(fingerprint, ()):
+            forget_kind = str(rule["forget_kind"])
+            if forget_kind == "entity":
+                segments = []
+                break
+            forgotten_event_ids = {
+                str(event_id) for event_id in rule.get("forgotten_event_ids", ())
+            }
+            if forget_kind == "event":
+                segments = [
+                    filtered
+                    for segment in segments
+                    if (
+                        filtered := _without_forgotten_relationship_evidence(
+                            segment,
+                            forgotten_event_ids=forgotten_event_ids,
+                        )
+                    )
+                    is not None
+                ]
+                if not segments:
+                    break
+                continue
+            effective_from = rule.get("effective_from")
+            effective_to = rule.get("effective_to")
+            if effective_from is None or effective_to is None:
+                segments = []
+                break
+            filtered_segments: List[Dict[str, Any]] = []
+            for segment in segments:
+                segment_evidence = {
+                    str(event_id) for event_id in segment.get("evidence_event_ids", ())
+                }
+                if not _relationship_overlaps_forget_interval(
+                    segment,
+                    forget_from=float(effective_from),
+                    forget_to=float(effective_to),
+                ):
+                    if segment_evidence.intersection(forgotten_event_ids):
+                        filtered_segments.append(
+                            _without_forgotten_relationship_evidence(
+                                segment,
+                                forgotten_event_ids=forgotten_event_ids,
+                                preserve_empty=True,
+                            )
+                        )
+                    else:
+                        filtered_segments.append(segment)
+                    continue
+                if segment_evidence.intersection(forgotten_event_ids):
+                    filtered = _without_forgotten_relationship_evidence(
+                        segment,
+                        forgotten_event_ids=forgotten_event_ids,
+                    )
+                    if filtered is not None:
+                        filtered_segments.append(filtered)
+                    continue
+                filtered_segments.extend(
+                    _subtract_forgotten_relationship_interval(
+                        segment,
+                        forget_from=float(effective_from),
+                        forget_to=float(effective_to),
+                        rule_id=str(rule["rule_id"]),
+                    )
+                )
+            segments = filtered_segments
+            if not segments:
+                break
+        governed.extend(segments)
+    return governed
+
+
+def _without_forgotten_relationship_evidence(
+    relationship: Dict[str, Any],
+    *,
+    forgotten_event_ids: set[str],
+    preserve_empty: bool = False,
+) -> Dict[str, Any] | None:
+    if not forgotten_event_ids:
+        return relationship
+    original = [str(event_id) for event_id in relationship.get("evidence_event_ids", ())]
+    retained = [str(event_id) for event_id in original if str(event_id) not in forgotten_event_ids]
+    if len(retained) == len(original):
+        return relationship
+    if original and not retained and not preserve_empty:
+        return None
+    filtered = dict(relationship)
+    filtered["evidence_event_ids"] = retained
+    filtered["observation_count"] = len(retained)
+    filtered["evidence_text"] = ""
+    filtered["natural_summary"] = ""
+    return filtered
+
+
+def _relationship_overlaps_forget_interval(
+    relationship: Mapping[str, Any],
+    *,
+    forget_from: float,
+    forget_to: float,
+) -> bool:
+    start_raw = relationship.get("valid_from")
+    end_raw = relationship.get("valid_to")
+    start = float(start_raw) if start_raw is not None else -math.inf
+    end = float(end_raw) if end_raw is not None else math.inf
+    return max(start, forget_from) <= min(end, forget_to)
+
+
+def _subtract_forgotten_relationship_interval(
+    relationship: Dict[str, Any],
+    *,
+    forget_from: float,
+    forget_to: float,
+    rule_id: str,
+) -> List[Dict[str, Any]]:
+    start_raw = relationship.get("valid_from")
+    end_raw = relationship.get("valid_to")
+    start = float(start_raw) if start_raw is not None else -math.inf
+    end = float(end_raw) if end_raw is not None else math.inf
+    removed_end = math.nextafter(forget_to, math.inf)
+    overlap_start = max(start, forget_from)
+    overlap_end = min(end, removed_end)
+    if overlap_start >= overlap_end:
+        return [relationship]
+
+    fragments: List[Dict[str, Any]] = []
+    if start < overlap_start:
+        left = dict(relationship)
+        left["valid_to"] = overlap_start
+        left["evidence_text"] = ""
+        left["natural_summary"] = ""
+        left["_governed_version_id"] = (
+            f"{relationship.get('_governed_version_id')}:{rule_id}:before"
+        )
+        fragments.append(left)
+    if overlap_end < end:
+        right = dict(relationship)
+        right["valid_from"] = overlap_end
+        right["evidence_text"] = ""
+        right["natural_summary"] = ""
+        right["_governed_version_id"] = (
+            f"{relationship.get('_governed_version_id')}:{rule_id}:after"
+        )
+        fragments.append(right)
+    return fragments
+
+
 def _build_batch_historical_candidate_query(
     *,
     entity_ids: List[str],
@@ -267,6 +436,12 @@ def _build_batch_historical_candidate_query(
         FROM requested_entities AS requested
         JOIN knowledge_graph_versions AS v ON {version_join}
         WHERE v.governance_complete = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM memory_forget_claim_rules AS forgotten
+              WHERE forgotten.target_kind = 'edge'
+                AND forgotten.forget_kind = 'entity'
+                AND forgotten.claim_fingerprint = v.claim_fingerprint
+          )
     """
     version_select, version_args = _append_relationship_identity_filters(
         version_select,
@@ -292,6 +467,12 @@ def _build_batch_historical_candidate_query(
         FROM requested_entities AS requested
         JOIN knowledge_graph AS g ON {current_join}
         WHERE 1=1
+          AND NOT EXISTS (
+              SELECT 1 FROM memory_forget_claim_rules AS forgotten
+              WHERE forgotten.target_kind = 'edge'
+                AND forgotten.forget_kind = 'entity'
+                AND forgotten.claim_fingerprint = g.claim_fingerprint
+          )
     """
     current_select, current_args = _append_relationship_identity_filters(
         current_select,
@@ -505,6 +686,12 @@ def _build_historical_candidate_query(
                v.edge_created_at
         FROM knowledge_graph_versions v
         WHERE v.governance_complete = 1
+          AND NOT EXISTS (
+              SELECT 1 FROM memory_forget_claim_rules AS forgotten
+              WHERE forgotten.target_kind = 'edge'
+                AND forgotten.forget_kind = 'entity'
+                AND forgotten.claim_fingerprint = v.claim_fingerprint
+          )
     """
     version_select, version_args = _append_relationship_identity_filters(
         version_select,
@@ -528,6 +715,12 @@ def _build_historical_candidate_query(
                g.created_at AS edge_created_at
         FROM knowledge_graph g
         WHERE 1=1
+          AND NOT EXISTS (
+              SELECT 1 FROM memory_forget_claim_rules AS forgotten
+              WHERE forgotten.target_kind = 'edge'
+                AND forgotten.forget_kind = 'entity'
+                AND forgotten.claim_fingerprint = g.claim_fingerprint
+          )
     """
     current_select, current_args = _append_relationship_identity_filters(
         current_select,

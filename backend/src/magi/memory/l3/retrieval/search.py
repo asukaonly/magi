@@ -1,4 +1,5 @@
 """Search result helpers for L3 summary store."""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -7,6 +8,7 @@ from typing import Any
 from ...embedding.embedding_text_builders import build_l3_embedding_text
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ...hybrid_retrieval.handlers import rrf_fuse
+from ..source_event_governance import active_summary_predicate
 from ..storage.serialization import row_to_summary_dict
 
 
@@ -37,7 +39,7 @@ def build_keyword_search_query(
     predicates = " OR ".join(f"{column} LIKE ? ESCAPE '\\'" for column in searchable_columns)
     sql = f"""
         SELECT summary_id FROM summaries
-        WHERE derivation_state = 'current' AND ({predicates})
+        WHERE {active_summary_predicate()} AND ({predicates})
     """
     args: list[Any] = [like_value for _column in searchable_columns]
     if summary_type:
@@ -60,7 +62,7 @@ def build_fetch_by_ids_query(
     placeholders = ", ".join("?" for _ in summary_ids)
     sql = f"""
         SELECT * FROM summaries
-        WHERE derivation_state = 'current' AND summary_id IN ({placeholders})
+        WHERE {active_summary_predicate()} AND summary_id IN ({placeholders})
     """
     args: list[Any] = list(summary_ids)
     if summary_type:
@@ -78,7 +80,9 @@ def ordered_summary_dicts_from_rows(
     summary_ids: Sequence[str],
 ) -> list[dict[str, Any]]:
     summaries_by_id = {str(row["summary_id"]): row_to_summary_dict(row) for row in rows}
-    return [summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id]
+    return [
+        summaries_by_id[summary_id] for summary_id in summary_ids if summary_id in summaries_by_id
+    ]
 
 
 def fts_backfill_row(row: Any) -> tuple[str, str]:
@@ -109,8 +113,16 @@ def ranked_vector_summaries(
 
 
 def search_path_ids(results_or_errors: Sequence[Any]) -> tuple[list[str], list[str], list[str]]:
-    bm25_ids = [summary_id for summary_id, _score in results_or_errors[0]] if isinstance(results_or_errors[0], list) else []
-    semantic_ids = [item["summary_id"] for item in results_or_errors[1]] if isinstance(results_or_errors[1], list) else []
+    bm25_ids = (
+        [summary_id for summary_id, _score in results_or_errors[0]]
+        if isinstance(results_or_errors[0], list)
+        else []
+    )
+    semantic_ids = (
+        [item["summary_id"] for item in results_or_errors[1]]
+        if isinstance(results_or_errors[1], list)
+        else []
+    )
     keyword_ids = list(results_or_errors[2]) if isinstance(results_or_errors[2], list) else []
     return bm25_ids, semantic_ids, keyword_ids
 

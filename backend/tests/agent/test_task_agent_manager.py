@@ -3,6 +3,7 @@ import asyncio
 try:
     import pytest
 except ModuleNotFoundError:  # pragma: no cover
+
     class _Mark:
         @staticmethod
         def asyncio(func):
@@ -145,9 +146,7 @@ async def test_evicts_oldest_idle_instance_instead_of_silently_rejecting():
 
     # Third session arrives at capacity. The oldest idle instance must be
     # recycled so the new session is accepted — not silently dropped.
-    accepted = await manager.add_fact_to_agent(
-        TaskAgentType.CHAT, "s-third", _user_fact("s-third")
-    )
+    accepted = await manager.add_fact_to_agent(TaskAgentType.CHAT, "s-third", _user_fact("s-third"))
 
     assert accepted is True
     assert manager.get_agent(TaskAgentType.CHAT, "s-third") is not None
@@ -290,6 +289,78 @@ async def test_memory_clear_pause_cancels_old_chat_work_and_admits_new_work_afte
 
     assert chat_rows == ["after clear"]
     assert memory_rows == ["after clear"]
+    await manager.stop_all()
+
+
+@pytest.mark.asyncio
+async def test_deleted_chat_scope_stops_active_work_and_rejects_replayed_turn():
+    response_gate = asyncio.Event()
+    response_started = asyncio.Event()
+    chat_rows: list[str] = []
+    memory_rows: list[str] = []
+    blocked_turns = {("session-delete", "turn-delete")}
+
+    async def is_blocked(**scope) -> bool:  # type: ignore[no-untyped-def]
+        return (str(scope["session_id"]), str(scope.get("turn_id") or "")) in blocked_turns
+
+    manager = TaskAgentManager(
+        create_chat_agent=lambda agent_id: _BlockedResponseAgent(
+            agent_id,
+            response_gate=response_gate,
+            response_started=response_started,
+            chat_rows=chat_rows,
+            memory_rows=memory_rows,
+        ),
+        user_message_scope_blocker=is_blocked,
+    )
+    await manager.start_all(event_emitter=None)
+    active_fact = FactRecord(
+        agent_id="chat:session-delete",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="session-delete",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "user_id": "user-1",
+            "session_id": "session-delete",
+            "turn_id": "turn-active",
+            "content": "private active work",
+        },
+    )
+    assert await manager.add_fact_to_agent(
+        TaskAgentType.CHAT,
+        "session-delete",
+        active_fact,
+    )
+    await asyncio.wait_for(response_started.wait(), timeout=1)
+
+    assert await manager.cancel_chat_session_work(
+        session_id="session-delete",
+        turn_id="turn-delete",
+    )
+    response_gate.set()
+    await asyncio.sleep(0)
+    assert manager.get_agent(TaskAgentType.CHAT, "session-delete") is None
+    assert chat_rows == []
+    assert memory_rows == []
+
+    replayed = FactRecord(
+        agent_id="chat:session-delete",
+        agent_type=TaskAgentType.CHAT.value,
+        agent_instance_id="session-delete",
+        event_type=EventTypes.USER_MESSAGE,
+        payload={
+            "user_id": "user-1",
+            "session_id": "session-delete",
+            "turn_id": "turn-delete",
+            "content": "must stay blocked",
+        },
+    )
+    assert not await manager.add_fact_to_agent(
+        TaskAgentType.CHAT,
+        "session-delete",
+        replayed,
+    )
+    assert manager.get_stats()["blocked_user_message_rejected_count"] == 1
     await manager.stop_all()
 
 
@@ -457,17 +528,23 @@ async def test_reinjected_fact_uses_current_generation_and_old_reinject_is_rejec
         user_message_generation=manager.current_user_message_generation(),
     )
 
-    assert await manager.add_fact_to_agent(
-        TaskAgentType.CHAT,
-        "reinject-session",
-        current_reinject,
-    ) is True
+    assert (
+        await manager.add_fact_to_agent(
+            TaskAgentType.CHAT,
+            "reinject-session",
+            current_reinject,
+        )
+        is True
+    )
 
     generation = 4
-    assert await manager.add_fact_to_agent(
-        TaskAgentType.CHAT,
-        "reinject-session",
-        current_reinject,
-    ) is False
+    assert (
+        await manager.add_fact_to_agent(
+            TaskAgentType.CHAT,
+            "reinject-session",
+            current_reinject,
+        )
+        is False
+    )
     assert manager.get_stats()["stale_user_message_rejected_count"] == 1
     await manager.stop_all()

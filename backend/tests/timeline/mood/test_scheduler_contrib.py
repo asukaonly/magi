@@ -29,10 +29,11 @@ async def test_contributor_registers_handler():
     from magi.timeline.mood.scheduler_contrib import MoodAggregateSchedulerContrib
 
     contrib = MoodAggregateSchedulerContrib(
-        sample_source=AsyncMock(), mood_store=AsyncMock(),
+        sample_source=AsyncMock(),
+        mood_store=AsyncMock(),
     )
     scheduler = MagicMock()
-    scheduler.register_handler = MagicMock()         # SYNC now
+    scheduler.register_handler = MagicMock()  # SYNC now
     scheduler.schedule_interval = AsyncMock()
     await contrib.register_schedules(scheduler)
 
@@ -49,6 +50,7 @@ async def test_contributor_registers_handler():
 @pytest.mark.asyncio
 async def test_handler_aggregates_yesterday_and_upserts():
     from magi.timeline.mood.scheduler_contrib import MoodAggregateSchedulerContrib
+    from magi.timeline.mood.sample_source import ValenceSample
 
     # Fake sample source returns 24 hourly samples covering yesterday's window
     # Triggered_at = 2024-05-21 12:00 UTC, yesterday = 2024-05-20 UTC
@@ -56,7 +58,14 @@ async def test_handler_aggregates_yesterday_and_upserts():
     yesterday_start = 1716163200.0
     sample_source = AsyncMock()
     sample_source.list_valence_samples = AsyncMock(
-        return_value=[(yesterday_start + h * 3600, 0.5) for h in range(24)]
+        return_value=[
+            ValenceSample(
+                timestamp=yesterday_start + h * 3600,
+                valence=0.5,
+                source_event_ids=(f"event-{h}",),
+            )
+            for h in range(24)
+        ]
     )
 
     upserted: list = []
@@ -66,7 +75,8 @@ async def test_handler_aggregates_yesterday_and_upserts():
     )
 
     contrib = MoodAggregateSchedulerContrib(
-        sample_source=sample_source, mood_store=mood_store,
+        sample_source=sample_source,
+        mood_store=mood_store,
     )
     context = _make_context(1716292800.0)  # 2024-05-21 12:00 UTC
 
@@ -80,6 +90,7 @@ async def test_handler_aggregates_yesterday_and_upserts():
     assert agg.dominant_valence == "warm"
     assert agg.volatility_score < 0.1
     assert agg.event_count == 24
+    assert agg.source_event_ids == [f"event-{h}" for h in range(24)]
 
 
 @pytest.mark.asyncio
@@ -91,7 +102,8 @@ async def test_handler_returns_failure_when_sample_source_raises():
     mood_store = AsyncMock()
 
     contrib = MoodAggregateSchedulerContrib(
-        sample_source=sample_source, mood_store=mood_store,
+        sample_source=sample_source,
+        mood_store=mood_store,
     )
     result = await contrib._handle_aggregate(_make_context(1716292800.0))
 

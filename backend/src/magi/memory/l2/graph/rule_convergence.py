@@ -216,14 +216,15 @@ async def _converge_candidate_set(
 
     rows = list(unique.values())
     correction_authority = await _active_correction_authority(db, rows)
-    active_corrections = {
-        correction_id
-        for correction_ids in correction_authority.values()
-        for correction_id in correction_ids
+    user_authority_ids = {
+        str(row["triple_id"])
+        for row in rows
+        if correction_authority.get(str(row["triple_id"])) or _has_user_authority_signal(row)
     }
-    if len(active_corrections) > 1:
+    if len(user_authority_ids) > 1:
         raise GraphConflictConvergenceError(
-            "Conflict rule would collapse multiple active user corrections"
+            "Conflict rule would collapse multiple active user corrections "
+            "or user-authoritative relationships"
         )
 
     winner = max(
@@ -331,14 +332,21 @@ def _winner_rank(
 ) -> tuple[Any, ...]:
     return (
         has_active_correction,
-        str(row["evidence_class"] or "") == "user_self_report"
-        or str(row["source_type"] or "") == "user_correction",
+        _has_user_authority_signal(row),
         float(row["last_confirmed_at"] or 0.0),
         float(row["last_observed_at"] or 0.0),
         float(row["updated_at"] or 0.0),
         float(row["created_at"] or 0.0),
         float(row["confidence"] or 0.0),
         str(row["triple_id"]),
+    )
+
+
+def _has_user_authority_signal(row: aiosqlite.Row) -> bool:
+    return (
+        bool(str(row["authority_ref"] or "").strip())
+        or str(row["evidence_class"] or "").strip().casefold() == "user_self_report"
+        or str(row["source_type"] or "").strip().casefold() == "user_correction"
     )
 
 

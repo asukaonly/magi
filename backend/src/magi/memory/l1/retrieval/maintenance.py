@@ -56,12 +56,12 @@ class L1EventMaintenanceQueryMixin:
                 "source": str(row["source"] or ""),
                 "event_count": int(row["event_count"] or 0),
                 "avg_importance": float(row["avg_importance"] or 0.0),
-                "min_timestamp": float(row["min_timestamp"])
-                if row["min_timestamp"] is not None
-                else None,
-                "max_timestamp": float(row["max_timestamp"])
-                if row["max_timestamp"] is not None
-                else None,
+                "min_timestamp": (
+                    float(row["min_timestamp"]) if row["min_timestamp"] is not None else None
+                ),
+                "max_timestamp": (
+                    float(row["max_timestamp"]) if row["max_timestamp"] is not None else None
+                ),
             }
             for row in rows
             if str(row["source"] or "").strip()
@@ -81,6 +81,7 @@ class L1EventMaintenanceQueryMixin:
         idempotency_key: Optional[str] = None,
         start_time: Optional[float] = None,
         end_time: Optional[float] = None,
+        l1_retrieval_scopes: Optional[List[str]] = None,
     ) -> int:
         """Count events, optionally filtered."""
         host = cast(L1EventQueryHostProtocol, self)
@@ -97,6 +98,7 @@ class L1EventMaintenanceQueryMixin:
             idempotency_key=idempotency_key,
             start_time=start_time,
             end_time=end_time,
+            l1_retrieval_scopes=l1_retrieval_scopes,
         )
         sql = f"SELECT COUNT(*) FROM {FACT_EVENTS_TABLE} WHERE {where_clause}"
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:

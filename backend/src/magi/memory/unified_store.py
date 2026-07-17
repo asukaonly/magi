@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
+from .forgetting import DurableForgetRunner
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
@@ -25,13 +26,16 @@ from .l3.trend_shift_service import TrendShiftService
 from .l4.procedural_memory import L4ProceduralMemoryStore
 from .operation_barrier import AsyncOperationBarrier
 from .store_ingestion import MemoryIngestionMixin
+from .store_governed_l1_writes import UnifiedGovernedL1WriteMixin
 from .store_corrections import UnifiedMemoryCorrectionMixin
 from .store_l2_operations import UnifiedMemoryL2OperationsMixin
 from .store_l3_insights import L3InsightsMixin
 from .store_lifecycle import UnifiedMemoryLifecycleMixin
 from .store_maintenance import UnifiedMemoryMaintenanceMixin
 from .store_monitoring import MonitoringMixin
+from .store_source_event_forgetting import UnifiedSourceEventForgettingMixin
 from .store_summaries import UnifiedMemorySummaryMixin
+
 if TYPE_CHECKING:
     from ..llm import ScenarioLLMPool
 
@@ -91,6 +95,7 @@ class _MemoryStoreBuildContext:
 
 class UnifiedMemoryStore(
     MemoryIngestionMixin,
+    UnifiedGovernedL1WriteMixin,
     UnifiedMemoryCorrectionMixin,
     L3InsightsMixin,
     MonitoringMixin,
@@ -98,6 +103,7 @@ class UnifiedMemoryStore(
     UnifiedMemoryL2OperationsMixin,
     UnifiedMemorySummaryMixin,
     UnifiedMemoryMaintenanceMixin,
+    UnifiedSourceEventForgettingMixin,
 ):
     """Coordinates the lifecycle-based L0-L4 memory stores."""
 
@@ -167,7 +173,7 @@ class UnifiedMemoryStore(
         self._build_edge_embedding_worker(context)
 
         if enabled_layers.l3:
-            self.l3 = self._build_l3_store(context)
+            self.l3 = self._build_l3_store(context, l1_store=self.l1)
         if enabled_layers.l4:
             self.l4 = self._build_l4_store(context)
 
@@ -217,14 +223,13 @@ class UnifiedMemoryStore(
         self._write_lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
         self._clear_epoch = 0
+        self._durable_forget_runner = DurableForgetRunner(self)
         if self.l2_pipeline is not None:
             self.l2_pipeline.set_operation_guard_factory(self.memory_operation_guard)
         for store in (self.l1, self.l3, self.l4):
             if store is not None:
                 store.set_operation_guard_factory(self.memory_operation_guard)
-        self._edge_embedding_worker.set_operation_guard_factory(
-            self.memory_operation_guard
-        )
+        self._edge_embedding_worker.set_operation_guard_factory(self.memory_operation_guard)
 
     def _initialize_layer_slots(
         self,
@@ -268,7 +273,12 @@ class UnifiedMemoryStore(
         )
 
     def _build_l2_stack(self, context: _MemoryStoreBuildContext) -> None:
-        self.l2 = L2CognitionStore(db_path=context.paths.shared_memory_db_path)
+        self.l2 = L2CognitionStore(
+            db_path=context.paths.shared_memory_db_path,
+            evidence_timestamp_resolver=(
+                self.l1.get_event_timestamps if self.l1 is not None else None
+            ),
+        )
         if self.l1 is not None:
             self.l2.register_memory_correction_job_handler(
                 "l1_audit",
@@ -346,7 +356,11 @@ class UnifiedMemoryStore(
             return 5.0
 
     @staticmethod
-    def _build_l3_store(context: _MemoryStoreBuildContext) -> L3SummaryStore:
+    def _build_l3_store(
+        context: _MemoryStoreBuildContext,
+        *,
+        l1_store: L1EventStore | None,
+    ) -> L3SummaryStore:
         return L3SummaryStore(
             db_path=context.paths.shared_memory_db_path,
             embedding_service=context.embedding_service,
@@ -358,6 +372,9 @@ class UnifiedMemoryStore(
             temporal_llm_min_event_count=context.tuning.temporal_l3_llm_min_event_count,
             scenario_llm_pool=context.scenario_llm_pool,
             temporal_summary_features_builder=context.temporal_summary_features_builder,
+            evidence_timestamp_resolver=(
+                l1_store.get_event_timestamps if l1_store is not None else None
+            ),
         )
 
     @staticmethod
@@ -370,5 +387,6 @@ class UnifiedMemoryStore(
             vector_enabled=context.tuning.enable_l4_vectors,
             async_embeddings=context.tuning.async_embeddings,
         )
+
 
 __all__ = ["UnifiedMemoryStore", "MemoryStoreTuning"]

@@ -6,11 +6,17 @@ import logging
 import time
 from typing import Any, Dict
 
+from ..core.sqlite import sqlite_connection_async
 from ..events.events import Event, EventLevel, EventTypes
 from .event_contracts import MemoryEvent, normalize_runtime_event
 from .l2.models import ManualL2EventRequest
 from .layer_protocol import FanOutContext, MemoryLayer, WILDCARD_EVENT_TYPES
 from .layers import L0Layer, L1Layer, L2PipelineLayer, L2ProjectionLayer, L4Layer
+from .source_event_governance import (
+    TimeRangeGovernanceDecision,
+    govern_source_events_by_time_range,
+    memory_event_source_references,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +47,7 @@ class MemoryIngestionMixin:
     ) -> Dict[str, Any]:
         """Ingest an event through the new L0-L4 pipeline."""
         memory_event = self._normalize_event(event)
-        captured_epoch = (
-            int(self._clear_epoch)
-            if expected_epoch is None
-            else int(expected_epoch)
-        )
+        captured_epoch = int(self._clear_epoch) if expected_epoch is None else int(expected_epoch)
         async with self._clear_barrier.operation():
             if captured_epoch != int(self._clear_epoch):
                 return {
@@ -81,7 +83,16 @@ class MemoryIngestionMixin:
         deferred_layers = [layer for layer in layers if not layer.requires_write_lock]
 
         async with self._write_lock:
+            time_range_decision = await self._govern_event_time_range(memory_event)
+            if time_range_decision.delete_l1_event:
+                return self._forgotten_time_range_result(memory_event)
+            if await self._any_source_reference_is_tombstoned(
+                memory_event_source_references(memory_event)
+            ):
+                return self._forgotten_source_result(memory_event)
             for layer in locked_layers:
+                if time_range_decision.blocks_derivations and layer.layer_name != "l1":
+                    continue
                 await self._dispatch_layer(layer, memory_event, ctx)
                 if (
                     layer.layer_name == "l1"
@@ -96,6 +107,20 @@ class MemoryIngestionMixin:
                         memory_event.user_id,
                     )
 
+        if time_range_decision.blocks_derivations:
+            stored_event_id = ctx.markers.get("stored_event_id") or memory_event.event_id
+            return {
+                "event_id": stored_event_id,
+                "ingest_target": memory_event.ingest_target.label,
+                "l1_written": bool(ctx.markers.get("l1_written")),
+                "l2_job_enqueued": False,
+                "l2_relation_count": 0,
+                "l2_assertion_count": 0,
+                "l4_skill_id": None,
+                "skipped_derivations": True,
+                "skip_reason": "time_range_forgotten",
+            }
+
         for layer in deferred_layers:
             await self._dispatch_layer(layer, memory_event, ctx)
 
@@ -109,6 +134,55 @@ class MemoryIngestionMixin:
             "l2_assertion_count": 0,
             "l4_skill_id": ctx.markers.get("l4_skill_id"),
         }
+
+    @staticmethod
+    def _forgotten_source_result(memory_event: MemoryEvent) -> Dict[str, Any]:
+        """Return the fail-closed result for an event behind a delete barrier."""
+        return {
+            "event_id": memory_event.event_id,
+            "ingest_target": memory_event.ingest_target.label,
+            "l1_written": False,
+            "l2_job_enqueued": False,
+            "l2_relation_count": 0,
+            "l2_assertion_count": 0,
+            "l4_skill_id": None,
+            "skipped": True,
+            "skip_reason": "source_event_forgotten",
+        }
+
+    @staticmethod
+    def _forgotten_time_range_result(memory_event: MemoryEvent) -> Dict[str, Any]:
+        """Return the result for a source occurrence removed by a durable range."""
+        return {
+            "event_id": memory_event.event_id,
+            "ingest_target": memory_event.ingest_target.label,
+            "l1_written": False,
+            "l2_job_enqueued": False,
+            "l2_relation_count": 0,
+            "l2_assertion_count": 0,
+            "l4_skill_id": None,
+            "skipped": True,
+            "skip_reason": "time_range_forgotten",
+        }
+
+    async def _govern_event_time_range(
+        self,
+        memory_event: MemoryEvent,
+    ) -> TimeRangeGovernanceDecision:
+        """Publish event-specific blocks before a matching event can enter L1."""
+        async with sqlite_connection_async(self.memory_db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                decision = await govern_source_events_by_time_range(
+                    db,
+                    event_ids=(memory_event.event_id, memory_event.turn_id),
+                    observed_from=float(memory_event.timestamp),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return decision
 
     async def _dispatch_layer(
         self,

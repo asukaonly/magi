@@ -19,6 +19,18 @@ from ....memory.manual_entries import (
     ManualEntry,
     ManualEntryL1Projector,
 )
+from ....memory.manual_entries.locks import entry_mutation_lock as _entry_mutation_lock
+from ....memory.manual_entries.workflow import (
+    ManualEntryCleanupError,
+    ManualEntryDeleteCompletionError,
+    ManualEntryDeleteConflictError,
+    ManualEntryDeleteStartError,
+    ManualEntryDeletionInProgressError,
+    ManualEntryNotFoundError,
+    ManualEntryProjectionError,
+    ManualEntryWorkflow,
+    ManualEntryWorkflowError,
+)
 from .asset_uploads import store_uploaded_image_asset
 from .dependencies import (
     _resolve_location_sample_store,
@@ -28,7 +40,6 @@ from .dependencies import (
     _resolve_unified_memory,
 )
 from .router import memory_router
-
 
 # ─── Request / response shapes ───────────────────────────────────────
 
@@ -69,6 +80,16 @@ def _entry_to_dict(entry: ManualEntry) -> dict:
     return entry.to_dict()
 
 
+def _validate_attachment_refs(asset_store, attachment_refs: list[str]) -> None:
+    """Reject forged or missing attachment references before persistence."""
+    if all(asset_store.has_asset(asset_ref) for asset_ref in attachment_refs):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Attachment reference is invalid or unavailable",
+    )
+
+
 def _resolve_stores():
     """Resolve the manual-entry components from their DI bindings.
 
@@ -77,7 +98,7 @@ def _resolve_stores():
     Raises 503 if the manual-entry storage is missing so callers see a clear
     message rather than an internal NoneType error.
 
-    Returns ``(store, assets, projector, weather, location_samples)``.
+    Returns ``(store, assets, projector, weather, location_samples, memory)``.
     ``weather`` and ``location_samples`` are best-effort — None when the
     subsystem isn't wired and the routes degrade gracefully.
     """
@@ -93,10 +114,172 @@ def _resolve_stores():
     # degrade gracefully if memory is absent).
     unified = _resolve_unified_memory()
     l1 = getattr(unified, "l1", None) if unified is not None else None
-    projector = ManualEntryL1Projector(l1_store=l1) if l1 is not None else None
+    projector = ManualEntryL1Projector(memory=unified) if l1 is not None else None
     weather = _resolve_manual_entry_weather_fetcher()
     location_samples = _resolve_location_sample_store()
-    return store, assets, projector, weather, location_samples
+    return store, assets, projector, weather, location_samples, unified
+
+
+def _has_entry_changes(existing: ManualEntry, body: ManualEntryUpdateBody) -> bool:
+    """Return whether the request changes user-authored entry state."""
+    return any(
+        (
+            body.body is not None and body.body != existing.body,
+            body.body_doc is not None and body.body_doc != existing.body_doc,
+            body.clear_body_doc and existing.body_doc is not None,
+            body.event_at is not None and float(body.event_at) != float(existing.event_at),
+            body.mood is not None and (body.mood or None) != existing.mood,
+            body.attachment_refs is not None
+            and list(body.attachment_refs) != list(existing.attachments),
+            body.user_pinned is not None and bool(body.user_pinned) != bool(existing.user_pinned),
+            body.location_label is not None
+            and (body.location_label or None) != existing.location_label,
+        )
+    )
+
+
+def _has_projection_changes(existing: ManualEntry, body: ManualEntryUpdateBody) -> bool:
+    """Return whether the update changes the canonical L1 projection."""
+    return any(
+        (
+            body.body is not None and body.body != existing.body,
+            body.event_at is not None and float(body.event_at) != float(existing.event_at),
+            body.mood is not None and (body.mood or None) != existing.mood,
+            body.attachment_refs is not None
+            and list(body.attachment_refs) != list(existing.attachments),
+            body.location_label is not None
+            and (body.location_label or None) != existing.location_label,
+        )
+    )
+
+
+def _memory_cleanup_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Memory cleanup did not complete; retry the request",
+    )
+
+
+def _memory_projection_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Memory projection did not complete; retry the request",
+    )
+
+
+def _deletion_in_progress_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="entry deletion is already in progress; retry the delete request",
+    )
+
+
+def _workflow_error(exc: ManualEntryWorkflowError) -> HTTPException:
+    if isinstance(exc, ManualEntryCleanupError):
+        return _memory_cleanup_error()
+    if isinstance(exc, ManualEntryProjectionError):
+        return _memory_projection_error()
+    if isinstance(exc, ManualEntryDeletionInProgressError):
+        return _deletion_in_progress_error()
+    if isinstance(exc, ManualEntryNotFoundError):
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="entry not found",
+        )
+    if isinstance(exc, ManualEntryDeleteStartError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual entry deletion did not start; retry the request",
+        )
+    if isinstance(exc, ManualEntryDeleteCompletionError):
+        return HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual entry deletion did not complete; retry the request",
+        )
+    if isinstance(exc, ManualEntryDeleteConflictError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="entry changed while it was being deleted; retry the request",
+        )
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Manual entry operation did not complete; retry the request",
+    )
+
+
+async def _load_projection_state(store, entry_id: str) -> ManualEntry:
+    try:
+        return await ManualEntryWorkflow(
+            store=store,
+            projector=None,
+            memory=None,
+        ).load_projection_state(entry_id)
+    except ManualEntryWorkflowError as exc:
+        raise _workflow_error(exc) from exc
+
+
+async def _forget_owned_projections(
+    *,
+    entry: ManualEntry,
+    projector,
+    memory,
+    reason: str,
+    block_source_item: bool,
+) -> str | None:
+    try:
+        return await ManualEntryWorkflow(
+            store=None,
+            projector=projector,
+            memory=memory,
+        ).forget_owned_projections(
+            entry=entry,
+            reason=reason,
+            block_source_item=block_source_item,
+        )
+    except ManualEntryWorkflowError as exc:
+        raise _workflow_error(exc) from exc
+
+
+async def _project_and_link(
+    *,
+    entry: ManualEntry,
+    predecessor_event_id: str | None,
+    store,
+    projector,
+    memory,
+) -> None:
+    try:
+        await ManualEntryWorkflow(
+            store=store,
+            projector=projector,
+            memory=memory,
+        ).project_and_link(
+            entry=entry,
+            predecessor_event_id=predecessor_event_id,
+        )
+    except ManualEntryWorkflowError as exc:
+        raise _workflow_error(exc) from exc
+
+
+async def _repair_projection_if_needed(
+    *,
+    entry: ManualEntry,
+    store,
+    projector,
+    memory,
+    reason: str,
+) -> None:
+    try:
+        await ManualEntryWorkflow(
+            store=store,
+            projector=projector,
+            memory=memory,
+        ).repair_projection_if_needed(
+            entry=entry,
+            reason=reason,
+        )
+    except ManualEntryWorkflowError as exc:
+        raise _workflow_error(exc) from exc
 
 
 async def _resolve_weather_coords(
@@ -142,26 +325,28 @@ async def _attach_weather(
     if weather_fetcher is None:
         return None
     coords = await _resolve_weather_coords(
-        location_samples=location_samples, entry=entry,
+        location_samples=location_samples,
+        entry=entry,
     )
     if coords is None:
         return None
     lat, lng = coords
     try:
         weather = await weather_fetcher.fetch(
-            lat=lat, lng=lng, event_at=entry.event_at,
+            lat=lat,
+            lng=lng,
+            event_at=entry.event_at,
         )
     except Exception:
         return None
     if not weather:
         return None
     try:
-        await store.set_weather(entry.entry_id, weather)
+        persisted = await store.set_weather(entry.entry_id, weather)
     except Exception:
-        # The fetch succeeded but persisting didn't — still return the
-        # value so the response carries it; next user-driven update will
-        # re-persist.
-        pass
+        return None
+    if not persisted:
+        return None
     entry.weather = weather
     return weather
 
@@ -178,7 +363,7 @@ async def upload_manual_entry_asset(file: UploadFile):
     Storage is content-addressed (sha256) so repeated uploads of the
     same bytes resolve to a single file on disk + a single ref.
     """
-    _, asset_store, _, _, _ = _resolve_stores()
+    _, asset_store, _, _, _, _ = _resolve_stores()
     return await store_uploaded_image_asset(file, asset_store)
 
 
@@ -193,13 +378,14 @@ async def create_manual_entry(body: ManualEntryCreateBody):
     common "writing about now" case without forcing the client to send
     a timestamp it just got from ``Date.now()``.
     """
-    store, _, projector, weather_fetcher, location_samples = _resolve_stores()
+    store, asset_store, projector, weather_fetcher, location_samples, memory = _resolve_stores()
 
     if not body.body.strip() and not body.attachment_refs:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="entry must have body text or at least one attachment",
         )
+    _validate_attachment_refs(asset_store, body.attachment_refs)
 
     now = time.time()
     entry = ManualEntry(
@@ -215,29 +401,50 @@ async def create_manual_entry(body: ManualEntryCreateBody):
         location_lng=body.location_lng,
         attachments=list(body.attachment_refs),
     )
-    await store.create(entry)
-
-    # Attach ambient weather BEFORE L1 projection so the weather lands
-    # in the metadata blob. Inline (not background) because the response
-    # then includes the chip data — the timeline refresh after save
-    # immediately renders it. Failure is silent.
-    await _attach_weather(
-        weather_fetcher=weather_fetcher,
-        location_samples=location_samples,
-        store=store,
-        entry=entry,
-    )
-
-    if projector is not None:
+    async with _entry_mutation_lock(entry.entry_id):
         try:
-            l1_event_id = await projector.project_on_create(entry)
-            entry.l1_event_id = l1_event_id
-            await store.link_l1_event(entry.entry_id, l1_event_id)
-        except Exception:
-            # L1 projection failure shouldn't drop the user's data —
-            # the entry itself is already in manual_entries. Surface as
-            # a soft warning; a future periodic projector can backfill.
-            pass
+            await store.create(entry)
+        except Exception as exc:
+            # A connection can fail while reporting a commit that already
+            # landed. Recover only this exact generated identity; otherwise
+            # no projection is allowed to run.
+            try:
+                persisted = await store.get(entry.entry_id)
+            except Exception as read_exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Manual entry storage did not complete; retry the request",
+                ) from read_exc
+            if (
+                persisted is None
+                or persisted.deleted_at is not None
+                or persisted.created_at != entry.created_at
+                or persisted.body != entry.body
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Manual entry storage did not complete; retry the request",
+                ) from exc
+            entry = persisted
+
+        # Attach ambient weather BEFORE L1 projection so the weather lands
+        # in the metadata blob. Inline (not background) because the response
+        # then includes the chip data — the timeline refresh after save
+        # immediately renders it. Failure is silent.
+        await _attach_weather(
+            weather_fetcher=weather_fetcher,
+            location_samples=location_samples,
+            store=store,
+            entry=entry,
+        )
+
+        await _project_and_link(
+            entry=entry,
+            predecessor_event_id=None,
+            store=store,
+            projector=projector,
+            memory=memory,
+        )
 
     return _entry_to_dict(entry)
 
@@ -246,14 +453,13 @@ async def create_manual_entry(body: ManualEntryCreateBody):
 async def list_manual_entries(
     time_start: float = Query(..., description="Unix sec, inclusive"),
     time_end: float = Query(..., description="Unix sec, inclusive"),
-    include_deleted: bool = Query(default=False),
     limit: int = Query(default=500, ge=1, le=1000),
 ):
-    store, _, _, _, _ = _resolve_stores()
+    store, _, _, _, _, _ = _resolve_stores()
     entries = await store.list_window(
         time_start=time_start,
         time_end=time_end,
-        include_deleted=include_deleted,
+        include_deleted=False,
         limit=limit,
     )
     return {"items": [_entry_to_dict(e) for e in entries]}
@@ -261,14 +467,78 @@ async def list_manual_entries(
 
 @memory_router.patch("/manual-entries/{entry_id}")
 async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
-    store, _, projector, weather_fetcher, location_samples = _resolve_stores()
+    async with _entry_mutation_lock(entry_id):
+        return await _update_manual_entry_locked(entry_id, body)
+
+
+async def _update_manual_entry_locked(entry_id: str, body: ManualEntryUpdateBody):
+    store, asset_store, projector, weather_fetcher, location_samples, memory = _resolve_stores()
 
     existing = await store.get(entry_id)
     if existing is None or existing.deleted_at is not None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="entry not found",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="entry not found",
+        )
+    if existing.delete_requested_at is not None:
+        raise _deletion_in_progress_error()
+
+    if existing.pending_l1_event_id is not None:
+        await _repair_projection_if_needed(
+            entry=existing,
+            store=store,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_update_repair",
+        )
+        existing = await _load_projection_state(store, entry_id)
+        if existing.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="entry not found",
+            )
+        if existing.delete_requested_at is not None:
+            raise _deletion_in_progress_error()
+
+    has_changes = _has_entry_changes(existing, body)
+    if not has_changes:
+        await _repair_projection_if_needed(
+            entry=existing,
+            store=store,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_update",
+        )
+        return _entry_to_dict(existing)
+
+    final_body = body.body if body.body is not None else existing.body
+    final_attachments = (
+        list(body.attachment_refs)
+        if body.attachment_refs is not None
+        else list(existing.attachments)
+    )
+    if not final_body.strip() and not final_attachments:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="entry must have body text or at least one attachment",
+        )
+    if body.attachment_refs is not None:
+        _validate_attachment_refs(asset_store, final_attachments)
+
+    projection_changed = _has_projection_changes(existing, body)
+    predecessor_event_id = None
+    if projection_changed:
+        predecessor_event_id = await _forget_owned_projections(
+            entry=existing,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_update",
+            block_source_item=False,
         )
 
+    should_refresh_weather = (
+        body.event_at is not None and abs(float(body.event_at) - float(existing.event_at)) >= 60.0
+    )
     ok = await store.update(
         entry_id,
         body=body.body,
@@ -279,23 +549,21 @@ async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
         location_label=body.location_label,
         body_doc=body.body_doc,
         clear_body_doc=body.clear_body_doc,
+        clear_weather=should_refresh_weather,
+        expected_l1_event_id=existing.l1_event_id,
     )
     if not ok:
-        # No fields actually changed — return current state, not an error.
-        return _entry_to_dict(existing)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="entry changed while it was being updated; retry the request",
+        )
 
     updated = await store.get(entry_id)
     # Re-fetch weather when event_at moved by more than a slop window —
     # the chip is keyed on (lat, lng, hour) and a non-trivial time shift
     # invalidates the snapshot. We wipe first so a failed re-fetch
     # doesn't leave the OLD weather hanging on a now-misleading time.
-    if (
-        updated is not None
-        and body.event_at is not None
-        and abs(float(body.event_at) - existing.event_at) >= 60.0
-    ):
-        await store.set_weather(entry_id, None)
-        updated.weather = None
+    if updated is not None and should_refresh_weather:
         await _attach_weather(
             weather_fetcher=weather_fetcher,
             location_samples=location_samples,
@@ -303,13 +571,22 @@ async def update_manual_entry(entry_id: str, body: ManualEntryUpdateBody):
             entry=updated,
         )
 
-    if projector is not None and updated is not None:
-        try:
-            new_l1_event_id = await projector.project_on_update(updated)
-            await store.link_l1_event(entry_id, new_l1_event_id)
-            updated.l1_event_id = new_l1_event_id
-        except Exception:
-            pass
+    if updated is not None and projection_changed:
+        await _project_and_link(
+            entry=updated,
+            predecessor_event_id=predecessor_event_id,
+            store=store,
+            projector=projector,
+            memory=memory,
+        )
+    elif updated is not None:
+        await _repair_projection_if_needed(
+            entry=updated,
+            store=store,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_update",
+        )
 
     return _entry_to_dict(updated or existing)
 
@@ -325,53 +602,100 @@ async def clear_manual_entry_weather(entry_id: str):
 
     Re-projects to L1 so downstream consumers see the absence too.
     """
+    async with _entry_mutation_lock(entry_id):
+        return await _clear_manual_entry_weather_locked(entry_id)
+
+
+async def _clear_manual_entry_weather_locked(entry_id: str):
     # NOTE: this route is mounted BEFORE the catch-all DELETE
     # /manual-entries/{entry_id} below — FastAPI registers paths in
     # decoration order, so the more-specific suffix has to win the
     # match. Keep them in this order.
-    store, _, projector, _, _ = _resolve_stores()
+    store, _, projector, _, _, memory = _resolve_stores()
     existing = await store.get(entry_id)
     if existing is None or existing.deleted_at is not None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="entry not found",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="entry not found",
         )
+    if existing.delete_requested_at is not None:
+        raise _deletion_in_progress_error()
+    if existing.pending_l1_event_id is not None:
+        await _repair_projection_if_needed(
+            entry=existing,
+            store=store,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_weather_repair",
+        )
+        existing = await _load_projection_state(store, entry_id)
+        if existing.deleted_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="entry not found",
+            )
+        if existing.delete_requested_at is not None:
+            raise _deletion_in_progress_error()
     if existing.weather is None:
-        # Idempotent: no-op when there's nothing to clear.
+        await _repair_projection_if_needed(
+            entry=existing,
+            store=store,
+            projector=projector,
+            memory=memory,
+            reason="manual_entry_weather_clear",
+        )
         return _entry_to_dict(existing)
 
-    await store.set_weather(entry_id, None)
+    predecessor_event_id = await _forget_owned_projections(
+        entry=existing,
+        projector=projector,
+        memory=memory,
+        reason="manual_entry_weather_clear",
+        block_source_item=False,
+    )
+    try:
+        weather_cleared = await store.set_weather(entry_id, None)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Manual entry update did not complete; retry the request",
+        ) from exc
+    if not weather_cleared:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="entry changed while it was being updated; retry the request",
+        )
     existing.weather = None
 
-    # Re-project so the L1 metadata's `weather` field also becomes null.
-    # Failure mode is the same as elsewhere: log via the surrounding
-    # exception handler and move on — the user-facing clear succeeded.
-    if projector is not None:
-        try:
-            new_l1_event_id = await projector.project_on_update(existing)
-            await store.link_l1_event(entry_id, new_l1_event_id)
-            existing.l1_event_id = new_l1_event_id
-        except Exception:
-            pass
+    await _project_and_link(
+        entry=existing,
+        predecessor_event_id=predecessor_event_id,
+        store=store,
+        projector=projector,
+        memory=memory,
+    )
 
     return _entry_to_dict(existing)
 
 
 @memory_router.delete("/manual-entries/{entry_id}")
 async def delete_manual_entry(entry_id: str):
-    store, _, projector, _, _ = _resolve_stores()
-    existing = await store.get(entry_id)
-    if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="entry not found",
+    async with _entry_mutation_lock(entry_id):
+        return await _delete_manual_entry_locked(entry_id)
+
+
+async def _delete_manual_entry_locked(entry_id: str):
+    store, _, projector, _, _, memory = _resolve_stores()
+    try:
+        result = await ManualEntryWorkflow(
+            store=store,
+            projector=projector,
+            memory=memory,
+        ).delete_entry(
+            entry_id,
         )
-    if existing.deleted_at is not None:
+    except ManualEntryWorkflowError as exc:
+        raise _workflow_error(exc) from exc
+    if result.already_deleted:
         return {"ok": True, "already_deleted": True}
-
-    await store.soft_delete(entry_id)
-    if projector is not None:
-        try:
-            await projector.project_on_delete(existing)
-        except Exception:
-            pass
-
     return {"ok": True}

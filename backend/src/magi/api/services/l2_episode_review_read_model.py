@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from magi.api.services.l2_episode_review_helpers import serialize_l1_event_preview
+from magi.memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from magi.memory.l2.entities.catalog.lookup import get_canonical_names
 
 
@@ -53,10 +54,10 @@ async def fetch_l1_events_by_ids(
         return []
     fetch_events = get_configured_or_real_method(l1_store, "fetch_events")
     if fetch_events is not None:
-        return await fetch_events(event_ids)
-    legacy_get_events = get_configured_or_real_method(l1_store, "get_events_by_ids")
-    if legacy_get_events is not None:
-        return await legacy_get_events(event_ids)
+        return await fetch_events(
+            event_ids,
+            l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+        )
     return []
 
 

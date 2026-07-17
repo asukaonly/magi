@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory.router import memory_router
+from magi.memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from magi.memory.l2.consolidation_schedule import TARGET_KEY_L2_CONSOLIDATE
 from magi.memory.l2.store import L2CognitionStore
 from magi.scheduler.contracts import ScheduledTargetType
@@ -61,18 +62,33 @@ def _patched_l2_consolidation_lock():
 def test_list_episodes_surface_standout_returns_only_standouts(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep1", "episode_type": "activity", "user_pinned": False, "magi_standout": True,
-         "time_start": 100, "time_end": 200, "primary_entity_ids": [], "summary": None, "label": None,
-         "user_label": None, "user_note": None, "status": "active"},
-    ])
+    l2.list_standout_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep1",
+                "episode_type": "activity",
+                "user_pinned": False,
+                "magi_standout": True,
+                "time_start": 100,
+                "time_end": 200,
+                "primary_entity_ids": [],
+                "summary": None,
+                "label": None,
+                "user_label": None,
+                "user_note": None,
+                "status": "active",
+            },
+        ]
+    )
     l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value={
-        "summary_id": "sum1",
-        "content": "你和 Kimi 的一段下午",
-        "insight_metadata": {"label": "Kimi 下午"},
-        "updated_at": 1700000000,
-    })
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum1",
+            "content": "你和 Kimi 的一段下午",
+            "insight_metadata": {"label": "Kimi 下午"},
+            "updated_at": 1700000000,
+        }
+    )
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = l3
@@ -92,10 +108,20 @@ def test_list_episodes_surface_standout_null_summary_when_no_l3(app_with_mock_me
     """When l3 is None, all items get summary=null."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep2", "episode_type": "visit", "user_pinned": True, "magi_standout": False,
-         "time_start": 50, "time_end": 150, "primary_entity_ids": [], "status": "user_pinned"},
-    ])
+    l2.list_standout_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep2",
+                "episode_type": "visit",
+                "user_pinned": True,
+                "magi_standout": False,
+                "time_start": 50,
+                "time_end": 150,
+                "primary_entity_ids": [],
+                "status": "user_pinned",
+            },
+        ]
+    )
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
@@ -112,10 +138,20 @@ def test_list_episodes_surface_standout_null_summary_when_not_generated(app_with
     """When l3 has no episodic summary for the episode, summary=null."""
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep3", "episode_type": "activity", "user_pinned": False, "magi_standout": True,
-         "time_start": 0, "time_end": 100, "primary_entity_ids": [], "status": "active"},
-    ])
+    l2.list_standout_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep3",
+                "episode_type": "activity",
+                "user_pinned": False,
+                "magi_standout": True,
+                "time_start": 0,
+                "time_end": 100,
+                "primary_entity_ids": [],
+                "status": "active",
+            },
+        ]
+    )
     l3 = MagicMock()
     l3.get_episodic_summary_by_episode_id = AsyncMock(return_value=None)
     unified = MagicMock()
@@ -261,7 +297,7 @@ def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_w
         }
     )
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(
+    l1.fetch_events = AsyncMock(
         return_value=[
             {
                 "event_id": "e1",
@@ -288,7 +324,10 @@ def test_episode_detail_returns_display_fields_summary_and_hydrated_events(app_w
     assert body["display_description"] == "Generated recap"
     assert body["display_source"] == "generated"
     assert body["events"][0]["content_preview"] == "Talked about the trip."
-    l1.get_events_by_ids.assert_awaited_once_with(["e1"])
+    l1.fetch_events.assert_awaited_once_with(
+        ["e1"],
+        l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+    )
 
 
 def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_memory):
@@ -377,7 +416,7 @@ def test_episode_detail_hydrates_real_l1_events_and_entity_names(app_with_mock_m
     assert catalog.calls == [["software:gmail", "media:8ab2042a42e5", "user:local_user"]]
 
 
-def test_rejecting_episode_inference_removes_it(tmp_path):
+def test_rejected_episode_inference_is_hidden(tmp_path):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
 
@@ -416,22 +455,22 @@ def test_rejecting_episode_inference_removes_it(tmp_path):
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
-    with patch(
-        "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
-        return_value=unified,
-    ), patch(
-        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
-        return_value=unified,
+    with (
+        patch(
+            "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
+            return_value=unified,
+        ),
     ):
         client = TestClient(app)
         detail = client.get("/api/memory/l2/episodes/ep1").json()
         assert detail["inferred"][0]["assertion_id"] == assertion_id
 
-        feedback = client.patch(
-            f"/api/memory/l2/assertions/{assertion_id}/feedback",
-            json={"feedback": "rejected"},
+        asyncio.run(
+            l2.apply_user_feedback(
+                assertion_id=assertion_id,
+                feedback="rejected",
+            )
         )
-        assert feedback.status_code == 200
 
         after = client.get("/api/memory/l2/episodes/ep1").json()
         assert all(item["assertion_id"] != assertion_id for item in after["inferred"])
@@ -451,6 +490,11 @@ def test_merge_episode_endpoint_calls_store(app_with_mock_memory):
     )
     l2.list_episode_events = AsyncMock(return_value=[])
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    episodes = {
+        "target": {"episode_id": "target", "status": "active"},
+        "source": {"episode_id": "source", "status": "active"},
+    }
+    l2.get_episode = AsyncMock(side_effect=lambda **kwargs: episodes.get(kwargs["episode_id"]))
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = None
@@ -513,14 +557,17 @@ def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
     l2 = MagicMock()
     survivor = {"episode_id": "target", "status": "active", "user_label": None}
     l2.merge_episodes = AsyncMock(return_value=survivor)
-    l2.list_episode_events = AsyncMock(
-        return_value=[{"episode_id": "target", "event_id": "e1"}]
-    )
+    l2.list_episode_events = AsyncMock(return_value=[{"episode_id": "target", "event_id": "e1"}])
     l2.index_episode_fts = AsyncMock()
     l2.update_episode = AsyncMock(return_value=True)
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
+    episodes = {
+        "target": survivor,
+        "source": {"episode_id": "source", "status": "active"},
+    }
+    l2.get_episode = AsyncMock(side_effect=lambda **kwargs: episodes.get(kwargs["episode_id"]))
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(
+    l1.fetch_events = AsyncMock(
         return_value=[{"event_id": "e1", "timestamp": 10.0, "content": "Merged event"}]
     )
     l3 = MagicMock()
@@ -550,11 +597,70 @@ def test_merge_episode_regenerates_survivor_summary(app_with_mock_memory):
     assert body["display_title"] == "Merged title"
 
 
+@pytest.mark.parametrize("invalidated_id", ["target", "source"])
+def test_merge_episode_rejects_invalidated_participant(
+    app_with_mock_memory,
+    invalidated_id: str,
+):
+    app, build_patcher = app_with_mock_memory
+    episodes = {
+        episode_id: {
+            "episode_id": episode_id,
+            "status": "invalidated" if episode_id == invalidated_id else "active",
+            "summary": "Deleted private episode" if episode_id == invalidated_id else None,
+        }
+        for episode_id in ("target", "source")
+    }
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(side_effect=lambda **kwargs: episodes.get(kwargs["episode_id"]))
+    l2.merge_episodes = AsyncMock(return_value=episodes["target"])
+    unified = MagicMock(l2=l2, l3=None, l1=None)
+
+    with build_patcher(unified):
+        response = TestClient(app).post(
+            "/api/memory/l2/episodes/target/merge",
+            json={"absorbed_id": "source"},
+        )
+
+    assert response.status_code == 404
+    assert "Deleted private episode" not in response.text
+    l2.merge_episodes.assert_not_awaited()
+
+
+def test_annotate_episode_rejects_invalidated_record(app_with_mock_memory):
+    app, build_patcher = app_with_mock_memory
+    l2 = MagicMock()
+    l2.get_episode = AsyncMock(
+        return_value={
+            "episode_id": "private",
+            "status": "invalidated",
+            "summary": "Deleted private episode",
+        }
+    )
+    l2.update_episode = AsyncMock(return_value=True)
+    unified = MagicMock(l2=l2, l3=None, l1=None)
+
+    with build_patcher(unified):
+        response = TestClient(app).patch(
+            "/api/memory/l2/episodes/private",
+            json={"user_label": "Restore"},
+        )
+
+    assert response.status_code == 404
+    assert "Deleted private episode" not in response.text
+    l2.update_episode.assert_not_awaited()
+
+
 def test_split_preview_returns_two_chronological_sides(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.get_episode = AsyncMock(
-        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 300.0}
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 100.0,
+            "time_end": 300.0,
+        }
     )
     l2.list_episode_events = AsyncMock(
         return_value=[
@@ -565,7 +671,7 @@ def test_split_preview_returns_two_chronological_sides(app_with_mock_memory):
     )
     l2.split_episode = AsyncMock()
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(
+    l1.fetch_events = AsyncMock(
         return_value=[
             {"event_id": "e1", "timestamp": 100.0, "content": "First"},
             {"event_id": "e2", "timestamp": 200.0, "content": "Second"},
@@ -597,7 +703,12 @@ def test_split_preview_rejects_last_event_breakpoint(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.get_episode = AsyncMock(
-        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 300.0}
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 100.0,
+            "time_end": 300.0,
+        }
     )
     l2.list_episode_events = AsyncMock(
         return_value=[
@@ -607,7 +718,7 @@ def test_split_preview_rejects_last_event_breakpoint(app_with_mock_memory):
     )
     l2.split_episode = AsyncMock()
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(
+    l1.fetch_events = AsyncMock(
         return_value=[
             {"event_id": "e1", "timestamp": 100.0, "content": "First"},
             {"event_id": "e2", "timestamp": 200.0, "content": "Second"},
@@ -631,7 +742,12 @@ def test_split_preview_rejects_last_event_breakpoint(app_with_mock_memory):
 
 def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
-    source = {"episode_id": "ep1", "time_start": 100.0, "time_end": 400.0}
+    source = {
+        "episode_id": "ep1",
+        "status": "active",
+        "time_start": 100.0,
+        "time_end": 400.0,
+    }
     left = {"episode_id": "ep1-left", "status": "active", "user_label": None}
     right = {"episode_id": "ep1-right", "status": "active", "user_label": None}
     source_memberships = [
@@ -647,10 +763,11 @@ def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory
         "e4": {"event_id": "e4", "timestamp": 400.0, "content": "Four"},
     }
 
-    async def _get_events_by_ids(event_ids):
+    async def _fetch_events(event_ids, **_kwargs):
         return [event_rows[event_id] for event_id in event_ids if event_id in event_rows]
 
-    async def _generate_summary(*, l1_store, episode, episode_event_ids):
+    async def _generate_summary(*, l1_store, l2_store, episode, episode_event_ids):
+        _ = l1_store, l2_store, episode_event_ids
         episode_id = episode["episode_id"]
         return {
             "summary_id": f"sum-{episode_id}",
@@ -673,7 +790,7 @@ def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory
     l2.update_episode = AsyncMock(return_value=True)
     l2.list_assertions_for_episode = AsyncMock(return_value=[])
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(side_effect=_get_events_by_ids)
+    l1.fetch_events = AsyncMock(side_effect=_fetch_events)
     l3 = MagicMock()
     l3.generate_episodic_summary = AsyncMock(side_effect=_generate_summary)
     unified = MagicMock()
@@ -707,7 +824,9 @@ def test_split_episode_calls_store_and_regenerates_children(app_with_mock_memory
 def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    l2.get_episode = AsyncMock(return_value={"episode_id": "ep1", "user_label": "Trip"})
+    l2.get_episode = AsyncMock(
+        return_value={"episode_id": "ep1", "status": "active", "user_label": "Trip"}
+    )
     l2.list_episode_events = AsyncMock(return_value=[{"event_id": "e1"}])
     l2.index_episode_fts = AsyncMock()
     l2.update_episode = AsyncMock(return_value=True)
@@ -722,7 +841,7 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
         }
     )
     l1 = MagicMock()
-    l1.get_events_by_ids = AsyncMock(return_value=[])
+    l1.fetch_events = AsyncMock(return_value=[])
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = l3
@@ -738,7 +857,8 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     assert body["display_title"] == "Trip"
     l3.generate_episodic_summary.assert_awaited_once_with(
         l1_store=l1,
-        episode={"episode_id": "ep1", "user_label": "Trip"},
+        l2_store=l2,
+        episode={"episode_id": "ep1", "status": "active", "user_label": "Trip"},
         episode_event_ids=["e1"],
     )
     l2.index_episode_fts.assert_awaited_once_with(
@@ -749,6 +869,7 @@ def test_regenerate_episode_calls_l3_and_indexes_fts(app_with_mock_memory):
     )
     l2.update_episode.assert_awaited_once_with(
         episode_id="ep1",
+        expected_status="active",
         label="New title",
         summary="New recap",
     )
@@ -768,14 +889,25 @@ def test_event_candidates_exclude_existing_members(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.get_episode = AsyncMock(
-        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 100.0,
+            "time_end": 200.0,
+        }
     )
     l2.list_episode_events = AsyncMock(return_value=[{"episode_id": "ep1", "event_id": "e1"}])
     l1 = MagicMock()
     l1.query_events = AsyncMock(
         return_value=[
             {"event_id": "e1", "timestamp": 120.0, "content": "Already in episode"},
-            {"event_id": "e2", "timestamp": 180.0, "event_type": "UserMessage", "source": "chat", "content": "Candidate event"},
+            {
+                "event_id": "e2",
+                "timestamp": 180.0,
+                "event_type": "UserMessage",
+                "source": "chat",
+                "content": "Candidate event",
+            },
         ]
     )
     unified = MagicMock()
@@ -797,7 +929,13 @@ def test_event_candidates_exclude_existing_members(app_with_mock_memory):
 def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_mock_memory):
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
-    episode = {"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0, "user_label": None}
+    episode = {
+        "episode_id": "ep1",
+        "status": "active",
+        "time_start": 100.0,
+        "time_end": 200.0,
+        "user_label": None,
+    }
     l2.get_episode = AsyncMock(return_value=episode)
     l2.list_episode_events = AsyncMock(
         side_effect=[
@@ -815,7 +953,7 @@ def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_m
             {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
         ]
     )
-    l1.get_events_by_ids = AsyncMock(
+    l1.fetch_events = AsyncMock(
         return_value=[
             {"event_id": "e1", "timestamp": 120.0, "content": "Existing"},
             {"event_id": "e2", "timestamp": 180.0, "content": "Candidate event"},
@@ -841,9 +979,14 @@ def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_m
 
     assert r.status_code == 200
     assert r.json()["episode_summary"]["content"] == "Updated recap"
-    l2.add_episode_events.assert_awaited_once_with(episode_id="ep1", event_ids=["e2"])
+    l2.add_episode_events.assert_awaited_once_with(
+        episode_id="ep1",
+        event_ids=["e2"],
+        expected_status="active",
+    )
     l2.update_episode.assert_any_await(
         episode_id="ep1",
+        expected_status="active",
         source_event_count=2,
         time_start=120.0,
         time_end=180.0,
@@ -851,6 +994,7 @@ def test_add_episode_events_route_updates_memberships_and_regenerates(app_with_m
     # Regeneration also back-writes the refreshed label/summary.
     l2.update_episode.assert_any_await(
         episode_id="ep1",
+        expected_status="active",
         label="Updated title",
         summary="Updated recap",
     )
@@ -860,7 +1004,12 @@ def test_remove_episode_events_rejects_too_few_remaining_events(app_with_mock_me
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.get_episode = AsyncMock(
-        return_value={"episode_id": "ep1", "time_start": 100.0, "time_end": 200.0}
+        return_value={
+            "episode_id": "ep1",
+            "status": "active",
+            "time_start": 100.0,
+            "time_end": 200.0,
+        }
     )
     l2.list_episode_events = AsyncMock(
         return_value=[
@@ -1003,6 +1152,7 @@ def test_upload_experience_cover_stores_asset_and_updates_experience(tmp_path):
     assert asset_store.resolve(asset_ref) == (b"\x89PNG\r\n\x1a\ncover", "image/png")
     l2.update_experience.assert_awaited_once_with(
         experience_id="exp-cover",
+        expected_status="active",
         user_cover_asset_ref=asset_ref,
     )
 
@@ -1025,6 +1175,7 @@ def test_annotate_episode_pin_does_not_change_status(app_with_mock_memory):
     assert response.status_code == 200
     assert l2.update_episode.await_args.kwargs == {
         "episode_id": "ep1",
+        "expected_status": "active",
         "user_pinned": 1,
     }
 
@@ -1033,18 +1184,30 @@ def test_list_episodes_insight_metadata_string_decoded(app_with_mock_memory):
     """insight_metadata stored as a JSON string is decoded correctly."""
     app, build_patcher = app_with_mock_memory
     import json as _json
+
     l2 = MagicMock()
-    l2.list_standout_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep4", "episode_type": "activity", "magi_standout": True,
-         "time_start": 0, "time_end": 100, "primary_entity_ids": [], "status": "active"},
-    ])
+    l2.list_standout_episodes = AsyncMock(
+        return_value=[
+            {
+                "episode_id": "ep4",
+                "episode_type": "activity",
+                "magi_standout": True,
+                "time_start": 0,
+                "time_end": 100,
+                "primary_entity_ids": [],
+                "status": "active",
+            },
+        ]
+    )
     l3 = MagicMock()
-    l3.get_episodic_summary_by_episode_id = AsyncMock(return_value={
-        "summary_id": "sum4",
-        "content": "content here",
-        "insight_metadata": _json.dumps({"label": "from string"}),
-        "updated_at": 999,
-    })
+    l3.get_episodic_summary_by_episode_id = AsyncMock(
+        return_value={
+            "summary_id": "sum4",
+            "content": "content here",
+            "insight_metadata": _json.dumps({"label": "from string"}),
+            "updated_at": 999,
+        }
+    )
     unified = MagicMock()
     unified.l2 = l2
     unified.l3 = l3
@@ -1063,38 +1226,46 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     # Catch-up scope is now ALL active episodes (not just standouts).
-    l2.list_episodes = AsyncMock(return_value=[
-        {"episode_id": "ep_has"},
-        {"episode_id": "ep_need"},
-    ])
-    l2.list_experiences = AsyncMock(return_value=[
-        {
+    l2.list_episodes = AsyncMock(
+        return_value=[
+            {"episode_id": "ep_has"},
+            {"episode_id": "ep_need"},
+        ]
+    )
+    l2.list_experiences = AsyncMock(
+        return_value=[
+            {
+                "experience_id": "exp_need",
+                "title": "Launch week",
+                "time_start": 1,
+                "time_end": 2,
+            }
+        ]
+    )
+    l2.get_experience = AsyncMock(
+        return_value={
             "experience_id": "exp_need",
             "title": "Launch week",
             "time_start": 1,
             "time_end": 2,
         }
-    ])
-    l2.get_experience = AsyncMock(return_value={
-        "experience_id": "exp_need",
-        "title": "Launch week",
-        "time_start": 1,
-        "time_end": 2,
-    })
-    l2.list_experience_members = AsyncMock(return_value=[
-        {"member_type": "episode", "member_id": "ep_need", "role": "core", "confidence": 0.8}
-    ])
+    )
+    l2.list_experience_members = AsyncMock(
+        return_value=[
+            {"member_type": "episode", "member_id": "ep_need", "role": "core", "confidence": 0.8}
+        ]
+    )
     l2.update_experience = AsyncMock(return_value=True)
     l3 = MagicMock()
-    l3.generate_missing_episodic_summaries = AsyncMock(
-        return_value={"generated": 1, "errors": []}
-    )
+    l3.generate_missing_episodic_summaries = AsyncMock(return_value={"generated": 1, "errors": []})
     l3.get_episodic_summary_by_experience_id = AsyncMock(return_value=None)
-    l3.generate_experience_summary = AsyncMock(return_value={
-        "summary_id": "sum-exp",
-        "content": "Experience recap",
-        "insight_metadata": {"source_experience_id": "exp_need"},
-    })
+    l3.generate_experience_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum-exp",
+            "content": "Experience recap",
+            "insight_metadata": {"source_experience_id": "exp_need"},
+        }
+    )
     l1 = MagicMock()
     unified = MagicMock()
     unified.l2 = l2
@@ -1108,18 +1279,25 @@ def test_reconsolidate_generates_summaries_for_active_lacking_summary(app_with_m
         _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
-            new=AsyncMock(return_value=MagicMock(
-                promoted=2, standouts=1, merged=0, invalidated=0,
-                promoted_episode_ids=["ep_need"],
-            )),
+            new=AsyncMock(
+                return_value=MagicMock(
+                    promoted=2,
+                    standouts=1,
+                    merged=0,
+                    invalidated=0,
+                    promoted_episode_ids=["ep_need"],
+                )
+            ),
         ),
         patch(
             "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
-            new=AsyncMock(return_value=ExperiencePromotionStats(
-                candidates=1,
-                promoted=1,
-                promoted_experience_ids=["exp_need"],
-            )),
+            new=AsyncMock(
+                return_value=ExperiencePromotionStats(
+                    candidates=1,
+                    promoted=1,
+                    promoted_experience_ids=["exp_need"],
+                )
+            ),
         ) as promote,
     ):
         client = TestClient(app)
@@ -1158,38 +1336,46 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
     app, build_patcher = app_with_mock_memory
     l2 = MagicMock()
     l2.list_episodes = AsyncMock(return_value=[])
-    l2.list_experiences = AsyncMock(return_value=[
-        {
+    l2.list_experiences = AsyncMock(
+        return_value=[
+            {
+                "experience_id": "exp-bad",
+                "title": "Untitled experience / Untitled exper",
+                "time_start": 1,
+                "time_end": 2,
+            }
+        ]
+    )
+    l2.get_experience = AsyncMock(
+        return_value={
             "experience_id": "exp-bad",
             "title": "Untitled experience / Untitled exper",
             "time_start": 1,
             "time_end": 2,
         }
-    ])
-    l2.get_experience = AsyncMock(return_value={
-        "experience_id": "exp-bad",
-        "title": "Untitled experience / Untitled exper",
-        "time_start": 1,
-        "time_end": 2,
-    })
-    l2.list_experience_members = AsyncMock(return_value=[
-        {"member_type": "episode", "member_id": "ep-old", "role": "core", "confidence": 0.8}
-    ])
+    )
+    l2.list_experience_members = AsyncMock(
+        return_value=[
+            {"member_type": "episode", "member_id": "ep-old", "role": "core", "confidence": 0.8}
+        ]
+    )
     l2.update_experience = AsyncMock(return_value=True)
     l3 = MagicMock()
-    l3.generate_missing_episodic_summaries = AsyncMock(
-        return_value={"generated": 0, "errors": []}
+    l3.generate_missing_episodic_summaries = AsyncMock(return_value={"generated": 0, "errors": []})
+    l3.get_episodic_summary_by_experience_id = AsyncMock(
+        return_value={
+            "summary_id": "sum-bad",
+            "content": "Magi grouped related episode evidence into a narratable memory.",
+            "insight_metadata": {"label": "Untitled experience / Untitled exper"},
+        }
     )
-    l3.get_episodic_summary_by_experience_id = AsyncMock(return_value={
-        "summary_id": "sum-bad",
-        "content": "Magi grouped related episode evidence into a narratable memory.",
-        "insight_metadata": {"label": "Untitled experience / Untitled exper"},
-    })
-    l3.generate_experience_summary = AsyncMock(return_value={
-        "summary_id": "sum-fixed",
-        "content": "Reviewed real activity",
-        "insight_metadata": {"source_experience_id": "exp-bad", "label": "Real activity"},
-    })
+    l3.generate_experience_summary = AsyncMock(
+        return_value={
+            "summary_id": "sum-fixed",
+            "content": "Reviewed real activity",
+            "insight_metadata": {"source_experience_id": "exp-bad", "label": "Real activity"},
+        }
+    )
     l1 = MagicMock()
     unified = MagicMock()
     unified.l2 = l2
@@ -1201,10 +1387,15 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
         _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
-            new=AsyncMock(return_value=MagicMock(
-                promoted=0, standouts=0, merged=0, invalidated=0,
-                promoted_episode_ids=[],
-            )),
+            new=AsyncMock(
+                return_value=MagicMock(
+                    promoted=0,
+                    standouts=0,
+                    merged=0,
+                    invalidated=0,
+                    promoted_episode_ids=[],
+                )
+            ),
         ),
         patch(
             "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
@@ -1219,7 +1410,9 @@ def test_reconsolidate_refreshes_placeholder_experience_reviews(app_with_mock_me
     assert body["experiences_promoted"] == 0
     assert body["experience_summaries_generated"] == 1
     l3.generate_experience_summary.assert_awaited_once()
-    assert l3.generate_experience_summary.await_args.kwargs["experience"]["experience_id"] == "exp-bad"
+    assert (
+        l3.generate_experience_summary.await_args.kwargs["experience"]["experience_id"] == "exp-bad"
+    )
 
 
 def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
@@ -1245,9 +1438,15 @@ def test_reconsolidate_captures_summary_errors(app_with_mock_memory):
         _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
-            new=AsyncMock(return_value=MagicMock(
-                promoted=0, standouts=1, merged=0, invalidated=0, promoted_episode_ids=[],
-            )),
+            new=AsyncMock(
+                return_value=MagicMock(
+                    promoted=0,
+                    standouts=1,
+                    merged=0,
+                    invalidated=0,
+                    promoted_episode_ids=[],
+                )
+            ),
         ),
         patch(
             "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
@@ -1282,17 +1481,25 @@ def test_reconsolidate_no_generation_when_l3_missing(app_with_mock_memory):
         _patched_l2_consolidation_lock(),
         patch(
             "magi.memory.l2.episode_formation.consolidate_episodes",
-            new=AsyncMock(return_value=MagicMock(
-                promoted=1, standouts=0, merged=0, invalidated=0, promoted_episode_ids=["ep1"],
-            )),
+            new=AsyncMock(
+                return_value=MagicMock(
+                    promoted=1,
+                    standouts=0,
+                    merged=0,
+                    invalidated=0,
+                    promoted_episode_ids=["ep1"],
+                )
+            ),
         ),
         patch(
             "magi.memory.l2.experiences.promotion.promote_experiences_from_episodes",
-            new=AsyncMock(return_value=ExperiencePromotionStats(
-                candidates=1,
-                promoted=1,
-                promoted_experience_ids=["exp1"],
-            )),
+            new=AsyncMock(
+                return_value=ExperiencePromotionStats(
+                    candidates=1,
+                    promoted=1,
+                    promoted_experience_ids=["exp1"],
+                )
+            ),
         ),
     ):
         client = TestClient(app)
@@ -1330,13 +1537,15 @@ def test_reconsolidate_returns_409_when_l2_consolidation_running(
 
     asyncio.run(_acquire_running_lock())
 
-    consolidate = AsyncMock(return_value=MagicMock(
-        promoted=1,
-        standouts=0,
-        merged=0,
-        invalidated=0,
-        promoted_episode_ids=["ep1"],
-    ))
+    consolidate = AsyncMock(
+        return_value=MagicMock(
+            promoted=1,
+            standouts=0,
+            merged=0,
+            invalidated=0,
+            promoted_episode_ids=["ep1"],
+        )
+    )
     with (
         build_patcher(unified),
         patch(

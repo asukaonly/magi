@@ -7,6 +7,10 @@ from .context_scope.cache_epoch import invalidate_context_caches
 from .context_scope.catalog import clear_user_contexts
 
 _SHARED_AUXILIARY_USER_TABLES = (
+    "memory_time_range_forget_barriers",
+    "memory_forget_operation_refs",
+    "memory_forget_operation_events",
+    "memory_forget_operations",
     "embedding_rebuild_job_layers",
     "embedding_rebuild_jobs",
     "manual_entries",

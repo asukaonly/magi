@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS runtime_user_message_idempotency (
     created_at REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS runtime_user_message_scope_blocks (
+    scope_kind TEXT NOT NULL CHECK(scope_kind IN ('session', 'turn', 'message')),
+    user_id TEXT NOT NULL CHECK(TRIM(user_id) != ''),
+    session_id TEXT NOT NULL CHECK(TRIM(session_id) != ''),
+    scope_value TEXT NOT NULL CHECK(TRIM(scope_value) != ''),
+    reason TEXT NOT NULL CHECK(TRIM(reason) != ''),
+    created_at REAL NOT NULL,
+    PRIMARY KEY(scope_kind, user_id, session_id, scope_value)
+);
+
 CREATE INDEX IF NOT EXISTS idx_runtime_commands_status_created
     ON runtime_commands(status, created_at ASC);
 
@@ -51,9 +61,14 @@ CREATE INDEX IF NOT EXISTS idx_runtime_commands_type_status_created
 
 CREATE INDEX IF NOT EXISTS idx_runtime_command_rollups_bucket
     ON runtime_command_rollups(granularity, bucket_start);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_user_message_scope_blocks_lookup
+    ON runtime_user_message_scope_blocks(user_id, session_id, scope_kind, scope_value);
 """
 
 DROP_SQL = """
+DROP INDEX IF EXISTS idx_runtime_user_message_scope_blocks_lookup;
+
 DROP INDEX IF EXISTS idx_runtime_command_rollups_bucket;
 
 DROP INDEX IF EXISTS idx_runtime_commands_type_status_created;
@@ -64,8 +79,11 @@ DROP TABLE IF EXISTS runtime_command_rollups;
 
 DROP TABLE IF EXISTS runtime_user_message_idempotency;
 
+DROP TABLE IF EXISTS runtime_user_message_scope_blocks;
+
 DROP TABLE IF EXISTS runtime_commands;
 """
+
 
 def upgrade() -> None:
     op.get_bind().connection.executescript(SCHEMA_SQL)

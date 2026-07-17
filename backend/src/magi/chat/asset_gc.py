@@ -14,10 +14,16 @@ from ..utils.runtime import RuntimePaths, get_runtime_paths
 logger = get_logger(__name__)
 
 
+class ChatAssetDeletionError(RuntimeError):
+    """Raised when a user-requested managed asset deletion is incomplete."""
+
+
 class ChatAssetGC:
     """Delete chat attachment and derived-resource files owned by Magi."""
 
-    def __init__(self, *, runtime_paths: RuntimePaths | None = None, now: Callable[[], float] | None = None) -> None:
+    def __init__(
+        self, *, runtime_paths: RuntimePaths | None = None, now: Callable[[], float] | None = None
+    ) -> None:
         self._runtime_paths = runtime_paths or get_runtime_paths()
         self._now = now or time.time
 
@@ -26,18 +32,59 @@ class ChatAssetGC:
 
         normalized_session_id = self._normalize_session_id(session_id)
         if normalized_session_id is None:
-            return {}
+            raise ValueError("Session ID is not safe for managed asset deletion")
 
         files_deleted = 0
         dirs_deleted = 0
         for root_dir in self._asset_roots():
-            result = self._remove_tree(root_dir / normalized_session_id)
+            result = self._remove_tree(
+                root_dir / normalized_session_id,
+                strict=True,
+            )
             files_deleted += result["files_deleted"]
             dirs_deleted += result["dirs_deleted"]
         return {
             "chat_asset_files_deleted": files_deleted,
             "chat_asset_dirs_deleted": dirs_deleted,
         }
+
+    def delete_message_assets(self, storage_rel_paths: list[str]) -> int:
+        """Delete exact managed attachment files for one chat message.
+
+        Missing files are already forgotten and therefore count as a successful
+        retry.  An unsafe or undeletable path raises so the caller cannot report
+        a completed user deletion while a managed copy remains on disk.
+        """
+
+        files_deleted = 0
+        base_dir = self._runtime_paths.base_dir.resolve()
+        resources_dir = self._runtime_paths.chat_resources_dir.resolve()
+        for raw_path in storage_rel_paths:
+            normalized = str(raw_path or "").strip()
+            if not normalized:
+                continue
+            target = (base_dir / normalized).resolve()
+            try:
+                target.relative_to(resources_dir)
+            except ValueError as exc:
+                raise ChatAssetDeletionError(
+                    "Attachment path is outside managed chat storage"
+                ) from exc
+            if not target.exists():
+                continue
+            if not target.is_file():
+                raise ChatAssetDeletionError("Attachment path does not reference a file")
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise ChatAssetDeletionError(
+                    "Managed chat attachment could not be deleted"
+                ) from exc
+            files_deleted += 1
+            self._remove_empty_asset_parents(target.parent, resources_dir=resources_dir)
+        return files_deleted
 
     def clear_all_assets(self) -> dict[str, int]:
         """Delete every managed chat asset directory under all chat asset roots."""
@@ -110,28 +157,56 @@ class ChatAssetGC:
             conn.close()
             return {str(row["session_id"]) for row in rows if row["session_id"] is not None}
         except Exception as exc:
-            logger.warning("chat_asset_gc.active_session_scan_failed", error=str(exc), exc_info=True)
+            logger.warning(
+                "chat_asset_gc.active_session_scan_failed", error=str(exc), exc_info=True
+            )
             return None
 
-    def _remove_tree(self, path: Path) -> dict[str, int]:
+    def _remove_tree(self, path: Path, *, strict: bool = False) -> dict[str, int]:
         try:
             resolved = path.resolve()
             resolved.relative_to(self._runtime_paths.chat_resources_dir.resolve())
-        except Exception:
+        except Exception as exc:
+            if strict:
+                raise ChatAssetDeletionError(
+                    "Managed chat asset path is outside chat storage"
+                ) from exc
             return {"files_deleted": 0, "dirs_deleted": 0}
 
-        if not path.exists():
-            return {"files_deleted": 0, "dirs_deleted": 0}
-        files_deleted, dirs_deleted = self._count_tree(path)
         try:
+            if not path.exists():
+                return {"files_deleted": 0, "dirs_deleted": 0}
+            files_deleted, dirs_deleted = self._count_tree(path)
             if path.is_dir():
                 shutil.rmtree(path)
             else:
                 path.unlink()
+        except FileNotFoundError:
+            return {"files_deleted": 0, "dirs_deleted": 0}
         except Exception as exc:
-            logger.warning("chat_asset_gc.delete_failed", path=str(path), error=str(exc), exc_info=True)
+            if strict:
+                raise ChatAssetDeletionError(
+                    "Managed chat assets could not be deleted"
+                ) from exc
+            logger.warning(
+                "chat_asset_gc.delete_failed", path=str(path), error=str(exc), exc_info=True
+            )
             return {"files_deleted": 0, "dirs_deleted": 0}
         return {"files_deleted": files_deleted, "dirs_deleted": dirs_deleted}
+
+    @staticmethod
+    def _remove_empty_asset_parents(path: Path, *, resources_dir: Path) -> None:
+        current = path
+        while current != resources_dir:
+            try:
+                current.relative_to(resources_dir)
+            except ValueError:
+                return
+            try:
+                current.rmdir()
+            except OSError:
+                return
+            current = current.parent
 
     @staticmethod
     def _count_tree(path: Path) -> tuple[int, int]:

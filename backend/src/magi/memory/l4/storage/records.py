@@ -1,4 +1,5 @@
 """SQLite write helpers for L4 procedural skill records."""
+
 from __future__ import annotations
 
 import json
@@ -9,6 +10,7 @@ import aiosqlite
 from ....core.sqlite import sqlite_connection_async
 from ...hybrid_retrieval.fts_utils import tokenize_for_fts
 from ..learning.updates import NewSkillRecordState, UpdatedSkillRecordState
+from ..source_event_governance import active_skill_predicate
 
 
 async def insert_new_skill_record(
@@ -127,10 +129,16 @@ async def sync_skill_fts(
     fts_text = tokenize_for_fts(f"{skill_name} {skill_category} {optimized_prompt or ''}")
     if replace_existing:
         await db.execute("DELETE FROM l4_skills_fts WHERE skill_id = ?", (skill_id,))
-        await db.execute(
-            "INSERT INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",
-            (skill_id, fts_text),
-        )
+    async with db.execute(
+        f"""
+        SELECT 1
+        FROM procedural_skills AS skills
+        WHERE skills.skill_id = ? AND {active_skill_predicate("skills")}
+        """,
+        (skill_id,),
+    ) as cursor:
+        active = await cursor.fetchone()
+    if active is None:
         return
     await db.execute(
         "INSERT OR REPLACE INTO l4_skills_fts(skill_id, content) VALUES (?, ?)",

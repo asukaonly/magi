@@ -20,11 +20,19 @@ from ..corrections.fingerprints import (
     canonical_scope_json,
     scope_key,
 )
+from ..corrections.evidence_ledger import append_claim_evidence_event_ids
+from ..corrections.forget_governance import (
+    append_forget_evidence_event_ids,
+    filter_candidate_evidence_by_forget_rules,
+)
+from ..corrections.models import CorrectionTargetKind
 from ..corrections.policy import (
+    CORRECTION_GOVERNED_EVIDENCE_ACTIONS,
     CorrectionPolicyAction,
     CorrectionPolicyDecision,
     CorrectionPolicyEvaluator,
 )
+from ..corrections.repository import MemoryCorrectionRepository
 from ..storage.utils import (
     max_evidence_event_ids,
     normalize_event_ids,
@@ -70,6 +78,11 @@ class _AssertionHostProtocol(Protocol):
     db_path: str
 
     async def initialize(self) -> None: ...
+
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: list[str],
+    ) -> Dict[str, float]: ...
 
     def _derive_trait_family(self, trait_name: str) -> str: ...
 
@@ -467,18 +480,96 @@ class L2StoreAssertionMixin:
         now = time.time()
         await host.initialize()
         normalized_candidate = normalize_assertion_candidate(candidate, host, now=now)
+        normalized_candidate["forget_fingerprint"] = assertion_claim_fingerprint(
+            slot_key_value=str(normalized_candidate["slot_key"]),
+            trait_value=normalized_candidate["trait_value"],
+        )
         trait_name = str(candidate.get("trait_name", "")).strip()
+        evidence_timestamps = await host.resolve_evidence_timestamps(
+            list(normalized_candidate["evidence_events"])
+        )
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
             try:
+                original_evidence = list(normalized_candidate["evidence_events"])
+                filtered_evidence = await filter_candidate_evidence_by_forget_rules(
+                    db,
+                    target_kind=CorrectionTargetKind.ASSERTION,
+                    semantic_fingerprint=str(normalized_candidate["forget_fingerprint"]),
+                    event_ids=original_evidence,
+                    event_timestamps=evidence_timestamps,
+                    observed_at=float(normalized_candidate["last_validated_at"]),
+                    observed_from=float(normalized_candidate["first_inferred_at"]),
+                    observed_to=float(normalized_candidate["last_validated_at"]),
+                    entity_ids=(
+                        str(normalized_candidate["entity_id"]),
+                        str(normalized_candidate["target_entity_id"]),
+                    ),
+                )
+                for rule_id, forgotten_event_ids in filtered_evidence.forgotten_by_rule.items():
+                    await append_forget_evidence_event_ids(
+                        db,
+                        rule_id=rule_id,
+                        event_ids=forgotten_event_ids,
+                        created_at=now,
+                    )
+                normalized_candidate["evidence_events"] = list(filtered_evidence.retained_event_ids)
+                normalized_candidate["forget_prechecked"] = bool(original_evidence)
+
+                if original_evidence and not filtered_evidence.retained_event_ids:
+                    policy = CorrectionPolicyDecision(
+                        CorrectionPolicyAction.BLOCKED_BY_FORGET,
+                        forget_rule_id=filtered_evidence.blocking_rule_id,
+                    )
+                    result = self._governed_noop_result(policy, normalized_candidate)
+                    await db.commit()
+                    return result.assertion_id
+
+                if filtered_evidence.has_forgotten_evidence:
+                    retained_bounds = filtered_evidence.retained_observation_bounds
+                    if retained_bounds is None:
+                        raise RuntimeError("Retained assertion evidence has no observation bounds")
+                    first_inferred_at, last_validated_at = retained_bounds
+                    normalized_candidate["first_inferred_at"] = first_inferred_at
+                    normalized_candidate["last_validated_at"] = last_validated_at
+                    normalized_candidate["decay_anchor_at"] = last_validated_at
+                    if candidate.get("expires_at") is None:
+                        normalized_candidate["expires_at"] = host._coerce_expires_at(
+                            None,
+                            trait_family=str(normalized_candidate["trait_family"]),
+                            trait_name=trait_name,
+                            target_entity_id=str(normalized_candidate["target_entity_id"]),
+                            anchor_at=last_validated_at,
+                        )
+
+                await append_claim_evidence_event_ids(
+                    db,
+                    target_kind=CorrectionTargetKind.ASSERTION,
+                    claim_fingerprint=str(normalized_candidate["claim_fingerprint"]),
+                    event_ids=normalized_candidate["evidence_events"],
+                    observed_at=filtered_evidence.fallback_observed_at,
+                    created_at=now,
+                    event_timestamps=filtered_evidence.resolved_timestamps,
+                    observed_from=filtered_evidence.fallback_observed_from,
+                    observed_to=filtered_evidence.fallback_observed_to,
+                    mark_missing_timestamps_approximate=True,
+                )
                 policy = await CorrectionPolicyEvaluator().evaluate_assertion(
                     db,
                     normalized_candidate,
                 )
+                await self._record_governed_candidate_evidence(
+                    db,
+                    host=host,
+                    policy=policy,
+                    candidate=normalized_candidate,
+                    now=now,
+                )
                 if policy.action in {
                     CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+                    CorrectionPolicyAction.BLOCKED_BY_FORGET,
                     CorrectionPolicyAction.REQUIRES_SCOPE,
                 }:
                     result = self._governed_noop_result(policy, normalized_candidate)
@@ -534,6 +625,37 @@ class L2StoreAssertionMixin:
             result=result,
         )
         return result.assertion_id
+
+    async def _record_governed_candidate_evidence(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        host: _AssertionHostProtocol,
+        policy: CorrectionPolicyDecision,
+        candidate: Dict[str, Any],
+        now: float,
+    ) -> None:
+        if policy.action == CorrectionPolicyAction.BLOCKED_BY_FORGET:
+            if not policy.forget_rule_id:
+                raise RuntimeError("Forgotten assertion write has no governance identity")
+            await append_forget_evidence_event_ids(
+                db,
+                rule_id=policy.forget_rule_id,
+                event_ids=candidate["evidence_events"],
+                created_at=now,
+            )
+            return
+        if policy.action not in CORRECTION_GOVERNED_EVIDENCE_ACTIONS:
+            return
+        if not policy.correction_id:
+            raise RuntimeError("Governed assertion write has no correction identity")
+        await MemoryCorrectionRepository(host.db_path).append_evidence_event_ids(
+            db,
+            correction_id=policy.correction_id,
+            target_kind=CorrectionTargetKind.ASSERTION,
+            event_ids=candidate["evidence_events"],
+            created_at=now,
+        )
 
     async def _fetch_active_assertion(
         self,

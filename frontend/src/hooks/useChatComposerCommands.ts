@@ -5,8 +5,9 @@
  * preceding non-whitespace) — this is the same UX as Claude Code, Discord
  * slash, etc. The picker merges three sources:
  *
- * - **internal** commands (clear / new-session / cancel / help) — these run
- *   immediately when selected.
+ * - **internal** commands (clear / new-session / cancel / help) — these are
+ *   handed to the page when selected; destructive actions may request
+ *   confirmation before they run.
  * - **tool** commands fetched from `GET /api/commands` — these open a
  *   parameter dialog before running.
  *
@@ -15,6 +16,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type React from 'react';
+import { useTranslation } from 'react-i18next';
 import { commandsApi, type CommandDescriptor, type SkillCommandDescriptor } from '@/api';
 import { fuzzyScore } from '@/lib/fuzzyMatch';
 import { MRUCache } from '@/lib/mruCache';
@@ -63,30 +65,39 @@ type SlashState =
     activeIndex: number;
   };
 
-const INTERNAL_COMMANDS: Array<Extract<SlashCommandItem, { source: 'internal' }>> = [
+const INTERNAL_COMMANDS: Array<
+  Omit<Extract<SlashCommandItem, { source: 'internal' }>, 'description'> & {
+    descriptionKey: string;
+    descriptionFallback: string;
+  }
+> = [
   {
     source: 'internal',
     name: 'clear',
-    description: 'Clear the conversation history',
+    descriptionKey: 'chat.commands.internal.clear',
+    descriptionFallback: 'Clear this chat and its related memories',
     action: 'clear',
     dangerous: true,
   },
   {
     source: 'internal',
     name: 'new-session',
-    description: 'Start a new chat session',
+    descriptionKey: 'chat.commands.internal.newSession',
+    descriptionFallback: 'Start a new chat session',
     action: 'new-session',
   },
   {
     source: 'internal',
     name: 'cancel',
-    description: 'Cancel the current run',
+    descriptionKey: 'chat.commands.internal.cancel',
+    descriptionFallback: 'Cancel the current run',
     action: 'cancel',
   },
   {
     source: 'internal',
     name: 'help',
-    description: 'List available commands',
+    descriptionKey: 'chat.commands.internal.help',
+    descriptionFallback: 'List available commands',
     action: 'help',
   },
 ];
@@ -129,6 +140,7 @@ export function useChatComposerCommands({
   onPickTool,
   onPickSkill,
 }: UseChatComposerCommandsOptions) {
+  const { t } = useTranslation('app');
   const [state, setState] = useState<SlashState>({ open: false });
   const [tools, setTools] = useState<CommandDescriptor[]>([]);
   const [skills, setSkills] = useState<SkillCommandDescriptor[]>([]);
@@ -161,7 +173,10 @@ export function useChatComposerCommands({
   const items = useMemo<SlashCommandItem[]>(() => {
     if (!state.open) return [];
     const merged: SlashCommandItem[] = [
-      ...INTERNAL_COMMANDS,
+      ...INTERNAL_COMMANDS.map(({ descriptionKey, descriptionFallback, ...command }) => ({
+        ...command,
+        description: t(descriptionKey, { defaultValue: descriptionFallback }),
+      })),
       ...tools.map<SlashCommandItem>((t) => ({
         source: 'tool',
         name: t.name,
@@ -197,7 +212,7 @@ export function useChatComposerCommands({
       return a.item.name.localeCompare(b.item.name);
     });
     return scored.map(({ item }) => item);
-  }, [skills, state, tools]);
+  }, [skills, state, t, tools]);
 
   const onValueChange = useCallback(
     (nextValue: string) => {

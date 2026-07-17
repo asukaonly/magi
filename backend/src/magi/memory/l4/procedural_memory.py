@@ -13,6 +13,7 @@ from .embeddings.service import L4SkillEmbeddingMixin
 from .lifecycle import L4ProceduralLifecycleMixin
 from .recording import L4ProceduralRecordingMixin
 from .retrieval.operations import L4ProceduralRetrievalMixin
+from .source_event_governance import L4SourceEventGovernanceMixin
 from .storage.schema import (
     DEFAULT_STRATEGY_EXTRACTION_THRESHOLD,
     MAX_TRACES_PER_SKILL,
@@ -26,6 +27,7 @@ class L4ProceduralMemoryStore(
     L4ProceduralLifecycleMixin,
     L4SkillEmbeddingMixin,
     L4TaskPreferenceMixin,
+    L4SourceEventGovernanceMixin,
     L4ProceduralRecordingMixin,
     L4ProceduralRetrievalMixin,
 ):

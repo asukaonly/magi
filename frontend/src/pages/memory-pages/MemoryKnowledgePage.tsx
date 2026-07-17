@@ -5,6 +5,8 @@ import { Input } from '@/components/ui/input';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { L2Tab } from '@/components/memory';
+import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
+import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { useMemory } from '@/hooks/useMemory';
 import MemoryPageFrame, {
   MEMORY_ACTION_BUTTON_CLASS,
@@ -40,13 +42,14 @@ export const MemoryKnowledgePage = () => {
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
     submitAssertionFeedback,
-    correctAssertion,
     refresh,
   } = useMemory({ initialLoadScope: 'l2' });
   const [activeSection, setActiveSection] = useState<KnowledgeSection>('overview');
   const [knowledgeQuery, setKnowledgeQuery] = useState('');
   const [knowledgeStatusFilter, setKnowledgeStatusFilter] = useState('all');
   const [knowledgeEntityTypeFilter, setKnowledgeEntityTypeFilter] = useState('all');
+  const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
+  const [correctionAction, setCorrectionAction] = useState<'replace' | 'remove'>('replace');
 
   const entityTypeOptions = useMemo(
     () => Array.from(new Set([
@@ -201,12 +204,33 @@ export const MemoryKnowledgePage = () => {
                 onRunSnapshotRefresh={runL2SnapshotRefresh}
                 onUpsertGraphConflictRule={upsertL2GraphConflictRule}
                 onSubmitAssertionFeedback={submitAssertionFeedback}
-                onCorrectAssertion={correctAssertion}
+                onRequestAssertionCorrection={(item, action) => {
+                  if (!item.assertionId || item.correctionValue === undefined) return;
+                  setCorrectionAction(action);
+                  setCorrectionTarget({
+                    kind: 'assertion',
+                    id: item.assertionId,
+                    statement: item.title,
+                    currentValue: item.correctionValue,
+                    displayValue: item.title,
+                    expectedUpdatedAt: item.expectedUpdatedAt ?? undefined,
+                  });
+                }}
               />
             </TabsContent>
           ))}
         </Tabs>
       )}
+      <MemoryCorrectionDialog
+        open={correctionTarget !== null}
+        target={correctionTarget}
+        initialRecordErrorAction={correctionAction}
+        onOpenChange={(open) => {
+          if (!open) setCorrectionTarget(null);
+        }}
+        onSaved={() => refresh('l2')}
+        onConflict={() => refresh('l2')}
+      />
     </MemoryPageFrame>
   );
 };

@@ -104,7 +104,7 @@ export const ComposerSlashPicker = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 truncate font-medium text-foreground">
                   /{item.name}
-                  {item.source === 'tool' && item.dangerous ? (
+                  {item.source !== 'skill' && item.dangerous ? (
                     <AlertTriangle
                       className="h-3 w-3 text-amber-500"
                       aria-label={t('chat.commands.dangerous')}

@@ -13,7 +13,6 @@ from types import ModuleType
 
 import aiosqlite
 
-
 _MIGRATIONS_DIR = (
     Path(__file__).resolve().parents[2]
     / "src"
@@ -38,6 +37,20 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v12_scheduled_correction_transitions.py",
     "v13_stable_context_scopes.py",
     "v14_relationship_conflict_effects.py",
+    "v15_correction_evidence_fail_closed.py",
+    "v16_relationship_correction_reconciliation.py",
+    "v17_scheduled_correction_cancellation.py",
+    "v18_persistent_forget_governance.py",
+    "v19_claim_evidence_ledger.py",
+    "v20_identity_rekey_indexes.py",
+    "v21_source_event_forgetting.py",
+    "v22_l4_source_event_links.py",
+    "v23_l0_tactic_source_tombstones.py",
+    "v24_entity_name_evidence.py",
+    "v25_daily_mood_source_events.py",
+    "v26_manual_entry_projection_intent.py",
+    "v27_durable_forget_operations.py",
+    "v28_time_range_forget_barriers.py",
 )
 
 

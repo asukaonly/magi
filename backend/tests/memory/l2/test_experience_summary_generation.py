@@ -37,6 +37,7 @@ async def test_backwrite_experience_review_updates_generated_template_fields():
     assert updated is True
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-template",
+        expected_status="active",
         title="Magi 经历链路回写",
         magi_interpretation="你集中处理了 Magi 经历链路的 review 回写，并让检索能吃到这段结果。",
         intent="你想补上经历链路中 review 和检索之间断开的地方。",
@@ -65,6 +66,7 @@ async def test_backwrite_experience_review_refreshes_generated_title_and_body():
     assert updated is True
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-good-title",
+        expected_status="active",
         title="东京夏季路线筛选",
         magi_interpretation="你围绕东京夏季旅行做了路线筛选，并把动漫巡礼和避暑节奏放在一起比较。",
     )
@@ -97,6 +99,7 @@ async def test_backwrite_experience_review_preserves_existing_intent_and_outcome
     assert updated is True
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-existing-fields",
+        expected_status="active",
         title="东京夏季路线筛选",
         magi_interpretation="你围绕东京夏季旅行做了路线筛选。",
     )
@@ -122,6 +125,30 @@ async def test_backwrite_experience_review_skips_fallback_review():
 
     assert updated is False
     l2_store.update_experience.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_backwrite_experience_review_cannot_update_invalidated_experience():
+    from magi.memory.l3.episode_backwrite import backwrite_experience_review
+
+    l2_store = MagicMock()
+    l2_store.update_experience = AsyncMock(return_value=False)
+    updated = await backwrite_experience_review(
+        l2_store,
+        experience={"experience_id": "exp-private", "status": "active"},
+        summary={
+            "content": "Private recap",
+            "insight_metadata": {"label": "Private title"},
+        },
+    )
+
+    assert updated is False
+    l2_store.update_experience.assert_awaited_once_with(
+        experience_id="exp-private",
+        expected_status="active",
+        title="Private title",
+        magi_interpretation="Private recap",
+    )
 
 
 @pytest.mark.asyncio
@@ -169,6 +196,7 @@ async def test_generate_missing_experience_summaries_backfills_existing_good_rev
     l3_store.generate_experience_summary.assert_not_awaited()
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-backfill",
+        expected_status="active",
         title="经历链路回写",
         magi_interpretation="你把经历链路里 review 和检索之间断开的地方补上了。",
         intent="你想让体验 review 能进入后续检索。",
@@ -315,6 +343,7 @@ async def test_generate_missing_experience_summaries_backwrites_existing_good_re
     l3_store.generate_experience_summary.assert_not_awaited()
     l2_store.update_experience.assert_awaited_once_with(
         experience_id="exp-good",
+        expected_status="active",
         title="AI coding tool tests",
         magi_interpretation="Reviewed the week of testing AI coding tools.",
     )

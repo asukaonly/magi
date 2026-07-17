@@ -51,18 +51,6 @@
       "purpose": "Mark native-cancelled sensor sync activity rows as cancelled."
     },
     {
-      "file": "crates/magi-gateway/src/api/memory/l2.rs",
-      "operation": "insert",
-      "table": "tom_trait_assertions",
-      "purpose": "Store explicit user corrections from native L2 assertion correction routes."
-    },
-    {
-      "file": "crates/magi-gateway/src/api/memory/l2.rs",
-      "operation": "update",
-      "table": "tom_trait_assertions",
-      "purpose": "Apply user feedback and supersession state from native L2 assertion routes."
-    },
-    {
       "file": "crates/magi-gateway/src/api/tasks/write.rs",
       "operation": "insert",
       "table": "tasks",

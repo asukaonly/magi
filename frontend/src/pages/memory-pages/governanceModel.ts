@@ -31,6 +31,8 @@ export interface LayerRecord {
   title: string;
   type: string;
   source: string;
+  sourceKind?: string | null;
+  sourceItemId?: string | null;
   status: string;
   updatedAt?: number | null;
   evidenceCount?: number | null;
@@ -571,6 +573,8 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
     title: clampText(event.content, getReadableEventType(event.event_type, label), 88),
     type: getReadableEventType(event.event_type, label),
     source: getReadableSource(event.source, label),
+    sourceKind: event.source || null,
+    sourceItemId: event.source_item_id || null,
     status: event.deleted_at ? label('statuses.deleted', '已删除') : getReadableStatus(event.embedding_status, label, label('statuses.valid', '有效')),
     updatedAt: event.timestamp || event.created_at,
     evidenceCount: toOptionalNumber(event.embedding_chunk_count),
@@ -851,7 +855,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'sessions',
       label: categoryLabels.sessions,
       description: label('categories.sessionsDescription', '当前会话、目标和临时策略'),
-      count: memory.l0Total || stats.l0?.active_sessions || l0Records.length,
+      count: memory.l0Total ?? stats.l0?.active_sessions ?? l0Records.length,
       status: label('statuses.healthy', '健康'),
       tone: 'ok',
       records: l0Records,
@@ -861,7 +865,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'events',
       label: categoryLabels.events,
       description: label('categories.eventsDescription', '来源事件、片段和观察'),
-      count: memory.l1Total || stats.l1?.event_count || l1Records.length,
+      count: memory.l1Total ?? stats.l1?.event_count ?? l1Records.length,
       status: label('statuses.stable', '稳定'),
       tone: 'ok',
       records: l1Records,
@@ -871,7 +875,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'entities',
       label: categoryLabels.entities,
       description: label('categories.entitiesDescription', '人物、地点、项目和对象'),
-      count: memory.l2EntitiesTotal || l2EntityRecords.length,
+      count: memory.l2EntitiesTotal ?? l2EntityRecords.length,
       status: label('statuses.healthy', '健康'),
       tone: 'ok',
       records: l2EntityRecords,
@@ -881,7 +885,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'assertions',
       label: categoryLabels.assertions,
       description: label('categories.assertionsDescription', '偏好、判断和待确认事实'),
-      count: memory.l2AssertionsTotal || l2AssertionRecords.length,
+      count: memory.l2AssertionsTotal ?? l2AssertionRecords.length,
       status: pendingAssertions > 0 ? label('statuses.pendingCount', '待确认 {{count}}', { count: pendingAssertions }) : label('statuses.healthy', '健康'),
       tone: pendingAssertions > 0 ? 'warn' : 'ok',
       records: l2AssertionRecords,
@@ -891,7 +895,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'relations',
       label: categoryLabels.relations,
       description: label('categories.relationsDescription', '实体之间的关系和连接'),
-      count: memory.l2RelationsTotal || l2RelationRecords.length,
+      count: memory.l2RelationsTotal ?? l2RelationRecords.length,
       status: label('statuses.healthy', '健康'),
       tone: 'ok',
       records: l2RelationRecords,
@@ -901,7 +905,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'snapshots',
       label: categoryLabels.snapshots,
       description: label('categories.snapshotsDescription', '状态、情绪和近期上下文'),
-      count: memory.l2SnapshotsTotal || l2SnapshotRecords.length,
+      count: memory.l2SnapshotsTotal ?? l2SnapshotRecords.length,
       status: label('statuses.healthy', '健康'),
       tone: 'ok',
       records: l2SnapshotRecords,
@@ -911,7 +915,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'summaries',
       label: categoryLabels.summaries,
       description: label('categories.summariesDescription', '章节、阶段和周期总结'),
-      count: memory.l3Total || stats.l3?.summary_count || l3Records.length,
+      count: memory.l3Total ?? stats.l3?.summary_count ?? l3Records.length,
       status: label('statuses.generated', '已生成'),
       tone: 'ok',
       records: l3Records,
@@ -921,7 +925,7 @@ export function buildLayerSummaries(memory: GovernanceMemorySnapshot, label: Gov
       id: 'skills',
       label: categoryLabels.skills,
       description: label('categories.skillsDescription', '技能、流程和失败保护'),
-      count: memory.l4Total || stats.l4?.skill_count || l4Records.length,
+      count: memory.l4Total ?? stats.l4?.skill_count ?? l4Records.length,
       status: openBreakers > 0 ? label('statuses.breakers', '熔断 {{count}}', { count: openBreakers }) : label('statuses.healthy', '健康'),
       tone: openBreakers > 0 ? 'danger' : 'ok',
       records: l4Records,

@@ -55,6 +55,9 @@ class L2EpisodeReviewService:
         limit: int,
         offset: int,
     ) -> dict[str, Any]:
+        if (status_filter or "").strip().lower() == "invalidated":
+            return {"items": [], "total": 0, "limit": limit, "offset": offset}
+
         if surface == "standout":
             items = await self._memory.l2.list_standout_episodes(
                 period_start=time_start,
@@ -136,10 +139,16 @@ class L2EpisodeReviewService:
                 ),
             )
 
-        await self._memory.l2.add_episode_events(episode_id=episode_id, event_ids=requested_ids)
+        await self._memory.l2.add_episode_events(
+            episode_id=episode_id,
+            event_ids=requested_ids,
+            expected_status="active",
+        )
         return await self._refresh_after_episode_event_change(episode_id)
 
-    async def remove_episode_events(self, *, episode_id: str, event_ids: list[str]) -> dict[str, Any]:
+    async def remove_episode_events(
+        self, *, episode_id: str, event_ids: list[str]
+    ) -> dict[str, Any]:
         await self._get_episode_or_404(episode_id)
         current_memberships = await self._memory.l2.list_episode_events(episode_id=episode_id)
         current_ids = [
@@ -151,10 +160,16 @@ class L2EpisodeReviewService:
         if len(remaining_ids) < 2:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=memory_t("memory.errors.episode_too_few_events", "Episode would have too few events"),
+                detail=memory_t(
+                    "memory.errors.episode_too_few_events", "Episode would have too few events"
+                ),
             )
 
-        await self._memory.l2.remove_episode_events(episode_id=episode_id, event_ids=event_ids)
+        await self._memory.l2.remove_episode_events(
+            episode_id=episode_id,
+            event_ids=event_ids,
+            expected_status="active",
+        )
         return await self._refresh_after_episode_event_change(episode_id)
 
     async def annotate_episode(
@@ -177,13 +192,18 @@ class L2EpisodeReviewService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"),
             )
-        ok = await self._memory.l2.update_episode(episode_id=episode_id, **updates)
+        await self._get_episode_or_404(episode_id)
+        ok = await self._memory.l2.update_episode(
+            episode_id=episode_id,
+            expected_status="active",
+            **updates,
+        )
         if not ok:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
             )
-        return await self._memory.l2.get_episode(episode_id=episode_id)
+        return await self._get_episode_or_404(episode_id)
 
     async def list_merge_candidates(self, *, episode_id: str, limit: int) -> dict[str, Any]:
         episode = await self._get_episode_or_404(episode_id)
@@ -209,7 +229,12 @@ class L2EpisodeReviewService:
             item["candidate_score"] = score
             item["candidate_reasons"] = reasons
             items.append(item)
-        items.sort(key=lambda item: (-float(item.get("candidate_score") or 0.0), float(item.get("time_start") or 0.0)))
+        items.sort(
+            key=lambda item: (
+                -float(item.get("candidate_score") or 0.0),
+                float(item.get("time_start") or 0.0),
+            )
+        )
         items = items[:limit]
         await self.attach_episode_review_fields(items)
         return {"items": items}
@@ -218,9 +243,13 @@ class L2EpisodeReviewService:
         if absorbed_id == episode_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=memory_t("memory.errors.same_episode_merge", "Cannot merge an episode into itself"),
+                detail=memory_t(
+                    "memory.errors.same_episode_merge", "Cannot merge an episode into itself"
+                ),
             )
 
+        await self._get_episode_or_404(episode_id)
+        await self._get_episode_or_404(absorbed_id)
         merged = await self._memory.l2.merge_episodes(
             survivor_id=episode_id,
             absorbed_id=absorbed_id,
@@ -241,7 +270,9 @@ class L2EpisodeReviewService:
             episode_summary=episode_summary,
         )
 
-    async def preview_episode_split(self, *, episode_id: str, break_after_event_id: str) -> dict[str, Any]:
+    async def preview_episode_split(
+        self, *, episode_id: str, break_after_event_id: str
+    ) -> dict[str, Any]:
         preview = await self.build_episode_split_preview(
             episode_id=episode_id,
             break_after_event_id=break_after_event_id,
@@ -343,7 +374,9 @@ class L2EpisodeReviewService:
         if l1_store is None or l3_store is None:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=memory_t("memory.errors.summary_store_uninitialized", "Summary store not initialized"),
+                detail=memory_t(
+                    "memory.errors.summary_store_uninitialized", "Summary store not initialized"
+                ),
             )
 
         event_ids = [
@@ -359,6 +392,7 @@ class L2EpisodeReviewService:
 
         summary = await l3_store.generate_episodic_summary(
             l1_store=l1_store,
+            l2_store=self._memory.l2,
             episode=episode,
             episode_event_ids=event_ids,
         )
@@ -366,19 +400,34 @@ class L2EpisodeReviewService:
         if episode_summary is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=memory_t("memory.errors.episode_summary_generation_failed", "Episode summary generation failed"),
+                detail=memory_t(
+                    "memory.errors.episode_summary_generation_failed",
+                    "Episode summary generation failed",
+                ),
             )
-        await self._memory.l2.update_episode(
+        updated = await self._memory.l2.update_episode(
             episode_id=str(episode.get("episode_id") or ""),
+            expected_status="active",
             label=episode_summary["label"],
             summary=episode_summary["content"],
         )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+            )
         await self._memory.l2.index_episode_fts(
             episode_id=str(episode.get("episode_id") or ""),
             summary=episode_summary["content"],
             label=episode_summary["label"],
             user_label=str(episode.get("user_label") or ""),
         )
+        current = await self._memory.l2.get_episode(episode_id=str(episode.get("episode_id") or ""))
+        if current is None or str(current.get("status") or "") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+            )
         return episode_summary
 
     async def build_episode_review_response(
@@ -394,7 +443,9 @@ class L2EpisodeReviewService:
             l3_store = get_unified_layer(self._memory, "l3")
             if l3_store is not None:
                 episode_summary = serialize_episodic_summary(
-                    await l3_store.get_episodic_summary_by_episode_id(str(episode.get("episode_id") or ""))
+                    await l3_store.get_episodic_summary_by_episode_id(
+                        str(episode.get("episode_id") or "")
+                    )
                 )
         display_fields = build_episode_display_fields(episode, episode_summary)
         events = await self.serialize_episode_event_previews(event_memberships)
@@ -454,7 +505,12 @@ class L2EpisodeReviewService:
             preview["candidate_score"] = score
             preview["candidate_reasons"] = reasons
             previews.append(preview)
-        previews.sort(key=lambda item: (-float(item.get("candidate_score") or 0.0), float(item.get("timestamp") or 0.0)))
+        previews.sort(
+            key=lambda item: (
+                -float(item.get("candidate_score") or 0.0),
+                float(item.get("timestamp") or 0.0),
+            )
+        )
         return previews[:limit]
 
     async def try_regenerate_episode_summary(
@@ -463,7 +519,10 @@ class L2EpisodeReviewService:
         episode: dict[str, Any],
         event_memberships: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        if get_unified_layer(self._memory, "l1") is None or get_unified_layer(self._memory, "l3") is None:
+        if (
+            get_unified_layer(self._memory, "l1") is None
+            or get_unified_layer(self._memory, "l3") is None
+        ):
             return None
         try:
             return await self.regenerate_episode_summary(
@@ -485,7 +544,9 @@ class L2EpisodeReviewService:
         if len(events) < 2:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=memory_t("memory.errors.episode_too_few_events", "Episode would have too few events"),
+                detail=memory_t(
+                    "memory.errors.episode_too_few_events", "Episode would have too few events"
+                ),
             )
 
         event_ids = [str(event.get("event_id") or "") for event in events]
@@ -494,12 +555,16 @@ class L2EpisodeReviewService:
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=memory_t("memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"),
+                detail=memory_t(
+                    "memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"
+                ),
             ) from exc
         if break_index >= len(events) - 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=memory_t("memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"),
+                detail=memory_t(
+                    "memory.errors.invalid_episode_split_breakpoint", "Invalid split breakpoint"
+                ),
             )
 
         left_events = events[: break_index + 1]
@@ -571,13 +636,21 @@ class L2EpisodeReviewService:
         if timestamps:
             updates["time_start"] = min(timestamps)
             updates["time_end"] = max(timestamps)
-        await self._memory.l2.update_episode(episode_id=episode_id, **updates)
-        episode = await self._memory.l2.get_episode(episode_id=episode_id)
-        return episode or {"episode_id": episode_id, **updates}
+        updated = await self._memory.l2.update_episode(
+            episode_id=episode_id,
+            expected_status="active",
+            **updates,
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=memory_t("memory.errors.episode_not_found", "Episode not found"),
+            )
+        return await self._get_episode_or_404(episode_id)
 
     async def _get_episode_or_404(self, episode_id: str) -> dict[str, Any]:
         episode = await self._memory.l2.get_episode(episode_id=episode_id)
-        if episode is None:
+        if episode is None or str(episode.get("status") or "") != "active":
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=memory_t("memory.errors.episode_not_found", "Episode not found"),

@@ -10,6 +10,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ..batching_policy import BatchingPolicy, BucketState, decide_flush
+from .governance import active_projection_event_predicate
 
 
 class _ProjectionQueueClaimingHostProtocol(Protocol):
@@ -293,11 +294,12 @@ class ProjectionQueueClaimingMixin:
         limit: int,
     ) -> list[str]:
         async with db.execute(
-            """
+            f"""
             SELECT event_id
-            FROM l2_projection_jobs
-            WHERE status = 'pending'
-              AND (batch_owner IS NULL OR batch_owner = '')
+            FROM l2_projection_jobs AS jobs
+            WHERE jobs.status = 'pending'
+              AND (jobs.batch_owner IS NULL OR jobs.batch_owner = '')
+              AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
             LIMIT ?
             """,
@@ -313,7 +315,7 @@ class ProjectionQueueClaimingMixin:
         now: float,
     ) -> list[_OwnerBucket]:
         async with db.execute(
-            """
+            f"""
             SELECT
                 batch_owner,
                 MIN(NULLIF(catch_up_owner, '')) AS bucket_catch_up_owner,
@@ -322,11 +324,12 @@ class ProjectionQueueClaimingMixin:
                 MIN(CASE WHEN max_events IS NOT NULL AND max_events > 0 THEN max_events END) AS bucket_max_events,
                 MIN(CASE WHEN min_ready_events IS NOT NULL AND min_ready_events > 0 THEN min_ready_events END) AS bucket_min_ready_events,
                 MIN(CASE WHEN max_wait_seconds IS NOT NULL AND max_wait_seconds > 0 THEN max_wait_seconds END) AS bucket_max_wait_seconds
-            FROM l2_projection_jobs
-            WHERE status = 'pending'
-              AND batch_owner IS NOT NULL
-              AND batch_owner != ''
-            GROUP BY batch_owner
+            FROM l2_projection_jobs AS jobs
+            WHERE jobs.status = 'pending'
+              AND jobs.batch_owner IS NOT NULL
+              AND jobs.batch_owner != ''
+              AND {active_projection_event_predicate('jobs.event_id')}
+            GROUP BY jobs.batch_owner
             ORDER BY oldest_created_at ASC
             """,
         ) as cursor:
@@ -345,11 +348,12 @@ class ProjectionQueueClaimingMixin:
         limit: int,
     ) -> list[str]:
         async with db.execute(
-            """
+            f"""
             SELECT event_id
-            FROM l2_projection_jobs
-            WHERE status = 'pending'
-              AND batch_owner = ?
+            FROM l2_projection_jobs AS jobs
+            WHERE jobs.status = 'pending'
+              AND jobs.batch_owner = ?
+              AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
             LIMIT ?
             """,
@@ -449,9 +453,10 @@ class ProjectionQueueClaimingMixin:
         async with db.execute(
             f"""
             SELECT event_id
-            FROM l2_projection_jobs
-            WHERE status = 'pending'
-              AND batch_owner IN ({placeholders})
+            FROM l2_projection_jobs AS jobs
+            WHERE jobs.status = 'pending'
+              AND jobs.batch_owner IN ({placeholders})
+              AND {active_projection_event_predicate('jobs.event_id')}
             ORDER BY created_at ASC
             LIMIT ?
             """,
@@ -478,16 +483,22 @@ class ProjectionQueueClaimingMixin:
                 started_at = NULL,
                 updated_at = ?
             WHERE event_id IN ({placeholders})
+              AND status = 'pending'
+              AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
             """,
             (consumer_name, now, now, *selected_event_ids),
         )
         async with db.execute(
             f"""
             SELECT *
-            FROM l2_projection_jobs
+            FROM l2_projection_jobs AS jobs
             WHERE event_id IN ({placeholders})
+              AND status = 'queued'
+              AND claimed_by = ?
+              AND claimed_at = ?
+              AND {active_projection_event_predicate('jobs.event_id')}
             """,
-            tuple(selected_event_ids),
+            (*selected_event_ids, consumer_name, now),
         ) as cursor:
             claimed_rows = cast(list[aiosqlite.Row], await cursor.fetchall())
         await db.commit()

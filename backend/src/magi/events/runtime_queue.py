@@ -32,6 +32,10 @@ _USER_MESSAGE_CLEAR_STATE_ID = 1
 DEFAULT_CLAIM_LEASE_SECONDS = 60.0
 
 
+class UserMessageScopeBlockedError(RuntimeError):
+    """Raised when ingress targets a durably deleted chat scope."""
+
+
 class SQLiteRuntimeCommandQueue:
     """Persisted queue shared by API ingress and the lifecycle-owned runtime worker."""
 
@@ -173,6 +177,16 @@ class SQLiteRuntimeCommandQueue:
         payload_fingerprint = _payload_fingerprint(payload)
         await db.execute("BEGIN IMMEDIATE")
         try:
+            if await _user_message_scope_is_blocked(
+                db,
+                user_id=str(payload.get("user_id") or ""),
+                session_id=str(payload.get("session_id") or ""),
+                turn_id=str(payload.get("turn_id") or ""),
+                message_id=_message_id_from_correlation_id(correlation_id),
+            ):
+                raise UserMessageScopeBlockedError(
+                    "User-message scope was deleted before runtime enqueue"
+                )
             cursor = await db.execute(
                 """
                 SELECT receipt.payload_fingerprint,
@@ -400,6 +414,121 @@ class SQLiteRuntimeCommandQueue:
             raise RuntimeError("Runtime user-message generation is not initialized")
         return int(self._user_message_generation)
 
+    async def is_user_message_scope_blocked(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None = None,
+        message_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> bool:
+        """Return whether a session or exact user turn has been deleted."""
+        normalized_message_id = str(message_id or "").strip() or _message_id_from_correlation_id(
+            correlation_id
+        )
+        await self._initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            return await _user_message_scope_is_blocked(
+                db,
+                user_id=user_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                message_id=normalized_message_id,
+            )
+
+    async def is_user_message_command_blocked(self, command: RuntimeQueuedCommand) -> bool:
+        """Return whether one claimed command crossed a deletion barrier."""
+        if command.command_type is not RuntimeCommandType.USER_MESSAGE:
+            return False
+        return await self.is_user_message_scope_blocked(
+            user_id=str(command.payload.get("user_id") or ""),
+            session_id=str(command.payload.get("session_id") or ""),
+            turn_id=str(command.payload.get("turn_id") or ""),
+            correlation_id=command.correlation_id,
+        )
+
+    async def block_user_message_scope_and_purge(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None = None,
+        message_id: str | None = None,
+        reason: str,
+    ) -> int:
+        """Persist one exact deletion barrier and remove matching queue payloads."""
+        task = asyncio.current_task()
+        if task is None or task is not self._user_message_clear_owner:
+            raise RuntimeError("User-message scope deletion requires the clear boundary")
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        normalized_reason = str(reason or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_reason:
+            raise ValueError("User ID, session ID, and deletion reason are required")
+
+        scopes = (
+            [("session", normalized_session_id)]
+            if not normalized_turn_id and not normalized_message_id
+            else [
+                *([("turn", normalized_turn_id)] if normalized_turn_id else []),
+                *([("message", normalized_message_id)] if normalized_message_id else []),
+            ]
+        )
+        now = time.time()
+        await self._initialize()
+        async with self._write_lock, sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await db.executemany(
+                    """
+                    INSERT OR IGNORE INTO runtime_user_message_scope_blocks (
+                        scope_kind, user_id, session_id, scope_value, reason, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            scope_kind,
+                            normalized_user_id,
+                            normalized_session_id,
+                            scope_value,
+                            normalized_reason,
+                            now,
+                        )
+                        for scope_kind, scope_value in scopes
+                    ],
+                )
+                command_ids = await _matching_user_message_command_ids(
+                    db,
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    turn_id=normalized_turn_id,
+                    message_id=normalized_message_id,
+                )
+                if command_ids:
+                    placeholders = ", ".join("?" for _ in command_ids)
+                    await db.execute(
+                        f"DELETE FROM runtime_user_message_idempotency "
+                        f"WHERE first_command_id IN ({placeholders})",
+                        command_ids,
+                    )
+                    await db.execute(
+                        f"DELETE FROM runtime_commands WHERE command_id IN ({placeholders})",
+                        command_ids,
+                    )
+                if normalized_message_id:
+                    await db.execute(
+                        "DELETE FROM runtime_user_message_idempotency WHERE correlation_id = ?",
+                        (f"user_message:{normalized_message_id}",),
+                    )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return len(command_ids)
+
     async def advance_user_message_generation_and_purge(self) -> tuple[int, int]:
         """Advance the clear generation and remove every older user-message payload."""
         task = asyncio.current_task()
@@ -581,3 +710,90 @@ def _payload_fingerprint(payload: dict[str, object]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _message_id_from_correlation_id(correlation_id: str | None) -> str:
+    normalized = str(correlation_id or "").strip()
+    prefix = "user_message:"
+    if not normalized.startswith(prefix):
+        return ""
+    return normalized[len(prefix) :].strip()
+
+
+async def _user_message_scope_is_blocked(
+    db,
+    *,
+    user_id: str,
+    session_id: str,
+    turn_id: str | None,
+    message_id: str | None,
+) -> bool:
+    normalized_user_id = str(user_id or "").strip()
+    normalized_session_id = str(session_id or "").strip()
+    normalized_turn_id = str(turn_id or "").strip()
+    normalized_message_id = str(message_id or "").strip()
+    if not normalized_user_id or not normalized_session_id:
+        return True
+    conditions = ["scope_kind = 'session'"]
+    params: list[object] = [normalized_user_id, normalized_session_id]
+    if normalized_turn_id:
+        conditions.append("(scope_kind = 'turn' AND scope_value = ?)")
+        params.append(normalized_turn_id)
+    if normalized_message_id:
+        conditions.append("(scope_kind = 'message' AND scope_value = ?)")
+        params.append(normalized_message_id)
+    cursor = await db.execute(
+        f"""
+        SELECT 1
+        FROM runtime_user_message_scope_blocks
+        WHERE user_id = ?
+          AND session_id = ?
+          AND ({' OR '.join(conditions)})
+        LIMIT 1
+        """,
+        params,
+    )
+    return await cursor.fetchone() is not None
+
+
+async def _matching_user_message_command_ids(
+    db,
+    *,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+    message_id: str,
+) -> list[int]:
+    scope_conditions: list[str] = []
+    params: list[object] = [
+        RuntimeCommandType.USER_MESSAGE.value,
+        user_id,
+        session_id,
+    ]
+    if turn_id:
+        scope_conditions.append("json_extract(payload_json, '$.turn_id') = ?")
+        params.append(turn_id)
+    if message_id:
+        scope_conditions.append("correlation_id = ?")
+        params.append(f"user_message:{message_id}")
+    scope_sql = f" AND ({' OR '.join(scope_conditions)})" if scope_conditions else ""
+    cursor = await db.execute(
+        f"""
+        SELECT command_id
+        FROM runtime_commands
+        WHERE command_type = ?
+          AND json_valid(payload_json)
+          AND json_extract(payload_json, '$.user_id') = ?
+          AND json_extract(payload_json, '$.session_id') = ?
+          {scope_sql}
+        ORDER BY command_id
+        """,
+        params,
+    )
+    return [int(row[0]) for row in await cursor.fetchall()]
+
+
+__all__ = [
+    "SQLiteRuntimeCommandQueue",
+    "UserMessageScopeBlockedError",
+]

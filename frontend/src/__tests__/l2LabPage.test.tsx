@@ -1,8 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 import { L2Tab } from '@/components/memory/L2Tab';
+import { MemoryKnowledgePage } from '@/pages/memory-pages/MemoryKnowledgePage';
+import { useMemory } from '@/hooks/useMemory';
 
 const TEST_TRANSLATIONS: Record<string, string> = {
   'memory.pages.knowledge.traitValues.mood.high': 'localized high',
@@ -46,7 +49,12 @@ vi.mock('@/api/modules/memory', () => ({
       limit: 1,
       offset: 0,
     }),
+    getCorrectionContextOptions: vi.fn().mockResolvedValue({ items: [] }),
   },
+}));
+
+vi.mock('@/hooks/useMemory', () => ({
+  useMemory: vi.fn(),
 }));
 
 describe('L2Tab lab', () => {
@@ -383,7 +391,7 @@ describe('L2Tab lab', () => {
   it('renders a filtered grouped knowledge-base browser', async () => {
     const user = userEvent.setup();
     const onSubmitAssertionFeedback = vi.fn().mockResolvedValue(undefined);
-    const onCorrectAssertion = vi.fn().mockResolvedValue(undefined);
+    const onRequestAssertionCorrection = vi.fn();
 
     render(
       <L2Tab
@@ -418,6 +426,7 @@ describe('L2Tab lab', () => {
             inference_depth: 'explicit',
             first_inferred_at: 1710000000,
             last_validated_at: 1710000000,
+            updated_at: 1710000010,
             user_feedback: null,
             user_feedback_at: null,
           },
@@ -452,7 +461,7 @@ describe('L2Tab lab', () => {
         onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
         onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
         onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-        onCorrectAssertion={onCorrectAssertion}
+        onRequestAssertionCorrection={onRequestAssertionCorrection}
       />
     );
 
@@ -472,15 +481,20 @@ describe('L2Tab lab', () => {
 
     expect(onSubmitAssertionFeedback).toHaveBeenCalledWith('assert-1', 'confirmed');
 
+    await user.click(screen.getByRole('button', { name: 'memory.l2.rejectAssertion' }));
+    expect(onRequestAssertionCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({ assertionId: 'assert-1', correctionValue: 'jazz', expectedUpdatedAt: 1710000010 }),
+      'remove'
+    );
+
     await user.click(screen.getByRole('button', { name: 'memory.l2.correctAssertion' }));
-    const correctionInput = screen.getByLabelText('memory.l2.correctionValue');
-    expect(correctionInput).toHaveValue('jazz');
-    await user.clear(correctionInput);
-    await user.type(correctionInput, 'blues');
-    await user.click(screen.getByRole('button', { name: 'memory.l2.saveCorrection' }));
+    expect(onRequestAssertionCorrection).toHaveBeenLastCalledWith(
+      expect.objectContaining({ assertionId: 'assert-1', correctionValue: 'jazz', expectedUpdatedAt: 1710000010 }),
+      'replace'
+    );
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
 
-    expect(onCorrectAssertion).toHaveBeenCalledWith('assert-1', 'blues');
-
+    await user.click(screen.getByText('User U1\'s preference music may be "jazz".'));
     expect(await screen.findByText('I like jazz.')).toBeInTheDocument();
     expect(screen.getByText('memory.pages.knowledge.sections.technicalDetails')).toBeInTheDocument();
   });
@@ -531,7 +545,7 @@ describe('L2Tab lab', () => {
         onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
         onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
         onSubmitAssertionFeedback={vi.fn().mockResolvedValue(undefined)}
-        onCorrectAssertion={vi.fn().mockResolvedValue(undefined)}
+        onRequestAssertionCorrection={vi.fn()}
       />
     );
 
@@ -542,7 +556,7 @@ describe('L2Tab lab', () => {
 
   it('localizes controlled assertion values without changing correction payloads', async () => {
     const user = userEvent.setup();
-    const onCorrectAssertion = vi.fn().mockResolvedValue(undefined);
+    const onRequestAssertionCorrection = vi.fn();
 
     render(
       <L2Tab
@@ -591,13 +605,81 @@ describe('L2Tab lab', () => {
         onRunSnapshotRefresh={vi.fn().mockResolvedValue(undefined)}
         onUpsertGraphConflictRule={vi.fn().mockResolvedValue(undefined)}
         onSubmitAssertionFeedback={vi.fn().mockResolvedValue(undefined)}
-        onCorrectAssertion={onCorrectAssertion}
+        onRequestAssertionCorrection={onRequestAssertionCorrection}
       />
     );
 
     expect(screen.getByText('User U1\'s mood may be "localized high".')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'memory.l2.correctAssertion' }));
-    expect(screen.getByLabelText('memory.l2.correctionValue')).toHaveValue('high');
+    expect(onRequestAssertionCorrection).toHaveBeenCalledWith(
+      expect.objectContaining({ assertionId: 'assert-mood', correctionValue: 'high' }),
+      'replace'
+    );
+  });
+});
+
+describe('MemoryKnowledgePage correction entry', () => {
+  it('keeps confirmation lightweight and sends rejection to the shared correction dialog', async () => {
+    const user = userEvent.setup();
+    const submitAssertionFeedback = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useMemory).mockReturnValue({
+      loading: false,
+      l1Events: [],
+      l2Relations: [],
+      l2Assertions: [{
+        assertion_id: 'assert-knowledge-1',
+        entity_id: 'user:self',
+        entity_type: 'user',
+        trait_name: 'preference.music',
+        trait_value: 'jazz',
+        confidence_score: 0.7,
+        evidence_events: [],
+        validation_state: 'tentative',
+        volatility_index: 0.2,
+        source_domain: 'chat',
+        inference_depth: 'explicit',
+        first_inferred_at: 1710000000,
+        last_validated_at: 1710000000,
+        user_feedback: null,
+        user_feedback_at: null,
+      }],
+      l2Stats: { relation_count: 0, assertion_count: 1, canonical_self_id: 'user:self' },
+      identityLinks: [],
+      l2Entities: [{
+        entity_id: 'user:self',
+        canonical_name: 'User',
+        entity_type: 'user',
+        aliases: [],
+      }],
+      l2Mentions: [],
+      l2Snapshots: [],
+      l2ConflictRules: [],
+      l2ActionLoading: false,
+      submitManualL2Event: vi.fn().mockResolvedValue(undefined),
+      replayL2Extraction: vi.fn().mockResolvedValue(undefined),
+      flushL2Microbatches: vi.fn().mockResolvedValue(undefined),
+      runL2Reconcile: vi.fn().mockResolvedValue(undefined),
+      runL2SnapshotRefresh: vi.fn().mockResolvedValue(undefined),
+      upsertL2GraphConflictRule: vi.fn().mockResolvedValue(undefined),
+      submitAssertionFeedback,
+      refresh: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ReturnType<typeof useMemory>);
+
+    render(
+      <MemoryRouter>
+        <MemoryKnowledgePage />
+      </MemoryRouter>
+    );
+
+    await user.click(screen.getAllByRole('button', { name: 'memory.l2.confirmAssertion' })[0]);
+    expect(submitAssertionFeedback).toHaveBeenCalledWith('assert-knowledge-1', 'confirmed');
+
+    await user.click(screen.getAllByRole('button', { name: 'memory.l2.rejectAssertion' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: 'memory.correction.title' });
+    expect(
+      within(dialog).getByRole('button', { name: /memory\.correction\.actions\.removeAssertion/ })
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(submitAssertionFeedback).toHaveBeenCalledTimes(1);
   });
 });

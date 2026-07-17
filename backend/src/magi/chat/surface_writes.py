@@ -57,7 +57,9 @@ class ChatSurfaceWriteService:
             replaced_by_message_id=None,
         )
         await get_chat_store().append_message(record)
-        await self._broadcast_upsert(user_id=user_id, session_id=session_id, message_id=record.message_id)
+        await self._broadcast_upsert(
+            user_id=user_id, session_id=session_id, message_id=record.message_id
+        )
         return record.message_id
 
     async def append_command_result(
@@ -88,9 +90,7 @@ class ChatSurfaceWriteService:
             result_payload["invocation_message_id"] = invocation_message_id
         if invocation_text is not None:
             result_payload["invocation_text"] = invocation_text
-        payload = {
-            "command_result": result_payload
-        }
+        payload = {"command_result": result_payload}
         record = ChatMessageRecord(
             message_id=f"msg_{uuid.uuid4().hex[:16]}",
             session_id=session_id,
@@ -108,7 +108,9 @@ class ChatSurfaceWriteService:
             replaced_by_message_id=None,
         )
         await get_chat_store().append_message(record)
-        await self._broadcast_upsert(user_id=user_id, session_id=session_id, message_id=record.message_id)
+        await self._broadcast_upsert(
+            user_id=user_id, session_id=session_id, message_id=record.message_id
+        )
         return record.message_id
 
     async def create_background_task_pending_message(
@@ -182,38 +184,42 @@ class ChatSurfaceWriteService:
         message_id = f"msg_{uuid.uuid4().hex[:16]}"
         chat_store = get_chat_store()
 
-        await chat_store.upsert_turn(ChatTurnRecord(
-            turn_id=turn_id,
-            session_id=session_id,
-            user_id=user_id,
-            trace_id=None,
-            orchestration_id=None,
-            status="completed",
-            response_mode="final_only",
-            execution_mode=None,
-            ux_plan_json="{}",
-            created_at_ms=now_ms,
-            updated_at_ms=now_ms,
-            completed_at_ms=now_ms,
-            error_text=None,
-        ))
+        await chat_store.upsert_turn(
+            ChatTurnRecord(
+                turn_id=turn_id,
+                session_id=session_id,
+                user_id=user_id,
+                trace_id=None,
+                orchestration_id=None,
+                status="completed",
+                response_mode="final_only",
+                execution_mode=None,
+                ux_plan_json="{}",
+                created_at_ms=now_ms,
+                updated_at_ms=now_ms,
+                completed_at_ms=now_ms,
+                error_text=None,
+            )
+        )
 
-        await chat_store.append_message(ChatMessageRecord(
-            message_id=message_id,
-            session_id=session_id,
-            turn_id=turn_id,
-            user_id=user_id,
-            role="assistant",
-            message_kind="assistant_final",
-            content_text=content,
-            payload_json="{}",
-            is_final=True,
-            is_visible=True,
-            created_at_ms=now_ms,
-            sequence_no=await chat_store.next_sequence_no(session_id=session_id),
-            replaces_message_id=None,
-            replaced_by_message_id=None,
-        ))
+        await chat_store.append_message(
+            ChatMessageRecord(
+                message_id=message_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                user_id=user_id,
+                role="assistant",
+                message_kind="assistant_final",
+                content_text=content,
+                payload_json="{}",
+                is_final=True,
+                is_visible=True,
+                created_at_ms=now_ms,
+                sequence_no=await chat_store.next_sequence_no(session_id=session_id),
+                replaces_message_id=None,
+                replaced_by_message_id=None,
+            )
+        )
 
         await chat_store.bump_history_version(session_id)
         await self._broadcast_upsert(user_id=user_id, session_id=session_id, message_id=message_id)
@@ -252,12 +258,20 @@ class ChatSurfaceWriteService:
         session_id: str,
         message_id: str,
     ) -> bool:
-        message = await get_chat_store().hide_message(
+        chat_store = get_chat_store()
+        message = await chat_store.hide_message(
             session_id=session_id,
             message_id=message_id,
         )
         if message is None:
-            return False
+            existing = await chat_store.get_message(message_id)
+            if (
+                existing is None
+                or existing.session_id != session_id
+                or existing.user_id != user_id
+                or existing.is_visible
+            ):
+                return False
         await get_chat_message_notifier().broadcast_chat_message_hidden(
             user_id=user_id,
             session_id=session_id,

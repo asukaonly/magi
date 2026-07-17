@@ -50,6 +50,7 @@ from .episodes.store import L2EpisodeStoreMixin
 from .experiences.store import L2ExperienceStoreMixin
 from .extraction.candidates import L2StoreCandidateExtractionMixin
 from .governance.forgetting import L2StoreForgettingMixin
+from .governance.source_event_forgetting import L2StoreSourceEventForgettingMixin
 from .graph.conflicts import L2StoreGraphConflictMixin
 from .graph.edge_embeddings import L2StoreEdgeEmbeddingMixin
 from .graph.fact_kind import L2StoreFactKindMixin
@@ -79,6 +80,7 @@ class L2CognitionStore(
     L2StoreContradictionMixin,
     L2StoreSnapshotMixin,
     L2StoreAssertionMixin,
+    L2StoreSourceEventForgettingMixin,
     L2StoreForgettingMixin,
     L2StoreFeedbackMixin,
     L2StoreQueryMixin,
@@ -92,6 +94,9 @@ class L2CognitionStore(
         *,
         db_path: str = "~/.magi/data/memory/memory.db",
         graph_conflict_rules: Mapping[str, GraphConflictRule | Mapping[str, Any]] | None = None,
+        evidence_timestamp_resolver: (
+            Callable[[List[str]], Awaitable[Mapping[str, float]]] | None
+        ) = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._initialized = False
@@ -106,6 +111,22 @@ class L2CognitionStore(
         self._memory_correction_job_wakeup: Callable[[], Awaitable[None]] | None = None
         self._memory_correction_job_lock = asyncio.Lock()
         self._graph_conflict_rule_lock = asyncio.Lock()
+        self._evidence_timestamp_resolver = evidence_timestamp_resolver
+
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, float]:
+        """Resolve canonical L1 occurrence times when the unified store is available."""
+        normalized = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
+        if not normalized or self._evidence_timestamp_resolver is None:
+            return {}
+        resolved = await self._evidence_timestamp_resolver(normalized)
+        return {
+            str(event_id): float(observed_at)
+            for event_id, observed_at in resolved.items()
+            if str(event_id) in normalized
+        }
 
     async def initialize(self) -> None:
         """Verify cognition schema (alembic-managed) is reachable."""
@@ -432,6 +453,16 @@ class L2CognitionStore(
 _SHARED_USER_MEMORY_TABLES = (
     "memory_derivation_jobs",
     "memory_derivation_dependencies",
+    "memory_correction_forget_barriers",
+    "memory_forget_evidence_events",
+    "memory_forget_claim_rules",
+    "memory_time_range_forget_barriers",
+    "memory_forget_operation_refs",
+    "memory_forget_operation_events",
+    "memory_forget_operations",
+    "memory_source_event_tombstones",
+    "memory_claim_evidence_events",
+    "memory_correction_evidence_fail_closed",
     "memory_correction_evidence_events",
     "memory_relationship_conflict_effects",
     "memory_correction_rules",

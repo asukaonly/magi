@@ -10,6 +10,14 @@ from typing import Any, Dict, List
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...source_event_governance import (
+    normalize_source_event_ids,
+    promote_source_event_entity_projection_candidates,
+    source_event_entity_projection_block_ids,
+    source_event_time_range_block_ids,
+    source_event_time_range_block_predicate,
+    source_event_tombstone_ids,
+)
 from ..storage.utils import (
     accumulate_confidence,
     max_evidence_event_ids,
@@ -57,40 +65,68 @@ class L2EntityFacetStoreMixin:
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT confidence, evidence_event_ids, first_observed_at FROM entity_facets WHERE facet_id = ?",
-                (facet_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                active_event_ids = await _active_facet_source_event_ids(
+                    db,
+                    evidence_event_ids,
+                    entity_id=normalized_entity_id,
+                )
+                if evidence_event_ids and not active_event_ids:
+                    await db.commit()
+                    return facet_id
+                async with db.execute(
+                    "SELECT confidence, evidence_event_ids, first_observed_at "
+                    "FROM entity_facets WHERE facet_id = ?",
+                    (facet_id,),
+                ) as cursor:
+                    existing = await cursor.fetchone()
 
-            if existing:
-                await self._update_entity_facet(
-                    db,
-                    facet_id=facet_id,
-                    existing=existing,
-                    evidence_event_ids=evidence_event_ids,
-                    confidence=confidence,
-                    observed_at=observed_at,
-                    source_type=source_type,
-                    extraction_method=extraction_method,
-                    now=now,
-                )
-            else:
-                await self._insert_entity_facet(
-                    db,
-                    facet_id=facet_id,
-                    normalized_entity_id=normalized_entity_id,
-                    normalized_entity_type=normalized_entity_type,
-                    normalized_facet_name=normalized_facet_name,
-                    normalized_facet_value=normalized_facet_value,
-                    evidence_event_ids=evidence_event_ids,
-                    confidence=confidence,
-                    observed_at=observed_at,
-                    source_type=source_type,
-                    extraction_method=extraction_method,
-                    now=now,
-                )
-            await db.commit()
+                if existing:
+                    stored_event_ids, provenance_valid = _decode_facet_source_event_ids(
+                        existing["evidence_event_ids"]
+                    )
+                    retained_existing = await _active_facet_source_event_ids(
+                        db,
+                        stored_event_ids,
+                        entity_id=normalized_entity_id,
+                    )
+                    await self._update_entity_facet(
+                        db,
+                        facet_id=facet_id,
+                        existing_event_ids=list(retained_existing),
+                        evidence_event_ids=list(active_event_ids),
+                        existing_confidence=_retained_facet_confidence(
+                            float(existing["confidence"]),
+                            retained_count=len(retained_existing),
+                            original_count=len(stored_event_ids),
+                            provenance_valid=provenance_valid,
+                        ),
+                        confidence=confidence,
+                        observed_at=observed_at,
+                        source_type=source_type,
+                        extraction_method=extraction_method,
+                        now=now,
+                    )
+                else:
+                    await self._insert_entity_facet(
+                        db,
+                        facet_id=facet_id,
+                        normalized_entity_id=normalized_entity_id,
+                        normalized_entity_type=normalized_entity_type,
+                        normalized_facet_name=normalized_facet_name,
+                        normalized_facet_value=normalized_facet_value,
+                        evidence_event_ids=list(active_event_ids),
+                        confidence=confidence,
+                        observed_at=observed_at,
+                        source_type=source_type,
+                        extraction_method=extraction_method,
+                        now=now,
+                    )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
         return facet_id
 
     @staticmethod
@@ -121,12 +157,10 @@ class L2EntityFacetStoreMixin:
 
     @staticmethod
     def _merged_facet_evidence(
-        existing: aiosqlite.Row,
+        existing_event_ids: List[str],
         evidence_event_ids: List[str],
     ) -> list[str]:
-        merged_evidence = sorted(
-            set(json.loads(existing["evidence_event_ids"] or "[]")).union(evidence_event_ids)
-        )
+        merged_evidence = sorted(set(existing_event_ids).union(evidence_event_ids))
         evidence_cap = max_evidence_event_ids()
         if len(merged_evidence) > evidence_cap:
             return merged_evidence[-evidence_cap:]
@@ -137,18 +171,20 @@ class L2EntityFacetStoreMixin:
         db: aiosqlite.Connection,
         *,
         facet_id: str,
-        existing: aiosqlite.Row,
+        existing_event_ids: List[str],
         evidence_event_ids: List[str],
+        existing_confidence: float,
         confidence: float,
         observed_at: float,
         source_type: str,
         extraction_method: str,
         now: float,
     ) -> None:
-        merged_evidence = self._merged_facet_evidence(existing, evidence_event_ids)
-        accumulated_confidence = accumulate_confidence(
-            float(existing["confidence"]), float(confidence)
+        merged_evidence = self._merged_facet_evidence(
+            existing_event_ids,
+            evidence_event_ids,
         )
+        accumulated_confidence = accumulate_confidence(existing_confidence, float(confidence))
         await db.execute(
             """
             UPDATE entity_facets
@@ -218,7 +254,11 @@ class L2EntityFacetStoreMixin:
     ) -> List[Dict[str, Any]]:
         """List persisted entity facets."""
         await self.initialize()
-        sql = "SELECT * FROM entity_facets WHERE 1=1"
+        sql = f"""
+            SELECT * FROM entity_facets AS facets
+            WHERE facets.status = 'active'
+              AND {_active_facet_predicate("facets")}
+        """
         args: list[Any] = []
         if entity_id:
             sql += " AND entity_id = ?"
@@ -262,11 +302,13 @@ class L2EntityFacetStoreMixin:
         placeholders_entity = ", ".join("?" for _ in normalized_entity_ids)
         placeholders_value = ", ".join("?" for _ in normalized_values)
         sql = f"""
-            SELECT entity_id
-            FROM entity_facets
-            WHERE entity_id IN ({placeholders_entity})
-              AND facet_name = ?
-              AND facet_value IN ({placeholders_value})
+            SELECT facets.entity_id
+            FROM entity_facets AS facets
+            WHERE facets.entity_id IN ({placeholders_entity})
+              AND facets.status = 'active'
+              AND facets.facet_name = ?
+              AND facets.facet_value IN ({placeholders_value})
+              AND {_active_facet_predicate("facets")}
             GROUP BY entity_id
         """
         args: list[Any] = [*normalized_entity_ids, normalized_facet_name, *normalized_values]
@@ -289,3 +331,94 @@ class L2EntityFacetStoreMixin:
             "source_type": row["source_type"],
             "extraction_method": row["extraction_method"],
         }
+
+
+def _decode_facet_source_event_ids(value: Any) -> tuple[tuple[str, ...], bool]:
+    try:
+        decoded = json.loads(value) if isinstance(value, str) else value
+    except (TypeError, json.JSONDecodeError):
+        return (), False
+    if not isinstance(decoded, list):
+        return (), False
+    if any(not isinstance(event_id, str) or not event_id.strip() for event_id in decoded):
+        return (), False
+    return normalize_source_event_ids(decoded), True
+
+
+def _retained_facet_confidence(
+    confidence: float,
+    *,
+    retained_count: int,
+    original_count: int,
+    provenance_valid: bool,
+) -> float:
+    if not provenance_valid:
+        return 0.0
+    if original_count <= 0 or retained_count >= original_count:
+        return confidence
+    if retained_count <= 0:
+        return 0.0
+    bounded = min(max(confidence, 0.0), 1.0)
+    return 1.0 - ((1.0 - bounded) ** (retained_count / original_count))
+
+
+async def _active_facet_source_event_ids(
+    db: aiosqlite.Connection,
+    event_ids: List[str] | tuple[str, ...],
+    *,
+    entity_id: str,
+) -> tuple[str, ...]:
+    normalized = normalize_source_event_ids(event_ids)
+    if not normalized:
+        return ()
+    blocked = await source_event_tombstone_ids(db, normalized)
+    blocked.update(await source_event_time_range_block_ids(db, normalized))
+    await promote_source_event_entity_projection_candidates(
+        db,
+        normalized,
+        entity_ids=[entity_id],
+    )
+    blocked.update(
+        await source_event_entity_projection_block_ids(
+            db,
+            normalized,
+            entity_ids=[entity_id],
+        )
+    )
+    return tuple(event_id for event_id in normalized if event_id not in blocked)
+
+
+def _active_facet_predicate(alias: str) -> str:
+    return f"""
+        json_valid({alias}.evidence_event_ids)
+        AND json_type({alias}.evidence_event_ids) = 'array'
+        AND NOT EXISTS (
+            SELECT 1
+            FROM json_each({alias}.evidence_event_ids) AS invalid_source
+            WHERE invalid_source.type != 'text'
+               OR TRIM(CAST(invalid_source.value AS TEXT)) = ''
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM json_each({alias}.evidence_event_ids) AS source
+            JOIN memory_source_event_tombstones AS tombstones
+              ON tombstones.event_id = TRIM(CAST(source.value AS TEXT))
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM json_each({alias}.evidence_event_ids) AS source
+            JOIN memory_projection_blocks AS projection_blocks
+              ON projection_blocks.event_id = TRIM(CAST(source.value AS TEXT))
+             AND {source_event_time_range_block_predicate("projection_blocks")}
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM json_each({alias}.evidence_event_ids) AS source
+            JOIN memory_projection_blocks AS entity_blocks
+              ON entity_blocks.event_id = TRIM(CAST(source.value AS TEXT))
+             AND entity_blocks.block_kind IN (
+                    'entity_projection', 'entity_projection_candidate'
+                 )
+             AND entity_blocks.target_id = {alias}.entity_id
+        )
+    """

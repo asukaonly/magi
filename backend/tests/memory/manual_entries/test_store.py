@@ -46,14 +46,16 @@ async def test_create_with_attachments_and_mood(manual_entry_db: str):
         "manual-entry-asset://aaa.png",
         "manual-entry-asset://bbb.jpg",
     ]
-    entry_id = await store.create(_entry(
-        body="带图的一条",
-        mood="warm",
-        attachments=refs,
-        location_label="杭州",
-        location_lat=30.27,
-        location_lng=120.15,
-    ))
+    entry_id = await store.create(
+        _entry(
+            body="带图的一条",
+            mood="warm",
+            attachments=refs,
+            location_label="杭州",
+            location_lat=30.27,
+            location_lng=120.15,
+        )
+    )
     fetched = await store.get(entry_id)
     assert fetched.mood == "warm"
     assert fetched.attachments == refs
@@ -64,10 +66,11 @@ async def test_create_with_attachments_and_mood(manual_entry_db: str):
 @pytest.mark.asyncio
 async def test_list_window_filters_by_event_at_and_excludes_deleted(manual_entry_db: str):
     store = ManualEntryStore(db_path=manual_entry_db)
-    id_a = await store.create(_entry(event_at=100.0, body="A"))
+    await store.create(_entry(event_at=100.0, body="A"))
     id_b = await store.create(_entry(event_at=200.0, body="B"))
-    id_c = await store.create(_entry(event_at=350.0, body="C"))
-    await store.soft_delete(id_b)
+    await store.create(_entry(event_at=350.0, body="C"))
+    assert await store.request_delete(id_b, requested_at=1.0)
+    assert await store.finalize_delete(id_b, deleted_at=2.0)
 
     in_window = await store.list_window(time_start=50.0, time_end=300.0)
     bodies = [e.body for e in in_window]
@@ -76,9 +79,44 @@ async def test_list_window_filters_by_event_at_and_excludes_deleted(manual_entry
     assert "C" not in bodies  # out of window
 
     with_deleted = await store.list_window(
-        time_start=50.0, time_end=300.0, include_deleted=True,
+        time_start=50.0,
+        time_end=300.0,
+        include_deleted=True,
     )
     assert {e.body for e in with_deleted} == {"A", "B"}
+
+
+@pytest.mark.asyncio
+async def test_list_window_hides_delete_gated_row_before_finalization(
+    manual_entry_db: str,
+) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(event_at=100.0, body="private"))
+    assert await store.request_delete(entry_id, requested_at=1.0)
+
+    visible = await store.list_window(time_start=0.0, time_end=200.0)
+
+    assert visible == []
+
+
+@pytest.mark.asyncio
+async def test_recovery_candidates_are_stably_paginated(manual_entry_db: str) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    for entry_id in ("me-30", "me-10", "me-20"):
+        await store.create(_entry(entry_id=entry_id, body=entry_id))
+    linked_id = await store.create(
+        _entry(entry_id="me-40", body="linked", l1_event_id="event-linked")
+    )
+
+    first = await store.list_recovery_candidates(limit=2)
+    second = await store.list_recovery_candidates(
+        after_entry_id=first[-1].entry_id,
+        limit=2,
+    )
+
+    assert [entry.entry_id for entry in first] == ["me-10", "me-20"]
+    assert [entry.entry_id for entry in second] == ["me-30"]
+    assert linked_id not in {entry.entry_id for entry in [*first, *second]}
 
 
 @pytest.mark.asyncio
@@ -114,23 +152,186 @@ async def test_update_mood_empty_string_clears_to_null(manual_entry_db: str):
 
 
 @pytest.mark.asyncio
-async def test_soft_delete_idempotent(manual_entry_db: str):
+async def test_delete_gate_and_finalize_are_idempotent(manual_entry_db: str):
     store = ManualEntryStore(db_path=manual_entry_db)
     entry_id = await store.create(_entry(body="x"))
-    first = await store.soft_delete(entry_id)
-    second = await store.soft_delete(entry_id)
-    assert first is True
-    # Second time the WHERE clause excludes already-deleted rows → no row changed
-    assert second is False
+    assert await store.request_delete(entry_id, requested_at=1.0) is True
+    assert await store.request_delete(entry_id, requested_at=2.0) is True
+    gated = await store.get(entry_id)
+    assert gated is not None
+    assert gated.delete_requested_at == 1.0
+
+    assert await store.finalize_delete(entry_id, deleted_at=3.0) is True
+    assert await store.finalize_delete(entry_id, deleted_at=4.0) is False
+    deleted = await store.get(entry_id)
+    assert deleted is not None
+    assert deleted.deleted_at == 3.0
+    assert deleted.delete_requested_at is None
 
 
 @pytest.mark.asyncio
-async def test_link_l1_event(manual_entry_db: str):
+async def test_projection_reservation_and_completion(manual_entry_db: str):
     store = ManualEntryStore(db_path=manual_entry_db)
     entry_id = await store.create(_entry(body="x"))
-    await store.link_l1_event(entry_id, "01HXYZ123")
+    reserved = await store.reserve_l1_projection(
+        entry_id,
+        "01HXYZ123",
+        expected_previous_event_id=None,
+    )
+    assert reserved is True
+    pending = await store.get(entry_id)
+    assert pending is not None
+    assert pending.l1_event_id is None
+    assert pending.pending_l1_event_id == "01HXYZ123"
+    assert pending.pending_l1_predecessor_event_id is None
+
+    linked = await store.complete_l1_projection(
+        entry_id,
+        "01HXYZ123",
+        expected_previous_event_id=None,
+    )
+    assert linked is True
     fetched = await store.get(entry_id)
+    assert fetched is not None
     assert fetched.l1_event_id == "01HXYZ123"
+    assert fetched.pending_l1_event_id is None
+
+
+@pytest.mark.asyncio
+async def test_mutations_and_projection_reject_wrong_or_delete_gated_state(
+    manual_entry_db: str,
+):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="before", l1_event_id="event-old"))
+
+    assert (
+        await store.update(
+            entry_id,
+            body="wrong predecessor",
+            expected_l1_event_id="event-other",
+        )
+        is False
+    )
+    assert (
+        await store.reserve_l1_projection(
+            entry_id,
+            "event-new",
+            expected_previous_event_id="event-other",
+        )
+        is False
+    )
+
+    assert await store.request_delete(entry_id, requested_at=1.0)
+    assert (
+        await store.update(
+            entry_id,
+            body="after delete",
+            expected_l1_event_id="event-old",
+        )
+        is False
+    )
+    assert (
+        await store.reserve_l1_projection(
+            entry_id,
+            "event-new",
+            expected_previous_event_id="event-old",
+        )
+        is False
+    )
+
+    fetched = await store.get(entry_id)
+    assert fetched is not None
+    assert fetched.body == "before"
+    assert fetched.l1_event_id == "event-old"
+
+
+@pytest.mark.asyncio
+async def test_pending_projection_blocks_source_mutation_until_completed(
+    manual_entry_db: str,
+):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="before", l1_event_id="event-old"))
+
+    assert await store.reserve_l1_projection(
+        entry_id,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+    assert (
+        await store.update(
+            entry_id,
+            body="must not overtake pending projection",
+            expected_l1_event_id="event-old",
+        )
+        is False
+    )
+    assert await store.set_weather(entry_id, {"code": 1}) is False
+
+    assert await store.complete_l1_projection(
+        entry_id,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+    assert (
+        await store.update(
+            entry_id,
+            body="after completion",
+            expected_l1_event_id="event-new",
+        )
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_delete_gate_overtakes_pending_projection_without_losing_identity(
+    manual_entry_db: str,
+):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(_entry(body="before", l1_event_id="event-old"))
+    assert await store.reserve_l1_projection(
+        entry_id,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+
+    assert await store.request_delete(entry_id, requested_at=2.0)
+    assert (
+        await store.complete_l1_projection(
+            entry_id,
+            "event-new",
+            expected_previous_event_id="event-old",
+        )
+        is False
+    )
+    gated = await store.get(entry_id)
+    assert gated is not None
+    assert gated.pending_l1_event_id == "event-new"
+    assert gated.delete_requested_at == 2.0
+
+
+@pytest.mark.asyncio
+async def test_update_clears_weather_atomically_with_event_time(manual_entry_db: str):
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(
+        _entry(
+            event_at=100.0,
+            weather={"code": 1, "temp_c": 20.0},
+            l1_event_id="event-old",
+        )
+    )
+
+    changed = await store.update(
+        entry_id,
+        event_at=1000.0,
+        clear_weather=True,
+        expected_l1_event_id="event-old",
+    )
+
+    assert changed is True
+    fetched = await store.get(entry_id)
+    assert fetched is not None
+    assert fetched.event_at == 1000.0
+    assert fetched.weather is None
 
 
 @pytest.mark.asyncio
@@ -176,10 +377,13 @@ async def test_body_doc_roundtrip_via_create(manual_entry_db: str):
     doc = {
         "type": "doc",
         "content": [
-            {"type": "paragraph", "content": [
-                {"type": "text", "text": "今天天气"},
-                {"type": "text", "marks": [{"type": "bold"}], "text": "真好"},
-            ]},
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "今天天气"},
+                    {"type": "text", "marks": [{"type": "bold"}], "text": "真好"},
+                ],
+            },
         ],
     }
     entry_id = await store.create(_entry(body="今天天气真好", body_doc=doc))

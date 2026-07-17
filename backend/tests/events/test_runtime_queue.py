@@ -543,6 +543,136 @@ async def test_user_message_clear_boundary_purges_every_old_payload_and_preserve
 
 
 @pytest.mark.asyncio
+async def test_session_delete_barrier_purges_only_matching_payloads_and_survives_restart(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import (
+        SQLiteRuntimeCommandQueue,
+        UserMessageScopeBlockedError,
+    )
+
+    db_path = tmp_path / "runtime_commands.db"
+    queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await queue.start()
+
+    def _command(session_id: str, turn_id: str, message_id: str) -> UserMessageCommand:
+        return UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id=session_id,
+            turn_id=turn_id,
+            message=f"private:{message_id}",
+            correlation_id=f"user_message:{message_id}",
+        )
+
+    try:
+        await queue.enqueue_user_message(_command("session-delete", "turn-1", "message-1"))
+        completed = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert completed is not None
+        await queue.ack(completed.command_id)
+        await queue.enqueue_user_message(_command("session-delete", "turn-2", "message-2"))
+        kept_id = await queue.enqueue_user_message(_command("session-keep", "turn-3", "message-3"))
+
+        async with queue.user_message_clear_boundary():
+            purged = await queue.block_user_message_scope_and_purge(
+                user_id="user-1",
+                session_id="session-delete",
+                reason="user_delete_chat_session",
+            )
+
+        assert purged == 2
+        assert await queue.is_user_message_scope_blocked(
+            user_id="user-1",
+            session_id="session-delete",
+        )
+        assert not await queue.is_user_message_scope_blocked(
+            user_id="user-1",
+            session_id="session-keep",
+        )
+        with pytest.raises(UserMessageScopeBlockedError):
+            await queue.enqueue_user_message(_command("session-delete", "turn-new", "message-new"))
+
+        kept = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert kept is not None
+        assert kept.command_id == kept_id
+    finally:
+        await queue.stop()
+
+    restarted = SQLiteRuntimeCommandQueue(db_path=str(db_path))
+    await restarted.start()
+    try:
+        assert await restarted.is_user_message_scope_blocked(
+            user_id="user-1",
+            session_id="session-delete",
+        )
+    finally:
+        await restarted.stop()
+
+
+@pytest.mark.asyncio
+async def test_message_delete_barrier_keeps_sibling_turns_in_same_session(
+    tmp_path: Path,
+) -> None:
+    from magi.events.contracts import RuntimeCommandType, UserMessageCommand
+    from magi.events.runtime_queue import SQLiteRuntimeCommandQueue
+
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+
+    async def _enqueue(turn_id: str, message_id: str) -> int:
+        return await queue.enqueue_user_message(
+            UserMessageCommand(
+                source="api",
+                user_id="user-1",
+                session_id="session-1",
+                turn_id=turn_id,
+                message=message_id,
+                correlation_id=f"user_message:{message_id}",
+            )
+        )
+
+    try:
+        await _enqueue("turn-delete", "message-delete")
+        kept_id = await _enqueue("turn-keep", "message-keep")
+
+        async with queue.user_message_clear_boundary():
+            purged = await queue.block_user_message_scope_and_purge(
+                user_id="user-1",
+                session_id="session-1",
+                turn_id="turn-delete",
+                message_id="message-delete",
+                reason="user_delete_chat_message",
+            )
+
+        assert purged == 1
+        assert await queue.is_user_message_scope_blocked(
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-delete",
+        )
+        assert not await queue.is_user_message_scope_blocked(
+            user_id="user-1",
+            session_id="session-1",
+            turn_id="turn-keep",
+        )
+        kept = await queue.claim_next(
+            consumer_name="worker",
+            command_types=(RuntimeCommandType.USER_MESSAGE,),
+        )
+        assert kept is not None
+        assert kept.command_id == kept_id
+    finally:
+        await queue.stop()
+
+
+@pytest.mark.asyncio
 async def test_user_message_can_reenqueue_same_correlation_after_destructive_clear(
     tmp_path: Path,
 ) -> None:

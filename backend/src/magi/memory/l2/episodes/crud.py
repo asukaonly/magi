@@ -10,7 +10,12 @@ from typing import Any, Dict, List, Optional
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...source_event_governance import matching_time_range_forget_barriers
 from .codec import L2EpisodeStoreBaseMixin
+
+
+class ForgottenEpisodeTimeRangeError(RuntimeError):
+    """Raised when an episode would recreate a forgotten occurrence range."""
 
 
 _EPISODE_LIST_INSERT_COLUMNS = {
@@ -76,8 +81,7 @@ def _episode_json_list(values: list[str] | None) -> str:
 
 def _episode_insert_values(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(
-        _episode_insert_value(column, row.get(column))
-        for column in _EPISODE_INSERT_COLUMNS
+        _episode_insert_value(column, row.get(column)) for column in _EPISODE_INSERT_COLUMNS
     )
 
 
@@ -402,18 +406,42 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
     ) -> str:
         """Create a new episode record."""
         await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            barriers = await matching_time_range_forget_barriers(
+                db,
+                observed_from=float(time_start),
+                observed_to=float(time_end),
+            )
+        if barriers:
+            raise ForgottenEpisodeTimeRangeError(
+                "Episode occurrence overlaps a forgotten time range"
+            )
         now = time.time()
         row = dict(
-            episode_id=episode_id, episode_type=episode_type, status=status,
-            time_start=time_start, time_end=time_end, parent_episode_id=parent_episode_id,
-            label=label, summary=summary, dominant_mode=dominant_mode,
-            primary_entity_ids=primary_entity_ids, primary_place_ids=primary_place_ids,
-            primary_topic_keys=primary_topic_keys, continuity_signals=continuity_signals,
-            formation_method=formation_method, confidence=confidence,
-            source_event_count=source_event_count, slice_narrative=slice_narrative,
-            slice_sensory_detail=slice_sensory_detail, magi_standout=magi_standout,
-            standout_score=standout_score, standout_reason=standout_reason,
-            representative_asset_ref=representative_asset_ref, created_at=now, updated_at=now,
+            episode_id=episode_id,
+            episode_type=episode_type,
+            status=status,
+            time_start=time_start,
+            time_end=time_end,
+            parent_episode_id=parent_episode_id,
+            label=label,
+            summary=summary,
+            dominant_mode=dominant_mode,
+            primary_entity_ids=primary_entity_ids,
+            primary_place_ids=primary_place_ids,
+            primary_topic_keys=primary_topic_keys,
+            continuity_signals=continuity_signals,
+            formation_method=formation_method,
+            confidence=confidence,
+            source_event_count=source_event_count,
+            slice_narrative=slice_narrative,
+            slice_sensory_detail=slice_sensory_detail,
+            magi_standout=magi_standout,
+            standout_score=standout_score,
+            standout_reason=standout_reason,
+            representative_asset_ref=representative_asset_ref,
+            created_at=now,
+            updated_at=now,
         )
         await self._insert_episode_row(row)
         return episode_id
@@ -440,9 +468,10 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
         self,
         *,
         episode_id: str,
+        expected_status: str | None = None,
         **fields: Any,
     ) -> bool:
-        """Update mutable fields of an episode. Returns True if found."""
+        """Update mutable fields of an episode when its current status matches."""
         allowed = {
             "status",
             "time_start",
@@ -490,12 +519,16 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
 
         updates["updated_at"] = time.time()
         set_clause = ", ".join(f"{key} = ?" for key in updates)
+        where_clause = "episode_id = ?"
         values = list(updates.values()) + [episode_id]
+        if expected_status is not None:
+            where_clause += " AND status = ?"
+            values.append(str(expected_status))
 
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
-                f"UPDATE episodes SET {set_clause} WHERE episode_id = ?",
+                f"UPDATE episodes SET {set_clause} WHERE {where_clause}",
                 tuple(values),
             )
             await db.commit()
@@ -596,6 +629,9 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
                 if survivor is None or absorbed is None:
                     await db.rollback()
                     return None
+                if str(survivor["status"]) != "active" or str(absorbed["status"]) != "active":
+                    await db.rollback()
+                    return None
 
                 await _move_absorbed_episode_memberships(
                     db,
@@ -668,7 +704,7 @@ class L2EpisodeCrudMixin(L2EpisodeStoreBaseMixin):
             await db.execute("BEGIN IMMEDIATE")
             try:
                 source = await _fetch_episode_row(db, episode_id=source_episode_id)
-                if source is None:
+                if source is None or str(source["status"]) != "active":
                     await db.rollback()
                     return None
 

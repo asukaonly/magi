@@ -48,6 +48,15 @@ class UnifiedMemoryLifecycleMixin:
             if store is None:
                 continue
             await store.initialize()
+        recovery = await self.resume_pending_forget_operations(
+            force=True,
+            fail_on_barrier_error=True,
+        )
+        if recovery["found"]:
+            logger.info(
+                "Recovered durable forget operations before memory writers started: %s",
+                recovery,
+            )
         if self.l2_pipeline is not None:
             await self.l2_pipeline.start()
 

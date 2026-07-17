@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional, Protocol, cast
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
-
+from ..source_event_governance import active_summary_predicate
 
 ALLOWED_REVIEW_STATES = (
     "neutral",
@@ -92,9 +92,9 @@ class L3ReviewOperationsMixin:
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT * FROM summaries
-                WHERE summary_id = ? AND derivation_state = 'current'
+                WHERE summary_id = ? AND {active_summary_predicate()}
                 """,
                 (summary_id,),
             ) as cursor:

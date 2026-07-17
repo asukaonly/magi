@@ -79,6 +79,7 @@ vi.mock('@/api/modules/memory', async () => {
     memoryApi: {
       getDashboard: vi.fn(),
       submitAssertionFeedback: vi.fn(),
+      applyCorrection: vi.fn(),
     },
   };
 });
@@ -354,6 +355,17 @@ describe('MemoryOverviewPage', () => {
     vi.mocked(sensorsApi.getStatus).mockResolvedValue(sensorPayload as any);
     vi.mocked(memoryStoriesApi.list).mockResolvedValue(storyPayload as any);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as any);
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction-1',
+        correction_kind: 'record_error',
+        created_at: 1710000001,
+        state: 'active',
+      },
+      current_claim: null,
+      derivation_state: 'completed',
+      created: true,
+    });
     vi.mocked(memoryStoriesApi.review).mockResolvedValue({
       ok: true,
       summary_id: 'story-1',
@@ -552,5 +564,26 @@ describe('MemoryOverviewPage', () => {
     await user.click(screen.getByRole('button', { name: 'memory.overview.actions.confirmStory' }));
 
     expect(memoryStoriesApi.review).toHaveBeenCalledWith('story-1', { review_state: 'confirmed' });
+  });
+
+  it('opens governed correction instead of rejecting an assertion through feedback', async () => {
+    const user = userEvent.setup();
+    renderOverview();
+
+    await screen.findByText('I found an about-you judgment: "Python"');
+    await user.click(screen.getByRole('button', { name: 'memory.overview.actions.rejectAssertion' }));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('memory.correction.title')).toBeInTheDocument();
+    expect(memoryApi.submitAssertionFeedback).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'memory.correction.removeSubmit' }));
+    await waitFor(() => {
+      expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+        target: { kind: 'assertion', id: 'assert-1' },
+        correction_kind: 'record_error',
+      }));
+    });
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
   });
 });

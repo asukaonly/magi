@@ -38,6 +38,10 @@ class _FakeRuntimeCommandQueue:
     async def user_message_operation(self):  # type: ignore[no-untyped-def]
         yield
 
+    async def is_user_message_scope_blocked(self, **scope) -> bool:  # type: ignore[no-untyped-def]
+        _ = scope
+        return False
+
     async def enqueue_user_message(self, command) -> int:
         for index, existing in enumerate(self.commands, start=1):
             if existing.correlation_id == command.correlation_id:
@@ -298,6 +302,36 @@ async def test_dispatch_user_message_persists_chat_turn_before_enqueue(
     assert chat_projector.user_messages[0]["message_id"] == f"msg-{outcome.turn_id}"
     assert chat_projector.user_messages[0]["metadata"] == {}
     assert len(queue.commands) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_rejects_deleted_scope_before_chat_or_memory_writes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _BlockedQueue(_FakeRuntimeCommandQueue):
+        async def is_user_message_scope_blocked(self, **scope) -> bool:  # type: ignore[no-untyped-def]
+            return scope["session_id"] == "session-deleted"
+
+    queue = _BlockedQueue()
+    chat_store = _FakeChatStore()
+    chat_projector = _FakeChatProjector()
+    monkeypatch.setattr(service, "require_runtime_command_queue", lambda: queue)
+    monkeypatch.setattr(service, "get_chat_store", lambda: chat_store)
+    monkeypatch.setattr(service, "get_chat_projector", lambda: chat_projector)
+
+    outcome = await service.dispatch_user_message(
+        source="api",
+        user_id="u1",
+        message="must not be recreated",
+        session_id="session-deleted",
+        client_turn_id="turn-deleted",
+    )
+
+    assert outcome.success is False
+    assert outcome.error_code == service.CHAT_SCOPE_DELETED
+    assert chat_store.created_turns == []
+    assert chat_projector.user_messages == []
+    assert queue.commands == []
 
 
 @pytest.mark.asyncio

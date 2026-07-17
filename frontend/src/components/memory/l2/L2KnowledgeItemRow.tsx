@@ -1,14 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Check, Pencil, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import type { L1Event } from '@/api/modules/memory';
 import {
   coerceKnowledgeEventIds,
-  coerceKnowledgeText,
   formatConfidence,
   formatEventTime,
   translateWithFallback,
+  type KnowledgeCorrectionAction,
   type KnowledgeDetailRow,
   type KnowledgeItem,
   type MemoryTranslateFn,
@@ -20,14 +19,11 @@ export const KnowledgeItemRow: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
-}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => {
-  const safeCorrectionValue = coerceKnowledgeText(item.correctionValue);
+}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [correctionDraft, setCorrectionDraft] = useState(safeCorrectionValue);
   const confidence = formatConfidence(item.confidence);
   const metaItems = [
     item.kindLabel,
@@ -46,22 +42,23 @@ export const KnowledgeItemRow: React.FC<{
     ) : null,
   ].filter(Boolean).join(' · ');
   const evidenceIds = coerceKnowledgeEventIds(item.evidenceIds).slice(0, 8);
-  const trimmedCorrectionDraft = correctionDraft.trim();
-  const currentCorrectionValue = safeCorrectionValue.trim();
-  const canReview = Boolean(
+  const isReviewableAssertion = Boolean(
     item.assertionId &&
-    onSubmitAssertionFeedback &&
     (item.statusGroup === 'needsReview' || item.statusGroup === 'conflicted')
   );
-  const canCorrect = Boolean(canReview && onCorrectAssertion && item.correctionValue !== undefined);
-  const isDetailsOpen = isOpen || isEditing;
+  const canConfirm = Boolean(isReviewableAssertion && onSubmitAssertionFeedback);
+  const canCorrect = Boolean(
+    isReviewableAssertion &&
+    onRequestAssertionCorrection &&
+    item.correctionValue !== undefined
+  );
   const technicalRows = [
     ...(item.technicalRows ?? []),
     item.updatedAt ? { label: t('memory.pages.knowledge.fields.updatedAt'), value: formatEventTime(item.updatedAt) } : null,
   ].filter((row): row is KnowledgeDetailRow => Boolean(row));
   const handleFeedback = (
     event: React.MouseEvent<HTMLButtonElement>,
-    feedback: 'confirmed' | 'rejected'
+    feedback: 'confirmed'
   ) => {
     event.preventDefault();
     event.stopPropagation();
@@ -69,45 +66,22 @@ export const KnowledgeItemRow: React.FC<{
       void onSubmitAssertionFeedback(item.assertionId, feedback);
     }
   };
-  const handleStartCorrection = (event: React.MouseEvent<HTMLButtonElement>) => {
+  const handleRequestCorrection = (
+    event: React.MouseEvent<HTMLButtonElement>,
+    action: KnowledgeCorrectionAction
+  ) => {
     event.preventDefault();
     event.stopPropagation();
-    setCorrectionDraft(safeCorrectionValue);
-    setIsEditing(true);
-    setIsOpen(true);
+    onRequestAssertionCorrection?.(item, action);
   };
-  const handleCancelCorrection = () => {
-    setCorrectionDraft(safeCorrectionValue);
-    setIsEditing(false);
-  };
-  const handleSaveCorrection = async () => {
-    if (!item.assertionId || !onCorrectAssertion || !trimmedCorrectionDraft || trimmedCorrectionDraft === currentCorrectionValue) {
-      return;
-    }
-    try {
-      await onCorrectAssertion(item.assertionId, trimmedCorrectionDraft);
-      setIsEditing(false);
-    } catch {
-      return;
-    }
-  };
-
-  useEffect(() => {
-    if (!isEditing) {
-      setCorrectionDraft(safeCorrectionValue);
-    }
-  }, [isEditing, safeCorrectionValue]);
 
   return (
     <details
       className="group"
-      open={isDetailsOpen}
+      open={isOpen}
       onToggle={(event) => {
         const nextOpen = event.currentTarget.open;
         setIsOpen(nextOpen);
-        if (!nextOpen) {
-          setIsEditing(false);
-        }
         if (nextOpen && evidenceIds.length > 0) {
           void onLoadEvidenceEvents(evidenceIds);
         }
@@ -120,88 +94,49 @@ export const KnowledgeItemRow: React.FC<{
             <div className="mt-1 break-words text-sm font-medium leading-6 text-[hsl(var(--memory-title))]">{item.title}</div>
             {item.body ? <div className="mt-1 line-clamp-2 text-sm leading-6 text-[hsl(var(--memory-body))]">{item.body}</div> : null}
           </div>
-          {canReview ? (
+          {canConfirm || canCorrect ? (
             <div className="flex shrink-0 justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-sm"
-                disabled={actionLoading || item.userFeedback === 'confirmed'}
-                onClick={(event) => handleFeedback(event, 'confirmed')}
-              >
-                <Check className="mr-2 h-4 w-4" />
-                {t('memory.l2.confirmAssertion')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 rounded-sm"
-                disabled={actionLoading || item.userFeedback === 'rejected'}
-                onClick={(event) => handleFeedback(event, 'rejected')}
-              >
-                <X className="mr-2 h-4 w-4" />
-                {t('memory.l2.rejectAssertion')}
-              </Button>
-              {canCorrect ? (
+              {canConfirm ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-8 rounded-sm"
-                  disabled={actionLoading}
-                  onClick={handleStartCorrection}
+                  disabled={actionLoading || item.userFeedback === 'confirmed'}
+                  onClick={(event) => handleFeedback(event, 'confirmed')}
                 >
-                  <Pencil className="mr-2 h-4 w-4" />
-                  {t('memory.l2.correctAssertion')}
+                  <Check className="mr-2 h-4 w-4" />
+                  {t('memory.l2.confirmAssertion')}
                 </Button>
+              ) : null}
+              {canCorrect ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-sm"
+                    disabled={actionLoading}
+                    onClick={(event) => handleRequestCorrection(event, 'remove')}
+                  >
+                    <X className="mr-2 h-4 w-4" />
+                    {t('memory.l2.rejectAssertion')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-sm"
+                    disabled={actionLoading}
+                    onClick={(event) => handleRequestCorrection(event, 'replace')}
+                  >
+                    <Pencil className="mr-2 h-4 w-4" />
+                    {t('memory.l2.correctAssertion')}
+                  </Button>
+                </>
               ) : null}
             </div>
           ) : null}
         </div>
       </summary>
       <div className="border-t border-[hsl(var(--memory-divider)/0.52)] bg-[hsl(var(--memory-panel-subtle)/0.36)] px-4 py-3">
-        {isEditing ? (
-          <div className="mb-3 rounded-sm border border-[hsl(var(--memory-border)/0.5)] bg-[hsl(var(--memory-panel)/0.68)] px-3 py-3">
-            <label className="text-xs font-medium text-[hsl(var(--memory-muted))]" htmlFor={`${item.id}-correction-input`}>
-              {t('memory.l2.correctionValue')}
-            </label>
-            <div className="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto]">
-              <Input
-                id={`${item.id}-correction-input`}
-                value={correctionDraft}
-                placeholder={t('memory.l2.correctionPlaceholder')}
-                onChange={(event) => setCorrectionDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    void handleSaveCorrection();
-                  }
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    handleCancelCorrection();
-                  }
-                }}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 rounded-sm"
-                disabled={actionLoading || !trimmedCorrectionDraft || trimmedCorrectionDraft === currentCorrectionValue}
-                onClick={() => void handleSaveCorrection()}
-              >
-                {t('memory.l2.saveCorrection')}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-9 rounded-sm"
-                disabled={actionLoading}
-                onClick={handleCancelCorrection}
-              >
-                {t('memory.l2.cancelCorrection')}
-              </Button>
-            </div>
-          </div>
-        ) : null}
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {item.detailRows.map((row) => (
             <KnowledgeDetailField key={`${item.id}-${row.label}`} label={row.label} value={row.value} />

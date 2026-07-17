@@ -24,7 +24,10 @@ class _FakeL2:
         self._events = events
 
     async def get_episode(self, *, episode_id: str):
-        return self._episodes.get(episode_id)
+        episode = self._episodes.get(episode_id)
+        if episode is None:
+            return None
+        return {"status": "active", **episode}
 
     async def list_episode_events(self, *, episode_id: str):
         return self._events.get(episode_id, [])
@@ -42,7 +45,9 @@ class _FakeL2WithBackwrite(_FakeL2):
         self.updates.append({"episode_id": episode_id, **fields})
         return episode_id in self._episodes
 
-    async def index_episode_fts(self, *, episode_id: str, summary: str, label: str, user_label: str):
+    async def index_episode_fts(
+        self, *, episode_id: str, summary: str, label: str, user_label: str
+    ):
         self.fts_writes.append(
             {
                 "episode_id": episode_id,
@@ -197,6 +202,7 @@ async def test_new_summary_is_backwritten_to_episode_and_fts(tmp_path):
     assert l2.updates == [
         {
             "episode_id": "ep_new",
+            "expected_status": "active",
             "label": "v2ex 闲逛",
             "summary": "下午两小时在 v2ex 看 AI 讨论。",
         }
@@ -236,7 +242,12 @@ async def test_existing_summary_backfills_empty_episode_row(tmp_path):
     assert result["generated"] == 0
     store.generate_episodic_summary.assert_not_awaited()
     assert l2.updates == [
-        {"episode_id": "ep_old", "label": "调内存系统", "summary": "调了一晚上内存系统。"}
+        {
+            "episode_id": "ep_old",
+            "expected_status": "active",
+            "label": "调内存系统",
+            "summary": "调了一晚上内存系统。",
+        }
     ]
     assert len(l2.fts_writes) == 1
 

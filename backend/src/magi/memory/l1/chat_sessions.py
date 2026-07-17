@@ -139,6 +139,102 @@ async def project_chat_event_to_session(
         await _project_ai_response_to_session(db, projection)
 
 
+async def rebuild_chat_session_projection(
+    db: aiosqlite.Connection,
+    *,
+    session_id: str,
+) -> None:
+    """Rebuild one L1 chat preview from its remaining active source rows."""
+
+    latest_cursor = await db.execute(
+        """
+        SELECT content, timestamp
+        FROM fact_events
+        WHERE session_id = ? AND deleted_at IS NULL
+          AND event_type IN (?, ?)
+        ORDER BY timestamp DESC, created_at DESC, event_id DESC
+        LIMIT 1
+        """,
+        (session_id, EventTypes.USER_MESSAGE, EventTypes.AI_RESPONSE),
+    )
+    latest = await latest_cursor.fetchone()
+    latest_user_cursor = await db.execute(
+        """
+        SELECT content, timestamp
+        FROM fact_events
+        WHERE session_id = ? AND deleted_at IS NULL
+          AND event_type = ?
+        ORDER BY timestamp DESC, created_at DESC, event_id DESC
+        LIMIT 1
+        """,
+        (session_id, EventTypes.USER_MESSAGE),
+    )
+    latest_user = await latest_user_cursor.fetchone()
+    count_cursor = await db.execute(
+        """
+        SELECT COUNT(*)
+        FROM fact_events
+        WHERE session_id = ? AND deleted_at IS NULL
+          AND event_type IN (?, ?)
+        """,
+        (session_id, EventTypes.USER_MESSAGE, EventTypes.AI_RESPONSE),
+    )
+    count_row = await count_cursor.fetchone()
+    latest_preview = str(latest[0] or "").strip()[:120] if latest is not None else ""
+    latest_timestamp = float(latest[1]) if latest is not None else None
+    user_preview = str(latest_user[0] or "").strip()[:120] if latest_user is not None else ""
+    user_timestamp = float(latest_user[1]) if latest_user is not None else None
+    await db.execute(
+        f"""
+        UPDATE {CHAT_SESSIONS_TABLE}
+        SET updated_at = ?,
+            last_message_at = ?,
+            last_user_message_at = ?,
+            last_message_preview = ?,
+            last_user_message_preview = ?,
+            message_count = ?
+        WHERE session_id = ? AND deleted_at IS NULL
+        """,
+        (
+            latest_timestamp or user_timestamp or time.time(),
+            latest_timestamp,
+            user_timestamp,
+            latest_preview,
+            user_preview,
+            int(count_row[0] or 0) if count_row is not None else 0,
+            session_id,
+        ),
+    )
+
+
+async def retire_chat_session_projection(
+    db: aiosqlite.Connection,
+    *,
+    session_id: str,
+    deleted_at: float,
+) -> None:
+    """Scrub and retire one L1 session projection after explicit deletion."""
+
+    await db.execute(
+        f"""
+        UPDATE {CHAT_SESSIONS_TABLE}
+        SET title = '',
+            summary = '',
+            updated_at = ?,
+            last_message_at = NULL,
+            last_user_message_at = NULL,
+            last_message_preview = '',
+            last_user_message_preview = '',
+            message_count = 0,
+            workspace_path = NULL,
+            archived_at = NULL,
+            deleted_at = ?
+        WHERE session_id = ?
+        """,
+        (deleted_at, deleted_at, session_id),
+    )
+
+
 def _chat_session_projection(
     *,
     user_id: str | None,

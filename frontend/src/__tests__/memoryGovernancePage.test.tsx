@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import { MemoryGovernancePage } from '@/pages/memory-pages/MemoryGovernancePage';
 import { memoryApi } from '@/api/modules/memory';
+import { manualEntriesApi } from '@/api/modules/manualEntries';
 import { useMemory } from '@/hooks/useMemory';
 
 const MAGI_CONTEXT_ID = `ctx_project_${'a'.repeat(64)}`;
@@ -26,13 +27,18 @@ vi.mock('@/api/modules/memory', () => ({
     deleteL1Event: vi.fn(),
     forgetEntity: vi.fn(),
     forgetEpisode: vi.fn(),
-    rejectL2Edge: vi.fn(),
     reconsolidateEpisodes: vi.fn(),
     applyCorrection: vi.fn(),
     getCorrectionHistory: vi.fn(),
     getCorrectionContextOptions: vi.fn(),
     revertCorrection: vi.fn(),
     getL2Entities: vi.fn(),
+  },
+}));
+
+vi.mock('@/api/modules/manualEntries', () => ({
+  manualEntriesApi: {
+    remove: vi.fn(),
   },
 }));
 
@@ -153,7 +159,6 @@ const baseMemoryState = {
   runL2SnapshotRefresh: vi.fn(),
   upsertL2GraphConflictRule: vi.fn(),
   submitAssertionFeedback: vi.fn(),
-  correctAssertion: vi.fn(),
   loadL2Relations: vi.fn().mockResolvedValue(true),
   loadL2Assertions: vi.fn().mockResolvedValue(true),
   loadL2Entities: vi.fn().mockResolvedValue(true),
@@ -275,6 +280,33 @@ const renderRelationshipCorrection = async (user: ReturnType<typeof userEvent.se
 };
 
 describe('MemoryGovernancePage', () => {
+  it('keeps freshly loaded zero totals instead of showing stale statistics', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l0Sessions: [],
+      l0Total: 0,
+      l1Events: [],
+      l1Total: 0,
+      l2Entities: [],
+      l2EntitiesTotal: 0,
+      l2Assertions: [],
+      l2AssertionsTotal: 0,
+      l2Relations: [],
+      l2RelationsTotal: 0,
+      l2Snapshots: [],
+      l2SnapshotsTotal: 0,
+      l3Summaries: [],
+      l3Total: 0,
+      l4Skills: [],
+      l4Total: 0,
+    } as ReturnType<typeof useMemory>);
+
+    renderPage();
+
+    expect(await screen.findByRole('button', { name: /原始事件 来源事件、片段和观察 0/ })).toBeInTheDocument();
+    expect(within(screen.getByTestId('governance-status-summary')).getByText('0 条原始事件')).toBeInTheDocument();
+  });
+
   it('starts with streamlined navigation and compact status summary', async () => {
     renderPage();
 
@@ -298,6 +330,24 @@ describe('MemoryGovernancePage', () => {
     expect(screen.queryByText('稳定')).not.toBeInTheDocument();
     expect(screen.queryByText(/\bL[0-4]\b/)).not.toBeInTheDocument();
     expect(screen.queryByPlaceholderText('episode_id')).not.toBeInTheDocument();
+  });
+
+  it('opens destructive controls inside object details instead of leaving the page', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole('tab', { name: '遗忘清理' }));
+    expect(screen.getByText('遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /按来源\/事件清理/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /按来源\/事件清理/ }));
+    expect(screen.getByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /原始事件/ })).toHaveAttribute('aria-pressed', 'true');
+
+    await user.click(screen.getByRole('tab', { name: '遗忘清理' }));
+    await user.click(screen.getByRole('button', { name: /按实体处理/ }));
+    expect(screen.getByRole('tab', { name: '对象明细' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /实体 人物、地点/ })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows an old assertion as historical without offering another correction', async () => {
@@ -676,6 +726,11 @@ describe('MemoryGovernancePage', () => {
     const deleteButton = within(eventDrawer).getByRole('button', { name: '删除原始事件' });
     expect(deleteButton).toBeEnabled();
     await user.click(deleteButton);
+    const eventConfirmation = await screen.findByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' });
+    expect(memoryApi.deleteL1Event).not.toHaveBeenCalled();
+    expect(within(eventConfirmation).getByText('用户说自己正在整理记忆页面。')).toBeInTheDocument();
+    expect(within(eventConfirmation).getByText('由这条消息形成的相关记忆会被清理，但聊天中的原消息会保留。如需删除原消息，请在聊天中操作。')).toBeInTheDocument();
+    await user.click(within(eventConfirmation).getByRole('button', { name: '只忘记相关记忆' }));
     await waitFor(() => {
       expect(memoryApi.deleteL1Event).toHaveBeenCalledWith('evt_1');
     });
@@ -687,22 +742,145 @@ describe('MemoryGovernancePage', () => {
     const cascadeButton = within(entityDrawer).getByRole('button', { name: '遗忘实体及相关知识' });
     expect(cascadeButton).toBeEnabled();
     await user.click(cascadeButton);
+    const entityConfirmation = await screen.findByRole('dialog', { name: '确认忘记这个实体？' });
+    expect(memoryApi.forgetEntity).not.toHaveBeenCalled();
+    expect(within(entityConfirmation).getByText('原始历史会保留；以后直接查询历史时，仍可能看到当时记录过这个实体。')).toBeInTheDocument();
+    await user.click(within(entityConfirmation).getByRole('button', { name: '只忘记整理后的记忆' }));
     await waitFor(() => {
       expect(memoryApi.forgetEntity).toHaveBeenCalledWith('ent_user_8f3e', false);
     });
     expect(baseMemoryState.loadL2Entities).toHaveBeenCalledWith({ limit: 20, offset: 0 });
   });
 
+  it('routes a manual-entry event through its source-owned deletion flow', async () => {
+    vi.mocked(useMemory).mockReturnValue({
+      ...baseMemoryState,
+      l1Events: [{
+        ...baseMemoryState.l1Events[0],
+        event_id: 'manual-event-1',
+        event_type: 'manual_entry.note',
+        source: 'manual_entry',
+        source_item_id: 'entry-1',
+        content: '我写下的一条手记',
+      }],
+    } as ReturnType<typeof useMemory>);
+    vi.mocked(manualEntriesApi.remove).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    await user.click(await screen.findByRole('button', { name: /我写下的一条手记/ }));
+    const drawer = await screen.findByRole('dialog', { name: '记录详情' });
+    await user.click(within(drawer).getByRole('button', { name: '删除原始事件' }));
+
+    const confirmation = await screen.findByRole('dialog', { name: '删除这条手记和相关记忆？' });
+    expect(within(confirmation).getByText('这条手记会从时间线中移除，附件将无法再从 Magi 打开，由它形成的相关记忆也会一并清理。附件文件可能仍留在本机存储中，但 Magi 不会再提供访问入口。此操作无法撤销。')).toBeInTheDocument();
+    expect(memoryApi.deleteL1Event).not.toHaveBeenCalled();
+
+    await user.click(within(confirmation).getByRole('button', { name: '删除手记' }));
+
+    await waitFor(() => {
+      expect(manualEntriesApi.remove).toHaveBeenCalledWith('entry-1');
+    });
+    expect(memoryApi.deleteL1Event).not.toHaveBeenCalled();
+  });
+
+  it('explains and confirms the wider entity deletion scope', async () => {
+    vi.mocked(memoryApi.forgetEntity).mockResolvedValue({
+      l2_counts: { entities: 1 },
+      l1_events_deleted: 3,
+    });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(await screen.findByRole('button', { name: /^打开记录 用户$/ }));
+    const entityDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    await user.click(within(entityDrawer).getByRole('button', { name: '遗忘实体及相关知识' }));
+
+    const confirmation = await screen.findByRole('dialog', { name: '确认忘记这个实体？' });
+    const rawHistorySwitch = within(confirmation).getByRole('switch', {
+      name: '连同相关原始记录一起删除',
+    });
+    expect(rawHistorySwitch).not.toBeChecked();
+
+    await user.click(rawHistorySwitch);
+
+    expect(rawHistorySwitch).toBeChecked();
+    expect(within(confirmation).getByText('范围更大：相关历史事件会被删除，其中同时记录的其他内容也可能受影响。')).toBeInTheDocument();
+    expect(memoryApi.forgetEntity).not.toHaveBeenCalled();
+
+    await user.click(within(confirmation).getByRole('button', { name: '连同原始记录一起忘记' }));
+
+    await waitFor(() => {
+      expect(memoryApi.forgetEntity).toHaveBeenCalledWith('ent_user_8f3e', true);
+    });
+  });
+
+  it('keeps a failed destructive action open and supports a safe retry', async () => {
+    vi.mocked(memoryApi.deleteL1Event)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({ event_id: 'evt_1', deleted: true });
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
+    const eventDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    await user.click(within(eventDrawer).getByRole('button', { name: '删除原始事件' }));
+
+    const confirmation = await screen.findByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' });
+    await user.click(within(confirmation).getByRole('button', { name: '只忘记相关记忆' }));
+
+    expect(await within(confirmation).findByRole('alert')).toHaveTextContent(
+      '没有收到删除完成的确认。请重试；重复操作不会多删内容。'
+    );
+    expect(memoryApi.deleteL1Event).toHaveBeenCalledTimes(1);
+
+    await user.click(within(confirmation).getByRole('button', { name: '重试' }));
+
+    await waitFor(() => {
+      expect(memoryApi.deleteL1Event).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('submits a destructive action only once while it is running', async () => {
+    let resolveDelete: ((value: { event_id: string; deleted: boolean }) => void) | undefined;
+    vi.mocked(memoryApi.deleteL1Event).mockImplementation(
+      () => new Promise((resolve) => {
+        resolveDelete = resolve;
+      })
+    );
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: /原始事件/ }));
+    await user.click(await screen.findByRole('button', { name: /用户说自己正在整理记忆页面/ }));
+    const eventDrawer = await screen.findByRole('dialog', { name: '记录详情' });
+    await user.click(within(eventDrawer).getByRole('button', { name: '删除原始事件' }));
+
+    const confirmation = await screen.findByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' });
+    const confirmButton = within(confirmation).getByRole('button', { name: '只忘记相关记忆' });
+    fireEvent.click(confirmButton);
+    fireEvent.click(confirmButton);
+
+    expect(memoryApi.deleteL1Event).toHaveBeenCalledTimes(1);
+    expect(confirmButton).toBeDisabled();
+
+    resolveDelete?.({ event_id: 'evt_1', deleted: true });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: '让 Magi 忘记这条消息形成的记忆？' })).not.toBeInTheDocument();
+    });
+  });
+
   it('removes an incorrect assertion through the governed correction flow', async () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_1',
-        request_id: 'request_1',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert_1',
-        slot_key: 'slot_1',
-        claim_fingerprint: 'claim_1',
         correction_kind: 'record_error',
         before: { trait_value: '直白' },
         created_at: 1719301300,
@@ -747,16 +925,9 @@ describe('MemoryGovernancePage', () => {
       .mockResolvedValueOnce({
         correction: {
           correction_id: 'correction_2',
-          request_id: 'request_2',
-          actor_id: 'user:self',
-          target_kind: 'assertion',
-          target_id: 'assert_1',
-          slot_key: 'slot_1',
-          claim_fingerprint: 'claim_1',
           correction_kind: 'situation_changed',
           before: { trait_value: '直白' },
           replacement: { value: '详细一些' },
-          replacement_target_id: 'assert_2',
           effective_at: Math.floor(new Date('2099-06-26T12:00').getTime() / 1000),
           created_at: 1719374400,
           state: 'active',
@@ -817,16 +988,9 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_edge',
-        request_id: 'request_edge',
-        actor_id: 'user:self',
-        target_kind: 'edge',
-        target_id: 'rel_1',
-        slot_key: 'slot_edge',
-        claim_fingerprint: 'claim_edge',
         correction_kind: 'record_error',
         before: { object_id: 'tool_codex' },
         replacement: { object_id: 'tool_magi', object_type: 'software' },
-        replacement_target_id: 'rel_2',
         created_at: 1719301300,
         state: 'active',
       },
@@ -860,23 +1024,15 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_scope_assertion',
-        request_id: 'request_scope_assertion',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert_1',
-        slot_key: 'slot_1',
-        claim_fingerprint: 'claim_1',
         correction_kind: 'scope_refinement',
         before: { trait_value: '直白' },
         replacement: { value: '直白' },
-        replacement_target_id: 'assert_scope',
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
         trait_value: '直白',
-        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       },
       derivation_state: 'completed',
       created: true,
@@ -908,23 +1064,15 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_scope_edge',
-        request_id: 'request_scope_edge',
-        actor_id: 'user:self',
-        target_kind: 'edge',
-        target_id: 'rel_1',
-        slot_key: 'slot_edge',
-        claim_fingerprint: 'claim_edge',
         correction_kind: 'scope_refinement',
         before: { object_id: 'tool_codex' },
         replacement: {},
-        replacement_target_id: 'rel_1',
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
         created_at: 1719301300,
         state: 'active',
       },
       current_claim: {
         object_id: 'tool_codex',
-        scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
       },
       derivation_state: 'completed',
       created: true,
@@ -950,16 +1098,9 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_changed_edge',
-        request_id: 'request_changed_edge',
-        actor_id: 'user:self',
-        target_kind: 'edge',
-        target_id: 'rel_1',
-        slot_key: 'slot_edge',
-        claim_fingerprint: 'claim_edge',
         correction_kind: 'situation_changed',
         before: { object_id: 'tool_codex' },
         replacement: { object_id: 'tool_magi', object_type: 'software' },
-        replacement_target_id: 'rel_2',
         effective_at: 1719374400,
         created_at: 1719374400,
         state: 'active',
@@ -992,12 +1133,6 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_remove_edge',
-        request_id: 'request_remove_edge',
-        actor_id: 'user:self',
-        target_kind: 'edge',
-        target_id: 'rel_1',
-        slot_key: 'slot_edge',
-        claim_fingerprint: 'claim_edge',
         correction_kind: 'record_error',
         before: { object_id: 'tool_codex' },
         created_at: 1719301300,
@@ -1058,37 +1193,27 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assert_1' },
       versions: [
-        { assertion_id: 'assert_1', trait_value: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
-        { assertion_id: 'assert_2', trait_value: '详细一些', status: 'active', valid_from: 1719301300 },
+        { trait_value: '直白', status: 'user_rejected', valid_from: 1719300000, valid_to: 1719301300 },
+        { trait_value: '详细一些', status: 'active', valid_from: 1719301300 },
       ],
       corrections: [
         {
           correction_id: 'correction_old',
-          request_id: 'request_old',
-          actor_id: 'user:self',
-          target_kind: 'assertion',
-          target_id: 'assert_1',
-          slot_key: 'slot_1',
-          claim_fingerprint: 'claim_1',
           correction_kind: 'record_error',
           before: { trait_value: '旧内容' },
           replacement: { value: '直白' },
           created_at: 1719301200,
           state: 'active',
+          can_revert: false,
         },
         {
           correction_id: 'correction_latest',
-          request_id: 'request_latest',
-          actor_id: 'user:self',
-          target_kind: 'assertion',
-          target_id: 'assert_1',
-          slot_key: 'slot_1',
-          claim_fingerprint: 'claim_1',
           correction_kind: 'situation_changed',
           before: { trait_value: '直白' },
           replacement: { value: '详细一些' },
           created_at: 1719301300,
           state: 'active',
+          can_revert: true,
         },
       ],
       context_labels: {},
@@ -1096,16 +1221,11 @@ describe('MemoryGovernancePage', () => {
     vi.mocked(memoryApi.revertCorrection).mockResolvedValue({
       correction: {
         correction_id: 'correction_latest',
-        request_id: 'request_latest',
-        actor_id: 'user:self',
-        target_kind: 'assertion',
-        target_id: 'assert_1',
-        slot_key: 'slot_1',
-        claim_fingerprint: 'claim_1',
         correction_kind: 'situation_changed',
         before: { trait_value: '直白' },
         created_at: 1719301300,
         state: 'reverted',
+        can_revert: false,
       },
       current_claim: { trait_value: '直白' },
       derivation_state: 'pending',

@@ -515,95 +515,73 @@ def test_clear_all_sessions_removes_chat_traces_but_preserves_other_runtime_data
         message_id="message-1",
     )
     chat_conn = sqlite3.connect(str(service._chat_db_path))
-    chat_conn.execute(
-        f"""
+    chat_conn.execute(f"""
         INSERT INTO {CHAT_CONTEXT_SUMMARIES_TABLE} (
             summary_id, session_id, status, summary_kind, summary_text,
             prompt_profile, created_at_ms, updated_at_ms
         ) VALUES ('summary-1', 's1', 'active', 'rolling',
                   'private conversation summary', 'general_chat', 1, 1)
-        """
-    )
+        """)
     chat_conn.commit()
     chat_conn.close()
 
     conn = sqlite3.connect(str(service._runtime_trace_db_path))
-    conn.execute(
-        """
+    conn.execute("""
         INSERT INTO trace_turns (
             trace_id, turn_id, session_id, user_id, status, mode,
             started_at_ms, created_at_ms, updated_at_ms
         ) VALUES ('trace-1', 'turn-1', 's1', 'u1', 'completed', 'chat', 1, 1, 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO trace_spans (
             span_id, trace_id, turn_id, node_type, name, status,
             started_at_ms, created_at_ms, updated_at_ms
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'llm', 'model', 'completed', 1, 1, 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO trace_intent_resolutions (
             span_id, trace_id, turn_id, intent, execution_mode, selected_tools_json
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'chat', 'direct', '[]')
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO trace_llm_calls (
             span_id, trace_id, turn_id, provider, model
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'test', 'test-model')
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO trace_tools (
             span_id, trace_id, turn_id, tool_name, arguments_json, success
         ) VALUES ('span-1', 'trace-1', 'turn-1', 'test-tool', '{}', 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO runtime_notifications (
             channel, user_id, session_id, payload_json, created_at_ms
         ) VALUES ('chat_message_upserted', 'u1', 's1', '{}', 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO runtime_notifications (
             channel, user_id, session_id, turn_id, payload_json, created_at_ms
         ) VALUES ('global_control', 'u1', '', NULL, '{}', 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO plugin_ingress_events (
             source_kind, producer, plugin_target, event_type, occurred_at_ms,
             payload_json, status, created_at_ms
         ) VALUES ('sensor', 'plugin', 'calendar', 'event', 1, '{}', 'pending', 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO user_notifications (
             user_id, kind, dedupe_key, title, body, created_at_ms
         ) VALUES ('u1', 'suggestion', 'keep-me', 'title', 'body', 1)
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         INSERT INTO user_notifications (
             user_id, kind, dedupe_key, title, body, created_at_ms
         ) VALUES (
             'u1', 'suggestion', 'profile_conflict:identity.name:',
             'Private conflict', 'Private memory conflict', 1
         )
-        """
-    )
+        """)
     conn.commit()
     conn.close()
 
@@ -1148,6 +1126,37 @@ def test_delete_session_removes_session_row_and_related_data(tmp_path):
     assert consumed_sessions == {"s1"}
 
 
+def test_explicit_session_delete_removes_assets_when_automatic_cleanup_is_disabled(
+    tmp_path,
+    monkeypatch,
+):
+    from magi.config.models import AppConfig
+    from magi.utils.runtime import RuntimePaths
+
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-delete-assets",
+        user_id="u1",
+        title="Private attachments",
+        created_at=1000,
+        updated_at=1000,
+    )
+    config = AppConfig()
+    config.lifecycle.chat_assets.delete_on_session_delete = False
+    monkeypatch.setattr("magi.chat.read_service.get_config", lambda: config)
+
+    runtime_paths = RuntimePaths(tmp_path / "runtime")
+    asset_path = runtime_paths.chat_files_dir / "s-delete-assets" / "turn-1" / "private.txt"
+    asset_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_path.write_text("private attachment", encoding="utf-8")
+
+    service.delete_session("u1", "s-delete-assets")
+
+    assert not asset_path.exists()
+
+
 def test_get_conversation_history_reads_from_chat_store_not_fact_events(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
@@ -1442,6 +1451,94 @@ def test_create_user_turn_persists_reply_target_and_display_history_returns_prev
     assert history[0].to_dict().get("reply_to") is None
 
 
+def test_chat_history_does_not_preview_hidden_reply_target(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s-hidden-reply",
+        user_id="u1",
+        title="Reply",
+        created_at=1000,
+        updated_at=1100,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-hidden-target",
+        session_id="s-hidden-reply",
+        turn_id=None,
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="deleted private text",
+        created_at_ms=1000,
+        sequence_no=1,
+        is_visible=False,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-visible-reply",
+        session_id="s-hidden-reply",
+        turn_id=None,
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="follow-up",
+        created_at_ms=1100,
+        sequence_no=2,
+        reply_to_message_id="msg-hidden-target",
+    )
+
+    history = service.get_conversation_history("u1", "s-hidden-reply", limit=None)
+
+    assert [item.content for item in history] == ["follow-up"]
+    assert history[0].reply_to is None
+
+
+def test_chat_history_does_not_preview_reply_target_from_another_session(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    for session_id in ("s-current", "s-other"):
+        _insert_session(
+            service._chat_db_path,
+            session_id=session_id,
+            user_id="u1",
+            title="Reply",
+            created_at=1000,
+            updated_at=1100,
+        )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-other-target",
+        session_id="s-other",
+        turn_id=None,
+        user_id="u1",
+        role="assistant",
+        message_kind="assistant_final",
+        content_text="other session private text",
+        created_at_ms=1000,
+        sequence_no=1,
+    )
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-current-reply",
+        session_id="s-current",
+        turn_id=None,
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="current follow-up",
+        created_at_ms=1100,
+        sequence_no=1,
+        reply_to_message_id="msg-other-target",
+    )
+
+    history = service.get_conversation_history("u1", "s-current", limit=None)
+
+    assert [item.content for item in history] == ["current follow-up"]
+    assert history[0].reply_to is None
+
+
 def test_clear_conversation_history_bumps_history_version(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)
@@ -1485,15 +1582,13 @@ def test_clear_conversation_history_bumps_history_version(tmp_path):
     )
 
     conn = service._get_conn()
-    conn.execute(
-        f"""
+    conn.execute(f"""
         INSERT INTO {CHAT_CONTEXT_SUMMARIES_TABLE} (
             summary_id, session_id, status, summary_kind, summary_text,
             prompt_profile, created_at_ms, updated_at_ms
         ) VALUES ('summary-delete', 's-chat', 'active', 'rolling',
                   'private summary', 'general_chat', 1, 1)
-        """
-    )
+        """)
     conn.commit()
     before_version = int(
         conn.execute(
@@ -1961,18 +2056,41 @@ def test_rename_session_router_response(monkeypatch):
 
 
 def test_delete_session_router_response(monkeypatch):
-    class _FakeReadService:
-        async def adelete_session(self, user_id: str, session_id: str):
+    class _FakeForgettingService:
+        async def delete_session(self, *, user_id: str, session_id: str):
             assert user_id == "u1"
             assert session_id == "s1"
-            return None
+            return True
 
-    monkeypatch.setattr(messages_sessions, "require_chat_read_service", lambda: _FakeReadService())
+    monkeypatch.setattr(
+        messages_sessions,
+        "get_chat_forgetting_service",
+        lambda: _FakeForgettingService(),
+    )
 
     result = __import__("asyncio").run(messages.delete_session(session_id="s1", user_id="u1"))
 
     assert result["success"] is True
     assert result["deleted_session_id"] == "s1"
+
+
+def test_delete_session_router_returns_not_found_for_unknown_owner(monkeypatch):
+    class _FakeForgettingService:
+        async def delete_session(self, *, user_id: str, session_id: str):
+            assert user_id == "wrong-user"
+            assert session_id == "s1"
+            return False
+
+    monkeypatch.setattr(
+        messages_sessions,
+        "get_chat_forgetting_service",
+        lambda: _FakeForgettingService(),
+    )
+
+    with pytest.raises(messages.HTTPException) as exc_info:
+        __import__("asyncio").run(messages.delete_session(session_id="s1", user_id="wrong-user"))
+
+    assert exc_info.value.status_code == 404
 
 
 def test_history_requires_explicit_session_id():
@@ -1998,6 +2116,43 @@ def test_clear_history_requires_explicit_session_id():
         )
 
     assert exc_info.value.status_code == 400
+
+
+def test_clear_history_route_waits_for_governed_service(monkeypatch):
+    calls: list[str] = []
+
+    class _Service:
+        async def clear_history(self, *, user_id: str, session_id: str) -> bool:
+            calls.append(f"clear:{user_id}:{session_id}")
+            return True
+
+    monkeypatch.setattr(
+        "magi.api.routers.messages_content.get_chat_forgetting_service",
+        lambda: _Service(),
+    )
+
+    result = __import__("asyncio").run(
+        messages.clear_conversation_history(user_id="u1", session_id="s1")
+    )
+
+    assert result["success"] is True
+    assert calls == ["clear:u1:s1"]
+
+
+def test_clear_history_route_does_not_report_success_on_failure(monkeypatch):
+    class _Service:
+        async def clear_history(self, *, user_id: str, session_id: str) -> bool:
+            raise RuntimeError("memory cleanup failed")
+
+    monkeypatch.setattr(
+        "magi.api.routers.messages_content.get_chat_forgetting_service",
+        lambda: _Service(),
+    )
+
+    with pytest.raises(RuntimeError, match="memory cleanup failed"):
+        __import__("asyncio").run(
+            messages.clear_conversation_history(user_id="u1", session_id="s1")
+        )
 
 
 def test_get_display_history_surfaces_trace_status_instead_of_worker_messages(

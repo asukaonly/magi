@@ -12,7 +12,14 @@ from .. import i18n as core_i18n
 class TimelineContextBundleBuilder:
     """Build the right-drawer context payload for one timeline anchor."""
 
-    def __init__(self, *, l1_store: Any, l2_store: Any | None = None, l3_store: Any | None = None, l4_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        l1_store: Any,
+        l2_store: Any | None = None,
+        l3_store: Any | None = None,
+        l4_store: Any | None = None,
+    ) -> None:
         self._l1 = l1_store
         self._l2 = l2_store
         self._l3 = l3_store
@@ -24,12 +31,14 @@ class TimelineContextBundleBuilder:
         if episode_id and self._l2 is not None and hasattr(self._l2, "list_episode_events"):
             return await self._build_episode_bundle(anchor, episode_id)
 
-        event_ids = list(anchor.get("representative_event_ids") or anchor.get("source_event_ids") or [])
+        event_ids = list(
+            anchor.get("representative_event_ids") or anchor.get("source_event_ids") or []
+        )
 
         l1_events: list[dict[str, Any]] = []
         if self._l1 is not None:
             for event_id in event_ids:
-                event = await self._l1.get_event(str(event_id))
+                event = await self._l1.get_user_visible_event(str(event_id))
                 if event is not None:
                     l1_events.append(self._to_event_preview(event))
 
@@ -79,7 +88,9 @@ class TimelineContextBundleBuilder:
             "runtime_trace": [],
         }
 
-    async def _build_episode_bundle(self, anchor: dict[str, Any], episode_id: str) -> dict[str, Any]:
+    async def _build_episode_bundle(
+        self, anchor: dict[str, Any], episode_id: str
+    ) -> dict[str, Any]:
         """Build context bundle from a durable L2 episode."""
         episode_events = await self._l2.list_episode_events(episode_id=episode_id)
         event_ids = [str(ee.get("event_id")) for ee in episode_events if ee.get("event_id")]
@@ -87,7 +98,7 @@ class TimelineContextBundleBuilder:
         l1_events: list[dict[str, Any]] = []
         if self._l1 is not None:
             for eid in event_ids:
-                event = await self._l1.get_event(eid)
+                event = await self._l1.get_user_visible_event(eid)
                 if event is not None:
                     l1_events.append(self._to_event_preview(event))
 
@@ -104,8 +115,7 @@ class TimelineContextBundleBuilder:
             summaries = await self._l3.list_summaries(limit=50)
             event_id_set = set(event_ids)
             l3_reflections = [
-                s for s in summaries
-                if set(s.get("source_event_ids") or []) & event_id_set
+                s for s in summaries if set(s.get("source_event_ids") or []) & event_id_set
             ]
 
         return {
@@ -119,7 +129,8 @@ class TimelineContextBundleBuilder:
             "l4_related_procedures": [],
             "chat_excerpts": [
                 {"event_id": e["event_id"], "content": e["summary"]}
-                for e in l1_events if e.get("source_type") == "chat"
+                for e in l1_events
+                if e.get("source_type") == "chat"
             ],
             "runtime_trace": [],
         }

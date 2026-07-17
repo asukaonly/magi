@@ -161,6 +161,164 @@ def _external_activity_event(
 
 
 @pytest.mark.asyncio
+async def test_l1_single_event_visibility_separates_raw_active_and_user_reads(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        now = time.time()
+        deleted_event = _external_activity_event(
+            event_id="evt-deleted-private",
+            source="manual_journal",
+            content="Deleted private note",
+            timestamp=now,
+            created_at=now,
+        )
+        deleted_event.metadata_json = {
+            "activity_snapshot": {
+                "source_type": "manual_journal",
+                "title": "Deleted note",
+                "summary": "Deleted private note",
+            }
+        }
+        audit_event = MemoryEvent(
+            event_id="evt-correction-audit",
+            correlation_id="corr-correction-audit",
+            timestamp=now + 1,
+            created_at=now + 1,
+            event_type="MEMORY_CORRECTION",
+            source="memory_correction",
+            source_item_id="correction-1",
+            memory_domain=MemoryDomain.INTERACTION,
+            ingest_target=IngestTarget.L1_ONLY,
+            cognition_eligible=False,
+            tom_depth=TomDepth.NONE,
+            retention_class=RetentionClass.PERMANENT,
+            session_id=None,
+            turn_id=None,
+            user_id="local_user",
+            task_id=None,
+            content='{"reason":"private correction reason"}',
+            author_type="system",
+            content_type="text",
+            importance_score=0.8,
+            level=int(EventLevel.INFO),
+            metadata_json={
+                "activity_snapshot": {
+                    "source_type": "memory_correction",
+                    "title": "Correction audit",
+                    "summary": "Private correction reason",
+                }
+            },
+        )
+        await store.store(deleted_event)
+        await store.store(audit_event)
+
+        assert await store.get_active_event(deleted_event.event_id) is not None
+        assert await store.get_user_visible_event(deleted_event.event_id) is not None
+        assert await store.get_active_event(audit_event.event_id) is not None
+        assert await store.get_user_visible_event(audit_event.event_id) is None
+        assert await store.get_timeline_event(audit_event.event_id) is None
+        user_visible_scopes = [
+            scope.label for scope in L1RetrievalScope if scope != L1RetrievalScope.AUDIT_ONLY
+        ]
+        user_visible_events = await store.query_events(
+            l1_retrieval_scopes=user_visible_scopes,
+            limit=10,
+        )
+        assert {event["event_id"] for event in user_visible_events} == {deleted_event.event_id}
+        assert await store.count_events(l1_retrieval_scopes=user_visible_scopes) == 1
+        timeline_ids = {item["event_id"] for item in await store.list_timeline_events(limit=10)}
+        assert audit_event.event_id not in timeline_ids
+
+        assert await store.mark_deleted(deleted_event.event_id) is True
+        raw_deleted = await store.get_event(deleted_event.event_id)
+        assert raw_deleted is not None
+        assert raw_deleted["deleted_at"] is not None
+        assert await store.get_active_event(deleted_event.event_id) is None
+        assert await store.get_user_visible_event(deleted_event.event_id) is None
+        assert await store.get_timeline_event(deleted_event.event_id) is None
+        assert await store.count_events(l1_retrieval_scopes=user_visible_scopes) == 0
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_mark_deleted_keeps_event_active_when_vector_delete_fails(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    class _RetryableVectorIndex:
+        def __init__(self) -> None:
+            self.should_fail = True
+            self.deleted_ids: list[str] = []
+
+        async def delete_entity(self, *, entity_id: str) -> None:
+            self.deleted_ids.append(entity_id)
+            if self.should_fail:
+                raise RuntimeError("injected vector delete failure")
+
+        async def close(self) -> None:
+            return None
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    vector_index = _RetryableVectorIndex()
+    try:
+        now = time.time()
+        await store.store(
+            _external_activity_event(
+                event_id="evt-vector-retry",
+                source="test",
+                content="retry deletion",
+                timestamp=now,
+                created_at=now,
+            )
+        )
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                """
+                INSERT INTO l1_event_chunks(
+                    chunk_id, event_id, chunk_index, chunk_text,
+                    char_start, char_end, token_estimate, created_at, updated_at
+                ) VALUES ('chunk-vector-retry', 'evt-vector-retry', 0,
+                          'retry deletion', 0, 14, 2, ?, ?)
+                """,
+                (now, now),
+            )
+            connection.commit()
+        store._vector_index = vector_index  # type: ignore[assignment]
+
+        with pytest.raises(RuntimeError, match="vector delete failure"):
+            await store.mark_deleted_many(["evt-vector-retry"])
+
+        event_after_failure = await store.get_event("evt-vector-retry")
+        with sqlite3.connect(db_path) as connection:
+            chunks_after_failure = connection.execute(
+                "SELECT COUNT(*) FROM l1_event_chunks WHERE event_id = 'evt-vector-retry'"
+            ).fetchone()
+        assert event_after_failure is not None
+        assert event_after_failure["deleted_at"] is None
+        assert chunks_after_failure == (1,)
+
+        vector_index.should_fail = False
+        assert await store.mark_deleted_many(["evt-vector-retry"]) == 1
+        event_after_retry = await store.get_event("evt-vector-retry")
+        with sqlite3.connect(db_path) as connection:
+            chunks_after_retry = connection.execute(
+                "SELECT COUNT(*) FROM l1_event_chunks WHERE event_id = 'evt-vector-retry'"
+            ).fetchone()
+        assert event_after_retry is not None
+        assert event_after_retry["deleted_at"] is not None
+        assert chunks_after_retry == (0,)
+        assert vector_index.deleted_ids == ["chunk-vector-retry", "chunk-vector-retry"]
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_l1_query_events_can_order_by_created_at_for_recent_imports(tmp_path):
     from magi.memory.l1.event_store import L1EventStore
 
@@ -235,6 +393,51 @@ async def test_l1_get_event_timestamps_returns_original_occurrence_times(tmp_pat
         assert timestamps == {
             "newer-occurrence": 300.0,
             "older-occurrence": 100.0,
+        }
+    finally:
+        await store.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_l1_raw_event_turn_ids_include_soft_deleted_rows(tmp_path):
+    from magi.memory.l1.event_store import L1EventStore
+
+    db_path = _migrated_l1_db_path(tmp_path)
+    store = L1EventStore(db_path=str(db_path), vector_enabled=False)
+    await store.initialize()
+    try:
+        active_event = _external_activity_event(
+            event_id="active-turn-source",
+            source="chat",
+            content="Active source",
+            timestamp=100.0,
+            created_at=100.0,
+        )
+        active_event.turn_id = "turn-active"
+        deleted_event = _external_activity_event(
+            event_id="deleted-turn-source",
+            source="chat",
+            content="Deleted source",
+            timestamp=200.0,
+            created_at=200.0,
+        )
+        deleted_event.turn_id = "turn-deleted"
+        await store.store(active_event)
+        await store.store(deleted_event)
+        assert await store.mark_deleted(deleted_event.event_id) is True
+
+        turn_ids = await store.get_raw_event_turn_ids(
+            [
+                deleted_event.event_id,
+                active_event.event_id,
+                deleted_event.event_id,
+                "missing",
+            ]
+        )
+
+        assert turn_ids == {
+            active_event.event_id: "turn-active",
+            deleted_event.event_id: "turn-deleted",
         }
     finally:
         await store.shutdown()
@@ -2353,9 +2556,7 @@ async def test_l1_rebuild_prunes_vectors_that_are_no_longer_embedding_eligible(t
 
         assert await store.rebuild_embeddings(batch_size=1) == 1
         assert (
-            await store._vector_index.get_vectors(  # type: ignore[union-attr]
-                entity_ids=[chunk_id]
-            )
+            await store._vector_index.get_vectors(entity_ids=[chunk_id])  # type: ignore[union-attr]
             == {}
         )
     finally:

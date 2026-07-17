@@ -2,6 +2,7 @@
 
 Schema is owned by alembic (``magi.db.migrations.memory_shared``).
 """
+
 from __future__ import annotations
 
 import aiosqlite
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS l0_active_entities (
     entity_type TEXT NOT NULL,
     relevance_score REAL DEFAULT 0.0,
     snapshot_json TEXT NOT NULL,
+    source_event_ids TEXT NOT NULL DEFAULT '[]',
     loaded_at REAL NOT NULL,
     last_accessed_at REAL NOT NULL,
     access_count INTEGER DEFAULT 0,
@@ -57,6 +59,14 @@ CREATE TABLE IF NOT EXISTS l0_temporary_tactics (
     expires_at REAL,
     created_at REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS l0_forgotten_tactic_source_refs (
+    source_ref TEXT PRIMARY KEY,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_l0_forgotten_tactic_source_refs_created
+    ON l0_forgotten_tactic_source_refs(created_at, source_ref);
 
 CREATE TABLE IF NOT EXISTS l0_execution_runs (
     session_id TEXT PRIMARY KEY,
@@ -102,6 +112,7 @@ DELETE FROM l0_sessions;
 DELETE FROM l0_goal_stack;
 DELETE FROM l0_active_entities;
 DELETE FROM l0_temporary_tactics;
+DELETE FROM l0_forgotten_tactic_source_refs;
 DELETE FROM l0_execution_runs;
 DELETE FROM l0_execution_pending_turns;
 DELETE FROM l0_execution_results;

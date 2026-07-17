@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from ... import i18n as core_i18n
 from ...memory.provider import get_manual_entry_asset_store, get_unified_memory
+from ...timeline.cover_store import TimelineCoverAssetSource
 from ...timeline.service import TimelineService
 
 timeline_router = APIRouter()
@@ -20,7 +21,7 @@ class TimelineCoverPreferenceRequest(BaseModel):
     end: float
     mode: Literal["auto", "asset", "hidden"]
     asset_ref: Optional[str] = None
-    source: str = "current_period"
+    source: TimelineCoverAssetSource = "current_period"
     locale: str = "en"
 
 
@@ -121,7 +122,9 @@ async def get_standout_endpoint(
 
     service = get_timeline_service()
     items = await service.list_standout(
-        period_start=ps, period_end=pe, limit=limit,
+        period_start=ps,
+        period_end=pe,
+        limit=limit,
     )
     return {"month": month, "items": items}
 

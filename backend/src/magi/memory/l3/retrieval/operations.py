@@ -10,6 +10,7 @@ import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
 from ...hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
+from ..source_event_governance import active_summary_predicate
 from .search import (
     build_fetch_by_ids_query,
     build_keyword_search_query,
@@ -82,7 +83,9 @@ class L3SummarySearchMixin:
             )
         )
 
-        results_or_errors = await asyncio.gather(bm25_task, semantic_task, keyword_task, return_exceptions=True)
+        results_or_errors = await asyncio.gather(
+            bm25_task, semantic_task, keyword_task, return_exceptions=True
+        )
 
         bm25_ids, semantic_ids, keyword_ids = search_path_ids(results_or_errors)
 
@@ -131,12 +134,12 @@ class L3SummarySearchMixin:
         async with sqlite_connection_async(host.db_path) as db:
             try:
                 async with db.execute(
-                    """
+                    f"""
                     SELECT l3_summaries_fts.summary_id, bm25(l3_summaries_fts) AS score
                     FROM l3_summaries_fts
                     JOIN summaries ON summaries.summary_id = l3_summaries_fts.summary_id
                     WHERE l3_summaries_fts MATCH ?
-                      AND summaries.derivation_state = 'current'
+                      AND {active_summary_predicate("summaries")}
                       AND (? IS NULL OR summaries.summary_type = ?)
                       AND (? IS NULL OR summaries.summary_category = ?)
                     ORDER BY score
@@ -164,13 +167,11 @@ class L3SummarySearchMixin:
         indexed = 0
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
+            async with db.execute(f"""
                 SELECT * FROM summaries
-                WHERE derivation_state = 'current'
+                WHERE {active_summary_predicate()}
                   AND summary_id NOT IN (SELECT summary_id FROM l3_summaries_fts)
-                """
-            ) as cursor:
+                """) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
                     batch.append(fts_backfill_row(row))

@@ -11,6 +11,7 @@ from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 from magi.identity.defaults import CANONICAL_LOCAL_USER
 
 from ..core.logger import get_logger
+from ..memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from .cluster_builder import TimelineClusterBuilder
 from .context_bundle_builder import TimelineContextBundleBuilder
 from .query_interpreter import TimelineQueryInterpretation, TimelineQueryInterpreter
@@ -416,6 +417,7 @@ class TimelineViewportBuilder:
             start_time=start,
             end_time=end,
             limit=EVENT_QUERY_LIMIT,
+            l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
         )
         # Surface truncation. When the result is exactly at the cap we
         # can't tell whether there's just barely enough or thousands more

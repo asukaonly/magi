@@ -7,11 +7,11 @@ plus DI bindings for the API router. Previously these were built inside
 service-locator pattern); memory had no reason to construct them.
 
 Manual entries are a timeline-surface feature (added and rendered on the
-timeline page). Memory's only legitimate stake is the L1 *projection* — the
-``ManualEntryL1Projector`` still mirrors entries into the L1 event stream, built
-from the memory-owned L1 store at the API boundary. This module owns just the
-store/asset/weather construction; it reads the memory.db path + media dir from
-``runtime_paths`` directly and does not need ``UnifiedMemoryStore``.
+timeline page). ``ManualEntryL1Projector`` mirrors entries into the L1 event
+stream, while the API asks ``UnifiedMemoryStore`` to govern an old projection
+before replacing or deleting it. This module owns just the store/asset/weather
+construction; it reads the memory.db path + media dir from ``runtime_paths``
+directly and does not construct ``UnifiedMemoryStore``.
 """
 
 from __future__ import annotations
@@ -23,6 +23,8 @@ from ...bootstrap.lifecycle import LifecycleModule
 from ...core.container import get_container
 from ...core.logger import get_logger
 from .asset_store import ManualEntryAssetStore
+from .l1_projector import ManualEntryL1Projector
+from .recovery import ManualEntryRecoveryService
 from .store import ManualEntryStore
 from .weather_fetcher import WeatherFetcher
 
@@ -41,38 +43,60 @@ class ManualEntriesModule(LifecycleModule):
     def __init__(self, context: RuntimeBootstrapContext):
         super().__init__(
             name="runtime_manual_entries",
-            dependencies=("runtime_database_migrations",),
+            dependencies=("runtime_database_migrations", "runtime_memory"),
         )
         self._context = context
 
     async def init(self) -> None:
         runtime_paths = require_initialized(self._context.core.runtime_paths, "runtime paths")
+        memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
         store = ManualEntryStore(db_path=str(runtime_paths.memory_db_path))
         asset_store = ManualEntryAssetStore(media_root=runtime_paths.memory_dir.parent / "media")
         weather_fetcher = WeatherFetcher()
+        projector = (
+            ManualEntryL1Projector(memory=memory)
+            if getattr(memory, "l1", None) is not None
+            else None
+        )
+        recovery_service = ManualEntryRecoveryService(
+            store=store,
+            projector=projector,
+            memory=memory,
+        )
 
         slot = self._context.manual_entries
         slot.store = store
         slot.asset_store = asset_store
         slot.weather_fetcher = weather_fetcher
+        slot.recovery_service = recovery_service
 
         container = get_container()
         container.manual_entry_store.override(providers.Object(store))
         container.manual_entry_asset_store.override(providers.Object(asset_store))
         container.manual_entry_weather_fetcher.override(providers.Object(weather_fetcher))
-        logger.info("Manual-entries subsystem initialized (store + assets + weather)")
+        recovery_stats = await recovery_service.start()
+        logger.info(
+            "Manual-entries subsystem initialized",
+            recovery=recovery_stats.to_dict(),
+        )
 
     async def shutdown(self) -> None:
+        slot = self._context.manual_entries
+        if slot.recovery_service is not None:
+            await slot.recovery_service.stop()
         container = get_container()
         for name in _BINDINGS:
             try:
                 getattr(container, name).reset_override()
             except Exception:
                 pass
-        slot = self._context.manual_entries
         slot.store = None
         slot.asset_store = None
         slot.weather_fetcher = None
+        slot.recovery_service = None
 
 
 __all__ = ["ManualEntriesModule"]

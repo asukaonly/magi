@@ -23,7 +23,6 @@ vi.mock("@/api/modules/memory", () => ({
     annotateEpisode: vi.fn(),
     forgetEpisode: vi.fn(),
     submitAssertionFeedback: vi.fn(),
-    correctAssertion: vi.fn(),
   },
 }));
 

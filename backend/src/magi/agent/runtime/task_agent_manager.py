@@ -1,10 +1,12 @@
 """TaskAgentManager for hybrid lifecycle multi-instance runtime."""
+
 from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 
 from ...awareness.contracts import SensorEvent
 from ...events.events import EventTypes
@@ -19,6 +21,7 @@ logger = get_logger(__name__)
 @dataclass
 class InstanceMetadata:
     """Metadata for tracking agent instances."""
+
     created_at: float
     last_active_at: float
     pending_queue_size: int = 0
@@ -35,6 +38,7 @@ class TaskAgentManager:
         max_dynamic_instances: int = 100,
         janitor_interval_seconds: float = 60.0,
         user_message_generation_getter: Callable[[], int] | None = None,
+        user_message_scope_blocker: Callable[..., Awaitable[bool]] | None = None,
     ) -> None:
         self._create_chat_agent = create_chat_agent
         self._create_default_agent = create_default_agent
@@ -42,9 +46,7 @@ class TaskAgentManager:
         self._instance_metadata: dict[str, InstanceMetadata] = {}
         self._running = False
         self._event_emitter = None
-        self._core_instances = (
-            (TaskAgentType.CHAT, "default"),
-        )
+        self._core_instances = ((TaskAgentType.CHAT, "default"),)
         self._idle_ttl_seconds = idle_ttl_seconds
         self._max_dynamic_instances = max_dynamic_instances
         self._janitor_interval_seconds = janitor_interval_seconds
@@ -52,6 +54,8 @@ class TaskAgentManager:
         self._enqueue_rejected_count = 0
         self._stale_user_message_rejected_count = 0
         self._user_message_generation_getter = user_message_generation_getter
+        self._user_message_scope_blocker = user_message_scope_blocker
+        self._blocked_user_message_rejected_count = 0
         self._sensor_hub = None
         self._chat_clear_lock = asyncio.Lock()
         self._chat_work_resumed = asyncio.Event()
@@ -68,7 +72,9 @@ class TaskAgentManager:
         for agent_type, agent_id in self._core_instances:
             await self.ensure_agent(agent_type, agent_id)
         self._janitor_task = asyncio.create_task(self._janitor_loop())
-        logger.info(f"TaskAgentManager started | janitor_interval={self._janitor_interval_seconds}s")
+        logger.info(
+            f"TaskAgentManager started | janitor_interval={self._janitor_interval_seconds}s"
+        )
 
     async def stop_all(self) -> None:
         if self._janitor_task is not None:
@@ -144,7 +150,12 @@ class TaskAgentManager:
             ) from failures[0]
 
     @staticmethod
-    async def _cancel_and_stop_chat_agent(agent: TaskAgent) -> None:
+    async def _cancel_and_stop_chat_agent(
+        agent: TaskAgent,
+        *,
+        reason: str = "memory_clear",
+        anchor_turn_id: str | None = None,
+    ) -> None:
         cancel_handler = getattr(agent, "request_session_cancel", None)
         cancel_failure: BaseException | None = None
         if callable(cancel_handler):
@@ -152,13 +163,13 @@ class TaskAgentManager:
                 await cancel_handler(
                     session_id=agent.agent_id,
                     requested_by="system",
-                    reason="memory_clear",
-                    anchor_turn_id=None,
+                    reason=reason,
+                    anchor_turn_id=anchor_turn_id,
                 )
             except BaseException as exc:
                 cancel_failure = exc
                 logger.exception(
-                    "Failed to request chat run cancellation before memory clear | key=%s",
+                    "Failed to request chat run cancellation before destructive cleanup | key=%s",
                     agent.runtime_key,
                 )
         try:
@@ -166,7 +177,7 @@ class TaskAgentManager:
         except BaseException as stop_failure:
             if cancel_failure is not None:
                 logger.error(
-                    "Chat cancellation and stop both failed before memory clear | key=%s",
+                    "Chat cancellation and stop both failed before destructive cleanup | key=%s",
                     agent.runtime_key,
                     exc_info=(
                         type(cancel_failure),
@@ -177,8 +188,32 @@ class TaskAgentManager:
             raise stop_failure
         if cancel_failure is not None:
             raise RuntimeError(
-                "Failed to cancel chat run before memory clear"
+                "Failed to cancel chat run before destructive cleanup"
             ) from cancel_failure
+
+    async def cancel_chat_session_work(
+        self,
+        *,
+        session_id: str,
+        turn_id: str | None = None,
+    ) -> bool:
+        """Stop any session run that may have consumed a deleted user turn."""
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("Session ID is required")
+        async with self._chat_clear_lock:
+            key = build_task_agent_key(TaskAgentType.CHAT, normalized_session_id)
+            agent = self._agents.pop(key, None)
+            self._instance_metadata.pop(key, None)
+        if agent is None:
+            return False
+        await self._cancel_and_stop_chat_agent(
+            agent,
+            reason="privacy_delete",
+            anchor_turn_id=normalized_turn_id or None,
+        )
+        return True
 
     async def ensure_agent(self, agent_type: TaskAgentType | str, agent_id: str) -> TaskAgent:
         if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
@@ -228,7 +263,9 @@ class TaskAgentManager:
         logger.info(f"TaskAgent ensured | key={key}")
         return agent
 
-    async def add_fact_to_agent(self, agent_type: TaskAgentType | str, agent_id: str, fact: FactRecord) -> bool:
+    async def add_fact_to_agent(
+        self, agent_type: TaskAgentType | str, agent_id: str, fact: FactRecord
+    ) -> bool:
         """Add fact to agent, returns True if successful, False if rejected."""
         try:
             if get_task_agent_type_value(agent_type) == TaskAgentType.CHAT.value:
@@ -237,6 +274,14 @@ class TaskAgentManager:
                     async with self._chat_clear_lock:
                         if self._chat_pause_depth != 0:
                             continue
+                        if await self._is_blocked_user_message(fact):
+                            self._blocked_user_message_rejected_count += 1
+                            logger.info(
+                                "Rejected user-message fact for a deleted chat scope",
+                                session_id=str(fact.payload.get("session_id") or ""),
+                                turn_id=str(fact.payload.get("turn_id") or ""),
+                            )
+                            return False
                         if self._is_stale_user_message(fact):
                             self._stale_user_message_rejected_count += 1
                             logger.info(
@@ -289,6 +334,7 @@ class TaskAgentManager:
             "idle_ttl_seconds": self._idle_ttl_seconds,
             "enqueue_rejected_count": self._enqueue_rejected_count,
             "stale_user_message_rejected_count": self._stale_user_message_rejected_count,
+            "blocked_user_message_rejected_count": self._blocked_user_message_rejected_count,
         }
 
     def current_user_message_generation(self) -> int | None:
@@ -306,6 +352,22 @@ class TaskAgentManager:
         if fact.user_message_generation is None:
             return True
         return int(fact.user_message_generation) != current_generation
+
+    async def _is_blocked_user_message(self, fact: FactRecord) -> bool:
+        if fact.event_type != EventTypes.USER_MESSAGE:
+            return False
+        payload = fact.payload if isinstance(fact.payload, dict) else {}
+        user_id = str(payload.get("user_id") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        turn_id = str(payload.get("turn_id") or "").strip()
+        if self._user_message_scope_blocker is None:
+            return False
+        return await self._user_message_scope_blocker(
+            user_id=user_id,
+            session_id=session_id,
+            turn_id=turn_id or None,
+            correlation_id=fact.correlation_id,
+        )
 
     def list_instance_keys(self) -> list[str]:
         return sorted(self._agents.keys())
@@ -326,7 +388,10 @@ class TaskAgentManager:
 
     def _is_core_instance(self, agent_type: TaskAgentType | str, agent_id: str) -> bool:
         for core_type, core_id in self._core_instances:
-            if get_task_agent_type_value(core_type) == get_task_agent_type_value(agent_type) and core_id == agent_id:
+            if (
+                get_task_agent_type_value(core_type) == get_task_agent_type_value(agent_type)
+                and core_id == agent_id
+            ):
                 return True
         return False
 

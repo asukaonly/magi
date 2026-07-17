@@ -18,6 +18,7 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
+from magi.memory.evidence import L1RetrievalScope
 from magi.memory.hybrid_retrieval import RetrievalPayload
 from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
@@ -77,14 +78,30 @@ class _FakeL0Store:
         return 3
 
 
+def _fake_event_id_page(
+    *,
+    prefix: str,
+    total: int,
+    after_event_id: str,
+    limit: int,
+) -> list[str]:
+    start = int(after_event_id.removeprefix(prefix)) + 1 if after_event_id else 0
+    return [f"{prefix}{index:06d}" for index in range(start, min(start + limit, total))]
+
+
 class _FakeL1Store:
     db_path = "/tmp/l1.db"
 
     def __init__(self):
         self.last_query_kwargs = None
+        self.last_count_kwargs = None
         self.deleted_event_ids: list[str] = []
+        self._deleted_event_id_set: set[str] = set()
+        self.bulk_deleted_entity: str | None = None
+        self.bulk_deleted_range: tuple[float, float] | None = None
 
     async def count_events(self, **kwargs):
+        self.last_count_kwargs = kwargs
         return 12
 
     async def query_events(
@@ -101,6 +118,7 @@ class _FakeL1Store:
         idempotency_key=None,
         start_time=None,
         end_time=None,
+        l1_retrieval_scopes=None,
         limit=50,
         offset=0,
         include_metadata_json=True,
@@ -118,6 +136,7 @@ class _FakeL1Store:
             "idempotency_key": idempotency_key,
             "start_time": start_time,
             "end_time": end_time,
+            "l1_retrieval_scopes": l1_retrieval_scopes,
             "limit": limit,
             "offset": offset,
             "include_metadata_json": include_metadata_json,
@@ -162,6 +181,60 @@ class _FakeL1Store:
         self.deleted_event_ids.append(event_id)
         return event_id == "evt-1"
 
+    async def get_event(self, event_id: str):
+        if event_id != "evt-1":
+            return None
+        return {
+            "event_id": event_id,
+            "source": "chat",
+            "deleted_at": 1.0 if event_id in self._deleted_event_id_set else None,
+        }
+
+    async def get_active_event(self, event_id: str):
+        event = await self.get_event(event_id)
+        if event is None or event["deleted_at"] is not None:
+            return None
+        return event
+
+    async def mark_deleted_many(self, event_ids: list[str]):
+        newly_deleted = [
+            event_id for event_id in event_ids if event_id not in self._deleted_event_id_set
+        ]
+        self._deleted_event_id_set.update(newly_deleted)
+        self.deleted_event_ids.extend(newly_deleted)
+        return len(newly_deleted)
+
+    async def list_active_event_ids_by_entity(
+        self,
+        entity_id: str,
+        *,
+        after_event_id: str = "",
+        limit: int = 500,
+    ):
+        self.bulk_deleted_entity = entity_id
+        return _fake_event_id_page(
+            prefix="evt-entity-",
+            total=25_001,
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
+    async def list_active_event_ids_by_time_range(
+        self,
+        *,
+        start: float,
+        end: float,
+        after_event_id: str = "",
+        limit: int = 500,
+    ):
+        self.bulk_deleted_range = (start, end)
+        return _fake_event_id_page(
+            prefix="evt-range-",
+            total=25_002,
+            after_event_id=after_event_id,
+            limit=limit,
+        )
+
     def get_statistics(self):
         return {
             "db_path": self.db_path,
@@ -176,8 +249,11 @@ class _FakeL2Store:
     db_path = "/tmp/l2.db"
 
     def __init__(self):
-        self.rejected_edges: list[str] = []
         self.forgotten_entities: list[str] = []
+        self.forgotten_ranges: list[tuple[float, float]] = []
+        self.forgotten_source_events: list[str] = []
+        self.tombstoned_source_events: list[str] = []
+        self.source_event_tombstones: set[str] = set()
         self.relationship_kwargs: dict | None = None
         self.assertion_kwargs: dict | None = None
         self.snapshot_kwargs: dict | None = None
@@ -243,15 +319,26 @@ class _FakeL2Store:
             "exclusive_resolution": payload.get("exclusive_resolution", "mark_deprecated"),
         }
 
-    async def reject_edge(self, *, triple_id: str, audit_event_id: str | None = None):
-        self.rejected_edges.append(triple_id)
-        if triple_id != "rel-1":
-            return None
-        return {"triple_id": triple_id, "status": "user_rejected"}
-
     async def forget_entity(self, *, entity_id: str):
         self.forgotten_entities.append(entity_id)
         return {"entities": 1, "relations": 2, "assertions": 3}
+
+    async def forget_time_range(self, *, start: float, end: float):
+        self.forgotten_ranges.append((start, end))
+        return {"relations": 2, "assertions": 3}
+
+    async def forget_source_events(self, event_ids: list[str], *, reason: str):
+        self.forgotten_source_events.extend(event_ids)
+        self.source_event_tombstones.update(event_ids)
+        return {"source_event_tombstones": len(event_ids), "reason": reason}
+
+    async def tombstone_source_events(self, event_ids: list[str], *, reason: str):
+        self.tombstoned_source_events.extend(event_ids)
+        self.source_event_tombstones.update(event_ids)
+        return len(event_ids)
+
+    async def is_source_event_tombstoned(self, event_id: str):
+        return event_id in self.source_event_tombstones
 
     async def clear(self):
         return 5
@@ -294,6 +381,7 @@ class _FakeL3Store:
     def __init__(self):
         self.summary_kwargs: dict | None = None
         self.summary_count_kwargs: dict | None = None
+        self.forgotten_source_events: list[str] = []
 
     async def count_summaries(self, **kwargs):
         self.summary_count_kwargs = kwargs
@@ -309,6 +397,10 @@ class _FakeL3Store:
 
     async def clear(self):
         return 2
+
+    async def forget_source_events(self, event_ids: list[str]):
+        self.forgotten_source_events.extend(event_ids)
+        return len(event_ids)
 
     def get_statistics(self):
         return {
@@ -326,6 +418,7 @@ class _FakeL4Store:
     def __init__(self):
         self.skill_kwargs: dict | None = None
         self.skill_count_kwargs: dict | None = None
+        self.forgotten_source_events: list[str] = []
 
     async def count_skills(self, **kwargs):
         self.skill_count_kwargs = kwargs
@@ -346,6 +439,11 @@ class _FakeL4Store:
 
     async def clear(self):
         return 1
+
+    async def forget_source_events(self, event_ids: list[str], *, reason: str):
+        _ = reason
+        self.forgotten_source_events.extend(event_ids)
+        return len(event_ids)
 
     def get_statistics(self):
         return {
@@ -372,6 +470,75 @@ class _FakeUnifiedMemory:
 
     def memory_operation_guard(self):
         return self._operation_barrier.operation()
+
+    async def forget_source_event(self, event_id: str, *, reason: str):
+        event = await self.l1.get_event(event_id)
+        if event is None and event_id not in self.l2.source_event_tombstones:
+            return False
+        await self.forget_source_events([event_id], reason=reason)
+        return True
+
+    async def forget_source_events(self, event_ids, *, reason: str):
+        normalized = list(
+            dict.fromkeys(str(item).strip() for item in event_ids if str(item).strip())
+        )
+        await self.l2.forget_source_events(normalized, reason=reason)
+        await self.l3.forget_source_events(normalized)
+        await self.l4.forget_source_events(normalized, reason=reason)
+        return await self.l1.mark_deleted_many(normalized)
+
+    async def forget_known_source_events(self, event_ids, *, reason: str):
+        return await self.forget_source_events(event_ids, reason=reason)
+
+    async def forget_entity_memory(self, *, entity_id: str, delete_l1_events: bool):
+        deleted = 0
+        if delete_l1_events:
+            deleted = await self.forget_source_events_by_pages(
+                load_page=lambda after_event_id, limit: self.l1.list_active_event_ids_by_entity(
+                    entity_id,
+                    after_event_id=after_event_id,
+                    limit=limit,
+                ),
+                reason="user_forget_entity",
+            )
+        return {"entity_id": entity_id, "l1_events_deleted": deleted}
+
+    async def forget_time_range_memory(
+        self,
+        *,
+        start: float,
+        end: float,
+        delete_l1_events: bool,
+    ):
+        deleted = 0
+        if delete_l1_events:
+            deleted = await self.forget_source_events_by_pages(
+                load_page=lambda after_event_id, limit: self.l1.list_active_event_ids_by_time_range(
+                    start=start,
+                    end=end,
+                    after_event_id=after_event_id,
+                    limit=limit,
+                ),
+                reason="user_forget_time_range",
+            )
+        return {"start": start, "end": end, "l1_events_deleted": deleted}
+
+    async def forget_source_events_by_pages(self, *, load_page, reason: str):
+        after_event_id = ""
+        while True:
+            event_ids = await load_page(after_event_id, 500)
+            if not event_ids:
+                break
+            await self.l2.tombstone_source_events(event_ids, reason=reason)
+            after_event_id = event_ids[-1]
+        deleted = 0
+        after_event_id = ""
+        while True:
+            event_ids = await load_page(after_event_id, 500)
+            if not event_ids:
+                return deleted
+            deleted += await self.forget_source_events(event_ids, reason=reason)
+            after_event_id = event_ids[-1]
 
     async def get_statistics(self):
         return {
@@ -2061,15 +2228,13 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         async def areset_user_turn_delivery_after_failed_clear(self) -> int:
             assert self._db_path == runtime_paths_with_schema.chat_db_path
             with sqlite3.connect(self._db_path) as conn:
-                cursor = conn.execute(
-                    """
+                cursor = conn.execute("""
                     UPDATE chat_user_turn_delivery
                     SET projection_completed = 0,
                         runtime_enqueued = 0,
                         updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
                     WHERE projection_completed != 0 OR runtime_enqueued != 0
-                    """
-                )
+                    """)
                 conn.commit()
                 return int(cursor.rowcount or 0)
 
@@ -2145,13 +2310,11 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
             await clear_memory_layers()
 
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
-            assert conn.execute(
-                """
+            assert conn.execute("""
                 SELECT projection_completed, runtime_enqueued
                 FROM chat_user_turn_delivery
                 WHERE turn_id = 'turn-clear-retry'
-                """
-            ).fetchone() == (0, 0)
+                """).fetchone() == (0, 0)
         with sqlite3.connect(runtime_paths_with_schema.message_queue_db_path) as conn:
             assert conn.execute(
                 "SELECT COUNT(*) FROM runtime_commands WHERE command_type = 'user_message'"
@@ -2165,13 +2328,11 @@ async def test_failed_memory_clear_resets_surviving_turn_for_real_retry(
         assert retried.message_id == initial.message_id
         assert projector.calls == 2
         with sqlite3.connect(runtime_paths_with_schema.chat_db_path) as conn:
-            assert conn.execute(
-                """
+            assert conn.execute("""
                 SELECT projection_completed, runtime_enqueued
                 FROM chat_user_turn_delivery
                 WHERE turn_id = 'turn-clear-retry'
-                """
-            ).fetchone() == (1, 1)
+                """).fetchone() == (1, 1)
         assert (await queue.get_stats())["pending_count"] == 1
     finally:
         await queue.stop()
@@ -2516,6 +2677,59 @@ def test_memory_l1_events_api_returns_canonical_user_and_content(monkeypatch):
     assert body["total"] == 12
 
 
+def test_memory_l1_events_api_excludes_audit_only_records(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory._resolve_unified_memory", lambda: memory)
+    monkeypatch.setattr("magi.api.routers.memory._resolve_memory_integration", lambda: None)
+
+    response = TestClient(app).get("/api/memory/l1/events")
+
+    assert response.status_code == 200
+    expected_scopes = [
+        scope.label for scope in L1RetrievalScope if scope != L1RetrievalScope.AUDIT_ONLY
+    ]
+    assert memory.l1.last_query_kwargs["l1_retrieval_scopes"] == expected_scopes
+    assert memory.l1.last_count_kwargs["l1_retrieval_scopes"] == expected_scopes
+    assert L1RetrievalScope.AUDIT_ONLY.label not in expected_scopes
+
+
+def test_memory_episode_lists_do_not_expose_invalidated_content(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    l2 = SimpleNamespace(
+        list_episodes=AsyncMock(),
+        count_episodes=AsyncMock(),
+        list_experiences=AsyncMock(),
+    )
+    unified = SimpleNamespace(l2=l2)
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.episodes_routes._resolve_unified_memory",
+        lambda: unified,
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.experiences_routes._resolve_unified_memory",
+        lambda: unified,
+    )
+
+    client = TestClient(app)
+    episodes = client.get("/api/memory/l2/episodes", params={"status": "invalidated"})
+    experiences = client.get(
+        "/api/memory/l2/experiences",
+        params={"status": "invalidated"},
+    )
+
+    assert episodes.status_code == 200
+    assert episodes.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    assert experiences.status_code == 200
+    assert experiences.json() == {"items": [], "total": 0, "limit": 50, "offset": 0}
+    l2.list_episodes.assert_not_awaited()
+    l2.count_episodes.assert_not_awaited()
+    l2.list_experiences.assert_not_awaited()
+
+
 def test_memory_l1_events_api_excludes_worker_agent_events_by_default(monkeypatch):
     app = FastAPI()
     app.include_router(memory_router, prefix="/api/memory")
@@ -2623,8 +2837,111 @@ def test_memory_l1_event_delete_route_soft_deletes_public_event(monkeypatch):
     response = client.delete("/api/memory/l1/events/evt-1")
 
     assert response.status_code == 200
-    assert response.json() == {"event_id": "evt-1", "deleted": True}
+    assert response.json() == {
+        "event_id": "evt-1",
+        "deleted": True,
+        "deletion_scope": "projected_memory_only",
+    }
     assert memory.l1.deleted_event_ids == ["evt-1"]
+    assert memory.l2.forgotten_source_events == ["evt-1"]
+    assert memory.l3.forgotten_source_events == ["evt-1"]
+    assert memory.l4.forgotten_source_events == ["evt-1"]
+
+
+def test_memory_l1_event_delete_retry_is_idempotent(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr("magi.api.routers.memory.l1.routes._resolve_unified_memory", lambda: memory)
+
+    client = TestClient(app)
+    first = client.delete("/api/memory/l1/events/evt-1")
+    repeated = client.delete("/api/memory/l1/events/evt-1")
+    missing = client.delete("/api/memory/l1/events/evt-never-existed")
+
+    assert first.status_code == 200
+    assert repeated.status_code == 200
+    assert repeated.json() == {
+        "event_id": "evt-1",
+        "deleted": True,
+        "deletion_scope": "projected_memory_only",
+    }
+    assert missing.status_code == 404
+    assert memory.l1.deleted_event_ids == ["evt-1"]
+    assert memory.l2.forgotten_source_events == ["evt-1", "evt-1"]
+    assert memory.l3.forgotten_source_events == ["evt-1", "evt-1"]
+    assert memory.l4.forgotten_source_events == ["evt-1", "evt-1"]
+
+
+def test_memory_l1_event_delete_does_not_require_l2(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    memory.l2 = None
+    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
+        lambda: memory,
+    )
+
+    response = TestClient(app).delete("/api/memory/l1/events/evt-1")
+
+    assert response.status_code == 200
+    memory.forget_source_event.assert_awaited_once_with(
+        "evt-1",
+        reason="user_delete_event",
+    )
+
+
+def test_memory_l1_event_delete_rejects_manual_entry_without_forgetting(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    memory.l1.get_event = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "event_id": "evt-1",
+            "source": "manual_entry",
+            "deleted_at": None,
+        }
+    )
+    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
+        lambda: memory,
+    )
+
+    response = TestClient(app).delete("/api/memory/l1/events/evt-1")
+
+    assert response.status_code == 409
+    memory.forget_source_event.assert_not_awaited()
+
+
+def test_memory_l1_event_delete_rejects_hidden_manual_entry_without_forgetting(monkeypatch):
+    app = FastAPI()
+    register_api_routes(app)
+
+    memory = _FakeUnifiedMemory()
+    memory.l1.get_event = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "event_id": "evt-old",
+            "source": "manual_entry",
+            "source_item_id": "manual-1",
+            "deleted_at": 123.0,
+        }
+    )
+    memory.forget_source_event = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l1.routes._resolve_unified_memory",
+        lambda: memory,
+    )
+
+    response = TestClient(app).delete("/api/memory/l1/events/evt-old")
+
+    assert response.status_code == 409
+    memory.forget_source_event.assert_not_awaited()
 
 
 def test_memory_governance_action_routes_are_publicly_allowlisted():
@@ -2634,8 +2951,48 @@ def test_memory_governance_action_routes_are_publicly_allowlisted():
     }
 
     assert "DELETE" in route_methods["/l1/events/{event_id}"]
-    assert "PATCH" in route_methods["/l2/edges/{triple_id}/reject"]
+    assert "/l2/edges/{triple_id}/reject" not in route_methods
     assert "POST" in route_methods["/forget/entity"]
+    assert "POST" in route_methods["/forget/time-range"]
+    assert "POST" in route_methods["/forget/episode"]
+
+
+def test_forget_entity_uses_complete_l1_deletion_interface(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",
+        lambda: memory,
+    )
+
+    response = TestClient(app).post(
+        "/api/memory/forget/entity",
+        json={"entity_id": "user:u1", "delete_l1_events": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["l1_events_deleted"] == 25_001
+    assert memory.l1.bulk_deleted_entity == "user:u1"
+
+
+def test_forget_time_range_uses_complete_l1_deletion_interface(monkeypatch):
+    app = FastAPI()
+    app.include_router(memory_router, prefix="/api/memory")
+    memory = _FakeUnifiedMemory()
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.forget_routes._resolve_unified_memory",
+        lambda: memory,
+    )
+
+    response = TestClient(app).post(
+        "/api/memory/forget/time-range",
+        json={"start": 100.0, "end": 200.0, "delete_l1_events": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["l1_events_deleted"] == 25_002
+    assert memory.l1.bulk_deleted_range == (100.0, 200.0)
 
 
 def test_memory_l2_conflict_rule_api_rejects_invalid_combinations(monkeypatch):

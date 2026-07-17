@@ -171,6 +171,16 @@ Examples:
 - Entities the current conversation revolves around
 - Temporary tactical decisions for a single turn
 
+Temporary tactics and active-entity cards that depend on source events must
+retain those source references. When a referenced event is forgotten, both are
+removed from live state and checkpoints. Active-entity reads and restart restore
+also recheck source tombstones, entity projection blocks, and time-range
+projection blocks, so partially completed cleanup cannot re-expose a governed
+card. A durable L0 source-reference barrier blocks a forgotten tactic from being
+restored after restart or re-added by replay. This barrier is cleared only by the
+explicit full-memory clear boundary; normal session expiry or checkpoint
+maintenance must not weaken it.
+
 ### L1 — Normalized Event Facts
 
 `L1` is the durable fact layer and the factual foundation of the entire memory system.
@@ -214,6 +224,40 @@ Counter-examples:
 - Step-by-step execution traces
 - Exact tool arguments, latencies, and raw tool outputs from a specific turn
 
+#### User-authored Manual Entries
+
+The `manual_entries` row is the product's editable source record; its immutable
+L1 projection is the canonical input to recall, timeline assembly, episodes,
+experiences, mood aggregation, and later summaries. Editing projected content
+does not rewrite the previous L1 event. The mutation path first forgets the old
+projection through the normal source-deletion workflow, updates the source row
+with an expected-current projection check, then reserves the deterministic
+replacement identity on that source row before writing L1. Linking clears the
+reservation only after the L1 write succeeds. A failed or ambiguously committed
+link therefore leaves a discoverable recovery identity rather than an unowned
+L1 event. Mutations for one entry are serialized, and retries resolve the same
+replacement identity instead of producing duplicate history.
+
+Creation preserves the user's source row even if its initial L1 projection
+temporarily fails, and the failure is surfaced instead of being silently
+reported as a fully projected save. A later no-op mutation or repair attempt
+finishes the reserved projection. Deletion first closes source mutation and
+projection completion with a durable request marker, then governs the linked,
+reserved, and deterministically reconstructable event identities across every
+memory layer, and only then hides the source row. Edit, delete, and weather
+removal fail closed when downstream cleanup cannot complete; they must not leave
+the edited source record pointing at still-visible derived memory. Public list
+and timeline reads exclude deleted entries and deleted projections.
+
+Uploaded manual-entry assets are content-addressed but not public by possession
+of the reference. The timeline asset route serves an asset only while it is
+referenced by an active manual entry, a non-invalidated experience, an experience
+draft, or a saved timeline cover. Removing the final user-visible owner makes a
+previously known asset reference unreadable without requiring immediate file
+garbage collection. Product copy must therefore describe deletion as removing
+access to the attachment, not as immediate physical file erasure, unless
+owner-aware garbage collection has confirmed that the stored bytes were removed.
+
 #### Evidence Interpretation and Retrieval Authority
 
 `L1` raw events and retrieval authority are separate concerns. The raw event row records what happened; evidence interpretation records how that event is allowed to participate in fact recall, episode recall, audit views, and downstream cognition.
@@ -237,6 +281,101 @@ artist". Plugins may provide these fields through `domain_payload.source_facets`
 `L1` may also rebuild facets from older persisted metadata when the source facts
 are still present. A structured recall result may claim total coverage only
 inside the explicit source/facet/time/user scope used to query that index.
+
+#### Canonical Source Deletion
+
+Deleting an L1 source event is a cross-layer governance operation, not a direct
+soft-delete of one row. The unified workflow separates permanent replay
+barriers from broader derivative-cleanup references. Permanent barriers include
+the canonical event identity, an optional source-owned item identity, and the
+source + event-type + idempotency identity. A linked chat turn may still be used
+to clean older coarse-grained derivatives, but it is not permanently blocked by
+a single-event or single-message deletion. Turn and session identities become
+permanent barriers only when the user deletes that whole turn or session.
+Internal source replacement, such as editing a manual entry, blocks the old
+event and idempotency identity without blocking the reusable source item. A
+paged bulk deletion completes the permanent barrier phase for the selected set
+before it starts removing individual rows. This prevents a concurrent
+projection, source replay, or later resynchronization from recreating memory
+while cleanup is in progress without poisoning an unrelated replacement.
+
+Chat deletion enters this workflow through the Python runtime even in the
+desktop build. A session delete first proves that the active session belongs to
+the requesting user; an unknown session or wrong owner creates no barrier. A
+single-message delete selects L1 rows by both session and message identity,
+leaves sibling L1 messages from the same turn visible, and permanently blocks
+that source-owned message from being projected again. Turn-linked derivatives
+that cannot be attributed more precisely are removed conservatively, without
+turn-wide replay blocking. The L1 session preview is rebuilt from surviving
+events after a message delete and scrubbed when the whole session is deleted.
+After memory cleanup succeeds, single-message deletion irreversibly scrubs the
+chat row body and payload while retaining only its structural identity, removes
+its managed attachment files and metadata, invalidates session context
+summaries, clears its reply previews and delivery copies, deletes the linked
+turn trace, and rebuilds the visible session preview. Whole-session deletion
+removes the transcript, immediately deletes all managed attachment and derived
+files regardless of automatic asset-retention settings, and scrubs the retained
+session tombstone. These chat changes happen only after memory cleanup succeeds,
+so a failed memory request remains visible and retryable.
+
+Each layer owns removal of its own derivatives:
+
+- L2 removes the forgotten occurrence from assertion and relationship evidence,
+  entity mentions and facets, episode and experience membership, experience
+  seeds and drafts, mood aggregates, correction effects, and derived profile or
+  insight dependencies. Claims with independent evidence are recomputed; claims
+  with no trustworthy evidence are archived. Entities with remaining evidence
+  are rebuilt, while source-only aliases, catalog entries, search rows, and
+  vectors are removed. Daily mood projections persist every contributing event
+  identity and recheck source deletion or governed time-range barriers in the
+  same write transaction; legacy mood rows without attributable sources are
+  discarded during schema upgrade.
+- L3 removes the source link and search/vector material. A summary with remaining
+  evidence becomes stale for regeneration; one with no trustworthy evidence is
+  retired.
+- L0 removes temporary tactics linked by either event or turn reference and
+  active-entity cards linked by deleted events or governed time ranges, then
+  rechecks the same governance on new writes, prompt reads, and restart restore.
+- L4 retires a procedural skill when the deleted source contributed to its
+  learned aggregate, removes its searchable/vector and L4 trace material, and
+  refuses future learning from a deleted or time-range-governed event.
+- L1 hides the complete selected source set as soon as the durable replay
+  barriers are committed, before slower downstream cleanup begins. This keeps
+  a partially completed deletion out of recall while recovery is still running.
+
+When a time-range action retains L1, the raw occurrence remains available for
+timeline and audit use, but every event selected for the range is still passed
+through the same L0/L2/L3/L4 derivative cleanup. The durable range barrier is
+stored independently from the events known when deletion runs. A source that is
+connected or backfilled later is checked against the canonical occurrence time
+before its first L1 write. Matching events are rejected entirely when the action
+also deletes L1; otherwise an event-specific derivative barrier is committed
+before the retained raw L1 row is written. L0, L2, L3, L4, and episode writes
+recheck either that event barrier or their own canonical observation time, so
+late sync and direct derivative writes cannot recreate the forgotten period.
+An ordinary episode-removal barrier remains scoped to episode formation and
+does not globally suppress the event's unrelated derivatives.
+
+The operation and its cleanup progress are durable and deliberately retryable.
+A failed attempt leaves the source hidden and the replay barriers in place, but
+does not report a successful user deletion; repeating the same request or
+startup recovery resumes the remaining cleanup without reviving or duplicating
+state. A competing worker must hold the current operation lease before it can
+advance progress, so an expired worker cannot later mark a newer recovery run as
+complete.
+
+Correction audit projections derived from the forgotten evidence are governed
+by the same deletion. Default user-facing episode and experience lists do not
+offer invalidated records, and stale or rejected experience seeds cannot be
+promoted into new memories.
+
+Older databases may not retain complete provenance for names and procedural
+skills created before source governance existed. Upgrade is intentionally
+fail-closed: unattributable legacy names are not treated as independently
+user-authored, and pre-governance procedural skills whose recorded attempt count
+exceeds their recoverable source links are retired and rebuilt from newly
+observed, fully linked evidence. This may discard rebuildable legacy learning,
+but it prevents an old untracked source from surviving a later user deletion.
 
 #### Chat Recall Correction Boundary
 
@@ -514,7 +653,8 @@ Assertion API rows expose family display metadata, including `trait_value_i18n`,
   for those episodes or for active backfill scope
 - Product episode lists default to `status='active'`; episode detail reads join
   event memberships with live L2 assertions whose `evidence_events` intersect
-  those events, while corrections reuse the assertion feedback path
+  those events; confirmation uses the lightweight assertion feedback path,
+  while rejection and editing use the governed correction surface
 - The episode review surface is reading-first: it presents Magi's natural
   language recap from the linked L3 episodic summary, then lets the user edit
   the display title, edit or regenerate the recap, and curate the member event
@@ -852,7 +992,7 @@ Users can interact with L2 artifacts directly:
 
 - **Assertion confirmation**: `apply_user_feedback(assertion_id, "confirmed")` strengthens the current evidence-backed interpretation without creating a correction.
 - **Assertion or relationship correction**: the unified correction service records `record_error`, `situation_changed`, or `scope_refinement` and applies the same governance rules regardless of whether the caller is About You, Manage Memory, or a future chat flow.
-- **Correction history and revert**: immutable versions and the user action that changed them remain queryable; only the latest applicable correction can be reverted.
+- **Correction history and revert**: the correction action and safe immutable versions remain queryable; forgotten content is redacted rather than exposed through history. Revert eligibility is computed by the backend, and only the latest applicable correction can be reverted. If a future-dated correction is made irrelevant by an explicit forget action, it remains visible as cancelled history and is never activated or offered for revert.
 - **Episode annotation**: `update_episode()` supports `user_label`, `user_note`, `user_pinned` fields
 - **Episode review curation**: active episodes can regenerate their L3 recap,
   add or remove suggested member events, merge with a suggested active episode,
@@ -865,9 +1005,49 @@ Users can interact with L2 artifacts directly:
   eventually curated at either source episode or direct event granularity.
   Experience edits update the L2 experience object and its membership; the L3
   review is regenerated or superseded from the updated evidence boundary.
-- **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, and episodes
-- **Forget time range**: `forget_time_range(start, end)` — invalidates episodes and archives assertions/edges in the range
+- **Forget entity**: `forget_entity(entity_id)` — cascade soft-delete across KG edges, assertions, facets, episodes, retained relationship history, and dependent projections
+- **Forget time range**: `forget_time_range(start, end)` — invalidates overlapping episodes and removes only assertion/relationship evidence whose original occurrence falls in the range; a claim remains current when independent evidence remains
 - **Forget episode**: `forget_episode(episode_id)` — invalidates the episode, optionally returns member event IDs
+
+Forgetting a time range removes that occurrence; it does not declare that the
+same fact can never become true again. A later explicit user correction may
+establish a new validity segment without restoring evidence from the forgotten
+period. Forgetting an entity remains a durable barrier against passive replay of
+the forgotten claims, including replay under a different context scope. Events
+already known to support that entity receive a full derivative barrier. Older
+unfinished projection jobs receive a narrower entity-candidate barrier instead:
+they may still produce unrelated memories, but assertions, relationships,
+catalog entries, facets, and episode memberships for the forgotten entity are
+rejected. This keeps a large projection backlog usable without allowing an old
+in-flight task to recreate the deleted entity. Immediately before catalog
+deletion, the final canonical name and alias set is copied atomically onto every
+full and candidate event barrier, so a name added while selection is paging
+cannot let an older job recreate the same entity under a different identifier.
+Entity forgetting also waits for the current L2 projection batch to finish and
+holds that boundary through selection and cleanup; queued unrelated jobs resume
+afterward under the narrower candidate rules.
+
+Forget governance is stored independently from the mutable assertion or
+relationship row. Claim barriers, forgotten evidence identities, and correction
+lineage barriers therefore survive archival, maintenance purges, source replay,
+and correction reverts. The claim-to-evidence ledger is unbounded and separate
+from the small evidence list kept on the visible L2 row. When L1 is available,
+each evidence item uses its canonical L1 occurrence time, even when one L2 write
+contains evidence from several moments. Historical relationship reads apply the
+same barriers and remove forgotten evidence before returning a version.
+
+If a forget action removes a future replacement before it takes effect, the
+scheduled correction is cancelled atomically: its rules are disabled, the
+original current value is restored when that value was not itself forgotten,
+and the scheduler will not activate the cancelled transition later. After any
+forget operation, affected snapshots, profile and portrait projections, and L3
+insights are hidden and rebuilt from the remaining sources under the new subject
+revision. A failed rebuild never exposes the stale projection.
+
+Database upgrades conservatively recover legacy forget markers and historical
+relationship evidence. Old archived assertion rows that match the former forget
+shape are protected from replay rather than risk reviving content the user had
+already removed.
 
 The product exposes this agency through two complementary surfaces. **About You**
 keeps its grouped summaries read-only and lets the user open the exact source
@@ -880,7 +1060,9 @@ three user meanings (the record was wrong, the situation changed, or the claim
 only applies in a specific context), an impact explanation before saving,
 immutable history, and revert for the latest active correction. Superseded and
 user-rejected records remain discoverable there so their history and valid revert
-actions are not lost. Snapshots,
+actions are not lost. The **Knowledge** workspace follows the same boundary:
+confirmation remains lightweight, while rejection and editing open the shared
+governed correction flow instead of writing assertion rows directly. Snapshots,
 portrait summaries, and L3 summaries remain read-only projections; users correct
 their supporting assertions or relationships instead of editing derived output.
 Raw L1 events are historical evidence and are deleted or forgotten through their
@@ -889,9 +1071,14 @@ own explicit controls, never "corrected" as if the captured event had not happen
 Durable correction is separate from chat answer rechecking. The public correction
 surface is `POST /api/memory/l2/corrections`, with history at
 `GET /api/memory/l2/corrections` and revert at
-`POST /api/memory/l2/corrections/{correction_id}/revert`. Older assertion and
-edge feedback endpoints delegate to the same correction service rather than
-updating rows directly.
+`POST /api/memory/l2/corrections/{correction_id}/revert`. Lightweight assertion
+confirmation remains available through
+`PATCH /api/memory/l2/assertions/{assertion_id}/feedback`, and that endpoint only
+accepts `confirmed`. Rejection and editing of assertions or relationships always
+use the governed correction surface; there are no separate public assertion-edit
+or relationship-reject shortcuts. The desktop gateway does not implement these
+mutations; it forwards them to the Python runtime so desktop and browser callers
+share the same governance rules.
 
 Each correction persists the previous claim, the user's reason, any replacement,
 its time or scope, and an executable rule that guards future writes. An incorrect
@@ -902,6 +1089,14 @@ claims do not inherit evidence that supported the rejected value. Time-bounded
 rules are evaluated against when the candidate evidence was observed, so evidence
 from before a scheduled change cannot be governed as though the change had already
 happened.
+
+Corrections form a lineage over the current claim rather than independent undo
+buttons. In an `A -> B -> C` sequence, the correction that produced `C` is the
+only immediately revertible action; reverting it returns to the state owned by
+the preceding step without overwriting evidence or changes created afterward.
+The older correction becomes eligible only when no newer active correction still
+depends on it. The API owns `can_revert`; clients must not infer eligibility from
+timestamps, visible status, or the presence of a replacement.
 
 Correction scopes use stable local context identities rather than free-text
 labels. The stored contract is an `all_of` list of typed context IDs; an empty
@@ -939,7 +1134,13 @@ correction is active is preserved. A future-dated correction leaves current
 relationships untouched until its effective time, applies all conflict effects
 atomically when it activates, and retains evidence that was waiting before the
 transition. Periodic recovery applies any activation missed while the runtime
-was offline.
+was offline. Existing databases reconstruct missing conflict ownership in
+historical order so a chain of corrections can still be reverted one step at a
+time. Because legacy L3 dependency records may be incomplete, that one-time
+reconciliation invalidates every registered L3 insight for an affected subject
+and queues a rebuild; normal runtime corrections remain scoped to exact
+dependencies. User-authoritative relationships and future-dated segments are
+exempt from automatic stale-record cleanup.
 
 When relationship identities or conflict rules change, stored relationships,
 corrections, versions, and recorded correction effects are updated together.
@@ -955,6 +1156,15 @@ multiple current claims into one scope, the migration chooses one current winner
 retires incompatible rules, and invalidates derived views for rebuilding rather
 than publishing stale references.
 
+Entity catalog merges and ghost-identity repair follow the same governance rule
+for both assertions and relationships. Rekeying moves immutable versions,
+correction targets and replacements, conflict effects, forget rules, complete
+evidence ledgers, and derivation dependencies with the surviving identity; it
+does not merely rewrite the current graph row. Forgotten evidence is filtered
+before colliding records are combined. Existing snapshots for both identities
+are removed inside the rekey transaction and the survivor is rebuilt afterward,
+so a failed refresh leaves no stale pre-merge portrait visible.
+
 When the same relationship becomes true again after an intervening state, it
 reuses the relationship identity but starts a new, non-overlapping validity
 segment. Immutable snapshots retain every segment, and later evidence can update
@@ -962,8 +1172,10 @@ only the segment whose validity interval covers when that evidence was observed.
 Reverting a correction restores evidence from the matching segment without
 mixing evidence from a later recurrence.
 
-Raw L1 evidence is preserved for audit and narrative history, but it does not
-bypass an active correction. For fact-authoritative modes, an L1 event that
+A correction by itself preserves raw L1 evidence for audit and narrative
+history, but that evidence does not bypass the correction. Explicit source
+deletion follows the stronger cross-layer deletion rules above. For
+fact-authoritative modes, an L1 event that
 supports an active assertion or relationship correction is removed before
 answer fusion and before structured totals are calculated. If the correction
 index cannot be read, fact recall fails closed instead of returning possibly
@@ -981,10 +1193,17 @@ of leaking a known-wrong view. A future-dated situation change stores its time
 range immediately but advances the subject revision only when that time arrives.
 The pending transition is durable and idempotent; the scheduler keeps the earliest
 activation time while the periodic sweep recovers missed wakeups. Page-originated
-corrections also create a permanent
-L1 audit event with `cognition_eligible=false`; a chat-originated correction points
-to its existing L1 source event instead. These audit records explain the user
-action but can never become evidence for a new user fact.
+corrections also create a durable, generic L1 audit marker with
+`cognition_eligible=false`; a chat-originated correction points to its existing
+L1 source event instead. The audit marker records only the correction identity
+and action type. It does not copy the previous value, replacement, or free-text
+reason, and its `audit_only` retrieval scope keeps it out of ordinary L1 lists,
+timeline context, stories, and recall. Sensitive details are available only from
+the governed correction-history API. If a related source or claim is forgotten,
+that API removes affected versions, redacts affected values and reasons, and
+returns `can_revert=false`. Source-event deletion also forgets any audit marker
+that was derived from the deleted source evidence; a generic marker for the
+forget action itself may remain because it contains no forgotten content.
 
 Privacy scope (`privacy_scope`) is a day-1 architecture concern carried on every durable L2 object (assertions, edges, facets, episodes, experiences).
 
@@ -1187,6 +1406,15 @@ It answers:
 `L4` does not recount historical facts; it distills future execution guidelines.
 
 Authoritative tool execution truth lives in `runtime_trace.trace_tools`. Exact tool attempts, provider challenges, errors, latency, and success counts should be read from runtime trace when a surface needs auditable execution facts. The current L4 store also maintains denormalized procedural rollups such as `total_attempts`, `success_rate`, bounded `l4_execution_traces`, circuit-breaker state, strategy hints, and context affinity for skill learning and fast advisory reads. Treat those L4 fields as cached procedural overlays that must be reconcilable with runtime trace, not as the canonical source for execution-history inspection.
+
+Every source-backed L4 update records an unbounded skill-to-event link in
+addition to the bounded source list on the visible skill row. Because a learned
+aggregate cannot safely subtract one contributor after the fact, forgetting any
+linked source conservatively retires the affected skill and removes its L4
+search, vector, and trace projections. The durable source tombstone prevents the
+same event from recreating or updating procedural state. This does not rewrite
+the separate authoritative runtime trace; retention and deletion of runtime
+execution truth remain governed by the runtime-trace domain.
 
 `L4` vector index uses `skill` as the parent object and `chunk` as the retrieval unit.
 
@@ -1598,6 +1826,9 @@ These rules must be followed during day-to-day development:
 11. Fact-like retrieval modes must constrain authoritative evidence before topK selection; answer-projection filters are only a last-mile guard
 12. Span-level retrieval atoms, if introduced, are derived projections that hydrate back to raw `fact_events`; they are not new raw facts
 13. Classifier, policy, embedding profile, and index-version changes mark derived evidence/index records stale and rebuild them instead of mutating `fact_events.content`
+14. User deletion of an L1 source must use the unified cross-layer workflow; direct L1 soft-delete helpers are maintenance internals, not product deletion APIs
+15. Source tombstones are written before derivative cleanup and are checked again on L2, L3, L4, and L0 write or restore paths so replay fails closed
+16. Public correction history and ordinary memory reads must redact or exclude forgotten content; only backend-governed history may expose correction details and decide revert eligibility
 
 ---
 
@@ -1608,6 +1839,12 @@ Main implementation entry points:
 - [backend/src/magi/memory/\_\_init\_\_.py](../backend/src/magi/memory/__init__.py) — Public package entry point for the unified memory store
 
 - [backend/src/magi/memory/unified_store.py](../backend/src/magi/memory/unified_store.py) — Unified L0-L4 memory store composition and lifecycle coordination
+
+- [backend/src/magi/memory/store_source_event_forgetting.py](../backend/src/magi/memory/store_source_event_forgetting.py) and [backend/src/magi/memory/source_event_governance.py](../backend/src/magi/memory/source_event_governance.py) — Cross-layer source deletion and durable replay barriers
+
+- [backend/src/magi/memory/store_corrections.py](../backend/src/magi/memory/store_corrections.py) and [backend/src/magi/memory/l2/corrections/](../backend/src/magi/memory/l2/corrections/) — Privacy-safe correction audit projection, correction lineage, future-write rules, and revert governance
+
+- [backend/src/magi/memory/manual_entries/](../backend/src/magi/memory/manual_entries/) — User-authored source records, retry-safe L1 projection, and attachment storage
 
 - [backend/src/magi/memory/layer_protocol.py](../backend/src/magi/memory/layer_protocol.py) and [backend/src/magi/memory/layers/](../backend/src/magi/memory/layers/) — Fan-out ingestion protocol and layer adapters for L0, L1, L2 projection/pipeline, and L4
 
@@ -1704,7 +1941,11 @@ On this foundation:
 
 The query pipeline uses a unified `query_mode` system, each mode defining its own evidence shape, reducer, and authoritative evidence scope. Retrieval is mode-adaptive, with per-mode RRF weight profiles and structured semantic frames for L2 queries.
 
-User agency is first-class: users can confirm, correct, reject, annotate, and forget memory artifacts. Privacy scope is carried on every durable L2 object.
+User agency is first-class: users can confirm, correct, reject, annotate, and
+forget memory artifacts. Correction changes the governed interpretation while
+retaining historical evidence; source deletion removes the selected evidence and
+its dependent memory across layers, with durable barriers against replay.
+Privacy scope is carried on every durable L2 object.
 
 The identity model must always be clear:
 

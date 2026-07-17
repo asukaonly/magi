@@ -1,12 +1,13 @@
 """Concrete sample source for MoodAggregateSchedulerContrib.
 
 Queries L2 tom_trait_assertions filtered to mood/valence trait families
-within a time window, normalizes each into a (timestamp, valence) pair
-clamped to [-1.0, 1.0]. Plan 4 wiring; Plan 2 left this as a Protocol stub.
+within a time window, and retains the exact source events for each normalized
+valence sample.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
@@ -14,10 +15,17 @@ class _L2StoreProtocol(Protocol):
     async def list_tom_assertions(self, **kwargs) -> list[dict[str, Any]]: ...
 
 
-# Trait families that count as valence-bearing for the mood aggregate.
-# Keep narrow — Plan 4 ships with just "mood" and "valence"; expansion is a
-# tuning decision that lives in this constant.
+# Keep the valence-bearing family set narrow; expansion is a tuning decision.
 MOOD_TRAIT_FAMILIES = ["mood", "valence"]
+
+
+@dataclass(frozen=True, slots=True)
+class ValenceSample:
+    """One mood sample plus the source events that make it deletable."""
+
+    timestamp: float
+    valence: float
+    source_event_ids: tuple[str, ...]
 
 
 class L2ValenceSampleSource:
@@ -27,8 +35,11 @@ class L2ValenceSampleSource:
         self._l2_store = l2_store
 
     async def list_valence_samples(
-        self, *, start: float, end: float,
-    ) -> list[tuple[float, float]]:
+        self,
+        *,
+        start: float,
+        end: float,
+    ) -> list[ValenceSample]:
         try:
             assertions = await self._l2_store.list_tom_assertions(
                 trait_families=MOOD_TRAIT_FAMILIES,
@@ -38,7 +49,7 @@ class L2ValenceSampleSource:
         except Exception:
             return []
 
-        samples: list[tuple[float, float]] = []
+        samples: list[ValenceSample] = []
         for assertion in assertions or []:
             ts = assertion.get("observed_at")
             if ts is None:
@@ -57,6 +68,28 @@ class L2ValenceSampleSource:
                 continue
             valence = max(-1.0, min(1.0, valence))
 
-            samples.append((timestamp, valence))
+            raw_source_event_ids = assertion.get("evidence_events")
+            if not isinstance(raw_source_event_ids, (list, tuple, set)):
+                continue
+            source_event_ids = tuple(
+                dict.fromkeys(
+                    str(event_id).strip()
+                    for event_id in raw_source_event_ids
+                    if str(event_id).strip()
+                )
+            )
+            if not source_event_ids:
+                continue
+
+            samples.append(
+                ValenceSample(
+                    timestamp=timestamp,
+                    valence=valence,
+                    source_event_ids=source_event_ids,
+                )
+            )
 
         return samples
+
+
+__all__ = ["L2ValenceSampleSource", "MOOD_TRAIT_FAMILIES", "ValenceSample"]

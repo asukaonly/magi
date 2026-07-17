@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import time
+import asyncio
 from typing import Any, Dict, Optional, Protocol, cast
 
+from ....core.sqlite import sqlite_connection_async
 from ...event_contracts import MemoryEvent
+from ...source_event_governance import govern_source_events_by_time_range
 
 
 class _L0SessionHostProtocol(Protocol):
+    checkpoint_db_path: str
+    _checkpoint_lock: asyncio.Lock
+
+    async def initialize(self) -> None: ...
+
     async def checkpoint_session(self, session_id: str) -> None: ...
 
 
@@ -75,6 +83,22 @@ class L0SessionLifecycleMixin:
         """Refresh the runtime workbench based on the latest normalized event."""
         if not event.session_id:
             return
+        host = cast(_L0SessionHostProtocol, self)
+        await host.initialize()
+        async with sqlite_connection_async(host.checkpoint_db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                decision = await govern_source_events_by_time_range(
+                    db,
+                    event_ids=(event.event_id, event.turn_id),
+                    observed_from=float(event.timestamp),
+                )
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        if decision.blocks_derivations:
+            return
 
         session = await self.start_session(
             session_id=event.session_id,
@@ -121,6 +145,31 @@ class L0SessionLifecycleMixin:
             self._remove_session_state(session_id)
             expired.append(session_id)
         return expired
+
+    async def forget_session(self, session_id: str) -> None:
+        """Remove one session from memory and every restart checkpoint."""
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("session_id must not be empty")
+        host = cast(_L0SessionHostProtocol, self)
+        await host.initialize()
+        async with host._checkpoint_lock:
+            self._remove_session_state(normalized_session_id)
+            async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                for table in (
+                    "l0_goal_stack",
+                    "l0_active_entities",
+                    "l0_temporary_tactics",
+                    "l0_execution_runs",
+                    "l0_execution_pending_turns",
+                    "l0_execution_results",
+                    "l0_sessions",
+                ):
+                    await db.execute(
+                        f"DELETE FROM {table} WHERE session_id = ?",
+                        (normalized_session_id,),
+                    )
+                await db.commit()
 
     async def _evict_lru_session(self) -> Optional[str]:
         """Checkpoint and evict the least-recently-active session."""

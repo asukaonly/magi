@@ -21,6 +21,7 @@ from ...embedding.embedding_service import EmbeddingResult, MemoryEmbeddingServi
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_vector_summaries
+from ..source_event_governance import active_summary_predicate
 from ..storage.schema import (
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
@@ -102,11 +103,11 @@ class L3SummaryEmbeddingMixin:
                 async with sqlite_connection_async(host.db_path) as db:
                     db.row_factory = aiosqlite.Row
                     async with db.execute(
-                        """
+                        f"""
                         SELECT rowid AS rebuild_rowid, *
-                        FROM summaries
+                        FROM summaries AS summaries
                         WHERE rowid > ? AND rowid <= ?
-                          AND derivation_state = 'current'
+                          AND {active_summary_predicate("summaries")}
                         ORDER BY rowid ASC
                         LIMIT ?
                         """,
@@ -126,7 +127,7 @@ class L3SummaryEmbeddingMixin:
                     SELECT chunks.chunk_id AS entity_id
                     FROM {SUMMARY_CHUNKS_TABLE} AS chunks
                     JOIN summaries ON summaries.summary_id = chunks.summary_id
-                    WHERE summaries.derivation_state = 'current'
+                    WHERE {active_summary_predicate("summaries")}
                 """,
                 mutation_guard_factory=host.embedding_mutation_guard,
             )

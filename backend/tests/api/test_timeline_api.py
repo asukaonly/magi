@@ -11,7 +11,9 @@ class _FakeTimelineService:
         self.context_calls = []
         self.cover_calls = []
 
-    async def get_viewport(self, *, scale, start, end, query=None, timezone=None, focus="self", locale="en"):
+    async def get_viewport(
+        self, *, scale, start, end, query=None, timezone=None, focus="self", locale="en"
+    ):
         self.viewport_calls.append(
             {
                 "scale": scale,
@@ -206,7 +208,13 @@ def test_get_timeline_viewport_returns_month_reflections(monkeypatch):
 
     response = client.get(
         "/api/timeline/viewport",
-        params={"scale": "month", "start": 1710000000, "end": 1712592000, "timezone": "Asia/Shanghai", "locale": "zh-CN"},
+        params={
+            "scale": "month",
+            "start": 1710000000,
+            "end": 1712592000,
+            "timezone": "Asia/Shanghai",
+            "locale": "zh-CN",
+        },
     )
 
     assert response.status_code == 200
@@ -296,3 +304,22 @@ def test_set_timeline_cover_preference(monkeypatch):
             "locale": "zh-CN",
         }
     ]
+
+
+def test_set_timeline_cover_rejects_unknown_source(monkeypatch):
+    client, service = _build_client(monkeypatch)
+
+    response = client.post(
+        "/api/timeline/cover",
+        json={
+            "scale": "day",
+            "start": 1710000000,
+            "end": 1710086400,
+            "mode": "asset",
+            "asset_ref": "manual-entry-asset:///tmp/private.jpg",
+            "source": "untrusted",
+        },
+    )
+
+    assert response.status_code == 422
+    assert service.cover_calls == []

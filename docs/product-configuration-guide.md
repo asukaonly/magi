@@ -402,7 +402,7 @@ Current storage implementation notes:
 - `llm_usage.db` lives under `~/.magi/runtime/`.
 - `llm_usage.db` may include bounded prompt-cache diagnostic rows controlled by `lifecycle.llm_usage.cache_observability`; disabling that setting removes those rows during lifecycle cleanup.
 - `runtime_trace.db` is reserved for execution observability and live runtime notifications, not durable chat transcript recovery; raw trace data defaults to a 7-day retention window.
-- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/` and are removed when their chat session/history is cleared; periodic orphan sweeps remove old session asset directories that no longer have active chat rows.
+- managed chat attachment and derived text files live under `~/.magi/data/resources/chat/`; an explicit user session/history deletion always removes its files immediately, while `lifecycle.chat_assets.delete_on_session_delete` controls the periodic orphan sweep for session directories that no longer have active chat rows.
 - runtime logs are governed by size-based `RotatingFileHandler` limits, not lifecycle row retention.
 - rebuildable plugin state belongs under `~/.magi/cache/plugins/<plugin_id>/`, not under memory storage.
 

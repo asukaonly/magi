@@ -6,6 +6,7 @@ import {
   type EntityOverviewItem,
   type KnowledgeBaseGroup,
   type KnowledgeBaseGroupId,
+  type KnowledgeCorrectionAction,
   type KnowledgeItem,
   type MemoryTranslateFn,
 } from '../l2KnowledgeModel';
@@ -21,10 +22,10 @@ export const KnowledgeListPanel: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: (key: string, options?: Record<string, unknown>) => string;
-}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => (
   <section className="overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.64)]">
     <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
       <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
@@ -45,7 +46,7 @@ export const KnowledgeListPanel: React.FC<{
             loadingEvidenceIds={loadingEvidenceIds}
             onLoadEvidenceEvents={onLoadEvidenceEvents}
             onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-            onCorrectAssertion={onCorrectAssertion}
+            onRequestAssertionCorrection={onRequestAssertionCorrection}
             t={t}
           />
         ))}
@@ -67,8 +68,8 @@ export const KnowledgeBaseBrowser: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   onSelectGroup: (groupId: KnowledgeBaseGroupId) => void;
   t: MemoryTranslateFn;
 }> = ({
@@ -85,7 +86,7 @@ export const KnowledgeBaseBrowser: React.FC<{
   loadingEvidenceIds,
   onLoadEvidenceEvents,
   onSubmitAssertionFeedback,
-  onCorrectAssertion,
+  onRequestAssertionCorrection,
   onSelectGroup,
   t,
 }) => {
@@ -158,7 +159,7 @@ export const KnowledgeBaseBrowser: React.FC<{
                 loadingEvidenceIds={loadingEvidenceIds}
                 onLoadEvidenceEvents={onLoadEvidenceEvents}
                 onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-                onCorrectAssertion={onCorrectAssertion}
+                onRequestAssertionCorrection={onRequestAssertionCorrection}
                 t={t}
               />
             ) : null}
@@ -171,7 +172,7 @@ export const KnowledgeBaseBrowser: React.FC<{
                 loadingEvidenceIds={loadingEvidenceIds}
                 onLoadEvidenceEvents={onLoadEvidenceEvents}
                 onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-                onCorrectAssertion={onCorrectAssertion}
+                onRequestAssertionCorrection={onRequestAssertionCorrection}
                 t={t}
               />
             ) : null}
@@ -184,7 +185,7 @@ export const KnowledgeBaseBrowser: React.FC<{
                 loadingEvidenceIds={loadingEvidenceIds}
                 onLoadEvidenceEvents={onLoadEvidenceEvents}
                 onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-                onCorrectAssertion={onCorrectAssertion}
+                onRequestAssertionCorrection={onRequestAssertionCorrection}
                 t={t}
               />
             ) : null}
@@ -197,7 +198,7 @@ export const KnowledgeBaseBrowser: React.FC<{
                 loadingEvidenceIds={loadingEvidenceIds}
                 onLoadEvidenceEvents={onLoadEvidenceEvents}
                 onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-                onCorrectAssertion={onCorrectAssertion}
+                onRequestAssertionCorrection={onRequestAssertionCorrection}
                 t={t}
               />
             ) : null}
@@ -215,10 +216,10 @@ const KnowledgeGroupItemSection: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: MemoryTranslateFn;
-}> = ({ title, items, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+}> = ({ title, items, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => (
   <section className="min-w-0 overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.58)]">
     <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.46)] px-3 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
       <span>{title}</span>
@@ -234,7 +235,7 @@ const KnowledgeGroupItemSection: React.FC<{
           loadingEvidenceIds={loadingEvidenceIds}
           onLoadEvidenceEvents={onLoadEvidenceEvents}
           onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-          onCorrectAssertion={onCorrectAssertion}
+          onRequestAssertionCorrection={onRequestAssertionCorrection}
           t={t}
         />
       ))}
@@ -251,10 +252,10 @@ export const EntityOverviewPanel: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: MemoryTranslateFn;
-}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+}> = ({ title, emptyText, items, count, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => (
   <section className="overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.58)] bg-[hsl(var(--memory-panel-elevated)/0.64)]">
     <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.5)] px-4 py-3">
       <h2 className="text-sm font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
@@ -275,7 +276,7 @@ export const EntityOverviewPanel: React.FC<{
             loadingEvidenceIds={loadingEvidenceIds}
             onLoadEvidenceEvents={onLoadEvidenceEvents}
             onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-            onCorrectAssertion={onCorrectAssertion}
+            onRequestAssertionCorrection={onRequestAssertionCorrection}
             t={t}
           />
         ))}
@@ -290,10 +291,10 @@ const EntityOverviewRow: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: MemoryTranslateFn;
-}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => {
+}> = ({ item, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => {
   const metrics = [
     t('memory.pages.knowledge.entityMetrics.stableKnowledge', { count: item.knowledgeCount }),
     t('memory.pages.knowledge.entityMetrics.pendingSignals', { count: item.reviewCount }),
@@ -343,7 +344,7 @@ const EntityOverviewRow: React.FC<{
             loadingEvidenceIds={loadingEvidenceIds}
             onLoadEvidenceEvents={onLoadEvidenceEvents}
             onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-            onCorrectAssertion={onCorrectAssertion}
+            onRequestAssertionCorrection={onRequestAssertionCorrection}
             t={t}
           />
           <EntityKnowledgeMiniList
@@ -356,7 +357,7 @@ const EntityOverviewRow: React.FC<{
             loadingEvidenceIds={loadingEvidenceIds}
             onLoadEvidenceEvents={onLoadEvidenceEvents}
             onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-            onCorrectAssertion={onCorrectAssertion}
+            onRequestAssertionCorrection={onRequestAssertionCorrection}
             t={t}
           />
         </div>
@@ -374,10 +375,10 @@ const EntityKnowledgeMiniList: React.FC<{
   evidenceEventsById: Map<string, L1Event | null>;
   loadingEvidenceIds: Record<string, boolean>;
   onLoadEvidenceEvents: (eventIds: string[]) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
   t: MemoryTranslateFn;
-}> = ({ title, emptyText, items, totalCount, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onCorrectAssertion, t }) => (
+}> = ({ title, emptyText, items, totalCount, actionLoading, evidenceEventsById, loadingEvidenceIds, onLoadEvidenceEvents, onSubmitAssertionFeedback, onRequestAssertionCorrection, t }) => (
   <section className="min-w-0 overflow-hidden rounded-sm border border-[hsl(var(--memory-border)/0.48)] bg-[hsl(var(--memory-panel)/0.58)]">
     <div className="flex items-center justify-between gap-3 border-b border-[hsl(var(--memory-divider)/0.46)] px-3 py-2 text-xs font-medium text-[hsl(var(--memory-muted))]">
       <span>{title}</span>
@@ -400,7 +401,7 @@ const EntityKnowledgeMiniList: React.FC<{
             loadingEvidenceIds={loadingEvidenceIds}
             onLoadEvidenceEvents={onLoadEvidenceEvents}
             onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-            onCorrectAssertion={onCorrectAssertion}
+            onRequestAssertionCorrection={onRequestAssertionCorrection}
             t={t}
           />
         ))}

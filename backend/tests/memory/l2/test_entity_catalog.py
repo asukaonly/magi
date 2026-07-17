@@ -204,8 +204,9 @@ async def test_list_entities_returns_canonical_names_and_aliases():
                     entity_type TEXT NOT NULL,
                     embedding_status TEXT NOT NULL DEFAULT 'disabled',
                     embedding_profile_id TEXT,
-                    last_embedded_at REAL,
-                    created_at REAL NOT NULL,
+                        last_embedded_at REAL,
+                        canonical_name_is_independent INTEGER NOT NULL DEFAULT 1,
+                        created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
                 CREATE TABLE entity_aliases (
@@ -213,8 +214,9 @@ async def test_list_entities_returns_canonical_names_and_aliases():
                     entity_id TEXT NOT NULL,
                     alias_text TEXT NOT NULL,
                     normalized_alias TEXT NOT NULL,
-                    confidence REAL NOT NULL DEFAULT 1.0,
-                    created_at REAL NOT NULL,
+                        confidence REAL NOT NULL DEFAULT 1.0,
+                        is_independent INTEGER NOT NULL DEFAULT 1,
+                        created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     UNIQUE(entity_id, normalized_alias)
                 );
@@ -292,8 +294,9 @@ async def test_find_resolution_candidates_prefers_semantic_hits_before_recent_fa
                     entity_type TEXT NOT NULL,
                     embedding_status TEXT NOT NULL DEFAULT 'disabled',
                     embedding_profile_id TEXT,
-                    last_embedded_at REAL,
-                    created_at REAL NOT NULL,
+                        last_embedded_at REAL,
+                        canonical_name_is_independent INTEGER NOT NULL DEFAULT 1,
+                        created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
                 CREATE TABLE entity_aliases (
@@ -301,8 +304,9 @@ async def test_find_resolution_candidates_prefers_semantic_hits_before_recent_fa
                     entity_id TEXT NOT NULL,
                     alias_text TEXT NOT NULL,
                     normalized_alias TEXT NOT NULL,
-                    confidence REAL NOT NULL DEFAULT 1.0,
-                    created_at REAL NOT NULL,
+                        confidence REAL NOT NULL DEFAULT 1.0,
+                        is_independent INTEGER NOT NULL DEFAULT 1,
+                        created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     UNIQUE(entity_id, normalized_alias)
                 );

@@ -404,7 +404,11 @@ class L2EntityCatalogEmbeddingMixin:
 
         hit_ids = [hit.entity_id for hit in hits]
         distance_by_id = {hit.entity_id: hit.distance for hit in hits}
-        entities = await host._list_entities(limit=len(hit_ids), entity_ids=hit_ids)
+        entities = [
+            entity
+            for entity in await host._list_entities(limit=len(hit_ids), entity_ids=hit_ids)
+            if entity.get("embedding_status") == EMBEDDING_STATUS_READY
+        ]
         for entity in entities:
             entity["distance"] = distance_by_id.get(entity["entity_id"])
         entities.sort(key=lambda item: item.get("distance") or float("inf"))

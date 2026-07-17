@@ -96,6 +96,35 @@ class ChatProjectorModule(LifecycleModule):
         self._context.chat.projector = None
 
 
+class ChatForgettingRecoveryModule(LifecycleModule):
+    """Finish chat-surface cleanup before any message processor starts."""
+
+    def __init__(self, context: RuntimeBootstrapContext) -> None:
+        super().__init__(
+            name="runtime_chat_forgetting_recovery",
+            dependencies=("runtime_chat_store", "runtime_memory"),
+        )
+        self._context = context
+
+    async def init(self) -> None:
+        from .forgetting import ChatSurfaceFinalizer
+        from .read_service import get_chat_read_service
+
+        memory = require_initialized(
+            self._context.memory.unified_memory,
+            "unified memory",
+        )
+        recovery = await ChatSurfaceFinalizer(
+            chat_read_service=get_chat_read_service(),
+            memory=memory,
+        ).recover_pending()
+        if recovery["found"]:
+            logger.info(
+                "Recovered interrupted chat surface finalizations",
+                **recovery,
+            )
+
+
 class ControlTranscriptSubscriberModule(LifecycleModule):
     """Wire the control->chat transcript subscriber to the runtime event bus.
 

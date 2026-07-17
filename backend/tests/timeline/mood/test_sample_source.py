@@ -26,17 +26,33 @@ async def test_returns_empty_when_no_assertions():
 
 @pytest.mark.asyncio
 async def test_maps_assertions_to_timestamp_valence_pairs():
-    from magi.timeline.mood.sample_source import L2ValenceSampleSource
+    from magi.timeline.mood.sample_source import L2ValenceSampleSource, ValenceSample
 
     assertions = [
-        {"observed_at": 100.0, "trait_value": "0.5"},
-        {"observed_at": 200.0, "trait_value": -0.3},
-        {"created_at": 300.0, "trait_value": 0.0},  # falls back to created_at
+        {
+            "observed_at": 100.0,
+            "trait_value": "0.5",
+            "evidence_events": ["event-one"],
+        },
+        {
+            "observed_at": 200.0,
+            "trait_value": -0.3,
+            "evidence_events": ["event-two", "event-shared"],
+        },
+        {
+            "created_at": 300.0,
+            "trait_value": 0.0,
+            "evidence_events": ["event-three"],
+        },  # falls back to created_at
     ]
     src = L2ValenceSampleSource(l2_store=_FakeL2Store(assertions))
     out = await src.list_valence_samples(start=0.0, end=500.0)
-    out_sorted = sorted(out, key=lambda p: p[0])
-    assert out_sorted == [(100.0, 0.5), (200.0, -0.3), (300.0, 0.0)]
+    out_sorted = sorted(out, key=lambda sample: sample.timestamp)
+    assert out_sorted == [
+        ValenceSample(100.0, 0.5, ("event-one",)),
+        ValenceSample(200.0, -0.3, ("event-two", "event-shared")),
+        ValenceSample(300.0, 0.0, ("event-three",)),
+    ]
 
 
 @pytest.mark.asyncio
@@ -44,12 +60,12 @@ async def test_clamps_valence_to_range():
     from magi.timeline.mood.sample_source import L2ValenceSampleSource
 
     assertions = [
-        {"observed_at": 100.0, "trait_value": 2.5},
-        {"observed_at": 200.0, "trait_value": -5.0},
+        {"observed_at": 100.0, "trait_value": 2.5, "evidence_events": ["event-one"]},
+        {"observed_at": 200.0, "trait_value": -5.0, "evidence_events": ["event-two"]},
     ]
     src = L2ValenceSampleSource(l2_store=_FakeL2Store(assertions))
     out = await src.list_valence_samples(start=0.0, end=500.0)
-    values = sorted(v for _, v in out)
+    values = sorted(sample.valence for sample in out)
     assert values == [-1.0, 1.0]
 
 
@@ -58,13 +74,32 @@ async def test_skips_assertions_with_unparseable_trait_value():
     from magi.timeline.mood.sample_source import L2ValenceSampleSource
 
     assertions = [
-        {"observed_at": 100.0, "trait_value": "calm"},
-        {"observed_at": 200.0, "trait_value": 0.5},
+        {
+            "observed_at": 100.0,
+            "trait_value": "calm",
+            "evidence_events": ["event-one"],
+        },
+        {
+            "observed_at": 200.0,
+            "trait_value": 0.5,
+            "evidence_events": ["event-two"],
+        },
     ]
     src = L2ValenceSampleSource(l2_store=_FakeL2Store(assertions))
     out = await src.list_valence_samples(start=0.0, end=500.0)
     assert len(out) == 1
-    assert out[0] == (200.0, 0.5)
+    assert out[0].timestamp == 200.0
+    assert out[0].valence == 0.5
+    assert out[0].source_event_ids == ("event-two",)
+
+
+@pytest.mark.asyncio
+async def test_skips_assertions_without_source_lineage():
+    from magi.timeline.mood.sample_source import L2ValenceSampleSource
+
+    src = L2ValenceSampleSource(l2_store=_FakeL2Store([{"observed_at": 100.0, "trait_value": 0.5}]))
+
+    assert await src.list_valence_samples(start=0.0, end=500.0) == []
 
 
 @pytest.mark.asyncio

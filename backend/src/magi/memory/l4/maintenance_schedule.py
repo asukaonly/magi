@@ -7,6 +7,7 @@ Runs every 5 minutes (configurable) and performs four sub-jobs in one tick:
 - Soft-delete skills with last_used_at older than inactive_skill_retention_days
   AND total_attempts < inactive_skill_min_attempts.
 """
+
 from __future__ import annotations
 
 import time
@@ -22,6 +23,7 @@ from ...scheduler.contracts import (
 )
 from ...scheduler.service import SchedulerService
 from ..provider import get_unified_memory
+from .source_event_governance import active_skill_predicate
 
 logger = get_logger(__name__)
 
@@ -43,12 +45,16 @@ async def handle_l4_maintenance(context: ScheduledExecutionContext) -> Scheduled
     _ = context
     cfg = get_config().agent.memory.l4
     if not cfg.maintenance_enabled:
-        return ScheduledExecutionResult(success=True, message="l4_maintenance_disabled_skip", stats={})
+        return ScheduledExecutionResult(
+            success=True, message="l4_maintenance_disabled_skip", stats={}
+        )
 
     try:
         unified = get_unified_memory()
     except RuntimeError:
-        return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
+        return ScheduledExecutionResult(
+            success=True, message="unified_memory_unavailable_skip", stats={}
+        )
 
     async with unified.memory_operation_guard():
         if unified.l4 is None:
@@ -91,14 +97,14 @@ async def handle_l4_maintenance(context: ScheduledExecutionContext) -> Scheduled
 async def _decay_breakers(db, *, now, cfg, stats) -> None:
     open_cutoff = now - float(cfg.breaker_open_timeout_seconds)
     cur = await db.execute(
-        """
-        UPDATE procedural_skills
+        f"""
+        UPDATE procedural_skills AS skills
         SET circuit_breaker_state = 'half_open',
             updated_at = ?
         WHERE circuit_breaker_state = 'open'
           AND circuit_breaker_opened_at IS NOT NULL
           AND circuit_breaker_opened_at <= ?
-          AND deleted_at IS NULL
+          AND {active_skill_predicate("skills")}
         """,
         (now, open_cutoff),
     )
@@ -106,15 +112,15 @@ async def _decay_breakers(db, *, now, cfg, stats) -> None:
 
     halfopen_idle_cutoff = now - float(cfg.breaker_halfopen_idle_seconds)
     cur = await db.execute(
-        """
-        UPDATE procedural_skills
+        f"""
+        UPDATE procedural_skills AS skills
         SET circuit_breaker_state = 'closed',
             circuit_breaker_opened_at = NULL,
             updated_at = ?
         WHERE circuit_breaker_state = 'half_open'
           AND last_used_at IS NOT NULL
           AND last_used_at <= ?
-          AND deleted_at IS NULL
+          AND {active_skill_predicate("skills")}
         """,
         (now, halfopen_idle_cutoff),
     )
@@ -124,10 +130,11 @@ async def _decay_breakers(db, *, now, cfg, stats) -> None:
 async def _check_pending_traces(db, *, cfg, stats) -> None:
     threshold = int(cfg.strategy_extraction_threshold) * 2
     async with db.execute(
-        """
-        SELECT skill_id, skill_name, pending_trace_count
-        FROM procedural_skills
-        WHERE pending_trace_count > ? AND deleted_at IS NULL
+        f"""
+        SELECT skills.skill_id, skills.skill_name, skills.pending_trace_count
+        FROM procedural_skills AS skills
+        WHERE skills.pending_trace_count > ?
+          AND {active_skill_predicate("skills")}
         """,
         (threshold,),
     ) as cur:
@@ -148,10 +155,10 @@ async def _soft_delete_inactive(db, *, now, cfg, stats) -> None:
     inactive_cutoff = now - float(cfg.inactive_skill_retention_days) * 86400.0
     min_attempts = int(cfg.inactive_skill_min_attempts)
     cur = await db.execute(
-        """
-        UPDATE procedural_skills
+        f"""
+        UPDATE procedural_skills AS skills
         SET deleted_at = ?, updated_at = ?
-        WHERE deleted_at IS NULL
+        WHERE {active_skill_predicate("skills")}
           AND last_used_at IS NOT NULL
           AND last_used_at <= ?
           AND total_attempts < ?

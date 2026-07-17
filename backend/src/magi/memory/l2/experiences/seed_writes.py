@@ -109,8 +109,8 @@ async def discover_manual_experience_seed(
 ) -> str:
     """Create an accepted seed from a user-selected episode."""
     episode = await store.get_episode(episode_id=episode_id)
-    if episode is None:
-        raise ValueError(f"Episode not found for experience seed: {episode_id}")
+    if episode is None or str(episode.get("status") or "") != "active":
+        raise ValueError(f"Episode is not active for experience seed: {episode_id}")
     seed_id = _seed_id("manual", episode_id)
     created, _ = await _create_seed_if_missing(
         store,

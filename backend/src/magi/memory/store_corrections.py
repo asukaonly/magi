@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Any
 
@@ -40,18 +39,6 @@ class UnifiedMemoryCorrectionMixin:
         if correction.audit_event_id is None:
             raise RuntimeError("Correction record has no L1 audit event id")
 
-        replacement = correction.replacement or {}
-        content = json.dumps(
-            {
-                "target_kind": correction.target_kind.value,
-                "target_id": correction.target_id,
-                "correction_kind": correction.correction_kind.value,
-                "replacement": replacement,
-                "reason": correction.reason,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
         event = MemoryEvent(
             event_id=correction.audit_event_id,
             correlation_id=correction.correction_id,
@@ -69,7 +56,7 @@ class UnifiedMemoryCorrectionMixin:
             turn_id=None,
             user_id=correction.actor_id,
             task_id=None,
-            content=content,
+            content="Memory correction recorded",
             author_type=AuthorType.SYSTEM.label,
             content_type=ContentType.TEXT.label,
             importance_score=0.8,
@@ -78,12 +65,12 @@ class UnifiedMemoryCorrectionMixin:
             metadata_json={
                 "correction_id": correction.correction_id,
                 "target_kind": correction.target_kind.value,
-                "target_id": correction.target_id,
                 "correction_kind": correction.correction_kind.value,
-                "source_event_id": correction.source_event_id,
             },
         )
-        stored_event_id = await self.l1.store(event)
+        stored_event_id = await self._store_governed_l1_event_guarded(event)  # type: ignore[attr-defined]
+        if stored_event_id is None:
+            return
         if stored_event_id != correction.audit_event_id:
             raise RuntimeError("Correction audit idempotency resolved to another event")
 

@@ -97,6 +97,7 @@ type ConversationState = {
   appendStreamToolCall: (payload: StreamToolCallPayload & { sessionId: string }) => void;
   applyMessageLabel: (sessionId: string, messageId: string, label: ChatTimelineMessageLabel) => void;
   removeMessage: (sessionId: string, messageId: string) => void;
+  clearSessionHistory: (sessionId: string) => void;
   upsertTraceSummary: (sessionId: string, turnId: string, summary: NormalizedExecutionTraceSummary | null) => void;
   reset: () => void;
 };
@@ -573,6 +574,37 @@ export const useConversationStore = create<ConversationState>((set) => ({
           },
         }
         : state.sessionsById,
+    };
+  }),
+  clearSessionHistory: (sessionId) => set((state) => {
+    const normalizedSessionId = String(sessionId || '').trim();
+    if (!normalizedSessionId) return state;
+    const currentSession = state.sessionsById[normalizedSessionId];
+    return {
+      messagesBySession: {
+        ...state.messagesBySession,
+        [normalizedSessionId]: [],
+      },
+      sessionsById: currentSession
+        ? {
+          ...state.sessionsById,
+          [normalizedSessionId]: {
+            ...currentSession,
+            last_message_preview: '',
+            last_user_message_preview: '',
+            message_count: 0,
+            last_timestamp: 0,
+          },
+        }
+        : state.sessionsById,
+      historyVersionBySession: {
+        ...state.historyVersionBySession,
+        [normalizedSessionId]: (state.historyVersionBySession[normalizedSessionId] || 0) + 1,
+      },
+      unreadBySession: {
+        ...state.unreadBySession,
+        [normalizedSessionId]: 0,
+      },
     };
   }),
   upsertTraceSummary: (sessionId, turnId, summary) => set((state) => ({

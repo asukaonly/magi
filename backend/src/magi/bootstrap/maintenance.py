@@ -82,7 +82,7 @@ class RuntimeOperationalGCScheduleContrib:
                 runtime_paths=runtime_paths,
             )
             results.update(await runtime_gc.run())
-            if current_config.lifecycle.chat_assets.delete_on_clear_memory:
+            if current_config.lifecycle.chat_assets.delete_on_session_delete:
                 chat_asset_gc = ChatAssetGC(runtime_paths=runtime_paths)
                 results.update(
                     await asyncio.to_thread(

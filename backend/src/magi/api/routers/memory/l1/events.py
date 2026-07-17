@@ -1,17 +1,18 @@
 """L1 event list helpers for the memory API."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from ..helpers import parse_day_boundary, serialize_l1_event_list_item
+from magi.memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 
+from ..helpers import parse_day_boundary, serialize_l1_event_list_item
 
 DEFAULT_EXCLUDED_L1_EVENT_TYPES = [
     "WORKER_AGENT_PROGRESS",
     "WORKER_AGENT_COMPLETED",
     "WORKER_AGENT_FAILED",
 ]
-
 
 def build_l1_event_query_args(
     *,
@@ -39,7 +40,12 @@ def build_l1_event_query_args(
         "idempotency_key": _clean_optional(idempotency_key),
         "start_time": parse_day_boundary(start_date, end_of_day=False),
         "end_time": parse_day_boundary(end_date, end_of_day=True),
-        "exclude_event_types": None if normalized_event_id or normalized_event_type else list(DEFAULT_EXCLUDED_L1_EVENT_TYPES),
+        "l1_retrieval_scopes": list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+        "exclude_event_types": (
+            None
+            if normalized_event_id or normalized_event_type
+            else list(DEFAULT_EXCLUDED_L1_EVENT_TYPES)
+        ),
     }
 
 

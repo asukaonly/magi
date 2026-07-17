@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -13,6 +14,11 @@ import aiosqlite
 from .....core.sqlite import sqlite_connection_async
 from ....embedding.embedding_service import MemoryEmbeddingService
 from ....embedding.sqlite_vec_index import SqliteVecIndex
+from ....source_event_governance import (
+    normalize_source_event_ids,
+    promote_source_event_entity_projection_candidates,
+    source_event_tombstone_ids,
+)
 from .embeddings import (
     EMBEDDING_STATUS_DISABLED,
     EMBEDDING_STATUS_READY,
@@ -20,6 +26,7 @@ from .embeddings import (
     L2EntityCatalogEmbeddingMixin,
 )
 from .queries import L2EntityCatalogQueryMixin
+from .source_event_governance import L2EntitySourceEventGovernanceMixin
 from ...ontology import coerce_unknown_entity_type
 
 logger = logging.getLogger(__name__)
@@ -47,7 +54,11 @@ def _normalize_entity_ref(entity_id: Optional[str], entity_type: Optional[str]) 
     return f"{entity_type}:{suffix}"
 
 
-class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
+class L2EntityCatalog(
+    L2EntityCatalogQueryMixin,
+    L2EntityCatalogEmbeddingMixin,
+    L2EntitySourceEventGovernanceMixin,
+):
     """Stores canonical entities, aliases, and mention evidence."""
 
     def __init__(
@@ -114,43 +125,141 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
         canonical_name: str,
         entity_type: str,
         entity_id: str,
+        source_event_ids: Iterable[str] | None = None,
     ) -> str:
         await self.initialize()
         normalized_entity_type = _normalize_catalog_entity_type(entity_type)
         normalized_entity_id = _normalize_entity_ref(entity_id, normalized_entity_type) or entity_id
+        normalized_name = _normalize_alias(canonical_name)
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO entity_catalog(entity_id, canonical_name, entity_type, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(entity_id) DO UPDATE SET
-                    canonical_name = excluded.canonical_name,
-                    entity_type = excluded.entity_type,
-                    updated_at = excluded.updated_at
-                """,
-                (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
+            await db.execute("BEGIN IMMEDIATE")
+            active_event_ids = await _active_source_event_ids(
+                db,
+                source_event_ids,
+                target_entity_id=normalized_entity_id,
+                normalized_surface=normalized_name,
+                entity_type=normalized_entity_type,
             )
+            if source_event_ids is not None and not active_event_ids:
+                await db.commit()
+                return normalized_entity_id
+            if source_event_ids is None:
+                await db.execute(
+                    """
+                    INSERT INTO entity_catalog(
+                        entity_id, canonical_name, entity_type,
+                        canonical_name_is_independent, created_at, updated_at
+                    ) VALUES (?, ?, ?, 1, ?, ?)
+                    ON CONFLICT(entity_id) DO UPDATE SET
+                        canonical_name = excluded.canonical_name,
+                        entity_type = excluded.entity_type,
+                        canonical_name_is_independent = 1,
+                        updated_at = excluded.updated_at
+                    """,
+                    (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
+                )
+            else:
+                await db.execute(
+                    """
+                    INSERT INTO entity_catalog(
+                        entity_id, canonical_name, entity_type,
+                        canonical_name_is_independent, created_at, updated_at
+                    ) VALUES (?, ?, ?, 0, ?, ?)
+                    ON CONFLICT(entity_id) DO UPDATE SET
+                        canonical_name = CASE
+                            WHEN entity_catalog.canonical_name_is_independent = 1
+                                THEN entity_catalog.canonical_name
+                            ELSE excluded.canonical_name
+                        END,
+                        entity_type = excluded.entity_type,
+                        updated_at = excluded.updated_at
+                    """,
+                    (normalized_entity_id, canonical_name, normalized_entity_type, now, now),
+                )
+                await _record_name_evidence(
+                    db,
+                    entity_id=normalized_entity_id,
+                    name_kind="canonical",
+                    normalized_name=normalized_name,
+                    display_name=canonical_name,
+                    confidence=1.0,
+                    event_ids=active_event_ids,
+                    now=now,
+                )
             await db.commit()
         await self._maybe_embed_entity(normalized_entity_id)
         return normalized_entity_id
 
-    async def add_alias(self, *, entity_id: str, alias_text: str, confidence: float = 1.0) -> None:
+    async def add_alias(
+        self,
+        *,
+        entity_id: str,
+        alias_text: str,
+        confidence: float = 1.0,
+        source_event_ids: Iterable[str] | None = None,
+    ) -> None:
         await self.initialize()
         now = time.time()
         normalized_alias = _normalize_alias(alias_text)
         async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            normalized_entity_type: str | None = None
+            if source_event_ids is not None:
+                async with db.execute(
+                    "SELECT entity_type FROM entity_catalog WHERE entity_id = ?",
+                    (entity_id,),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row is not None:
+                    normalized_entity_type = str(row[0] or "").strip() or None
+            active_event_ids = await _active_source_event_ids(
+                db,
+                source_event_ids,
+                target_entity_id=entity_id,
+                normalized_surface=normalized_alias,
+                entity_type=normalized_entity_type,
+            )
+            if source_event_ids is not None and not active_event_ids:
+                await db.commit()
+                return
+            independent = int(source_event_ids is None)
             await db.execute(
                 """
-                INSERT INTO entity_aliases(entity_id, alias_text, normalized_alias, confidence, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO entity_aliases(
+                    entity_id, alias_text, normalized_alias, confidence,
+                    is_independent, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
                     alias_text = excluded.alias_text,
-                    confidence = excluded.confidence,
+                    confidence = MAX(entity_aliases.confidence, excluded.confidence),
+                    is_independent = MAX(
+                        entity_aliases.is_independent,
+                        excluded.is_independent
+                    ),
                     updated_at = excluded.updated_at
                 """,
-                (entity_id, alias_text, normalized_alias, float(confidence), now, now),
+                (
+                    entity_id,
+                    alias_text,
+                    normalized_alias,
+                    float(confidence),
+                    independent,
+                    now,
+                    now,
+                ),
             )
+            if active_event_ids:
+                await _record_name_evidence(
+                    db,
+                    entity_id=entity_id,
+                    name_kind="alias",
+                    normalized_name=normalized_alias,
+                    display_name=alias_text,
+                    confidence=float(confidence),
+                    event_ids=active_event_ids,
+                    now=now,
+                )
             await db.commit()
         await self._maybe_embed_entity(entity_id)
 
@@ -232,6 +341,17 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
         )
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            active_event_ids = await _active_source_event_ids(
+                db,
+                evidence_event_ids,
+                target_entity_id=normalized_resolved_entity_id,
+                normalized_surface=normalized_surface,
+                entity_type=normalized_entity_type,
+            )
+            if not active_event_ids:
+                await db.commit()
+                return 0
             cursor = await db.execute(
                 """
                 INSERT INTO entity_mentions(
@@ -249,7 +369,7 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
                     mention_text,
                     normalized_surface,
                     normalized_entity_type,
-                    json.dumps(evidence_event_ids, ensure_ascii=False),
+                    json.dumps(active_event_ids, ensure_ascii=False),
                     evidence_text,
                     normalized_resolved_entity_id,
                     float(confidence) if confidence is not None else None,
@@ -258,6 +378,32 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
             )
             await db.commit()
             return int(cursor.lastrowid)
+
+    async def filter_projection_source_event_ids(
+        self,
+        *,
+        target_entity_id: str | None,
+        normalized_surface: str,
+        entity_type: str | None,
+        event_ids: Iterable[str],
+    ) -> tuple[str, ...]:
+        """Filter old evidence blocked by entity deletion before pipeline side effects."""
+        await self.initialize()
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                active_event_ids = await _active_source_event_ids(
+                    db,
+                    event_ids,
+                    target_entity_id=target_entity_id,
+                    normalized_surface=normalized_surface,
+                    entity_type=entity_type,
+                )
+                await db.commit()
+                return active_event_ids
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def get_mention(self, mention_id: int) -> Optional[dict[str, Any]]:
         await self.initialize()
@@ -290,22 +436,19 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
         """Delete all catalog entities, aliases, and mention evidence."""
         await self.initialize()
         async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT
                     (SELECT COUNT(*) FROM entity_catalog) +
                     (SELECT COUNT(*) FROM entity_mentions)
-                """
-            ) as cursor:
+                """) as cursor:
                 row = await cursor.fetchone()
                 count = int(row[0]) if row else 0
-            await db.executescript(
-                """
+            await db.executescript("""
+                DELETE FROM entity_name_evidence;
                 DELETE FROM entity_mentions;
                 DELETE FROM entity_aliases;
                 DELETE FROM entity_catalog;
-                """
-            )
+                """)
             await db.commit()
         vector_indexes = self._all_vector_indexes_for_clear()
         for vector_index in vector_indexes:
@@ -334,6 +477,143 @@ class L2EntityCatalog(L2EntityCatalogQueryMixin, L2EntityCatalogEmbeddingMixin):
             )
             self._edge_vector_index = edge_index
         return [self._vector_index, edge_index]
+
+
+async def _active_source_event_ids(
+    db: aiosqlite.Connection,
+    event_ids: Iterable[str] | None,
+    *,
+    target_entity_id: str | None = None,
+    normalized_surface: str | None = None,
+    entity_type: str | None = None,
+) -> tuple[str, ...]:
+    if event_ids is None:
+        return ()
+    normalized = normalize_source_event_ids(event_ids)
+    if not normalized:
+        return ()
+    tombstoned = await source_event_tombstone_ids(db, normalized)
+    blocked = set(tombstoned)
+    placeholders = ", ".join("?" for _ in normalized)
+    async with db.execute(
+        f"""
+        SELECT event_id
+        FROM memory_projection_blocks
+        WHERE block_kind = 'episode_formation'
+          AND target_id LIKE 'time:%'
+          AND event_id IN ({placeholders})
+        """,
+        tuple(normalized),
+    ) as cursor:
+        blocked.update(str(row[0]) for row in await cursor.fetchall())
+    normalized_target = str(target_entity_id or "").strip()
+    if normalized_target:
+        await promote_source_event_entity_projection_candidates(
+            db,
+            normalized,
+            entity_ids=[normalized_target],
+        )
+        async with db.execute(
+            f"""
+            SELECT event_id
+            FROM memory_projection_blocks
+            WHERE block_kind IN (
+                    'entity_projection', 'entity_projection_candidate'
+                  )
+              AND target_id = ?
+              AND event_id IN ({placeholders})
+            """,
+            (normalized_target, *normalized),
+        ) as cursor:
+            blocked.update(str(row[0]) for row in await cursor.fetchall())
+    normalized_identity = str(normalized_surface or "").strip().casefold()
+    if normalized_identity:
+        normalized_entity_type = str(entity_type or "").strip()
+        await db.execute(
+            f"""
+            INSERT OR IGNORE INTO memory_projection_blocks(
+                block_kind, target_id, event_id, operation_id, created_at
+            )
+            SELECT 'entity_projection',
+                   candidate.target_id,
+                   candidate.event_id,
+                   candidate.operation_id,
+                   candidate.created_at
+            FROM memory_projection_blocks AS candidate
+            JOIN memory_entity_projection_identity_blocks AS identity
+              ON identity.target_id = candidate.target_id
+             AND identity.event_id = candidate.event_id
+            WHERE candidate.block_kind = 'entity_projection_candidate'
+              AND identity.normalized_surface = ?
+              AND (
+                  identity.entity_type = ''
+                  OR identity.entity_type = ?
+                  OR ? = ''
+              )
+              AND candidate.event_id IN ({placeholders})
+            """,
+            (
+                normalized_identity,
+                normalized_entity_type,
+                normalized_entity_type,
+                *normalized,
+            ),
+        )
+        async with db.execute(
+            f"""
+            SELECT event_id
+            FROM memory_entity_projection_identity_blocks
+            WHERE normalized_surface = ?
+              AND (entity_type = '' OR entity_type = ? OR ? = '')
+              AND event_id IN ({placeholders})
+            """,
+            (
+                normalized_identity,
+                normalized_entity_type,
+                normalized_entity_type,
+                *normalized,
+            ),
+        ) as cursor:
+            blocked.update(str(row[0]) for row in await cursor.fetchall())
+    return tuple(event_id for event_id in normalized if event_id not in blocked)
+
+
+async def _record_name_evidence(
+    db: aiosqlite.Connection,
+    *,
+    entity_id: str,
+    name_kind: str,
+    normalized_name: str,
+    display_name: str,
+    confidence: float,
+    event_ids: Iterable[str],
+    now: float,
+) -> None:
+    await db.executemany(
+        """
+        INSERT INTO entity_name_evidence(
+            entity_id, name_kind, normalized_name, display_name,
+            event_id, confidence, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(entity_id, name_kind, normalized_name, event_id) DO UPDATE SET
+            display_name = excluded.display_name,
+            confidence = MAX(entity_name_evidence.confidence, excluded.confidence),
+            updated_at = excluded.updated_at
+        """,
+        [
+            (
+                entity_id,
+                name_kind,
+                normalized_name,
+                display_name,
+                event_id,
+                confidence,
+                now,
+                now,
+            )
+            for event_id in event_ids
+        ],
+    )
 
 
 __all__ = [

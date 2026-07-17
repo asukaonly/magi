@@ -10,6 +10,7 @@ correctly published it on ``event.data["source"]``, but ``SensorHub.
 _on_user_message`` copied a hand-picked subset of fields onto
 ``sensor_event.payload`` — ``source`` was not in that subset.
 """
+
 from __future__ import annotations
 
 import time
@@ -138,4 +139,54 @@ async def test_clear_boundary_discards_stale_queued_user_messages_only():
             EventTypes.USER_MESSAGE,
             {"session_id": "new-session", "content": "new message"},
         ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scope_delete_discards_only_the_matching_user_turn():
+    bus = AsyncMock()
+    hub = SensorHub(message_bus=bus)
+    for turn_id, message_id in (
+        ("turn-delete", "message-delete"),
+        ("turn-keep", "message-keep"),
+    ):
+        await hub.push_sensor_event(
+            SensorEvent(
+                sensor_name="user_input_sensor",
+                event_type=EventTypes.USER_MESSAGE,
+                payload={
+                    "user_id": "user-1",
+                    "session_id": "session-1",
+                    "turn_id": turn_id,
+                    "content": message_id,
+                },
+                correlation_id=f"user_message:{message_id}",
+            )
+        )
+    await hub.push_sensor_event(
+        SensorEvent(
+            sensor_name="user_input_sensor",
+            event_type=EventTypes.USER_MESSAGE,
+            payload={
+                "user_id": "user-1",
+                "session_id": "session-2",
+                "turn_id": "turn-other",
+                "content": "other session",
+            },
+            correlation_id="user_message:message-other",
+        )
+    )
+
+    discarded = await hub.discard_user_message_scope(
+        user_id="user-1",
+        session_id="session-1",
+        turn_id="turn-delete",
+        message_id="message-delete",
+    )
+    batch = await hub.get_batch(max_items=8, timeout_seconds=0.2)
+
+    assert discarded == 1
+    assert [item.payload["content"] for item in batch] == [
+        "message-keep",
+        "other session",
     ]

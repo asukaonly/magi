@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -11,8 +12,8 @@ from .working.execution import L0ExecutionStateMixin
 from .working.goals import L0GoalStackMixin
 from .working.schema import ensure_l0_checkpoint_schema
 from .working.sessions import L0SessionLifecycleMixin
+from .working.source_forgetting import L0SourceForgettingMixin
 from .working.workbench import L0WorkbenchMixin
-
 
 MAX_CONCURRENT_SESSIONS = 64
 
@@ -23,6 +24,7 @@ class L0WorkingMemoryStore(
     L0WorkbenchMixin,
     L0ExecutionStateMixin,
     L0CheckpointMixin,
+    L0SourceForgettingMixin,
 ):
     """Maintains session-local workbench state and restores it from checkpoints."""
 
@@ -48,22 +50,25 @@ class L0WorkingMemoryStore(
         self._execution_runs: dict[str, dict[str, Any]] = {}
         self._execution_pending_turns: dict[str, list[dict[str, Any]]] = {}
         self._execution_results: dict[str, list[dict[str, Any]]] = {}
+        self._checkpoint_lock = asyncio.Lock()
+        self._initialization_lock = asyncio.Lock()
         self._initialized = False
 
     async def initialize(self) -> None:
         """Create checkpoint schema and optionally restore previously checkpointed state."""
-        if self._initialized:
-            return
+        async with self._initialization_lock:
+            if self._initialized:
+                return
 
-        Path(self.checkpoint_db_path).parent.mkdir(parents=True, exist_ok=True)
-        async with sqlite_connection_async(self.checkpoint_db_path) as db:
-            await ensure_l0_checkpoint_schema(db)
-            await db.commit()
+            Path(self.checkpoint_db_path).parent.mkdir(parents=True, exist_ok=True)
+            async with sqlite_connection_async(self.checkpoint_db_path) as db:
+                await ensure_l0_checkpoint_schema(db)
+                await db.commit()
 
-        if self.restore_on_restart:
-            await self._restore_from_checkpoint()
+            if self.restore_on_restart:
+                await self._restore_from_checkpoint()
 
-        self._initialized = True
+            self._initialized = True
 
 
 __all__ = ["L0WorkingMemoryStore"]

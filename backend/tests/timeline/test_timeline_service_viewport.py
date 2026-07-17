@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
+from magi.memory.evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from magi.timeline.service import TimelineService
 
 
@@ -39,7 +42,7 @@ class _FakeL1Store:
                         "entities": [{"label": "timeline"}],
                     }
                 },
-            }
+            },
         ]
         start_time = kwargs.get("start_time")
         end_time = kwargs.get("end_time")
@@ -55,7 +58,12 @@ class _FakeL1Store:
             "timestamp": 100.0,
             "source": "chat",
             "content": "Discussed the redesign.",
-            "metadata": {"activity_snapshot": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
+            "metadata": {
+                "activity_snapshot": {
+                    "title": "Chat planning",
+                    "summary": "Discussed semantic zoom.",
+                }
+            },
         }
 
 
@@ -99,7 +107,7 @@ class _FakeL3Store:
                 "change_and_pattern": {"patterns": ["planning"]},
                 "source_event_ids": ["evt-2"],
                 "source_event_count": 1,
-            }
+            },
         ]
 
 
@@ -119,7 +127,9 @@ async def test_timeline_service_returns_month_viewport() -> None:
         )
     )
 
-    viewport = await service.get_viewport(scale="month", start=940_000.0, end=960_000.0, focus="self")
+    viewport = await service.get_viewport(
+        scale="month", start=940_000.0, end=960_000.0, focus="self"
+    )
 
     assert viewport["viewport"]["scale"] == "month"
     assert viewport["overview"]["summary"] == "A low evening centered on games."
@@ -137,6 +147,8 @@ async def test_timeline_service_returns_month_viewport() -> None:
     # Month view now includes clusters
     assert viewport["summary"]["cluster_count"] >= 1
     assert len(viewport["clusters"]) >= 1
+    assert l1_store.last_query is not None
+    assert l1_store.last_query["l1_retrieval_scopes"] == list(USER_VISIBLE_L1_RETRIEVAL_SCOPES)
 
 
 async def test_timeline_service_localizes_viewport_chrome() -> None:
@@ -389,7 +401,9 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
                     "source": "photo_library",
                     "content": "Took a photo.",
                     "asset_ref": "photo-library://asset-a",
-                    "metadata": {"activity_snapshot": {"summary": "A bright photo.", "tags": ["photo"]}},
+                    "metadata": {
+                        "activity_snapshot": {"summary": "A bright photo.", "tags": ["photo"]}
+                    },
                 },
                 {
                     "event_id": "photo-b",
@@ -397,7 +411,9 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
                     "source": "photo_library",
                     "content": "Took another photo.",
                     "asset_ref": "photo-library://asset-b",
-                    "metadata": {"activity_snapshot": {"summary": "A later photo.", "tags": ["desk"]}},
+                    "metadata": {
+                        "activity_snapshot": {"summary": "A later photo.", "tags": ["desk"]}
+                    },
                 },
             ]
 
@@ -444,6 +460,10 @@ async def test_timeline_service_persists_selected_and_hidden_cover(tmp_path) -> 
 
 
 async def test_timeline_service_keeps_custom_uploaded_cover_available(tmp_path) -> None:
+    from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    asset_ref = asset_store.store_bytes(b"custom cover", content_type="image/jpeg")
     service = TimelineService(
         SimpleNamespace(
             l1=_FakeL1Store(),
@@ -451,7 +471,8 @@ async def test_timeline_service_keeps_custom_uploaded_cover_available(tmp_path) 
             l3=_FakeL3Store(),
             l4=_FakeL4Store(),
             memory_db_path=str(tmp_path / "memory.db"),
-        )
+        ),
+        manual_entry_asset_store=asset_store,
     )
 
     cover = await service.set_cover_preference(
@@ -459,17 +480,47 @@ async def test_timeline_service_keeps_custom_uploaded_cover_available(tmp_path) 
         start=0.0,
         end=300.0,
         mode="asset",
-        asset_ref="manual-entry-asset://custom-cover.jpg",
+        asset_ref=asset_ref,
         source="custom_upload",
     )
 
-    assert cover["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
-    assert cover["candidates"][0]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+    assert cover["asset_ref"] == asset_ref
+    assert cover["candidates"][0]["asset_ref"] == asset_ref
     assert cover["candidates"][0]["source"] == "custom_upload"
 
     viewport = await service.get_viewport(scale="day", start=0.0, end=300.0, focus="self")
-    assert viewport["cover"]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
-    assert viewport["cover"]["candidates"][0]["asset_ref"] == "manual-entry-asset://custom-cover.jpg"
+    assert viewport["cover"]["asset_ref"] == asset_ref
+    assert viewport["cover"]["candidates"][0]["asset_ref"] == asset_ref
+
+
+async def test_timeline_service_rejects_forged_custom_cover_refs(tmp_path) -> None:
+    from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    service = TimelineService(
+        SimpleNamespace(
+            l1=_FakeL1Store(),
+            l2=_FakeL2Store(),
+            l3=_FakeL3Store(),
+            l4=_FakeL4Store(),
+            memory_db_path=str(tmp_path / "memory.db"),
+        ),
+        manual_entry_asset_store=asset_store,
+    )
+
+    for asset_ref in (
+        "manual-entry-asset:///tmp/private.jpg",
+        f"manual-entry-asset://{'a' * 64}.jpg",
+    ):
+        with pytest.raises(ValueError, match="available custom upload"):
+            await service.set_cover_preference(
+                scale="day",
+                start=0.0,
+                end=300.0,
+                mode="asset",
+                asset_ref=asset_ref,
+                source="custom_upload",
+            )
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -485,7 +536,10 @@ class _FakeEntityCatalog:
         self.calls: list[list[str]] = []
 
     async def list_entities(
-        self, *, entity_ids: list[str], limit: int = 100,
+        self,
+        *,
+        entity_ids: list[str],
+        limit: int = 100,
     ) -> list[dict]:
         self.calls.append(list(entity_ids))
         return [
@@ -525,22 +579,34 @@ async def test_theme_cards_prefer_entity_canonical_names_over_reflections() -> N
     """
     from magi.timeline.viewport_builder import TimelineViewportBuilder
 
-    catalog = _FakeEntityCatalog({
-        "ent:anthropic": "Anthropic",
-        "ent:sleep_agency": "sleep agency",
-        "ent:cursor": "Cursor",
-    })
+    catalog = _FakeEntityCatalog(
+        {
+            "ent:anthropic": "Anthropic",
+            "ent:sleep_agency": "sleep agency",
+            "ent:cursor": "Cursor",
+        }
+    )
     builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
     clusters = [
-        _episode_cluster(block_id="episode:a", entity_ids=["ent:anthropic", "ent:sleep_agency"], event_count=10),
-        _episode_cluster(block_id="episode:b", entity_ids=["ent:anthropic", "ent:cursor"], event_count=5),
-        _episode_cluster(block_id="episode:c", entity_ids=["ent:anthropic", "ent:sleep_agency", "ent:cursor"], event_count=3),
+        _episode_cluster(
+            block_id="episode:a", entity_ids=["ent:anthropic", "ent:sleep_agency"], event_count=10
+        ),
+        _episode_cluster(
+            block_id="episode:b", entity_ids=["ent:anthropic", "ent:cursor"], event_count=5
+        ),
+        _episode_cluster(
+            block_id="episode:c",
+            entity_ids=["ent:anthropic", "ent:sleep_agency", "ent:cursor"],
+            event_count=3,
+        ),
     ]
     reflections = [
         {"reflection_id": "r1", "title": "Day反思", "summary": "...", "source_event_ids": []},
     ]
 
-    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=clusters, locale="zh")
+    cards = await builder._theme_card_builder.build(
+        reflections=reflections, clusters=clusters, locale="zh"
+    )
 
     titles = [c["title"] for c in cards]
     # Entity names appear, sorted by aggregated frequency (anthropic has highest weight)
@@ -555,10 +621,12 @@ async def test_theme_cards_drop_single_mention_entities() -> None:
     """Entities mentioned in just one cluster don't qualify as 'themes'."""
     from magi.timeline.viewport_builder import TimelineViewportBuilder
 
-    catalog = _FakeEntityCatalog({
-        "ent:one_off": "One-off Mention",
-        "ent:recurring": "Recurring Project",
-    })
+    catalog = _FakeEntityCatalog(
+        {
+            "ent:one_off": "One-off Mention",
+            "ent:recurring": "Recurring Project",
+        }
+    )
     builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
     clusters = [
         _episode_cluster(block_id="episode:a", entity_ids=["ent:one_off", "ent:recurring"]),
@@ -575,11 +643,13 @@ async def test_theme_cards_blacklist_sensor_bucket_names() -> None:
     must not surface as themes even if they pass the count threshold."""
     from magi.timeline.viewport_builder import TimelineViewportBuilder
 
-    catalog = _FakeEntityCatalog({
-        "ent:chrome_bucket": "Chrome 历史",
-        "ent:app_usage": "应用使用情况",
-        "ent:project": "Magi",
-    })
+    catalog = _FakeEntityCatalog(
+        {
+            "ent:chrome_bucket": "Chrome 历史",
+            "ent:app_usage": "应用使用情况",
+            "ent:project": "Magi",
+        }
+    )
     builder = TimelineViewportBuilder(l1_store=None, entity_catalog=catalog)
     clusters = [
         _episode_cluster(
@@ -608,14 +678,17 @@ async def test_theme_cards_filter_rejects_long_titles_and_internal_keys() -> Non
         {
             "reflection_id": "r2",
             "title": "这一小时的记忆主要围绕浏览记录展开。浏览活动主要集中在 zhihu",
-            "summary": "", "source_event_ids": [],
+            "summary": "",
+            "source_event_ids": [],
         },
         {"reflection_id": "r3", "title": "Magi", "summary": "", "source_event_ids": []},
         # Duplicate of r3 — should be deduped
         {"reflection_id": "r4", "title": "magi", "summary": "", "source_event_ids": []},
     ]
 
-    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="zh")
+    cards = await builder._theme_card_builder.build(
+        reflections=reflections, clusters=[], locale="zh"
+    )
 
     titles = [c["title"] for c in cards]
     assert titles == ["Magi"]
@@ -627,9 +700,16 @@ async def test_theme_cards_fall_back_to_reflections_when_no_entity_catalog() -> 
 
     builder = TimelineViewportBuilder(l1_store=None)  # no catalog
     reflections = [
-        {"reflection_id": "r1", "title": "morning planning", "summary": "x", "source_event_ids": ["evt-1"]},
+        {
+            "reflection_id": "r1",
+            "title": "morning planning",
+            "summary": "x",
+            "source_event_ids": ["evt-1"],
+        },
     ]
-    cards = await builder._theme_card_builder.build(reflections=reflections, clusters=[], locale="en")
+    cards = await builder._theme_card_builder.build(
+        reflections=reflections, clusters=[], locale="en"
+    )
     assert len(cards) == 1
     assert cards[0]["title"] == "morning planning"
 
@@ -647,7 +727,10 @@ async def test_theme_cards_entity_themes_skip_transient_clusters() -> None:
         _episode_cluster(block_id="episode:e1", entity_ids=["ent:magi"], event_count=3),
         _episode_cluster(block_id="episode:e2", entity_ids=["ent:magi"], event_count=2),
         # Transient cluster — its "keywords" are tag strings, not entity_ids.
-        {**_episode_cluster(block_id="cluster:0", entity_ids=["coding", "thinking"]), "episode_id": ""},
+        {
+            **_episode_cluster(block_id="cluster:0", entity_ids=["coding", "thinking"]),
+            "episode_id": "",
+        },
     ]
     cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="en")
     titles = [c["title"] for c in cards]
@@ -665,10 +748,18 @@ async def test_theme_cards_skip_non_themeable_cluster_labels() -> None:
 
     builder = TimelineViewportBuilder(l1_store=None)  # no catalog → cluster-label fallback
     clusters = [
-        {**_episode_cluster(block_id="cluster:0", entity_ids=[]),
-         "label": "Chat Projector", "label_is_themeable": False, "episode_id": ""},
-        {**_episode_cluster(block_id="cluster:1", entity_ids=[]),
-         "label": "Zhihu", "label_is_themeable": True, "episode_id": ""},
+        {
+            **_episode_cluster(block_id="cluster:0", entity_ids=[]),
+            "label": "Chat Projector",
+            "label_is_themeable": False,
+            "episode_id": "",
+        },
+        {
+            **_episode_cluster(block_id="cluster:1", entity_ids=[]),
+            "label": "Zhihu",
+            "label_is_themeable": True,
+            "episode_id": "",
+        },
     ]
     cards = await builder._theme_card_builder.build(reflections=[], clusters=clusters, locale="zh")
     titles = [c["title"] for c in cards]

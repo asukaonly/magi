@@ -537,6 +537,71 @@ async def test_claimed_user_message_is_discarded_when_clear_advances_before_disp
 
 
 @pytest.mark.asyncio
+async def test_claimed_user_message_is_discarded_when_its_session_is_deleted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = SQLiteRuntimeCommandQueue(db_path=str(tmp_path / "runtime_commands.db"))
+    await queue.start()
+    message_bus = await _start_in_memory_message_bus()
+    sensor_hub = SensorHub(message_bus=message_bus)
+    await sensor_hub.start()
+
+    context = RuntimeBootstrapContext()
+    context.runtime_commands.runtime_command_queue = queue
+    context.message_bus.message_bus = message_bus
+    context.agent_runtime.agent_runtime = object()
+    processor = RuntimeCommandProcessorModule(context, poll_interval_seconds=0.01)
+
+    await queue.enqueue_user_message(
+        UserMessageCommand(
+            source="api",
+            user_id="user-1",
+            session_id="session-delete",
+            turn_id="turn-delete",
+            message="must not dispatch after session delete",
+            correlation_id="user_message:message-delete",
+        )
+    )
+    real_claim_next = queue.claim_next
+    command_claimed = asyncio.Event()
+    release_claim = asyncio.Event()
+
+    async def _claim_then_pause(**kwargs):  # type: ignore[no-untyped-def]
+        command = await real_claim_next(**kwargs)
+        command_claimed.set()
+        await release_claim.wait()
+        return command
+
+    monkeypatch.setattr(queue, "claim_next", _claim_then_pause)
+    dispatch_task = asyncio.create_task(
+        processor._run_next_command(queue=queue, message_bus=message_bus)
+    )
+    try:
+        await asyncio.wait_for(command_claimed.wait(), timeout=1)
+        async with queue.user_message_clear_boundary():
+            purged = await queue.block_user_message_scope_and_purge(
+                user_id="user-1",
+                session_id="session-delete",
+                reason="user_delete_chat_session",
+            )
+        assert purged == 1
+
+        release_claim.set()
+        await asyncio.wait_for(dispatch_task, timeout=1)
+        assert await sensor_hub.get_batch(timeout_seconds=0.05) == []
+        assert processor._active_commands == 0
+    finally:
+        release_claim.set()
+        if not dispatch_task.done():
+            dispatch_task.cancel()
+            await asyncio.gather(dispatch_task, return_exceptions=True)
+        await sensor_hub.stop()
+        await message_bus.stop()
+        await queue.stop()
+
+
+@pytest.mark.asyncio
 async def test_runtime_command_processor_stays_non_idle_until_all_concurrent_work_finishes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

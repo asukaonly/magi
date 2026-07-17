@@ -288,26 +288,6 @@
       }
     },
     {
-      "path": "/api/memory/l2/assertions/{assertion_id}/feedback",
-      "methods": ["PATCH"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
-      "path": "/api/memory/l2/assertions/{assertion_id}/correct",
-      "methods": ["POST"],
-      "owner": "rust-native",
-      "owner_file": "crates/magi-gateway/src/api/memory.rs",
-      "response_envelope": "native-json",
-      "python_parity": {
-        "owner_file": "backend/src/magi/api/routers/memory/__init__.py"
-      }
-    },
-    {
       "path": "/api/memory/l2/entities",
       "methods": ["GET"],
       "owner": "rust-native",

@@ -140,6 +140,20 @@ it does not soft-delete runtime telemetry. Durable memory history remains
 governed by the memory retention/archive settings described in the product
 configuration guide.
 
+User-requested memory deletion is tracked separately from periodic retention.
+The shared memory database stores the selected source references, replay
+barriers, cleanup progress, projection blocks, and the current recovery lease.
+Time-range deletion also stores the interval itself, its L1-retention choice,
+reason, and owning operation. This interval remains active after the original
+cleanup completes so a source first synchronized later is governed before it
+can recreate memory from that period. Full memory clear removes both the range
+rules and their operation history.
+The complete selected L1 set is hidden when its barriers commit; cleanup of
+derived memory, chat projections, and archives can then resume safely after a
+crash. Startup must stop if these barriers cannot be read or pending deletion
+cannot be recovered, because continuing would allow data the user removed to be
+projected again.
+
 ## How migrations run
 
 `CoreDependenciesModule.init` (in `backend/src/magi/core/lifecycle.py`)

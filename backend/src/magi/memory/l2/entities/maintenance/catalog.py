@@ -8,6 +8,8 @@ import aiosqlite
 
 from .....core.logger import get_logger
 from .....core.sqlite import sqlite_connection_async
+from ...assertions.identity_rekey import rekey_assertion_entity_identity
+from ...pipeline import L2Pipeline
 from .ghosts import (
     MAX_EVIDENCE_EVENT_IDS,
     L2EntityGhostMaintenanceMixin,
@@ -17,7 +19,7 @@ from .ghosts import (
     _merge_evidence_json,
     _slugify_entity_id_suffix,
 )
-from ...pipeline import L2Pipeline
+from .ghosts_tom import _refresh_tom_snapshot_after_rekey
 
 logger = get_logger("magi.memory.l2.entities.maintenance")
 
@@ -33,14 +35,12 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
         host = self._catalog_maintenance_host()
         async with sqlite_connection_async(host._db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
+            async with db.execute("""
                 SELECT LOWER(TRIM(canonical_name)) AS ck, COUNT(*) AS n
                 FROM entity_catalog
                 GROUP BY ck
                 HAVING n >= 2
-                """
-            ) as cur:
+                """) as cur:
                 keys = [str(r["ck"]) for r in await cur.fetchall()]
 
         for ck in keys:
@@ -63,14 +63,27 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
             entity_ids = [str(r["entity_id"]) for r in group]
             winner = await self._pick_entity_by_mention_count(entity_ids)
             losers = [eid for eid in entity_ids if eid != winner]
+            merged_any = False
             for loser in losers:
                 try:
                     await self._merge_entity_into(winner, loser)
                     stats.fragment_entities_merged += 1
+                    merged_any = True
                 except Exception as exc:
                     stats.errors.append(f"merge {loser}->{winner}: {exc}")
                     logger.warning(
                         "L2 fragment merge failed", loser=loser, winner=winner, error=str(exc)
+                    )
+            if merged_any:
+                try:
+                    snapshot = await _refresh_tom_snapshot_after_rekey(host, winner)
+                    stats.snapshots_refreshed += int(snapshot is not None)
+                except Exception as exc:
+                    stats.errors.append(f"refresh snapshot {winner}: {exc}")
+                    logger.warning(
+                        "L2 snapshot refresh after entity merge failed",
+                        entity_id=winner,
+                        error=str(exc),
                     )
             stats.fragment_groups_processed += 1
 
@@ -82,7 +95,11 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     return False
         return True
 
-    async def _merge_entity_into(self, winner_id: str, loser_id: str) -> None:
+    async def _merge_entity_into(
+        self,
+        winner_id: str,
+        loser_id: str,
+    ) -> None:
         host = self._catalog_maintenance_host()
         if winner_id == loser_id:
             return
@@ -96,22 +113,95 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     (winner_id, loser_id),
                 )
                 async with db.execute(
-                    "SELECT alias_text, normalized_alias, confidence FROM entity_aliases WHERE entity_id = ?",
+                    """
+                    SELECT canonical_name, canonical_name_is_independent
+                    FROM entity_catalog WHERE entity_id = ?
+                    """,
+                    (loser_id,),
+                ) as cur:
+                    loser_catalog = await cur.fetchone()
+                async with db.execute(
+                    """
+                    SELECT alias_text, normalized_alias, confidence, is_independent
+                    FROM entity_aliases WHERE entity_id = ?
+                    """,
                     (loser_id,),
                 ) as cur:
                     aliases = await cur.fetchall()
                 for al in aliases:
-                    alias_text, norm, conf = str(al[0]), str(al[1]), float(al[2])
+                    alias_text, norm, conf, independent = (
+                        str(al[0]),
+                        str(al[1]),
+                        float(al[2]),
+                        int(al[3]),
+                    )
                     await db.execute(
                         """
-                        INSERT INTO entity_aliases(entity_id, alias_text, normalized_alias, confidence, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO entity_aliases(
+                            entity_id, alias_text, normalized_alias, confidence,
+                            is_independent, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
                             confidence = MAX(entity_aliases.confidence, excluded.confidence),
+                            is_independent = MAX(
+                                entity_aliases.is_independent,
+                                excluded.is_independent
+                            ),
                             updated_at = excluded.updated_at
                         """,
-                        (winner_id, alias_text, norm, conf, now, now),
+                        (winner_id, alias_text, norm, conf, independent, now, now),
                     )
+                if loser_catalog is not None and bool(loser_catalog[1]):
+                    loser_name = str(loser_catalog[0]).strip()
+                    if loser_name:
+                        await db.execute(
+                            """
+                            INSERT INTO entity_aliases(
+                                entity_id, alias_text, normalized_alias, confidence,
+                                is_independent, created_at, updated_at
+                            ) VALUES (?, ?, ?, 1.0, 1, ?, ?)
+                            ON CONFLICT(entity_id, normalized_alias) DO UPDATE SET
+                                is_independent = 1,
+                                confidence = MAX(entity_aliases.confidence, 1.0),
+                                updated_at = excluded.updated_at
+                            """,
+                            (winner_id, loser_name, loser_name.casefold(), now, now),
+                        )
+                async with db.execute(
+                    """
+                    SELECT name_kind, normalized_name, display_name, event_id,
+                           confidence, created_at, updated_at
+                    FROM entity_name_evidence
+                    WHERE entity_id = ?
+                    """,
+                    (loser_id,),
+                ) as cur:
+                    name_evidence = await cur.fetchall()
+                for evidence in name_evidence:
+                    await db.execute(
+                        """
+                        INSERT INTO entity_name_evidence(
+                            entity_id, name_kind, normalized_name, display_name,
+                            event_id, confidence, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(
+                            entity_id, name_kind, normalized_name, event_id
+                        ) DO UPDATE SET
+                            confidence = MAX(
+                                entity_name_evidence.confidence,
+                                excluded.confidence
+                            ),
+                            updated_at = MAX(
+                                entity_name_evidence.updated_at,
+                                excluded.updated_at
+                            )
+                        """,
+                        (winner_id, *tuple(evidence)),
+                    )
+                await db.execute(
+                    "DELETE FROM entity_name_evidence WHERE entity_id = ?",
+                    (loser_id,),
+                )
                 await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (loser_id,))
 
                 invalidated_vector_ids.update(
@@ -121,17 +211,11 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                     await self._merge_kg_ids_locked(db, "object_id", loser_id, winner_id, now)
                 )
 
-                await db.execute(
-                    "UPDATE tom_trait_assertions SET entity_id = ? WHERE entity_id = ?",
-                    (winner_id, loser_id),
-                )
-                await db.execute(
-                    "UPDATE tom_trait_assertions SET target_entity_id = ? WHERE target_entity_id = ?",
-                    (winner_id, loser_id),
-                )
-                await db.execute(
-                    "UPDATE tom_snapshots SET entity_id = ? WHERE entity_id = ?",
-                    (winner_id, loser_id),
+                await rekey_assertion_entity_identity(
+                    db,
+                    source_entity_id=loser_id,
+                    target_entity_id=winner_id,
+                    now=now,
                 )
                 await db.execute(
                     "UPDATE OR IGNORE entity_facets SET entity_id = ? WHERE entity_id = ?",
@@ -160,6 +244,12 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                        COUNT(m.mention_id) AS mention_count
                 FROM entity_catalog c
                 LEFT JOIN entity_mentions m ON m.resolved_entity_id = c.entity_id
+                WHERE c.canonical_name_is_independent = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM entity_aliases AS alias
+                      WHERE alias.entity_id = c.entity_id
+                        AND alias.is_independent = 1
+                  )
                 GROUP BY c.entity_id
                 HAVING mention_count < ?
                 """,
@@ -185,6 +275,24 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
+                    """
+                    SELECT 1 FROM entity_catalog AS catalog
+                    WHERE catalog.entity_id = ?
+                      AND (
+                          catalog.canonical_name_is_independent = 1
+                          OR EXISTS (
+                              SELECT 1 FROM entity_aliases AS alias
+                              WHERE alias.entity_id = catalog.entity_id
+                                AND alias.is_independent = 1
+                          )
+                      )
+                    """,
+                    (entity_id,),
+                ) as cur:
+                    if await cur.fetchone():
+                        await db.rollback()
+                        return False
+                async with db.execute(
                     "SELECT 1 FROM knowledge_graph WHERE subject_id = ? OR object_id = ? LIMIT 1",
                     (entity_id, entity_id),
                 ) as cur:
@@ -200,6 +308,9 @@ class L2EntityCatalogMaintenanceMixin(L2EntityGhostMaintenanceMixin):
                         return False
                 await db.execute("DELETE FROM tom_snapshots WHERE entity_id = ?", (entity_id,))
                 await db.execute("DELETE FROM entity_facets WHERE entity_id = ?", (entity_id,))
+                await db.execute(
+                    "DELETE FROM entity_name_evidence WHERE entity_id = ?", (entity_id,)
+                )
                 await db.execute("DELETE FROM entity_aliases WHERE entity_id = ?", (entity_id,))
                 await db.execute(
                     "DELETE FROM entity_mentions WHERE resolved_entity_id = ?", (entity_id,)

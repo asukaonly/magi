@@ -25,6 +25,7 @@ class _StructuredEntityHintCandidate:
 class _StructuredEntityHintUpsertState:
     catalog: Any
     host: Any
+    source_event_ids: tuple[str, ...]
     seen_ids: set[str] = field(default_factory=set)
     upserted_count: int = 0
 
@@ -44,6 +45,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
         state = _StructuredEntityHintUpsertState(
             catalog=catalog,
             host=self._structured_hint_host(),
+            source_event_ids=(event.event_id,),
         )
         await self._upsert_structured_entity_hint_records(metadata_json, state)
         await self._upsert_structured_graph_ref_entities(metadata_json, state)
@@ -78,6 +80,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                         entity_id=existing_entity_id,
                         alias_text=candidate.alias_text,
                         confidence=0.98,
+                        source_event_ids=state.source_event_ids,
                     )
                     state.seen_ids.add(existing_entity_id)
                     continue
@@ -180,6 +183,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
             entity_id=candidate.entity_id,
             canonical_name=candidate.canonical_name,
             entity_type=candidate.entity_type,
+            source_event_ids=state.source_event_ids,
         )
         state.seen_ids.add(normalized_entity_id)
         alias = state.host._non_empty_text(candidate.alias_text) or candidate.canonical_name
@@ -188,6 +192,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 entity_id=normalized_entity_id,
                 alias_text=alias,
                 confidence=0.98,
+                source_event_ids=state.source_event_ids,
             )
         state.upserted_count += 1
 
@@ -204,6 +209,7 @@ class L2StructuredEntityHintMixin(L2StructuredHintHostMixin):
                 entity_id=entity_id,
                 alias_text=alias,
                 confidence=0.98,
+                source_event_ids=state.source_event_ids,
             )
         state.seen_ids.add(entity_id)
 

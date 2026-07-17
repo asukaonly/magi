@@ -882,6 +882,30 @@ async def test_new_correction_evidence_parser_accepts_two_nested_json_layers(
 
 
 @pytest.mark.asyncio
+async def test_literal_star_evidence_id_does_not_govern_unrelated_events(
+    l2_store_with_schema,
+):
+    store = l2_store_with_schema
+    now = time.time()
+    await MemoryCorrectionRepository(store.db_path).create(
+        NewMemoryCorrection(
+            correction_id="correction-literal-star-evidence",
+            request_id="request-literal-star-evidence",
+            actor_id="user:u1",
+            target_kind=CorrectionTargetKind.ASSERTION,
+            target_id="assert-literal-star",
+            slot_key="slot-literal-star",
+            claim_fingerprint="claim-literal-star",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            before={"evidence_events": ["*"]},
+            created_at=now,
+        )
+    )
+
+    assert await store.active_correction_evidence_event_ids(["*", "evt-unrelated"]) == {"*"}
+
+
+@pytest.mark.asyncio
 async def test_new_correction_evidence_parser_fails_closed_on_nonstring_item(
     l2_store_with_schema,
 ):

@@ -351,6 +351,74 @@ def test_bound_project_scope_can_be_applied_to_an_assertion(
     assert changed_intent.status_code == 409
 
 
+def test_scope_refinement_conflict_returns_stable_business_error(
+    tmp_path,
+    monkeypatch,
+    unified_memory_for_tests,
+) -> None:
+    workspace = tmp_path / "magi-conflict"
+    workspace.mkdir()
+    WorkspaceStateStore(WorkspacePaths.from_root(workspace)).claim_identity()
+    assert unified_memory_for_tests.l2 is not None
+    option = asyncio.run(
+        ContextCatalog(unified_memory_for_tests.l2.db_path).register_workspace(str(workspace))
+    )
+    assert option is not None
+    now = time.time() - 60
+    base = {
+        "entity_id": "user:local_user",
+        "entity_type": "user",
+        "trait_family": "identity_profile",
+        "trait_name": "location.home",
+        "confidence_score": 0.9,
+        "volatility_index": 0.1,
+        "source_domain": "conversation",
+        "inference_depth": "explicit",
+        "validation_state": "stable",
+        "first_inferred_at": now,
+        "last_validated_at": now,
+        "temporal_scope": "persistent",
+    }
+    assertion_id = asyncio.run(
+        unified_memory_for_tests.l2.upsert_assertion_candidate(
+            {**base, "trait_value": "Hangzhou", "evidence_events": ["event-global"]}
+        )
+    )
+    scope = {"all_of": [{"dimension": "project", "context_id": option.context_id}]}
+    asyncio.run(
+        unified_memory_for_tests.l2.upsert_assertion_candidate(
+            {
+                **base,
+                "trait_value": "Beijing",
+                "evidence_events": ["event-project"],
+                "scope": scope,
+            }
+        )
+    )
+    client = _client(
+        monkeypatch,
+        unified_memory_for_tests,
+        _ChatReadService([str(workspace)]),
+    )
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "scope-refinement-business-conflict",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "scope_refinement",
+            "replacement": {"value": "Hangzhou"},
+            "scope": scope,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "assertion_scope_occupied",
+        "message": "The selected scope already has a current memory. Review it before moving this memory.",
+    }
+
+
 def test_retry_survives_context_deactivation_during_route_validation(
     tmp_path,
     monkeypatch,

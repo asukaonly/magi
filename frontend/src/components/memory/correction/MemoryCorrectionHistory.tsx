@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import { toApiClientError } from '@/api/client';
 import {
   memoryApi,
+  type MemoryCorrectionClaimValue,
   type MemoryCorrectionHistoryResponse,
   type MemoryCorrectionKind,
   type MemoryCorrectionRecord,
+  type MemoryCorrectionVersion,
 } from '@/api/modules/memory';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -14,6 +16,10 @@ import {
   createMemoryCorrectionRequestId,
   canRevertMemoryCorrection,
   formatMemoryCorrectionValue,
+  isMemoryCorrectionScopeOccupied,
+  memoryCorrectionErrorCode,
+  memoryCorrectionHistoryStatus,
+  shouldExplainUnavailableMemoryCorrectionRevert,
   type MemoryCorrectionUiTarget,
 } from './memoryCorrectionModel';
 import {
@@ -139,12 +145,23 @@ export function MemoryCorrectionHistory({
       } catch (caught) {
         const clientError = toApiClientError(caught);
         if (clientError.status === 409 || clientError.status === 404) {
+          const conflictCode = memoryCorrectionErrorCode(clientError.details) ?? clientError.code;
           setConfirmingId(null);
           setRevertAttempt(null);
           await loadHistory();
-          setError(t('memory.correction.history.revertConflict', {
-            defaultValue: '这条记忆已经发生变化或不再存在。我们已重新读取最新记录，请从最新内容重新操作。',
-          }));
+          if (conflictCode === 'memory_forgotten') {
+            setError(t('memory.correction.errors.memoryForgotten', {
+              defaultValue: '这条记忆已经被删除，不能再恢复或修改。请返回最新列表。',
+            }));
+          } else if (isMemoryCorrectionScopeOccupied(conflictCode)) {
+            setError(t('memory.correction.history.scopeOccupied', {
+              defaultValue: '原来的适用范围里已经有一条当前记忆，所以无法直接撤销。',
+            }));
+          } else {
+            setError(t('memory.correction.history.revertConflict', {
+              defaultValue: '这条记忆已经发生变化或不再存在。我们已重新读取最新记录，请从最新内容重新操作。',
+            }));
+          }
           await runHistoryCallback(
             onConflict,
             'Failed to refresh memory after correction revert conflict'
@@ -205,14 +222,14 @@ export function MemoryCorrectionHistory({
       ) : (
         <div className="mt-4 space-y-3">
           {corrections.map((correction, index) => {
-            const canRevert = canRevertMemoryCorrection(correction, corrections);
+            const canRevert = canRevertMemoryCorrection(correction);
             const isConfirming = confirmingId === correction.correction_id;
             const isReverting = revertingId === correction.correction_id;
             const confirmationId = `memory-correction-revert-confirmation-${index}`;
             const confirmationTitleId = `${confirmationId}-title`;
             const confirmationDescriptionId = `${confirmationId}-description`;
-            const isScheduled = correction.state === 'active'
-              && Boolean(correction.effective_at && correction.effective_at > Date.now() / 1000);
+            const historyStatus = memoryCorrectionHistoryStatus(correction);
+            const explainUnavailableRevert = shouldExplainUnavailableMemoryCorrectionRevert(correction);
             return (
               <article key={correction.correction_id} className="min-w-0 rounded-xl bg-[hsl(var(--memory-panel-subtle)/0.46)] px-4 py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -226,15 +243,21 @@ export function MemoryCorrectionHistory({
                   </div>
                   <span className={cn(
                     'rounded-full px-2 py-1 text-[11px] font-medium',
-                    isScheduled
+                    historyStatus === 'cancelled' || historyStatus === 'content_deleted'
+                      ? 'bg-muted text-muted-foreground'
+                      : historyStatus === 'scheduled'
                       ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/35 dark:text-blue-300'
-                      : correction.state === 'active'
+                      : historyStatus === 'active'
                       ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/35 dark:text-emerald-300'
                       : 'bg-muted text-muted-foreground'
                   )}>
-                    {isScheduled
+                    {historyStatus === 'content_deleted'
+                      ? t('memory.correction.history.contentDeletedStatus', { defaultValue: '内容已删除' })
+                      : historyStatus === 'cancelled'
+                      ? t('memory.correction.history.cancelled', { defaultValue: '已取消' })
+                      : historyStatus === 'scheduled'
                       ? t('memory.correction.history.scheduled', { defaultValue: '等待生效' })
-                      : correction.state === 'active'
+                      : historyStatus === 'active'
                       ? t('memory.correction.history.active', { defaultValue: '当前有效' })
                       : t('memory.correction.history.reverted', { defaultValue: '已撤销' })}
                   </span>
@@ -247,9 +270,25 @@ export function MemoryCorrectionHistory({
                   contextLabels={contextLabels}
                 />
 
-                {correction.reason ? (
+                {correction.forget_affected && !correction.content_redacted ? (
+                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                    {t('memory.correction.history.partialForget', {
+                      defaultValue: '部分历史来源已删除，因此这次修正不能撤销。',
+                    })}
+                  </p>
+                ) : null}
+
+                {correction.reason && !correction.content_redacted ? (
                   <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
                     {t('memory.correction.history.reason', { defaultValue: '说明：{{reason}}', reason: correction.reason })}
+                  </p>
+                ) : null}
+
+                {explainUnavailableRevert ? (
+                  <p className="mt-3 border-t border-[hsl(var(--memory-divider)/0.45)] pt-3 text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                    {t('memory.correction.history.revertUnavailable', {
+                      defaultValue: '当前不能撤销这次修正。如需调整，请从最新记忆重新修正。',
+                    })}
                   </p>
                 ) : null}
 
@@ -372,6 +411,15 @@ function CorrectionChangeSummary({
   contextLabels: Readonly<Record<string, string>>;
 }) {
   const { t } = useTranslation('app');
+  if (correction.content_redacted) {
+    return (
+      <p className="mt-3 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+        {t('memory.correction.history.contentRedacted', {
+          defaultValue: '相关内容已按你的要求删除，不再显示；这次修正也不能撤销。',
+        })}
+      </p>
+    );
+  }
   const before = correctionValue(target, correction.before, t);
   const after = correction.replacement
     ? correctionValue(target, correction.replacement, t)
@@ -430,23 +478,22 @@ function kindLabel(kind: MemoryCorrectionKind, t: ReturnType<typeof useTranslati
 
 function correctionValue(
   target: MemoryCorrectionUiTarget,
-  value: Record<string, unknown>,
+  value: MemoryCorrectionClaimValue | null | undefined,
   t: ReturnType<typeof useTranslation<'app'>>['t']
 ): string {
+  const safeValue = value ?? {};
   if (target.kind === 'assertion') {
     return formatMemoryCorrectionValue(
-      value.value ?? value.trait_value ?? target.currentValue,
+      safeValue.value ?? safeValue.trait_value ?? target.currentValue,
       target.displayValue ?? formatMemoryCorrectionValue(target.currentValue, target.currentValue)
     );
   }
-  const objectId = String(value.object_id ?? target.relationship.objectId).trim();
-  const naturalSummary = String(value.natural_summary ?? '').trim();
+  const objectId = String(safeValue.object_id ?? target.relationship.objectId).trim();
   const knownObjectName = target.entityOptions.find((entity) => entity.id === objectId)?.name
     ?? (objectId === target.relationship.objectId ? target.relationship.objectName : null);
   if (knownObjectName) {
     return `${target.relationship.subjectName} ${target.relationship.predicateLabel} ${knownObjectName}`;
   }
-  if (naturalSummary) return naturalSummary;
   const objectName = t('memory.correction.history.anotherObject', {
     defaultValue: '另一个对象',
   });
@@ -455,14 +502,14 @@ function correctionValue(
 
 function versionSummary(
   target: MemoryCorrectionUiTarget,
-  version: Record<string, unknown>,
+  version: MemoryCorrectionVersion,
   t: ReturnType<typeof useTranslation<'app'>>['t']
 ): string {
   return correctionValue(target, version, t);
 }
 
 function versionMeta(
-  version: Record<string, unknown>,
+  version: MemoryCorrectionVersion,
   t: ReturnType<typeof useTranslation<'app'>>['t'],
   locale: string | undefined,
   contextLabels: Readonly<Record<string, string>>
@@ -503,7 +550,7 @@ function versionMeta(
       : statusText;
   }
   const scope = version.scope && typeof version.scope === 'object' && !Array.isArray(version.scope)
-    ? formatCorrectionScope(version.scope as Record<string, unknown>, t, contextLabels)
+    ? formatCorrectionScope(version.scope, t, contextLabels)
     : null;
   return scope
     ? t('memory.correction.history.versionScope', {
@@ -514,13 +561,8 @@ function versionMeta(
     : meta;
 }
 
-function versionKey(version: Record<string, unknown>, index: number): string {
-  return String(
-    version.version_id
-      ?? version._governed_version_id
-      ?? version.assertion_id
-      ?? `${String(version.triple_id ?? 'version')}:${String(version.created_at ?? version.updated_at ?? index)}:${index}`
-  );
+function versionKey(version: MemoryCorrectionVersion, index: number): string {
+  return `${String(version.created_at ?? 'version')}:${index}`;
 }
 
 function optionalNumber(value: unknown): number | null {

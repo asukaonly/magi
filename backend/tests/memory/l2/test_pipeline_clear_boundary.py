@@ -148,6 +148,7 @@ async def test_pipeline_reset_discards_resolution_cache_and_session_state() -> N
         mention_text="private",
         mention_confidence=0.8,
         event=SimpleNamespace(content="", source="test"),
+        source_event_ids=["event-new"],
     )
 
     assert result == ("person:new", 0.8)

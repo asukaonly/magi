@@ -16,6 +16,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from ...core.logger import get_logger
+from ...core.sqlite import sqlite_connection_async
+from ..source_event_governance import (
+    promote_source_event_entity_projection_candidates,
+)
 from .anchors import is_generic_experience_anchor
 from .models import EpisodeCandidateJob, EpisodeConsolidationStats
 from .store import L2CognitionStore
@@ -232,11 +236,64 @@ async def assign_events_to_episode(
     if not jobs:
         return None
 
+    jobs = await _filter_blocked_episode_jobs(store, jobs)
+    if not jobs:
+        return None
     batch = _build_episode_batch_context(jobs)
     candidate = await _find_extendable_candidate(store, batch)
     if candidate is not None:
         return await _extend_episode_candidate(store, candidate, batch)
     return await _create_episode_candidate(store, batch)
+
+
+async def _filter_blocked_episode_jobs(
+    store: L2CognitionStore,
+    jobs: List[EpisodeCandidateJob],
+) -> List[EpisodeCandidateJob]:
+    """Drop only old evidence governed by durable episode/entity barriers."""
+    event_ids = sorted({str(job.event_id) for job in jobs if str(job.event_id).strip()})
+    if not event_ids:
+        return []
+    placeholders = ", ".join("?" for _ in event_ids)
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute("BEGIN IMMEDIATE")
+        try:
+            for job in jobs:
+                await promote_source_event_entity_projection_candidates(
+                    db,
+                    [str(job.event_id)],
+                    entity_ids=(str(entity_id) for entity_id in job.entity_ids),
+                )
+            async with db.execute(
+                f"""
+                SELECT block_kind, target_id, event_id
+                FROM memory_projection_blocks
+                WHERE event_id IN ({placeholders})
+                """,
+                tuple(event_ids),
+            ) as cursor:
+                rows = await cursor.fetchall()
+            await db.commit()
+        except BaseException:
+            await db.rollback()
+            raise
+    episode_blocked = {str(row[2]) for row in rows if str(row[0]) == "episode_formation"}
+    entity_blocks: dict[str, set[str]] = {}
+    for block_kind, target_id, event_id in rows:
+        if str(block_kind) not in {
+            "entity_projection",
+            "entity_projection_candidate",
+        }:
+            continue
+        entity_blocks.setdefault(str(event_id), set()).add(str(target_id))
+    return [
+        job
+        for job in jobs
+        if str(job.event_id) not in episode_blocked
+        and not entity_blocks.get(str(job.event_id), set()).intersection(
+            str(entity_id) for entity_id in job.entity_ids
+        )
+    ]
 
 
 def _build_episode_batch_context(jobs: List[EpisodeCandidateJob]) -> _EpisodeBatchContext:

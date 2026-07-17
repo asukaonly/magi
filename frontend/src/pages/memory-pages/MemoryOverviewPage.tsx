@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
+import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import { memoryApi, type MemoryDashboard } from '@/api/modules/memory';
 import { sensorsApi, type SensorSourceStatusResponse } from '@/api/modules/sensors';
 import { memoryStoriesApi, type StoryItem } from '@/api/modules/memoryStories';
@@ -26,6 +28,8 @@ export const MemoryOverviewPage = () => {
   const [error, setError] = useState<string | null>(null);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => new Set());
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +62,7 @@ export const MemoryOverviewPage = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadToken]);
 
   const sourceRows = useMemo(
     () => buildSourceRows(dashboard?.source_counts || [], sensorStatus, t),
@@ -84,10 +88,20 @@ export const MemoryOverviewPage = () => {
   };
 
   const handlePendingAction = async (item: PendingOverviewItem, action: 'confirmed' | 'rejected') => {
+    if (item.kind === 'assertion' && action === 'rejected') {
+      setCorrectionTarget({
+        kind: 'assertion',
+        id: item.payload.assertion_id,
+        statement: item.title,
+        currentValue: item.payload.trait_value,
+        expectedUpdatedAt: item.payload.updated_at ?? undefined,
+      });
+      return;
+    }
     setActionBusyId(item.id);
     try {
       if (item.kind === 'assertion') {
-        await memoryApi.submitAssertionFeedback(item.payload.assertion_id, action);
+        await memoryApi.submitAssertionFeedback(item.payload.assertion_id, 'confirmed');
       } else {
         await memoryStoriesApi.review(item.payload.summary_id, { review_state: action });
       }
@@ -127,6 +141,16 @@ export const MemoryOverviewPage = () => {
           {recentStories.length > 0 ? <OverviewRecentStories stories={recentStories} /> : null}
         </div>
       )}
+      <MemoryCorrectionDialog
+        open={correctionTarget !== null}
+        target={correctionTarget}
+        initialRecordErrorAction="remove"
+        onOpenChange={(open) => {
+          if (!open) setCorrectionTarget(null);
+        }}
+        onSaved={() => setReloadToken((current) => current + 1)}
+        onConflict={() => setReloadToken((current) => current + 1)}
+      />
     </MemoryPageFrame>
   );
 };

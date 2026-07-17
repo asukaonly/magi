@@ -71,18 +71,12 @@ const correctionResponse = (
 ): MemoryCorrectionCommandResponse => ({
   correction: {
     correction_id: 'correction-1',
-    request_id: 'request-1',
-    actor_id: 'user:self',
-    target_kind: 'assertion',
-    target_id: 'assertion-1',
-    slot_key: 'slot-1',
-    claim_fingerprint: 'claim-1',
     correction_kind: 'record_error',
     before: { trait_value: '直白' },
     replacement: { value: '简洁' },
-    replacement_target_id: 'assertion-2',
     created_at: 1719301300,
     state: 'active',
+    can_revert: true,
   },
   current_claim: { trait_value: '简洁' },
   derivation_state: 'completed',
@@ -314,6 +308,94 @@ describe('MemoryCorrectionDialog request safety', () => {
     expect(onConflict).toHaveBeenCalledOnce();
   });
 
+  it('explains when a forgotten memory can no longer be corrected', async () => {
+    vi.mocked(memoryApi.applyCorrection).mockRejectedValue({
+      isAxiosError: true,
+      message: 'HTTP 409',
+      response: {
+        status: 409,
+        data: { detail: { code: 'memory_forgotten', message: 'conflict' } },
+      },
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={assertionTarget}
+        onOpenChange={vi.fn()}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.clear(within(dialog).getByLabelText('正确内容'));
+    await user.type(within(dialog).getByLabelText('正确内容'), '简洁');
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('这条记忆已经被删除');
+    expect(within(dialog).getByRole('button', { name: '查看最新内容' })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['assertion', assertionTarget, 'assertion_scope_occupied'],
+    ['relationship', relationshipTarget, 'relationship_scope_occupied'],
+  ])('lets a %s scope conflict be changed and retried', async (_kind, target, code) => {
+    vi.mocked(memoryApi.getCorrectionContextOptions).mockResolvedValue({
+      items: [{
+        context_id: MAGI_CONTEXT_ID,
+        dimension: 'project',
+        label: 'Magi',
+      }, {
+        context_id: WEBSITE_CONTEXT_ID,
+        dimension: 'project',
+        label: '个人网站',
+      }],
+    });
+    vi.mocked(memoryApi.applyCorrection)
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        message: 'HTTP 409',
+        response: { status: 409, data: { detail: { code, message: 'conflict' } } },
+      })
+      .mockResolvedValueOnce(correctionResponse());
+    const onConflict = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MemoryCorrectionDialog
+        open
+        target={target}
+        onOpenChange={vi.fn()}
+        onConflict={onConflict}
+      />
+    );
+
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+    await user.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
+    const projectSelect = await within(dialog).findByLabelText('选择项目');
+    await user.selectOptions(projectSelect, MAGI_CONTEXT_ID);
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+      '所选项目里已经有一条当前记忆'
+    );
+    expect(within(dialog).queryByRole('button', { name: '查看最新内容' })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '保存修正' })).toBeInTheDocument();
+    expect(onConflict).not.toHaveBeenCalled();
+
+    await user.selectOptions(projectSelect, WEBSITE_CONTEXT_ID);
+    await user.click(within(dialog).getByRole('button', { name: '保存修正' }));
+
+    await waitFor(() => expect(memoryApi.applyCorrection).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0].scope).toEqual({
+      all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }],
+    });
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[1][0].scope).toEqual({
+      all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }],
+    });
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[1][0].request_id).not.toBe(
+      vi.mocked(memoryApi.applyCorrection).mock.calls[0][0].request_id
+    );
+  });
+
   it('explains when the selected change time predates the memory', async () => {
     vi.mocked(memoryApi.applyCorrection).mockRejectedValue({
       isAxiosError: true,
@@ -374,11 +456,8 @@ describe('MemoryCorrectionDialog request safety', () => {
     vi.mocked(memoryApi.applyCorrection).mockResolvedValue(correctionResponse({
       correction: {
         ...correctionResponse().correction,
-        target_kind: 'edge',
-        target_id: 'edge-1',
         before: { object_id: 'tool:magi' },
         replacement: { object_id: 'tool:codex', object_type: 'software' },
-        replacement_target_id: 'edge-2',
       },
       current_claim: { object_id: 'tool:codex' },
     }));
@@ -420,7 +499,6 @@ describe('MemoryCorrectionDialog request safety', () => {
         ...correctionResponse().correction,
         before: { trait_value: '直白', status: 'shadow' },
         replacement: null,
-        replacement_target_id: undefined,
       },
       current_claim: null,
     }));
@@ -463,7 +541,6 @@ describe('MemoryCorrectionDialog request safety', () => {
       },
       current_claim: {
         trait_value: '直白',
-        scope: { all_of: [{ dimension: 'project', context_id: WEBSITE_CONTEXT_ID }] },
       },
     }));
     const user = userEvent.setup();
@@ -691,24 +768,18 @@ describe('MemoryCorrectionDialog request safety', () => {
 describe('MemoryCorrectionHistory request safety', () => {
   const correction = {
     correction_id: 'correction-latest',
-    request_id: 'request-original',
-    actor_id: 'user:self',
-    target_kind: 'assertion' as const,
-    target_id: 'assertion-1',
-    slot_key: 'slot-1',
-    claim_fingerprint: 'claim-1',
     correction_kind: 'record_error' as const,
     before: { trait_value: '直白' },
     replacement: { value: '简洁' },
     created_at: 1719301300,
     state: 'active' as const,
+    can_revert: true,
   };
 
   it('shows project names for structured scopes in corrections and versions', async () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [{
-        assertion_id: 'assertion-scoped',
         trait_value: '直白',
         status: 'stable',
         scope: { all_of: [{ dimension: 'project', context_id: MAGI_CONTEXT_ID }] },
@@ -776,7 +847,6 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [{
-        assertion_id: 'assertion-long',
         trait_value: longValue,
         status: 'stable',
       }],
@@ -814,7 +884,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.revertCorrection)
       .mockRejectedValueOnce(new Error('response lost'))
       .mockResolvedValueOnce(correctionResponse({
-        correction: { ...correction, state: 'reverted', reverted_at: 1719301400 },
+        correction: { ...correction, state: 'reverted', can_revert: false },
         current_claim: { trait_value: '直白' },
         created: false,
       }));
@@ -846,7 +916,7 @@ describe('MemoryCorrectionHistory request safety', () => {
       })
       .mockRejectedValueOnce(new Error('history refresh failed'));
     vi.mocked(memoryApi.revertCorrection).mockResolvedValue(correctionResponse({
-      correction: { ...correction, state: 'reverted', reverted_at: 1719301400 },
+      correction: { ...correction, state: 'reverted', can_revert: false },
       current_claim: { trait_value: '直白' },
       created: false,
     }));
@@ -873,17 +943,11 @@ describe('MemoryCorrectionHistory request safety', () => {
     const secondCorrection = {
       ...correction,
       correction_id: 'correction-second-project',
-      request_id: 'request-second-project',
-      target_id: 'assertion-second-project',
-      claim_fingerprint: 'claim-second-project',
-      replacement_target_id: 'assertion-second-project-new',
       created_at: correction.created_at + 1,
       scope: { all_of: [{ dimension: 'project' as const, context_id: WEBSITE_CONTEXT_ID }] },
     };
     const firstCorrection = {
       ...correction,
-      target_id: 'assertion-first-project',
-      replacement_target_id: 'assertion-first-project-new',
       scope: { all_of: [{ dimension: 'project' as const, context_id: MAGI_CONTEXT_ID }] },
     };
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
@@ -914,7 +978,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(screen.getByRole('button', { name: '撤销这次修正' })).toBeDisabled();
 
     resolveRevert(correctionResponse({
-      correction: { ...secondCorrection, state: 'reverted', reverted_at: 1719301400 },
+      correction: { ...secondCorrection, state: 'reverted', can_revert: false },
       current_claim: { trait_value: '直白' },
       created: false,
     }));
@@ -947,14 +1011,65 @@ describe('MemoryCorrectionHistory request safety', () => {
     await waitFor(() => expect(memoryApi.getCorrectionHistory).toHaveBeenCalledTimes(2));
   });
 
+  it('explains when a forgotten correction can no longer be reverted', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [correction],
+      context_labels: {},
+    });
+    vi.mocked(memoryApi.revertCorrection).mockRejectedValue({
+      isAxiosError: true,
+      message: 'HTTP 409',
+      response: {
+        status: 409,
+        data: { detail: { code: 'memory_forgotten', message: 'forgotten' } },
+      },
+    });
+    const user = userEvent.setup();
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    await user.click(await screen.findByRole('button', { name: '撤销这次修正' }));
+    await user.click(screen.getByRole('button', { name: '确认撤销' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('这条记忆已经被删除');
+  });
+
+  it.each(['assertion_scope_occupied', 'relationship_scope_occupied'])(
+    'uses the same scope-conflict explanation for %s when reverting',
+    async (code) => {
+      vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+        target: { kind: 'assertion', id: 'assertion-1' },
+        versions: [],
+        corrections: [correction],
+        context_labels: {},
+      });
+      vi.mocked(memoryApi.revertCorrection).mockRejectedValue({
+        isAxiosError: true,
+        message: 'HTTP 409',
+        response: {
+          status: 409,
+          data: { detail: { code, message: 'occupied' } },
+        },
+      });
+      const user = userEvent.setup();
+      render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+      await user.click(await screen.findByRole('button', { name: '撤销这次修正' }));
+      await user.click(screen.getByRole('button', { name: '确认撤销' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '原来的适用范围里已经有一条当前记忆'
+      );
+    }
+  );
+
   it('uses unique React keys for multiple versions of the same relationship', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'edge', id: 'edge-1' },
       versions: [
         {
-          version_id: 'version-1',
-          triple_id: 'edge-1',
           subject_id: 'user:self',
           predicate: 'USES',
           object_id: 'tool:magi',
@@ -963,8 +1078,6 @@ describe('MemoryCorrectionHistory request safety', () => {
           valid_to: 1719301200,
         },
         {
-          version_id: 'version-2',
-          triple_id: 'edge-1',
           subject_id: 'user:self',
           predicate: 'USES',
           object_id: 'tool:codex',
@@ -985,7 +1098,7 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(consoleError.mock.calls.flat().join(' ')).not.toContain('same key');
   });
 
-  it('uses the saved summary or a neutral fallback without exposing object ids', async () => {
+  it('uses a neutral fallback without exposing internal summaries or object ids', async () => {
     const target: MemoryCorrectionUiTarget = {
       ...relationshipTarget,
       entityOptions: [{ id: 'tool:magi', name: 'Magi', type: 'software' }],
@@ -993,15 +1106,10 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'edge', id: 'edge-1' },
       versions: [{
-        version_id: 'version-legacy',
-        triple_id: 'edge-1',
         object_id: 'tool:legacy',
-        natural_summary: '你 使用 Legacy Tool',
         valid_from: 1719300000,
         valid_to: 1719301200,
       }, {
-        version_id: 'version-deleted',
-        triple_id: 'edge-1',
         object_id: 'tool:deleted',
         valid_from: 1719301200,
         valid_to: 1719301400,
@@ -1014,8 +1122,8 @@ describe('MemoryCorrectionHistory request safety', () => {
 
     await screen.findByText('还没有修正过这条记忆。');
     fireEvent.click(screen.getByText('查看内容变化'));
-    expect(screen.getByText('你 使用 Legacy Tool')).toBeInTheDocument();
-    expect(screen.getByText('你 使用 另一个对象')).toBeInTheDocument();
+    expect(screen.getAllByText('你 使用 另一个对象')).toHaveLength(2);
+    expect(document.body).not.toHaveTextContent('Legacy Tool');
     expect(document.body).not.toHaveTextContent('tool:deleted');
     expect(memoryApi.getL2Entities).not.toHaveBeenCalled();
   });
@@ -1039,20 +1147,172 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(screen.queryByText('当前有效')).not.toBeInTheDocument();
   });
 
+  it('keeps a due but unapplied correction waiting until the transition is recorded', async () => {
+    const now = Date.now() / 1000;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        correction_kind: 'situation_changed',
+        effective_at: now - 3600,
+        transition_applied_at: null,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('等待生效')).toBeInTheDocument();
+    expect(screen.queryByText('当前有效')).not.toBeInTheDocument();
+  });
+
+  it('shows an applied scheduled correction as active', async () => {
+    const now = Date.now() / 1000;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        correction_kind: 'situation_changed',
+        effective_at: now - 3600,
+        transition_applied_at: now - 1800,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('当前有效')).toBeInTheDocument();
+    expect(screen.queryByText('等待生效')).not.toBeInTheDocument();
+  });
+
+  it('labels a forgotten future correction as cancelled and prevents revert', async () => {
+    const now = Date.now() / 1000;
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        correction_kind: 'situation_changed',
+        effective_at: now + 3600,
+        transition_cancelled_at: now,
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('已取消')).toBeInTheDocument();
+    expect(screen.queryByText('等待生效')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('redacts deleted correction content without presenting the content as currently active', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        before: null,
+        replacement: null,
+        reason: null,
+        target_forgotten: true,
+        forget_affected: true,
+        content_redacted: true,
+        transition_applied_at: correction.created_at + 1,
+        transition_cancelled_at: correction.created_at + 2,
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('内容已删除')).toBeInTheDocument();
+    expect(screen.queryByText('当前有效')).not.toBeInTheDocument();
+    expect(screen.getByText('相关内容已按你的要求删除，不再显示；这次修正也不能撤销。')).toBeInTheDocument();
+    expect(screen.queryByText('相关记忆已删除')).not.toBeInTheDocument();
+    expect(screen.queryByText('原来：')).not.toBeInTheDocument();
+    expect(screen.queryByText('改为：')).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('直白');
+    expect(document.body).not.toHaveTextContent('简洁');
+    expect(screen.queryByText('当前不能撤销这次修正。如需调整，请从最新记忆重新修正。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('explains an unavailable revert without guessing why the server denied it', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('当前有效')).toBeInTheDocument();
+    expect(screen.getByText('当前不能撤销这次修正。如需调整，请从最新记忆重新修正。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('explains a partial source deletion without calling the whole memory deleted', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        forget_affected: true,
+        content_redacted: false,
+        target_forgotten: false,
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('当前有效')).toBeInTheDocument();
+    expect(screen.getByText('部分历史来源已删除，因此这次修正不能撤销。')).toBeInTheDocument();
+    expect(screen.queryByText('相关记忆已删除')).not.toBeInTheDocument();
+    expect(screen.queryByText('当前不能撤销这次修正。如需调整，请从最新记忆重新修正。')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('labels a reverted correction and prevents another revert', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        state: 'reverted',
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('已撤销')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
   it('labels a future change as scheduled while keeping the old value current', async () => {
     const now = Date.now() / 1000;
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [
         {
-          assertion_id: 'assertion-1',
           trait_value: '直白',
           status: 'superseded',
           valid_from: now - 3600,
           valid_to: now + 3600,
         },
         {
-          assertion_id: 'assertion-2',
           trait_value: '简洁',
           status: 'stable',
           valid_from: now + 3600,
@@ -1075,7 +1335,6 @@ describe('MemoryCorrectionHistory request safety', () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
       versions: [{
-        assertion_id: 'assertion-future-reverted',
         trait_value: '简洁',
         status: 'archived',
         valid_from: now + 3600,

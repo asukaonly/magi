@@ -1,4 +1,5 @@
 """Timeline service facade over memory-backed viewport and context bundles."""
+
 from __future__ import annotations
 
 import mimetypes
@@ -7,15 +8,89 @@ from urllib.parse import unquote
 
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
+from ..core.sqlite import sqlite_connection_async
 from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
 from .. import i18n as core_i18n
 from .contracts import TimelineEvent
-from .cover_store import TimelineCoverPreferenceStore
+from .cover_store import (
+    TIMELINE_COVER_ASSET_SOURCES,
+    TimelineCoverAssetSource,
+    TimelineCoverPreferenceStore,
+)
 from .insight_pipeline import TimelineInsightPipeline
 from .viewport_builder import TimelineViewportBuilder
 
-
 _WEEKDAY_LABELS = ("一", "二", "三", "四", "五", "六", "日")
+
+
+async def _manual_asset_is_referenced(*, db_path: str, asset_ref: str) -> bool:
+    """Allow manual assets only while a user-visible owner still references them."""
+    async with sqlite_connection_async(db_path) as db:
+        async with db.execute("SELECT name FROM sqlite_master WHERE type = 'table'") as cursor:
+            tables = {str(row[0]) for row in await cursor.fetchall()}
+
+        checks: list[tuple[str, tuple[str, ...]]] = []
+        if "manual_entries" in tables:
+            checks.append(
+                (
+                    """
+                    SELECT 1 FROM manual_entries AS entry
+                    WHERE entry.deleted_at IS NULL
+                      AND EXISTS (
+                          SELECT 1
+                          FROM json_each(CASE
+                              WHEN json_valid(entry.attachments_json)
+                                  THEN entry.attachments_json
+                              ELSE '[]'
+                          END) AS attachment
+                          WHERE CAST(attachment.value AS TEXT) = ?
+                      )
+                    LIMIT 1
+                    """,
+                    (asset_ref,),
+                )
+            )
+        if "experiences" in tables:
+            checks.append(
+                (
+                    """
+                    SELECT 1 FROM experiences
+                    WHERE status != 'invalidated' AND user_cover_asset_ref = ?
+                    LIMIT 1
+                    """,
+                    (asset_ref,),
+                )
+            )
+        if "experience_drafts" in tables:
+            checks.append(
+                (
+                    """
+                    SELECT 1 FROM experience_drafts
+                    WHERE user_cover_asset_ref = ?
+                    LIMIT 1
+                    """,
+                    (asset_ref,),
+                )
+            )
+        if "timeline_cover_preferences" in tables:
+            checks.append(
+                (
+                    """
+                    SELECT 1 FROM timeline_cover_preferences
+                    WHERE mode = 'asset'
+                      AND source IN ('current_period', 'custom_upload')
+                      AND asset_ref = ?
+                    LIMIT 1
+                    """,
+                    (asset_ref,),
+                )
+            )
+
+        for query, args in checks:
+            async with db.execute(query, args) as cursor:
+                if await cursor.fetchone() is not None:
+                    return True
+    return False
 
 
 def _synthesize_standout_title(time_start: float, time_end: float) -> str:
@@ -95,7 +170,9 @@ def _guess_image_content_type(path: str) -> str:
 class TimelineService:
     """Provides timeline-oriented operations over unified memory."""
 
-    def __init__(self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None) -> None:
+    def __init__(
+        self, unified_memory, *, location_resolver=None, manual_entry_asset_store=None
+    ) -> None:
         self._unified_memory = unified_memory
         self._manual_entry_asset_store = manual_entry_asset_store
         memory_db_path = getattr(unified_memory, "memory_db_path", None)
@@ -169,11 +246,13 @@ class TimelineService:
         end: float,
         mode: str,
         asset_ref: str | None = None,
-        source: str = "current_period",
+        source: TimelineCoverAssetSource = "current_period",
         locale: str = "en",
     ) -> dict[str, Any]:
         if self._cover_store is None:
             raise RuntimeError("Timeline cover preferences are unavailable")
+        if source not in TIMELINE_COVER_ASSET_SOURCES:
+            raise ValueError(f"Unsupported timeline cover source: {source}")
 
         viewport = await self._viewport_builder.build_viewport(
             scale=scale,
@@ -187,7 +266,9 @@ class TimelineService:
         candidates = self._cover_candidates_from_viewport(viewport)
 
         if mode == "auto":
-            await self._cover_store.clear_preference(scale=scale, period_start=start, period_end=end)
+            await self._cover_store.clear_preference(
+                scale=scale, period_start=start, period_end=end
+            )
             return self._cover_state_from_preference(candidates=candidates, preference=None)
 
         if mode == "asset":
@@ -198,6 +279,11 @@ class TimelineService:
                 candidate_refs = {str(item.get("asset_ref") or "") for item in candidates}
                 if normalized_asset_ref not in candidate_refs:
                     raise ValueError("asset_ref is not available in the current timeline period")
+            elif (
+                self._manual_entry_asset_store is None
+                or not self._manual_entry_asset_store.has_asset(normalized_asset_ref)
+            ):
+                raise ValueError("asset_ref is not an available custom upload")
             preference = await self._cover_store.set_preference(
                 scale=scale,
                 period_start=start,
@@ -237,7 +323,9 @@ class TimelineService:
             return []
 
         rows = await store.list_standout_episodes(
-            period_start=period_start, period_end=period_end, limit=limit,
+            period_start=period_start,
+            period_end=period_end,
+            limit=limit,
         )
         items: list[dict] = []
         for r in rows:
@@ -254,24 +342,26 @@ class TimelineService:
                 or str(r.get("label") or "").strip()
                 or _synthesize_standout_title(ts, te)
             )
-            items.append({
-                "episode_id": r["episode_id"],
-                "scale": "day",
-                "start": ts,
-                "end": te,
-                "title": title,
-                # Format in the server's local timezone. For magi's
-                # desktop-app deployment, server tz = user tz, so this
-                # matches the user's day boundary. This is the same
-                # convention daily_mood_aggregate's day_local_date uses
-                # — keep them aligned so the sidebar standout list and
-                # mood calendar pin events to the same calendar day.
-                # (If we ever multi-user this server-side, a tz query
-                # param will be needed.)
-                "date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
-                "source": "user" if r.get("user_pinned") else "magi",
-                "score": float(r.get("standout_score") or 0.0),
-            })
+            items.append(
+                {
+                    "episode_id": r["episode_id"],
+                    "scale": "day",
+                    "start": ts,
+                    "end": te,
+                    "title": title,
+                    # Format in the server's local timezone. For magi's
+                    # desktop-app deployment, server tz = user tz, so this
+                    # matches the user's day boundary. This is the same
+                    # convention daily_mood_aggregate's day_local_date uses
+                    # — keep them aligned so the sidebar standout list and
+                    # mood calendar pin events to the same calendar day.
+                    # (If we ever multi-user this server-side, a tz query
+                    # param will be needed.)
+                    "date": datetime.fromtimestamp(ts).strftime("%Y-%m-%d"),
+                    "source": "user" if r.get("user_pinned") else "magi",
+                    "score": float(r.get("standout_score") or 0.0),
+                }
+            )
         return items
 
     async def list_mood_calendar(self, *, month: str) -> dict:
@@ -330,6 +420,12 @@ class TimelineService:
 
         if scheme == "manual-entry-asset":
             if self._manual_entry_asset_store is None:
+                return None
+            memory_db_path = str(getattr(self._unified_memory, "memory_db_path", "") or "").strip()
+            if not memory_db_path or not await _manual_asset_is_referenced(
+                db_path=memory_db_path,
+                asset_ref=asset_ref,
+            ):
                 return None
             return self._manual_entry_asset_store.resolve(asset_ref)
 
@@ -448,7 +544,8 @@ class TimelineService:
         return candidates
 
     async def _resolve_photo_library_asset_from_l1(
-        self, asset_ref: str,
+        self,
+        asset_ref: str,
     ) -> tuple[Optional[str], Optional[str]]:
         asset_id = _photo_library_asset_id(asset_ref)
         if not asset_id:
@@ -483,7 +580,7 @@ class TimelineService:
     async def get_context_bundle(self, anchor_id: str) -> Optional[dict]:
         if getattr(self._unified_memory, "l1", None) is None:
             return None
-        event = await self._unified_memory.l1.get_event(anchor_id)
+        event = await self._unified_memory.l1.get_user_visible_event(anchor_id)
         if event is not None:
             payload = self._event_to_timeline_payload(event)
             anchor = {

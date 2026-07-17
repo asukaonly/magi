@@ -81,8 +81,7 @@ export interface UseMemoryReturn {
   runL2Reconcile: (entityIds: string[]) => Promise<void>;
   runL2SnapshotRefresh: (entityIds: string[]) => Promise<void>;
   upsertL2GraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
-  submitAssertionFeedback: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  correctAssertion: (assertionId: string, newValue: string) => Promise<void>;
+  submitAssertionFeedback: (assertionId: string, feedback: 'confirmed') => Promise<void>;
   loadL2Relations: (params?: MemoryListQueryParams) => Promise<boolean>;
   loadL2Assertions: (params?: MemoryListQueryParams) => Promise<boolean>;
   loadL2Entities: (params?: MemoryListQueryParams) => Promise<boolean>;
@@ -480,35 +479,15 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
   );
 
   const submitAssertionFeedback = useCallback(
-    async (assertionId: string, feedback: 'confirmed' | 'rejected') => {
+    async (assertionId: string, feedback: 'confirmed') => {
       setL2ActionLoading(true);
       try {
         await memoryApi.submitAssertionFeedback(assertionId, feedback);
         await refreshL2Lab();
-        toast.success(t(feedback === 'confirmed' ? 'memory.l2.feedbackConfirmed' : 'memory.l2.feedbackRejected'));
+        toast.success(t('memory.l2.feedbackConfirmed'));
       } catch (error) {
         console.error('Failed to submit assertion feedback:', error);
         toast.error(t('memory.l2.lab.actionFailed'));
-      } finally {
-        setL2ActionLoading(false);
-      }
-    },
-    [refreshL2Lab, t]
-  );
-
-  const correctAssertion = useCallback(
-    async (assertionId: string, newValue: string) => {
-      const cleanedValue = newValue.trim();
-      if (!cleanedValue) return;
-      setL2ActionLoading(true);
-      try {
-        await memoryApi.correctAssertion(assertionId, cleanedValue);
-        await refreshL2Lab();
-        toast.success(t('memory.l2.feedbackCorrected'));
-      } catch (error) {
-        console.error('Failed to correct assertion:', error);
-        toast.error(t('memory.l2.lab.actionFailed'));
-        throw error;
       } finally {
         setL2ActionLoading(false);
       }
@@ -740,7 +719,6 @@ export function useMemory(options: UseMemoryOptions = {}): UseMemoryReturn {
     runL2SnapshotRefresh,
     upsertL2GraphConflictRule,
     submitAssertionFeedback,
-    correctAssertion,
     loadL2Relations,
     loadL2Assertions,
     loadL2Entities,

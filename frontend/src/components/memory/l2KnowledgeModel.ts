@@ -39,6 +39,7 @@ export {
   type EntityOverviewItem,
   type KnowledgeBaseGroup,
   type KnowledgeBaseGroupId,
+  type KnowledgeCorrectionAction,
   type KnowledgeDetailRow,
   type KnowledgeItem,
   type KnowledgeStatusGroup,
@@ -219,6 +220,7 @@ export const buildKnowledgeItems = ({
       evidenceCount,
       evidenceIds,
       updatedAt: assertion.last_validated_at || assertion.user_feedback_at || assertion.first_inferred_at,
+      expectedUpdatedAt: assertion.updated_at,
       detailRows: [
         { label: t('memory.pages.knowledge.fields.entity'), value: entityName },
         { label: t('memory.pages.knowledge.fields.predicate'), value: traitLabel },

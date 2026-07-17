@@ -10,10 +10,16 @@ import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
 from ..event_contracts import MemoryEvent
+from ..source_event_governance import govern_source_events_by_time_range
 from .learning.updates import (
     UpdatedSkillRecordState,
     build_new_skill_record_state,
     build_updated_skill_record_state,
+)
+from .source_event_governance import (
+    active_skill_predicate,
+    link_skill_source_event,
+    skill_accepts_source_event,
 )
 from .storage.records import (
     insert_new_skill_record,
@@ -61,31 +67,55 @@ class L4ProceduralRecordingMixin:
             return None
 
         await self.initialize()
+        await self.retire_governed_skill_identity(
+            skill_name=str(identity["skill_name"]),
+            skill_category=str(identity["skill_category"]),
+        )
         now = time.time()
 
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            existing = await self._fetch_skill_record(
-                db,
-                skill_name=identity["skill_name"],
-                skill_category=identity["skill_category"],
-            )
-
-            if existing is None:
-                return await self._record_new_skill_event(
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                time_range_decision = await govern_source_events_by_time_range(
                     db,
+                    event_ids=(event.event_id, event.turn_id),
+                    observed_from=float(event.timestamp),
+                )
+                if time_range_decision.blocks_derivations:
+                    await db.commit()
+                    return None
+                if not await skill_accepts_source_event(
+                    db,
+                    event_id=event.event_id,
+                    turn_id=event.turn_id,
+                ):
+                    await db.rollback()
+                    return None
+                existing = await self._fetch_skill_record(
+                    db,
+                    skill_name=identity["skill_name"],
+                    skill_category=identity["skill_category"],
+                )
+
+                if existing is None:
+                    return await self._record_new_skill_event(
+                        db,
+                        event=event,
+                        identity=identity,
+                        now=now,
+                    )
+
+                return await self._record_existing_skill_event(
+                    db,
+                    existing=existing,
                     event=event,
                     identity=identity,
                     now=now,
                 )
-
-            return await self._record_existing_skill_event(
-                db,
-                existing=existing,
-                event=event,
-                identity=identity,
-                now=now,
-            )
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def _fetch_skill_record(
         self,
@@ -95,7 +125,12 @@ class L4ProceduralRecordingMixin:
         skill_category: str,
     ) -> aiosqlite.Row | None:
         async with db.execute(
-            "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ?",
+            f"""
+            SELECT *
+            FROM procedural_skills AS skills
+            WHERE skills.skill_name = ? AND skills.skill_category = ?
+              AND {active_skill_predicate("skills")}
+            """,
             (skill_name, skill_category),
         ) as cursor:
             return await cursor.fetchone()
@@ -130,6 +165,19 @@ class L4ProceduralRecordingMixin:
             event_timestamp=float(event.timestamp),
             now=now,
         )
+        await link_skill_source_event(
+            db,
+            skill_id=skill_id,
+            event_id=event.event_id,
+            created_at=now,
+        )
+        if event.turn_id:
+            await link_skill_source_event(
+                db,
+                skill_id=skill_id,
+                event_id=event.turn_id,
+                created_at=now,
+            )
         await db.commit()
         await self._sync_skill_indexes(
             db,
@@ -174,6 +222,19 @@ class L4ProceduralRecordingMixin:
             event_timestamp=float(event.timestamp),
             now=now,
         )
+        await link_skill_source_event(
+            db,
+            skill_id=skill_id,
+            event_id=event.event_id,
+            created_at=now,
+        )
+        if event.turn_id:
+            await link_skill_source_event(
+                db,
+                skill_id=skill_id,
+                event_id=event.turn_id,
+                created_at=now,
+            )
         await db.commit()
         await self._sync_skill_indexes(
             db,
@@ -202,6 +263,7 @@ class L4ProceduralRecordingMixin:
         optimized_prompt: Optional[str],
         replace_existing: bool,
     ) -> None:
+        await db.execute("BEGIN IMMEDIATE")
         await sync_skill_fts(
             db,
             skill_id=skill_id,

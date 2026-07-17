@@ -261,32 +261,58 @@ export interface MemoryCorrectionRequest {
   expected_updated_at?: number | null;
 }
 
+export interface MemoryCorrectionClaimValue {
+  value?: unknown;
+  trait_value?: unknown;
+  subject_id?: string | null;
+  subject_type?: string | null;
+  predicate?: string | null;
+  object_id?: string | null;
+  object_type?: string | null;
+  fact_kind?: string | null;
+  status?: string | null;
+  validation_state?: string | null;
+  scope?: MemoryCorrectionScope | null;
+}
+
 export interface MemoryCorrectionRecord {
   correction_id: string;
-  request_id: string;
-  actor_id: string;
-  target_kind: MemoryCorrectionTargetKind;
-  target_id: string;
-  slot_key: string;
-  claim_fingerprint: string;
   correction_kind: MemoryCorrectionKind;
-  before: Record<string, unknown>;
+  before?: MemoryCorrectionClaimValue | null;
   created_at: number;
   state: MemoryCorrectionState;
   reason?: string | null;
-  replacement?: Record<string, unknown> | null;
+  replacement?: MemoryCorrectionClaimValue | null;
   effective_at?: number | null;
   scope?: MemoryCorrectionScope | null;
-  source_event_id?: string | null;
-  audit_event_id?: string | null;
-  replacement_target_id?: string | null;
-  reverted_at?: number | null;
-  reverted_by?: string | null;
+  transition_applied_at?: number | null;
+  transition_cancelled_at?: number | null;
+  target_forgotten?: boolean;
+  forget_affected?: boolean;
+  content_redacted?: boolean;
+  can_revert?: boolean;
+}
+
+export interface MemoryCorrectionVersion {
+  trait_value?: unknown;
+  subject_id?: string | null;
+  subject_type?: string | null;
+  predicate?: string | null;
+  object_id?: string | null;
+  object_type?: string | null;
+  status?: string | null;
+  validation_state?: string | null;
+  valid_from?: number | null;
+  valid_to?: number | null;
+  first_inferred_at?: number | null;
+  first_observed_at?: number | null;
+  created_at?: number | null;
+  scope?: MemoryCorrectionScope | null;
 }
 
 export interface MemoryCorrectionCommandResponse {
   correction: MemoryCorrectionRecord;
-  current_claim?: Record<string, unknown> | null;
+  current_claim?: MemoryCorrectionClaimValue | null;
   subject_revision?: number | null;
   derivation_state: MemoryCorrectionDerivationState;
   created: boolean;
@@ -294,7 +320,7 @@ export interface MemoryCorrectionCommandResponse {
 
 export interface MemoryCorrectionHistoryResponse {
   target: MemoryCorrectionTarget;
-  versions: Array<Record<string, unknown>>;
+  versions: MemoryCorrectionVersion[];
   corrections: MemoryCorrectionRecord[];
   context_labels: Record<string, string>;
 }
@@ -649,6 +675,7 @@ export interface ForgetEpisodeResponse {
 export interface DeleteL1EventResponse {
   event_id: string;
   deleted: boolean;
+  deletion_scope?: 'projected_memory_only' | 'source_event';
 }
 
 export interface ForgetEntityResponse {
@@ -943,14 +970,10 @@ export const memoryApi = {
     unwrapMemoryResponse(await api.get<MemoryIdentityLinksResponse>('/memory/identity/links')),
   getL2Relations: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Relation>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Relation>>('/memory/l2/relations', { params })),
-  rejectL2Edge: async (tripleId: string): Promise<L2Relation> =>
-    unwrapMemoryResponse(await api.patch<L2Relation>(`/memory/l2/edges/${tripleId}/reject`)),
   getL2Assertions: async (params?: MemoryListQueryParams): Promise<PaginatedResponse<L2Assertion>> =>
     unwrapMemoryResponse(await api.get<PaginatedResponse<L2Assertion>>('/memory/l2/assertions', { params })),
-  submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed' | 'rejected'): Promise<L2Assertion> =>
+  submitAssertionFeedback: async (assertionId: string, feedback: 'confirmed'): Promise<L2Assertion> =>
     unwrapMemoryResponse(await api.patch<L2Assertion>(`/memory/l2/assertions/${assertionId}/feedback`, { feedback })),
-  correctAssertion: async (assertionId: string, newValue: string, reason?: string): Promise<L2Assertion> =>
-    unwrapMemoryResponse(await api.post<L2Assertion>(`/memory/l2/assertions/${assertionId}/correct`, { new_value: newValue, reason })),
   applyCorrection: async (payload: MemoryCorrectionRequest): Promise<MemoryCorrectionCommandResponse> =>
     unwrapMemoryResponse(await api.post<MemoryCorrectionCommandResponse>('/memory/l2/corrections', payload)),
   getCorrectionHistory: async (

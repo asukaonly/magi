@@ -8,6 +8,7 @@ from typing import Any, Mapping
 
 import aiosqlite
 
+from .forget_governance import matching_forget_rule_id
 from .models import CorrectionRuleKind, CorrectionTargetKind
 
 
@@ -16,7 +17,18 @@ class CorrectionPolicyAction(str, Enum):
     ACCEPT_HISTORICAL = "accept_historical"
     CREATE_SHADOW = "create_shadow"
     BLOCKED_BY_CORRECTION = "blocked_by_correction"
+    BLOCKED_BY_FORGET = "blocked_by_forget"
     REQUIRES_SCOPE = "requires_scope"
+
+
+CORRECTION_GOVERNED_EVIDENCE_ACTIONS = frozenset(
+    {
+        CorrectionPolicyAction.ACCEPT_HISTORICAL,
+        CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+        CorrectionPolicyAction.CREATE_SHADOW,
+        CorrectionPolicyAction.REQUIRES_SCOPE,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -25,6 +37,7 @@ class CorrectionPolicyDecision:
     correction_id: str | None = None
     target_id: str | None = None
     authoritative_target_id: str | None = None
+    forget_rule_id: str | None = None
 
 
 class CorrectionPolicyEvaluator:
@@ -62,8 +75,22 @@ class CorrectionPolicyEvaluator:
     ) -> CorrectionPolicyDecision:
         slot_key = str(candidate["slot_key"])
         claim_fingerprint = str(candidate["claim_fingerprint"])
+        semantic_fingerprint = str(candidate.get("forget_fingerprint") or claim_fingerprint)
         scope_key = str(candidate.get("scope_key") or "global")
         observed_at = float(candidate.get("last_validated_at") or 0.0)
+        forget_rule_id = None
+        if not bool(candidate.get("forget_prechecked")):
+            forget_rule_id = await matching_forget_rule_id(
+                db,
+                target_kind=target_kind,
+                semantic_fingerprint=semantic_fingerprint,
+                observed_at=observed_at,
+            )
+        if forget_rule_id is not None:
+            return CorrectionPolicyDecision(
+                CorrectionPolicyAction.BLOCKED_BY_FORGET,
+                forget_rule_id=forget_rule_id,
+            )
         all_rules = await _active_rules_for_slot(
             db,
             target_kind=target_kind,
@@ -71,15 +98,38 @@ class CorrectionPolicyEvaluator:
         )
         rules = [rule for rule in all_rules if _rule_applies_at(rule, observed_at)]
 
-        for rule in rules:
-            if (
-                rule["rule_kind"] == CorrectionRuleKind.BLOCK_CLAIM.value
+        blocking_rule = next(
+            (
+                rule
+                for rule in rules
+                if rule["rule_kind"] == CorrectionRuleKind.BLOCK_CLAIM.value
                 and rule["claim_fingerprint"] == claim_fingerprint
+            ),
+            None,
+        )
+        authoritative_rule = next(
+            (
+                rule
+                for rule in rules
+                if rule["rule_kind"] == CorrectionRuleKind.AUTHORITATIVE_SLOT.value
+                and str(rule["scope_key"] or "global") == scope_key
+            ),
+            None,
+        )
+        if blocking_rule is not None:
+            if (
+                authoritative_rule is not None
+                and authoritative_rule["claim_fingerprint"] == claim_fingerprint
+                and _correction_precedes(authoritative_rule, blocking_rule)
             ):
                 return _decision(
-                    CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
-                    rule,
+                    CorrectionPolicyAction.ACCEPT_ACTIVE,
+                    authoritative_rule,
                 )
+            return _decision(
+                CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+                blocking_rule,
+            )
 
         scope_rule = next(
             (
@@ -100,15 +150,6 @@ class CorrectionPolicyEvaluator:
                 continue
             return _decision(CorrectionPolicyAction.ACCEPT_HISTORICAL, rule)
 
-        authoritative_rule = next(
-            (
-                rule
-                for rule in rules
-                if rule["rule_kind"] == CorrectionRuleKind.AUTHORITATIVE_SLOT.value
-                and str(rule["scope_key"] or "global") == scope_key
-            ),
-            None,
-        )
         if authoritative_rule is None:
             scheduled_authority = next(
                 (
@@ -145,7 +186,7 @@ def _rule_applies_at(rule: Mapping[str, Any], observed_at: float) -> bool:
     if effective_from is not None and observed_at < float(effective_from):
         return False
     effective_to = rule.get("effective_to")
-    if effective_to is not None and observed_at > float(effective_to):
+    if effective_to is not None and observed_at >= float(effective_to):
         return False
     return True
 
@@ -160,17 +201,36 @@ async def _active_rules_for_slot(
     async with db.execute(
         """
         SELECT rules.*, corrections.target_id, corrections.replacement_target_id,
-               corrections.correction_kind
+               corrections.correction_kind,
+               corrections.created_at AS correction_created_at
         FROM memory_correction_rules AS rules
         JOIN memory_corrections AS corrections
           ON corrections.correction_id = rules.correction_id
         WHERE rules.target_kind = ? AND rules.slot_key = ? AND rules.active = 1
           AND corrections.state = 'active'
-        ORDER BY rules.created_at DESC, rules.rule_id DESC
+          AND corrections.transition_cancelled_at IS NULL
+        ORDER BY corrections.created_at DESC, corrections.correction_id DESC,
+                 rules.created_at DESC, rules.rule_id DESC
         """,
         (target_kind.value, slot_key),
     ) as cursor:
         return [dict(row) for row in await cursor.fetchall()]
+
+
+def _correction_precedes(
+    newer: Mapping[str, Any],
+    older: Mapping[str, Any],
+) -> bool:
+    """Return whether one correction has durable precedence over another."""
+    newer_key = (
+        float(newer["correction_created_at"]),
+        str(newer["correction_id"]),
+    )
+    older_key = (
+        float(older["correction_created_at"]),
+        str(older["correction_id"]),
+    )
+    return newer_key > older_key
 
 
 def _decision(
@@ -188,6 +248,7 @@ def _decision(
 
 
 __all__ = [
+    "CORRECTION_GOVERNED_EVIDENCE_ACTIONS",
     "CorrectionPolicyAction",
     "CorrectionPolicyDecision",
     "CorrectionPolicyEvaluator",

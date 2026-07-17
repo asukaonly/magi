@@ -166,6 +166,57 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
     }
 }
 
+#[cfg(unix)]
+async fn test_state_with_api_forward_response(
+    result: Value,
+) -> (api::state::ApiState, Arc<Mutex<Vec<Value>>>) {
+    let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+    let sock_path =
+        std::env::temp_dir().join(format!("magi-test-forward-{}-{n}.sock", std::process::id()));
+    let _ = std::fs::remove_file(&sock_path);
+    let listener = tokio::net::UnixListener::bind(&sock_path).unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&requests);
+    tokio::spawn(async move {
+        loop {
+            if let Ok((stream, _)) = listener.accept().await {
+                let result = result.clone();
+                let observed = Arc::clone(&observed);
+                tokio::spawn(async move {
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        observed.lock().unwrap().push(request.clone());
+                        let response = serde_json::json!({
+                            "id": request["id"],
+                            "result": result,
+                        });
+                        writer
+                            .write_all(format!("{}\n", response).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
+                });
+            }
+        }
+    });
+
+    tokio::task::yield_now().await;
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(sock_path.to_str().unwrap())
+        .await
+        .expect("Connect to test IPC socket");
+    (
+        api::state::ApiState {
+            ipc_client: Arc::new(ipc_client),
+            builtin_avatar_dir: None,
+            user_avatar_dir: None,
+        },
+        requests,
+    )
+}
+
 /// Create a test ApiState using a real temporary TCP loopback socket.
 #[cfg(not(unix))]
 async fn test_state() -> api::state::ApiState {
@@ -237,6 +288,54 @@ async fn test_state_with_runtime_ready_response(result: Value) -> api::state::Ap
         builtin_avatar_dir: None,
         user_avatar_dir: None,
     }
+}
+
+#[cfg(not(unix))]
+async fn test_state_with_api_forward_response(
+    result: Value,
+) -> (api::state::ApiState, Arc<Mutex<Vec<Value>>>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&requests);
+    tokio::spawn(async move {
+        loop {
+            if let Ok((stream, _)) = listener.accept().await {
+                let result = result.clone();
+                let observed = Arc::clone(&observed);
+                tokio::spawn(async move {
+                    let (reader, mut writer) = stream.into_split();
+                    let mut lines = BufReader::new(reader).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let request: Value = serde_json::from_str(&line).unwrap();
+                        observed.lock().unwrap().push(request.clone());
+                        let response = serde_json::json!({
+                            "id": request["id"],
+                            "result": result,
+                        });
+                        writer
+                            .write_all(format!("{}\n", response).as_bytes())
+                            .await
+                            .unwrap();
+                        writer.flush().await.unwrap();
+                    }
+                });
+            }
+        }
+    });
+
+    tokio::task::yield_now().await;
+    let (ipc_client, _event_rx) = ipc::IpcClient::connect(&addr.to_string())
+        .await
+        .expect("Connect to test IPC socket");
+    (
+        api::state::ApiState {
+            ipc_client: Arc::new(ipc_client),
+            builtin_avatar_dir: None,
+            user_avatar_dir: None,
+        },
+        requests,
+    )
 }
 
 #[tokio::test]
@@ -823,7 +922,7 @@ async fn native_message_routes_return_history_versions() {
 }
 
 #[tokio::test]
-async fn native_delete_session_route_removes_related_chat_data() {
+async fn delete_session_route_is_governed_by_python_runtime() {
     let home = isolated_home("delete-session");
     let magi_root = home.path().join(".magi");
     let chat_dir = magi_root.join("data").join("chat");
@@ -967,7 +1066,16 @@ async fn native_delete_session_route_removes_related_chat_data() {
         .unwrap();
     drop(trace_conn);
 
-    let state = test_state().await;
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {
+            "success": true,
+            "user_id": "u1",
+            "deleted_session_id": "s-delete"
+        }
+    }))
+    .await;
     let router = api::build_router(state);
     let (status, response) = request_json(
         router.clone(),
@@ -980,6 +1088,16 @@ async fn native_delete_session_route_removes_related_chat_data() {
     assert_eq!(status, 200, "response={response:?} home={:?}", home.path());
     assert_eq!(response["success"], true);
     assert_eq!(response["deleted_session_id"], "s-delete");
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "api.forward");
+    assert_eq!(requests[0]["params"]["method"], "DELETE");
+    assert_eq!(
+        requests[0]["params"]["path"],
+        "/api/messages/session/s-delete"
+    );
+    assert_eq!(requests[0]["params"]["query"], "user_id=u1");
+    drop(requests);
 
     let conn = rusqlite::Connection::open(chat_dir.join("chat.db")).unwrap();
     let deleted_at_ms: Option<i64> = conn
@@ -1019,11 +1137,11 @@ async fn native_delete_session_route_removes_related_chat_data() {
         .unwrap();
     drop(conn);
 
-    assert!(deleted_at_ms.is_some());
-    assert_eq!(history_version, 5);
-    assert_eq!(message_count, 0);
-    assert_eq!(attachment_count, 0);
-    assert_eq!(turn_count, 0);
+    assert!(deleted_at_ms.is_none());
+    assert_eq!(history_version, 4);
+    assert_eq!(message_count, 1);
+    assert_eq!(attachment_count, 1);
+    assert_eq!(turn_count, 1);
 
     let l1_conn = rusqlite::Connection::open(memory_dir.join("l1_events.db")).unwrap();
     let l1_count: i64 = l1_conn
@@ -1034,7 +1152,7 @@ async fn native_delete_session_route_removes_related_chat_data() {
         )
         .unwrap();
     drop(l1_conn);
-    assert_eq!(l1_count, 0);
+    assert_eq!(l1_count, 1);
 
     let trace_conn = rusqlite::Connection::open(runtime_dir.join("runtime_trace.db")).unwrap();
     let trace_turn_count: i64 = trace_conn
@@ -1060,18 +1178,92 @@ async fn native_delete_session_route_removes_related_chat_data() {
         .unwrap();
     drop(trace_conn);
 
-    assert_eq!(trace_turn_count, 0);
-    assert_eq!(trace_span_count, 0);
-    assert_eq!(trace_llm_count, 0);
-    assert_eq!(trace_tool_count, 0);
-    assert_eq!(trace_intent_count, 0);
+    assert_eq!(trace_turn_count, 1);
+    assert_eq!(trace_span_count, 1);
+    assert_eq!(trace_llm_count, 1);
+    assert_eq!(trace_tool_count, 1);
+    assert_eq!(trace_intent_count, 1);
 
     let (status, sessions) =
         request_json(router, "GET", "/api/messages/sessions?user_id=u1", None).await;
     assert_eq!(status, 200, "sessions={sessions:?} home={:?}", home.path());
-    assert_eq!(sessions["count"], 0);
-    assert_eq!(sessions["sessions"].as_array().unwrap().len(), 0);
+    assert_eq!(sessions["count"], 1);
+    assert_eq!(sessions["sessions"].as_array().unwrap().len(), 1);
     drop(home);
+}
+
+#[tokio::test]
+async fn delete_message_route_is_governed_by_python_runtime() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {
+            "success": true,
+            "user_id": "u1",
+            "session_id": "s1",
+            "deleted_message_id": "m1"
+        }
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    let (status, response) = request_json(
+        router,
+        "DELETE",
+        "/api/messages/session/s1/message/m1?user_id=u1",
+        None,
+    )
+    .await;
+
+    assert_eq!(status, 200);
+    assert_eq!(response["deleted_message_id"], "m1");
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "api.forward");
+    assert_eq!(requests[0]["params"]["method"], "DELETE");
+    assert_eq!(
+        requests[0]["params"]["path"],
+        "/api/messages/session/s1/message/m1"
+    );
+    assert_eq!(requests[0]["params"]["query"], "user_id=u1");
+    drop(guard);
+}
+
+#[tokio::test]
+async fn assertion_confirmation_is_governed_by_python_runtime() {
+    let guard = router_test_guard();
+    let (state, forwarded_requests) = test_state_with_api_forward_response(serde_json::json!({
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": {"assertion_id": "assert-1"}
+    }))
+    .await;
+    let router = api::build_router(state);
+
+    let (feedback_status, feedback_response) = request_json(
+        router.clone(),
+        "PATCH",
+        "/api/memory/l2/assertions/assert-1/feedback",
+        Some(r#"{"feedback":"confirmed"}"#),
+    )
+    .await;
+    assert_eq!(feedback_status, 200);
+    assert_eq!(feedback_response["assertion_id"], "assert-1");
+
+    let requests = forwarded_requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "api.forward");
+    assert_eq!(requests[0]["params"]["method"], "PATCH");
+    assert_eq!(
+        requests[0]["params"]["path"],
+        "/api/memory/l2/assertions/assert-1/feedback"
+    );
+    assert_eq!(
+        requests[0]["params"]["body"],
+        serde_json::json!({"feedback": "confirmed"})
+    );
+    drop(guard);
 }
 
 #[tokio::test]

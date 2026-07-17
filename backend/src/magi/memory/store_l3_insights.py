@@ -351,4 +351,5 @@ class L3InsightsMixin:
                     "aliases": list(catalog_entity.get("aliases") or []),
                 },
                 relevance_score=1.0,
+                source_event_ids=[event.event_id],
             )

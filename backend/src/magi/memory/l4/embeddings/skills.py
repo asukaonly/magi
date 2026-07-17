@@ -12,6 +12,7 @@ from ...embedding.embedding_pipeline import MemoryEmbeddingPipeline
 from ...embedding.embedding_service import EmbeddingProfile, MemoryEmbeddingService
 from ...embedding.embedding_text_builders import build_l4_embedding_text
 from ...embedding.sqlite_vec_index import SqliteVecIndex, VectorSearchHit
+from ..source_event_governance import active_skill_predicate
 from ..storage.schema import EMBEDDING_TEXT_BUILDER_VERSION, SKILL_CHUNKS_TABLE
 
 
@@ -117,10 +118,23 @@ async def replace_skill_chunks(
     embedded_at: float,
 ) -> None:
     async with sqlite_connection_async(db_path) as db:
+        await db.execute("BEGIN IMMEDIATE")
         await db.execute(
             f"DELETE FROM {SKILL_CHUNKS_TABLE} WHERE skill_id = ?",
             (skill_id,),
         )
+        async with db.execute(
+            f"""
+            SELECT 1
+            FROM procedural_skills AS skills
+            WHERE skills.skill_id = ? AND {active_skill_predicate("skills")}
+            """,
+            (skill_id,),
+        ) as cursor:
+            active = await cursor.fetchone()
+        if active is None:
+            await db.commit()
+            return
         await db.executemany(
             f"""
             INSERT INTO {SKILL_CHUNKS_TABLE}(
@@ -157,10 +171,11 @@ async def update_skill_embedding_state(
 ) -> None:
     async with sqlite_connection_async(db_path) as db:
         await db.execute(
-            """
+            f"""
             UPDATE procedural_skills
             SET embedding_status = ?, embedding_profile_id = ?, embedding_chunk_count = ?, last_embedded_at = ?, updated_at = updated_at
             WHERE skill_id = ?
+              AND {active_skill_predicate("procedural_skills")}
             """,
             (status, profile_id, int(chunk_count), float(embedded_at), skill_id),
         )
@@ -177,9 +192,12 @@ async def fetch_skill_chunk_rows_by_ids(
         db.row_factory = aiosqlite.Row
         async with db.execute(
             f"""
-            SELECT chunk_id, skill_id, chunk_index, chunk_text, char_start, char_end
-            FROM {SKILL_CHUNKS_TABLE}
-            WHERE chunk_id IN ({placeholders})
+            SELECT chunks.chunk_id, chunks.skill_id, chunks.chunk_index,
+                   chunks.chunk_text, chunks.char_start, chunks.char_end
+            FROM {SKILL_CHUNKS_TABLE} AS chunks
+            JOIN procedural_skills AS skills ON skills.skill_id = chunks.skill_id
+            WHERE chunks.chunk_id IN ({placeholders})
+              AND {active_skill_predicate("skills")}
             """,
             tuple(chunk_ids),
         ) as cursor:

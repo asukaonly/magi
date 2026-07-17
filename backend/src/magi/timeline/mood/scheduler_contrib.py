@@ -13,6 +13,7 @@ from ...scheduler.contracts import (
     ScheduledTargetType,
 )
 from .algorithm import compute_daily_mood_aggregate
+from .sample_source import ValenceSample
 
 logger = get_logger("magi.timeline.mood.scheduler")
 
@@ -22,11 +23,14 @@ INTERVAL_SECONDS_TIMELINE_MOOD_AGGREGATE = 60 * 60  # 1 hour
 
 
 class _SampleSourceProtocol(Protocol):
-    """Anything that can yield (timestamp, valence) pairs for a window."""
+    """Anything that can yield attributable mood samples for a window."""
 
     async def list_valence_samples(
-        self, *, start: float, end: float,
-    ) -> list[tuple[float, float]]: ...
+        self,
+        *,
+        start: float,
+        end: float,
+    ) -> list[ValenceSample]: ...
 
 
 class MoodAggregateSchedulerContrib:
@@ -62,7 +66,8 @@ class MoodAggregateSchedulerContrib:
         )
 
     async def _handle_aggregate(
-        self, context: ScheduledExecutionContext,
+        self,
+        context: ScheduledExecutionContext,
     ) -> ScheduledExecutionResult:
         triggered_at = float(getattr(context, "triggered_at", 0.0) or 0.0)
         if triggered_at <= 0:
@@ -70,7 +75,9 @@ class MoodAggregateSchedulerContrib:
 
         triggered_dt = datetime.fromtimestamp(triggered_at, tz=timezone.utc)
         yesterday = triggered_dt.date() - timedelta(days=1)
-        period_start_dt = datetime(yesterday.year, yesterday.month, yesterday.day, tzinfo=timezone.utc)
+        period_start_dt = datetime(
+            yesterday.year, yesterday.month, yesterday.day, tzinfo=timezone.utc
+        )
         period_end_dt = period_start_dt + timedelta(days=1)
 
         period_start = period_start_dt.timestamp()
@@ -78,22 +85,37 @@ class MoodAggregateSchedulerContrib:
 
         try:
             samples = await self._sample_source.list_valence_samples(
-                start=period_start, end=period_end,
+                start=period_start,
+                end=period_end,
             )
         except Exception as exc:
             logger.warning("Mood sample fetch failed", error=str(exc), date=yesterday.isoformat())
             return ScheduledExecutionResult(
-                success=False, message=f"sample fetch failed: {exc}", stats={},
+                success=False,
+                message=f"sample fetch failed: {exc}",
+                stats={},
             )
 
         # Shift sample timestamps to be relative to day start so the
         # algorithm's hourly bucketing maps correctly.
-        relative_samples = [(ts - period_start, val) for (ts, val) in samples]
+        relative_samples: list[tuple[float, float]] = []
+        source_event_ids: list[str] = []
+        for sample in samples:
+            relative_samples.append((sample.timestamp - period_start, sample.valence))
+            source_event_ids.extend(sample.source_event_ids)
 
         agg = compute_daily_mood_aggregate(
-            day_local_date=yesterday.isoformat(), samples=relative_samples,
+            day_local_date=yesterday.isoformat(),
+            samples=relative_samples,
+            source_event_ids=source_event_ids,
         )
-        await self._mood_store.upsert_aggregate(agg)
+        stored = await self._mood_store.upsert_aggregate(agg)
+        if stored is False:
+            return ScheduledExecutionResult(
+                success=True,
+                message=f"mood aggregate skipped for forgotten sources on {yesterday.isoformat()}",
+                stats={"skipped_forgotten_sources": True},
+            )
 
         return ScheduledExecutionResult(
             success=True,

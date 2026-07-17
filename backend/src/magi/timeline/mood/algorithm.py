@@ -37,6 +37,7 @@ def compute_daily_mood_aggregate(
     *,
     day_local_date: str,
     samples: Iterable[tuple[float, float]],
+    source_event_ids: Iterable[str] = (),
 ) -> DailyMoodAggregate:
     """Compute the per-day aggregate from raw (timestamp, valence) samples.
 
@@ -45,6 +46,13 @@ def compute_daily_mood_aggregate(
     per-day before invoking.
     """
     samples_list = sorted(samples, key=lambda s: s[0])
+    normalized_source_event_ids = list(
+        dict.fromkeys(
+            str(event_id).strip()
+            for event_id in source_event_ids
+            if str(event_id).strip()
+        )
+    )
 
     if not samples_list:
         return DailyMoodAggregate(
@@ -53,6 +61,7 @@ def compute_daily_mood_aggregate(
             volatility_score=0.0,
             state_curve_compact=[],
             event_count=0,
+            source_event_ids=[],
             computed_at=time.time(),
         )
 
@@ -100,5 +109,6 @@ def compute_daily_mood_aggregate(
         volatility_score=volatility,
         state_curve_compact=state_curve,
         event_count=len(samples_list),
+        source_event_ids=normalized_source_event_ids,
         computed_at=time.time(),
     )

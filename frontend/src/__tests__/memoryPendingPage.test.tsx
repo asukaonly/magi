@@ -78,6 +78,7 @@ vi.mock('@/api/modules/memory', async () => {
     memoryApi: {
       getDashboard: vi.fn(),
       submitAssertionFeedback: vi.fn(),
+      applyCorrection: vi.fn(),
       listExperienceSeeds: vi.fn(),
       promoteExperienceSeed: vi.fn(),
       rejectExperienceSeed: vi.fn(),
@@ -262,6 +263,17 @@ describe('MemoryPendingPage', () => {
     vi.mocked(memoryApi.listExperienceSeeds).mockResolvedValue(seedPayload as never);
     vi.mocked(listNotifications).mockResolvedValue(notificationPayload as never);
     vi.mocked(memoryApi.submitAssertionFeedback).mockResolvedValue(dashboardPayload.pending_assertions.items[0] as never);
+    vi.mocked(memoryApi.applyCorrection).mockResolvedValue({
+      correction: {
+        correction_id: 'correction-1',
+        correction_kind: 'record_error',
+        created_at: 1710000001,
+        state: 'active',
+      },
+      current_claim: null,
+      derivation_state: 'completed',
+      created: true,
+    });
     vi.mocked(resolveConflict).mockResolvedValue(undefined);
     vi.mocked(memoryStoriesApi.review).mockResolvedValue({
       ok: true,
@@ -461,6 +473,27 @@ describe('MemoryPendingPage', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('pending-conflict-42')).not.toBeInTheDocument();
     });
+  });
+
+  it('opens governed correction instead of rejecting an assertion through feedback', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    const assertionCard = await screen.findByTestId('pending-assertion-assert-1');
+    await user.click(within(assertionCard).getByRole('button', { name: '不对' }));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('memory.correction.title')).toBeInTheDocument();
+    expect(memoryApi.submitAssertionFeedback).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'memory.correction.removeSubmit' }));
+    await waitFor(() => {
+      expect(memoryApi.applyCorrection).toHaveBeenCalledWith(expect.objectContaining({
+        target: { kind: 'assertion', id: 'assert-1' },
+        correction_kind: 'record_error',
+      }));
+    });
+    expect(vi.mocked(memoryApi.applyCorrection).mock.calls[0][0]).not.toHaveProperty('replacement');
   });
 
   it('keeps the existing memory when a profile conflict is rejected', async () => {

@@ -9,11 +9,10 @@ from fastapi import HTTPException, Query, status
 from ..dependencies import _resolve_unified_memory
 from ..helpers import canonical_self_id, memory_t
 from ..router import memory_router
-from ..schemas import AssertionCorrectionRequest, AssertionFeedbackRequest, GraphConflictRuleBody
+from ..schemas import AssertionFeedbackRequest, GraphConflictRuleBody
 from .....user_profile.portrait_projection_scheduler import (
     schedule_portrait_projection_refresh_after_assertion_change,
 )
-from .....memory.event_contracts import generate_event_id
 
 
 @memory_router.get("/l2/relations")
@@ -70,47 +69,22 @@ async def list_l2_assertions(
 
 @memory_router.patch("/l2/assertions/{assertion_id}/feedback")
 async def submit_assertion_feedback(assertion_id: str, body: AssertionFeedbackRequest):
-    """Apply user confirmation or rejection to an L2 assertion."""
+    """Apply lightweight user confirmation to an L2 assertion."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
-    if body.feedback == "rejected":
-        result = await unified_memory.l2.apply_user_feedback(
-            assertion_id=assertion_id,
-            feedback=body.feedback,
-            audit_event_id=generate_event_id(prefix="correction_audit"),
-        )
-    else:
-        result = await unified_memory.l2.apply_user_feedback(
-            assertion_id=assertion_id,
-            feedback=body.feedback,
-        )
-    if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))
-    await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
-    return result
-
-
-@memory_router.post("/l2/assertions/{assertion_id}/correct")
-async def correct_assertion(assertion_id: str, body: AssertionCorrectionRequest):
-    """User-initiated value correction that supersedes an existing assertion."""
-    unified_memory = _resolve_unified_memory()
-    if not unified_memory or not unified_memory.l2:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
-        )
-    result = await unified_memory.l2.correct_assertion(
+    result = await unified_memory.l2.apply_user_feedback(
         assertion_id=assertion_id,
-        new_value=body.new_value,
-        reason=body.reason,
-        audit_event_id=generate_event_id(prefix="correction_audit"),
+        feedback=body.feedback,
     )
     if result is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.assertion_not_found", "Assertion not found"),
+        )
     await schedule_portrait_projection_refresh_after_assertion_change(unified_memory, result)
     return result
 
@@ -200,7 +174,10 @@ async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
         )
     normalized_predicate = predicate.strip()
     if not normalized_predicate:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=memory_t("memory.errors.predicate_required", "Predicate is required"))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=memory_t("memory.errors.predicate_required", "Predicate is required"),
+        )
     try:
         return await unified_memory.l2.upsert_graph_conflict_rule(
             {
@@ -213,7 +190,9 @@ async def upsert_l2_conflict_rule(predicate: str, body: GraphConflictRuleBody):
             }
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @memory_router.get("/tom/{entity_id}")
@@ -222,10 +201,17 @@ async def get_tom_snapshot(entity_id: str, entity_type: str = Query(default="use
     if not unified_memory or not unified_memory.l2:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.cognition_store_unavailable", "Cognition store unavailable"),
+            detail=memory_t(
+                "memory.errors.cognition_store_unavailable", "Cognition store unavailable"
+            ),
         )
 
-    snapshot = await unified_memory.l2.get_tom_snapshot(entity_id=entity_id, entity_type=entity_type)
+    snapshot = await unified_memory.l2.get_tom_snapshot(
+        entity_id=entity_id, entity_type=entity_type
+    )
     if snapshot is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=memory_t("memory.errors.snapshot_not_found", "Snapshot not found"))
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.snapshot_not_found", "Snapshot not found"),
+        )
     return snapshot

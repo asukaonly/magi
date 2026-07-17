@@ -27,7 +27,8 @@ interface L2TheoryOfMindSectionProps {
   actionLoading: boolean;
   assertions: L2Assertion[];
   dominantTraits: Array<[string, number]>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (assertion: L2Assertion, action: 'remove') => void;
   t: MemoryTranslateFn;
 }
 
@@ -79,6 +80,7 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
   assertions,
   dominantTraits,
   onSubmitAssertionFeedback,
+  onRequestAssertionCorrection,
   t,
 }) => (
   <div className="space-y-4">
@@ -129,28 +131,32 @@ export const L2TheoryOfMindSection: React.FC<L2TheoryOfMindSectionProps> = ({
                   </Badge>
                 )}
               </div>
-              {onSubmitAssertionFeedback && (
+              {(onSubmitAssertionFeedback || onRequestAssertionCorrection) && (
                 <div className="flex shrink-0 gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30"
-                    disabled={actionLoading || assertion.user_feedback === 'confirmed'}
-                    onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'confirmed')}
-                    title={t('memory.l2.confirmAssertion')}
-                  >
-                    <Check className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30"
-                    disabled={actionLoading || assertion.user_feedback === 'rejected'}
-                    onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'rejected')}
-                    title={t('memory.l2.rejectAssertion')}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
+                  {onSubmitAssertionFeedback ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-green-600 hover:bg-green-100 dark:hover:bg-green-900/30"
+                      disabled={actionLoading || assertion.user_feedback === 'confirmed'}
+                      onClick={() => onSubmitAssertionFeedback(assertion.assertion_id, 'confirmed')}
+                      title={t('memory.l2.confirmAssertion')}
+                    >
+                      <Check className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  {onRequestAssertionCorrection ? (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/30"
+                      disabled={actionLoading}
+                      onClick={() => onRequestAssertionCorrection(assertion, 'remove')}
+                      title={t('memory.l2.rejectAssertion')}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  ) : null}
                 </div>
               )}
             </div>

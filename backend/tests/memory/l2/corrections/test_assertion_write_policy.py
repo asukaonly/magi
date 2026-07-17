@@ -84,6 +84,9 @@ async def test_replayed_rejected_claim_never_becomes_current(l2_store_with_schem
     original = await store.get_tom_assertion(assertion_id=assertion_id)
     assert original["status"] == "user_rejected"
     assert original["evidence_events"] == ["evt-original"]
+    assert await store.active_correction_evidence_event_ids(
+        ["evt-replay-1", "evt-replay-2", "evt-replay-3"]
+    ) == {"evt-replay-1", "evt-replay-2", "evt-replay-3"}
     current = await store.list_current_assertions(entity_id="user:u1")
     assert [item["assertion_id"] for item in current] == [replacement_id]
     assert await store.list_assertions_by_status("shadow", entity_id="user:u1") == []
@@ -123,8 +126,46 @@ async def test_authoritative_claim_preserves_metadata_and_deduplicates_shadow(
     assert len(shadows) == 1
     assert shadows[0]["trait_value"] == "Beijing"
     assert shadows[0]["evidence_events"] == ["evt-conflict-1", "evt-conflict-2"]
+    assert await store.active_correction_evidence_event_ids(
+        ["evt-conflict-1", "evt-conflict-2"]
+    ) == {"evt-conflict-1", "evt-conflict-2"}
     current = await store.list_current_assertions(entity_id="user:u1")
     assert [item["assertion_id"] for item in current] == [replacement_id]
+
+
+@pytest.mark.asyncio
+async def test_newer_user_correction_can_make_an_older_blocked_claim_current(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await store.upsert_assertion_candidate(
+        _candidate("Hangzhou", "evt-original", observed_at=time.time() - 3600)
+    )
+    first = await store.apply_assertion_correction(
+        assertion_id=original_id,
+        request_id="record-hangzhou-as-wrong",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+    )
+    second = await store.apply_assertion_correction(
+        assertion_id=first["current_assertion"]["assertion_id"],
+        request_id="confirm-hangzhou-as-current",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Hangzhou",
+    )
+    current_id = second["current_assertion"]["assertion_id"]
+
+    returned_id = await store.upsert_assertion_candidate(
+        _candidate("Hangzhou", "evt-current-confirmation")
+    )
+
+    assert returned_id == current_id
+    current = await store.get_tom_assertion(assertion_id=current_id)
+    assert current["status"] == "stable"
+    assert current["evidence_events"] == ["evt-current-confirmation"]
+    assert await store.active_correction_evidence_event_ids(["evt-current-confirmation"]) == set()
 
 
 @pytest.mark.asyncio
@@ -153,6 +194,9 @@ async def test_pre_change_evidence_only_updates_historical_version(l2_store_with
     assert historical["valid_to"] == pytest.approx(effective_at)
     assert historical["evidence_events"] == ["evt-before-move", "evt-original"]
     assert historical["last_validated_at"] <= effective_at
+    assert await store.active_correction_evidence_event_ids(["evt-before-move"]) == {
+        "evt-before-move"
+    }
     assert await store.list_assertions_by_status("shadow", entity_id="user:u1") == []
 
     await store.upsert_assertion_candidate(
@@ -324,6 +368,9 @@ async def test_scope_refinement_blocks_only_the_original_scoped_claim_on_replay(
     )
 
     assert replayed_id == assertion_id
+    assert await store.active_correction_evidence_event_ids(["evt-source-replay"]) == {
+        "evt-source-replay"
+    }
     assert alternative_id not in {assertion_id, destination_id}
     source_current = await store.list_current_assertions(
         entity_id="user:u1",

@@ -93,7 +93,12 @@ class L2StoreSnapshotMixin(
             entity_id=entity_id,
         )
         if _snapshot_refresh_is_empty(assertions=assertions, relations=relations):
-            await derivation_revision.ensure_current(host)
+            await self._delete_empty_snapshot(
+                host=host,
+                entity_id=entity_id,
+                entity_type=entity_type,
+                derivation_revision=derivation_revision,
+            )
             return None
 
         assertion_groups = _group_snapshot_refresh_assertions(
@@ -127,6 +132,34 @@ class L2StoreSnapshotMixin(
             snapshot=snapshot,
         )
         return snapshot
+
+    async def _delete_empty_snapshot(
+        self,
+        *,
+        host: _SnapshotRefreshHostProtocol,
+        entity_id: str,
+        entity_type: str | None,
+        derivation_revision: DerivationRevision,
+    ) -> None:
+        """Remove a materialized snapshot after its final source disappears."""
+        async with sqlite_connection_async(host.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                await derivation_revision.ensure_current_on_connection(db)
+                if entity_type is None:
+                    await db.execute(
+                        "DELETE FROM tom_snapshots WHERE entity_id = ?",
+                        (entity_id,),
+                    )
+                else:
+                    await db.execute(
+                        "DELETE FROM tom_snapshots WHERE entity_id = ? AND entity_type = ?",
+                        (entity_id, entity_type),
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
     async def _snapshot_refresh_relations(
         self,
@@ -202,14 +235,11 @@ class L2StoreSnapshotMixin(
                 ) as cursor:
                     existing = await cursor.fetchone()
                 existing_snapshot = host._snapshot_row_to_dict(existing) if existing else None
-                if (
-                    existing_snapshot is not None
-                    and (
-                        int(existing_snapshot.get("source_revision") or 0)
-                        != derivation_revision.source_revision
-                        or int(existing_snapshot.get("source_generation") or 0)
-                        != int(derivation_revision.clear_generation or 0)
-                    )
+                if existing_snapshot is not None and (
+                    int(existing_snapshot.get("source_revision") or 0)
+                    != derivation_revision.source_revision
+                    or int(existing_snapshot.get("source_generation") or 0)
+                    != int(derivation_revision.clear_generation or 0)
                 ):
                     existing_snapshot = None
 

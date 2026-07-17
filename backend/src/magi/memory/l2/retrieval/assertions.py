@@ -21,6 +21,7 @@ from .common import (
 )
 
 CURRENT_EXCLUDED_STATUSES = ("superseded", *RETRIEVAL_EXCLUDED_STATUSES)
+_FORGOTTEN_ASSERTION_EXCLUSION_SQL = " AND COALESCE(authority_ref, '') NOT LIKE 'forget:%'"
 
 
 def _excluded_status_clause(*, include_superseded: bool = False) -> tuple[str, list[str]]:
@@ -332,6 +333,7 @@ class L2StoreAssertionQueryMixin:
         await host.initialize()
         search_query = query
         sql = "SELECT COUNT(*) FROM tom_trait_assertions WHERE 1=1"
+        sql += _FORGOTTEN_ASSERTION_EXCLUSION_SQL
         args: list[Any] = []
         if entity_id:
             sql += " AND entity_id = ?"
@@ -419,6 +421,7 @@ class L2StoreAssertionQueryMixin:
         await host.initialize()
         search_query = query
         query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
+        query += _FORGOTTEN_ASSERTION_EXCLUSION_SQL
         args: list[Any] = []
         if entity_id:
             query += " AND entity_id = ?"
@@ -636,6 +639,7 @@ class L2StoreAssertionQueryMixin:
         unique_ids = list(dict.fromkeys(entity_ids))
         id_placeholders = ", ".join("?" for _ in unique_ids)
         query = f"SELECT * FROM tom_trait_assertions WHERE entity_id IN ({id_placeholders})"
+        query += _FORGOTTEN_ASSERTION_EXCLUSION_SQL
         args: list[Any] = list(unique_ids)
 
         if entity_type:

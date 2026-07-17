@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
 
 import pytest
@@ -53,6 +52,7 @@ def test_bootstrap_builds_expected_full_layer_order() -> None:
         "runtime_plugin_system",
         "runtime_llm",
         "runtime_memory",
+        "runtime_chat_forgetting_recovery",
         "runtime_media_registry",
         "runtime_location",
         "runtime_manual_entries",

@@ -20,6 +20,7 @@ from .message_frontier import (
 )
 from .read.models import (
     ChatDisplayMessage,
+    ChatMessageSourceIdentity,
     ChatSessionRenameResult,
     ChatSessionSummary,
     SessionWorkspaceUpdateResult,
@@ -140,6 +141,36 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         """Delete a session without blocking the event loop."""
         await self._run_threaded("delete_session", user_id, session_id)
 
+    async def alist_session_turn_ids(self, user_id: str, session_id: str) -> list[str]:
+        """Load all source turn identities before deleting a session."""
+        return await self._run_threaded("list_session_turn_ids", user_id, session_id)
+
+    async def aget_message_source_identity(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> ChatMessageSourceIdentity | None:
+        """Resolve one persisted message to its exact memory source identity."""
+        return await self._run_threaded(
+            "get_message_source_identity",
+            user_id,
+            session_id,
+            message_id,
+        )
+
+    async def alist_session_message_source_identities(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> list[ChatMessageSourceIdentity]:
+        """Snapshot message sources before clearing a transcript."""
+        return await self._run_threaded(
+            "list_session_message_source_identities",
+            user_id,
+            session_id,
+        )
+
     async def aget_conversation_history(
         self,
         user_id: str,
@@ -190,6 +221,20 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
         """Load one persisted attachment payload without blocking the event loop."""
         return await self._run_threaded(
             "get_attachment_payload", user_id, session_id, attachment_id
+        )
+
+    async def aforget_message_artifacts(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Remove every chat-owned copy of one governed message."""
+        return await self._run_threaded(
+            "forget_message_artifacts",
+            user_id,
+            session_id,
+            message_id,
         )
 
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
@@ -266,33 +311,114 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None:
         if not self._runtime_trace_db_path.exists():
             return
+        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
         try:
-            conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
-            cur = conn.cursor()
-            cur.execute(
-                "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",
-                (user_id, session_id),
-            )
-            cur.execute(
-                "DELETE FROM trace_spans WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
-            )
-            cur.execute(
-                "DELETE FROM trace_llm_calls WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
-            )
-            cur.execute(
-                "DELETE FROM trace_tools WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
-            )
-            cur.execute(
-                "DELETE FROM trace_intent_resolutions WHERE turn_id NOT IN (SELECT turn_id FROM trace_turns)",
-            )
-            cur.execute(
-                "DELETE FROM runtime_notifications WHERE user_id = ? AND session_id = ?",
-                (user_id, session_id),
-            )
+            existing_tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            if "trace_turns" in existing_tables:
+                for table in (
+                    "trace_intent_resolutions",
+                    "trace_llm_calls",
+                    "trace_tools",
+                    "trace_spans",
+                ):
+                    if table in existing_tables:
+                        conn.execute(
+                            f"""
+                            DELETE FROM {table}
+                            WHERE turn_id IN (
+                                SELECT turn_id FROM trace_turns
+                                WHERE user_id = ? AND session_id = ?
+                            )
+                            """,
+                            (user_id, session_id),
+                        )
+                conn.execute(
+                    "DELETE FROM trace_turns WHERE user_id = ? AND session_id = ?",
+                    (user_id, session_id),
+                )
+            if "runtime_notifications" in existing_tables:
+                conn.execute(
+                    """
+                    DELETE FROM runtime_notifications
+                    WHERE user_id = ? AND session_id = ?
+                    """,
+                    (user_id, session_id),
+                )
             conn.commit()
+        except BaseException:
+            conn.rollback()
+            logger.exception("Failed to delete runtime trace rows")
+            raise
+        finally:
             conn.close()
-        except Exception as exc:
-            logger.exception(f"Failed to delete runtime trace rows: {exc}")
+
+    def _delete_runtime_trace_turn_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+    ) -> None:
+        """Strictly delete every runtime-trace copy owned by one chat turn."""
+        if not self._runtime_trace_db_path.exists():
+            return
+        conn = connect_sqlite(self._runtime_trace_db_path, profile="hot_write")
+        try:
+            existing_tables = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                ).fetchall()
+            }
+            owns_turn = False
+            if "trace_turns" in existing_tables:
+                owns_turn = (
+                    conn.execute(
+                        """
+                        SELECT 1 FROM trace_turns
+                        WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                        LIMIT 1
+                        """,
+                        (user_id, session_id, turn_id),
+                    ).fetchone()
+                    is not None
+                )
+            if owns_turn:
+                for table in (
+                    "trace_intent_resolutions",
+                    "trace_llm_calls",
+                    "trace_tools",
+                    "trace_spans",
+                ):
+                    if table in existing_tables:
+                        conn.execute(f"DELETE FROM {table} WHERE turn_id = ?", (turn_id,))
+                conn.execute(
+                    """
+                    DELETE FROM trace_turns
+                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                    """,
+                    (user_id, session_id, turn_id),
+                )
+            if "runtime_notifications" in existing_tables:
+                conn.execute(
+                    """
+                    DELETE FROM runtime_notifications
+                    WHERE user_id = ? AND session_id = ? AND turn_id = ?
+                    """,
+                    (user_id, session_id, turn_id),
+                )
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            logger.exception("Failed to delete runtime trace turn rows")
+            raise
+        finally:
+            conn.close()
 
     def _clear_all_runtime_trace_rows(self) -> None:
         """Delete all chat execution traces and live chat notifications."""
@@ -316,20 +442,16 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
                 if table in existing_tables:
                     conn.execute(f"DELETE FROM {table}")
             if "runtime_notifications" in existing_tables:
-                conn.execute(
-                    """
+                conn.execute("""
                     DELETE FROM runtime_notifications
                     WHERE TRIM(session_id) <> '' OR turn_id IS NOT NULL
-                    """
-                )
+                    """)
             if "user_notifications" in existing_tables:
-                conn.execute(
-                    """
+                conn.execute("""
                     DELETE FROM user_notifications
                     WHERE kind = 'suggestion'
                       AND dedupe_key LIKE 'profile_conflict:%'
-                    """
-                )
+                    """)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -339,9 +461,10 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             conn.close()
 
     def _delete_chat_session_assets(self, *, session_id: str) -> None:
-        if not get_config().lifecycle.chat_assets.delete_on_session_delete:
-            return
         self._asset_gc.delete_session_assets(session_id)
+
+    def _delete_chat_message_assets(self, *, storage_rel_paths: list[str]) -> None:
+        self._asset_gc.delete_message_assets(storage_rel_paths)
 
     def _clear_all_chat_assets(self) -> None:
         if not get_config().lifecycle.chat_assets.delete_on_clear_memory:
@@ -442,6 +565,8 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
                 continue
             target_row = rows_by_message_id.get(reply_to_message_id)
             if target_row is None:
+                target_user_id = str(row["user_id"] or "").strip()
+                target_session_id = str(row["session_id"] or "").strip()
                 target_row = (
                     self._get_conn()
                     .execute(
@@ -449,8 +574,11 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
                     SELECT message_id, role, message_kind, content_text
                     FROM {CHAT_MESSAGES_TABLE}
                     WHERE message_id = ?
+                      AND user_id = ?
+                      AND session_id = ?
+                      AND is_visible = 1
                     """,
-                        (reply_to_message_id,),
+                        (reply_to_message_id, target_user_id, target_session_id),
                     )
                     .fetchone()
                 )

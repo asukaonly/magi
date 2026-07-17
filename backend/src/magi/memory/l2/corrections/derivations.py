@@ -126,6 +126,30 @@ class CorrectionDerivationRunner:
                     )
         return stats
 
+    async def rebuild_subject_views(
+        self,
+        *,
+        subject_key: str,
+        target_revision: int,
+    ) -> None:
+        """Immediately rebuild the local views needed after a privacy deletion."""
+        current_revision = await self._repository.current_subject_revision(subject_key)
+        if current_revision != int(target_revision):
+            raise DerivationRevisionChangedError(
+                f"Subject revision changed from {target_revision} to {current_revision}"
+            )
+        job_kinds = ["snapshot", "l3_insight"]
+        if subject_key.startswith("user:"):
+            job_kinds.extend(("profile", "portrait"))
+        for job_kind in job_kinds:
+            await self._run_job(
+                {
+                    "job_kind": job_kind,
+                    "target_key": subject_key,
+                    "target_revision": int(target_revision),
+                }
+            )
+
     async def _run_job(self, job: Mapping[str, Any]) -> None:
         job_kind = str(job["job_kind"])
         handler = self._handlers.get(job_kind)

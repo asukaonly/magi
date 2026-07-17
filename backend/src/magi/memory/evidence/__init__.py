@@ -10,6 +10,7 @@ from .models import (
     GraphScope,
     L1RetrievalScope,
     PolicyDecision,
+    USER_VISIBLE_L1_RETRIEVAL_SCOPES,
 )
 from .policy import (
     event_allows_l2_projection,
@@ -26,6 +27,7 @@ __all__ = [
     "GraphScope",
     "L1RetrievalScope",
     "PolicyDecision",
+    "USER_VISIBLE_L1_RETRIEVAL_SCOPES",
     "classify_event_evidence",
     "event_allows_l2_projection",
     "policy_allows_l2_projection",

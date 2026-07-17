@@ -148,6 +148,7 @@ class ManualEntriesBootstrapState:
     store: Any = None
     asset_store: Any = None
     weather_fetcher: Any = None
+    recovery_service: Any = None
 
 
 @dataclass
@@ -268,7 +269,9 @@ class RuntimeBootstrapContext:
     """
 
     core: CoreBootstrapState = field(default_factory=CoreBootstrapState)
-    runtime_commands: RuntimeCommandBootstrapState = field(default_factory=RuntimeCommandBootstrapState)
+    runtime_commands: RuntimeCommandBootstrapState = field(
+        default_factory=RuntimeCommandBootstrapState
+    )
     chat: ChatBootstrapState = field(default_factory=ChatBootstrapState)
     message_bus: MessageBusBootstrapState = field(default_factory=MessageBusBootstrapState)
     plugins: PluginBootstrapState = field(default_factory=PluginBootstrapState)

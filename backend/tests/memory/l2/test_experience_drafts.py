@@ -8,6 +8,13 @@ import pytest
 @pytest.mark.asyncio
 async def test_experience_draft_round_trip_and_update(l2_store_with_schema):
     store = l2_store_with_schema
+    for episode_id in ("ep-train", "ep-camera"):
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            time_start=100.0,
+            time_end=500.0,
+        )
     draft_id = await store.create_experience_draft(
         draft_id="draft-japan",
         query_text="2026年5月1日到10日 日本旅行",
@@ -57,6 +64,56 @@ async def test_experience_draft_round_trip_and_update(l2_store_with_schema):
     assert [item["draft_id"] for item in drafts] == [draft_id]
     assert drafts[0]["title"] == "第一次日本旅行"
     assert drafts[0]["user_cover_asset_ref"] == "manual-entry-asset://draft-cover.jpg"
+
+
+@pytest.mark.asyncio
+async def test_experience_draft_rejects_inactive_episode_references(l2_store_with_schema):
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-active",
+        status="active",
+        time_start=100.0,
+        time_end=200.0,
+    )
+    await store.create_episode(
+        episode_id="ep-private",
+        status="invalidated",
+        time_start=100.0,
+        time_end=200.0,
+    )
+
+    await store.create_experience_draft(
+        draft_id="draft-active",
+        query_text="Active draft",
+        title="Active draft",
+        one_sentence_review="Active evidence only",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[{"episode_ids": ["ep-active"], "event_ids": []}],
+        possible_evidence=[],
+    )
+
+    with pytest.raises(ValueError, match="not active"):
+        await store.update_experience_draft(
+            draft_id="draft-active",
+            chapters=[{"episode_ids": ["ep-private"], "event_ids": []}],
+        )
+    draft = await store.get_experience_draft(draft_id="draft-active")
+    assert draft is not None
+    assert draft["chapters"][0]["episode_ids"] == ["ep-active"]
+
+    with pytest.raises(ValueError, match="not active"):
+        await store.create_experience_draft(
+            draft_id="draft-private",
+            query_text="Private draft",
+            title="Private draft",
+            one_sentence_review="Must not persist",
+            time_start=100.0,
+            time_end=200.0,
+            chapters=[{"episode_ids": ["ep-private"], "event_ids": []}],
+            possible_evidence=[],
+        )
+    assert await store.get_experience_draft(draft_id="draft-private") is None
 
 
 @pytest.mark.asyncio
@@ -276,3 +333,43 @@ async def test_create_experience_from_draft_retries_after_completion_update_fail
     assert completed_draft is not None
     assert completed_draft["status"] == "completed"
     assert completed_draft["created_experience_id"] == stable_experience_id
+
+
+@pytest.mark.asyncio
+async def test_episode_forget_during_draft_creation_cannot_publish_experience(
+    l2_store_with_schema,
+    monkeypatch,
+):
+    from magi.memory.l2.experiences.draft_creation import create_experience_from_draft
+
+    store = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-private-race",
+        status="active",
+        time_start=100.0,
+        time_end=200.0,
+    )
+    await store.create_experience_draft(
+        draft_id="draft-private-race",
+        query_text="Private race",
+        title="Private race",
+        one_sentence_review="Must not survive deletion",
+        time_start=100.0,
+        time_end=200.0,
+        chapters=[{"episode_ids": ["ep-private-race"], "event_ids": []}],
+        possible_evidence=[],
+    )
+    replace_chapters = store.replace_experience_chapters
+
+    async def replace_then_forget(**kwargs):
+        replaced = await replace_chapters(**kwargs)
+        await store.forget_episode(episode_id="ep-private-race")
+        return replaced
+
+    monkeypatch.setattr(store, "replace_experience_chapters", replace_then_forget)
+
+    with pytest.raises(ValueError, match="Draft changed during creation"):
+        await create_experience_from_draft(store, draft_id="draft-private-race")
+
+    assert await store.list_experiences(status="active") == []
+    assert await store.get_experience_draft(draft_id="draft-private-race") is None

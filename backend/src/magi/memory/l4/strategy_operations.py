@@ -10,6 +10,7 @@ from typing import Any, Dict, List
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from .source_event_governance import active_skill_predicate
 from .storage.schema import EXECUTION_TRACES_TABLE
 from .strategy_extraction import ExtractedStrategy, L4StrategyExtractor
 from .traces.analysis import (
@@ -37,9 +38,12 @@ async def stratified_traces(
 
         async with db.execute(
             f"""
-            SELECT * FROM {EXECUTION_TRACES_TABLE}
-            WHERE skill_id = ? AND success = 0
-            ORDER BY created_at DESC LIMIT ?
+            SELECT traces.*
+            FROM {EXECUTION_TRACES_TABLE} AS traces
+            JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
+            WHERE traces.skill_id = ? AND traces.success = 0
+              AND {active_skill_predicate("skills")}
+            ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, bucket_size),
         ) as cursor:
@@ -47,9 +51,12 @@ async def stratified_traces(
 
         async with db.execute(
             f"""
-            SELECT * FROM {EXECUTION_TRACES_TABLE}
-            WHERE skill_id = ? AND success = 1
-            ORDER BY created_at DESC LIMIT ?
+            SELECT traces.*
+            FROM {EXECUTION_TRACES_TABLE} AS traces
+            JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
+            WHERE traces.skill_id = ? AND traces.success = 1
+              AND {active_skill_predicate("skills")}
+            ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, bucket_size),
         ) as cursor:
@@ -57,9 +64,12 @@ async def stratified_traces(
 
         async with db.execute(
             f"""
-            SELECT * FROM {EXECUTION_TRACES_TABLE}
-            WHERE skill_id = ?
-            ORDER BY created_at DESC LIMIT ?
+            SELECT traces.*
+            FROM {EXECUTION_TRACES_TABLE} AS traces
+            JOIN procedural_skills AS skills ON skills.skill_id = traces.skill_id
+            WHERE traces.skill_id = ?
+              AND {active_skill_predicate("skills")}
+            ORDER BY traces.created_at DESC LIMIT ?
             """,
             (skill_id, limit),
         ) as cursor:
@@ -111,7 +121,11 @@ async def get_duration_baseline(*, db_path: str, skill_id: str) -> Dict[str, flo
     async with sqlite_connection_async(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            "SELECT avg_execution_time_ms, p95_execution_time_ms FROM procedural_skills WHERE skill_id = ? AND deleted_at IS NULL",
+            f"""
+            SELECT skills.avg_execution_time_ms, skills.p95_execution_time_ms
+            FROM procedural_skills AS skills
+            WHERE skills.skill_id = ? AND {active_skill_predicate("skills")}
+            """,
             (skill_id,),
         ) as cursor:
             row = await cursor.fetchone()
@@ -143,7 +157,7 @@ async def enrich_with_recovery(
             WHERE t.turn_id IN ({placeholders})
               AND t.skill_id != ?
               AND t.success = 1
-              AND s.deleted_at IS NULL
+              AND {active_skill_predicate("s")}
             ORDER BY t.turn_id, t.created_at ASC
             """,
             (*unique_turn_ids, current_skill_id),
@@ -164,15 +178,17 @@ async def persist_strategy(
     strategy_json = strategy.to_json()
     context_affinity_json = json.dumps(strategy.context_preferences, ensure_ascii=False)
     async with sqlite_connection_async(db_path) as db:
+        await db.execute("BEGIN IMMEDIATE")
         await db.execute(
-            """
-            UPDATE procedural_skills
+            f"""
+            UPDATE procedural_skills AS skills
             SET optimized_prompt = ?,
                 context_affinity = ?,
                 optimization_score = ?,
                 pending_trace_count = 0,
                 updated_at = ?
-            WHERE skill_id = ?
+            WHERE skills.skill_id = ?
+              AND {active_skill_predicate("skills")}
             """,
             (
                 strategy_json,

@@ -36,6 +36,7 @@ class _PendingPhase1EntityResolution:
     resolved_entity_id: str | None = None
     resolved_confidence: float | None = None
     llm_mention_key: str | None = None
+    source_event_ids: tuple[str, ...] = ()
 
     @property
     def cache_key(self) -> tuple[str, str | None]:
@@ -97,17 +98,25 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
 
         resolved_mentions: list[ResolvedEntityMention] = []
         for pending_item in pending:
+            pending_item.source_event_ids = tuple(
+                self._resolve_entity_mention_event_ids(
+                    mention_text=pending_item.mention_text,
+                    normalized_surface=pending_item.normalized_surface,
+                    evidence_events=evidence_events,
+                    fallback_event_ids=evidence_event_ids,
+                )
+            )
             await self._finalize_phase1_entity_resolution(
                 pending_item,
                 llm_results=llm_results,
             )
-            resolved_mentions.append(
-                await self._record_phase1_entity_mention(
-                    pending_item,
-                    evidence_events=evidence_events,
-                    evidence_event_ids=evidence_event_ids,
-                )
+            resolved = await self._record_phase1_entity_mention(
+                pending_item,
+                evidence_events=evidence_events,
+                evidence_event_ids=evidence_event_ids,
             )
+            if resolved is not None:
+                resolved_mentions.append(resolved)
         return resolved_mentions
 
     async def _prepare_phase1_entity_resolution_plan(
@@ -177,9 +186,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         allowed_entity_types: frozenset[str] | None,
         profile_signal_object_refs: set[str] | None,
     ) -> bool:
-        if is_vague_entity_reference(mention_text) or is_vague_entity_reference(
-            normalized_surface
-        ):
+        if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
             logger.debug(
                 "L2 Phase 1 entity filtered as vague reference",
                 mention_text=mention_text,
@@ -237,6 +244,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 entity_type=pending_item.entity_type,
                 mention_text=pending_item.mention_text,
                 confidence=pending_item.mention_confidence,
+                source_event_ids=(event.event_id,),
             )
             pending_item.resolved_confidence = pending_item.entity.confidence
             return
@@ -368,6 +376,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
             entity_type=pending_item.entity_type,
             mention_text=pending_item.mention_text,
             mention_confidence=pending_item.mention_confidence,
+            source_event_ids=pending_item.source_event_ids,
         )
 
     async def _record_phase1_entity_mention(
@@ -376,8 +385,18 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         *,
         evidence_events: list[MemoryEvent] | None,
         evidence_event_ids: list[str],
-    ) -> ResolvedEntityMention:
+    ) -> ResolvedEntityMention | None:
         assert self._entity_catalog is not None
+
+        allowed_event_ids = await self._entity_catalog.filter_projection_source_event_ids(
+            target_entity_id=pending_item.resolved_entity_id,
+            normalized_surface=pending_item.normalized_surface,
+            entity_type=pending_item.entity_type,
+            event_ids=pending_item.source_event_ids,
+        )
+        if not allowed_event_ids:
+            return None
+        pending_item.source_event_ids = allowed_event_ids
 
         if pending_item.resolved_entity_id:
             pending_item.entity.resolved_id = pending_item.resolved_entity_id
@@ -385,14 +404,16 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 canonical_name=pending_item.normalized_surface,
                 entity_type=pending_item.entity_type,
                 entity_id=pending_item.resolved_entity_id,
+                source_event_ids=pending_item.source_event_ids,
+            )
+            await self._entity_catalog.add_alias(
+                entity_id=pending_item.resolved_entity_id,
+                alias_text=pending_item.mention_text,
+                confidence=float(pending_item.resolved_confidence or 0.5),
+                source_event_ids=pending_item.source_event_ids,
             )
 
-        mention_event_ids = self._resolve_entity_mention_event_ids(
-            mention_text=pending_item.mention_text,
-            normalized_surface=pending_item.normalized_surface,
-            evidence_events=evidence_events,
-            fallback_event_ids=evidence_event_ids,
-        )
+        mention_event_ids = list(allowed_event_ids)
         await self._entity_catalog.record_mention(
             mention_text=pending_item.mention_text,
             normalized_surface=pending_item.normalized_surface,
@@ -437,9 +458,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
     ) -> list[str]:
         matched_event_ids: list[str] = []
         mention_candidates = {
-            text.strip()
-            for text in (mention_text, normalized_surface)
-            if str(text or "").strip()
+            text.strip() for text in (mention_text, normalized_surface) if str(text or "").strip()
         }
         for evidence_event in evidence_events or []:
             content = str(getattr(evidence_event, "content", "") or "")
@@ -450,6 +469,8 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
         if matched_event_ids:
             return normalize_event_ids(matched_event_ids)
         normalized_fallback_ids = normalize_event_ids(fallback_event_ids)
+        if evidence_events is None:
+            return normalized_fallback_ids
         if len(evidence_events or []) == 1 and len(normalized_fallback_ids) == 1:
             return normalized_fallback_ids
         return []
@@ -474,7 +495,9 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 continue
             normalized_surface = str(mention.get("normalized_surface") or mention_text).strip()
             entity_type = self._normalize_entity_type(mention.get("entity_type"))  # type: ignore[attr-defined]
-            if is_vague_entity_reference(mention_text) or is_vague_entity_reference(normalized_surface):
+            if is_vague_entity_reference(mention_text) or is_vague_entity_reference(
+                normalized_surface
+            ):
                 logger.debug(
                     "L2 mention filtered as vague reference",
                     mention_text=mention_text,
@@ -492,13 +515,23 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                 mention_text=mention_text,
                 mention_confidence=mention_confidence,
                 event=event,
+                source_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
             )
+
+            allowed_event_ids = await self._entity_catalog.filter_projection_source_event_ids(
+                target_entity_id=resolved_entity_id,
+                normalized_surface=normalized_surface,
+                entity_type=entity_type,
+                event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
+            )
+            if not allowed_event_ids:
+                continue
 
             await self._entity_catalog.record_mention(
                 mention_text=mention_text,
                 normalized_surface=normalized_surface,
                 entity_type=entity_type,
-                evidence_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
+                evidence_event_ids=list(allowed_event_ids),
                 evidence_text=evidence_text,
                 resolved_entity_id=resolved_entity_id,
                 confidence=resolved_confidence,
@@ -510,7 +543,7 @@ class L2EntityResolutionMixin(L2EntityIdResolutionMixin):
                     entity_type=entity_type,
                     resolved_entity_id=resolved_entity_id,
                     confidence=resolved_confidence,
-                    evidence_event_ids=normalize_event_ids(evidence_event_ids or [event.event_id]),
+                    evidence_event_ids=list(allowed_event_ids),
                 )
             )
         return resolved_mentions

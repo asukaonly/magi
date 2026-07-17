@@ -15,7 +15,10 @@ from magi.memory.l2.corrections.models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
     CorrectionKind,
+    CorrectionTargetKind,
+    NewMemoryCorrection,
 )
+from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
 from magi.memory.l2.corrections.relationship_service import RelationshipCorrectionService
 from magi.memory.l2.corrections.service import MemoryCorrectionService
 from magi.memory.l2.batch_models import L2BatchJob
@@ -88,6 +91,20 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
             correction_kind=CorrectionKind.RECORD_ERROR,
         )
     )
+    await MemoryCorrectionRepository(db_path).create(
+        NewMemoryCorrection(
+            correction_id="correction-invalid-evidence",
+            request_id="clear-invalid-evidence",
+            actor_id="user:u1",
+            target_kind=CorrectionTargetKind.ASSERTION,
+            target_id="assert-invalid-evidence",
+            slot_key="slot-invalid-evidence",
+            claim_fingerprint="claim-invalid-evidence",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            before={"evidence_events": [{"event_id": "invalid"}]},
+            created_at=now,
+        )
+    )
 
     async with aiosqlite.connect(db_path) as db:
         await db.execute(
@@ -106,6 +123,7 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
     governed_tables = (
         "memory_derivation_dependencies",
         "memory_derivation_jobs",
+        "memory_correction_evidence_fail_closed",
         "memory_correction_evidence_events",
         "memory_relationship_conflict_effects",
         "memory_correction_rules",
@@ -182,8 +200,7 @@ async def test_clear_removes_all_l2_user_memory_tables(tmp_path) -> None:
     now = time.time()
 
     async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            """
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS l2_promotion_counter (
                 source_type TEXT NOT NULL,
                 key TEXT NOT NULL,
@@ -194,8 +211,7 @@ async def test_clear_removes_all_l2_user_memory_tables(tmp_path) -> None:
                 promoted_at REAL,
                 PRIMARY KEY (source_type, key)
             )
-            """
-        )
+            """)
         await db.execute(
             "CREATE TABLE IF NOT EXISTS l2_promotion_seen "
             "(event_id TEXT PRIMARY KEY, seen_at REAL NOT NULL)"
@@ -472,14 +488,12 @@ async def test_shared_clear_removes_manual_location_and_rebuild_rows(tmp_path) -
             """,
             (now,),
         )
-        await db.execute(
-            """
+        await db.execute("""
             CREATE TABLE timeline_cover_preferences (
                 scope_key TEXT PRIMARY KEY,
                 asset_ref TEXT NOT NULL
             )
-            """
-        )
+            """)
         await db.execute(
             "INSERT INTO timeline_cover_preferences(scope_key, asset_ref) "
             "VALUES ('private-period', 'manual-entry-asset://private.jpg')"

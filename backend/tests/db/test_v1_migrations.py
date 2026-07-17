@@ -13,7 +13,6 @@ import pytest
 from magi.db.runner import MIGRATION_TARGETS, _build_config, run_upgrade_head
 from magi.utils.runtime import RuntimePaths
 
-
 EXPECTED_TABLES: dict[str, set[str]] = {
     "chat": {"chat_sessions", "chat_run_consumed_events", "chat_user_turn_delivery"},
     "l1": {"fact_events", "l1_event_payload", "l1_session_sequences", "l1_source_facets"},
@@ -28,6 +27,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "memory_context_aliases",
         "memory_context_bindings",
         "memory_subject_revisions",
+        "entity_name_evidence",
         "experiences",
         "experience_seeds",
         "user_portrait_projection",
@@ -45,6 +45,7 @@ EXPECTED_TABLES: dict[str, set[str]] = {
         "runtime_commands",
         "runtime_command_rollups",
         "runtime_user_message_idempotency",
+        "runtime_user_message_scope_blocks",
     },
     "permission_rules": {"permission_rules"},
     "channels": {"channel_session_mappings", "delivery_receipts", "outreach_outbox"},
@@ -148,14 +149,12 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         assert "trigger_json" in _columns(conn, "l0_execution_runs")
         assert "evidence_class" in _columns(conn, "knowledge_graph")
         assert "user_cover_asset_ref" in _columns(conn, "experiences")
-        index_sql = conn.execute(
-            """
+        index_sql = conn.execute("""
             SELECT sql
             FROM sqlite_master
             WHERE type = 'index'
               AND name = 'idx_tom_assertions_active_unique'
-            """
-        ).fetchone()[0]
+            """).fetchone()[0]
         assert "shadow" in index_sql
         assert "slot_key" in index_sql
         assert "scope_key" in index_sql
@@ -164,14 +163,12 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         target for target in MIGRATION_TARGETS if target.name == "persona_registry"
     ).db_path(runtime_paths)
     with sqlite3.connect(persona_db_path) as conn:
-        builtin_seed_index = conn.execute(
-            """
+        builtin_seed_index = conn.execute("""
             SELECT sql
             FROM sqlite_master
             WHERE type = 'index'
               AND name = 'uq_personas_active_builtin_seed'
-            """
-        ).fetchone()
+            """).fetchone()
         assert builtin_seed_index is not None
         assert "WHERE is_builtin = 1" in builtin_seed_index[0]
         assert "deleted_at IS NULL" in builtin_seed_index[0]
@@ -183,6 +180,7 @@ def test_migrations_build_runtime_schema_from_empty_directory(tmp_path: Path) ->
         assert "runtime_user_message_clear_state" in _table_names(conn)
         assert "user_message_generation" in _columns(conn, "runtime_commands")
         assert "runtime_user_message_idempotency" in _table_names(conn)
+        assert "runtime_user_message_scope_blocks" in _table_names(conn)
         assert "delivery_status" in _columns(
             conn,
             "runtime_user_message_idempotency",
@@ -197,16 +195,13 @@ def test_chat_delivery_state_upgrades_from_pre_delta_v1(tmp_path: Path) -> None:
 
     with sqlite3.connect(db_path) as conn:
         conn.execute("DROP TABLE chat_user_turn_delivery")
-        conn.execute(
-            """
+        conn.execute("""
             INSERT INTO chat_turns (
                 turn_id, session_id, user_id, status, response_mode,
                 ux_plan_json, created_at_ms, updated_at_ms, run_revision
             ) VALUES ('turn-1', 'session-1', 'user-1', 'queued', 'direct', '{}', 1, 1, 0)
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             INSERT INTO chat_messages (
                 message_id, session_id, turn_id, user_id, role, message_kind,
                 payload_json, is_final, is_visible, created_at_ms, sequence_no
@@ -214,20 +209,17 @@ def test_chat_delivery_state_upgrades_from_pre_delta_v1(tmp_path: Path) -> None:
                 'message-1', 'session-1', 'turn-1', 'user-1', 'user',
                 'user_text', '{}', 1, 1, 1, 1
             )
-            """
-        )
+            """)
         conn.commit()
 
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute(
-            """
+        assert conn.execute("""
             SELECT projection_completed, runtime_enqueued
             FROM chat_user_turn_delivery
             WHERE turn_id = 'turn-1'
-            """
-        ).fetchone() == (1, 1)
+            """).fetchone() == (1, 1)
 
 
 @pytest.mark.asyncio
@@ -244,56 +236,46 @@ async def test_user_message_tombstone_upgrades_legacy_duplicate_correlations(
 
     with sqlite3.connect(db_path) as conn:
         conn.execute("DROP TABLE runtime_user_message_idempotency")
-        conn.execute(
-            """
+        conn.execute("""
             INSERT INTO runtime_commands (
                 command_type, payload_json, correlation_id, status,
                 user_message_generation, created_at, updated_at
             ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
                       'pending', 0, 1, 1)
-            """
-        )
-        conn.execute(
-            """
+            """)
+        conn.execute("""
             INSERT INTO runtime_commands (
                 command_type, payload_json, correlation_id, status,
                 user_message_generation, created_at, updated_at
             ) VALUES ('user_message', '{"value": 2}', 'user_message:message-1',
                       'pending', 0, 2, 2)
-            """
-        )
+            """)
         conn.commit()
 
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as conn:
-        first_command_id = conn.execute(
-            """
+        first_command_id = conn.execute("""
             SELECT command_id
             FROM runtime_commands
             WHERE correlation_id = 'user_message:message-1'
             ORDER BY command_id ASC
             LIMIT 1
-            """
-        ).fetchone()[0]
-        tombstone = conn.execute(
-            """
+            """).fetchone()[0]
+        tombstone = conn.execute("""
             SELECT first_command_id, payload_fingerprint
             FROM runtime_user_message_idempotency
             WHERE correlation_id = 'user_message:message-1'
-            """
-        ).fetchone()
+            """).fetchone()
         assert tombstone is not None
         assert tombstone[0] == first_command_id
         assert len(tombstone[1]) == 64
-        assert conn.execute(
-            """
+        assert conn.execute("""
             SELECT COUNT(*)
             FROM runtime_commands
             WHERE correlation_id = 'user_message:message-1'
               AND status IN ('pending', 'claimed')
-            """
-        ).fetchone() == (1,)
+            """).fetchone() == (1,)
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
     await queue.start()
@@ -330,44 +312,36 @@ async def test_user_message_tombstone_drops_pending_duplicate_after_completion(
 
     with sqlite3.connect(db_path) as conn:
         conn.execute("DROP TABLE runtime_user_message_idempotency")
-        completed_id = conn.execute(
-            """
+        completed_id = conn.execute("""
             INSERT INTO runtime_commands (
                 command_type, payload_json, correlation_id, status,
                 user_message_generation, created_at, updated_at
             ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
                       'completed', 0, 1, 1)
-            """
-        ).lastrowid
-        conn.execute(
-            """
+            """).lastrowid
+        conn.execute("""
             INSERT INTO runtime_commands (
                 command_type, payload_json, correlation_id, status,
                 user_message_generation, created_at, updated_at
             ) VALUES ('user_message', '{"value": 1}', 'user_message:message-1',
                       'pending', 0, 2, 2)
-            """
-        )
+            """)
         conn.commit()
 
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute(
-            """
+        assert conn.execute("""
             SELECT first_command_id
             FROM runtime_user_message_idempotency
             WHERE correlation_id = 'user_message:message-1'
-            """
-        ).fetchone() == (completed_id,)
-        assert conn.execute(
-            """
+            """).fetchone() == (completed_id,)
+        assert conn.execute("""
             SELECT COUNT(*)
             FROM runtime_commands
             WHERE correlation_id = 'user_message:message-1'
               AND status IN ('pending', 'claimed')
-            """
-        ).fetchone() == (0,)
+            """).fetchone() == (0,)
 
     queue = SQLiteRuntimeCommandQueue(db_path=str(db_path))
     await queue.start()
@@ -427,14 +401,17 @@ async def test_failed_legacy_user_message_can_retry_after_upgrade_and_gc(
 
     command.upgrade(config, "head")
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute(
-            """
+        assert (
+            conn.execute(
+                """
             SELECT first_command_id, delivery_status
             FROM runtime_user_message_idempotency
             WHERE correlation_id = ?
             """,
-            (original.correlation_id,),
-        ).fetchone() == (failed_id, "failed")
+                (original.correlation_id,),
+            ).fetchone()
+            == (failed_id, "failed")
+        )
         conn.execute(
             "DELETE FROM runtime_commands WHERE command_id = ?",
             (failed_id,),
@@ -447,14 +424,17 @@ async def test_failed_legacy_user_message_can_retry_after_upgrade_and_gc(
         retried_id = await queue.enqueue_user_message(original)
         assert retried_id != failed_id
         with sqlite3.connect(db_path) as conn:
-            assert conn.execute(
-                """
+            assert (
+                conn.execute(
+                    """
                 SELECT first_command_id, delivery_status
                 FROM runtime_user_message_idempotency
                 WHERE correlation_id = ?
                 """,
-                (original.correlation_id,),
-            ).fetchone() == (retried_id, "open")
+                    (original.correlation_id,),
+                ).fetchone()
+                == (retried_id, "open")
+            )
         claimed = await queue.claim_next(
             consumer_name="migration-test",
             command_types=(RuntimeCommandType.USER_MESSAGE,),

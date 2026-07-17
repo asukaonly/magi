@@ -9,6 +9,7 @@ export type KnowledgeDetailRow = { label: string; value: string | number | null 
 export type KnowledgeStatusGroup = 'active' | 'needsReview' | 'conflicted' | 'deprecated';
 export type KnowledgeBaseGroupId = 'all' | 'aboutSelf' | 'preferences' | 'relationships' | 'workProjects' | 'interests' | 'other';
 export type MemoryTranslateFn = (key: string, options?: Record<string, unknown>) => string;
+export type KnowledgeCorrectionAction = 'replace' | 'remove';
 
 export interface KnowledgeItem {
   id: string;
@@ -25,6 +26,7 @@ export interface KnowledgeItem {
   evidenceCount?: number | null;
   evidenceIds?: string[];
   updatedAt?: number | null;
+  expectedUpdatedAt?: number | null;
   detailRows: KnowledgeDetailRow[];
   technicalRows?: KnowledgeDetailRow[];
   searchableText: string;

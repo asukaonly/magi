@@ -59,3 +59,18 @@ async def test_cover_store_requires_asset_ref_for_asset_mode(tmp_path: Path) -> 
             mode="asset",
             asset_ref="",
         )
+
+
+@pytest.mark.asyncio
+async def test_cover_store_rejects_unknown_asset_source(tmp_path: Path) -> None:
+    store = TimelineCoverPreferenceStore(db_path=str(tmp_path / "memory.db"))
+
+    with pytest.raises(ValueError, match="Unsupported timeline cover source"):
+        await store.set_preference(
+            scale="day",
+            period_start=100.0,
+            period_end=200.0,
+            mode="asset",
+            asset_ref="manual-entry-asset:///tmp/private.jpg",
+            source="untrusted",  # type: ignore[arg-type]
+        )

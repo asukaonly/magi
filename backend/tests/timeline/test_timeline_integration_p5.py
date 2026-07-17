@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -10,7 +9,6 @@ import pytest
 from magi.timeline.cluster_builder import TimelineClusterBuilder
 from magi.timeline.context_bundle_builder import TimelineContextBundleBuilder
 from magi.timeline.viewport_builder import TimelineViewportBuilder
-
 
 # ── cluster_builder: episode-aware ───────────────────────────────
 
@@ -131,13 +129,18 @@ class TestClusterBuilderEpisodes:
 
 
 class _FakeL1:
-    async def get_event(self, event_id: str) -> dict[str, Any] | None:
+    async def get_user_visible_event(self, event_id: str) -> dict[str, Any] | None:
         return {
             "event_id": event_id,
             "timestamp": 100.0,
             "source": "chat",
             "content": f"Content of {event_id}",
-            "metadata": {"activity_snapshot": {"title": f"Title {event_id}", "summary": f"Summary {event_id}"}},
+            "metadata": {
+                "activity_snapshot": {
+                    "title": f"Title {event_id}",
+                    "summary": f"Summary {event_id}",
+                }
+            },
         }
 
 
@@ -198,12 +201,17 @@ class _FakeL1Viewport:
     async def query_events(self, **kwargs: Any) -> list[dict[str, Any]]:
         return [_make_event("evt-1", 1000.0)]
 
-    async def get_event(self, event_id: str) -> dict[str, Any] | None:
+    async def get_user_visible_event(self, event_id: str) -> dict[str, Any] | None:
         return _make_event(event_id, 1000.0)
 
 
 class _FakeL2Viewport:
-    def __init__(self, *, episodes: list[dict[str, Any]] | None = None, assertions: list[dict[str, Any]] | None = None):
+    def __init__(
+        self,
+        *,
+        episodes: list[dict[str, Any]] | None = None,
+        assertions: list[dict[str, Any]] | None = None,
+    ):
         self._episodes = episodes or []
         self._assertions = assertions or []
 

@@ -4,7 +4,7 @@ from magi.timeline.context_bundle_builder import TimelineContextBundleBuilder
 
 
 class _FakeL1Store:
-    async def get_event(self, event_id: str):  # type: ignore[no-untyped-def]
+    async def get_user_visible_event(self, event_id: str):  # type: ignore[no-untyped-def]
         if event_id == "evt-1":
             return {
                 "event_id": "evt-1",
@@ -12,7 +12,12 @@ class _FakeL1Store:
                 "timestamp": 100.0,
                 "source": "chat",
                 "content": "Discussed the timeline redesign.",
-                "metadata": {"activity_snapshot": {"title": "Chat planning", "summary": "Discussed semantic zoom."}},
+                "metadata": {
+                    "activity_snapshot": {
+                        "title": "Chat planning",
+                        "summary": "Discussed semantic zoom.",
+                    }
+                },
             }
         return None
 
@@ -35,7 +40,7 @@ class _FakeL2Store:
                 "trait_value": "distracted",
                 "confidence_score": 0.2,
                 "evidence_events": ["evt-9"],
-            }
+            },
         ]
 
     async def find_edges_by_event_id(self, event_id: str):  # type: ignore[no-untyped-def]

@@ -1,4 +1,5 @@
 """Sensor hub: aggregates sensor events into a unified queue."""
+
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +45,9 @@ class SensorHub:
         async with self._queue_mutation_lock:
             self._queue.put_nowait(sensor_event)
 
-    async def get_batch(self, max_items: int = 16, timeout_seconds: float = 0.2) -> list[SensorEvent]:
+    async def get_batch(
+        self, max_items: int = 16, timeout_seconds: float = 0.2
+    ) -> list[SensorEvent]:
         batch: list[SensorEvent] = []
         try:
             first = await asyncio.wait_for(self._queue.get(), timeout=timeout_seconds)
@@ -70,12 +73,44 @@ class SensorHub:
                     item = self._queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-                if (
-                    item.event_type == EventTypes.USER_MESSAGE
-                    and (
-                        item.user_message_generation is None
-                        or int(item.user_message_generation) < int(current_generation)
-                    )
+                if item.event_type == EventTypes.USER_MESSAGE and (
+                    item.user_message_generation is None
+                    or int(item.user_message_generation) < int(current_generation)
+                ):
+                    discarded += 1
+                    continue
+                retained.append(item)
+            for item in retained:
+                self._queue.put_nowait(item)
+        return discarded
+
+    async def discard_user_message_scope(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str | None = None,
+        message_id: str | None = None,
+    ) -> int:
+        """Remove queued user messages for one durably deleted chat scope."""
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_turn_id = str(turn_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        discarded = 0
+        retained: list[SensorEvent] = []
+        async with self._queue_mutation_lock:
+            while True:
+                try:
+                    item = self._queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if _matches_user_message_scope(
+                    item,
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    turn_id=normalized_turn_id,
+                    message_id=normalized_message_id,
                 ):
                     discarded += 1
                     continue
@@ -138,3 +173,33 @@ class SensorHub:
             ),
         )
         await self.push_sensor_event(sensor_event)
+
+
+def _user_message_id_from_correlation(correlation_id: str | None) -> str:
+    normalized = str(correlation_id or "").strip()
+    prefix = "user_message:"
+    return normalized[len(prefix) :].strip() if normalized.startswith(prefix) else ""
+
+
+def _matches_user_message_scope(
+    item: SensorEvent,
+    *,
+    user_id: str,
+    session_id: str,
+    turn_id: str,
+    message_id: str,
+) -> bool:
+    if item.event_type != EventTypes.USER_MESSAGE:
+        return False
+    payload = item.payload if isinstance(item.payload, dict) else {}
+    if str(payload.get("user_id") or "").strip() != user_id:
+        return False
+    if str(payload.get("session_id") or "").strip() != session_id:
+        return False
+    if not turn_id and not message_id:
+        return True
+    if turn_id and str(payload.get("turn_id") or "").strip() == turn_id:
+        return True
+    return bool(
+        message_id and _user_message_id_from_correlation(item.correlation_id) == message_id
+    )

@@ -100,9 +100,7 @@ class ChatSessionControlMixin:
             fact = FactRecord(
                 agent_id=self.runtime_key,
                 agent_type=str(
-                    self.agent_type.value
-                    if hasattr(self.agent_type, "value")
-                    else self.agent_type
+                    self.agent_type.value if hasattr(self.agent_type, "value") else self.agent_type
                 ),
                 agent_instance_id=normalized_session_id,
                 event_type=EventTypes.USER_MESSAGE,
@@ -110,9 +108,7 @@ class ChatSessionControlMixin:
                 correlation_id=reinjected_turn_id,
                 user_message_generation=(
                     manager.current_user_message_generation()
-                    if callable(
-                        getattr(manager, "current_user_message_generation", None)
-                    )
+                    if callable(getattr(manager, "current_user_message_generation", None))
                     else None
                 ),
             )
@@ -152,7 +148,7 @@ class ChatSessionControlMixin:
             session_id=session_id,
             run_id=active_run.run_id,
             run_revision=active_run.revision,
-            strict_worker_cancellation=reason == "memory_clear",
+            strict_worker_cancellation=reason in {"memory_clear", "privacy_delete"},
         )
         self._session_run_coordinator.complete_run(
             session_id=session_id,
@@ -172,9 +168,7 @@ class ChatSessionControlMixin:
             can_cancel=False,
             label="Run cancelled",
         )
-        current_run = (
-            self._session_run_coordinator.get_active_run(session_id) or active_run
-        )
+        current_run = self._session_run_coordinator.get_active_run(session_id) or active_run
         return {
             "session_id": session_id,
             "run_id": current_run.run_id,
@@ -215,8 +209,7 @@ class ChatSessionControlMixin:
                 created_at_ms=existing_turn.created_at_ms,
                 updated_at_ms=completed_at_ms,
                 completed_at_ms=completed_at_ms,
-                error_text=existing_turn.error_text
-                or getattr(active_run, "cancel_reason", None),
+                error_text=existing_turn.error_text or getattr(active_run, "cancel_reason", None),
                 run_id=existing_turn.run_id or getattr(active_run, "run_id", None),
                 run_revision=existing_turn.run_revision
                 or int(getattr(active_run, "revision", 0) or 0),

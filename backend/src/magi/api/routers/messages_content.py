@@ -12,6 +12,7 @@ from ..services import get_chat_trace_read_service
 from ...core.runtime_bindings import require_chat_read_service
 from ...i18n import t
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
+from ...chat.forgetting import get_chat_forgetting_service
 from .messages_common import get_chat_attachment_ingestion_service, require_session_id
 
 message_content_router = APIRouter()
@@ -144,27 +145,19 @@ async def clear_conversation_history(
     session_id: Optional[str] = Query(default=None, description="Session ID"),
 ):
     """Clear conversation history."""
-    try:
-        read_service = require_chat_read_service()
-        resolved_session_id = require_session_id(session_id)
-        await read_service.aclear_conversation_history(user_id, resolved_session_id)
-
-        return {
-            "success": True,
-            "message": t("chat.history.cleared", fallback="Conversation history cleared"),
-            "user_id": user_id,
-            "session_id": resolved_session_id,
-        }
-    except RuntimeError:
-        return {
-            "success": True,
-            "message": t(
-                "chat.history.cleared_agent_uninitialized",
-                fallback="Conversation history cleared (agent not initialized)",
-            ),
-            "user_id": user_id,
-            "session_id": session_id,
-        }
+    resolved_session_id = require_session_id(session_id)
+    cleared = await get_chat_forgetting_service().clear_history(
+        user_id=user_id,
+        session_id=resolved_session_id,
+    )
+    if not cleared:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return {
+        "success": True,
+        "message": t("chat.history.cleared", fallback="Conversation history cleared"),
+        "user_id": user_id,
+        "session_id": resolved_session_id,
+    }
 
 
 __all__ = [

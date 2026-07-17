@@ -54,6 +54,7 @@ class _CatalogMaintenanceStatsProtocol(Protocol):
     fragment_entities_merged: int
     fragment_groups_processed: int
     orphans_pruned: int
+    snapshots_refreshed: int
     errors: list[str]
 
 

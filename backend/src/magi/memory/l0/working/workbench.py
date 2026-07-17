@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import Any, Dict, Optional, Protocol, cast
 
 from ..contracts import L0PromptWorkbenchProjection
+from ....core.sqlite import sqlite_connection_async
 from .projection import build_execution_summary
+from .source_forgetting import (
+    active_entity_source_references,
+    filter_active_entities_by_governance,
+    forgotten_tactic_source_references,
+    tactic_source_references,
+)
+from ...source_event_governance import normalize_source_event_ids
 
 
 class _L0WorkbenchHostProtocol(Protocol):
@@ -15,8 +24,12 @@ class _L0WorkbenchHostProtocol(Protocol):
     _goal_stack: dict[str, list[dict[str, Any]]]
     _active_entities: dict[str, dict[tuple[str, str], dict[str, Any]]]
     _temporary_tactics: dict[str, dict[str, dict[str, Any]]]
+    _checkpoint_lock: asyncio.Lock
+    checkpoint_db_path: str
 
     async def start_session(self, *, session_id: str, **kwargs: Any) -> dict[str, Any]: ...
+
+    async def initialize(self) -> None: ...
 
     def get_execution_state_sync(self, session_id: str) -> dict[str, Any]: ...
 
@@ -32,25 +45,35 @@ class L0WorkbenchMixin:
         entity_type: str,
         snapshot: Dict[str, Any],
         relevance_score: float = 0.0,
-    ) -> dict[str, Any]:
+        source_event_ids: list[str] | None = None,
+    ) -> Optional[dict[str, Any]]:
         """Record an active entity card for prompt-time recall."""
         host = cast(_L0WorkbenchHostProtocol, self)
+        await host.initialize()
         await host.start_session(session_id=session_id)
         now = time.time()
         key = (entity_id, entity_type)
-        previous = host._active_entities[session_id].get(key)
-        access_count = int(previous["access_count"] + 1) if previous else 1
-        entity = {
-            "entity_id": entity_id,
-            "entity_type": entity_type,
-            "relevance_score": float(relevance_score),
-            "snapshot": dict(snapshot),
-            "loaded_at": float(previous["loaded_at"]) if previous else now,
-            "last_accessed_at": now,
-            "access_count": access_count,
-        }
-        host._active_entities[session_id][key] = entity
-        return entity
+        normalized_sources = normalize_source_event_ids(source_event_ids or ())
+        async with host._checkpoint_lock:
+            entities = host._active_entities.setdefault(session_id, {})
+            previous = entities.get(key)
+            access_count = int(previous["access_count"] + 1) if previous else 1
+            entity = {
+                "entity_id": entity_id,
+                "entity_type": entity_type,
+                "relevance_score": float(relevance_score),
+                "snapshot": dict(snapshot),
+                "source_event_ids": list(normalized_sources),
+                "loaded_at": float(previous["loaded_at"]) if previous else now,
+                "last_accessed_at": now,
+                "access_count": access_count,
+            }
+            if normalized_sources:
+                async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                    if not await filter_active_entities_by_governance(db, [entity]):
+                        return None
+            entities[key] = entity
+            return entity
 
     async def add_temporary_tactic(
         self,
@@ -63,9 +86,10 @@ class L0WorkbenchMixin:
         source_event_ids: list[str],
         expires_at: Optional[float] = None,
         tactic_id: Optional[str] = None,
-    ) -> dict[str, Any]:
+    ) -> Optional[dict[str, Any]]:
         """Add a short-lived tactic that only applies within the active session."""
         host = cast(_L0WorkbenchHostProtocol, self)
+        await host.initialize()
         await host.start_session(session_id=session_id)
         tactic = {
             "tactic_id": tactic_id or f"tactic_{uuid.uuid4().hex}",
@@ -77,32 +101,96 @@ class L0WorkbenchMixin:
             "expires_at": expires_at,
             "created_at": time.time(),
         }
-        host._temporary_tactics[session_id][tactic["tactic_id"]] = tactic
+        async with host._checkpoint_lock:
+            references = tactic_source_references(tactic)
+            if references:
+                async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                    if await forgotten_tactic_source_references(db, references):
+                        return None
+            host._temporary_tactics.setdefault(session_id, {})[tactic["tactic_id"]] = tactic
         return tactic
 
     async def get_workbench(self, session_id: str) -> dict[str, Any]:
         """Return the prompt-consumable workbench for a session."""
         host = cast(_L0WorkbenchHostProtocol, self)
         await self._expire_stale_tactics(session_id)
-        session = host._sessions.get(session_id)
-        return {
-            "session": dict(session) if session else None,
-            "goal_stack": [dict(item) for item in host._goal_stack.get(session_id, [])],
-            "active_entities": [
-                dict(item)
-                for item in sorted(
-                    host._active_entities.get(session_id, {}).values(),
-                    key=lambda item: (-float(item["relevance_score"]), -float(item["last_accessed_at"])),
+        async with host._checkpoint_lock:
+            session = host._sessions.get(session_id)
+            active_entities = list(host._active_entities.get(session_id, {}).values())
+            temporary_tactics = list(host._temporary_tactics.get(session_id, {}).values())
+            try:
+                async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                    active_entities = await filter_active_entities_by_governance(
+                        db,
+                        active_entities,
+                    )
+                    forgotten_tactic_references = await forgotten_tactic_source_references(
+                        db,
+                        {
+                            reference
+                            for tactic in temporary_tactics
+                            for reference in tactic_source_references(tactic)
+                        },
+                    )
+                    temporary_tactics = [
+                        tactic
+                        for tactic in temporary_tactics
+                        if not (tactic_source_references(tactic) & forgotten_tactic_references)
+                    ]
+            except Exception:
+                # If governance cannot be checked, source-derived cards must not
+                # reach the prompt. Source-free runtime state remains usable.
+                active_entities = [
+                    entity
+                    for entity in active_entities
+                    if active_entity_source_references(entity) == ()
+                ]
+                temporary_tactics = [
+                    tactic for tactic in temporary_tactics if not tactic_source_references(tactic)
+                ]
+            return {
+                "session": dict(session) if session else None,
+                "goal_stack": [dict(item) for item in host._goal_stack.get(session_id, [])],
+                "active_entities": [
+                    dict(item)
+                    for item in sorted(
+                        active_entities,
+                        key=lambda item: (
+                            -float(item["relevance_score"]),
+                            -float(item["last_accessed_at"]),
+                        ),
+                    )
+                ],
+                "temporary_tactics": [
+                    dict(item)
+                    for item in sorted(
+                        temporary_tactics,
+                        key=lambda item: float(item["created_at"]),
+                    )
+                ],
+            }
+
+    async def forget_entity(self, entity_id: str) -> int:
+        """Remove one active entity card from every live and saved session."""
+        normalized_entity_id = str(entity_id or "").strip()
+        if not normalized_entity_id:
+            raise ValueError("entity_id must not be empty")
+        host = cast(_L0WorkbenchHostProtocol, self)
+        await host.initialize()
+        removed_live = 0
+        async with host._checkpoint_lock:
+            for entities in host._active_entities.values():
+                for key in [key for key in entities if key[0] == normalized_entity_id]:
+                    del entities[key]
+                    removed_live += 1
+            async with sqlite_connection_async(host.checkpoint_db_path) as db:
+                cursor = await db.execute(
+                    "DELETE FROM l0_active_entities WHERE entity_id = ?",
+                    (normalized_entity_id,),
                 )
-            ],
-            "temporary_tactics": [
-                dict(item)
-                for item in sorted(
-                    host._temporary_tactics.get(session_id, {}).values(),
-                    key=lambda item: float(item["created_at"]),
-                )
-            ],
-        }
+                removed_saved = max(int(cursor.rowcount or 0), 0)
+                await db.commit()
+        return max(removed_live, removed_saved)
 
     async def get_prompt_workbench_projection(self, session_id: str) -> L0PromptWorkbenchProjection:
         """Return the prompt-facing L0 projection with execution state summarized."""
@@ -132,11 +220,12 @@ class L0WorkbenchMixin:
     async def _expire_stale_tactics(self, session_id: str) -> None:
         host = cast(_L0WorkbenchHostProtocol, self)
         now = time.time()
-        tactics = host._temporary_tactics.get(session_id, {})
-        for tactic_id, tactic in list(tactics.items()):
-            expires_at = tactic.get("expires_at")
-            if expires_at is not None and float(expires_at) <= now:
-                del tactics[tactic_id]
+        async with host._checkpoint_lock:
+            tactics = host._temporary_tactics.get(session_id, {})
+            for tactic_id, tactic in list(tactics.items()):
+                expires_at = tactic.get("expires_at")
+                if expires_at is not None and float(expires_at) <= now:
+                    del tactics[tactic_id]
 
 
 __all__ = ["L0WorkbenchMixin"]

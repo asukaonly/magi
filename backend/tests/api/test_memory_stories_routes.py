@@ -121,9 +121,7 @@ def test_legacy_temporal_summary_gets_a_compact_plain_preview(app_factory):
 
     body = resp.json()
     item = body["items"][0]
-    assert item["preview_text"] == (
-        "浏览重心转向 AI 行业动态。 查阅 magi-plugins 仓库并处理通知。"
-    )
+    assert item["preview_text"] == ("浏览重心转向 AI 行业动态。 查阅 magi-plugins 仓库并处理通知。")
     assert "##" not in item["preview_text"]
     assert "这段完整内容只应该出现在详情里" not in item["preview_text"]
     assert "这段完整内容只应该出现在详情里" in item["content"]
@@ -328,7 +326,7 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
         }
     )
     l1 = MagicMock()
-    l1.get_event = AsyncMock(
+    l1.get_user_visible_event = AsyncMock(
         side_effect=[
             {
                 "event_id": "evt-a",
@@ -359,8 +357,8 @@ def test_evidence_insight_uses_source_event_ids(app_factory):
     assert body["mode"] == "source_ids"
     assert [it["event_id"] for it in body["items"]] == ["evt-a", "evt-b"]
     assert body["items"][0]["content"] == "I slept badly"
-    l1.get_event.assert_any_await("evt-a")
-    l1.get_event.assert_any_await("evt-b")
+    l1.get_user_visible_event.assert_any_await("evt-a")
+    l1.get_user_visible_event.assert_any_await("evt-b")
 
 
 def test_evidence_temporal_uses_time_window(app_factory):
@@ -423,7 +421,7 @@ def test_evidence_temporal_prefers_source_event_ids(app_factory):
         }
     )
     l1 = MagicMock()
-    l1.get_event = AsyncMock(
+    l1.get_user_visible_event = AsyncMock(
         side_effect=[
             {
                 "event_id": "evt-a",
@@ -454,9 +452,33 @@ def test_evidence_temporal_prefers_source_event_ids(app_factory):
     body = resp.json()
     assert body["mode"] == "source_ids"
     assert [it["event_id"] for it in body["items"]] == ["evt-a", "evt-b"]
-    l1.get_event.assert_any_await("evt-a")
-    l1.get_event.assert_any_await("evt-b")
+    l1.get_user_visible_event.assert_any_await("evt-a")
+    l1.get_user_visible_event.assert_any_await("evt-b")
     l1.query_events.assert_not_awaited()
+
+
+def test_evidence_source_ids_hide_non_user_visible_events(app_factory):
+    l3 = MagicMock()
+    l3.get_summary_by_id = AsyncMock(
+        return_value={
+            "summary_id": "ins-private",
+            "summary_type": "insight",
+            "summary_category": "state_change",
+            "source_event_ids": ["evt-deleted", "evt-audit"],
+        }
+    )
+    l1 = MagicMock()
+    l1.get_user_visible_event = AsyncMock(return_value=None)
+    l1.get_event = AsyncMock(side_effect=AssertionError("raw reader must not be used"))
+    unified = MagicMock(l1=l1, l3=l3)
+
+    with override_unified_memory_for_test(unified):
+        response = TestClient(app_factory()).get("/api/memory/stories/ins-private/evidence")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+    assert l1.get_user_visible_event.await_count == 2
+    l1.get_event.assert_not_awaited()
 
 
 def test_evidence_404_for_missing_summary(app_factory):

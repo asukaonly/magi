@@ -145,19 +145,51 @@ class L1EventQueryMixin(
         return filtered[:limit]
 
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]:
-        """Fetch a single event by id."""
+        """Fetch a single event by id, including a soft-deleted event.
+
+        This raw reader exists for deletion retries and maintenance workflows.
+        Product-facing callers must use :meth:`get_user_visible_event`.
+        """
+        return await self._get_event_by_id(event_id)
+
+    async def get_active_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a single event only while it has not been soft-deleted."""
+        return await self._get_event_by_id(event_id, active_only=True)
+
+    async def get_user_visible_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch an active event that is allowed on user-facing surfaces."""
+        return await self._get_event_by_id(
+            event_id,
+            active_only=True,
+            user_visible_only=True,
+        )
+
+    async def _get_event_by_id(
+        self,
+        event_id: str,
+        *,
+        active_only: bool = False,
+        user_visible_only: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         host = cast(L1EventQueryHostProtocol, self)
         await host.initialize()
         try:
             active_embedding_profile_id, _ = host._resolve_active_embedding_profile_id()
         except Exception:
             active_embedding_profile_id = None
+        clauses = ["fact_events.event_id = ?"]
+        args: list[Any] = [event_id]
+        if active_only or user_visible_only:
+            clauses.append("fact_events.deleted_at IS NULL")
+        if user_visible_only:
+            clauses.append("fact_events.l1_retrieval_scope != ?")
+            args.append(int(L1RetrievalScope.AUDIT_ONLY))
         async with sqlite_connection_async(host.db_path, profile="hot_write") as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"SELECT {self._select_event_columns()} FROM {FACT_EVENTS_TABLE} "
-                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE event_id = ?",
-                (event_id,),
+                "LEFT JOIN l1_event_embedding_state USING(event_id) WHERE " + " AND ".join(clauses),
+                tuple(args),
             ) as cursor:
                 row = await cursor.fetchone()
         return (
@@ -200,6 +232,85 @@ class L1EventQueryMixin(
                     for event_id, timestamp in await cursor.fetchall():
                         timestamps[str(event_id)] = float(timestamp)
         return timestamps
+
+    async def get_raw_event_turn_ids(self, event_ids: List[str]) -> Dict[str, str]:
+        """Return turn IDs for existing events, including soft-deleted rows.
+
+        This maintenance reader intentionally bypasses active and user-visible
+        filters so source-event forgetting can be retried after L1 was hidden.
+        """
+        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
+        if not ordered_ids:
+            return {}
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        fetched_turn_ids: Dict[str, str] = {}
+        async with sqlite_connection_async(host.db_path) as db:
+            for offset in range(0, len(ordered_ids), 500):
+                chunk = ordered_ids[offset : offset + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                async with db.execute(
+                    f"SELECT event_id, turn_id FROM {FACT_EVENTS_TABLE} "
+                    f"WHERE event_id IN ({placeholders})",
+                    tuple(chunk),
+                ) as cursor:
+                    for event_id, turn_id in await cursor.fetchall():
+                        normalized_turn_id = str(turn_id or "").strip()
+                        if normalized_turn_id:
+                            fetched_turn_ids[str(event_id)] = normalized_turn_id
+        return {
+            event_id: fetched_turn_ids[event_id]
+            for event_id in ordered_ids
+            if event_id in fetched_turn_ids
+        }
+
+    async def get_raw_event_source_identities(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return replay and turn identities, including soft-deleted rows."""
+        ordered_ids = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
+        if not ordered_ids:
+            return {}
+        host = cast(L1EventQueryHostProtocol, self)
+        await host.initialize()
+        fetched: Dict[str, Dict[str, Any]] = {}
+        async with sqlite_connection_async(host.db_path) as db:
+            for offset in range(0, len(ordered_ids), 500):
+                chunk = ordered_ids[offset : offset + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                async with db.execute(
+                    f"""
+                    SELECT event_id, event_type, source, source_item_id,
+                           idempotency_key, turn_id, session_id, user_id, deleted_at
+                    FROM {FACT_EVENTS_TABLE}
+                    WHERE event_id IN ({placeholders})
+                    """,
+                    tuple(chunk),
+                ) as cursor:
+                    for row in await cursor.fetchall():
+                        fetched[str(row[0])] = {
+                            "event_type": str(row[1] or "").strip() or None,
+                            "source": str(row[2] or "").strip() or None,
+                            "source_item_id": str(row[3] or "").strip() or None,
+                            "idempotency_key": str(row[4] or "").strip() or None,
+                            "turn_id": str(row[5] or "").strip() or None,
+                            "session_id": str(row[6] or "").strip() or None,
+                            "user_id": str(row[7] or "").strip() or None,
+                            "was_active": row[8] is None,
+                        }
+        return {event_id: fetched[event_id] for event_id in ordered_ids if event_id in fetched}
+
+    async def get_raw_event_active_states(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, bool]:
+        """Return visibility-at-read for raw rows, including soft-deleted events."""
+        identities = await self.get_raw_event_source_identities(event_ids)
+        return {
+            event_id: bool(identity.get("was_active"))
+            for event_id, identity in identities.items()
+        }
 
     async def get_event_vectors(
         self,

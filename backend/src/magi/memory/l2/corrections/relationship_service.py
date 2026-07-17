@@ -16,6 +16,7 @@ from ..graph.versions import append_knowledge_graph_version, list_knowledge_grap
 from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
 from ..storage.utils import normalize_store_entity_ref, normalize_store_entity_type
 from .cache_signals import mark_subject_changed
+from .evidence_ledger import append_claim_evidence_event_ids
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
     canonical_scope_json,
@@ -25,6 +26,7 @@ from .fingerprints import (
     scope_key,
     stored_context_scope,
 )
+from .forget_guard import correction_target_was_forgotten
 from .models import (
     ApplyRelationshipCorrectionCommand,
     CorrectionKind,
@@ -44,7 +46,11 @@ from .relationship_conflict_effects import (
     restore_relationship_conflict_effects,
 )
 from .request_identity import correction_request_matches
-from .service import MemoryCorrectionConflictError, MemoryCorrectionValidationError
+from .service import (
+    MemoryCorrectionConflictError,
+    MemoryCorrectionValidationError,
+    ensure_correction_source_event_is_active,
+)
 
 _RESTORABLE_RELATIONSHIP_COLUMNS = (
     "subject_id",
@@ -112,10 +118,10 @@ class RelationshipCorrectionService:
         self,
         command: ApplyRelationshipCorrectionCommand,
     ) -> RelationshipCorrectionResult | None:
-        now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
+            now = time.time()
             try:
                 existing_correction = await self.repository.get_by_request_id_on_connection(
                     db,
@@ -127,6 +133,10 @@ class RelationshipCorrectionService:
                     return _existing_result(existing_correction)
                 graph_conflict_rules = await self._load_graph_conflict_rules(db)
                 _validate_command(command)
+                await ensure_correction_source_event_is_active(
+                    db,
+                    source_event_id=command.source_event_id,
+                )
                 row = await _load_edge(db, command.triple_id)
                 if row is None:
                     await db.commit()
@@ -158,6 +168,19 @@ class RelationshipCorrectionService:
                     replacement_scope,
                 )
                 replacement_id = str(replacement["triple_id"]) if replacement is not None else None
+                if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+                    assert replacement is not None
+                    await _ensure_relationship_scope_available(
+                        db,
+                        slot_key_value=old_slot_key,
+                        scope_key_value=str(replacement.get("scope_key") or "global"),
+                        excluded_triple_ids={command.triple_id, replacement_id or ""},
+                        effective_at=now,
+                        message=(
+                            "The selected scope already has a current memory. "
+                            "Review it before moving this memory."
+                        ),
+                    )
                 if replacement_id and replacement_id != command.triple_id:
                     replacement_exists = await _ensure_replacement_reactivatable(
                         db,
@@ -217,6 +240,29 @@ class RelationshipCorrectionService:
                         source_event_id=command.source_event_id,
                         now=now,
                     )
+                    if command.source_event_id is not None:
+                        await append_claim_evidence_event_ids(
+                            db,
+                            target_kind=CorrectionTargetKind.EDGE,
+                            claim_fingerprint=str(replacement["claim_fingerprint"]),
+                            event_ids=[command.source_event_id],
+                            observed_at=(
+                                command.source_event_observed_at
+                                if command.source_event_observed_at is not None
+                                else now
+                            ),
+                            created_at=now,
+                            event_timestamps=(
+                                {
+                                    command.source_event_id: command.source_event_observed_at,
+                                }
+                                if command.source_event_observed_at is not None
+                                else None
+                            ),
+                            observed_from=float(before["first_observed_at"]),
+                            observed_to=now,
+                            mark_missing_timestamps_approximate=True,
+                        )
                     await append_knowledge_graph_version(
                         db,
                         triple_id=replacement_id,
@@ -326,10 +372,10 @@ class RelationshipCorrectionService:
         request_id: str,
         actor_id: str,
     ) -> RelationshipCorrectionResult | None:
-        now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
+            now = time.time()
             try:
                 correction_row = await _load_correction(db, correction_id)
                 if correction_row is None:
@@ -352,10 +398,26 @@ class RelationshipCorrectionService:
                         current_triple_id=correction.target_id,
                         subject_revision=None,
                     )
+                if await correction_target_was_forgotten(db, correction):
+                    raise MemoryCorrectionConflictError(
+                        "Forgotten memories cannot be restored",
+                        code="memory_forgotten",
+                    )
                 if await _has_newer_correction(db, correction):
                     raise MemoryCorrectionConflictError("A newer correction must be reverted first")
 
                 replacement_id = correction.replacement_target_id
+                await _ensure_relationship_scope_available(
+                    db,
+                    slot_key_value=correction.slot_key,
+                    scope_key_value=str(correction.before.get("scope_key") or "global"),
+                    excluded_triple_ids={correction.target_id, replacement_id or ""},
+                    effective_at=now,
+                    message=(
+                        "The original scope now has a current memory. "
+                        "Review it before reverting this correction."
+                    ),
+                )
                 if replacement_id and replacement_id != correction.target_id:
                     await db.execute(
                         """
@@ -661,6 +723,57 @@ async def _load_correction(
         return await cursor.fetchone()
 
 
+async def _ensure_relationship_scope_available(
+    db: aiosqlite.Connection,
+    *,
+    slot_key_value: str,
+    scope_key_value: str,
+    excluded_triple_ids: set[str],
+    effective_at: float,
+    message: str,
+) -> None:
+    """Reject a scope move before it creates two current relationships."""
+    async with db.execute(
+        """
+        SELECT triple_id
+        FROM knowledge_graph AS graph
+        WHERE slot_key = ? AND scope_key = ?
+          AND (
+              status = 'active'
+              OR EXISTS (
+                  SELECT 1
+                  FROM memory_corrections AS correction
+                  WHERE correction.target_kind = 'edge'
+                    AND correction.state = 'active'
+                    AND correction.transition_applied_at IS NULL
+                    AND correction.transition_cancelled_at IS NULL
+                    AND correction.correction_kind = 'situation_changed'
+                    AND (
+                        correction.target_id = graph.triple_id
+                        OR correction.replacement_target_id = graph.triple_id
+                    )
+              )
+          )
+          AND (valid_to IS NULL OR valid_to > ?)
+          AND (expires_at IS NULL OR expires_at > ?)
+        ORDER BY updated_at DESC, triple_id DESC
+        """,
+        (
+            slot_key_value,
+            scope_key_value,
+            effective_at,
+            effective_at,
+        ),
+    ) as cursor:
+        rows = await cursor.fetchall()
+    if all(str(row["triple_id"]) in excluded_triple_ids for row in rows):
+        return
+    raise MemoryCorrectionConflictError(
+        message,
+        code="relationship_scope_occupied",
+    )
+
+
 async def _ensure_edge_identity(
     db: aiosqlite.Connection,
     before: dict[str, Any],
@@ -901,6 +1014,13 @@ async def _ensure_replacement_reactivatable(
     if existing is None:
         return False
     status = str(existing["status"] or "")
+    is_time_range_forget = (
+        status == "archived"
+        and str(existing["status_reason"] or "") == "user_forget"
+        and str(existing["authority_ref"] or "") == "forget:time_range"
+    )
+    if is_time_range_forget:
+        return True
     if status != "deprecated":
         raise MemoryCorrectionConflictError(
             "Replacement relationship already exists and must be corrected directly"
@@ -1131,6 +1251,22 @@ async def _restore_original_edge(
     )
 
 
+async def restore_relationship_snapshot_on_connection(
+    db: aiosqlite.Connection,
+    *,
+    triple_id: str,
+    before: Mapping[str, Any],
+    now: float,
+) -> None:
+    """Restore a relationship preimage inside an existing governance transaction."""
+    await _restore_original_edge(
+        db,
+        triple_id=triple_id,
+        before=before,
+        now=now,
+    )
+
+
 async def _latest_relationship_evidence_for_segment(
     db: aiosqlite.Connection,
     *,
@@ -1195,6 +1331,7 @@ async def _has_newer_correction(
         """
         SELECT * FROM memory_corrections
         WHERE target_kind = 'edge' AND state = 'active' AND correction_id != ?
+          AND transition_cancelled_at IS NULL
           AND (created_at > ? OR (created_at = ? AND correction_id > ?))
           AND (slot_key = ? OR target_id = ?)
         """,
@@ -1231,7 +1368,9 @@ def _newer_correction_blocks_revert(
 
 def _existing_result(correction: MemoryCorrection) -> RelationshipCorrectionResult:
     current_id = correction.replacement_target_id
-    if correction.state == CorrectionState.REVERTED:
+    if correction.state == CorrectionState.REVERTED or (
+        correction.transition_cancelled_at is not None and correction.transition_applied_at is None
+    ):
         current_id = correction.target_id
     return RelationshipCorrectionResult(
         correction=correction,

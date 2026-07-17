@@ -4819,6 +4819,7 @@ class TestEntityTypeFiltering:
         class _EntityCatalog:
             def __init__(self) -> None:
                 self.entities: dict[str, dict[str, str]] = {}
+                self.entity_sources: dict[str, tuple[str, ...]] = {}
 
             async def resolve_alias(self, _alias_text, *, entity_type=None):
                 return {"decision": "no_match"}
@@ -4826,18 +4827,29 @@ class TestEntityTypeFiltering:
             async def find_by_canonical_name(self, _canonical_name):
                 return []
 
-            async def upsert_entity(self, *, entity_id, canonical_name, entity_type):
+            async def upsert_entity(
+                self,
+                *,
+                entity_id,
+                canonical_name,
+                entity_type,
+                source_event_ids,
+            ):
                 self.entities[entity_id] = {
                     "entity_id": entity_id,
                     "canonical_name": canonical_name,
                     "entity_type": entity_type,
                 }
+                self.entity_sources[entity_id] = tuple(source_event_ids)
 
             async def add_alias(self, **_kwargs):
                 return None
 
             async def record_mention(self, **_kwargs):
                 return None
+
+            async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
+                return tuple(event_ids)
 
             async def list_entities(self, *, limit=20):
                 return list(self.entities.values())[:limit]
@@ -4872,6 +4884,7 @@ class TestEntityTypeFiltering:
             event,
             phase1_result,
             evidence_event_ids=["evt-profile-signal"],
+            evidence_events=[event],
             allowed_entity_types=frozenset({"concept", "software"}),
             profile_signal_object_refs=pipeline._collect_profile_signal_object_refs(phase1_result),
         )
@@ -4879,6 +4892,9 @@ class TestEntityTypeFiltering:
         assert [mention.normalized_surface for mention in resolved] == ["GitHub"]
         entities = await pipeline._entity_catalog.list_entities(limit=20)
         assert {entity["canonical_name"] for entity in entities} == {"GitHub"}
+        assert set(pipeline._entity_catalog.entity_sources.values()) == {
+            ("evt-profile-signal",)
+        }
 
     @pytest.mark.asyncio
     async def test_vague_references_are_not_registered_as_entities(self):
@@ -4895,7 +4911,14 @@ class TestEntityTypeFiltering:
             async def find_by_canonical_name(self, _canonical_name):
                 return []
 
-            async def upsert_entity(self, *, entity_id, canonical_name, entity_type):
+            async def upsert_entity(
+                self,
+                *,
+                entity_id,
+                canonical_name,
+                entity_type,
+                source_event_ids,
+            ):
                 self.entities[entity_id] = {
                     "entity_id": entity_id,
                     "canonical_name": canonical_name,
@@ -4907,6 +4930,9 @@ class TestEntityTypeFiltering:
 
             async def record_mention(self, **_kwargs):
                 return None
+
+            async def filter_projection_source_event_ids(self, *, event_ids, **_kwargs):
+                return tuple(event_ids)
 
             async def list_entities(self, *, limit=20):
                 return list(self.entities.values())[:limit]
@@ -4932,6 +4958,7 @@ class TestEntityTypeFiltering:
             event,
             phase1_result,
             evidence_event_ids=["evt-vague-entity"],
+            evidence_events=[event],
             allowed_entity_types=frozenset({"person", "other", "software"}),
         )
 

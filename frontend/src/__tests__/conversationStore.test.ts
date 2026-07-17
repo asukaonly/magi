@@ -168,6 +168,43 @@ describe('conversation store', () => {
     expect(useConversationStore.getState().historyVersionBySession).toEqual({});
   });
 
+  it('clears one session history while keeping the session available', () => {
+    const store = useConversationStore.getState();
+    store.hydrateSessions([{
+      session_id: 'session-a',
+      title: 'Session A',
+      last_message_preview: 'answer',
+      last_user_message_preview: 'question',
+      title_overridden: false,
+      last_timestamp: 20,
+      message_count: 2,
+      workspace_path: null,
+    }], 'session-a');
+    store.receiveHistory('session-a', [{
+      id: 'msg-a',
+      messageId: 'msg-a',
+      role: 'user',
+      kind: 'user',
+      content: 'question',
+      timestamp: 20_000,
+      turnId: 'turn-a',
+    }], 7);
+
+    store.clearSessionHistory('session-a');
+
+    const state = useConversationStore.getState();
+    expect(state.currentSessionId).toBe('session-a');
+    expect(state.messagesBySession['session-a']).toEqual([]);
+    expect(state.sessionsById['session-a']).toEqual(expect.objectContaining({
+      last_message_preview: '',
+      last_user_message_preview: '',
+      last_timestamp: 0,
+      message_count: 0,
+    }));
+    expect(state.historyVersionBySession['session-a']).toBe(8);
+    expect(state.unreadBySession['session-a']).toBe(0);
+  });
+
   it('keeps local ask transcript messages across history refreshes', () => {
     const store = useConversationStore.getState();
 

@@ -147,12 +147,7 @@ class GraphConflictRuleBody(BaseModel):
 
 
 class AssertionFeedbackRequest(BaseModel):
-    feedback: Literal["confirmed", "rejected"]
-
-
-class AssertionCorrectionRequest(BaseModel):
-    new_value: str = Field(..., min_length=1, max_length=2000)
-    reason: Optional[str] = Field(default=None, max_length=500)
+    feedback: Literal["confirmed"]
 
 
 class MemoryCorrectionTarget(BaseModel):
@@ -271,40 +266,78 @@ class MemoryCorrectionRevertRequest(BaseModel):
     request_id: str = Field(..., min_length=1, max_length=200)
 
 
+class MemoryCorrectionClaimValue(BaseModel):
+    """Public semantic content of one assertion or relationship claim."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: Optional[Any] = None
+    trait_value: Optional[Any] = None
+    subject_id: Optional[str] = None
+    subject_type: Optional[str] = None
+    predicate: Optional[str] = None
+    object_id: Optional[str] = None
+    object_type: Optional[str] = None
+    fact_kind: Optional[str] = None
+    status: Optional[str] = None
+    validation_state: Optional[str] = None
+    scope: Optional[MemoryStoredContextScope] = None
+
+
 class MemoryCorrectionRecord(BaseModel):
+    """Public correction history without governance or evidence identifiers."""
+
+    model_config = ConfigDict(extra="forbid")
+
     correction_id: str
-    request_id: str
-    actor_id: str
-    target_kind: Literal["assertion", "edge"]
-    target_id: str
-    slot_key: str
-    claim_fingerprint: str
     correction_kind: Literal["record_error", "situation_changed", "scope_refinement"]
-    before: Dict[str, Any]
+    before: Optional[MemoryCorrectionClaimValue] = None
     created_at: float
     state: Literal["active", "reverted"]
     reason: Optional[str] = None
-    replacement: Optional[Dict[str, Any]] = None
+    replacement: Optional[MemoryCorrectionClaimValue] = None
     effective_at: Optional[float] = None
     scope: Optional[MemoryStoredContextScope] = None
-    source_event_id: Optional[str] = None
-    audit_event_id: Optional[str] = None
-    replacement_target_id: Optional[str] = None
-    reverted_at: Optional[float] = None
-    reverted_by: Optional[str] = None
+    transition_applied_at: Optional[float] = None
+    transition_cancelled_at: Optional[float] = None
+    target_forgotten: bool = False
+    forget_affected: bool = False
+    content_redacted: bool = False
+    can_revert: bool = False
 
 
 class MemoryCorrectionCommandResponse(BaseModel):
     correction: MemoryCorrectionRecord
-    current_claim: Optional[Dict[str, Any]] = None
+    current_claim: Optional[MemoryCorrectionClaimValue] = None
     subject_revision: Optional[int] = None
     derivation_state: Literal["pending", "running", "completed", "failed"]
     created: bool
 
 
+class MemoryCorrectionVersion(BaseModel):
+    """Public, content-only projection of one correction history version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trait_value: Optional[Any] = None
+    subject_id: Optional[str] = None
+    subject_type: Optional[str] = None
+    predicate: Optional[str] = None
+    object_id: Optional[str] = None
+    object_type: Optional[str] = None
+    status: Optional[str] = None
+    validation_state: Optional[str] = None
+    valid_from: Optional[float] = None
+    valid_to: Optional[float] = None
+    first_inferred_at: Optional[float] = None
+    first_observed_at: Optional[float] = None
+    created_at: Optional[float] = None
+    scope: Optional[MemoryStoredContextScope] = None
+
+
 class MemoryCorrectionHistoryResponse(BaseModel):
     target: MemoryCorrectionTarget
-    versions: List[Dict[str, Any]] = Field(default_factory=list)
+    versions: List[MemoryCorrectionVersion] = Field(default_factory=list)
     corrections: List[MemoryCorrectionRecord] = Field(default_factory=list)
     context_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -411,6 +444,19 @@ class ForgetTimeRangeRequest(BaseModel):
     delete_l1_events: bool = Field(
         default=False, description="Also soft-delete L1 events in this range"
     )
+
+    @field_validator("start", "end")
+    @classmethod
+    def _require_finite_range_timestamp(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("range timestamp must be finite")
+        return value
+
+    @model_validator(mode="after")
+    def _require_ordered_range(self) -> "ForgetTimeRangeRequest":
+        if self.end <= self.start:
+            raise ValueError("end must be greater than start")
+        return self
 
 
 class ForgetEpisodeRequest(BaseModel):

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import MemoryCorrectionDialog from '@/components/memory/correction/MemoryCorrectionDialog';
+import type { MemoryCorrectionUiTarget } from '@/components/memory/correction/memoryCorrectionModel';
 import {
   memoryApi,
   type L2Assertion,
@@ -23,6 +25,7 @@ import {
   type PendingFilter,
 } from './pending/pendingModel';
 import { isMemoryUpdateStory } from './storyFilters';
+import { getPendingAssertionCopy } from '@/utils/memory-assertion-copy';
 
 export const MemoryPendingPage = () => {
   const { t } = useTranslation('app');
@@ -33,6 +36,7 @@ export const MemoryPendingPage = () => {
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<PendingFilter>('all');
+  const [correctionTarget, setCorrectionTarget] = useState<MemoryCorrectionUiTarget | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,10 +68,20 @@ export const MemoryPendingPage = () => {
   const observationCount = stories.length;
 
   const handleAssertion = async (assertion: L2Assertion, action: PendingAction) => {
+    if (action === 'rejected') {
+      setCorrectionTarget({
+        kind: 'assertion',
+        id: assertion.assertion_id,
+        statement: getPendingAssertionCopy(assertion, t).title,
+        currentValue: assertion.trait_value,
+        expectedUpdatedAt: assertion.updated_at ?? undefined,
+      });
+      return;
+    }
     const id = `assertion:${assertion.assertion_id}`;
     setActionId(id);
     try {
-      await memoryApi.submitAssertionFeedback(assertion.assertion_id, action);
+      await memoryApi.submitAssertionFeedback(assertion.assertion_id, 'confirmed');
       setAssertions((items) => items.filter((item) => item.assertion_id !== assertion.assertion_id));
     } finally {
       setActionId(null);
@@ -164,6 +178,16 @@ export const MemoryPendingPage = () => {
           />
         </div>
       )}
+      <MemoryCorrectionDialog
+        open={correctionTarget !== null}
+        target={correctionTarget}
+        initialRecordErrorAction="remove"
+        onOpenChange={(open) => {
+          if (!open) setCorrectionTarget(null);
+        }}
+        onSaved={load}
+        onConflict={load}
+      />
     </MemoryPageFrame>
   );
 };

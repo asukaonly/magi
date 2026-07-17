@@ -11,6 +11,7 @@ from ....core.sqlite import sqlite_connection_async
 from ...sql_search import build_like_search_clause
 from ...hybrid_retrieval.fts_utils import escape_fts_query, tokenize_for_fts
 from ..advisory.tools import build_tool_advisory, is_tool_advisory_notable
+from ..source_event_governance import active_skill_predicate
 from ..storage.schema import EXECUTION_TRACES_TABLE, SKILL_CHUNKS_TABLE
 from ..storage.serialization import row_to_execution_trace_dict, row_to_skill_dict
 from .search import (
@@ -44,7 +45,12 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                "SELECT * FROM procedural_skills WHERE skill_name = ? AND skill_category = ? AND deleted_at IS NULL",
+                f"""
+                SELECT skills.*
+                FROM procedural_skills AS skills
+                WHERE skills.skill_name = ? AND skills.skill_category = ?
+                  AND {active_skill_predicate("skills")}
+                """,
                 (skill_name, skill_category),
             ) as cursor:
                 row = await cursor.fetchone()
@@ -53,19 +59,23 @@ class L4ProceduralRetrievalMixin:
     async def count_skills(self, *, query: str | None = None) -> int:
         """Count all procedural skills."""
         await self.initialize()
-        sql = "SELECT COUNT(*) FROM procedural_skills WHERE deleted_at IS NULL"
+        sql = f"""
+            SELECT COUNT(*)
+            FROM procedural_skills AS skills
+            WHERE {active_skill_predicate("skills")}
+        """
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
             [
-                "skill_id",
-                "skill_name",
-                "skill_category",
-                "skill_type",
-                "circuit_breaker_state",
-                "optimized_prompt",
-                "optimized_params",
-                "context_affinity",
-                "source_event_ids",
+                "skills.skill_id",
+                "skills.skill_name",
+                "skills.skill_category",
+                "skills.skill_type",
+                "skills.circuit_breaker_state",
+                "skills.optimized_prompt",
+                "skills.optimized_params",
+                "skills.context_affinity",
+                "skills.source_event_ids",
             ],
             query,
         )
@@ -85,19 +95,23 @@ class L4ProceduralRetrievalMixin:
     ) -> List[Dict[str, Any]]:
         """List all stored skills."""
         await self.initialize()
-        sql = "SELECT * FROM procedural_skills WHERE deleted_at IS NULL"
+        sql = f"""
+            SELECT skills.*
+            FROM procedural_skills AS skills
+            WHERE {active_skill_predicate("skills")}
+        """
         args: list[Any] = []
         search_sql, search_args = build_like_search_clause(
             [
-                "skill_id",
-                "skill_name",
-                "skill_category",
-                "skill_type",
-                "circuit_breaker_state",
-                "optimized_prompt",
-                "optimized_params",
-                "context_affinity",
-                "source_event_ids",
+                "skills.skill_id",
+                "skills.skill_name",
+                "skills.skill_category",
+                "skills.skill_type",
+                "skills.circuit_breaker_state",
+                "skills.optimized_prompt",
+                "skills.optimized_params",
+                "skills.context_affinity",
+                "skills.source_event_ids",
             ],
             query,
         )
@@ -125,11 +139,14 @@ class L4ProceduralRetrievalMixin:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"""
-                SELECT skill_name, circuit_breaker_state, success_rate,
-                       total_attempts, optimized_prompt, context_affinity,
-                       failure_count, last_failure_at
-                FROM procedural_skills
-                WHERE skill_category = 'tool' AND skill_name IN ({placeholders}) AND deleted_at IS NULL
+                SELECT skills.skill_name, skills.circuit_breaker_state,
+                       skills.success_rate, skills.total_attempts,
+                       skills.optimized_prompt, skills.context_affinity,
+                       skills.failure_count, skills.last_failure_at
+                FROM procedural_skills AS skills
+                WHERE skills.skill_category = 'tool'
+                  AND skills.skill_name IN ({placeholders})
+                  AND {active_skill_predicate("skills")}
                 """,
                 tuple(tool_names),
             ) as cursor:
@@ -142,9 +159,7 @@ class L4ProceduralRetrievalMixin:
             row = known.get(name)
             if row is None:
                 continue
-            result.append(
-                build_tool_advisory(row=row, tool_name=name, task_context=task_context)
-            )
+            result.append(build_tool_advisory(row=row, tool_name=name, task_context=task_context))
 
         return result
 
@@ -158,19 +173,20 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
-                SELECT skill_name, circuit_breaker_state, success_rate,
-                       total_attempts, optimized_prompt, context_affinity,
-                       failure_count, last_failure_at
-                FROM procedural_skills
-                WHERE skill_category = 'tool'
-                  AND deleted_at IS NULL
+                f"""
+                SELECT skills.skill_name, skills.circuit_breaker_state,
+                       skills.success_rate, skills.total_attempts,
+                       skills.optimized_prompt, skills.context_affinity,
+                       skills.failure_count, skills.last_failure_at
+                FROM procedural_skills AS skills
+                WHERE skills.skill_category = 'tool'
+                  AND {active_skill_predicate("skills")}
                   AND (
-                      circuit_breaker_state != 'closed'
-                      OR (optimized_prompt IS NOT NULL AND optimized_prompt != '' AND optimized_prompt != '{}')
-                      OR (success_rate < 0.7 AND total_attempts >= 3)
+                      skills.circuit_breaker_state != 'closed'
+                      OR (skills.optimized_prompt IS NOT NULL AND skills.optimized_prompt != '' AND skills.optimized_prompt != '{{}}')
+                      OR (skills.success_rate < 0.7 AND skills.total_attempts >= 3)
                   )
-                ORDER BY updated_at DESC
+                ORDER BY skills.updated_at DESC
                 LIMIT ?
                 """,
                 (int(limit * 2),),
@@ -202,11 +218,12 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
-                SELECT * FROM procedural_skills
-                WHERE (skill_name LIKE ? OR COALESCE(optimized_prompt, '') LIKE ?)
-                  AND deleted_at IS NULL
-                ORDER BY success_rate DESC, updated_at DESC
+                f"""
+                SELECT skills.*
+                FROM procedural_skills AS skills
+                WHERE (skills.skill_name LIKE ? OR COALESCE(skills.optimized_prompt, '') LIKE ?)
+                  AND {active_skill_predicate("skills")}
+                ORDER BY skills.success_rate DESC, skills.updated_at DESC
                 LIMIT ?
                 """,
                 (like_query, like_query, int(limit)),
@@ -251,10 +268,14 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             try:
                 async with db.execute(
-                    """
-                    SELECT skill_id, bm25(l4_skills_fts) AS score
+                    f"""
+                    SELECT l4_skills_fts.skill_id,
+                           bm25(l4_skills_fts) AS score
                     FROM l4_skills_fts
+                    JOIN procedural_skills AS skills
+                      ON skills.skill_id = l4_skills_fts.skill_id
                     WHERE l4_skills_fts MATCH ?
+                      AND {active_skill_predicate("skills")}
                     ORDER BY score
                     LIMIT ?
                     """,
@@ -276,11 +297,12 @@ class L4ProceduralRetrievalMixin:
         like_q = escaped_skill_like_pattern(query)
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
-                """
-                SELECT skill_id FROM procedural_skills
-                WHERE (skill_name LIKE ? ESCAPE '\\' OR COALESCE(optimized_prompt, '') LIKE ? ESCAPE '\\')
-                  AND deleted_at IS NULL
-                ORDER BY success_rate DESC, updated_at DESC
+                f"""
+                SELECT skills.skill_id
+                FROM procedural_skills AS skills
+                WHERE (skills.skill_name LIKE ? ESCAPE '\\' OR COALESCE(skills.optimized_prompt, '') LIKE ? ESCAPE '\\')
+                  AND {active_skill_predicate("skills")}
+                ORDER BY skills.success_rate DESC, skills.updated_at DESC
                 LIMIT ?
                 """,
                 (like_q, like_q, limit),
@@ -296,7 +318,12 @@ class L4ProceduralRetrievalMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders}) AND deleted_at IS NULL",
+                f"""
+                SELECT skills.*
+                FROM procedural_skills AS skills
+                WHERE skills.skill_id IN ({placeholders})
+                  AND {active_skill_predicate("skills")}
+                """,
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -307,13 +334,13 @@ class L4ProceduralRetrievalMixin:
         await self.initialize()
         indexed = 0
         async with sqlite_connection_async(self.db_path) as db:
-            async with db.execute(
-                """
-                SELECT skill_id, skill_name, skill_category, optimized_prompt
-                FROM procedural_skills
-                WHERE skill_id NOT IN (SELECT skill_id FROM l4_skills_fts)
-                """
-            ) as cursor:
+            async with db.execute(f"""
+                SELECT skills.skill_id, skills.skill_name,
+                       skills.skill_category, skills.optimized_prompt
+                FROM procedural_skills AS skills
+                WHERE skills.skill_id NOT IN (SELECT skill_id FROM l4_skills_fts)
+                  AND {active_skill_predicate("skills")}
+                """) as cursor:
                 batch: list[tuple[str, str]] = []
                 async for row in cursor:
                     batch.append(fts_backfill_row(row))
@@ -345,12 +372,17 @@ class L4ProceduralRetrievalMixin:
             db.row_factory = aiosqlite.Row
             async with db.execute(
                 f"""
-                SELECT trace_id, skill_id, event_id, turn_id, success, duration_ms,
-                       error_summary, input_summary, output_summary, task_context,
-                       created_at
-                FROM {EXECUTION_TRACES_TABLE}
-                WHERE skill_id = ?
-                ORDER BY created_at DESC
+                SELECT traces.trace_id, traces.skill_id, traces.event_id,
+                       traces.turn_id, traces.success, traces.duration_ms,
+                       traces.error_summary, traces.input_summary,
+                       traces.output_summary, traces.task_context,
+                       traces.created_at
+                FROM {EXECUTION_TRACES_TABLE} AS traces
+                JOIN procedural_skills AS skills
+                  ON skills.skill_id = traces.skill_id
+                WHERE traces.skill_id = ?
+                  AND {active_skill_predicate("skills")}
+                ORDER BY traces.created_at DESC
                 LIMIT ?
                 """,
                 (skill_id, int(limit)),

@@ -155,7 +155,7 @@ class L2StoreEdgeEmbeddingMixin:
 
         query = (
             f"SELECT * FROM knowledge_graph WHERE triple_id IN ({placeholders})"
-            f"{status_clause}{predicate_clause}"
+            f" AND embedding_status = 'ready'{status_clause}{predicate_clause}"
         )
         return query, args
 

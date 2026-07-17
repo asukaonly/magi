@@ -98,6 +98,11 @@ class L1RetrievalScope(_LabeledIntEnum):
         }
 
 
+USER_VISIBLE_L1_RETRIEVAL_SCOPES = tuple(
+    scope.label for scope in L1RetrievalScope if scope != L1RetrievalScope.AUDIT_ONLY
+)
+
+
 class GraphScope(_LabeledIntEnum):
     NONE = 1
     FULL = 2
@@ -170,4 +175,5 @@ __all__ = [
     "GraphScope",
     "L1RetrievalScope",
     "PolicyDecision",
+    "USER_VISIBLE_L1_RETRIEVAL_SCOPES",
 ]

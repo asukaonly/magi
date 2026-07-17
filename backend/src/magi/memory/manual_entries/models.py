@@ -40,6 +40,13 @@ class ManualEntry:
     user_pinned: bool = False
     deleted_at: Optional[float] = None
     l1_event_id: Optional[str] = None
+    # Cross-store projection ownership is recorded before an L1 write.  These
+    # fields are deliberately internal: API callers only need the linked
+    # projection, while repair/delete flows need the durable in-flight
+    # identity when a request stops between the two databases.
+    pending_l1_event_id: Optional[str] = None
+    pending_l1_predecessor_event_id: Optional[str] = None
+    delete_requested_at: Optional[float] = None
     # Ambient weather snapshot resolved against Open-Meteo at the entry's
     # event_at + location. Shape: {"code": int, "temp_c": float,
     # "fetched_at": float}. Null when no lat/lng was resolvable or the

@@ -62,6 +62,17 @@ class SessionWorkspaceUpdateResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class ChatMessageSourceIdentity:
+    """Source identity needed before a user deletes one chat message."""
+
+    message_id: str
+    session_id: str
+    user_id: str
+    role: str
+    turn_id: str | None
+
+
 @dataclass(slots=True)
 class ChatDisplayMessage:
     """Typed read model for chat history and display timeline messages."""

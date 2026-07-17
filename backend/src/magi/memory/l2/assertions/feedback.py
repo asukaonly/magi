@@ -65,6 +65,11 @@ class _FeedbackHostProtocol(Protocol):
 
     async def wake_memory_correction_jobs(self) -> bool: ...
 
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: list[str],
+    ) -> Dict[str, float]: ...
+
 
 class L2StoreFeedbackMixin:
     """Apply user feedback and user-initiated assertion corrections."""
@@ -99,15 +104,14 @@ class L2StoreFeedbackMixin:
                 return None
             return await host.get_tom_assertion(assertion_id=assertion_id)
 
-        if (
-            existing_assertion.get("user_feedback") == "confirmed"
-            and existing_assertion.get("status") not in {
-                "archived",
-                "expired",
-                "superseded",
-                "user_rejected",
-            }
-        ):
+        if existing_assertion.get("user_feedback") == "confirmed" and existing_assertion.get(
+            "status"
+        ) not in {
+            "archived",
+            "expired",
+            "superseded",
+            "user_rejected",
+        }:
             return existing_assertion
 
         now = time.time()
@@ -172,41 +176,6 @@ class L2StoreFeedbackMixin:
         await _notify_feedback_assertion_changed(host, result)
         return result
 
-    async def correct_assertion(
-        self,
-        *,
-        assertion_id: str,
-        new_value: str,
-        reason: Optional[str] = None,
-        request_id: str | None = None,
-        actor_id: str = "local_user",
-        correction_kind: CorrectionKind | str = CorrectionKind.RECORD_ERROR,
-        effective_at: float | None = None,
-        scope: Dict[str, Any] | None = None,
-        source_event_id: str | None = None,
-        audit_event_id: str | None = None,
-        expected_updated_at: float | None = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Apply a user-provided corrected value through correction governance."""
-        host = cast(_FeedbackHostProtocol, self)
-        await host.initialize()
-        result = await self.apply_assertion_correction(
-            assertion_id=assertion_id,
-            request_id=request_id or f"correction_request_{uuid.uuid4().hex}",
-            actor_id=actor_id,
-            correction_kind=CorrectionKind(correction_kind),
-            replacement_value=new_value,
-            reason=reason,
-            effective_at=effective_at,
-            scope=scope,
-            source_event_id=source_event_id,
-            audit_event_id=audit_event_id,
-            expected_updated_at=expected_updated_at,
-        )
-        if result is None or result["current_assertion"] is None:
-            return None
-        return cast(Dict[str, Any], result["current_assertion"])
-
     async def apply_assertion_correction(
         self,
         *,
@@ -225,6 +194,11 @@ class L2StoreFeedbackMixin:
         """Apply one governed assertion correction and return its current claim."""
         host = cast(_FeedbackHostProtocol, self)
         await host.initialize()
+        source_event_timestamps = (
+            await host.resolve_evidence_timestamps([source_event_id])
+            if source_event_id is not None
+            else {}
+        )
         service = MemoryCorrectionService(host.db_path)
         result = await service.apply_assertion_correction(
             ApplyAssertionCorrectionCommand(
@@ -237,6 +211,7 @@ class L2StoreFeedbackMixin:
                 effective_at=effective_at,
                 scope=scope,
                 source_event_id=source_event_id,
+                source_event_observed_at=source_event_timestamps.get(source_event_id),
                 audit_event_id=audit_event_id,
                 expected_updated_at=expected_updated_at,
             )

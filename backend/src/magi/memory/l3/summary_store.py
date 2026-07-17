@@ -10,7 +10,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Mapping, Optional
 
 import aiosqlite
 
@@ -23,6 +23,7 @@ from ..embedding.sqlite_vec_index import SqliteVecIndex
 from .episode_backwrite import backwrite_episode_summary, episode_needs_summary_backfill
 from .evidence_selector import TemporalEvidenceSelection, select_temporal_evidence
 from .episodic_service import EpisodicSummaryLLMService
+from .source_event_governance import active_summary_predicate
 from .topic_llm_service import TopicSummaryLLMService
 from .temporal_llm_service import TemporalSummaryLLMService
 from .validator import validate_candidate
@@ -36,7 +37,7 @@ from .models import (
 from .embeddings.operations import L3SummaryEmbeddingMixin
 from .retrieval.operations import L3SummarySearchMixin
 from .storage.schema import ensure_l3_summary_schema
-from .storage.operations import L3SummaryPersistenceMixin
+from .storage.operations import L3SummaryPersistenceMixin, SummaryWriteGuardRejected
 from .storage.review_operations import L3ReviewOperationsMixin
 
 logger = logging.getLogger(__name__)
@@ -388,6 +389,9 @@ class L3SummaryStore(
         temporal_llm_min_event_count: int = 2,
         scenario_llm_pool: ScenarioLLMPool | None = None,
         temporal_summary_features_builder: Callable[..., dict[str, Any]] | None = None,
+        evidence_timestamp_resolver: (
+            Callable[[List[str]], Awaitable[Mapping[str, float]]] | None
+        ) = None,
     ) -> None:
         self.db_path = str(Path(db_path).expanduser())
         self._embedding_service = embedding_service
@@ -411,6 +415,7 @@ class L3SummaryStore(
             scenario_llm_pool=scenario_llm_pool,
         )
         self._temporal_summary_features_builder = temporal_summary_features_builder
+        self._evidence_timestamp_resolver = evidence_timestamp_resolver
         self._vector_index = (
             SqliteVecIndex(
                 db_path=self.db_path,
@@ -431,6 +436,21 @@ class L3SummaryStore(
         self._embedding_mutation_lock = asyncio.Lock()
         self._operation_guard_factory: Callable[[], Any] | None = None
         self._initialized = False
+
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, float]:
+        """Resolve immutable L1 occurrence times for summary write governance."""
+        normalized = list(dict.fromkeys(str(event_id) for event_id in event_ids if event_id))
+        if not normalized or self._evidence_timestamp_resolver is None:
+            return {}
+        resolved = await self._evidence_timestamp_resolver(normalized)
+        return {
+            str(event_id): float(observed_at)
+            for event_id, observed_at in resolved.items()
+            if str(event_id) in normalized
+        }
 
     def set_operation_guard_factory(self, factory: Callable[[], Any]) -> None:
         """Bind the unified clear barrier used by embedding batches."""
@@ -721,9 +741,9 @@ class L3SummaryStore(
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
+                f"""
                 SELECT * FROM summaries
-                WHERE derivation_state = 'current'
+                WHERE {active_summary_predicate()}
                   AND summary_type = 'temporal'
                   AND summary_category = ?
                   AND period_end <= ?
@@ -756,7 +776,7 @@ class L3SummaryStore(
             async with db.execute(
                 f"""
                 SELECT * FROM summaries
-                WHERE derivation_state = 'current'
+                WHERE {active_summary_predicate()}
                   AND summary_type = 'temporal'
                   AND summary_category IN ({placeholders})
                   AND period_end >= ?
@@ -924,6 +944,7 @@ class L3SummaryStore(
         self,
         *,
         l1_store: L1EventStore,
+        l2_store: Any,
         episode: Dict[str, Any],
         episode_event_ids: List[str],
     ) -> Optional[Dict[str, Any]]:
@@ -968,19 +989,30 @@ class L3SummaryStore(
             fallback_content=fallback_content,
         )
 
-        summary = await self.upsert_candidate(
-            candidate=generation.candidate,
-            summary_overrides={
-                "summary_id": f"summary_{uuid.uuid4().hex}",
-                "summary_type": "thematic",
-                "summary_category": "episodic",
-                "period_start": pack.time_start,
-                "period_end": pack.time_end,
-                "generated_by_model": (
-                    "rule-summary" if generation.used_fallback else "episodic-llm"
-                ),
-            },
-        )
+        async def source_guard(db: aiosqlite.Connection) -> bool:
+            return await l2_store.summary_sources_are_active(
+                db=db,
+                experience_id=None,
+                episode_ids=[episode_id],
+            )
+
+        try:
+            summary = await self.upsert_candidate(
+                candidate=generation.candidate,
+                summary_overrides={
+                    "summary_id": f"summary_{uuid.uuid4().hex}",
+                    "summary_type": "thematic",
+                    "summary_category": "episodic",
+                    "period_start": pack.time_start,
+                    "period_end": pack.time_end,
+                    "generated_by_model": (
+                        "rule-summary" if generation.used_fallback else "episodic-llm"
+                    ),
+                },
+                write_guard=source_guard,
+            )
+        except SummaryWriteGuardRejected:
+            return None
         return summary
 
     async def generate_missing_episodic_summaries(
@@ -1020,7 +1052,7 @@ class L3SummaryStore(
             seen.add(episode_id)
             try:
                 episode = await l2_store.get_episode(episode_id=episode_id)
-                if episode is None:
+                if episode is None or str(episode.get("status") or "") != "active":
                     continue
                 existing = await self.get_episodic_summary_by_episode_id(episode_id)
                 if existing is not None:
@@ -1042,6 +1074,7 @@ class L3SummaryStore(
                     continue
                 summary = await self.generate_episodic_summary(
                     l1_store=l1_store,
+                    l2_store=l2_store,
                     episode=episode,
                     episode_event_ids=event_ids,
                 )
@@ -1088,13 +1121,25 @@ class L3SummaryStore(
             context=context,
             draft=draft,
         )
-        return await self.upsert_candidate(
-            candidate=candidate,
-            summary_overrides=self._experience_summary_overrides(
-                context=context,
-                used_fallback=draft.used_fallback,
-            ),
-        )
+
+        async def source_guard(db: aiosqlite.Connection) -> bool:
+            return await l2_store.summary_sources_are_active(
+                db=db,
+                experience_id=context.experience_id,
+                episode_ids=context.episode_ids,
+            )
+
+        try:
+            return await self.upsert_candidate(
+                candidate=candidate,
+                summary_overrides=self._experience_summary_overrides(
+                    context=context,
+                    used_fallback=draft.used_fallback,
+                ),
+                write_guard=source_guard,
+            )
+        except SummaryWriteGuardRejected:
+            return None
 
     async def _build_experience_summary_context(
         self,

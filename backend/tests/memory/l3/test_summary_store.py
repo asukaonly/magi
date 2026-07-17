@@ -32,6 +32,16 @@ class _ExperienceSummaryL2Stub:
         event_ids = self._events_by_episode.get(episode_id, self._default_event_ids)
         return [{"episode_id": episode_id, "event_id": event_id} for event_id in event_ids]
 
+    async def summary_sources_are_active(
+        self,
+        *,
+        db,
+        experience_id: str | None,
+        episode_ids: list[str],
+    ) -> bool:
+        _ = db, experience_id, episode_ids
+        return True
+
 
 class _BatchTrackingEmbeddingService:
     def __init__(self) -> None:
@@ -192,6 +202,7 @@ async def test_generate_episodic_summary_fetches_events_in_one_batch(
 
     summary = await l3_store.generate_episodic_summary(
         l1_store=l1_store,
+        l2_store=_ExperienceSummaryL2Stub(["evt-first", "evt-second"]),
         episode={
             "episode_id": "ep-batch",
             "episode_type": "activity",
@@ -484,6 +495,160 @@ async def test_generate_experience_summary_marks_llm_candidate(
 
     assert summary is not None
     assert summary["generated_by_model"] == "episodic-llm"
+
+
+@pytest.mark.asyncio
+async def test_experience_summary_does_not_resurface_after_episode_forget(
+    tmp_path,
+    l3_store_with_schema,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.store import L2CognitionStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1-race.db"), vector_enabled=False)
+    await l1_store.initialize()
+    event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={"user_id": "u1", "session_id": "s1", "content": "Private trip note"},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-exp-race",
+            timestamp=1710000000.0,
+            event_id="evt-exp-race",
+        )
+    )
+    await l1_store.store(event)
+    l2_store = L2CognitionStore(db_path=l3_store_with_schema.db_path)
+    await l2_store.initialize()
+    await l2_store.create_episode(
+        episode_id="ep-exp-race",
+        status="active",
+        time_start=1710000000.0,
+        time_end=1710000300.0,
+    )
+    await l2_store.add_episode_events(
+        episode_id="ep-exp-race",
+        event_ids=["evt-exp-race"],
+    )
+    await l2_store.create_experience(
+        experience_id="exp-race",
+        status="active",
+        title="Private trip",
+        time_start=1710000000.0,
+        time_end=1710000300.0,
+    )
+    await l2_store.add_experience_members(
+        experience_id="exp-race",
+        members=[{"member_type": "episode", "member_id": "ep-exp-race"}],
+    )
+
+    async def forget_before_write(pack, *, fallback_label, fallback_content):
+        _ = fallback_label, fallback_content
+        await l2_store.forget_episode(episode_id="ep-exp-race")
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="Private trip recap must not return.",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={"label": "Private trip"},
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        l3_store_with_schema._episodic_llm_service,
+        "generate_experience_review",
+        forget_before_write,
+    )
+
+    summary = await l3_store_with_schema.generate_experience_summary(
+        l1_store=l1_store,
+        l2_store=l2_store,
+        experience={
+            "experience_id": "exp-race",
+            "title": "Private trip",
+            "time_start": 1710000000.0,
+            "time_end": 1710000300.0,
+        },
+        experience_members=[{"member_type": "episode", "member_id": "ep-exp-race", "role": "core"}],
+    )
+
+    assert summary is None
+    assert await l3_store_with_schema.get_episodic_summary_by_experience_id("exp-race") is None
+
+
+@pytest.mark.asyncio
+async def test_episode_summary_does_not_resurface_after_episode_forget(
+    tmp_path,
+    l3_store_with_schema,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from magi.memory.l1.event_store import L1EventStore
+    from magi.memory.l2.store import L2CognitionStore
+
+    l1_store = L1EventStore(db_path=str(tmp_path / "l1-episode-race.db"), vector_enabled=False)
+    await l1_store.initialize()
+    event = normalize_runtime_event(
+        Event(
+            type=EventTypes.USER_MESSAGE,
+            data={"user_id": "u1", "session_id": "s1", "content": "Private episode"},
+            source="chat",
+            level=EventLevel.INFO,
+            correlation_id="evt-episode-race",
+            timestamp=1710000000.0,
+            event_id="evt-episode-race",
+        )
+    )
+    await l1_store.store(event)
+    l2_store = L2CognitionStore(db_path=l3_store_with_schema.db_path)
+    await l2_store.initialize()
+    episode = {
+        "episode_id": "ep-summary-race",
+        "status": "active",
+        "episode_type": "activity",
+        "time_start": 1710000000.0,
+        "time_end": 1710000300.0,
+        "primary_entity_ids": [],
+        "primary_topic_keys": [],
+    }
+    await l2_store.create_episode(**episode)
+    await l2_store.add_episode_events(
+        episode_id="ep-summary-race",
+        event_ids=["evt-episode-race"],
+    )
+
+    async def forget_before_write(pack, *, fallback_label, fallback_content):
+        _ = fallback_label, fallback_content
+        await l2_store.forget_episode(episode_id="ep-summary-race")
+        return EpisodicGenerationResult(
+            candidate=L3Candidate(
+                summary_type="thematic",
+                summary_category="episodic",
+                content="Private episode recap must not return.",
+                source_event_ids=list(pack.source_event_ids),
+                insight_metadata={"source_episode_id": "ep-summary-race", "label": "Private"},
+            ),
+            used_fallback=False,
+        )
+
+    monkeypatch.setattr(
+        l3_store_with_schema._episodic_llm_service,
+        "generate_episodic_candidate",
+        forget_before_write,
+    )
+
+    summary = await l3_store_with_schema.generate_episodic_summary(
+        l1_store=l1_store,
+        l2_store=l2_store,
+        episode=episode,
+        episode_event_ids=["evt-episode-race"],
+    )
+
+    assert summary is None
+    assert await l3_store_with_schema.get_episodic_summary_by_episode_id("ep-summary-race") is None
 
 
 @pytest.mark.asyncio

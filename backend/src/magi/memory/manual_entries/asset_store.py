@@ -21,10 +21,10 @@ Adding HEIC support is a Phase B follow-up that pulls in pillow-heif.
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 from pathlib import Path
 from typing import Optional
-
 
 # Content-Type → file extension. The keys are what we accept on upload;
 # anything else gets a 415 at the route layer.
@@ -54,6 +54,12 @@ EXT_TO_CONTENT_TYPE: dict[str, str] = {
 
 ASSET_SCHEME = "manual-entry-asset"
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_CANONICAL_EXTENSIONS = frozenset(ACCEPTED_CONTENT_TYPES.values())
+_ASSET_REF_PATTERN = re.compile(
+    rf"{re.escape(ASSET_SCHEME)}://"
+    rf"(?P<digest>[0-9a-f]{{64}})\."
+    rf"(?P<ext>{'|'.join(sorted(_CANONICAL_EXTENSIONS))})\Z"
+)
 
 
 class ManualEntryAssetStore:
@@ -72,7 +78,9 @@ class ManualEntryAssetStore:
         if ext is None:
             raise ValueError(f"Unsupported content type: {content_type}")
         digest = hashlib.sha256(data).hexdigest()
-        path = self._path_for(digest, ext)
+        path = self._safe_path_for(digest, ext)
+        if path is None:
+            raise RuntimeError("Asset path resolved outside the owned media directory")
         path.parent.mkdir(parents=True, exist_ok=True)
         if not path.exists():
             # Write atomically: temp file in same dir, then rename
@@ -83,23 +91,29 @@ class ManualEntryAssetStore:
 
     def resolve(self, asset_ref: str) -> Optional[tuple[bytes, str]]:
         """Resolve an asset_ref to (bytes, content_type), or None if absent."""
-        scheme, _, tail = asset_ref.partition("://")
-        if scheme != ASSET_SCHEME or not tail:
+        parsed = self._parse_asset_ref(asset_ref)
+        if parsed is None:
             return None
-        digest, _, ext = tail.rpartition(".")
-        if not digest or not ext:
-            return None
+        digest, ext = parsed
         content_type = EXT_TO_CONTENT_TYPE.get(ext.lower())
         if content_type is None:
             return None
-        path = self._path_for(digest, ext)
-        if not path.exists():
+        path = self._safe_path_for(digest, ext)
+        if path is None or not path.is_file():
             return None
         try:
             data = path.read_bytes()
         except OSError:
             return None
         return data, content_type
+
+    def has_asset(self, asset_ref: str) -> bool:
+        """Return whether a canonical ref points to a stored file owned by this store."""
+        parsed = self._parse_asset_ref(asset_ref)
+        if parsed is None:
+            return False
+        path = self._safe_path_for(*parsed)
+        return path is not None and path.is_file()
 
     def clear(self) -> int:
         """Delete every manual-entry asset while preserving the owned root directory."""
@@ -113,3 +127,20 @@ class ManualEntryAssetStore:
 
     def _path_for(self, digest: str, ext: str) -> Path:
         return self._root / digest[:2] / f"{digest}.{ext}"
+
+    @staticmethod
+    def _parse_asset_ref(asset_ref: str) -> tuple[str, str] | None:
+        match = _ASSET_REF_PATTERN.fullmatch(str(asset_ref or ""))
+        if match is None:
+            return None
+        return match.group("digest"), match.group("ext")
+
+    def _safe_path_for(self, digest: str, ext: str) -> Path | None:
+        """Resolve one asset path and reject symlink or traversal escapes."""
+        try:
+            root = self._root.resolve(strict=False)
+            candidate = self._path_for(digest, ext).resolve(strict=False)
+            candidate.relative_to(root)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        return candidate

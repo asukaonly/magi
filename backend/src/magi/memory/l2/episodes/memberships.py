@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...source_event_governance import (
+    promote_source_event_entity_projection_candidates,
+)
 from .codec import L2EpisodeStoreBaseMixin
 
 
@@ -21,23 +25,86 @@ class L2EpisodeMembershipMixin(L2EpisodeStoreBaseMixin):
         event_ids: List[str],
         membership_role: str = "member",
         membership_confidence: float = 0.5,
+        expected_status: str | None = None,
     ) -> int:
-        """Add events to an episode. Returns the number of new memberships."""
+        """Add events when the episode's current status matches."""
         await self.initialize()
         now = time.time()
         added = 0
         async with sqlite_connection_async(self.db_path) as db:
-            for event_id in event_ids:
-                cursor = await db.execute(
-                    """
-                    INSERT OR IGNORE INTO episode_events(
-                        episode_id, event_id, membership_role, membership_confidence, added_at
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    (episode_id, event_id, membership_role, membership_confidence, now),
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                status_clause = "" if expected_status is None else " AND status = ?"
+                status_args: tuple[Any, ...] = (
+                    (episode_id,) if expected_status is None else (episode_id, str(expected_status))
                 )
-                added += int(cursor.rowcount > 0)
-            await db.commit()
+                async with db.execute(
+                    "SELECT primary_entity_ids FROM episodes "
+                    f"WHERE episode_id = ?{status_clause}",
+                    status_args,
+                ) as episode_cursor:
+                    episode_row = await episode_cursor.fetchone()
+                try:
+                    decoded_primary_entity_ids = (
+                        json.loads(str(episode_row[0] or "[]")) if episode_row is not None else []
+                    )
+                except (TypeError, json.JSONDecodeError):
+                    decoded_primary_entity_ids = []
+                primary_entity_ids = (
+                    decoded_primary_entity_ids
+                    if isinstance(decoded_primary_entity_ids, list)
+                    else []
+                )
+                normalized_entity_ids = [
+                    str(entity_id).strip()
+                    for entity_id in primary_entity_ids
+                    if str(entity_id).strip()
+                ]
+
+                for event_id in event_ids:
+                    await promote_source_event_entity_projection_candidates(
+                        db,
+                        [event_id],
+                        entity_ids=normalized_entity_ids,
+                    )
+                    if expected_status is None:
+                        cursor = await db.execute(
+                            """
+                            INSERT OR IGNORE INTO episode_events(
+                                episode_id, event_id, membership_role,
+                                membership_confidence, added_at
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (episode_id, event_id, membership_role, membership_confidence, now),
+                        )
+                    else:
+                        cursor = await db.execute(
+                            """
+                            INSERT OR IGNORE INTO episode_events(
+                                episode_id, event_id, membership_role,
+                                membership_confidence, added_at
+                            )
+                            SELECT ?, ?, ?, ?, ?
+                            WHERE EXISTS (
+                                SELECT 1 FROM episodes
+                                WHERE episode_id = ? AND status = ?
+                            )
+                            """,
+                            (
+                                episode_id,
+                                event_id,
+                                membership_role,
+                                membership_confidence,
+                                now,
+                                episode_id,
+                                str(expected_status),
+                            ),
+                        )
+                    added += int(cursor.rowcount > 0)
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
         return added
 
     async def count_episode_events(self, *, episode_id: str) -> int:
@@ -100,17 +167,30 @@ class L2EpisodeMembershipMixin(L2EpisodeStoreBaseMixin):
         return self._episode_row_to_dict(row)
 
     async def remove_episode_events(
-        self, *, episode_id: str, event_ids: List[str]
+        self,
+        *,
+        episode_id: str,
+        event_ids: List[str],
+        expected_status: str | None = None,
     ) -> int:
-        """Remove events from an episode. Returns the count removed."""
+        """Remove events when the episode's current status matches."""
         if not event_ids:
             return 0
         await self.initialize()
         placeholders = ", ".join("?" for _ in event_ids)
         async with sqlite_connection_async(self.db_path) as db:
+            status_clause = ""
+            args: tuple[Any, ...] = (episode_id, *event_ids)
+            if expected_status is not None:
+                status_clause = (
+                    " AND EXISTS (SELECT 1 FROM episodes "
+                    "WHERE episodes.episode_id = episode_events.episode_id AND status = ?)"
+                )
+                args = (*args, str(expected_status))
             cursor = await db.execute(
-                f"DELETE FROM episode_events WHERE episode_id = ? AND event_id IN ({placeholders})",
-                (episode_id, *event_ids),
+                f"DELETE FROM episode_events WHERE episode_id = ? "
+                f"AND event_id IN ({placeholders}){status_clause}",
+                args,
             )
             await db.commit()
             return cursor.rowcount

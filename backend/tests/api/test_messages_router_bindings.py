@@ -578,8 +578,8 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
 ) -> None:
     captured: dict[str, object] = {}
 
-    class _FakeChatSurfaceWriter:
-        async def hide_message(
+    class _FakeForgettingService:
+        async def delete_message(
             self,
             *,
             user_id: str,
@@ -592,7 +592,9 @@ async def test_delete_message_route_soft_deletes_existing_chat_message(
             return True
 
     monkeypatch.setattr(
-        messages_mutations, "require_chat_surface_write_service", lambda: _FakeChatSurfaceWriter()
+        messages_mutations,
+        "get_chat_forgetting_service",
+        lambda: _FakeForgettingService(),
     )
 
     response = await messages_router.delete_message(

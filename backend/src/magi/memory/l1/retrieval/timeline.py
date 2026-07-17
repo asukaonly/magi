@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, cast
 
+from ...evidence import USER_VISIBLE_L1_RETRIEVAL_SCOPES
 from .common import L1EventQueryHostProtocol
 
 
@@ -13,7 +14,7 @@ class L1TimelineQueryMixin:
     async def get_timeline_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Return a minimal timeline-shaped view from canonical L1 columns."""
         host = cast(L1EventQueryHostProtocol, self)
-        event = await host.get_event(event_id)
+        event = await host.get_user_visible_event(event_id)
         return host._to_timeline_view(event)
 
     async def list_timeline_events(
@@ -21,7 +22,10 @@ class L1TimelineQueryMixin:
     ) -> List[Dict[str, Any]]:
         """List timeline-shaped views with optional source filtering."""
         host = cast(L1EventQueryHostProtocol, self)
-        events = await host.query_events(limit=max(limit * 10, limit))
+        events = await host.query_events(
+            limit=max(limit * 10, limit),
+            l1_retrieval_scopes=list(USER_VISIBLE_L1_RETRIEVAL_SCOPES),
+        )
         items: List[Dict[str, Any]] = []
         for event in events:
             item = host._to_timeline_view(event)

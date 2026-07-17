@@ -84,6 +84,53 @@ export type MemoryCorrectionValidationErrors = Partial<
   Record<MemoryCorrectionValidationField, MemoryCorrectionValidationErrorCode>
 >;
 
+export function memoryCorrectionErrorCode(details: unknown): string | null {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
+  const code = (details as Record<string, unknown>).code;
+  return typeof code === 'string' ? code : null;
+}
+
+export function isMemoryCorrectionScopeOccupied(code: string | null): boolean {
+  return code === 'assertion_scope_occupied' || code === 'relationship_scope_occupied';
+}
+
+export type MemoryCorrectionLifecycleStatus = 'active' | 'scheduled' | 'cancelled' | 'reverted';
+
+export type MemoryCorrectionHistoryStatus =
+  | MemoryCorrectionLifecycleStatus
+  | 'content_deleted';
+
+export function memoryCorrectionLifecycleStatus(
+  correction: MemoryCorrectionRecord,
+  nowSeconds = Date.now() / 1000
+): MemoryCorrectionLifecycleStatus {
+  if (
+    correction.transition_cancelled_at != null
+    && correction.transition_applied_at == null
+  ) return 'cancelled';
+  if (correction.state !== 'active') return 'reverted';
+  if (correction.correction_kind !== 'situation_changed') return 'active';
+
+  if (correction.transition_applied_at !== undefined) {
+    return correction.transition_applied_at === null ? 'scheduled' : 'active';
+  }
+  return correction.effective_at != null && correction.effective_at > nowSeconds
+    ? 'scheduled'
+    : 'active';
+}
+
+export function memoryCorrectionHistoryStatus(
+  correction: MemoryCorrectionRecord,
+  nowSeconds = Date.now() / 1000
+): MemoryCorrectionHistoryStatus {
+  const lifecycleStatus = memoryCorrectionLifecycleStatus(correction, nowSeconds);
+  return (
+    lifecycleStatus === 'active' || lifecycleStatus === 'scheduled'
+  ) && correction.content_redacted === true
+    ? 'content_deleted'
+    : lifecycleStatus;
+}
+
 export interface MemoryCorrectionValidationResult {
   valid: boolean;
   errors: MemoryCorrectionValidationErrors;
@@ -246,47 +293,23 @@ export const findSelectableProjectContextOption = (
 };
 
 export const canRevertMemoryCorrection = (
-  correction: MemoryCorrectionRecord,
-  corrections: readonly MemoryCorrectionRecord[]
+  correction: MemoryCorrectionRecord
 ): boolean => {
-  if (correction.state !== 'active') return false;
-  const scopeKey = correctionScopeIdentity(correction.scope);
-  return !corrections.some((candidate) => {
-    if (
-      candidate.correction_id === correction.correction_id
-      || candidate.state !== 'active'
-      || candidate.created_at < correction.created_at
-      || (
-        candidate.created_at === correction.created_at
-        && candidate.correction_id < correction.correction_id
-      )
-    ) {
-      return false;
-    }
-    if (
-      candidate.target_id === correction.target_id
-      || candidate.target_id === correction.replacement_target_id
-    ) {
-      return true;
-    }
-    return candidate.slot_key === correction.slot_key
-      && correctionScopeIdentity(candidate.scope) === scopeKey;
-  });
+  return correction.can_revert === true
+    && correction.state === 'active'
+    && correction.transition_cancelled_at == null;
 };
 
-const correctionScopeIdentity = (
-  scope: MemoryCorrectionRecord['scope']
-): string => JSON.stringify(
-  [...(scope?.all_of ?? [])]
-    .map((condition) => ({
-      dimension: condition.dimension,
-      context_id: condition.context_id,
-    }))
-    .sort((left, right) => (
-      left.dimension.localeCompare(right.dimension)
-      || left.context_id.localeCompare(right.context_id)
-    ))
-);
+export const shouldExplainUnavailableMemoryCorrectionRevert = (
+  correction: MemoryCorrectionRecord,
+  nowSeconds = Date.now() / 1000
+): boolean => {
+  const lifecycleStatus = memoryCorrectionLifecycleStatus(correction, nowSeconds);
+  return !canRevertMemoryCorrection(correction)
+    && !correction.forget_affected
+    && !correction.content_redacted
+    && (lifecycleStatus === 'active' || lifecycleStatus === 'scheduled');
+};
 
 const validateChangedReplacement = (
   target: MemoryCorrectionUiTarget,

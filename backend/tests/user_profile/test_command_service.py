@@ -43,6 +43,9 @@ class _FakeUnifiedMemory:
         self.l1 = _FakeL1()
         self.l2 = _FakeL2()
 
+    async def store_governed_l1_event(self, event):
+        return await self.l1.store(event)
+
 
 class _StaticQueryService:
     def __init__(self, profile):

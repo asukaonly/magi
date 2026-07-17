@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Optional
 
 from .....core.logger import get_logger
@@ -31,6 +32,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         mention_text: str,
         mention_confidence: float,
         event: MemoryEvent,
+        source_event_ids: Iterable[str],
     ) -> tuple[Optional[str], Optional[float]]:
         if self._entity_catalog is None:
             return (None, None)
@@ -55,6 +57,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             mention_text=mention_text,
             mention_confidence=mention_confidence,
             event=event,
+            source_event_ids=source_event_ids,
         )
 
         if cache is not None:
@@ -69,6 +72,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         mention_text: str,
         mention_confidence: float,
         event: MemoryEvent,
+        source_event_ids: Iterable[str],
     ) -> tuple[Optional[str], Optional[float]]:
         assert self._entity_catalog is not None
 
@@ -105,6 +109,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             entity_type=entity_type,
             mention_text=mention_text,
             mention_confidence=mention_confidence,
+            source_event_ids=source_event_ids,
         )
 
     async def _try_alias_resolution(
@@ -153,6 +158,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         entity_type: str | None,
         mention_text: str,
         confidence: float,
+        source_event_ids: Iterable[str],
     ) -> str | None:
         """Prefer an existing same-name entity over a newly proposed ID."""
         assert self._entity_catalog is not None
@@ -189,6 +195,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                     entity_id=matched_id,
                     alias_text=mention_text,
                     confidence=min(max(confidence, 0.9), 0.99),
+                    source_event_ids=source_event_ids,
                 )
                 return matched_id
 
@@ -201,6 +208,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
         entity_type: Optional[str],
         mention_text: str,
         mention_confidence: float,
+        source_event_ids: Iterable[str],
     ) -> tuple[Optional[str], Optional[float]]:
         """Deduplicate by canonical name or create a new high-confidence entity."""
         assert self._entity_catalog is not None
@@ -229,6 +237,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                         entity_id=matched_id,
                         alias_text=mention_text,
                         confidence=min(max(mention_confidence, 0.9), 0.99),
+                        source_event_ids=source_event_ids,
                     )
                     return (matched_id, mention_confidence)
 
@@ -239,11 +248,13 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
             entity_id=entity_id,
             canonical_name=canonical_name,
             entity_type=entity_type,
+            source_event_ids=source_event_ids,
         )
         await self._entity_catalog.add_alias(
             entity_id=entity_id,
             alias_text=mention_text,
             confidence=min(max(mention_confidence, 0.9), 0.99),
+            source_event_ids=source_event_ids,
         )
         for alias in mention.get("alias_signals", []):
             alias_text = self._non_empty_text(alias)  # type: ignore[attr-defined]
@@ -262,6 +273,7 @@ class L2EntityIdResolutionMixin(L2EntityResolutionHelperMixin):
                 entity_id=entity_id,
                 alias_text=alias_text,
                 confidence=min(max(mention_confidence, 0.85), 0.95),
+                source_event_ids=source_event_ids,
             )
         return (entity_id, mention_confidence)
 

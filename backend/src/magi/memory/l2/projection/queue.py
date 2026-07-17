@@ -14,6 +14,7 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from .claiming import ProjectionQueueClaimingMixin
+from .governance import active_projection_event_predicate
 
 DEFAULT_L2_CATCH_UP_PENDING_THRESHOLD = 300
 DEFAULT_L2_STEADY_STATE_MAX_WAIT_SECONDS = 45.0
@@ -60,10 +61,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         max_wait_seconds: float | None = None,
     ) -> bool:
         """Insert one pending projection job if it does not already exist."""
+        normalized_event_id = str(event_id or "").strip()
+        if not normalized_event_id:
+            return False
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
-                """
+                f"""
                 INSERT OR IGNORE INTO l2_projection_jobs(
                     event_id,
                     source,
@@ -82,10 +86,13 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     last_error,
                     created_at,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, NULL, NULL, NULL, NULL, NULL, ?, ?)
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?,
+                       'pending', 0, NULL, NULL, NULL, NULL, NULL, ?, ?
+                WHERE {active_projection_event_predicate('?')}
                 """,
                 (
-                    event_id,
+                    normalized_event_id,
                     source,
                     event_type,
                     batch_owner,
@@ -95,6 +102,8 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     max_wait_seconds,
                     now,
                     now,
+                    normalized_event_id,
+                    normalized_event_id,
                 ),
             )
             await db.commit()
@@ -111,7 +120,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             cursor = await db.execute(
-                """
+                f"""
                 UPDATE l2_projection_jobs
                 SET status = 'queued',
                     claimed_by = ?,
@@ -120,8 +129,9 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     updated_at = ?
                 WHERE event_id IN (
                     SELECT event_id
-                    FROM l2_projection_jobs
-                    WHERE status = 'pending'
+                    FROM l2_projection_jobs AS jobs
+                    WHERE jobs.status = 'pending'
+                      AND {active_projection_event_predicate('jobs.event_id')}
                     ORDER BY created_at ASC
                     LIMIT ?
                 )
@@ -144,31 +154,71 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         *,
         consumer_name: str,
     ) -> int:
-        """Mark queued projection jobs as actively running."""
-        if not event_ids:
+        """Mark a complete claimed batch running, or requeue its active rows."""
+        normalized_event_ids = list(
+            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
+        )
+        if not normalized_event_ids:
             return 0
-        placeholders = ", ".join("?" for _ in event_ids)
+        placeholders = ", ".join("?" for _ in normalized_event_ids)
         now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"""
-                UPDATE l2_projection_jobs
-                SET status = 'running',
-                    claimed_by = ?,
-                    started_at = ?,
-                    updated_at = ?
-                WHERE event_id IN ({placeholders})
-                  AND status = 'queued'
-                """,
-                (
-                    consumer_name,
-                    now,
-                    now,
-                    *event_ids,
-                ),
-            )
-            await db.commit()
-        return int(cursor.rowcount or 0)
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    f"""
+                    SELECT COUNT(*)
+                    FROM l2_projection_jobs AS jobs
+                    WHERE jobs.event_id IN ({placeholders})
+                      AND jobs.status = 'queued'
+                      AND jobs.claimed_by = ?
+                      AND {active_projection_event_predicate('jobs.event_id')}
+                    """,
+                    (*normalized_event_ids, consumer_name),
+                ) as cursor:
+                    row = await cursor.fetchone()
+                ready_count = int(row[0]) if row is not None else 0
+                if ready_count != len(normalized_event_ids):
+                    await db.execute(
+                        f"""
+                        UPDATE l2_projection_jobs
+                        SET status = 'pending',
+                            claimed_by = NULL,
+                            claimed_at = NULL,
+                            started_at = NULL,
+                            updated_at = ?
+                        WHERE event_id IN ({placeholders})
+                          AND status = 'queued'
+                          AND claimed_by = ?
+                          AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
+                        """,
+                        (now, *normalized_event_ids, consumer_name),
+                    )
+                    await db.commit()
+                    return 0
+
+                cursor = await db.execute(
+                    f"""
+                    UPDATE l2_projection_jobs
+                    SET status = 'running',
+                        started_at = ?,
+                        updated_at = ?
+                    WHERE event_id IN ({placeholders})
+                      AND status = 'queued'
+                      AND claimed_by = ?
+                      AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
+                    """,
+                    (now, now, *normalized_event_ids, consumer_name),
+                )
+                transitioned = int(cursor.rowcount or 0)
+                if transitioned != len(normalized_event_ids):
+                    await db.rollback()
+                    return 0
+                await db.commit()
+                return transitioned
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def complete(self, event_ids: List[str]) -> int:
         """Mark projection jobs as completed."""
@@ -209,7 +259,7 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         running_cutoff = now - float(running_timeout_seconds)
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
-                """
+                f"""
                 UPDATE l2_projection_jobs
                 SET status = 'pending',
                     attempt_count = attempt_count + 1,
@@ -218,14 +268,17 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
                     started_at = NULL,
                     updated_at = ?
                 WHERE (
-                    status = 'queued'
-                    AND claimed_at IS NOT NULL
-                    AND claimed_at < ?
-                ) OR (
-                    status = 'running'
-                    AND started_at IS NOT NULL
-                    AND started_at < ?
+                    (
+                        status = 'queued'
+                        AND claimed_at IS NOT NULL
+                        AND claimed_at < ?
+                    ) OR (
+                        status = 'running'
+                        AND started_at IS NOT NULL
+                        AND started_at < ?
+                    )
                 )
+                AND {active_projection_event_predicate('l2_projection_jobs.event_id')}
                 """,
                 (now, queued_cutoff, running_cutoff),
             )
@@ -309,8 +362,10 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
         *,
         source_filter: str | None = None,
     ) -> int:
-        query = "SELECT COUNT(*) FROM l2_projection_jobs WHERE status = ?"
+        query = "SELECT COUNT(*) FROM l2_projection_jobs AS jobs WHERE jobs.status = ?"
         params: tuple[str, ...] = (status,)
+        if status in {"pending", "queued", "running"}:
+            query += f" AND {active_projection_event_predicate('jobs.event_id')}"
         if source_filter:
             query = f"{query} AND source = ?"
             params = (status, source_filter)
@@ -327,12 +382,12 @@ class ProjectionJobQueue(ProjectionQueueClaimingMixin):
             "batch_owner": row["batch_owner"],
             "catch_up_owner": row["catch_up_owner"],
             "max_events": int(row["max_events"]) if row["max_events"] is not None else None,
-            "min_ready_events": int(row["min_ready_events"])
-            if row["min_ready_events"] is not None
-            else None,
-            "max_wait_seconds": float(row["max_wait_seconds"])
-            if row["max_wait_seconds"] is not None
-            else None,
+            "min_ready_events": (
+                int(row["min_ready_events"]) if row["min_ready_events"] is not None else None
+            ),
+            "max_wait_seconds": (
+                float(row["max_wait_seconds"]) if row["max_wait_seconds"] is not None else None
+            ),
             "status": str(row["status"]),
             "attempt_count": int(row["attempt_count"] or 0),
             "claimed_by": row["claimed_by"],

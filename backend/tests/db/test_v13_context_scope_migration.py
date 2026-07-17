@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
 import json
 import sqlite3
 from pathlib import Path
@@ -12,8 +11,9 @@ from alembic import command
 import pytest
 
 from _shared.memory_schema import apply_memory_shared_schema
-from magi.db.runner import MIGRATION_TARGETS, _build_config
+from magi.api.routers.memory.l2.correction_history import decorate_correction_records
 from magi.api.routers.memory.schemas import MemoryCorrectionRecord
+from magi.db.runner import MIGRATION_TARGETS, _build_config
 from magi.core.workspace import WorkspacePaths, WorkspaceStateStore
 from magi.memory.context_scope import (
     ContextCatalog,
@@ -1849,7 +1849,6 @@ def test_v13_refuses_semantically_incomplete_correction_snapshots(
             """
         ).fetchone() == ("claim-still-active", "global", 1)
 
-
 def test_v13_normalizes_v4_global_correction_scope_for_history_models(
     tmp_path: Path,
 ) -> None:
@@ -1888,7 +1887,9 @@ def test_v13_normalizes_v4_global_correction_scope_for_history_models(
         assert row["scope_json"] is None
         correction = MemoryCorrection.from_row(dict(row))
 
-    record = MemoryCorrectionRecord.model_validate(asdict(correction))
+    public_records = asyncio.run(decorate_correction_records(str(db_path), [correction]))
+    assert len(public_records) == 1
+    record = MemoryCorrectionRecord.model_validate(public_records[0])
     assert record.scope is None
 
 

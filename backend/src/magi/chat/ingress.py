@@ -32,6 +32,7 @@ from ..events.user_message_dispatch import (
     CHAT_STORE_PERSIST_FAILED,
     CHAT_TURN_CONFLICT,
     CHAT_PROJECTION_FAILED,
+    CHAT_SCOPE_DELETED,
     EMPTY_TURN,
     MALFORMED_ATTACHMENTS,
     RECALL_FEEDBACK_PENDING_ASK,
@@ -45,6 +46,7 @@ from ..core.runtime_namespace import DEFAULT_RUNTIME_NAMESPACE
 from .attachment_ingestion import LocalChatAttachmentIngestionService
 from .provider import get_chat_projector, get_chat_store
 from .store import ChatTurnConflictError
+from .session_mutations import chat_session_mutation
 
 logger = get_logger(__name__)
 
@@ -364,7 +366,23 @@ async def dispatch_user_message(
     # projection, and runtime enqueue one indivisible operation relative to a
     # destructive memory clear. The clear path acquires the matching exclusive
     # boundary before it enters the memory barrier, preserving lock order.
-    async with dependencies.runtime_command_queue.user_message_operation():
+    async with chat_session_mutation(validated.session_id), dependencies.runtime_command_queue.user_message_operation():
+        if await dependencies.runtime_command_queue.is_user_message_scope_blocked(
+            user_id=user_id,
+            session_id=validated.session_id,
+            turn_id=turn_id,
+        ):
+            return MessageDispatchOutcome(
+                success=False,
+                user_id=user_id,
+                session_id=validated.session_id,
+                turn_id=turn_id,
+                error_code=CHAT_SCOPE_DELETED,
+                error_message=t(
+                    "chat.dispatch.errors.scope_deleted",
+                    fallback="This conversation or message was deleted. Start a new conversation.",
+                ),
+            )
         async with _user_turn_ingress_lock(turn_id):
             submission, persisted, retry_error = await _load_existing_user_turn(
                 dependencies.chat_store,

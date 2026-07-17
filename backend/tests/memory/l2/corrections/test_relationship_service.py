@@ -4,10 +4,12 @@ import asyncio
 import time
 from unittest.mock import patch
 
+import aiosqlite
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.corrections.models import CorrectionKind
+from magi.memory.l2.corrections.policy import CorrectionPolicyEvaluator
 from magi.memory.l2.corrections.service import (
     MemoryCorrectionConflictError,
     MemoryCorrectionValidationError,
@@ -16,7 +18,6 @@ from magi.memory.l2.retrieval.common import bounded_scoped_candidate_limit
 from magi.memory.l2.retrieval.relationship_history import (
     _build_historical_candidate_query,
 )
-
 
 PROJECT_SCOPE = {
     "all_of": [
@@ -71,6 +72,887 @@ async def _edge(
         expires_at=expires_at,
         evidence_class=evidence_class,
     )
+
+
+@pytest.mark.asyncio
+async def test_relationship_write_serializes_policy_with_concurrent_correction(
+    l2_store_with_schema,
+    monkeypatch,
+) -> None:
+    store = l2_store_with_schema
+    triple_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-race",
+    )
+    policy_read = asyncio.Event()
+    release_write = asyncio.Event()
+    original_evaluate = CorrectionPolicyEvaluator.evaluate_relationship
+
+    async def paused_evaluate(self, db, candidate):  # type: ignore[no-untyped-def]
+        decision = await original_evaluate(self, db, candidate)
+        policy_read.set()
+        await release_write.wait()
+        return decision
+
+    monkeypatch.setattr(
+        CorrectionPolicyEvaluator,
+        "evaluate_relationship",
+        paused_evaluate,
+    )
+    write_task = asyncio.create_task(
+        _edge(
+            store,
+            object_id="place:hangzhou",
+            event_id="evt-during-race",
+        )
+    )
+    await asyncio.wait_for(policy_read.wait(), timeout=1.0)
+    correction_task = asyncio.create_task(
+        store.apply_relationship_correction(
+            triple_id=triple_id,
+            request_id="relationship-write-correction-race",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"object_id": "place:shanghai", "object_type": "place"},
+        )
+    )
+    await asyncio.sleep(0.05)
+    assert not correction_task.done()
+
+    release_write.set()
+    await asyncio.wait_for(write_task, timeout=2.0)
+    await asyncio.wait_for(correction_task, timeout=2.0)
+
+    assert await store.active_correction_evidence_event_ids(["evt-during-race"]) == {
+        "evt-during-race"
+    }
+
+
+@pytest.mark.asyncio
+async def test_forget_entity_blocks_revert_and_cancels_future_relationship_correction(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    triple_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-forget-entity",
+    )
+    applied = await store.apply_relationship_correction(
+        triple_id=triple_id,
+        request_id="future-relationship-before-forget-entity",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=time.time() + 3600,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_relationship"]["triple_id"]
+
+    await store.forget_entity(entity_id="user:u1")
+
+    with pytest.raises(
+        MemoryCorrectionConflictError, match="Forgotten memories cannot be restored"
+    ):
+        await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="revert-forgotten-relationship",
+            actor_id="user:u1",
+        )
+
+    original = await store.get_relationship(triple_id=triple_id)
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert original is not None and original["status"] == "archived"
+    assert original["status_reason"] == "user_forget"
+    assert replacement is not None and replacement["status"] == "archived"
+    assert replacement["status_reason"] == "user_forget"
+    await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-replay-forgotten-original",
+    )
+    await _edge(
+        store,
+        object_id="place:shanghai",
+        event_id="evt-replay-forgotten-replacement",
+    )
+    assert await store.list_current_relationships(subject_id="user:u1") == []
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT transition_applied_at, transition_cancelled_at,
+                   transition_cancel_reason,
+                   (SELECT COUNT(*) FROM memory_correction_rules
+                    WHERE correction_id = memory_corrections.correction_id
+                      AND active = 1 AND rule_kind = 'block_claim') AS block_rules
+            FROM memory_corrections
+            WHERE correction_id = ?
+            """,
+            (correction_id,),
+        ) as cursor:
+            governance = await cursor.fetchone()
+    assert governance is not None and governance[0] is None
+    assert governance[1] is not None
+    assert governance[2] == "forget_entity"
+    assert governance[3] == 0
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_blocks_relationship_revert_without_forgetting_replacement(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    observed_at = time.time() - 3600
+    triple_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-forget-time-range",
+        observed_at=observed_at,
+    )
+    applied = await store.apply_relationship_correction(
+        triple_id=triple_id,
+        request_id="relationship-before-forget-time-range",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=observed_at - 1, end=observed_at + 1)
+
+    with pytest.raises(
+        MemoryCorrectionConflictError, match="Forgotten memories cannot be restored"
+    ):
+        await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="revert-time-forgotten-relationship",
+            actor_id="user:u1",
+        )
+
+    forgotten = await store.get_relationship(triple_id=triple_id)
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert forgotten is not None and forgotten["status"] == "archived"
+    assert forgotten["status_reason"] == "user_forget"
+    assert forgotten["authority_ref"] == "forget:time_range"
+    assert replacement is not None and replacement["status"] == "active"
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT rule_kind
+            FROM memory_correction_rules
+            WHERE correction_id = ? AND active = 1
+            ORDER BY rule_kind
+            """,
+            (correction_id,),
+        ) as cursor:
+            rules = [str(row[0]) for row in await cursor.fetchall()]
+    assert rules == ["authoritative_slot", "block_claim"]
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cancels_future_relationship_and_restores_original(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-future-forget",
+        observed_at=time.time() - 3600,
+    )
+    effective_at = time.time() + 3600
+    applied = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="future-relationship-forgotten-before-effective",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    original = await store.get_relationship(triple_id=original_id)
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert original is not None
+    assert original["status"] == "active"
+    assert original["valid_to"] is None
+    assert replacement is not None and replacement["status"] == "archived"
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT active FROM memory_correction_rules WHERE correction_id = ?",
+            (correction_id,),
+        ) as cursor:
+            rules = await cursor.fetchall()
+    assert rules and all(row[0] == 0 for row in rules)
+    with patch("time.time", return_value=effective_at + 2):
+        stats = await store.process_memory_correction_jobs(limit=10)
+    assert stats["activated"] == 0
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [original_id]
+
+    repeated = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="future-relationship-forgotten-before-effective",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert repeated is not None
+    assert repeated["created"] is False
+    assert repeated["current_relationship"]["triple_id"] == original_id
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cancellation_is_idempotent_after_later_relationship_correction(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-idempotent-relationship-forget",
+        observed_at=time.time() - 3600,
+    )
+    effective_at = time.time() + 3600
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="cancelled-relationship-before-later-correction",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert first is not None
+    first_id = first["correction"]["correction_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT transition_cancelled_at FROM memory_corrections WHERE correction_id = ?",
+            (first_id,),
+        ) as cursor:
+            cancelled_before = await cursor.fetchone()
+    later = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="later-relationship-after-cancelled-schedule",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+    )
+    assert later is not None
+    later_id = later["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            "SELECT transition_cancelled_at FROM memory_corrections WHERE correction_id = ?",
+            (first_id,),
+        ) as cursor:
+            cancelled_after = await cursor.fetchone()
+    assert cancelled_after == cancelled_before
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [later_id]
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_restores_partially_supported_relationship_after_cancel(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    retained_at = time.time() - 3600
+    effective_at = time.time() + 3600
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-relationship-retained",
+        observed_at=retained_at,
+    )
+    await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-relationship-forgotten",
+        observed_at=effective_at,
+    )
+    applied = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="partially-supported-relationship-schedule",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    replacement_id = applied["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    original = await store.get_relationship(triple_id=original_id)
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert original is not None
+    assert original["status"] == "active"
+    assert original["valid_to"] is None
+    assert original["evidence_event_ids"] == ["evt-relationship-retained"]
+    assert replacement is not None and replacement["status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_after_due_relationship_activation_restores_original(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-due-relationship-forget",
+        observed_at=time.time() - 3600,
+    )
+    effective_at = time.time() + 3600
+    applied = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="due-relationship-before-forget",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_relationship"]["triple_id"]
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=10)
+    assert stats["activated"] == 1
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [original_id]
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert replacement is not None and replacement["status"] == "archived"
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT transition_applied_at, transition_cancelled_at,
+                   (SELECT COUNT(*) FROM memory_correction_rules
+                    WHERE correction_id = memory_corrections.correction_id
+                      AND active = 1) AS active_rules
+            FROM memory_corrections WHERE correction_id = ?
+            """,
+            (correction_id,),
+        ) as cursor:
+            governance = await cursor.fetchone()
+    assert governance is not None and governance[0] is not None
+    assert governance[1] is not None
+    assert governance[2] == 0
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cascades_through_future_relationship_chain(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-forgotten-relationship-chain",
+        observed_at=time.time() - 3600,
+    )
+    first_at = time.time() + 1800
+    second_at = first_at + 1800
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="forgotten-relationship-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=first_at,
+    )
+    assert first is not None
+    first_replacement_id = first["current_relationship"]["triple_id"]
+    second = await store.apply_relationship_correction(
+        triple_id=first_replacement_id,
+        request_id="forgotten-relationship-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+        effective_at=second_at,
+    )
+    assert second is not None
+    second_replacement_id = second["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=first_at - 1, end=first_at + 1)
+
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [original_id]
+    for replacement_id in (first_replacement_id, second_replacement_id):
+        replacement = await store.get_relationship(triple_id=replacement_id)
+        assert replacement is not None and replacement["status"] == "archived"
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute("""
+            SELECT transition_cancelled_at
+            FROM memory_corrections
+            WHERE request_id IN (
+                'forgotten-relationship-chain-a-b',
+                'forgotten-relationship-chain-b-c'
+            )
+            ORDER BY request_id
+            """) as cursor:
+            cancellations = await cursor.fetchall()
+    assert len(cancellations) == 2
+    assert all(row[0] is not None for row in cancellations)
+    future_current = await store.list_current_relationships(
+        subject_id="user:u1",
+        effective_at=second_at + 1,
+    )
+    assert [item["triple_id"] for item in future_current] == [original_id]
+
+
+@pytest.mark.asyncio
+async def test_forget_middle_of_applied_relationship_chain_preserves_latest_then_root(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    base_at = time.time() - 600
+    first_at = base_at + 120
+    second_at = base_at + 240
+    root_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-applied-chain-root",
+        observed_at=base_at,
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=root_id,
+        request_id="applied-relationship-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=first_at,
+    )
+    assert first is not None
+    middle_id = first["current_relationship"]["triple_id"]
+    second = await store.apply_relationship_correction(
+        triple_id=middle_id,
+        request_id="applied-relationship-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+        effective_at=second_at,
+    )
+    assert second is not None
+    latest_id = second["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=first_at - 1, end=first_at + 1)
+
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [latest_id]
+    async with sqlite_connection_async(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT request_id, transition_applied_at, transition_cancelled_at
+            FROM memory_corrections
+            WHERE request_id IN (
+                'applied-relationship-chain-a-b',
+                'applied-relationship-chain-b-c'
+            )
+            ORDER BY request_id
+            """) as cursor:
+            transitions = await cursor.fetchall()
+    assert all(row["transition_applied_at"] is not None for row in transitions)
+    assert transitions[0]["transition_cancelled_at"] is not None
+    assert transitions[1]["transition_cancelled_at"] is None
+
+    retried = await store.apply_relationship_correction(
+        triple_id=root_id,
+        request_id="applied-relationship-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=first_at,
+    )
+    assert retried is not None
+    assert retried["created"] is False
+    assert retried["current_relationship"]["triple_id"] == middle_id
+
+    await store.forget_time_range(start=second_at - 1, end=second_at + 1)
+
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [root_id]
+    middle = await store.get_relationship(triple_id=middle_id)
+    latest = await store.get_relationship(triple_id=latest_id)
+    assert middle is not None and middle["status"] == "archived"
+    assert latest is not None and latest["status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_forget_applied_relationship_with_pending_successor_restores_root(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    base_at = time.time() - 300
+    applied_at = base_at + 120
+    pending_at = time.time() + 3600
+    root_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-mixed-chain-root",
+        observed_at=base_at,
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=root_id,
+        request_id="mixed-relationship-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=applied_at,
+    )
+    assert first is not None
+    middle_id = first["current_relationship"]["triple_id"]
+    second = await store.apply_relationship_correction(
+        triple_id=middle_id,
+        request_id="mixed-relationship-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+        effective_at=pending_at,
+    )
+    assert second is not None
+    pending_id = second["current_relationship"]["triple_id"]
+
+    await store.forget_time_range(start=applied_at - 1, end=applied_at + 1)
+
+    current = await store.list_current_relationships(subject_id="user:u1")
+    assert [item["triple_id"] for item in current] == [root_id]
+    pending = await store.get_relationship(triple_id=pending_id)
+    assert pending is not None and pending["status"] == "archived"
+    async with sqlite_connection_async(store.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("""
+            SELECT request_id, transition_applied_at, transition_cancelled_at
+            FROM memory_corrections
+            WHERE request_id IN (
+                'mixed-relationship-chain-a-b',
+                'mixed-relationship-chain-b-c'
+            )
+            ORDER BY request_id
+            """) as cursor:
+            transitions = await cursor.fetchall()
+    assert transitions[0]["transition_applied_at"] is not None
+    assert transitions[0]["transition_cancelled_at"] is not None
+    assert transitions[1]["transition_applied_at"] is None
+    assert transitions[1]["transition_cancelled_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_correction_source_evidence_is_governed_on_replacement_relationship(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    source_at = time.time() - 120
+    later_at = time.time() + 120
+
+    async def resolve_timestamps(event_ids: list[str]) -> dict[str, float]:
+        return {
+            event_id: source_at
+            for event_id in event_ids
+            if event_id == "evt-relationship-correction-source"
+        }
+
+    store._evidence_timestamp_resolver = resolve_timestamps
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-relationship-original",
+        observed_at=time.time() - 3600,
+    )
+    applied = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="relationship-source-evidence-ledger",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        source_event_id="evt-relationship-correction-source",
+    )
+    assert applied is not None
+    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_fingerprint = applied["current_relationship"]["claim_fingerprint"]
+
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT event_id, observed_at
+            FROM memory_claim_evidence_events
+            WHERE target_kind = 'edge' AND claim_fingerprint = ?
+            """,
+            (replacement_fingerprint,),
+        ) as cursor:
+            ledger = [tuple(row) for row in await cursor.fetchall()]
+    assert ledger == [("evt-relationship-correction-source", source_at)]
+
+    reinforced_id = await _edge(
+        store,
+        object_id="place:shanghai",
+        event_id="evt-relationship-later-evidence",
+        observed_at=later_at,
+    )
+    assert reinforced_id == replacement_id
+
+    await store.forget_time_range(start=source_at - 1, end=source_at + 1)
+
+    replacement = await store.get_relationship(triple_id=replacement_id)
+    assert replacement is not None
+    assert replacement["status"] == "active"
+    assert replacement["evidence_event_ids"] == ["evt-relationship-later-evidence"]
+
+
+@pytest.mark.asyncio
+async def test_due_chained_relationship_changes_keep_latest_value(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-before-scheduled-chain",
+        observed_at=time.time() - 3600,
+    )
+    first_at = time.time() + 1800
+    second_at = first_at + 1800
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="scheduled-chain-hangzhou-shanghai",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=first_at,
+    )
+    second = await store.apply_relationship_correction(
+        triple_id=first["current_relationship"]["triple_id"],
+        request_id="scheduled-chain-shanghai-beijing",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:beijing", "object_type": "place"},
+        effective_at=second_at,
+    )
+
+    with patch("time.time", return_value=second_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=10)
+
+    assert stats["activated"] == 2
+    current = await store.list_current_relationships(
+        subject_id="user:u1",
+        effective_at=second_at + 1,
+    )
+    assert [item["triple_id"] for item in current] == [second["current_relationship"]["triple_id"]]
+    assert current[0]["object_id"] == "place:beijing"
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_keeps_later_relationship_changes_possible(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    started_at = time.time() - 1_000
+    moved_at = started_at + 100
+    returned_at = started_at + 200
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-hangzhou-original",
+        observed_at=started_at,
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="move-from-hangzhou-before-forget",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=moved_at,
+    )
+    first_correction_id = first["correction"]["correction_id"]
+
+    await store.forget_time_range(start=started_at - 1, end=started_at + 1)
+
+    async with sqlite_connection_async(store.db_path) as db:
+        async with db.execute(
+            """
+            SELECT rule_kind, effective_to
+            FROM memory_correction_rules
+            WHERE correction_id = ? AND claim_fingerprint = ?
+            """,
+            (first_correction_id, first["correction"]["claim_fingerprint"]),
+        ) as cursor:
+            old_rule = await cursor.fetchone()
+    assert old_rule is not None
+    assert old_rule[0] == "close_before"
+    assert old_rule[1] == pytest.approx(moved_at)
+
+    second = await store.apply_relationship_correction(
+        triple_id=first["current_relationship"]["triple_id"],
+        request_id="return-to-hangzhou-after-forget",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:hangzhou", "object_type": "place"},
+        effective_at=returned_at,
+    )
+    current_id = second["current_relationship"]["triple_id"]
+    returned_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-hangzhou-current",
+        observed_at=returned_at + 20,
+    )
+
+    assert returned_id == current_id
+    current = await store.get_relationship(triple_id=current_id)
+    assert current["status"] == "active"
+    assert current["evidence_event_ids"] == ["evt-hangzhou-current"]
+    assert await store.active_correction_evidence_event_ids(["evt-hangzhou-current"]) == set()
+
+
+@pytest.mark.asyncio
+async def test_forget_rules_remove_recurrent_relationship_history(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    started_at = time.time() - 1_000
+    moved_at = started_at + 100
+    returned_at = started_at + 200
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-history-first-hangzhou",
+        observed_at=started_at,
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="history-move-to-shanghai",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=moved_at,
+    )
+    await store.apply_relationship_correction(
+        triple_id=first["current_relationship"]["triple_id"],
+        request_id="history-return-to-hangzhou",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:hangzhou", "object_type": "place"},
+        effective_at=returned_at,
+    )
+
+    await store.forget_time_range(start=started_at - 1, end=started_at + 20)
+
+    forgotten = await store.list_current_relationships(
+        subject_id="user:u1",
+        effective_at=started_at + 10,
+    )
+    middle = await store.list_current_relationships(
+        subject_id="user:u1",
+        effective_at=moved_at + 10,
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:u1",
+        effective_at=returned_at + 10,
+    )
+    assert forgotten == []
+    assert [item["object_id"] for item in middle] == ["place:shanghai"]
+    assert [item["object_id"] for item in current] == ["place:hangzhou"]
+
+    await store.forget_entity(entity_id="user:u1")
+
+    for effective_at in (started_at + 10, moved_at + 10, returned_at + 10):
+        assert (
+            await store.list_current_relationships(
+                subject_id="user:u1",
+                effective_at=effective_at,
+            )
+            == []
+        )
+
+
+@pytest.mark.asyncio
+async def test_forget_entity_hides_relationship_retained_only_in_history(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    observed_at = time.time() - 100
+    triple_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-purged-before-entity-forget",
+        observed_at=observed_at,
+    )
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute("DELETE FROM knowledge_graph WHERE triple_id = ?", (triple_id,))
+        await db.commit()
+
+    await store.forget_entity(entity_id="user:u1")
+
+    assert (
+        await store.list_current_relationships(
+            subject_id="user:u1",
+            effective_at=observed_at + 1,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_historical_forget_barrier_survives_recurrence_and_reverts(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    started_at = time.time() - 1_000
+    moved_at = started_at + 100
+    returned_at = started_at + 200
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-barrier-first-hangzhou",
+        observed_at=started_at,
+    )
+    first = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="barrier-move-to-shanghai",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:shanghai", "object_type": "place"},
+        effective_at=moved_at,
+    )
+    second = await store.apply_relationship_correction(
+        triple_id=first["current_relationship"]["triple_id"],
+        request_id="barrier-return-to-hangzhou",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={"object_id": "place:hangzhou", "object_type": "place"},
+        effective_at=returned_at,
+    )
+    await store.forget_time_range(start=started_at - 1, end=started_at + 20)
+
+    reverted_second = await store.revert_relationship_correction(
+        correction_id=second["correction"]["correction_id"],
+        request_id="revert-current-recurrence",
+        actor_id="user:u1",
+    )
+    assert reverted_second["current_relationship"]["object_id"] == "place:shanghai"
+
+    with pytest.raises(MemoryCorrectionConflictError) as conflict:
+        await store.revert_relationship_correction(
+            correction_id=first["correction"]["correction_id"],
+            request_id="revert-forgotten-first-segment",
+            actor_id="user:u1",
+        )
+    assert conflict.value.code == "memory_forgotten"
 
 
 @pytest.mark.parametrize(
@@ -231,6 +1113,40 @@ async def test_relationship_scope_refinement_rejects_existing_scope(
 
 
 @pytest.mark.asyncio
+async def test_relationship_scope_refinement_rejects_occupied_destination(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-global-before-occupied-scope",
+    )
+    project_id = await _edge(
+        store,
+        object_id="place:beijing",
+        event_id="evt-project-before-occupied-scope",
+        scope=PROJECT_SCOPE,
+    )
+
+    with pytest.raises(MemoryCorrectionConflictError) as conflict:
+        await store.apply_relationship_correction(
+            triple_id=original_id,
+            request_id="request-occupied-relationship-scope",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+            replacement={},
+            scope=PROJECT_SCOPE,
+        )
+
+    assert conflict.value.code == "relationship_scope_occupied"
+    original = await store.get_relationship(triple_id=original_id)
+    project = await store.get_relationship(triple_id=project_id)
+    assert original is not None and original["status"] == "active"
+    assert project is not None and project["status"] == "active"
+
+
+@pytest.mark.asyncio
 async def test_relationship_scope_refinement_cannot_change_the_claim(
     l2_store_with_schema,
 ) -> None:
@@ -326,6 +1242,10 @@ async def test_reject_relationship_is_durable_across_replay(l2_store_with_schema
     replayed = await store.get_relationship(triple_id=triple_id)
     assert replayed["status"] == "user_rejected"
     assert replayed["evidence_event_ids"] == ["evt-original"]
+    assert await store.active_correction_evidence_event_ids(["evt-replay-1", "evt-replay-2"]) == {
+        "evt-replay-1",
+        "evt-replay-2",
+    }
     assert await store.list_current_relationships(subject_id="user:u1") == []
     historical = await store.list_current_relationships(
         subject_id="user:u1",
@@ -387,6 +1307,9 @@ async def test_relationship_replacement_protects_authority_and_deduplicates_conf
     supported = await store.get_relationship(triple_id=same_id)
     assert supported["source_type"] == "user_correction"
     assert supported["authority_ref"].startswith("correction:")
+    assert await store.active_correction_evidence_event_ids(
+        ["evt-old-replay", "evt-conflict-1", "evt-conflict-2", "evt-support"]
+    ) == {"evt-old-replay", "evt-conflict-1", "evt-conflict-2"}
     active = await store.list_current_relationships(subject_id="user:u1")
     assert [item["triple_id"] for item in active] == [current["triple_id"]]
 
@@ -463,6 +1386,9 @@ async def test_relationship_situation_change_keeps_pre_change_evidence_historica
     assert historical["valid_to"] == pytest.approx(effective_at)
     assert historical["last_observed_at"] <= effective_at
     assert historical["evidence_event_ids"] == ["evt-before-move", "evt-original"]
+    assert await store.active_correction_evidence_event_ids(["evt-before-move"]) == {
+        "evt-before-move"
+    }
     active = await store.list_current_relationships(subject_id="user:u1")
     assert [item["triple_id"] for item in active] == [current_id]
 
@@ -518,12 +1444,10 @@ async def test_future_relationship_change_only_blocks_early_replacement_evidence
     historical = await store.get_relationship(triple_id=old_id)
     assert historical["evidence_event_ids"] == ["evt-before-change", "evt-original"]
     async with sqlite_connection_async(store.db_path) as db:
-        async with db.execute(
-            """
+        async with db.execute("""
             SELECT status FROM knowledge_graph
             WHERE object_id = 'place:beijing'
-            """
-        ) as cursor:
+            """) as cursor:
             beijing = await cursor.fetchone()
             assert beijing is not None and beijing[0] == "active"
 
@@ -638,6 +1562,54 @@ async def test_relationship_scope_refinement_and_revert(l2_store_with_schema):
 
 
 @pytest.mark.asyncio
+async def test_relationship_scope_revert_rejects_new_current_in_original_scope(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    original_id = await _edge(
+        store,
+        object_id="place:hangzhou",
+        event_id="evt-global-before-scope-move",
+    )
+    corrected = await store.apply_relationship_correction(
+        triple_id=original_id,
+        request_id="move-relationship-before-new-global",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+        replacement={},
+        scope=PROJECT_SCOPE,
+    )
+    scoped_id = corrected["current_relationship"]["triple_id"]
+    new_global_id = await _edge(
+        store,
+        object_id="place:beijing",
+        event_id="evt-new-global-after-scope-move",
+    )
+
+    with pytest.raises(MemoryCorrectionConflictError) as conflict:
+        await store.revert_relationship_correction(
+            correction_id=corrected["correction"]["correction_id"],
+            request_id="revert-relationship-into-occupied-scope",
+            actor_id="user:u1",
+        )
+
+    assert conflict.value.code == "relationship_scope_occupied"
+    original = await store.get_relationship(triple_id=original_id)
+    scoped = await store.get_relationship(triple_id=scoped_id)
+    new_global = await store.get_relationship(triple_id=new_global_id)
+    assert original is not None and original["status"] != "active"
+    assert scoped is not None and scoped["status"] == "active"
+    assert new_global is not None and new_global["status"] == "active"
+    history = await store.get_relationship_correction_history(triple_id=scoped_id)
+    stored = next(
+        item
+        for item in history["corrections"]
+        if item["correction_id"] == corrected["correction"]["correction_id"]
+    )
+    assert stored["state"] == "active"
+
+
+@pytest.mark.asyncio
 async def test_relationship_scope_refinement_blocks_only_original_scope_replay(
     l2_store_with_schema,
 ) -> None:
@@ -672,6 +1644,9 @@ async def test_relationship_scope_refinement_blocks_only_original_scope_replay(
     )
 
     assert replayed_id == triple_id
+    assert await store.active_correction_evidence_event_ids(["evt-source-replay"]) == {
+        "evt-source-replay"
+    }
     assert alternative_id not in {triple_id, destination_id}
     source_current = await store.list_current_relationships(
         subject_id="user:u1",

@@ -19,8 +19,9 @@ async def _seed_assertion(
     trait_value: str = "Hangzhou",
     evidence_events: list[str] | None = None,
     scope: dict | None = None,
+    observed_at: float | None = None,
 ) -> str:
-    now = time.time() - 3600
+    now = float(observed_at if observed_at is not None else time.time() - 3600)
     return await store.upsert_assertion_candidate(
         {
             "entity_id": "user:u1",
@@ -47,6 +48,572 @@ async def _fetch_all(db_path: str, query: str, args: tuple = ()) -> list[dict]:
         db.row_factory = aiosqlite.Row
         async with db.execute(query, args) as cursor:
             return [dict(row) for row in await cursor.fetchall()]
+
+
+@pytest.mark.asyncio
+async def test_forget_entity_blocks_revert_and_cancels_future_assertion_correction(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="future-assertion-before-forget-entity",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=time.time() + 3600,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_assertion"]["assertion_id"]
+
+    await store.forget_entity(entity_id="user:u1")
+
+    with pytest.raises(
+        MemoryCorrectionConflictError, match="Forgotten memories cannot be restored"
+    ):
+        await store.revert_assertion_correction(
+            correction_id=correction_id,
+            request_id="revert-forgotten-assertion",
+            actor_id="user:u1",
+        )
+
+    original = await store.get_tom_assertion(assertion_id=assertion_id)
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert original is not None and original["status"] == "archived"
+    assert replacement is not None and replacement["status"] == "archived"
+    await _seed_assertion(store, trait_value="Hangzhou")
+    await _seed_assertion(store, trait_value="Shanghai")
+    assert await store.list_current_assertions(entity_id="user:u1") == []
+    governance = await _fetch_all(
+        store.db_path,
+        """
+        SELECT transition_applied_at, transition_cancelled_at,
+               transition_cancel_reason,
+               (SELECT COUNT(*) FROM memory_correction_rules
+                WHERE correction_id = memory_corrections.correction_id
+                  AND active = 1 AND rule_kind = 'block_claim') AS block_rules
+        FROM memory_corrections
+        WHERE correction_id = ?
+        """,
+        (correction_id,),
+    )
+    assert governance[0]["transition_applied_at"] is None
+    assert governance[0]["transition_cancelled_at"] is not None
+    assert governance[0]["transition_cancel_reason"] == "forget_entity"
+    assert governance[0]["block_rules"] == 0
+    assert await store.next_memory_correction_job_wakeup_at() is None
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(time, "time", lambda: float(applied["correction"]["effective_at"]) + 1)
+        stats = await store.process_memory_correction_jobs(limit=10)
+    assert stats["activated"] == 0
+    assert await store.get_memory_correction_derivation_state(correction_id) == "completed"
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_blocks_assertion_revert_without_forgetting_replacement(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    original = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert original is not None
+    original_time = float(original["first_inferred_at"])
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="assertion-before-forget-time-range",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=original_time - 1, end=original_time + 1)
+
+    with pytest.raises(
+        MemoryCorrectionConflictError, match="Forgotten memories cannot be restored"
+    ):
+        await store.revert_assertion_correction(
+            correction_id=correction_id,
+            request_id="revert-time-forgotten-assertion",
+            actor_id="user:u1",
+        )
+
+    forgotten = await store.get_tom_assertion(assertion_id=assertion_id)
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert forgotten is not None and forgotten["status"] == "archived"
+    assert replacement is not None and replacement["status"] == "stable"
+    rules = await _fetch_all(
+        store.db_path,
+        """
+        SELECT rule_kind, claim_fingerprint
+        FROM memory_correction_rules
+        WHERE correction_id = ? AND active = 1
+        ORDER BY rule_kind, claim_fingerprint
+        """,
+        (correction_id,),
+    )
+    assert sorted(row["rule_kind"] for row in rules) == [
+        "authoritative_slot",
+        "block_claim",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cancels_future_assertion_and_restores_original(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    before = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert before is not None
+    effective_at = time.time() + 3600
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="future-assertion-forgotten-before-effective",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    original = await store.get_tom_assertion(assertion_id=assertion_id)
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert original is not None
+    assert original["status"] == before["status"]
+    assert original["valid_to"] is None
+    assert replacement is not None and replacement["status"] == "archived"
+    rules = await _fetch_all(
+        store.db_path,
+        "SELECT active FROM memory_correction_rules WHERE correction_id = ?",
+        (correction_id,),
+    )
+    assert rules and all(row["active"] == 0 for row in rules)
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(time, "time", lambda: effective_at + 2)
+        stats = await store.process_memory_correction_jobs(limit=10)
+    assert stats["activated"] == 0
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [assertion_id]
+
+    repeated = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="future-assertion-forgotten-before-effective",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert repeated is not None
+    assert repeated["created"] is False
+    assert repeated["current_assertion"]["assertion_id"] == assertion_id
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cancellation_is_idempotent_after_later_assertion_correction(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    effective_at = time.time() + 3600
+    first = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="cancelled-assertion-before-later-correction",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert first is not None
+    first_id = first["correction"]["correction_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+    cancelled_before = await _fetch_all(
+        store.db_path,
+        "SELECT transition_cancelled_at FROM memory_corrections WHERE correction_id = ?",
+        (first_id,),
+    )
+    later = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="later-assertion-after-cancelled-schedule",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Beijing",
+    )
+    assert later is not None
+    later_id = later["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    cancelled_after = await _fetch_all(
+        store.db_path,
+        "SELECT transition_cancelled_at FROM memory_corrections WHERE correction_id = ?",
+        (first_id,),
+    )
+    assert cancelled_after == cancelled_before
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [later_id]
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_restores_partially_supported_assertion_after_cancel(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    retained_at = time.time() - 3600
+    effective_at = time.time() + 3600
+    assertion_id = await _seed_assertion(
+        store,
+        evidence_events=["evt-assertion-retained"],
+        observed_at=retained_at,
+    )
+    await _seed_assertion(
+        store,
+        evidence_events=["evt-assertion-forgotten"],
+        observed_at=effective_at,
+    )
+    before = await store.get_tom_assertion(assertion_id=assertion_id)
+    assert before is not None
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="partially-supported-assertion-schedule",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    replacement_id = applied["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    original = await store.get_tom_assertion(assertion_id=assertion_id)
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert original is not None
+    assert original["status"] == before["status"]
+    assert original["valid_to"] is None
+    assert original["evidence_events"] == ["evt-assertion-retained"]
+    assert replacement is not None and replacement["status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_after_due_assertion_activation_restores_original(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    effective_at = time.time() + 3600
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="due-assertion-before-forget",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+    assert applied is not None
+    correction_id = applied["correction"]["correction_id"]
+    replacement_id = applied["current_assertion"]["assertion_id"]
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(time, "time", lambda: effective_at + 1)
+        stats = await store.process_memory_correction_jobs(limit=10)
+    assert stats["activated"] == 1
+
+    await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
+
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [assertion_id]
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert replacement is not None and replacement["status"] == "archived"
+    governance = await _fetch_all(
+        store.db_path,
+        """
+        SELECT transition_applied_at, transition_cancelled_at,
+               (SELECT COUNT(*) FROM memory_correction_rules
+                WHERE correction_id = memory_corrections.correction_id AND active = 1) AS active_rules
+        FROM memory_corrections WHERE correction_id = ?
+        """,
+        (correction_id,),
+    )
+    assert governance[0]["transition_applied_at"] is not None
+    assert governance[0]["transition_cancelled_at"] is not None
+    assert governance[0]["active_rules"] == 0
+
+
+@pytest.mark.asyncio
+async def test_forget_time_range_cascades_through_future_assertion_chain(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = await _seed_assertion(store)
+    first_at = time.time() + 1800
+    second_at = first_at + 1800
+    first = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="assertion-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=first_at,
+    )
+    assert first is not None
+    first_replacement_id = first["current_assertion"]["assertion_id"]
+    second = await store.apply_assertion_correction(
+        assertion_id=first_replacement_id,
+        request_id="assertion-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Beijing",
+        effective_at=second_at,
+    )
+    assert second is not None
+    second_replacement_id = second["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=first_at - 1, end=first_at + 1)
+
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [assertion_id]
+    for replacement_id in (first_replacement_id, second_replacement_id):
+        replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+        assert replacement is not None and replacement["status"] == "archived"
+    cancellations = await _fetch_all(
+        store.db_path,
+        """
+        SELECT transition_cancelled_at
+        FROM memory_corrections
+        WHERE request_id IN ('assertion-chain-a-b', 'assertion-chain-b-c')
+        ORDER BY request_id
+        """,
+    )
+    assert len(cancellations) == 2
+    assert all(row["transition_cancelled_at"] is not None for row in cancellations)
+    future_current = await store.list_current_assertions(
+        entity_id="user:u1",
+        effective_at=second_at + 1,
+    )
+    assert [item["assertion_id"] for item in future_current] == [assertion_id]
+
+
+@pytest.mark.asyncio
+async def test_forget_middle_of_applied_assertion_chain_preserves_latest_then_root(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    base_at = time.time() - 600
+    first_at = base_at + 120
+    second_at = base_at + 240
+    root_id = await _seed_assertion(store, observed_at=base_at)
+    first = await store.apply_assertion_correction(
+        assertion_id=root_id,
+        request_id="applied-assertion-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=first_at,
+    )
+    assert first is not None
+    middle_id = first["current_assertion"]["assertion_id"]
+    second = await store.apply_assertion_correction(
+        assertion_id=middle_id,
+        request_id="applied-assertion-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Beijing",
+        effective_at=second_at,
+    )
+    assert second is not None
+    latest_id = second["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=first_at - 1, end=first_at + 1)
+
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [latest_id]
+    transitions = await _fetch_all(
+        store.db_path,
+        """
+        SELECT request_id, transition_applied_at, transition_cancelled_at
+        FROM memory_corrections
+        WHERE request_id IN (
+            'applied-assertion-chain-a-b',
+            'applied-assertion-chain-b-c'
+        )
+        ORDER BY request_id
+        """,
+    )
+    assert all(row["transition_applied_at"] is not None for row in transitions)
+    assert transitions[0]["transition_cancelled_at"] is not None
+    assert transitions[1]["transition_cancelled_at"] is None
+
+    retried = await store.apply_assertion_correction(
+        assertion_id=root_id,
+        request_id="applied-assertion-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=first_at,
+    )
+    assert retried is not None
+    assert retried["created"] is False
+    assert retried["current_assertion"]["assertion_id"] == middle_id
+
+    await store.forget_time_range(start=second_at - 1, end=second_at + 1)
+
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [root_id]
+    middle = await store.get_tom_assertion(assertion_id=middle_id)
+    latest = await store.get_tom_assertion(assertion_id=latest_id)
+    assert middle is not None and middle["status"] == "archived"
+    assert latest is not None and latest["status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_forget_applied_assertion_with_pending_successor_restores_root(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    base_at = time.time() - 300
+    applied_at = base_at + 120
+    pending_at = time.time() + 3600
+    root_id = await _seed_assertion(store, observed_at=base_at)
+    first = await store.apply_assertion_correction(
+        assertion_id=root_id,
+        request_id="mixed-assertion-chain-a-b",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=applied_at,
+    )
+    assert first is not None
+    middle_id = first["current_assertion"]["assertion_id"]
+    second = await store.apply_assertion_correction(
+        assertion_id=middle_id,
+        request_id="mixed-assertion-chain-b-c",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Beijing",
+        effective_at=pending_at,
+    )
+    assert second is not None
+    pending_id = second["current_assertion"]["assertion_id"]
+
+    await store.forget_time_range(start=applied_at - 1, end=applied_at + 1)
+
+    current = await store.list_current_assertions(entity_id="user:u1")
+    assert [item["assertion_id"] for item in current] == [root_id]
+    pending = await store.get_tom_assertion(assertion_id=pending_id)
+    assert pending is not None and pending["status"] == "archived"
+    transitions = await _fetch_all(
+        store.db_path,
+        """
+        SELECT request_id, transition_applied_at, transition_cancelled_at
+        FROM memory_corrections
+        WHERE request_id IN (
+            'mixed-assertion-chain-a-b',
+            'mixed-assertion-chain-b-c'
+        )
+        ORDER BY request_id
+        """,
+    )
+    assert transitions[0]["transition_applied_at"] is not None
+    assert transitions[0]["transition_cancelled_at"] is not None
+    assert transitions[1]["transition_applied_at"] is None
+    assert transitions[1]["transition_cancelled_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_correction_source_evidence_is_governed_on_replacement_assertion(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    source_at = time.time() - 120
+    later_at = time.time() + 120
+
+    async def resolve_timestamps(event_ids: list[str]) -> dict[str, float]:
+        return {
+            event_id: source_at
+            for event_id in event_ids
+            if event_id == "evt-assertion-correction-source"
+        }
+
+    store._evidence_timestamp_resolver = resolve_timestamps
+    assertion_id = await _seed_assertion(store)
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="assertion-source-evidence-ledger",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+        source_event_id="evt-assertion-correction-source",
+    )
+    assert applied is not None
+    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_fingerprint = applied["current_assertion"]["claim_fingerprint"]
+
+    ledger = await _fetch_all(
+        store.db_path,
+        """
+        SELECT event_id, observed_at
+        FROM memory_claim_evidence_events
+        WHERE target_kind = 'assertion' AND claim_fingerprint = ?
+        """,
+        (replacement_fingerprint,),
+    )
+    assert ledger == [
+        {
+            "event_id": "evt-assertion-correction-source",
+            "observed_at": source_at,
+        }
+    ]
+
+    reinforced_id = await _seed_assertion(
+        store,
+        trait_value="Shanghai",
+        evidence_events=["evt-assertion-later-evidence"],
+        observed_at=later_at,
+    )
+    assert reinforced_id == replacement_id
+
+    await store.forget_time_range(start=source_at - 1, end=source_at + 1)
+
+    replacement = await store.get_tom_assertion(assertion_id=replacement_id)
+    assert replacement is not None
+    assert replacement["status"] == "stable"
+    assert replacement["evidence_events"] == ["evt-assertion-later-evidence"]
+
+
+@pytest.mark.asyncio
+async def test_correction_governs_evidence_older_than_assertion_row_cap(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    assertion_id = ""
+    for index in range(60):
+        assertion_id = await _seed_assertion(
+            store,
+            evidence_events=[f"evt-ledger-{index:02d}"],
+        )
+
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="assertion-ledger-beyond-row-cap",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+    )
+
+    assert applied is not None
+    assert await store.active_correction_evidence_event_ids(["evt-ledger-00", "evt-ledger-59"]) == {
+        "evt-ledger-00",
+        "evt-ledger-59",
+    }
 
 
 @pytest.mark.parametrize(
@@ -662,6 +1229,125 @@ async def test_revert_restores_original_and_deactivates_rules(l2_store_with_sche
         (correction_id,),
     )
     assert rules == [{"active": 0}]
+
+
+@pytest.mark.asyncio
+async def test_revert_preserves_valid_evidence_added_to_historical_assertion(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    effective_at = time.time() - 120
+    assertion_id = await _seed_assertion(
+        store,
+        evidence_events=["evt-original"],
+    )
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="preserve-later-historical-evidence",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement_value="Shanghai",
+        effective_at=effective_at,
+    )
+
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "user:u1",
+            "entity_type": "user",
+            "trait_family": "preference_profile",
+            "trait_name": "location.home",
+            "trait_value": "Hangzhou",
+            "confidence_score": 0.6,
+            "evidence_events": ["evt-later-historical"],
+            "volatility_index": 0.2,
+            "source_domain": "conversation",
+            "inference_depth": "semantic",
+            "validation_state": "corroborated",
+            "first_inferred_at": effective_at - 1800,
+            "last_validated_at": effective_at - 60,
+            "temporal_scope": "persistent",
+        }
+    )
+
+    reverted = await store.revert_assertion_correction(
+        correction_id=applied["correction"]["correction_id"],
+        request_id="revert-preserving-later-historical-evidence",
+        actor_id="user:u1",
+    )
+
+    assert reverted is not None
+    assert reverted["current_assertion"]["evidence_events"] == [
+        "evt-later-historical",
+        "evt-original",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_scope_refinement_rejects_occupied_destination_scope(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    destination_scope = context_scope(project="magi")
+    assertion_id = await _seed_assertion(store, trait_value="Hangzhou")
+    destination_id = await _seed_assertion(
+        store,
+        trait_value="Beijing",
+        scope=destination_scope,
+    )
+
+    with pytest.raises(MemoryCorrectionConflictError) as raised:
+        await store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id="scope-refinement-occupied-destination",
+            actor_id="user:u1",
+            correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+            replacement_value="Hangzhou",
+            scope=destination_scope,
+        )
+
+    assert raised.value.code == "assertion_scope_occupied"
+    assert "selected scope already has a current memory" in str(raised.value)
+    assert await store.list_assertion_corrections(assertion_id=assertion_id) == []
+    assert (await store.get_tom_assertion(assertion_id=assertion_id))["status"] != "superseded"
+    assert (await store.get_tom_assertion(assertion_id=destination_id))["status"] != "superseded"
+
+
+@pytest.mark.asyncio
+async def test_scope_refinement_revert_rejects_occupied_original_scope(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    destination_scope = context_scope(project="magi")
+    assertion_id = await _seed_assertion(store, trait_value="Hangzhou")
+    applied = await store.apply_assertion_correction(
+        assertion_id=assertion_id,
+        request_id="scope-refinement-before-original-conflict",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+        replacement_value="Hangzhou",
+        scope=destination_scope,
+    )
+    competing_id = await _seed_assertion(store, trait_value="Beijing")
+
+    with pytest.raises(MemoryCorrectionConflictError) as raised:
+        await store.revert_assertion_correction(
+            correction_id=applied["correction"]["correction_id"],
+            request_id="revert-into-occupied-original-scope",
+            actor_id="user:u1",
+        )
+
+    assert raised.value.code == "assertion_scope_occupied"
+    assert "original scope now has a current memory" in str(raised.value)
+    assert (await store.get_tom_assertion(assertion_id=competing_id))["status"] != "archived"
+    corrections = await store.list_assertion_corrections(assertion_id=assertion_id)
+    assert corrections[0]["state"] == "active"
+    assert applied["current_assertion"]["assertion_id"] in {
+        item["assertion_id"]
+        for item in await store.list_current_assertions(
+            entity_id="user:u1",
+            context_scope=destination_scope,
+        )
+    }
 
 
 @pytest.mark.asyncio

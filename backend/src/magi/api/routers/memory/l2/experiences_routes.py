@@ -15,6 +15,7 @@ from magi.api.services.l2_episode_review_helpers import (
 )
 from magi.api.services.l2_episode_review_read_model import (
     attach_episode_entity_previews,
+    fetch_l1_events_by_ids,
     get_configured_or_real_method,
     get_unified_layer,
     ordered_non_empty_strings,
@@ -36,7 +37,6 @@ from ..schemas import (
     ExperienceDraftUpdateRequest,
     ExperienceSeedCreateRequest,
 )
-
 
 _DRAFT_EVENT_MEMBERSHIP_LIMIT = 10_000
 _DRAFT_EVENT_MEMBERSHIP_CONCURRENCY = 8
@@ -121,14 +121,21 @@ def _build_experience_display_fields(
     review = experience_review or {}
     user_title = _clean_text(experience.get("user_label"))
     user_description = _clean_text(experience.get("user_note"))
-    generated_title = _first_text(review.get("label"), experience.get("title"), experience.get("intent"))
+    generated_title = _first_text(
+        review.get("label"), experience.get("title"), experience.get("intent")
+    )
     generated_description = _first_text(
         review.get("content"),
         experience.get("magi_interpretation"),
         experience.get("outcome"),
         experience.get("intent"),
     )
-    display_title = user_title or generated_title or _clean_text(experience.get("experience_id")) or "Experience"
+    display_title = (
+        user_title
+        or generated_title
+        or _clean_text(experience.get("experience_id"))
+        or "Experience"
+    )
     display_description = user_description or generated_description
     if user_title or user_description:
         display_source = "user_override"
@@ -166,7 +173,20 @@ async def _attach_experience_review_fields(
 
 async def _get_experience_or_404(unified_memory: Any, experience_id: str) -> dict[str, Any]:
     experience = await unified_memory.l2.get_experience(experience_id=experience_id)
-    if experience is None:
+    if experience is None or str(experience.get("status") or "") == "invalidated":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
+    return experience
+
+
+async def _get_active_experience_or_404(
+    unified_memory: Any,
+    experience_id: str,
+) -> dict[str, Any]:
+    experience = await _get_experience_or_404(unified_memory, experience_id)
+    if str(experience.get("status") or "") != "active":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
@@ -198,7 +218,7 @@ async def _source_episode_previews(
         if not episode_id:
             continue
         episode = await get_episode(episode_id=episode_id)
-        if episode is None:
+        if episode is None or str(episode.get("status") or "") != "active":
             continue
         item = dict(episode)
         episode_summary = (
@@ -353,6 +373,35 @@ async def _create_manual_experience_seed(
     )
 
 
+async def _validate_manual_seed_sources(
+    unified_memory: Any,
+    *,
+    episode_ids: list[str],
+    event_ids: list[str],
+) -> None:
+    for episode_id in episode_ids:
+        episode = await unified_memory.l2.get_episode(episode_id=episode_id)
+        if episode is None or str(episode.get("status") or "") != "active":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=memory_t(
+                    "memory.errors.experience_seed_not_promotable",
+                    "Experience seed evidence is no longer active",
+                ),
+            )
+    if event_ids:
+        events = await fetch_l1_events_by_ids(unified_memory, event_ids)
+        active_ids = {str(event.get("event_id") or "") for event in events}
+        if any(event_id not in active_ids for event_id in event_ids):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=memory_t(
+                    "memory.errors.experience_seed_not_promotable",
+                    "Experience seed evidence is no longer active",
+                ),
+            )
+
+
 async def _add_manual_experience_seed_evidence(
     unified_memory: Any,
     *,
@@ -386,10 +435,13 @@ async def _promote_seed_for_create_response(
     if not stats.promoted_experience_ids:
         return None, None
     experience_id = str(stats.promoted_experience_ids[0])
-    return experience_id, await _build_promoted_experience_response(
+    response = await _build_promoted_experience_response(
         unified_memory,
         experience_id=experience_id,
     )
+    if response is None:
+        return None, None
+    return experience_id, response
 
 
 async def _build_promoted_experience_response(
@@ -397,10 +449,12 @@ async def _build_promoted_experience_response(
     *,
     experience_id: str,
 ) -> dict[str, Any] | None:
-    experience = await unified_memory.l2.get_experience(
-        experience_id=experience_id,
-    )
-    if experience is None:
+    try:
+        experience = await _get_active_experience_or_404(
+            unified_memory,
+            experience_id,
+        )
+    except HTTPException:
         return None
     members = await unified_memory.l2.list_experience_members(
         experience_id=experience_id,
@@ -478,7 +532,10 @@ async def _hydrate_experience_draft_event_counts(
 
     missing_episode_ids: set[str] = set()
     for chapter in draft.get("chapters") or []:
-        if isinstance(chapter, Mapping) and _coerce_draft_event_count(chapter.get("event_count")) is None:
+        if (
+            isinstance(chapter, Mapping)
+            and _coerce_draft_event_count(chapter.get("event_count")) is None
+        ):
             missing_episode_ids.update(ordered_non_empty_strings(chapter.get("episode_ids")))
     for key in ("possible_evidence", "excluded_evidence"):
         for evidence in draft.get(key) or []:
@@ -523,12 +580,18 @@ async def _hydrate_experience_draft_event_counts(
             for event_id in ordered_non_empty_strings([membership.get("event_id")])
         }
 
-    episode_event_ids = dict(
-        await asyncio.gather(*(
-            load_membership_event_ids(episode_id)
-            for episode_id in sorted(missing_episode_ids)
-        ))
-    ) if list_episode_events is not None else {}
+    episode_event_ids = (
+        dict(
+            await asyncio.gather(
+                *(
+                    load_membership_event_ids(episode_id)
+                    for episode_id in sorted(missing_episode_ids)
+                )
+            )
+        )
+        if list_episode_events is not None
+        else {}
+    )
 
     def count_evidence(episode_ids: Any, direct_event_ids: Any) -> int | None:
         normalized_episode_ids = ordered_non_empty_strings(episode_ids)
@@ -603,10 +666,7 @@ async def _hydrate_experience_draft_event_counts(
     for key in ("possible_evidence", "excluded_evidence"):
         if key not in draft:
             continue
-        evidence_items = [
-            hydrate_evidence(evidence)
-            for evidence in draft.get(key) or []
-        ]
+        evidence_items = [hydrate_evidence(evidence) for evidence in draft.get(key) or []]
         hydrated_draft[key] = evidence_items
         if evidence_items != draft.get(key):
             changed_fields[key] = evidence_items
@@ -620,10 +680,7 @@ async def _hydrate_experience_draft_event_counts(
     ):
         try:
             latest_draft = await get_experience_draft(draft_id=draft_id)
-            if (
-                latest_draft is not None
-                and latest_draft.get("updated_at") == initial_updated_at
-            ):
+            if latest_draft is not None and latest_draft.get("updated_at") == initial_updated_at:
                 await update_experience_draft(
                     draft_id=draft_id,
                     expected_updated_at=float(initial_updated_at),
@@ -648,7 +705,9 @@ async def _get_experience_draft_or_404(
     if draft is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=memory_t("memory.errors.experience_draft_not_found", "Experience draft not found"),
+            detail=memory_t(
+                "memory.errors.experience_draft_not_found", "Experience draft not found"
+            ),
         )
     if hydrate_event_counts:
         return await _hydrate_experience_draft_event_counts(unified_memory, draft)
@@ -691,7 +750,9 @@ async def upload_experience_draft_cover(draft_id: str, file: UploadFile) -> dict
     if asset_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.asset_store_uninitialized", "Asset storage not initialized"),
+            detail=memory_t(
+                "memory.errors.asset_store_uninitialized", "Asset storage not initialized"
+            ),
         )
 
     await _get_experience_draft_or_404(unified_memory, draft_id)
@@ -703,7 +764,9 @@ async def upload_experience_draft_cover(draft_id: str, file: UploadFile) -> dict
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=memory_t("memory.errors.experience_draft_not_found", "Experience draft not found"),
+            detail=memory_t(
+                "memory.errors.experience_draft_not_found", "Experience draft not found"
+            ),
         )
     return await _get_experience_draft_or_404(
         unified_memory,
@@ -746,17 +809,25 @@ async def create_l2_experience_seed(body: ExperienceSeedCreateRequest):
             detail=memory_t("memory.errors.no_seed_evidence", "No seed evidence provided"),
         )
 
-    seed_id = await _create_manual_experience_seed(
+    await _validate_manual_seed_sources(
         unified_memory,
-        body=body,
-        episode_ids=episode_ids,
-    )
-    await _add_manual_experience_seed_evidence(
-        unified_memory,
-        seed_id=seed_id,
         episode_ids=episode_ids,
         event_ids=body.event_ids,
     )
+    try:
+        seed_id = await _create_manual_experience_seed(
+            unified_memory,
+            body=body,
+            episode_ids=episode_ids,
+        )
+        await _add_manual_experience_seed_evidence(
+            unified_memory,
+            seed_id=seed_id,
+            episode_ids=episode_ids,
+            event_ids=body.event_ids,
+        )
+    except ValueError as exc:
+        raise _experience_seed_not_promotable() from exc
 
     promoted_experience_id, experience_response = await _promote_seed_for_create_response(
         unified_memory,
@@ -807,7 +878,31 @@ async def promote_l2_experience_seed(seed_id: str):
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.experience_seed_not_found", "Experience seed not found"),
         )
-    await unified_memory.l2.update_experience_seed(seed_id=seed_id, status="accepted")
+    seed_status = str(seed.get("status") or "").strip()
+    existing_experience_id = _clean_text(seed.get("promoted_experience_id")) or None
+    if existing_experience_id is not None:
+        experience = await _get_experience_or_404(unified_memory, existing_experience_id)
+        if seed_status != "promoted":
+            raise _experience_seed_not_promotable()
+        return {
+            "seed_id": seed_id,
+            "seed": seed,
+            "promoted_experience_id": existing_experience_id,
+            "experience": await _build_experience_review_response(
+                unified_memory,
+                experience=experience,
+            ),
+        }
+    if seed_status not in {"candidate", "accepted"}:
+        raise _experience_seed_not_promotable()
+    if seed_status == "candidate":
+        accepted = await unified_memory.l2.update_experience_seed(
+            seed_id=seed_id,
+            expected_statuses=["candidate"],
+            status="accepted",
+        )
+        if not accepted:
+            raise _experience_seed_not_promotable()
     stats = await promote_experiences_from_episodes(
         unified_memory.l2,
         target_seed_id=seed_id,
@@ -816,25 +911,36 @@ async def promote_l2_experience_seed(seed_id: str):
     promoted_experience_id = _clean_text((seed or {}).get("promoted_experience_id")) or None
     if promoted_experience_id is None and stats.promoted_experience_ids:
         promoted_experience_id = str(stats.promoted_experience_ids[0])
+    if promoted_experience_id is None:
+        raise _experience_seed_not_promotable()
 
     experience_response: dict[str, Any] | None = None
     if promoted_experience_id:
-        experience = await unified_memory.l2.get_experience(experience_id=promoted_experience_id)
-        if experience is not None:
-            members = await unified_memory.l2.list_experience_members(
-                experience_id=promoted_experience_id,
-            )
-            experience_response = await _build_experience_review_response(
-                unified_memory,
-                experience=experience,
-                members=members,
-            )
+        experience = await _get_experience_or_404(unified_memory, promoted_experience_id)
+        members = await unified_memory.l2.list_experience_members(
+            experience_id=promoted_experience_id,
+        )
+        experience_response = await _build_experience_review_response(
+            unified_memory,
+            experience=experience,
+            members=members,
+        )
     return {
         "seed_id": seed_id,
         "seed": seed,
         "promoted_experience_id": promoted_experience_id,
         "experience": experience_response,
     }
+
+
+def _experience_seed_not_promotable() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=memory_t(
+            "memory.errors.experience_seed_not_promotable",
+            "Experience seed is no longer available for promotion",
+        ),
+    )
 
 
 @memory_router.post("/l2/experience-seeds/{seed_id}/reject")
@@ -867,6 +973,8 @@ async def list_l2_experiences(
     """List product-grade L2 experiences."""
     unified_memory = _resolve_unified_memory()
     if not unified_memory or not unified_memory.l2:
+        return {"items": [], "total": 0, "limit": limit, "offset": offset}
+    if (status_filter or "").strip().lower() == "invalidated":
         return {"items": [], "total": 0, "limit": limit, "offset": offset}
     effective_status = status_filter if status_filter is not None else "active"
     items = await unified_memory.l2.list_experiences(
@@ -911,13 +1019,16 @@ async def upload_l2_experience_cover(experience_id: str, file: UploadFile):
     if asset_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.asset_store_uninitialized", "Asset storage not initialized"),
+            detail=memory_t(
+                "memory.errors.asset_store_uninitialized", "Asset storage not initialized"
+            ),
         )
 
-    await _get_experience_or_404(unified_memory, experience_id)
+    current = await _get_experience_or_404(unified_memory, experience_id)
     upload = await store_uploaded_image_asset(file, asset_store)
     ok = await unified_memory.l2.update_experience(
         experience_id=experience_id,
+        expected_status=str(current.get("status") or ""),
         user_cover_asset_ref=upload["asset_ref"],
     )
     if not ok:
@@ -953,7 +1064,12 @@ async def annotate_l2_experience(experience_id: str, body: ExperienceAnnotationR
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=memory_t("memory.errors.no_fields_to_update", "No fields to update"),
         )
-    ok = await unified_memory.l2.update_experience(experience_id=experience_id, **updates)
+    current = await _get_experience_or_404(unified_memory, experience_id)
+    ok = await unified_memory.l2.update_experience(
+        experience_id=experience_id,
+        expected_status=str(current.get("status") or ""),
+        **updates,
+    )
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -972,8 +1088,21 @@ async def hide_l2_experience(experience_id: str):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=memory_t("memory.errors.l2_store_uninitialized", "L2 store not initialized"),
         )
+    current = await _get_experience_or_404(unified_memory, experience_id)
+    current_status = str(current.get("status") or "")
+    if current_status == "hidden":
+        return await _build_experience_review_response(
+            unified_memory,
+            experience=current,
+        )
+    if current_status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
     ok = await unified_memory.l2.update_experience(
         experience_id=experience_id,
+        expected_status="active",
         status="hidden",
     )
     if not ok:
@@ -999,7 +1128,9 @@ async def regenerate_l2_experience(experience_id: str):
     if l1_store is None or l3_store is None or not hasattr(l3_store, "generate_experience_summary"):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.summary_store_uninitialized", "Summary store not initialized"),
+            detail=memory_t(
+                "memory.errors.summary_store_uninitialized", "Summary store not initialized"
+            ),
         )
     experience = await _get_experience_or_404(unified_memory, experience_id)
     members = await unified_memory.l2.list_experience_members(experience_id=experience_id)
@@ -1009,6 +1140,12 @@ async def regenerate_l2_experience(experience_id: str):
         experience=experience,
         experience_members=members,
     )
+    current = await unified_memory.l2.get_experience(experience_id=experience_id)
+    if current is None or str(current.get("status") or "") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=memory_t("memory.errors.experience_not_found", "Experience not found"),
+        )
     review = serialize_episodic_summary(generated_summary)
     if review is None:
         raise HTTPException(
@@ -1020,12 +1157,13 @@ async def regenerate_l2_experience(experience_id: str):
         )
     await backwrite_experience_review(
         unified_memory.l2,
-        experience=experience,
+        experience=current,
         summary=generated_summary,
     )
+    current = await _get_active_experience_or_404(unified_memory, experience_id)
     return await _build_experience_review_response(
         unified_memory,
-        experience=experience,
+        experience=current,
         members=members,
         experience_review=review,
     )

@@ -145,6 +145,7 @@ class AgentRuntimeModule(LifecycleModule):
             user_message_generation_getter=(
                 deps.runtime_command_queue.current_user_message_generation
             ),
+            user_message_scope_blocker=(deps.runtime_command_queue.is_user_message_scope_blocked),
         )
 
     def _build_chat_agent_factory(

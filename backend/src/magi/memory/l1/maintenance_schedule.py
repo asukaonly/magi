@@ -24,18 +24,44 @@ async def handle_l1_maintenance(
 ) -> ScheduledExecutionResult:
     """Run L1 retention cleanup independently from global runtime maintenance."""
     _ = context
-    memory_cfg = get_config().agent.memory
-    l1_cfg = memory_cfg.l1
-    if not l1_cfg.enabled:
-        return ScheduledExecutionResult(success=True, message="l1_disabled_skip", stats={})
-    if not l1_cfg.maintenance_enabled:
-        return ScheduledExecutionResult(success=True, message="l1_maintenance_disabled_skip", stats={})
-
     try:
         unified = get_unified_memory()
     except RuntimeError:
         logger.debug("L1 maintenance skipped: unified memory binding unavailable")
         return ScheduledExecutionResult(success=True, message="unified_memory_unavailable_skip", stats={})
+
+    try:
+        recovery_stats = await unified.resume_pending_forget_operations()
+    except Exception as exc:
+        logger.error("Durable forget recovery failed", error=str(exc))
+        return ScheduledExecutionResult(
+            success=False,
+            message="forget_recovery_failed",
+            stats={"error": str(exc)},
+        )
+
+    memory_cfg = get_config().agent.memory
+    l1_cfg = memory_cfg.l1
+    if not l1_cfg.enabled:
+        return ScheduledExecutionResult(
+            success=True,
+            message="l1_disabled_skip",
+            stats={
+                "forget_operations_found": recovery_stats["found"],
+                "forget_operations_completed": recovery_stats["completed"],
+                "forget_operations_failed": recovery_stats["failed"],
+            },
+        )
+    if not l1_cfg.maintenance_enabled:
+        return ScheduledExecutionResult(
+            success=True,
+            message="l1_maintenance_disabled_skip",
+            stats={
+                "forget_operations_found": recovery_stats["found"],
+                "forget_operations_completed": recovery_stats["completed"],
+                "forget_operations_failed": recovery_stats["failed"],
+            },
+        )
 
     async with unified.memory_operation_guard():
         if unified.l1 is None:
@@ -54,6 +80,9 @@ async def handle_l1_maintenance(
                     str(memory_cfg.history_behavior),
                 ),
             )
+            stats["forget_operations_found"] = recovery_stats["found"]
+            stats["forget_operations_completed"] = recovery_stats["completed"]
+            stats["forget_operations_failed"] = recovery_stats["failed"]
         except Exception as exc:
             logger.error("L1 maintenance failed", error=str(exc))
             return ScheduledExecutionResult(

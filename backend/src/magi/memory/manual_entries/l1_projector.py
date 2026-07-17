@@ -5,18 +5,18 @@ L1 event stream so the rest of the memory pipeline (episode formation,
 cluster_builder, themes, mood aggregate, diary LLM) picks them up
 without any parallel ingestion path.
 
-Idempotency: each save gets a unique key
-``manual-entry:{entry_id}:{timestamp_ns}``. On edit we tombstone the old
-L1 row and store a fresh one — cleaner than racing with embedding
-workers on an in-place update.
-
-Soft-delete: cascades to L1 via ``mark_deleted``.
+Each projection is immutable. Replacements get a deterministic idempotency
+key derived from the predecessor event and the current projected content, so a
+retry after a partial route failure resolves the same L1 row instead of
+creating another copy.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
-from typing import Any, Optional, Protocol
+from typing import Any, Protocol
 
 from magi.events.sensor_activity_snapshot import ACTIVITY_SNAPSHOT_METADATA_KEY
 
@@ -30,14 +30,12 @@ from ..event_contracts import (
     TomDepth,
     author_type_code,
     content_type_code,
-    generate_event_id,
 )
 from .models import ManualEntry
 
 
-class _L1WriteProtocol(Protocol):
-    async def store(self, event: MemoryEvent) -> str: ...
-    async def mark_deleted(self, event_id: str, *, deleted_at: Optional[float] = None) -> bool: ...
+class _GovernedL1WriteProtocol(Protocol):
+    async def store_governed_l1_event(self, event: MemoryEvent) -> str | None: ...
 
 
 # Event type tag used by L1 + downstream consumers. Distinct from
@@ -47,13 +45,40 @@ class _L1WriteProtocol(Protocol):
 MANUAL_ENTRY_EVENT_TYPE = "manual_entry.note"
 
 
-def _idempotency_key(entry_id: str) -> str:
-    # Time-based suffix so each save is unique (entries are immutable from
-    # L1's perspective; updates manifest as new rows + tombstoned old ones).
-    return f"manual-entry:{entry_id}:{time.time_ns()}"
+def _projection_fingerprint(entry: ManualEntry) -> str:
+    projected = {
+        "event_at": float(entry.event_at),
+        "body": entry.body,
+        "mood": entry.mood,
+        "attachments": list(entry.attachments),
+        "location_label": entry.location_label,
+        "exclude_from_llm": bool(entry.exclude_from_llm),
+        "weather": dict(entry.weather) if entry.weather else None,
+    }
+    payload = json.dumps(
+        projected,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:24]
 
 
-def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
+def _idempotency_key(entry: ManualEntry, predecessor_event_id: str | None) -> str:
+    predecessor = str(predecessor_event_id or "initial").strip() or "initial"
+    return f"manual-entry:{entry.entry_id}:{predecessor}:{_projection_fingerprint(entry)}"
+
+
+def _projection_event_id(entry: ManualEntry, predecessor_event_id: str | None) -> str:
+    identity = _idempotency_key(entry, predecessor_event_id).encode("utf-8")
+    return f"me_{hashlib.sha256(identity).hexdigest()[:32]}"
+
+
+def _build_memory_event(
+    entry: ManualEntry,
+    *,
+    predecessor_event_id: str | None,
+) -> MemoryEvent:
     """Compose a MemoryEvent for a single manual_entries row.
 
     timestamp = ``event_at`` (when the memory happened), NOT ``created_at``
@@ -80,7 +105,7 @@ def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
     }
     now = time.time()
     return MemoryEvent(
-        event_id=generate_event_id(prefix="me"),
+        event_id=_projection_event_id(entry, predecessor_event_id),
         correlation_id=f"manual-entry:{entry.entry_id}",
         timestamp=float(entry.event_at),
         created_at=now,
@@ -101,7 +126,7 @@ def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
         content_type=content_type_code(ContentType.TEXT),
         importance_score=0.75,  # user-authored = high baseline importance
         level=0,
-        idempotency_key=_idempotency_key(entry.entry_id),
+        idempotency_key=_idempotency_key(entry, predecessor_event_id),
         metadata_json=metadata,
     )
 
@@ -109,22 +134,27 @@ def _build_memory_event(entry: ManualEntry) -> MemoryEvent:
 class ManualEntryL1Projector:
     """Wraps the L1 event store with manual-entry-shaped helpers."""
 
-    def __init__(self, *, l1_store: _L1WriteProtocol) -> None:
-        self._l1 = l1_store
+    def __init__(self, *, memory: _GovernedL1WriteProtocol) -> None:
+        self._memory = memory
 
-    async def project_on_create(self, entry: ManualEntry) -> str:
-        """Emit the initial L1 event. Returns the assigned event_id."""
-        event = _build_memory_event(entry)
-        return await self._l1.store(event)
+    @staticmethod
+    def event_id_for(
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> str | None:
+        """Return the stable identity for a retryable projection."""
+        return _projection_event_id(entry, predecessor_event_id)
 
-    async def project_on_update(self, entry: ManualEntry) -> str:
-        """Tombstone the old L1 row (if any) and store a fresh one."""
-        if entry.l1_event_id:
-            await self._l1.mark_deleted(entry.l1_event_id, deleted_at=time.time())
-        event = _build_memory_event(entry)
-        return await self._l1.store(event)
-
-    async def project_on_delete(self, entry: ManualEntry) -> None:
-        """Soft-delete the L1 row tied to this entry, if any."""
-        if entry.l1_event_id:
-            await self._l1.mark_deleted(entry.l1_event_id, deleted_at=time.time())
+    async def project_current(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> str:
+        """Persist the current projection and return its stable event id."""
+        event = _build_memory_event(
+            entry,
+            predecessor_event_id=predecessor_event_id,
+        )
+        return await self._memory.store_governed_l1_event(event)

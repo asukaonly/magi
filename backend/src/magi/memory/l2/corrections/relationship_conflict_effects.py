@@ -272,14 +272,12 @@ async def load_relationship_graph_conflict_rules(
     """Load the persisted conflict matrix with built-in defaults."""
     db.row_factory = aiosqlite.Row
     rules = dict(DEFAULT_GRAPH_CONFLICT_RULES)
-    async with db.execute(
-        """
+    async with db.execute("""
         SELECT predicate, opposite_predicates, opposite_resolution,
                exclusive_group, exclusive_scope, exclusive_resolution
         FROM graph_conflict_rules
         ORDER BY predicate ASC
-        """
-    ) as cursor:
+        """) as cursor:
         rows = await cursor.fetchall()
     for row in rows:
         rule = GraphConflictRule.from_mapping(dict(row))
@@ -297,7 +295,12 @@ async def _active_conflicts(
     db.row_factory = aiosqlite.Row
     async with db.execute(query, args) as cursor:
         rows = await cursor.fetchall()
-    return [row for row in rows if row["valid_to"] is None or float(row["valid_to"]) > effective_at]
+    return [
+        row
+        for row in rows
+        if (row["valid_from"] is None or float(row["valid_from"]) <= effective_at)
+        and (row["valid_to"] is None or float(row["valid_to"]) > effective_at)
+    ]
 
 
 async def _suppress_conflicts(

@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import aiosqlite
 
+from _shared.memory_schema import apply_memory_shared_schema
 from magi.events.events import Event, EventLevel, EventTypes
 from magi.events.in_memory_backend import InMemoryMessageBusBackend
 from magi.memory import MemoryStoreTuning, UnifiedMemoryStore
@@ -434,8 +435,8 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(active_entities), 1)
             self.assertEqual(active_entities[0]["entity_id"], "place:shanghai")
             self.assertEqual(active_entities[0]["entity_type"], "place")
-            self.assertEqual(active_entities[0]["snapshot"]["canonical_name"], "上海")
-            self.assertEqual(active_entities[0]["snapshot"]["name"], "上海")
+            self.assertEqual(active_entities[0]["snapshot"]["canonical_name"], "Shanghai")
+            self.assertEqual(active_entities[0]["snapshot"]["name"], "Shanghai")
             self.assertIn("魔都", active_entities[0]["snapshot"]["aliases"])
         finally:
             await local_store.shutdown()
@@ -570,6 +571,7 @@ class TestUnifiedMemoryStore(unittest.IsolatedAsyncioTestCase):
         recording_l1 = _RecordingL1Store()
         local_store.l1 = recording_l1  # type: ignore[assignment]
         local_store.l2_pipeline = _BlockingL2Pipeline(release_first_enqueue)  # type: ignore[assignment]
+        await apply_memory_shared_schema(local_store.memory_db_path)
 
         first_task = asyncio.create_task(
             local_store.ingest_event(
@@ -1057,6 +1059,130 @@ class TestUnifiedMemoryMaintenance(unittest.IsolatedAsyncioTestCase):
         summary_payload = json.loads(str(summary_row["payload_json"]))
         self.assertEqual(summary_payload["summary"]["summary_id"], str(summary_row["summary_id"]))
         self.assertEqual(summary_payload["summary"]["summary_category"], "state_change")
+
+    async def test_l1_archive_does_not_restore_an_event_forgotten_after_selection(self) -> None:
+        old_timestamp = time.time() - (45 * 86400)
+        event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.TASK_COMPLETED,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "task_id": "task-late-l1-archive",
+                    "success": True,
+                    "content": "Forget this event before archival resumes.",
+                },
+                source="worker",
+                level=EventLevel.INFO,
+                correlation_id="evt-late-l1-archive",
+                timestamp=old_timestamp,
+            )
+        )
+        await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="A summary makes the old event eligible for retention cleanup.",
+                source_event_ids=[event_id],
+            )
+        )
+
+        selected = asyncio.Event()
+        resume = asyncio.Event()
+        original_filter = self.store._filter_l1_retention_candidates
+
+        async def pause_after_selection(event_ids: list[str]) -> list[str]:
+            result = await original_filter(event_ids)
+            selected.set()
+            await resume.wait()
+            return result
+
+        with patch.object(
+            self.store,
+            "_filter_l1_retention_candidates",
+            side_effect=pause_after_selection,
+        ):
+            maintenance = asyncio.create_task(
+                self.store.cleanup_l1_data(
+                    older_than_days=30,
+                    history_behavior="archive",
+                )
+            )
+            await asyncio.wait_for(selected.wait(), timeout=2)
+            try:
+                self.assertTrue(await self.store.forget_source_event(event_id))
+            finally:
+                resume.set()
+            removed = await asyncio.wait_for(maintenance, timeout=2)
+
+        self.assertEqual(removed["archived_events"], 0)
+        self.assertEqual(removed["deleted_events"], 0)
+        event = await self.store.l1.get_event(event_id)
+        self.assertIsNotNone(event)
+        self.assertIsNotNone(event["deleted_at"])
+
+    async def test_l3_archive_does_not_restore_a_summary_forgotten_after_selection(self) -> None:
+        old_timestamp = time.time() - (45 * 86400)
+        event_id = await self.store.add_event(
+            Event(
+                type=EventTypes.USER_MESSAGE,
+                data={
+                    "user_id": "u1",
+                    "session_id": "s1",
+                    "content": "Forget the evidence before summary archival resumes.",
+                },
+                source="chat",
+                level=EventLevel.INFO,
+                correlation_id="evt-late-l3-archive",
+                timestamp=old_timestamp,
+            )
+        )
+        summary = await self.store.l3.upsert_candidate(
+            candidate=L3Candidate(
+                summary_type="insight",
+                summary_category="state_change",
+                content="This old summary must not be archived after its source is forgotten.",
+                source_event_ids=[event_id],
+            ),
+            summary_overrides={
+                "period_start": old_timestamp,
+                "period_end": old_timestamp,
+                "created_at": old_timestamp,
+                "updated_at": old_timestamp,
+            },
+        )
+
+        selected = asyncio.Event()
+        resume = asyncio.Event()
+        original_list = self.store.l3.list_summaries_older_than
+
+        async def pause_after_selection(*, older_than: float, limit: int = 1000):
+            result = await original_list(older_than=older_than, limit=limit)
+            selected.set()
+            await resume.wait()
+            return result
+
+        with patch.object(
+            self.store.l3,
+            "list_summaries_older_than",
+            side_effect=pause_after_selection,
+        ):
+            maintenance = asyncio.create_task(
+                self.store.cleanup_l3_data(
+                    older_than_days=30,
+                    history_behavior="archive",
+                )
+            )
+            await asyncio.wait_for(selected.wait(), timeout=2)
+            try:
+                self.assertTrue(await self.store.forget_source_event(event_id))
+            finally:
+                resume.set()
+            removed = await asyncio.wait_for(maintenance, timeout=2)
+
+        self.assertEqual(removed["archived_summaries"], 0)
+        self.assertEqual(removed["deleted_summaries"], 0)
+        self.assertIsNone(await self.store.l3.get_summary_by_id(summary["summary_id"]))
 
     async def test_cleanup_old_data_uses_configured_archive_directory(self) -> None:
         custom_archive_dir = self.base / "custom-archive"

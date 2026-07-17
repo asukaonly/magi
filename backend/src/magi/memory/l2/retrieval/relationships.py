@@ -21,6 +21,11 @@ from .common import (
 from .relationship_history import _list_governed_relationship_history
 from .relationship_history import _batch_list_governed_relationship_history
 
+_FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL = (
+    " AND COALESCE(authority_ref, '') NOT LIKE 'forget:%'"
+    " AND COALESCE(status_reason, '') != 'user_forget'"
+)
+
 
 class L2StoreRelationshipQueryMixin:
     """Read and batch-query L2 knowledge-graph relationships."""
@@ -369,6 +374,7 @@ class L2StoreRelationshipQueryMixin:
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         sql = "SELECT COUNT(*) FROM knowledge_graph WHERE 1=1"
+        sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
         args: list[Any] = []
         if not include_inactive:
             sql += " AND status = 'active'"
@@ -420,13 +426,16 @@ class L2StoreRelationshipQueryMixin:
         search_query = query
         if include_inactive:
             sql = "SELECT * FROM knowledge_graph WHERE 1=1"
+            sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
             args: list[Any] = []
         elif status_filters:
             placeholders = ", ".join("?" for _ in status_filters)
             sql = f"SELECT * FROM knowledge_graph WHERE status IN ({placeholders})"
+            sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
             args: list[Any] = [str(item).strip() for item in status_filters]
         else:
             sql = "SELECT * FROM knowledge_graph WHERE status = ?"
+            sql += _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
             args = [status]
         if subject_id:
             sql += " AND subject_id = ?"
@@ -575,7 +584,10 @@ class L2StoreRelationshipQueryMixin:
             direction=direction,
             unique_ids=unique_ids,
         )
-        query = f"SELECT * FROM knowledge_graph WHERE {status_clause} AND {direction_clause}"
+        query = (
+            f"SELECT * FROM knowledge_graph WHERE {status_clause} AND {direction_clause}"
+            + _FORGOTTEN_RELATIONSHIP_EXCLUSION_SQL
+        )
         args = status_args + direction_args
         query, args = self._append_batch_relationship_filters(
             query=query,

@@ -81,8 +81,7 @@ class UserProfileCommandService:
             logger.debug("Failed to refresh portrait projection for %s: %s", user_id, exc)
 
     async def _write_profile_update_event(self, *, user_id: str, updates: dict[str, Any]) -> str | None:
-        l1 = getattr(self._unified_memory, "l1", None)
-        if l1 is None:
+        if getattr(self._unified_memory, "l1", None) is None:
             return None
         now = time.time()
         event_id = generate_event_id(prefix="profile_update")
@@ -110,7 +109,7 @@ class UserProfileCommandService:
             level=1,
             metadata_json={"source": "personal_profile_settings"},
         )
-        return await l1.store(event)
+        return await self._unified_memory.store_governed_l1_event(event)
 
     def _build_assertion_candidates(
         self,

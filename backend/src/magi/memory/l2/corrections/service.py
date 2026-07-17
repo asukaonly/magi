@@ -12,12 +12,18 @@ from typing import Any
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from ...source_event_governance import (
+    source_event_time_range_block_ids,
+    source_event_tombstone_ids,
+)
 from ..assertions.settings import (
     USER_REJECTED_CONFIDENCE,
     assertion_float_setting,
 )
 from ..graph_conflicts import GraphConflictRule
+from ..storage.utils import max_evidence_event_ids
 from .cache_signals import mark_subject_changed
+from .evidence_ledger import append_claim_evidence_event_ids
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
     assertion_claim_fingerprint,
@@ -27,6 +33,7 @@ from .fingerprints import (
     scope_key,
     stored_context_scope,
 )
+from .forget_guard import correction_target_was_forgotten
 from .models import (
     ApplyAssertionCorrectionCommand,
     ApplyRelationshipCorrectionCommand,
@@ -97,6 +104,10 @@ _RESTORABLE_ASSERTION_COLUMNS = (
 class MemoryCorrectionConflictError(RuntimeError):
     """Raised when a correction targets a stale or already changed claim."""
 
+    def __init__(self, message: str, *, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
 
 class MemoryCorrectionValidationError(ValueError):
     """Raised when correction semantics are incomplete or not executable."""
@@ -104,6 +115,24 @@ class MemoryCorrectionValidationError(ValueError):
     def __init__(self, message: str, *, code: str | None = None):
         super().__init__(message)
         self.code = code
+
+
+async def ensure_correction_source_event_is_active(
+    db: aiosqlite.Connection,
+    *,
+    source_event_id: str | None,
+) -> None:
+    """Reject new correction evidence after its source event was forgotten."""
+    if source_event_id is None:
+        return
+    if await source_event_tombstone_ids(
+        db,
+        [source_event_id],
+    ) or await source_event_time_range_block_ids(db, [source_event_id]):
+        raise MemoryCorrectionConflictError(
+            "The correction source event was forgotten",
+            code="correction_source_event_forgotten",
+        )
 
 
 class MemoryCorrectionService:
@@ -162,11 +191,10 @@ class MemoryCorrectionService:
         command: ApplyAssertionCorrectionCommand,
     ) -> AssertionCorrectionResult | None:
         """Apply one idempotent correction to the current assertion version."""
-        now = time.time()
-
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
+            now = time.time()
             try:
                 existing_correction = await self.repository.get_by_request_id_on_connection(
                     db,
@@ -178,6 +206,10 @@ class MemoryCorrectionService:
                     return _result_for_existing_correction(existing_correction)
 
                 _validate_assertion_command(command)
+                await ensure_correction_source_event_is_active(
+                    db,
+                    source_event_id=command.source_event_id,
+                )
 
                 row = await _load_assertion(db, command.assertion_id)
                 if row is None:
@@ -215,6 +247,17 @@ class MemoryCorrectionService:
                     if command.replacement_value is not None
                     else None
                 )
+                if command.correction_kind == CorrectionKind.SCOPE_REFINEMENT:
+                    await _ensure_assertion_scope_available(
+                        db,
+                        slot_key_value=old_slot_key,
+                        scope_key_value=replacement_scope_key,
+                        excluded_assertion_ids={command.assertion_id},
+                        message=(
+                            "The selected scope already has a current memory. "
+                            "Review it before moving this memory."
+                        ),
+                    )
 
                 correction = NewMemoryCorrection(
                     correction_id=correction_id,
@@ -268,6 +311,29 @@ class MemoryCorrectionService:
                         valid_from=effective_at,
                         now=now,
                     )
+                    if command.source_event_id is not None:
+                        await append_claim_evidence_event_ids(
+                            db,
+                            target_kind=CorrectionTargetKind.ASSERTION,
+                            claim_fingerprint=replacement_fingerprint,
+                            event_ids=[command.source_event_id],
+                            observed_at=(
+                                command.source_event_observed_at
+                                if command.source_event_observed_at is not None
+                                else now
+                            ),
+                            created_at=now,
+                            event_timestamps=(
+                                {
+                                    command.source_event_id: command.source_event_observed_at,
+                                }
+                                if command.source_event_observed_at is not None
+                                else None
+                            ),
+                            observed_from=float(before["first_inferred_at"]),
+                            observed_to=now,
+                            mark_missing_timestamps_approximate=True,
+                        )
                 for rule in _build_assertion_rules(
                     correction_id=correction_id,
                     command=command,
@@ -336,10 +402,10 @@ class MemoryCorrectionService:
         actor_id: str,
     ) -> AssertionCorrectionResult | None:
         """Revert an assertion correction unless a newer correction depends on it."""
-        now = time.time()
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             await db.execute("BEGIN IMMEDIATE")
+            now = time.time()
             try:
                 row = await _load_correction(db, correction_id)
                 if row is None:
@@ -360,8 +426,30 @@ class MemoryCorrectionService:
                         current_assertion_id=correction.target_id,
                         subject_revision=None,
                     )
+                if await correction_target_was_forgotten(db, correction):
+                    raise MemoryCorrectionConflictError(
+                        "Forgotten memories cannot be restored",
+                        code="memory_forgotten",
+                    )
                 if await _has_newer_active_correction(db, correction):
                     raise MemoryCorrectionConflictError("A newer correction must be reverted first")
+
+                await _ensure_assertion_scope_available(
+                    db,
+                    slot_key_value=correction.slot_key,
+                    scope_key_value=str(
+                        correction.before.get("scope_key")
+                        or scope_key(stored_context_scope(correction.before))
+                    ),
+                    excluded_assertion_ids={
+                        correction.target_id,
+                        correction.replacement_target_id or "",
+                    },
+                    message=(
+                        "The original scope now has a current memory. "
+                        "Review it before reverting this correction."
+                    ),
+                )
 
                 if correction.replacement_target_id:
                     await db.execute(
@@ -635,6 +723,34 @@ async def _load_correction(
         (correction_id,),
     ) as cursor:
         return await cursor.fetchone()
+
+
+async def _ensure_assertion_scope_available(
+    db: aiosqlite.Connection,
+    *,
+    slot_key_value: str,
+    scope_key_value: str,
+    excluded_assertion_ids: set[str],
+    message: str,
+) -> None:
+    """Reject a scope move before SQLite's current-assertion constraint does."""
+    async with db.execute(
+        """
+        SELECT assertion_id
+        FROM tom_trait_assertions
+        WHERE slot_key = ? AND scope_key = ?
+          AND status NOT IN ('superseded', 'archived', 'expired', 'user_rejected', 'shadow')
+        LIMIT 1
+        """,
+        (slot_key_value, scope_key_value),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None or str(row["assertion_id"]) in excluded_assertion_ids:
+        return
+    raise MemoryCorrectionConflictError(
+        message,
+        code="assertion_scope_occupied",
+    )
 
 
 async def _ensure_assertion_identity(
@@ -923,6 +1039,7 @@ async def _has_newer_active_correction(
         """
         SELECT * FROM memory_corrections
         WHERE target_kind = 'assertion' AND slot_key = ? AND state = 'active'
+          AND transition_cancelled_at IS NULL
           AND correction_id != ?
           AND (created_at > ? OR (created_at = ? AND correction_id > ?))
         """,
@@ -968,19 +1085,83 @@ async def _restore_original_assertion(
         raise MemoryCorrectionValidationError(
             f"Correction snapshot is missing assertion fields: {', '.join(missing)}"
         )
+    restored = dict(before)
+    current = await _load_assertion(db, assertion_id)
+    if current is not None:
+        restored.update(_merged_assertion_evidence_for_revert(before, dict(current)))
     assignments = ", ".join(f"{column} = ?" for column in _RESTORABLE_ASSERTION_COLUMNS)
-    values = [before[column] for column in _RESTORABLE_ASSERTION_COLUMNS]
+    values = [restored[column] for column in _RESTORABLE_ASSERTION_COLUMNS]
     await db.execute(
         f"UPDATE tom_trait_assertions SET {assignments}, updated_at = ? WHERE assertion_id = ?",
         (*values, now, assertion_id),
     )
 
 
+async def restore_assertion_snapshot_on_connection(
+    db: aiosqlite.Connection,
+    *,
+    assertion_id: str,
+    before: Mapping[str, Any],
+    now: float,
+) -> None:
+    """Restore an assertion preimage inside an existing governance transaction."""
+    await _restore_original_assertion(
+        db,
+        assertion_id=assertion_id,
+        before=before,
+        now=now,
+    )
+
+
+def _merged_assertion_evidence_for_revert(
+    before: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> dict[str, Any]:
+    evidence = sorted(
+        set(_assertion_evidence_event_ids(before.get("evidence_events"))).union(
+            _assertion_evidence_event_ids(current.get("evidence_events"))
+        )
+    )[-max_evidence_event_ids() :]
+    return {
+        "evidence_events": json.dumps(evidence, ensure_ascii=False),
+        "first_inferred_at": min(
+            float(before["first_inferred_at"]),
+            float(current["first_inferred_at"]),
+        ),
+        "last_validated_at": max(
+            float(before["last_validated_at"]),
+            float(current["last_validated_at"]),
+        ),
+    }
+
+
+def _assertion_evidence_event_ids(raw: Any) -> list[str]:
+    parsed = raw
+    for _ in range(2):
+        if not isinstance(parsed, str):
+            break
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError as exc:
+            raise MemoryCorrectionValidationError(
+                "Correction snapshot contains invalid assertion evidence"
+            ) from exc
+    if not isinstance(parsed, list) or any(
+        not isinstance(event_id, str) or not event_id.strip() for event_id in parsed
+    ):
+        raise MemoryCorrectionValidationError(
+            "Correction snapshot contains invalid assertion evidence"
+        )
+    return list(dict.fromkeys(event_id.strip() for event_id in parsed))
+
+
 def _result_for_existing_correction(
     correction: MemoryCorrection,
 ) -> AssertionCorrectionResult:
     current_assertion_id = correction.replacement_target_id
-    if correction.state == CorrectionState.REVERTED:
+    if correction.state == CorrectionState.REVERTED or (
+        correction.transition_cancelled_at is not None and correction.transition_applied_at is None
+    ):
         current_assertion_id = correction.target_id
     return AssertionCorrectionResult(
         correction=correction,

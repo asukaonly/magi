@@ -160,6 +160,15 @@ class RuntimeCommandProcessorModule(LifecycleModule):
         try:
             if command.command_type is RuntimeCommandType.USER_MESSAGE:
                 async with queue.user_message_operation():
+                    if await queue.is_user_message_command_blocked(command):
+                        logger.info(
+                            "Discarding user-message runtime command for a deleted chat scope",
+                            command_id=command.command_id,
+                            session_id=str(command.payload.get("session_id") or ""),
+                            turn_id=str(command.payload.get("turn_id") or ""),
+                        )
+                        await queue.ack(command.command_id)
+                        return
                     if (
                         int(command.user_message_generation)
                         != queue.current_user_message_generation()

@@ -29,23 +29,42 @@ async def test_list_mood_calendar_empty_month(unified_memory_for_tests):
 
 @pytest.mark.asyncio
 async def test_list_mood_calendar_returns_days_in_month(
-    unified_memory_for_tests, daily_mood_store_for_tests,
+    unified_memory_for_tests,
+    daily_mood_store_for_tests,
 ):
     await daily_mood_store_for_tests.initialize()
 
-    await daily_mood_store_for_tests.upsert_aggregate(DailyMoodAggregate(
-        day_local_date="2026-05-10", dominant_valence="warm",
-        volatility_score=0.2, state_curve_compact=[0.4], event_count=42,
-    ))
-    await daily_mood_store_for_tests.upsert_aggregate(DailyMoodAggregate(
-        day_local_date="2026-05-17", dominant_valence="cool",
-        volatility_score=0.6, state_curve_compact=[-0.3, 0.2], event_count=228,
-    ))
+    await daily_mood_store_for_tests.upsert_aggregate(
+        DailyMoodAggregate(
+            day_local_date="2026-05-10",
+            dominant_valence="warm",
+            volatility_score=0.2,
+            state_curve_compact=[0.4],
+            event_count=42,
+            source_event_ids=["event-mood-10"],
+        )
+    )
+    await daily_mood_store_for_tests.upsert_aggregate(
+        DailyMoodAggregate(
+            day_local_date="2026-05-17",
+            dominant_valence="cool",
+            volatility_score=0.6,
+            state_curve_compact=[-0.3, 0.2],
+            event_count=228,
+            source_event_ids=["event-mood-17"],
+        )
+    )
     # Out of month — must not appear
-    await daily_mood_store_for_tests.upsert_aggregate(DailyMoodAggregate(
-        day_local_date="2026-04-30", dominant_valence="bright",
-        volatility_score=0.1, state_curve_compact=[0.5], event_count=10,
-    ))
+    await daily_mood_store_for_tests.upsert_aggregate(
+        DailyMoodAggregate(
+            day_local_date="2026-04-30",
+            dominant_valence="bright",
+            volatility_score=0.1,
+            state_curve_compact=[0.5],
+            event_count=10,
+            source_event_ids=["event-mood-april"],
+        )
+    )
 
     service = TimelineService(unified_memory_for_tests)
     out = await service.list_mood_calendar(month="2026-05")

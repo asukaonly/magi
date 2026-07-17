@@ -169,7 +169,7 @@ async def _source_id_evidence(
 ) -> tuple[list[dict[str, Any]], str]:
     events: list[dict[str, Any]] = []
     for event_id in source_ids[:limit]:
-        event = await l1.get_event(event_id)
+        event = await l1.get_user_visible_event(event_id)
         if event is not None:
             events.append(event)
     return events, "source_ids"

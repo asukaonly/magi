@@ -15,8 +15,6 @@ from .runtime_tools import RuntimeFirstPartyToolsModule
 
 from ..core.logger import get_logger
 
-logger = get_logger(__name__)
-
 from ..agent.execution.function_calling.headless_factory import (
     build_function_calling_orchestrator,
     build_headless_engine_run_input,
@@ -34,6 +32,7 @@ from ..awareness.scheduler_contrib import request_sensor_schedule_refresh
 from ..channels.lifecycle import ChannelsModule
 from ..outreach.lifecycle import OutreachModule
 from ..chat.lifecycle import (
+    ChatForgettingRecoveryModule,
     ChatProjectorModule,
     ChatStoreModule,
     ControlTranscriptSubscriberModule,
@@ -85,6 +84,8 @@ from ..user_profile.portrait_projection_scheduler import (
     register_l2_portrait_projection_refresh,
     schedule_portrait_projection_refresh,
 )
+
+logger = get_logger(__name__)
 
 
 RuntimeWorkerPhaseBuilder = Callable[[RuntimeBootstrapContext], list[LifecycleModule]]
@@ -218,6 +219,7 @@ def _build_stateful_service_modules(context: RuntimeBootstrapContext) -> list[Li
             start_memory_integration=True,
             portrait_projection_refresh_registrar=register_l2_portrait_projection_refresh,
         ),
+        ChatForgettingRecoveryModule(context),
         MediaRegistryModule(context),  # after memory store so unified_memory.l1 exists
         LocationModule(context),  # owns location pipeline; reads memory.db path directly
         ManualEntriesModule(context),  # owns manual-entry store/asset/weather construction

@@ -1260,16 +1260,14 @@ async def test_conflict_rule_change_converges_existing_exclusive_edges(tmp_path)
     )
     assert snapshot is not None
     async with aiosqlite.connect(store.db_path) as db:
-        await db.execute(
-            """
+        await db.execute("""
             INSERT INTO summaries(
                 summary_id, summary_type, summary_category, period_start,
                 period_end, content, source_event_ids, source_event_count,
                 created_at, updated_at, source_revision, derivation_state
             ) VALUES ('insight-role', 'insight', 'identity', 0, 1,
                       'The user has two project roles.', '[]', 0, 1, 1, 0, 'current')
-            """
-        )
+            """)
         await db.execute(
             """
             INSERT INTO memory_derivation_dependencies(
@@ -1382,6 +1380,80 @@ async def test_conflict_rule_change_rejects_multiple_user_authorities(tmp_path):
     assert after_first["slot_key"] == first_replacement["slot_key"]
     assert after_second["slot_key"] == second_replacement["slot_key"]
     assert after_first["slot_key"] != after_second["slot_key"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_type", "evidence_class", "existing_rule"),
+    [
+        ("chat", "user_self_report", False),
+        ("chat", "user_self_report", True),
+        ("user_correction", None, False),
+        ("user_correction", None, True),
+    ],
+)
+async def test_conflict_rule_change_rejects_user_authority_without_correction_rows(
+    tmp_path,
+    source_type,
+    evidence_class,
+    existing_rule,
+):
+    from magi.memory.l2.graph.rule_convergence import GraphConflictConvergenceError
+    from magi.memory.l2.store import L2CognitionStore
+
+    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
+    await store.initialize()
+    if existing_rule:
+        await store.upsert_graph_conflict_rule(
+            {
+                "predicate": "CURRENT_PROJECT_ROLE",
+                "opposite_predicates": ["PAST_PROJECT_ROLE"],
+            }
+        )
+    first_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:developer",
+        object_type="role",
+        evidence_event_ids=["evt-role-developer"],
+        confidence=0.8,
+        observed_at=time.time() - 1,
+        source_type=source_type,
+        evidence_class=evidence_class,
+    )
+    second_id = await store.upsert_knowledge_edge(
+        subject_id="user:u1",
+        subject_type="user",
+        predicate="CURRENT_PROJECT_ROLE",
+        object_id="role:designer",
+        object_type="role",
+        evidence_event_ids=["evt-role-designer"],
+        confidence=0.8,
+        observed_at=time.time(),
+        source_type=source_type,
+        evidence_class=evidence_class,
+    )
+
+    with pytest.raises(GraphConflictConvergenceError, match="user-authoritative relationships"):
+        await store.upsert_graph_conflict_rule(
+            {
+                "predicate": "CURRENT_PROJECT_ROLE",
+                "exclusive_group": "current_project_role",
+            }
+        )
+
+    rules = await store.list_graph_conflict_rules()
+    persisted = [rule for rule in rules if rule["predicate"] == "CURRENT_PROJECT_ROLE"]
+    if existing_rule:
+        assert len(persisted) == 1
+        assert persisted[0]["exclusive_group"] is None
+        assert persisted[0]["opposite_predicates"] == ["PAST_PROJECT_ROLE"]
+    else:
+        assert persisted == []
+    first = await store.get_relationship(triple_id=first_id)
+    second = await store.get_relationship(triple_id=second_id)
+    assert first["status"] == second["status"] == "active"
 
 
 @pytest.mark.asyncio
@@ -3196,6 +3268,10 @@ async def test_search_edges_by_embedding_returns_filtered_edges(tmp_path):
             "UPDATE knowledge_graph SET status = 'deprecated' WHERE triple_id = ?",
             (natto_row["triple_id"],),
         )
+        await conn.execute(
+            "UPDATE knowledge_graph SET embedding_status = 'ready' WHERE triple_id = ?",
+            (sushi_row["triple_id"],),
+        )
         await conn.commit()
 
     sushi_triple = sushi_row["triple_id"]
@@ -3230,6 +3306,21 @@ async def test_search_edges_by_embedding_returns_filtered_edges(tmp_path):
     assert results[0]["triple_id"] == sushi_triple
     assert results[0]["evidence_text"] == "User loves sushi"
     assert results[0]["vector_distance"] == 0.1
+
+    async with aiosqlite.connect(str(tmp_path / "l2.db")) as conn:
+        await conn.execute(
+            "UPDATE knowledge_graph SET embedding_status = 'pending' WHERE triple_id = ?",
+            (sushi_triple,),
+        )
+        await conn.commit()
+
+    stale_results = await store.search_edges_by_embedding(
+        vector_index=mock_index,
+        embedding=FakeEmbedding(),
+        limit=10,
+        status_filters=["active"],
+    )
+    assert stale_results == []
 
 
 @pytest.mark.asyncio
@@ -4179,43 +4270,6 @@ async def test_structured_trait_value_formats_corroborate_without_superseding(tm
     assert a["trait_value"] == '["子涵", "哈基米"]'
     assert a["status"] == "corroborated"
     assert sorted(a["evidence_events"]) == ["evt-1", "evt-2"]
-
-
-@pytest.mark.asyncio
-async def test_user_correction_supersedes_and_creates_stable(tmp_path):
-    """correct_assertion rejects the wrong claim and creates a clean replacement."""
-    from magi.memory.l2.store import L2CognitionStore
-
-    store = L2CognitionStore(db_path=str(tmp_path / "l2.db"))
-    await store.initialize()
-
-    c1 = _make_assertion_candidate(
-        trait_name="location",
-        trait_value="Hangzhou",
-        evidence_events=["evt-1"],
-    )
-    id1 = await store.upsert_assertion_candidate(c1)
-
-    result = await store.correct_assertion(
-        assertion_id=id1,
-        new_value="Shanghai",
-        reason="I moved",
-    )
-
-    assert result is not None
-    assert result["trait_value"] == "Shanghai"
-    assert result["status"] == "stable"
-    assert result["confidence_score"] == 0.95
-    assert result["source_domain"] == "user_correction"
-    assert result["evidence_events"] == []
-
-    old = await store.get_tom_assertion(assertion_id=id1)
-    assert old is not None
-    assert old["status"] == "user_rejected"
-    assert old["superseded_by"] == result["assertion_id"]
-    corrections = await store.list_assertion_corrections(assertion_id=id1)
-    assert len(corrections) == 1
-    assert corrections[0]["reason"] == "I moved"
 
 
 @pytest.mark.asyncio

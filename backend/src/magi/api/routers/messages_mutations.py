@@ -8,6 +8,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 
 from ... import i18n as core_i18n
+from ...chat.forgetting import get_chat_forgetting_service
 from ...core.runtime_bindings import require_chat_surface_write_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_models import MessageLabelRequest
@@ -66,7 +67,7 @@ async def set_message_label(
 async def delete_message(session_id: str, message_id: str, user_id: str = DEFAULT_USER_ID):
     """Soft-delete one chat message from the visible transcript."""
     try:
-        deleted = await require_chat_surface_write_service().hide_message(
+        deleted = await get_chat_forgetting_service().delete_message(
             user_id=user_id,
             session_id=session_id,
             message_id=message_id,

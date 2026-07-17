@@ -100,7 +100,9 @@ async def test_create_list_and_get_experience(l2_store_with_schema):
     assert experience["time_end"] == 2000.0
     assert experience["intent"] == "Compare coding assistants"
     assert experience["outcome"] == "Narrowed the next tool choices"
-    assert experience["magi_interpretation"] == "The user was choosing a future development workflow."
+    assert (
+        experience["magi_interpretation"] == "The user was choosing a future development workflow."
+    )
     assert experience["narrative_score"] == 0.84
     assert experience["experience_type"] == "work"
     assert experience["primary_entity_ids"] == ["software:codex", "software:claude-code"]
@@ -166,7 +168,12 @@ async def test_experience_memberships_recompute_counts_from_source_episodes(l2_s
         experience_id="exp",
         members=[
             {"member_type": "episode", "member_id": "ep-a", "role": "core", "confidence": 0.9},
-            {"member_type": "episode", "member_id": "ep-b", "role": "supporting", "confidence": 0.7},
+            {
+                "member_type": "episode",
+                "member_id": "ep-b",
+                "role": "supporting",
+                "confidence": 0.7,
+            },
         ],
     )
     counts = await store.recompute_experience_counts(experience_id="exp")
@@ -414,6 +421,147 @@ async def test_experience_promotion_promotes_accepted_manual_seed(l2_store_with_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("seed_status", ["stale", "rejected"])
+async def test_targeted_experience_promotion_skips_inactive_seed(
+    l2_store_with_schema,
+    seed_status,
+):
+    from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    seed_id = await store.create_experience_seed(
+        seed_id=f"seed-{seed_status}",
+        seed_type="manual",
+        status=seed_status,
+        title="Private inactive seed",
+        confidence=1.0,
+        created_by="user",
+    )
+
+    stats = await promote_experiences_from_episodes(store, target_seed_id=seed_id)
+
+    assert stats.promoted == 0
+    assert await store.list_experiences(status="active") == []
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    assert seed is not None
+    assert seed["status"] == seed_status
+
+
+@pytest.mark.asyncio
+async def test_manual_experience_seed_rejects_invalidated_episode(l2_store_with_schema):
+    from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-private",
+        status="invalidated",
+        time_start=100.0,
+        time_end=200.0,
+        summary="Private generated summary",
+    )
+
+    with pytest.raises(ValueError, match="not active"):
+        await discover_manual_experience_seed(store, episode_id="ep-private")
+    assert await store.list_experience_seeds(limit=20) == []
+
+
+@pytest.mark.asyncio
+async def test_forgotten_event_cannot_be_added_to_experience_seed(l2_store_with_schema):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.forget_source_events(["evt-private"], reason="user_delete_event")
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-private-event",
+        seed_type="manual",
+        status="accepted",
+        title="Private seed",
+        created_by="user",
+    )
+
+    with pytest.raises(ValueError, match="forgotten"):
+        await store.add_experience_seed_evidence(
+            seed_id=seed_id,
+            evidence=[{"ref_type": "event", "ref_id": "evt-private"}],
+        )
+    assert await store.list_experience_seed_evidence(seed_id=seed_id) == []
+
+
+@pytest.mark.asyncio
+async def test_stale_seed_cannot_create_validated_experience(l2_store_with_schema):
+    from magi.memory.l2.experiences.seed_discovery import discover_manual_experience_seed
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    await store.create_episode(
+        episode_id="ep-private-seed",
+        status="active",
+        time_start=100.0,
+        time_end=200.0,
+    )
+    seed_id = await discover_manual_experience_seed(
+        store,
+        episode_id="ep-private-seed",
+    )
+    await store.forget_episode(episode_id="ep-private-seed")
+
+    with pytest.raises(ValueError, match="not promotable"):
+        await store.create_experience(
+            experience_id="exp-private-seed",
+            status="active",
+            title="Private experience",
+            time_start=100.0,
+            time_end=200.0,
+            source_seed_id=seed_id,
+            validate_source_seed=True,
+        )
+    assert await store.get_experience(experience_id="exp-private-seed") is None
+
+
+@pytest.mark.asyncio
+async def test_forget_episode_stales_legacy_spaced_episode_group(l2_store_with_schema):
+    from magi.memory.l2.store import L2CognitionStore
+
+    store: L2CognitionStore = l2_store_with_schema
+    for episode_id in ("ep-group-a", "ep-group-private"):
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            time_start=100.0,
+            time_end=200.0,
+        )
+    seed_id = await store.create_experience_seed(
+        seed_id="seed-spaced-group",
+        seed_type="repeated_goal",
+        status="candidate",
+        title="Private grouped title",
+        description="Private grouped description",
+        source_ref_type="episode_group",
+        source_ref_id="ep-group-a,ep-group-private",
+    )
+    from magi.core.sqlite import sqlite_connection_async
+
+    async with sqlite_connection_async(store.db_path) as db:
+        await db.execute(
+            "UPDATE experience_seeds SET source_ref_id = ? WHERE seed_id = ?",
+            ("ep-group-a,  ep-group-private", seed_id),
+        )
+        await db.commit()
+
+    await store.forget_episode(episode_id="ep-group-private")
+
+    seed = await store.get_experience_seed(seed_id=seed_id)
+    assert seed is not None
+    assert seed["status"] == "stale"
+    assert seed["title"] is None
+    assert seed["description"] is None
+    assert seed["source_ref_type"] is None
+    assert seed["source_ref_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_experience_promotion_rejects_generic_adjacent_chain(l2_store_with_schema):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
@@ -650,7 +798,9 @@ async def test_experience_promotion_hides_bad_legacy_experience(l2_store_with_sc
 
 
 @pytest.mark.asyncio
-async def test_experience_promotion_hides_seeded_technical_artifact_experience(l2_store_with_schema):
+async def test_experience_promotion_hides_seeded_technical_artifact_experience(
+    l2_store_with_schema,
+):
     from magi.memory.l2.experiences.promotion import promote_experiences_from_episodes
     from magi.memory.l2.store import L2CognitionStore
 

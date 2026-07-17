@@ -12,6 +12,7 @@ import aiosqlite
 from ....core.logger import get_logger
 from ....core.sqlite import sqlite_connection_async
 from ...context_scope import normalize_context_scope
+from ..corrections.evidence_ledger import append_claim_evidence_event_ids
 from ..corrections.fingerprints import (
     canonical_scope_json,
     relationship_claim_fingerprint,
@@ -19,10 +20,20 @@ from ..corrections.fingerprints import (
     relationship_triple_id,
     scope_key,
 )
-from ..corrections.policy import CorrectionPolicyAction, CorrectionPolicyEvaluator
+from ..corrections.forget_governance import (
+    append_forget_evidence_event_ids,
+    filter_candidate_evidence_by_forget_rules,
+)
+from ..corrections.models import CorrectionTargetKind
+from ..corrections.policy import (
+    CORRECTION_GOVERNED_EVIDENCE_ACTIONS,
+    CorrectionPolicyAction,
+    CorrectionPolicyEvaluator,
+)
 from ..corrections.relationship_conflict_effects import (
     record_relationship_shadow_conflict_effect,
 )
+from ..corrections.repository import MemoryCorrectionRepository
 from ..graph_conflicts import relationship_predicate_slot
 from .versions import append_knowledge_graph_version
 from ..ontology import are_predicates_synonymous
@@ -46,11 +57,13 @@ class _KnowledgeEdgeWrite:
     object_type: str
     fact_kind: str
     evidence_event_ids: list[str]
+    evidence_started_at: float
     confidence: float
     observed_at: float
     source_type: str
     extraction_method: str
     evidence_text: str
+    evidence_text_attributable: bool
     expires_at: float | None
     valid_from: float | None
     valid_to: float | None
@@ -73,7 +86,7 @@ class _KnowledgeEdgeWrite:
 
     @property
     def insert_valid_from(self) -> float:
-        return self.valid_from if self.valid_from is not None else self.observed_at
+        return self.valid_from if self.valid_from is not None else self.evidence_started_at
 
     @property
     def natural_summary(self) -> str:
@@ -138,6 +151,8 @@ def _edge_natural_summary(
     *,
     evidence_text: str | None = None,
 ) -> str:
+    if not write.evidence_text_attributable:
+        return ""
     effective_evidence_text = write.evidence_text if evidence_text is None else evidence_text
     return effective_evidence_text or f"{write.subject_id} {write.predicate} {write.object_id}"
 
@@ -221,6 +236,11 @@ class _GraphWriteHostProtocol(Protocol):
 
     async def initialize(self) -> None: ...
 
+    async def resolve_evidence_timestamps(
+        self,
+        event_ids: list[str],
+    ) -> dict[str, float]: ...
+
     def _validate_fact_kind(
         self,
         fact_kind: str,
@@ -272,29 +292,34 @@ class L2StoreGraphWriteMixin:
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            triple_id = await self._upsert_knowledge_edge_on_connection(
-                db=db,
-                edge=_KnowledgeEdgeInput(
-                    subject_id=subject_id,
-                    subject_type=subject_type,
-                    predicate=predicate,
-                    object_id=object_id,
-                    object_type=object_type,
-                    fact_kind=fact_kind,
-                    evidence_event_ids=evidence_event_ids,
-                    confidence=confidence,
-                    observed_at=observed_at,
-                    source_type=source_type,
-                    extraction_method=extraction_method,
-                    evidence_text=evidence_text,
-                    expires_at=expires_at,
-                    valid_from=valid_from,
-                    valid_to=valid_to,
-                    evidence_class=evidence_class,
-                    scope=scope,
-                ),
-            )
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                triple_id = await self._upsert_knowledge_edge_on_connection(
+                    db=db,
+                    edge=_KnowledgeEdgeInput(
+                        subject_id=subject_id,
+                        subject_type=subject_type,
+                        predicate=predicate,
+                        object_id=object_id,
+                        object_type=object_type,
+                        fact_kind=fact_kind,
+                        evidence_event_ids=evidence_event_ids,
+                        confidence=confidence,
+                        observed_at=observed_at,
+                        source_type=source_type,
+                        extraction_method=extraction_method,
+                        evidence_text=evidence_text,
+                        expires_at=expires_at,
+                        valid_from=valid_from,
+                        valid_to=valid_to,
+                        evidence_class=evidence_class,
+                        scope=scope,
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         return triple_id
 
     async def upsert_knowledge_edges(self, edge_writes: Iterable[Mapping[str, Any]]) -> list[str]:
@@ -305,14 +330,19 @@ class L2StoreGraphWriteMixin:
         triple_ids: list[str] = []
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            for edge_write in edge_writes:
-                triple_ids.append(
-                    await self._upsert_knowledge_edge_on_connection(
-                        db=db,
-                        edge=self._knowledge_edge_input_from_mapping(edge_write),
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                for edge_write in edge_writes:
+                    triple_ids.append(
+                        await self._upsert_knowledge_edge_on_connection(
+                            db=db,
+                            edge=self._knowledge_edge_input_from_mapping(edge_write),
+                        )
                     )
-                )
-            await db.commit()
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
         return triple_ids
 
     @staticmethod
@@ -351,18 +381,118 @@ class L2StoreGraphWriteMixin:
         write = await self._canonicalize_edge_predicate(db=db, write=write)
         write = self._with_edge_governance_identity(write)
         triple_id = write.triple_id
+        evidence_timestamps = await host.resolve_evidence_timestamps(write.evidence_event_ids)
 
+        original_evidence = list(write.evidence_event_ids)
+        semantic_fingerprint = relationship_claim_fingerprint(
+            slot_key_value=write.slot_key,
+            subject_id=write.subject_id,
+            predicate=write.predicate,
+            object_id=write.object_id,
+        )
+        filtered_evidence = await filter_candidate_evidence_by_forget_rules(
+            db,
+            target_kind=CorrectionTargetKind.EDGE,
+            semantic_fingerprint=semantic_fingerprint,
+            event_ids=original_evidence,
+            event_timestamps=evidence_timestamps,
+            observed_at=write.observed_at,
+            observed_from=(write.valid_from if write.valid_from is not None else write.observed_at),
+            observed_to=write.observed_at,
+            entity_ids=(write.subject_id, write.object_id),
+        )
+        for rule_id, forgotten_event_ids in filtered_evidence.forgotten_by_rule.items():
+            await append_forget_evidence_event_ids(
+                db,
+                rule_id=rule_id,
+                event_ids=forgotten_event_ids,
+                created_at=write.now,
+            )
+        if original_evidence and not filtered_evidence.retained_event_ids:
+            logger.info(
+                "L2 relationship candidate governed without current write",
+                triple_id=triple_id,
+                governance_action=CorrectionPolicyAction.BLOCKED_BY_FORGET.value,
+            )
+            return triple_id
+        if filtered_evidence.has_forgotten_evidence:
+            retained_bounds = filtered_evidence.retained_observation_bounds
+            if retained_bounds is None:
+                raise RuntimeError("Retained relationship evidence has no observation bounds")
+            evidence_started_at, observed_at = retained_bounds
+            write = replace(
+                write,
+                evidence_event_ids=list(filtered_evidence.retained_event_ids),
+                evidence_started_at=evidence_started_at,
+                observed_at=observed_at,
+                evidence_text="",
+                evidence_text_attributable=False,
+            )
+        else:
+            normalized_timestamps = [
+                filtered_evidence.normalized_timestamps[event_id]
+                for event_id in filtered_evidence.retained_event_ids
+            ]
+            write = replace(
+                write,
+                evidence_event_ids=list(filtered_evidence.retained_event_ids),
+                evidence_started_at=(
+                    min(normalized_timestamps)
+                    if normalized_timestamps
+                    else write.evidence_started_at
+                ),
+            )
+
+        await append_claim_evidence_event_ids(
+            db,
+            target_kind=CorrectionTargetKind.EDGE,
+            claim_fingerprint=write.claim_fingerprint,
+            event_ids=write.evidence_event_ids,
+            observed_at=filtered_evidence.fallback_observed_at,
+            created_at=write.now,
+            event_timestamps=filtered_evidence.resolved_timestamps,
+            observed_from=filtered_evidence.fallback_observed_from,
+            observed_to=filtered_evidence.fallback_observed_to,
+            mark_missing_timestamps_approximate=True,
+        )
         policy = await CorrectionPolicyEvaluator().evaluate_relationship(
             db,
             {
                 "slot_key": write.slot_key,
                 "claim_fingerprint": write.claim_fingerprint,
+                "forget_fingerprint": relationship_claim_fingerprint(
+                    slot_key_value=write.slot_key,
+                    subject_id=write.subject_id,
+                    predicate=write.predicate,
+                    object_id=write.object_id,
+                ),
                 "scope_key": write.scope_key,
                 "last_validated_at": write.observed_at,
+                "forget_prechecked": bool(original_evidence),
             },
         )
+        if policy.action == CorrectionPolicyAction.BLOCKED_BY_FORGET:
+            if not policy.forget_rule_id:
+                raise RuntimeError("Forgotten relationship write has no governance identity")
+            await append_forget_evidence_event_ids(
+                db,
+                rule_id=policy.forget_rule_id,
+                event_ids=write.evidence_event_ids,
+                created_at=write.now,
+            )
+        if policy.action in CORRECTION_GOVERNED_EVIDENCE_ACTIONS:
+            if not policy.correction_id:
+                raise RuntimeError("Governed relationship write has no correction identity")
+            await MemoryCorrectionRepository(host.db_path).append_evidence_event_ids(
+                db,
+                correction_id=policy.correction_id,
+                target_kind=CorrectionTargetKind.EDGE,
+                event_ids=write.evidence_event_ids,
+                created_at=write.now,
+            )
         if policy.action in {
             CorrectionPolicyAction.BLOCKED_BY_CORRECTION,
+            CorrectionPolicyAction.BLOCKED_BY_FORGET,
             CorrectionPolicyAction.REQUIRES_SCOPE,
         }:
             logger.info(
@@ -521,11 +651,13 @@ class L2StoreGraphWriteMixin:
             object_type=normalized_object_type,
             fact_kind=normalized_fact_kind,
             evidence_event_ids=list(edge.evidence_event_ids),
+            evidence_started_at=observed_at_float,
             confidence=confidence_float,
             observed_at=observed_at_float,
             source_type=edge.source_type,
             extraction_method=edge.extraction_method,
             evidence_text=_normalize_edge_evidence_text(edge.evidence_text),
+            evidence_text_attributable=True,
             expires_at=effective_expires_at,
             valid_from=float(edge.valid_from) if edge.valid_from is not None else None,
             valid_to=float(edge.valid_to) if edge.valid_to is not None else None,
@@ -615,9 +747,13 @@ class L2StoreGraphWriteMixin:
         effective_fact_kind = (
             write.fact_kind or str(existing["fact_kind"] or "").strip() or "explicit_fact"
         )
-        effective_evidence_text = _prefer_longer_evidence_text(
-            existing=str(existing["evidence_text"] or ""),
-            new=write.evidence_text,
+        effective_evidence_text = (
+            _prefer_longer_evidence_text(
+                existing=str(existing["evidence_text"] or ""),
+                new=write.evidence_text,
+            )
+            if write.evidence_text_attributable
+            else ""
         )
         natural_summary = _edge_natural_summary(
             write,
@@ -747,7 +883,11 @@ class L2StoreGraphWriteMixin:
             """
             UPDATE knowledge_graph
             SET evidence_event_ids = ?, observation_count = ?, first_observed_at = ?,
-                last_observed_at = ?, last_confirmed_at = ?, updated_at = ?
+                last_observed_at = ?, last_confirmed_at = ?,
+                evidence_text = CASE WHEN ? THEN evidence_text ELSE '' END,
+                natural_summary = CASE WHEN ? THEN natural_summary ELSE '' END,
+                embedding_status = CASE WHEN ? THEN embedding_status ELSE 'pending' END,
+                updated_at = ?
             WHERE triple_id = ?
             """,
             (
@@ -756,6 +896,9 @@ class L2StoreGraphWriteMixin:
                 merged.first_observed_at,
                 merged.last_observed_at,
                 write.observed_at,
+                int(write.evidence_text_attributable),
+                int(write.evidence_text_attributable),
+                int(write.evidence_text_attributable),
                 write.now,
                 triple_id,
             ),
@@ -800,7 +943,11 @@ class L2StoreGraphWriteMixin:
             """
             UPDATE knowledge_graph
             SET evidence_event_ids = ?, observation_count = ?, first_observed_at = ?,
-                last_observed_at = ?, updated_at = ?
+                last_observed_at = ?,
+                evidence_text = CASE WHEN ? THEN evidence_text ELSE '' END,
+                natural_summary = CASE WHEN ? THEN natural_summary ELSE '' END,
+                embedding_status = CASE WHEN ? THEN embedding_status ELSE 'pending' END,
+                updated_at = ?
             WHERE triple_id = ?
             """,
             (
@@ -808,6 +955,9 @@ class L2StoreGraphWriteMixin:
                 merged.observation_count,
                 merged.first_observed_at,
                 last_observed_at,
+                int(write.evidence_text_attributable),
+                int(write.evidence_text_attributable),
+                int(write.evidence_text_attributable),
                 write.now,
                 triple_id,
             ),
@@ -906,61 +1056,73 @@ class L2StoreGraphWriteMixin:
         observed_at: float,
         evidence_text: str = "",
     ) -> bool:
-        """Accumulate confidence on an existing edge without creating a new triple."""
+        """Corroborate an edge through the same governed write path as every upsert."""
         host = cast(_GraphWriteHostProtocol, self)
         await host.initialize()
-        now = time.time()
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                "SELECT confidence, evidence_event_ids, observation_count, first_observed_at, last_observed_at, evidence_text FROM knowledge_graph "
-                "WHERE triple_id = ? AND status = 'active'",
-                (triple_id,),
-            ) as cursor:
-                existing = await cursor.fetchone()
-
-            if not existing:
-                return False
-
-            merged = _merge_edge_evidence(
-                existing=existing,
-                new_event_ids=evidence_event_ids,
-                new_confidence=float(new_confidence),
-                observed_at=float(observed_at),
-            )
-            new_evidence_text = str(evidence_text).strip() if evidence_text else ""
-            existing_evidence_text = str(existing["evidence_text"] or "")
-            effective_evidence_text = _prefer_longer_evidence_text(
-                existing=existing_evidence_text,
-                new=new_evidence_text,
-            )
-
-            await db.execute(
-                """
-                UPDATE knowledge_graph
-                SET confidence = ?, evidence_event_ids = ?, observation_count = ?,
-                    first_observed_at = ?, last_observed_at = ?, last_confirmed_at = ?,
-                    evidence_text = ?, embedding_status = 'pending', updated_at = ?
-                WHERE triple_id = ?
-                """,
-                (
-                    merged.confidence,
-                    json.dumps(merged.event_ids, ensure_ascii=False),
-                    merged.observation_count,
-                    merged.first_observed_at,
-                    merged.last_observed_at,
-                    float(observed_at),
-                    effective_evidence_text,
-                    now,
-                    triple_id,
-                ),
-            )
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                existing = await self._fetch_existing_knowledge_edge(
+                    db=db,
+                    triple_id=triple_id,
+                )
+                if existing is None or str(existing["status"]) != "active":
+                    await db.commit()
+                    return False
+                raw_scope = existing["scope_json"] or "{}"
+                scope = json.loads(raw_scope) if isinstance(raw_scope, str) else raw_scope
+                await self._upsert_knowledge_edge_on_connection(
+                    db=db,
+                    edge=_KnowledgeEdgeInput(
+                        subject_id=str(existing["subject_id"]),
+                        subject_type=str(existing["subject_type"]),
+                        predicate=str(existing["predicate"]),
+                        object_id=str(existing["object_id"]),
+                        object_type=str(existing["object_type"]),
+                        fact_kind=str(existing["fact_kind"] or "explicit_fact"),
+                        evidence_event_ids=evidence_event_ids,
+                        confidence=float(new_confidence),
+                        observed_at=float(observed_at),
+                        source_type=str(existing["source_type"] or "corroboration"),
+                        extraction_method=str(existing["extraction_method"] or "rule"),
+                        evidence_text=str(evidence_text or ""),
+                        expires_at=(
+                            float(existing["expires_at"])
+                            if existing["expires_at"] is not None
+                            else None
+                        ),
+                        valid_from=(
+                            float(existing["valid_from"])
+                            if existing["valid_from"] is not None
+                            else None
+                        ),
+                        valid_to=(
+                            float(existing["valid_to"])
+                            if existing["valid_to"] is not None
+                            else None
+                        ),
+                        evidence_class=(
+                            str(existing["evidence_class"])
+                            if existing["evidence_class"] is not None
+                            else None
+                        ),
+                        scope=scope,
+                    ),
+                )
+                updated = await self._fetch_existing_knowledge_edge(
+                    db=db,
+                    triple_id=triple_id,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
         logger.debug(
             "L2 knowledge edge corroborated",
             triple_id=triple_id,
-            new_observation_count=merged.observation_count,
-            accumulated_confidence=merged.confidence,
+            new_observation_count=(updated["observation_count"] if updated else None),
+            accumulated_confidence=(updated["confidence"] if updated else None),
         )
         return True

@@ -1,4 +1,5 @@
 """Tests for L3SummaryStore FTS5 integration."""
+
 from __future__ import annotations
 
 import time
@@ -146,6 +147,7 @@ class TestL3FTS5DeleteSync:
                 volatility_score=0.2,
                 state_curve_compact=[0.2, 0.6],
                 event_count=3,
+                source_event_ids=["event-mood-one", "event-mood-two"],
                 computed_at=time.time(),
             )
         )
@@ -158,7 +160,9 @@ class TestL3FTS5DeleteSync:
 class TestL3BM25Search:
     @pytest.mark.asyncio
     async def test_basic_bm25_search(self, store):
-        await store._store_summary(_make_summary("Machine learning and neural networks are powerful"))
+        await store._store_summary(
+            _make_summary("Machine learning and neural networks are powerful")
+        )
         await store._store_summary(_make_summary("Grocery shopping list includes milk and eggs"))
         await store._store_summary(_make_summary("Deep learning is a subset of machine learning"))
 
@@ -213,11 +217,24 @@ class TestL3BackfillFTS:
                     generated_by_model, generation_prompt, generation_reason, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    summary["summary_id"], summary["summary_type"], summary["summary_category"],
-                    summary["period_start"], summary["period_end"], summary["content"],
-                    "[]", "[]", None, '["evt-1"]', 1, 0.5, "{}",
-                    "rule-summary", None, "temporal:daily",
-                    summary["created_at"], summary["updated_at"],
+                    summary["summary_id"],
+                    summary["summary_type"],
+                    summary["summary_category"],
+                    summary["period_start"],
+                    summary["period_end"],
+                    summary["content"],
+                    "[]",
+                    "[]",
+                    None,
+                    '["evt-1"]',
+                    1,
+                    0.5,
+                    "{}",
+                    "rule-summary",
+                    None,
+                    "temporal:daily",
+                    summary["created_at"],
+                    summary["updated_at"],
                 ),
             )
             await db.commit()

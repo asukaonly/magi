@@ -68,3 +68,39 @@ def test_resolve_malformed_ref(tmp_path):
     assert store.resolve(f"{ASSET_SCHEME}://no-extension") is None
     # Extension not in accepted set
     assert store.resolve(f"{ASSET_SCHEME}://x.bmp") is None
+
+
+@pytest.mark.parametrize(
+    "asset_ref",
+    [
+        f"{ASSET_SCHEME}:///tmp/private.jpg",
+        f"{ASSET_SCHEME}://../../private.png",
+        f"{ASSET_SCHEME}://{'A' * 64}.jpg",
+        f"{ASSET_SCHEME}://{'a' * 63}.jpg",
+        f"{ASSET_SCHEME}://{'a' * 64}.jpeg",
+    ],
+)
+def test_resolve_rejects_noncanonical_or_traversing_refs(tmp_path, asset_ref):
+    store = ManualEntryAssetStore(media_root=tmp_path)
+
+    assert store.resolve(asset_ref) is None
+    assert store.has_asset(asset_ref) is False
+
+
+def test_resolve_rejects_a_path_outside_the_owned_root(tmp_path, monkeypatch):
+    store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    asset_ref = f"{ASSET_SCHEME}://{'a' * 64}.jpg"
+    outside = tmp_path / "outside.jpg"
+    outside.write_bytes(b"private")
+    monkeypatch.setattr(store, "_path_for", lambda _digest, _ext: outside)
+
+    assert store.resolve(asset_ref) is None
+    assert store.has_asset(asset_ref) is False
+
+
+def test_has_asset_requires_a_canonical_stored_ref(tmp_path):
+    store = ManualEntryAssetStore(media_root=tmp_path)
+    stored_ref = store.store_bytes(b"stored", content_type="image/webp")
+
+    assert store.has_asset(stored_ref) is True
+    assert store.has_asset(f"{ASSET_SCHEME}://{'f' * 64}.webp") is False

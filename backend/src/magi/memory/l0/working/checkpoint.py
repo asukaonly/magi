@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import Any, Optional
+from typing import Any
 
 import aiosqlite
 
@@ -20,6 +21,11 @@ from .serialization import (
     row_to_session,
     row_to_tactic,
 )
+from .source_forgetting import (
+    filter_active_entities_by_governance,
+    forgotten_tactic_source_references,
+    tactic_source_references,
+)
 
 
 class L0CheckpointMixin:
@@ -33,25 +39,26 @@ class L0CheckpointMixin:
     _execution_runs: dict[str, dict[str, Any]]
     _execution_pending_turns: dict[str, list[dict[str, Any]]]
     _execution_results: dict[str, list[dict[str, Any]]]
+    _checkpoint_lock: asyncio.Lock
 
     async def checkpoint_session(self, session_id: str) -> None:
         """Persist a single session workbench into the checkpoint database."""
-        session = self._sessions.get(session_id)
-        if session is None:
-            return
+        async with self._checkpoint_lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                return
+            now = time.time()
+            session["last_checkpoint_at"] = now
 
-        now = time.time()
-        session["last_checkpoint_at"] = now
-
-        async with sqlite_connection_async(self.checkpoint_db_path) as db:
-            await self._upsert_checkpoint_session(db, session=session, now=now)
-            await self._replace_checkpoint_goals(db, session_id=session_id)
-            await self._replace_checkpoint_active_entities(db, session_id=session_id)
-            await self._replace_checkpoint_tactics(db, session_id=session_id)
-            await self._replace_checkpoint_execution_run(db, session_id=session_id)
-            await self._replace_checkpoint_pending_turns(db, session_id=session_id)
-            await self._replace_checkpoint_execution_results(db, session_id=session_id)
-            await db.commit()
+            async with sqlite_connection_async(self.checkpoint_db_path) as db:
+                await self._upsert_checkpoint_session(db, session=session, now=now)
+                await self._replace_checkpoint_goals(db, session_id=session_id)
+                await self._replace_checkpoint_active_entities(db, session_id=session_id)
+                await self._replace_checkpoint_tactics(db, session_id=session_id)
+                await self._replace_checkpoint_execution_run(db, session_id=session_id)
+                await self._replace_checkpoint_pending_turns(db, session_id=session_id)
+                await self._replace_checkpoint_execution_results(db, session_id=session_id)
+                await db.commit()
 
     async def _upsert_checkpoint_session(
         self,
@@ -131,8 +138,9 @@ class L0CheckpointMixin:
                 """
                 INSERT INTO l0_active_entities(
                     session_id, entity_id, entity_type, relevance_score,
-                    snapshot_json, loaded_at, last_accessed_at, access_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    snapshot_json, source_event_ids, loaded_at,
+                    last_accessed_at, access_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -140,6 +148,7 @@ class L0CheckpointMixin:
                     entity["entity_type"],
                     float(entity["relevance_score"]),
                     encode_json(entity["snapshot"]),
+                    encode_json(entity.get("source_event_ids", [])),
                     float(entity["loaded_at"]),
                     float(entity["last_accessed_at"]),
                     int(entity["access_count"]),
@@ -276,22 +285,27 @@ class L0CheckpointMixin:
     async def clear(self) -> int:
         """Delete all L0 sessions from memory and checkpoints."""
         await self.initialize()
-        count = len(self._sessions)
-        self._sessions.clear()
-        self._goal_stack.clear()
-        self._active_entities.clear()
-        self._temporary_tactics.clear()
-        self._execution_runs.clear()
-        self._execution_pending_turns.clear()
-        self._execution_results.clear()
+        async with self._checkpoint_lock:
+            count = len(self._sessions)
+            self._sessions.clear()
+            self._goal_stack.clear()
+            self._active_entities.clear()
+            self._temporary_tactics.clear()
+            self._execution_runs.clear()
+            self._execution_pending_turns.clear()
+            self._execution_results.clear()
 
-        async with sqlite_connection_async(self.checkpoint_db_path) as db:
-            await clear_l0_checkpoint_tables(db)
-            await db.commit()
+            async with sqlite_connection_async(self.checkpoint_db_path) as db:
+                await clear_l0_checkpoint_tables(db)
+                await db.commit()
 
         return count
 
     async def _restore_from_checkpoint(self) -> None:
+        async with self._checkpoint_lock:
+            await self._restore_checkpoint_under_lock()
+
+    async def _restore_checkpoint_under_lock(self) -> None:
         async with sqlite_connection_async(self.checkpoint_db_path) as db:
             db.row_factory = aiosqlite.Row
 
@@ -306,19 +320,38 @@ class L0CheckpointMixin:
                     self._goal_stack.setdefault(session_id, []).append(row_to_goal(row))
 
             async with db.execute("SELECT * FROM l0_active_entities") as cursor:
-                async for row in cursor:
-                    session_id = str(row["session_id"])
-                    self._active_entities.setdefault(session_id, {})[active_entity_key(row)] = (
-                        row_to_active_entity(row)
-                    )
+                active_entity_rows = await cursor.fetchall()
+            restored_entities = [
+                (str(row["session_id"]), active_entity_key(row), row_to_active_entity(row))
+                for row in active_entity_rows
+            ]
+            governed_entities = await filter_active_entities_by_governance(
+                db,
+                (entity for _, _, entity in restored_entities),
+            )
+            governed_object_ids = {id(entity) for entity in governed_entities}
+            for session_id, key, entity in restored_entities:
+                if id(entity) not in governed_object_ids:
+                    continue
+                self._active_entities.setdefault(session_id, {})[key] = entity
 
             async with db.execute("SELECT * FROM l0_temporary_tactics") as cursor:
-                async for row in cursor:
-                    session_id = str(row["session_id"])
-                    tactic = row_to_tactic(row)
-                    self._temporary_tactics.setdefault(session_id, {})[
-                        str(tactic["tactic_id"])
-                    ] = tactic
+                tactic_rows = await cursor.fetchall()
+            tactics = [(str(row["session_id"]), row_to_tactic(row)) for row in tactic_rows]
+            forgotten_references = await forgotten_tactic_source_references(
+                db,
+                {
+                    reference
+                    for _, tactic in tactics
+                    for reference in tactic_source_references(tactic)
+                },
+            )
+            for session_id, tactic in tactics:
+                if tactic_source_references(tactic) & forgotten_references:
+                    continue
+                self._temporary_tactics.setdefault(session_id, {})[
+                    str(tactic["tactic_id"])
+                ] = tactic
 
             async with db.execute("SELECT * FROM l0_execution_runs") as cursor:
                 async for row in cursor:

@@ -13,14 +13,17 @@ import aiosqlite
 from ...core.sqlite import sqlite_connection_async
 from .models import ManualEntry
 
+_EXPECTED_L1_EVENT_UNSET = object()
+
 
 class ManualEntryStore:
     """Persistence layer for user-authored memory entries.
 
-    DDL is owned by migration 0007_manual_entries; this store reads/writes
-    only. Soft-delete is implemented via ``deleted_at`` — list_window
-    excludes deleted by default; explicit ``include_deleted`` brings them
-    back for the (admin / debugging) use case.
+    DDL is owned by the ``memory_shared`` migration chain; this store
+    reads/writes only. Cross-database L1 projection uses a durable intent:
+    reserve the deterministic event identity here, write L1, then complete
+    the link. Deletion sets a durable gate before cleaning memory so a
+    concurrent projector cannot publish an unowned event.
     """
 
     def __init__(self, *, db_path: str) -> None:
@@ -74,6 +77,8 @@ class ManualEntryStore:
         location_label: Optional[str] = None,
         body_doc: Optional[dict] = None,
         clear_body_doc: bool = False,
+        clear_weather: bool = False,
+        expected_l1_event_id: object = _EXPECTED_L1_EVENT_UNSET,
     ) -> bool:
         """Partial update. Returns True if a row was changed.
 
@@ -120,45 +125,183 @@ class ManualEntryStore:
         elif clear_body_doc:
             fields.append("body_doc = ?")
             values.append(None)
+        if clear_weather:
+            fields.append("weather_json = NULL")
 
         if not fields:
             return False
 
         values.append(entry_id)
-        sql = f"UPDATE manual_entries SET {', '.join(fields)} WHERE entry_id = ?"
+        sql = (
+            f"UPDATE manual_entries SET {', '.join(fields)} "
+            "WHERE entry_id = ? AND deleted_at IS NULL "
+            "AND delete_requested_at IS NULL "
+            "AND pending_l1_event_id IS NULL"
+        )
+        if expected_l1_event_id is not _EXPECTED_L1_EVENT_UNSET:
+            sql += " AND l1_event_id IS ?"
+            values.append(expected_l1_event_id)
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(sql, tuple(values))
             await db.commit()
             return cursor.rowcount > 0
 
-    async def soft_delete(self, entry_id: str) -> bool:
-        async with sqlite_connection_async(self.db_path) as db:
-            cursor = await db.execute(
-                "UPDATE manual_entries SET deleted_at = ? WHERE entry_id = ? AND deleted_at IS NULL",
-                (time.time(), entry_id),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
+    async def reserve_l1_projection(
+        self,
+        entry_id: str,
+        event_id: str,
+        *,
+        expected_previous_event_id: Optional[str],
+    ) -> bool:
+        """Durably own one deterministic L1 identity before writing L1.
 
-    async def link_l1_event(self, entry_id: str, l1_event_id: str) -> None:
-        """Store the L1 event id assigned by the projector — used so later
-        edits can re-issue the same L1 row instead of orphaning one."""
+        Repeating the same reservation is idempotent. A different pending
+        identity, a projection-link change, or a requested deletion closes
+        the write path before any external side effect can occur.
+        """
+        normalized_event_id = str(event_id).strip()
+        if not normalized_event_id:
+            raise ValueError("event_id must not be empty")
+
         async with sqlite_connection_async(self.db_path) as db:
-            await db.execute(
-                "UPDATE manual_entries SET l1_event_id = ? WHERE entry_id = ?",
-                (l1_event_id, entry_id),
-            )
-            await db.commit()
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET pending_l1_event_id = ?,
+                        pending_l1_predecessor_event_id = ?
+                    WHERE entry_id = ?
+                      AND deleted_at IS NULL
+                      AND delete_requested_at IS NULL
+                      AND l1_event_id IS ?
+                      AND (
+                          pending_l1_event_id IS NULL
+                          OR (
+                              pending_l1_event_id = ?
+                              AND pending_l1_predecessor_event_id IS ?
+                          )
+                      )
+                    """,
+                    (
+                        normalized_event_id,
+                        expected_previous_event_id,
+                        entry_id,
+                        expected_previous_event_id,
+                        normalized_event_id,
+                        expected_previous_event_id,
+                    ),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def complete_l1_projection(
+        self,
+        entry_id: str,
+        event_id: str,
+        *,
+        expected_previous_event_id: Optional[str],
+    ) -> bool:
+        """Link a reserved L1 projection and clear its durable intent."""
+        normalized_event_id = str(event_id).strip()
+        if not normalized_event_id:
+            raise ValueError("event_id must not be empty")
+
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET l1_event_id = ?,
+                        pending_l1_event_id = NULL,
+                        pending_l1_predecessor_event_id = NULL
+                    WHERE entry_id = ?
+                      AND deleted_at IS NULL
+                      AND delete_requested_at IS NULL
+                      AND l1_event_id IS ?
+                      AND pending_l1_event_id = ?
+                      AND pending_l1_predecessor_event_id IS ?
+                    """,
+                    (
+                        normalized_event_id,
+                        entry_id,
+                        expected_previous_event_id,
+                        normalized_event_id,
+                        expected_previous_event_id,
+                    ),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def request_delete(self, entry_id: str, *, requested_at: float) -> bool:
+        """Close all mutation/projection paths before cross-layer cleanup."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET delete_requested_at = COALESCE(delete_requested_at, ?)
+                    WHERE entry_id = ? AND deleted_at IS NULL
+                    """,
+                    (float(requested_at), entry_id),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+            except BaseException:
+                await db.rollback()
+                raise
+
+    async def finalize_delete(self, entry_id: str, *, deleted_at: float) -> bool:
+        """Hide a delete-gated row only after every owned projection is gone."""
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET deleted_at = ?,
+                        l1_event_id = NULL,
+                        pending_l1_event_id = NULL,
+                        pending_l1_predecessor_event_id = NULL,
+                        delete_requested_at = NULL
+                    WHERE entry_id = ?
+                      AND deleted_at IS NULL
+                      AND delete_requested_at IS NOT NULL
+                    """,
+                    (float(deleted_at), entry_id),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def set_weather(
-        self, entry_id: str, weather: Optional[dict],
+        self,
+        entry_id: str,
+        weather: Optional[dict],
     ) -> bool:
         """Attach (or clear, when ``weather=None``) the ambient weather
         snapshot. Returns True on a row change."""
         payload = json.dumps(weather, ensure_ascii=False) if weather else None
         async with sqlite_connection_async(self.db_path) as db:
             cursor = await db.execute(
-                "UPDATE manual_entries SET weather_json = ? WHERE entry_id = ?",
+                """
+                UPDATE manual_entries
+                SET weather_json = ?
+                WHERE entry_id = ?
+                  AND deleted_at IS NULL
+                  AND delete_requested_at IS NULL
+                  AND pending_l1_event_id IS NULL
+                """,
                 (payload, entry_id),
             )
             await db.commit()
@@ -182,13 +325,43 @@ class ManualEntryStore:
         include_deleted: bool = False,
         limit: int = 500,
     ) -> list[ManualEntry]:
-        sql = (
-            "SELECT * FROM manual_entries WHERE event_at >= ? AND event_at <= ?"
-        )
+        sql = "SELECT * FROM manual_entries WHERE event_at >= ? AND event_at <= ?"
         args: list = [float(time_start), float(time_end)]
         if not include_deleted:
-            sql += " AND deleted_at IS NULL"
+            sql += " AND deleted_at IS NULL AND delete_requested_at IS NULL"
         sql += " ORDER BY event_at ASC LIMIT ?"
+        args.append(int(limit))
+
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(args)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._row_to_entry(row) for row in rows]
+
+    async def list_recovery_candidates(
+        self,
+        *,
+        after_entry_id: str | None = None,
+        limit: int = 100,
+    ) -> list[ManualEntry]:
+        """Page active rows with an incomplete projection or deletion."""
+        if limit < 1 or limit > 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        sql = """
+            SELECT *
+            FROM manual_entries
+            WHERE deleted_at IS NULL
+              AND (
+                  delete_requested_at IS NOT NULL
+                  OR pending_l1_event_id IS NOT NULL
+                  OR l1_event_id IS NULL
+              )
+        """
+        args: list[object] = []
+        if after_entry_id is not None:
+            sql += " AND entry_id > ?"
+            args.append(str(after_entry_id))
+        sql += " ORDER BY entry_id ASC LIMIT ?"
         args.append(int(limit))
 
         async with sqlite_connection_async(self.db_path) as db:
@@ -242,6 +415,9 @@ class ManualEntryStore:
             user_pinned=bool(row["user_pinned"]),
             deleted_at=row["deleted_at"],
             l1_event_id=row["l1_event_id"],
+            pending_l1_event_id=row["pending_l1_event_id"],
+            pending_l1_predecessor_event_id=row["pending_l1_predecessor_event_id"],
+            delete_requested_at=row["delete_requested_at"],
             weather=weather,
             body_doc=body_doc,
         )

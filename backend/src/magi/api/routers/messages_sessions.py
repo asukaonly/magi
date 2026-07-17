@@ -7,6 +7,7 @@ from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ...chat.forgetting import get_chat_forgetting_service
 from ...core.runtime_bindings import require_chat_read_service
 from ...identity import CANONICAL_LOCAL_USER as DEFAULT_USER_ID
 from .messages_common import get_default_chat_workspace_path
@@ -95,8 +96,12 @@ async def update_session_workspace(session_id: str, request: UpdateSessionWorksp
 async def delete_session(session_id: str, user_id: str = DEFAULT_USER_ID):
     """Delete one session and its related chat data."""
     try:
-        read_service = require_chat_read_service()
-        await read_service.adelete_session(user_id, session_id)
+        deleted = await get_chat_forgetting_service().delete_session(
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found")
         return {
             "success": True,
             "user_id": user_id,

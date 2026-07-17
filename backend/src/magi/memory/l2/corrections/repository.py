@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import uuid
 from collections.abc import Iterable, Mapping
@@ -11,6 +12,7 @@ from typing import Any
 import aiosqlite
 
 from ....core.sqlite import sqlite_connection_async
+from .evidence_ledger import claim_evidence_event_ids
 from .models import (
     CorrectionCreateResult,
     CorrectionRule,
@@ -24,10 +26,8 @@ from .relationship_conflict_effects import (
     relationship_conflict_effects_on_connection,
 )
 
-
 DEFAULT_DERIVATION_MAX_ATTEMPTS = 5
 DEFAULT_DERIVATION_STALE_RUNNING_SECONDS = 300.0
-_FAIL_CLOSED_EVIDENCE_EVENT_ID = "*"
 
 
 class MemoryCorrectionRepository:
@@ -123,24 +123,74 @@ class MemoryCorrectionRepository:
                 _initial_transition_applied_at(correction),
             ),
         )
-        evidence_event_ids = _correction_evidence_event_ids(correction)
-        if evidence_event_ids:
-            await db.executemany(
-                """
-                INSERT INTO memory_correction_evidence_events(
-                    correction_id, event_id, target_kind, created_at
-                ) VALUES (?, ?, ?, ?)
-                """,
-                [
-                    (
-                        correction.correction_id,
-                        event_id,
-                        correction.target_kind.value,
-                        correction.created_at,
-                    )
-                    for event_id in evidence_event_ids
-                ],
+        evidence_event_ids, evidence_fail_closed = _correction_evidence_governance(correction)
+        ledger_event_ids = await claim_evidence_event_ids(
+            db,
+            target_kind=correction.target_kind,
+            claim_fingerprint=correction.claim_fingerprint,
+        )
+        await self.append_evidence_event_ids(
+            db,
+            correction_id=correction.correction_id,
+            target_kind=correction.target_kind,
+            event_ids=(*evidence_event_ids, *ledger_event_ids),
+            created_at=correction.created_at,
+        )
+        if evidence_fail_closed:
+            await self.mark_evidence_fail_closed(
+                db,
+                correction_id=correction.correction_id,
+                created_at=correction.created_at,
             )
+
+    async def append_evidence_event_ids(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        correction_id: str,
+        target_kind: CorrectionTargetKind,
+        event_ids: Iterable[str],
+        created_at: float,
+    ) -> None:
+        """Attach newly governed evidence to an active correction transactionally."""
+        normalized = list(
+            dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
+        )
+        if not normalized:
+            return
+        await db.executemany(
+            """
+            INSERT OR IGNORE INTO memory_correction_evidence_events(
+                correction_id, event_id, target_kind, created_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    correction_id,
+                    event_id,
+                    target_kind.value,
+                    created_at,
+                )
+                for event_id in normalized
+            ],
+        )
+
+    async def mark_evidence_fail_closed(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        correction_id: str,
+        created_at: float,
+    ) -> None:
+        """Record that one correction must govern every candidate evidence event."""
+        await db.execute(
+            """
+            INSERT OR IGNORE INTO memory_correction_evidence_fail_closed(
+                correction_id, created_at
+            ) VALUES (?, ?)
+            """,
+            (correction_id, created_at),
+        )
 
     async def insert_rule(
         self,
@@ -219,6 +269,34 @@ class MemoryCorrectionRepository:
                 rows = await cursor.fetchall()
         return [MemoryCorrection.from_row(dict(row)) for row in rows]
 
+    async def correction_ids_with_forget_barriers(
+        self,
+        correction_ids: Iterable[str],
+    ) -> set[str]:
+        """Return corrections that cannot be reverted across a forget boundary."""
+        normalized = list(
+            dict.fromkeys(
+                str(correction_id).strip()
+                for correction_id in correction_ids
+                if str(correction_id).strip()
+            )
+        )
+        if not normalized:
+            return set()
+        candidate_json = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT DISTINCT correction_id
+                FROM memory_correction_forget_barriers
+                WHERE correction_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                """,
+                (candidate_json,),
+            ) as cursor:
+                return {str(row[0]) for row in await cursor.fetchall()}
+
     async def list_active_rules(
         self,
         *,
@@ -242,7 +320,7 @@ class MemoryCorrectionRepository:
         self,
         event_ids: Iterable[str],
     ) -> set[str]:
-        """Return candidate L1 events governed by any active correction."""
+        """Return candidate L1 events governed by a correction or forget rule."""
         normalized = list(
             dict.fromkeys(str(event_id).strip() for event_id in event_ids if str(event_id).strip())
         )
@@ -256,25 +334,51 @@ class MemoryCorrectionRepository:
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
-                SELECT DISTINCT evidence.event_id
+                SELECT DISTINCT evidence.event_id, 0 AS fail_closed
                 FROM memory_correction_evidence_events AS evidence
                 JOIN memory_corrections AS corrections
                   ON corrections.correction_id = evidence.correction_id
-                WHERE (
-                    evidence.event_id IN (
-                        SELECT CAST(value AS TEXT) FROM json_each(?)
-                    )
-                    OR evidence.event_id = ?
+                WHERE evidence.event_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
                 )
                   AND corrections.state = 'active'
+                  AND corrections.transition_cancelled_at IS NULL
+                UNION ALL
+                SELECT NULL AS event_id, 1 AS fail_closed
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM memory_correction_evidence_fail_closed AS fail_closed
+                    JOIN memory_corrections AS corrections
+                      ON corrections.correction_id = fail_closed.correction_id
+                    WHERE corrections.state = 'active'
+                      AND corrections.transition_cancelled_at IS NULL
+                )
+                UNION ALL
+                SELECT DISTINCT evidence.event_id, 0 AS fail_closed
+                FROM memory_forget_evidence_events AS evidence
+                WHERE evidence.event_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                UNION ALL
+                SELECT DISTINCT tombstones.event_id, 0 AS fail_closed
+                FROM memory_source_event_tombstones AS tombstones
+                WHERE tombstones.event_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                UNION ALL
+                SELECT NULL AS event_id, 1 AS fail_closed
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM memory_forget_claim_rules AS rules
+                    WHERE rules.evidence_fail_closed = 1
+                )
                 """,
-                (candidate_json, _FAIL_CLOSED_EVIDENCE_EVENT_ID),
+                (candidate_json, candidate_json, candidate_json),
             ) as cursor:
                 rows = await cursor.fetchall()
-        matched = {str(row[0]) for row in rows}
-        if _FAIL_CLOSED_EVIDENCE_EVENT_ID in matched:
+        if any(bool(row[1]) for row in rows):
             return set(normalized)
-        return matched
+        return {str(row[0]) for row in rows if row[0] is not None}
 
     async def current_subject_revision(self, subject_key: str) -> int:
         async with sqlite_connection_async(self.db_path) as db:
@@ -334,6 +438,7 @@ class MemoryCorrectionRepository:
                     WHERE correction_kind = 'situation_changed'
                       AND state = 'active'
                       AND transition_applied_at IS NULL
+                      AND transition_cancelled_at IS NULL
                       AND effective_at IS NOT NULL
                       AND effective_at <= ?
                     ORDER BY effective_at, created_at, correction_id
@@ -356,7 +461,12 @@ class MemoryCorrectionRepository:
                         correction.replacement_target_id or "",
                     ]
                     if correction.target_kind == CorrectionTargetKind.EDGE:
-                        if correction.replacement is not None:
+                        replacement_is_effective = await _relationship_replacement_is_effective(
+                            db,
+                            correction=correction,
+                            effective_at=activated_at,
+                        )
+                        if correction.replacement is not None and replacement_is_effective:
                             graph_conflict_rules = await load_relationship_graph_conflict_rules(db)
                             await apply_relationship_conflict_effects(
                                 db,
@@ -403,6 +513,7 @@ class MemoryCorrectionRepository:
                         WHERE correction_id = ?
                           AND state = 'active'
                           AND transition_applied_at IS NULL
+                          AND transition_cancelled_at IS NULL
                         """,
                         (activated_at, correction.correction_id),
                     )
@@ -576,6 +687,7 @@ class MemoryCorrectionRepository:
                     WHERE correction_kind = 'situation_changed'
                       AND state = 'active'
                       AND transition_applied_at IS NULL
+                      AND transition_cancelled_at IS NULL
                       AND effective_at IS NOT NULL
                 )
                 WHERE ready_at IS NOT NULL
@@ -596,7 +708,8 @@ class MemoryCorrectionRepository:
         async with sqlite_connection_async(self.db_path) as db:
             async with db.execute(
                 """
-                SELECT correction_kind, state, transition_applied_at
+                SELECT correction_kind, state, transition_applied_at,
+                       transition_cancelled_at
                 FROM memory_corrections
                 WHERE correction_id = ?
                 """,
@@ -619,6 +732,7 @@ class MemoryCorrectionRepository:
             and str(correction_row[0]) == "situation_changed"
             and str(correction_row[1]) == "active"
             and correction_row[2] is None
+            and correction_row[3] is None
         ):
             return "pending"
         if any(str(status) == "running" for status, _ in rows):
@@ -901,6 +1015,7 @@ class MemoryCorrectionRepository:
         source_kind: str,
         source_ids: Iterable[str],
         subject_keys: Iterable[str] = (),
+        include_current_subjects: bool = False,
         updated_at: float | None = None,
     ) -> set[str]:
         """Invalidate direct dependants and keep stale same-subject rebuilds queued."""
@@ -926,10 +1041,10 @@ class MemoryCorrectionRepository:
             args.extend((source_kind, *normalized_ids))
         if normalized_subjects:
             placeholders = ", ".join("?" for _ in normalized_subjects)
-            clauses.append(
-                f"(dependencies.subject_key IN ({placeholders}) "
-                "AND summaries.derivation_state = 'stale')"
-            )
+            subject_clause = f"dependencies.subject_key IN ({placeholders})"
+            if not include_current_subjects:
+                subject_clause += " AND summaries.derivation_state = 'stale'"
+            clauses.append(f"({subject_clause})")
             args.extend(normalized_subjects)
         async with db.execute(
             f"""
@@ -961,6 +1076,33 @@ class MemoryCorrectionRepository:
             tuple(artifact_ids),
         )
         return {str(row[1]) for row in rows if str(row[1]).strip()}
+
+
+async def _relationship_replacement_is_effective(
+    db: aiosqlite.Connection,
+    *,
+    correction: MemoryCorrection,
+    effective_at: float,
+) -> bool:
+    replacement_id = correction.replacement_target_id
+    if not replacement_id:
+        return False
+    async with db.execute(
+        """
+        SELECT status, status_reason, valid_from, valid_to
+        FROM knowledge_graph
+        WHERE triple_id = ?
+        """,
+        (replacement_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None or str(row[0]) in {"archived", "conflicted", "expired", "user_rejected"}:
+        return False
+    if str(row[1] or "") == "user_forget":
+        return False
+    valid_from = float(row[2]) if row[2] is not None else -math.inf
+    valid_to = float(row[3]) if row[3] is not None else math.inf
+    return valid_from <= effective_at < valid_to
 
 
 def _initial_transition_applied_at(correction: NewMemoryCorrection) -> float | None:
@@ -1001,7 +1143,9 @@ def _json_mapping(value: Mapping[str, Any] | None) -> str | None:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _correction_evidence_event_ids(correction: NewMemoryCorrection) -> list[str]:
+def _correction_evidence_governance(
+    correction: NewMemoryCorrection,
+) -> tuple[list[str], bool]:
     key = (
         "evidence_events"
         if correction.target_kind == CorrectionTargetKind.ASSERTION
@@ -1009,21 +1153,21 @@ def _correction_evidence_event_ids(correction: NewMemoryCorrection) -> list[str]
     )
     parsed: Any = correction.before.get(key)
     if parsed is None:
-        return []
+        return [], False
     for _ in range(2):
         if not isinstance(parsed, str):
             break
         try:
             parsed = json.loads(parsed)
         except json.JSONDecodeError:
-            return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
+            return [], True
     if isinstance(parsed, (list, tuple, set)):
         parsed = list(parsed)
     else:
-        return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
+        return [], True
     if any(not isinstance(event_id, str) or not event_id.strip() for event_id in parsed):
-        return [_FAIL_CLOSED_EVIDENCE_EVENT_ID]
-    return list(dict.fromkeys(event_id.strip() for event_id in parsed))
+        return [], True
+    return list(dict.fromkeys(event_id.strip() for event_id in parsed)), False
 
 
 def _optional_text(value: str | None) -> str | None:

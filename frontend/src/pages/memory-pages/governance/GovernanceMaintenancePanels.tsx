@@ -123,20 +123,38 @@ function ActionRow({
 
 export function ForgetMaintenancePanel({
   label,
+  onOpenObjects,
 }: {
   label: (key: string, defaultValue: string, values?: Record<string, unknown>) => string;
+  onOpenObjects: (layer: 'events' | 'entities') => void;
 }) {
   return (
     <section className="space-y-4">
       <div className="rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.48)] px-5 py-4 text-sm leading-6 text-[hsl(var(--memory-body))]">
-        {label('forgetDrawerHintObjects', '遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。')}
+        {label('forgetDrawerHint', '遗忘和删除从具体记录发起：先在「对象明细」里打开一条记录，再在抽屉中查看影响。')}
       </div>
       <div className="space-y-1 rounded-xl bg-[hsl(var(--memory-panel-elevated)/0.74)] p-2">
-        <LinkPanel to="/memory/events" title={label('forgetBySource', '按来源/事件清理')} body={label('forgetBySourceBodyObjects', '进入原始事件后按来源、时间和内容筛选。')} />
-        <LinkPanel to="/memory/knowledge" title={label('forgetByEntity', '按实体处理')} body={label('forgetByEntityBodyObjects', '进入结构知识后查看实体、断言和关系。')} />
+        <ObjectPanel onClick={() => onOpenObjects('events')} title={label('forgetBySource', '按来源/事件清理')} body={label('forgetBySourceBody', '在对象明细中按来源、时间和内容筛选原始事件。')} />
+        <ObjectPanel onClick={() => onOpenObjects('entities')} title={label('forgetByEntity', '按实体处理')} body={label('forgetByEntityBody', '在对象明细中选择实体并查看遗忘影响。')} />
         <LinkPanel to="/memory/episodes" title={label('forgetByEpisode', '按经历处理')} body={label('forgetByEpisodeBody', '进入经历详情后处理章节边界和可见性。')} />
       </div>
     </section>
+  );
+}
+
+function ObjectPanel({ onClick, title, body }: { onClick: () => void; title: string; body: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center justify-between gap-5 rounded-lg px-4 py-4 text-left transition-colors duration-200 hover:bg-[hsl(var(--memory-panel-subtle)/0.56)]"
+    >
+      <div className="min-w-0">
+        <h2 className="text-base font-semibold text-[hsl(var(--memory-title))]">{title}</h2>
+        <p className="mt-1.5 text-sm leading-6 text-[hsl(var(--memory-body))]">{body}</p>
+      </div>
+      <ArrowUpRight className="h-4 w-4 shrink-0 text-[hsl(var(--memory-accent))]" />
+    </button>
   );
 }
 

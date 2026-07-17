@@ -8,10 +8,14 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from ...core.logger import get_logger
-from ...core.sqlite import connect_sqlite
 from ...memory.l1.chat_sessions import ChatSessionRecord, create_chat_session_record
 from ..workspace_identity import claim_workspace_identity
-from .models import ChatSessionRenameResult, ChatSessionSummary, SessionWorkspaceUpdateResult
+from .models import (
+    ChatMessageSourceIdentity,
+    ChatSessionRenameResult,
+    ChatSessionSummary,
+    SessionWorkspaceUpdateResult,
+)
 from .schema import (
     CHAT_ATTACHMENTS_TABLE,
     CHAT_CONTEXT_SUMMARIES_TABLE,
@@ -24,7 +28,6 @@ from .schema import (
 
 logger = get_logger(__name__)
 
-FACT_EVENTS_TABLE = "fact_events"
 _CLIENT_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
@@ -93,9 +96,11 @@ def _insert_or_return_session(
                 int(record.created_at * 1000),
                 int(record.updated_at * 1000),
                 int(record.last_message_at * 1000) if record.last_message_at is not None else None,
-                int(record.last_user_message_at * 1000)
-                if record.last_user_message_at is not None
-                else None,
+                (
+                    int(record.last_user_message_at * 1000)
+                    if record.last_user_message_at is not None
+                    else None
+                ),
                 record.last_message_preview,
                 record.last_user_message_preview,
                 record.message_count,
@@ -113,6 +118,111 @@ def _insert_or_return_session(
 
 class ChatSessionOperationsMixin:
     """Create, update, list, and delete chat sessions."""
+
+    def list_session_turn_ids(self, user_id: str, session_id: str) -> list[str]:
+        """Return every persisted turn identity owned by one chat session."""
+        host = cast(_ChatSessionOperationsHost, self)
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+        rows = (
+            host._get_conn()
+            .execute(
+                f"""
+            SELECT turn_id
+            FROM {CHAT_TURNS_TABLE}
+            WHERE user_id = ? AND session_id = ?
+            UNION
+            SELECT turn_id
+            FROM {CHAT_MESSAGES_TABLE}
+            WHERE user_id = ? AND session_id = ?
+              AND TRIM(COALESCE(turn_id, '')) != ''
+            ORDER BY turn_id
+            """,
+                (
+                    normalized_user_id,
+                    normalized_session_id,
+                    normalized_user_id,
+                    normalized_session_id,
+                ),
+            )
+            .fetchall()
+        )
+        return [str(row[0]) for row in rows if str(row[0] or "").strip()]
+
+    def get_message_source_identity(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> ChatMessageSourceIdentity | None:
+        """Resolve one persisted message to its exact memory source identity."""
+        host = cast(_ChatSessionOperationsHost, self)
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            raise ValueError("User ID, session ID, and message ID are required")
+        row = (
+            host._get_conn()
+            .execute(
+                f"""
+            SELECT message_id, session_id, user_id, role, turn_id
+            FROM {CHAT_MESSAGES_TABLE}
+            WHERE user_id = ?
+              AND session_id = ?
+              AND message_id = ?
+            """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            )
+            .fetchone()
+        )
+        if row is None:
+            return None
+        turn_id = str(row["turn_id"] or "").strip() or None
+        return ChatMessageSourceIdentity(
+            message_id=str(row["message_id"]),
+            session_id=str(row["session_id"]),
+            user_id=str(row["user_id"]),
+            role=str(row["role"]),
+            turn_id=turn_id,
+        )
+
+    def list_session_message_source_identities(
+        self,
+        user_id: str,
+        session_id: str,
+    ) -> list[ChatMessageSourceIdentity]:
+        """Snapshot every message source before a transcript is cleared."""
+        host = cast(_ChatSessionOperationsHost, self)
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_user_id or not normalized_session_id:
+            raise ValueError("User ID and session ID are required")
+        rows = (
+            host._get_conn()
+            .execute(
+                f"""
+                SELECT message_id, session_id, user_id, role, turn_id
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ? AND session_id = ?
+                ORDER BY created_at_ms, sequence_no, message_id
+                """,
+                (normalized_user_id, normalized_session_id),
+            )
+            .fetchall()
+        )
+        return [
+            ChatMessageSourceIdentity(
+                message_id=str(row["message_id"]),
+                session_id=str(row["session_id"]),
+                user_id=str(row["user_id"]),
+                role=str(row["role"]),
+                turn_id=str(row["turn_id"] or "").strip() or None,
+            )
+            for row in rows
+        ]
 
     def create_new_session(
         self,
@@ -364,28 +474,24 @@ class ChatSessionOperationsMixin:
         if not normalized_user_id or not normalized_session_id:
             raise ValueError("User ID and session ID are required")
 
-        if host._l1_db_path.exists():
-            try:
-                conn = connect_sqlite(host._l1_db_path, profile="hot_write")
-                cur = conn.cursor()
-                cur.execute(
-                    f"""
-                    DELETE FROM {FACT_EVENTS_TABLE}
-                    WHERE user_id = ?
-                      AND session_id = ?
-                    """,
-                    (normalized_user_id, normalized_session_id),
-                )
-                conn.commit()
-                conn.close()
-            except Exception as exc:
-                logger.exception(f"Failed to delete session: {exc}")
+        conn = host._get_conn()
+        existing = conn.execute(
+            f"""
+            SELECT 1
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
+            LIMIT 1
+            """,
+            (normalized_user_id, normalized_session_id),
+        ).fetchone()
+        if existing is None:
+            return None
+
         host._delete_runtime_trace_rows(
             user_id=normalized_user_id, session_id=normalized_session_id
         )
         host._delete_chat_session_assets(session_id=normalized_session_id)
 
-        conn = host._get_conn()
         conn.execute(
             f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
             (normalized_user_id, normalized_session_id),
@@ -420,7 +526,16 @@ class ChatSessionOperationsMixin:
         conn.execute(
             f"""
             UPDATE {CHAT_SESSIONS_TABLE}
-            SET deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+            SET title = '',
+                summary = '',
+                last_message_at_ms = NULL,
+                last_user_message_at_ms = NULL,
+                last_message_preview = '',
+                last_user_message_preview = '',
+                message_count = 0,
+                workspace_path = NULL,
+                archived_at_ms = NULL,
+                deleted_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
                 updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
                 history_version = history_version + 1
             WHERE user_id = ?
@@ -461,15 +576,13 @@ class ChatSessionOperationsMixin:
         if not host._chat_db_path.exists():
             return 0
         conn = host._get_conn()
-        cursor = conn.execute(
-            f"""
+        cursor = conn.execute(f"""
             UPDATE {CHAT_USER_TURN_DELIVERY_TABLE}
             SET projection_completed = 0,
                 runtime_enqueued = 0,
                 updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000
             WHERE projection_completed != 0 OR runtime_enqueued != 0
-            """
-        )
+            """)
         conn.commit()
         return int(cursor.rowcount or 0)
 

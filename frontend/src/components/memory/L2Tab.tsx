@@ -29,6 +29,7 @@ import {
   type EntityOverviewItem,
   type KnowledgeBaseGroup,
   type KnowledgeBaseGroupId,
+  type KnowledgeCorrectionAction,
   type KnowledgeItem,
 } from './l2KnowledgeModel';
 import { L2ConflictRulesSection } from './l2/L2ConflictRulesSection';
@@ -77,8 +78,8 @@ interface L2TabProps {
   onRunReconcile: (entityIds: string[]) => Promise<void>;
   onRunSnapshotRefresh: (entityIds: string[]) => Promise<void>;
   onUpsertGraphConflictRule: (payload: L2GraphConflictRulePayload) => Promise<void>;
-  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed' | 'rejected') => Promise<void>;
-  onCorrectAssertion?: (assertionId: string, newValue: string) => Promise<void>;
+  onSubmitAssertionFeedback?: (assertionId: string, feedback: 'confirmed') => Promise<void>;
+  onRequestAssertionCorrection?: (item: KnowledgeItem, action: KnowledgeCorrectionAction) => void;
 }
 
 
@@ -105,7 +106,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
   onRunSnapshotRefresh,
   onUpsertGraphConflictRule,
   onSubmitAssertionFeedback,
-  onCorrectAssertion,
+  onRequestAssertionCorrection,
 }) => {
   const { t } = useTranslation('app');
   const [selectedKnowledgeGroupId, setSelectedKnowledgeGroupId] = useState<KnowledgeBaseGroupId>('aboutSelf');
@@ -266,7 +267,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
           loadingEvidenceIds={loadingEvidenceIds}
           onLoadEvidenceEvents={loadEvidenceEvents}
           onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-          onCorrectAssertion={onCorrectAssertion}
+          onRequestAssertionCorrection={onRequestAssertionCorrection}
           t={t}
         />
       ) : null}
@@ -280,7 +281,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         loadingEvidenceIds={loadingEvidenceIds}
         onLoadEvidenceEvents={loadEvidenceEvents}
         onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-        onCorrectAssertion={onCorrectAssertion}
+        onRequestAssertionCorrection={onRequestAssertionCorrection}
         t={t}
       />
     </div>
@@ -302,7 +303,7 @@ export const L2Tab: React.FC<L2TabProps> = ({
         loadingEvidenceIds={loadingEvidenceIds}
         onLoadEvidenceEvents={loadEvidenceEvents}
         onSubmitAssertionFeedback={onSubmitAssertionFeedback}
-        onCorrectAssertion={onCorrectAssertion}
+        onRequestAssertionCorrection={onRequestAssertionCorrection}
         onSelectGroup={setSelectedKnowledgeGroupId}
         t={t}
       />
@@ -389,6 +390,12 @@ export const L2Tab: React.FC<L2TabProps> = ({
       assertions={assertions}
       dominantTraits={dominantTraits}
       onSubmitAssertionFeedback={onSubmitAssertionFeedback}
+      onRequestAssertionCorrection={onRequestAssertionCorrection
+        ? (assertion, action) => {
+            const item = knowledgeItems.find((candidate) => candidate.assertionId === assertion.assertion_id);
+            if (item) onRequestAssertionCorrection(item, action);
+          }
+        : undefined}
       t={t}
     />
   );

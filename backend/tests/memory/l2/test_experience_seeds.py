@@ -11,6 +11,18 @@ async def test_create_list_update_seed_and_attach_to_experience(l2_store_with_sc
 
     store: L2CognitionStore = l2_store_with_schema
 
+    for episode_id, label in (
+        ("ep-train-ticket", "Book the train ticket"),
+        ("ep-google-map", "Plan the route"),
+    ):
+        await store.create_episode(
+            episode_id=episode_id,
+            status="active",
+            label=label,
+            time_start=100.0,
+            time_end=500.0,
+        )
+
     seed_id = await store.create_experience_seed(
         seed_id="seed-japan-trip",
         seed_type="manual",

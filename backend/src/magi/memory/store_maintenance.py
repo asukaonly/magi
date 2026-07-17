@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Any, Dict
 
 from ..core.sqlite import sqlite_connection_async, sqlite_transaction_async
+from .source_event_governance import (
+    business_source_references,
+    chat_session_source_reference,
+    normalize_source_event_ids,
+    source_event_tombstone_ids,
+)
 
 _L2_EPISODE_TERMINAL_STATUSES = ("merged", "invalidated", "archived")
 _L2_EXPERIENCE_TERMINAL_STATUSES = ("merged", "invalidated")
@@ -82,6 +88,43 @@ def _summary_metadata(summary: Dict[str, Any]) -> dict[str, Any]:
             return {}
         return decoded if isinstance(decoded, dict) else {}
     return {}
+
+
+def _l1_archive_source_references(event: Dict[str, Any]) -> tuple[str, ...]:
+    references = [
+        str(value).strip()
+        for value in (event.get("event_id"), event.get("turn_id"))
+        if str(value or "").strip()
+    ]
+    user_id = str(event.get("user_id") or "").strip()
+    session_id = str(event.get("session_id") or "").strip()
+    if user_id and session_id:
+        references.append(
+            chat_session_source_reference(user_id=user_id, session_id=session_id)
+        )
+    references.extend(
+        business_source_references(
+            source=str(event.get("source") or ""),
+            event_type=str(event.get("event_type") or ""),
+            source_item_id=event.get("source_item_id"),
+            idempotency_key=event.get("idempotency_key"),
+        )
+    )
+    return normalize_source_event_ids(references)
+
+
+def _l3_archive_source_references(
+    summary: Dict[str, Any],
+    event_links: list[Dict[str, Any]],
+) -> tuple[str, ...]:
+    source_event_ids = summary.get("source_event_ids")
+    references = list(source_event_ids) if isinstance(source_event_ids, list) else []
+    references.extend(
+        str(link.get("event_id") or "").strip()
+        for link in event_links
+        if str(link.get("event_id") or "").strip()
+    )
+    return normalize_source_event_ids(references)
 
 
 async def _sqlite_table_names(db: Any) -> set[str]:
@@ -346,7 +389,9 @@ class UnifiedMemoryMaintenanceMixin:
     l2: Any
     l3: Any
     l4: Any
+    memory_db_path: str
     _archive_dir: Path
+    _write_lock: Any
 
     async def search(
         self,
@@ -525,6 +570,29 @@ class UnifiedMemoryMaintenanceMixin:
             event_id for event_id in normalized_event_ids if event_id not in protected_event_ids
         ]
 
+    async def _archive_sources_are_governed(self, references: tuple[str, ...]) -> bool:
+        """Return whether forgetting already governs any source reference."""
+        normalized = normalize_source_event_ids(references)
+        if not normalized:
+            return False
+        async with sqlite_connection_async(self.memory_db_path) as db:
+            if await source_event_tombstone_ids(db, normalized):
+                return True
+            for chunk in _chunked(list(normalized)):
+                placeholders = _placeholders(len(chunk))
+                async with db.execute(
+                    f"""
+                    SELECT 1
+                    FROM memory_projection_blocks
+                    WHERE event_id IN ({placeholders})
+                    LIMIT 1
+                    """,
+                    tuple(chunk),
+                ) as cursor:
+                    if await cursor.fetchone() is not None:
+                        return True
+        return False
+
     def _is_l3_summary_retention_protected(self, summary: Dict[str, Any]) -> bool:
         review_state = str(summary.get("review_state") or "").strip()
         if review_state in _L3_REVIEW_PROTECTED_STATES:
@@ -559,14 +627,20 @@ class UnifiedMemoryMaintenanceMixin:
             linked_event_ids = await self.l3.filter_linked_event_ids(candidate_event_ids)
             deletable_event_ids = await self._filter_l1_retention_candidates(linked_event_ids)
             for event_id in deletable_event_ids:
-                if should_archive:
-                    event = await self.l1.get_event(event_id)
+                async with self._write_lock:
+                    event = await self.l1.get_active_event(event_id)
                     if event is None:
                         continue
-                    await self._archive_l1_event(event, archived_at=archived_at)
-                    removed["archived_events"] += 1
-                if await self.l1.mark_deleted(event_id):
-                    removed["deleted_events"] += 1
+                    archive_is_governed = should_archive and (
+                        await self._archive_sources_are_governed(
+                            _l1_archive_source_references(event)
+                        )
+                    )
+                    if should_archive and not archive_is_governed:
+                        await self._archive_l1_event(event, archived_at=archived_at)
+                        removed["archived_events"] += 1
+                    if await self.l1.mark_deleted(event_id):
+                        removed["deleted_events"] += 1
         if self.l1 is not None:
             # P3: drop pinned capture-time full-text payloads past the retention
             # window. They are a transient L2-extraction aid (consumed shortly
@@ -596,23 +670,35 @@ class UnifiedMemoryMaintenanceMixin:
                 limit=10_000,
             )
             for summary in expired_summaries:
-                if self._is_l3_summary_retention_protected(summary):
-                    continue
                 summary_id = str(summary.get("summary_id") or "")
                 if not summary_id:
                     continue
-                if should_archive:
-                    await self._archive_l3_summary(
-                        {
-                            "summary": summary,
-                            "event_links": await self.l3.list_summary_event_links(summary_id),
-                            "task_links": await self.l3.list_summary_task_links(summary_id),
-                        },
-                        archived_at=archived_at,
+                async with self._write_lock:
+                    current_summary = await self.l3.get_summary_by_id(summary_id)
+                    if (
+                        current_summary is None
+                        or float(current_summary.get("period_end") or 0.0) >= cutoff
+                        or self._is_l3_summary_retention_protected(current_summary)
+                    ):
+                        continue
+                    event_links = await self.l3.list_summary_event_links(summary_id)
+                    archive_is_governed = should_archive and (
+                        await self._archive_sources_are_governed(
+                            _l3_archive_source_references(current_summary, event_links)
+                        )
                     )
-                    removed["archived_summaries"] += 1
-                if await self.l3.delete_summary(summary_id):
-                    removed["deleted_summaries"] += 1
+                    if should_archive and not archive_is_governed:
+                        await self._archive_l3_summary(
+                            {
+                                "summary": current_summary,
+                                "event_links": event_links,
+                                "task_links": await self.l3.list_summary_task_links(summary_id),
+                            },
+                            archived_at=archived_at,
+                        )
+                        removed["archived_summaries"] += 1
+                    if await self.l3.delete_summary(summary_id):
+                        removed["deleted_summaries"] += 1
         return removed
 
     async def run_maintenance(

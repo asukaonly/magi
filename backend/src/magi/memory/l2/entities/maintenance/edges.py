@@ -68,13 +68,23 @@ class L2EntityEdgeMaintenanceMixin:
                 SET status = 'archived', updated_at = ?
                 WHERE status = 'active'
                   AND fact_kind != 'future_intent'
+                  AND (valid_from IS NULL OR valid_from <= ?)
+                  AND TRIM(COALESCE(authority_ref, '')) = ''
+                  AND LOWER(TRIM(COALESCE(evidence_class, ''))) != 'user_self_report'
+                  AND LOWER(TRIM(COALESCE(source_type, ''))) != 'user_correction'
                   AND (
                       (confidence < ? AND updated_at < ?)
                       OR
                       (observation_count = 1 AND updated_at < ?)
                   )
                 """,
-                (now, host.ARCHIVE_CONFIDENCE_THRESHOLD, cutoff_low_conf, cutoff_single_obs),
+                (
+                    now,
+                    now,
+                    host.ARCHIVE_CONFIDENCE_THRESHOLD,
+                    cutoff_low_conf,
+                    cutoff_single_obs,
+                ),
             )
             archived = cursor.rowcount
             if archived:

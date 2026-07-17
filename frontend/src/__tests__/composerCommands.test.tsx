@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react';
 import { useRef } from 'react';
 import { useChatComposerCommands } from '@/hooks/useChatComposerCommands';
 import { ComposerSlashPicker } from '@/components/chat/ComposerSlashPicker';
@@ -125,6 +125,50 @@ describe('useChatComposerCommands', () => {
       expect(text).toContain('tool|echo');
       expect(text).toContain('tool|rm');
     });
+  });
+
+  it('marks the clear command as destructive before selection', async () => {
+    const Harness = () => {
+      const ref = useRef<HTMLTextAreaElement>(null);
+      const hook = useChatComposerCommands({
+        setInputValue: () => undefined,
+        textareaRef: ref,
+        onPickInternal: () => undefined,
+        onPickTool: () => undefined,
+        onPickSkill: () => undefined,
+      });
+      return (
+        <div>
+          <textarea ref={ref} defaultValue="/cl" />
+          <button
+            data-testid="open"
+            onClick={() => {
+              if (ref.current) ref.current.setSelectionRange(3, 3);
+              hook.onValueChange('/cl');
+            }}
+          />
+          <ComposerSlashPicker
+            open={hook.state.open}
+            query={hook.state.open ? hook.state.query : ''}
+            items={hook.items}
+            activeIndex={hook.state.open ? hook.state.activeIndex : 0}
+            loading={hook.loading}
+            error={hook.error}
+            onSelect={hook.select}
+            onActiveIndexChange={hook.setActiveIndex}
+          />
+        </div>
+      );
+    };
+
+    render(<Harness />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('open'));
+    });
+
+    const clearOption = await screen.findByRole('option', { name: /\/clear/ });
+    expect(clearOption).toHaveTextContent('Clear this chat and its related memories');
+    expect(within(clearOption).getByLabelText('chat.commands.dangerous')).toBeInTheDocument();
   });
 
   it('select on internal command runs handler and clears input', async () => {

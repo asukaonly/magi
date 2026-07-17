@@ -37,10 +37,7 @@ def _build_config(
 
 def test_scheduled_target_type_includes_memory_l1_maintenance() -> None:
     assert ScheduledTargetType.MEMORY_L1_MAINTENANCE == "memory_l1_maintenance"
-    assert (
-        ScheduledTargetType("memory_l1_maintenance")
-        is ScheduledTargetType.MEMORY_L1_MAINTENANCE
-    )
+    assert ScheduledTargetType("memory_l1_maintenance") is ScheduledTargetType.MEMORY_L1_MAINTENANCE
 
 
 @pytest.mark.asyncio
@@ -90,6 +87,9 @@ async def test_handle_l1_maintenance_runs_l1_cleanup_with_l1_retention() -> None
     unified = MagicMock()
     unified.l1 = MagicMock()
     unified.l3 = MagicMock()
+    unified.resume_pending_forget_operations = AsyncMock(
+        return_value={"found": 0, "completed": 0, "failed": 0}
+    )
     unified.cleanup_l1_data = AsyncMock(
         return_value={
             "deleted_events": 2,
@@ -113,6 +113,9 @@ async def test_handle_l1_maintenance_runs_l1_cleanup_with_l1_retention() -> None
         "deleted_events": 2,
         "archived_events": 1,
         "pruned_pinned_payloads": 3,
+        "forget_operations_found": 0,
+        "forget_operations_completed": 0,
+        "forget_operations_failed": 0,
     }
     unified.cleanup_l1_data.assert_awaited_once_with(
         older_than_days=17,
@@ -124,9 +127,16 @@ async def test_handle_l1_maintenance_runs_l1_cleanup_with_l1_retention() -> None
 async def test_handle_l1_maintenance_skips_when_disabled() -> None:
     from magi.memory.l1.maintenance_schedule import handle_l1_maintenance
 
-    with patch(
-        "magi.memory.l1.maintenance_schedule.get_config",
-        return_value=_build_config(maintenance_enabled=False),
+    unified = MagicMock()
+    unified.resume_pending_forget_operations = AsyncMock(
+        return_value={"found": 0, "completed": 0, "failed": 0}
+    )
+    with (
+        patch(
+            "magi.memory.l1.maintenance_schedule.get_config",
+            return_value=_build_config(maintenance_enabled=False),
+        ),
+        patch("magi.memory.l1.maintenance_schedule.get_unified_memory", return_value=unified),
     ):
         result = await handle_l1_maintenance(MagicMock())
 

@@ -9,6 +9,7 @@ from fastapi import HTTPException, Query, status
 
 from ..dependencies import _resolve_unified_memory
 from ..helpers import memory_t
+from ..forget_workflow import delete_user_event
 from ..router import memory_router
 from .events import build_l1_event_query_args, build_l1_events_response
 
@@ -71,13 +72,38 @@ async def delete_l1_event(event_id: str):
     if not unified_memory or not unified_memory.l1:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=memory_t("memory.errors.l1_store_uninitialized", "L1 store not initialized"),
+            detail=memory_t(
+                "memory.errors.memory_stores_uninitialized",
+                "Memory stores not initialized",
+            ),
         )
 
-    deleted = await unified_memory.l1.mark_deleted(event_id)
+    # Use the raw row so an old manual-entry projection cannot bypass the
+    # source-owned deletion workflow merely because it was already hidden.
+    # The same raw identity also keeps retry responses stable after L1 has
+    # been soft-deleted by the first request.
+    event = await unified_memory.l1.get_event(event_id)
+    if event is not None and str(event.get("source") or "").strip() == "manual_entry":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=memory_t(
+                "memory.errors.manual_entry_requires_source_delete",
+                "Delete this item from Manual Memory so it remains editable and consistent",
+            ),
+        )
+
+    deleted = await delete_user_event(unified_memory, event_id=event_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=memory_t("memory.errors.event_not_found", "Event not found"),
         )
-    return {"event_id": event_id, "deleted": True}
+    return {
+        "event_id": event_id,
+        "deleted": True,
+        "deletion_scope": (
+            "projected_memory_only"
+            if event is not None and str(event.get("source") or "").strip() == "chat"
+            else "source_event"
+        ),
+    }

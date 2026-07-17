@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import time
 from pathlib import Path
 
@@ -10,7 +11,32 @@ from fastapi.testclient import TestClient
 from _shared.memory_schema import apply_memory_shared_schema
 from magi.api.routes import _PUBLIC_ROUTE_METHODS, _build_public_router
 from magi.api.routers.memory import memory_router
+from magi.api.routers.memory.schemas import MemoryCorrectionRecord
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
+
+_INTERNAL_CORRECTION_FIELDS = {
+    "request_id",
+    "actor_id",
+    "target_id",
+    "target_kind",
+    "slot_key",
+    "claim_fingerprint",
+    "source_event_id",
+    "audit_event_id",
+    "replacement_target_id",
+    "reverted_by",
+}
+_INTERNAL_VERSION_FIELDS = {
+    "version_id",
+    "assertion_id",
+    "triple_id",
+    "claim_fingerprint",
+    "evidence_events",
+    "evidence_event_ids",
+    "evidence_text",
+    "natural_summary",
+    "authority_ref",
+}
 
 
 def _memory(tmp_path: Path) -> UnifiedMemoryStore:
@@ -50,9 +76,15 @@ def _client(monkeypatch, memory: UnifiedMemoryStore) -> TestClient:
     return TestClient(app)
 
 
-def _seed_assertion(memory: UnifiedMemoryStore, *, value: str = "Hangzhou") -> str:
+def _seed_assertion(
+    memory: UnifiedMemoryStore,
+    *,
+    value: str = "Hangzhou",
+    event_id: str = "evt-original",
+    observed_at: float | None = None,
+) -> str:
     assert memory.l2 is not None
-    now = time.time() - 3600
+    now = float(observed_at if observed_at is not None else time.time() - 3600)
     return asyncio.run(
         memory.l2.upsert_assertion_candidate(
             {
@@ -62,7 +94,7 @@ def _seed_assertion(memory: UnifiedMemoryStore, *, value: str = "Hangzhou") -> s
                 "trait_name": "location.home",
                 "trait_value": value,
                 "confidence_score": 0.8,
-                "evidence_events": ["evt-original"],
+                "evidence_events": [event_id],
                 "volatility_index": 0.1,
                 "source_domain": "conversation",
                 "inference_depth": "explicit",
@@ -75,22 +107,51 @@ def _seed_assertion(memory: UnifiedMemoryStore, *, value: str = "Hangzhou") -> s
     )
 
 
-def _seed_relationship(memory: UnifiedMemoryStore) -> str:
+def _seed_relationship(
+    memory: UnifiedMemoryStore,
+    *,
+    object_id: str = "place:hangzhou",
+    event_id: str = "evt-edge-original",
+) -> str:
     assert memory.l2 is not None
     return asyncio.run(
         memory.l2.upsert_knowledge_edge(
             subject_id="user:local_user",
             subject_type="user",
             predicate="CURRENT_LIVES_IN",
-            object_id="place:hangzhou",
+            object_id=object_id,
             object_type="place",
-            evidence_event_ids=["evt-edge-original"],
+            evidence_event_ids=[event_id],
             confidence=0.9,
             observed_at=time.time() - 3600,
             source_type="conversation",
             extraction_method="explicit",
         )
     )
+
+
+def _replacement_target_id(memory: UnifiedMemoryStore, correction_id: str) -> str:
+    assert memory.l2 is not None
+    with sqlite3.connect(memory.l2.db_path) as db:
+        row = db.execute(
+            "SELECT replacement_target_id FROM memory_corrections WHERE correction_id = ?",
+            (correction_id,),
+        ).fetchone()
+    assert row is not None and row[0]
+    return str(row[0])
+
+
+def test_public_correction_schema_fails_closed_when_revert_decision_is_missing():
+    record = MemoryCorrectionRecord.model_validate(
+        {
+            "correction_id": "correction-1",
+            "correction_kind": "record_error",
+            "created_at": 1.0,
+            "state": "active",
+        }
+    )
+
+    assert record.can_revert is False
 
 
 def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, monkeypatch):
@@ -112,9 +173,12 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert corrected.status_code == 200
     body = corrected.json()
     assert body["current_claim"]["trait_value"] == "Shanghai"
-    assert body["current_claim"]["evidence_events"] == []
+    assert "evidence_events" not in body["current_claim"]
     assert body["derivation_state"] == "pending"
-    assert body["correction"]["audit_event_id"].startswith("correction_audit_")
+    assert body["correction"]["can_revert"] is True
+    assert body["correction"]["target_forgotten"] is False
+    assert "transition_applied_at" in body["correction"]
+    assert not (_INTERNAL_CORRECTION_FIELDS & set(body["correction"]))
 
     assert memory.l2 is not None
     asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
@@ -127,9 +191,13 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
 
     assert memory.l1 is not None
     audit_events = asyncio.run(memory.l1.query_events(event_type="MEMORY_CORRECTION", limit=10))
-    assert [event["event_id"] for event in audit_events] == [body["correction"]["audit_event_id"]]
+    assert len(audit_events) == 1
+    assert audit_events[0]["event_id"].startswith("correction_audit_")
     assert audit_events[0]["cognition_eligible"] is False
     assert audit_events[0]["l1_retrieval_scope"] == "audit_only"
+    assert audit_events[0]["content"] == "Memory correction recorded"
+    assert "Shanghai" not in str(audit_events[0])
+    assert "The old city was incorrect" not in str(audit_events[0])
 
     _seed_assertion(memory, value="Hangzhou")
     current = asyncio.run(memory.l2.list_current_assertions(entity_id="user:local_user", limit=20))
@@ -142,6 +210,10 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert history.status_code == 200
     assert len(history.json()["versions"]) == 2
     assert len(history.json()["corrections"]) == 1
+    assert not (_INTERNAL_CORRECTION_FIELDS & set(history.json()["corrections"][0]))
+    assert all(
+        not (_INTERNAL_VERSION_FIELDS & set(version)) for version in history.json()["versions"]
+    )
 
     reverted = client.post(
         f"/api/memory/l2/corrections/{body['correction']['correction_id']}/revert",
@@ -150,6 +222,43 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert reverted.status_code == 200
     assert reverted.json()["current_claim"]["trait_value"] == "Hangzhou"
     assert reverted.json()["correction"]["state"] == "reverted"
+    assert reverted.json()["correction"]["can_revert"] is False
+
+
+def test_forgetting_claim_evidence_hides_its_l1_correction_audit(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory, event_id="evt-private-correction-source")
+    client = _client(monkeypatch, memory)
+
+    corrected = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "forget-correction-audit",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Private replacement"},
+            "reason": "Private correction explanation",
+        },
+    )
+    assert corrected.status_code == 200
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.process_memory_correction_jobs(limit=20))
+
+    assert memory.l1 is not None
+    audit_events = asyncio.run(memory.l1.query_events(event_type="MEMORY_CORRECTION", limit=10))
+    assert len(audit_events) == 1
+    audit_event_id = audit_events[0]["event_id"]
+
+    asyncio.run(
+        memory.forget_source_events(
+            ["evt-private-correction-source"],
+            reason="user_delete_event",
+        )
+    )
+
+    forgotten_audit = asyncio.run(memory.l1.get_event(audit_event_id))
+    assert forgotten_audit is not None
+    assert forgotten_audit["deleted_at"] is not None
 
 
 def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_path, monkeypatch):
@@ -174,7 +283,7 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
     assert corrected.status_code == 200
     body = corrected.json()
     assert body["current_claim"]["object_id"] == "place:shanghai"
-    assert body["current_claim"]["evidence_event_ids"] == []
+    assert "evidence_event_ids" not in body["current_claim"]
     assert body["derivation_state"] == "pending"
 
     assert memory.l2 is not None
@@ -199,12 +308,19 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
         "/api/memory/l2/corrections",
         params={
             "target_kind": "edge",
-            "target_id": body["current_claim"]["triple_id"],
+            "target_id": _replacement_target_id(
+                memory,
+                body["correction"]["correction_id"],
+            ),
         },
     )
     assert history.status_code == 200
     assert len(history.json()["versions"]) == 3
     assert len(history.json()["corrections"]) == 1
+    assert not (_INTERNAL_CORRECTION_FIELDS & set(history.json()["corrections"][0]))
+    assert all(
+        not (_INTERNAL_VERSION_FIELDS & set(version)) for version in history.json()["versions"]
+    )
 
     reverted = client.post(
         f"/api/memory/l2/corrections/{body['correction']['correction_id']}/revert",
@@ -212,6 +328,321 @@ def test_relationship_correction_api_preserves_history_and_blocks_replay(tmp_pat
     )
     assert reverted.status_code == 200
     assert reverted.json()["current_claim"]["object_id"] == "place:hangzhou"
+
+
+def test_correction_history_marks_forgotten_target_non_revertible(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    correction_request = {
+        "request_id": "assertion-correction-before-forget",
+        "target": {"kind": "assertion", "id": assertion_id},
+        "correction_kind": "record_error",
+        "replacement": {"value": "Shanghai"},
+        "reason": "The old city should be removed",
+    }
+    corrected = client.post(
+        "/api/memory/l2/corrections",
+        json=correction_request,
+    )
+    assert corrected.status_code == 200
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.forget_entity(entity_id="user:local_user"))
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+
+    assert history.status_code == 200
+    correction = history.json()["corrections"][0]
+    assert correction["target_forgotten"] is True
+    assert correction["forget_affected"] is True
+    assert correction["content_redacted"] is True
+    assert correction["can_revert"] is False
+    assert correction["before"] is None
+    assert correction["replacement"] is None
+    assert correction["reason"] is None
+    assert "source_event_id" not in correction
+    assert "audit_event_id" not in correction
+    assert history.json()["versions"] == []
+
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute("DELETE FROM tom_trait_assertions")
+    after_cleanup = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+    assert after_cleanup.status_code == 200
+    cleaned_correction = after_cleanup.json()["corrections"][0]
+    assert cleaned_correction["content_redacted"] is True
+    assert cleaned_correction["before"] is None
+    assert cleaned_correction["replacement"] is None
+
+    retried = client.post("/api/memory/l2/corrections", json=correction_request)
+    assert retried.status_code == 200
+    assert retried.json()["current_claim"] is None
+    assert retried.json()["correction"]["content_redacted"] is True
+    assert retried.json()["correction"]["before"] is None
+    assert retried.json()["correction"]["replacement"] is None
+
+
+def test_history_hides_forgotten_correction_sources_without_replacements(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    edge_id = _seed_relationship(memory)
+    client = _client(monkeypatch, memory)
+
+    for target_kind, target_id, source_event_id in (
+        ("assertion", assertion_id, "evt-assertion-feedback-private"),
+        ("edge", edge_id, "evt-edge-feedback-private"),
+    ):
+        corrected = client.post(
+            "/api/memory/l2/corrections",
+            json={
+                "request_id": f"{target_kind}-private-source-no-replacement",
+                "target": {"kind": target_kind, "id": target_id},
+                "correction_kind": "record_error",
+                "reason": "private feedback explanation",
+                "source_event_id": source_event_id,
+            },
+        )
+        assert corrected.status_code == 200
+
+    assert memory.l2 is not None
+    asyncio.run(
+        memory.l2.forget_source_events(
+            ["evt-assertion-feedback-private", "evt-edge-feedback-private"],
+            reason="user_delete_event",
+        )
+    )
+
+    for target_kind, target_id in (("assertion", assertion_id), ("edge", edge_id)):
+        history = client.get(
+            "/api/memory/l2/corrections",
+            params={"target_kind": target_kind, "target_id": target_id},
+        )
+        assert history.status_code == 200
+        correction = history.json()["corrections"][0]
+        assert correction["forget_affected"] is True
+        assert correction["reason"] is None
+        assert correction["can_revert"] is False
+        assert "source_event_id" not in correction
+
+
+def test_public_inactive_lists_never_return_forgotten_claims(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    _seed_assertion(
+        memory,
+        value="Private Forgotten Trait",
+        event_id="evt-forgotten-assertion",
+    )
+    _seed_relationship(
+        memory,
+        object_id="place:private-forgotten",
+        event_id="evt-forgotten-edge",
+    )
+    monkeypatch.setattr(
+        "magi.api.routers.memory.l2.knowledge_routes._resolve_unified_memory",
+        lambda: memory,
+    )
+    client = _client(monkeypatch, memory)
+
+    assertion_before = client.get(
+        "/api/memory/l2/assertions",
+        params={"include_inactive": "true", "query": "Private Forgotten Trait"},
+    )
+    relation_before = client.get(
+        "/api/memory/l2/relations",
+        params={"include_inactive": "true", "query": "place:private-forgotten"},
+    )
+    assert assertion_before.status_code == 200 and assertion_before.json()["total"] == 1
+    assert relation_before.status_code == 200 and relation_before.json()["total"] == 1
+
+    assert memory.l2 is not None
+    asyncio.run(
+        memory.l2.forget_source_events(
+            ["evt-forgotten-assertion", "evt-forgotten-edge"],
+            reason="user_delete_event",
+        )
+    )
+
+    for path, private_query in (
+        ("/api/memory/l2/assertions", "Private Forgotten Trait"),
+        ("/api/memory/l2/relations", "place:private-forgotten"),
+    ):
+        all_inactive = client.get(path, params={"include_inactive": "true"})
+        searched = client.get(
+            path,
+            params={"include_inactive": "true", "query": private_query},
+        )
+        assert all_inactive.status_code == 200
+        assert all_inactive.json()["items"] == []
+        assert all_inactive.json()["total"] == 0
+        assert searched.status_code == 200
+        assert searched.json()["items"] == []
+        assert searched.json()["total"] == 0
+
+
+def test_relationship_history_redacts_both_sides_after_entity_forget(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    triple_id = _seed_relationship(memory)
+    client = _client(monkeypatch, memory)
+    correction_request = {
+        "request_id": "edge-correction-before-forget",
+        "target": {"kind": "edge", "id": triple_id},
+        "correction_kind": "record_error",
+        "replacement": {
+            "object_id": "place:shanghai",
+            "object_type": "place",
+        },
+        "reason": "The old relationship should be removed",
+    }
+    corrected = client.post("/api/memory/l2/corrections", json=correction_request)
+    assert corrected.status_code == 200
+    current_triple_id = _replacement_target_id(
+        memory,
+        corrected.json()["correction"]["correction_id"],
+    )
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.forget_entity(entity_id="user:local_user"))
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "edge", "target_id": current_triple_id},
+    )
+
+    assert history.status_code == 200
+    assert history.json()["versions"] == []
+    correction = history.json()["corrections"][0]
+    assert correction["target_forgotten"] is True
+    assert correction["forget_affected"] is True
+    assert correction["content_redacted"] is True
+    assert correction["can_revert"] is False
+    assert correction["before"] is None
+    assert correction["replacement"] is None
+    assert correction["reason"] is None
+    assert "source_event_id" not in correction
+    assert "audit_event_id" not in correction
+
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute("DELETE FROM knowledge_graph")
+    after_cleanup = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "edge", "target_id": current_triple_id},
+    )
+    assert after_cleanup.status_code == 200
+    cleaned_correction = after_cleanup.json()["corrections"][0]
+    assert cleaned_correction["content_redacted"] is True
+    assert cleaned_correction["before"] is None
+    assert cleaned_correction["replacement"] is None
+    assert after_cleanup.json()["versions"] == []
+
+    retried = client.post("/api/memory/l2/corrections", json=correction_request)
+    assert retried.status_code == 200
+    assert retried.json()["current_claim"] is None
+    assert retried.json()["correction"]["content_redacted"] is True
+
+
+def test_partial_evidence_forget_blocks_revert_without_marking_target_deleted(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    first_at = time.time() - 3600
+    second_at = time.time() - 1800
+    assertion_id = _seed_assertion(
+        memory,
+        event_id="evt-forgotten-source",
+        observed_at=first_at,
+    )
+    assert (
+        _seed_assertion(
+            memory,
+            event_id="evt-retained-source",
+            observed_at=second_at,
+        )
+        == assertion_id
+    )
+    client = _client(monkeypatch, memory)
+    corrected = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "partial-evidence-correction",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+            "reason": "The city changed",
+        },
+    )
+    assert corrected.status_code == 200
+    assert memory.l2 is not None
+    asyncio.run(memory.l2.forget_time_range(start=first_at - 1, end=first_at + 1))
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+
+    assert history.status_code == 200
+    body = history.json()
+    correction = body["corrections"][0]
+    assert correction["target_forgotten"] is False
+    assert correction["forget_affected"] is True
+    assert correction["content_redacted"] is False
+    assert correction["can_revert"] is False
+    assert correction["before"]["trait_value"] == "Hangzhou"
+    assert correction["replacement"]["value"] == "Shanghai"
+    assert "evidence_events" not in correction["before"]
+    assert "evidence_event_ids" not in correction["replacement"]
+    assert correction["reason"] is None
+    assert len(body["versions"]) == 2
+    assert all(not (_INTERNAL_VERSION_FIELDS & set(version)) for version in body["versions"])
+
+
+def test_history_marks_only_latest_dependent_correction_revertible(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    first = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "dependent-correction-first",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+        },
+    )
+    assert first.status_code == 200
+    replacement_id = _replacement_target_id(
+        memory,
+        first.json()["correction"]["correction_id"],
+    )
+    second = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "dependent-correction-second",
+            "target": {"kind": "assertion", "id": replacement_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Beijing"},
+        },
+    )
+    assert second.status_code == 200
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+
+    assert history.status_code == 200
+    corrections = {
+        correction["correction_id"]: correction for correction in history.json()["corrections"]
+    }
+    assert corrections[first.json()["correction"]["correction_id"]]["can_revert"] is False
+    assert corrections[second.json()["correction"]["correction_id"]]["can_revert"] is True
 
 
 def test_memory_correction_api_rejects_unbounded_user_input(tmp_path, monkeypatch):

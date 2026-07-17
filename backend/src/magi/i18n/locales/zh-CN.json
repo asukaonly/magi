@@ -19,6 +19,7 @@
       "errors": {
         "runtime_command_queue_not_initialized": "运行时命令队列尚未初始化。请完成初始设置或检查已保存的配置。",
         "chat_store_not_initialized": "聊天存储尚未初始化。",
+        "scope_deleted": "这段对话或消息已经删除，请新建一段对话后再发送。",
         "session_id_required": "需要提供会话 ID。",
         "recall_feedback_pending_ask": "请先回答当前问题，再重新核对之前的回复。",
         "empty_turn": "请输入消息或添加附件。",

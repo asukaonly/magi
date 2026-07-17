@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+
 def _metadata_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -101,12 +102,13 @@ async def backwrite_episode_summary(
         updated = bool(
             await update_episode(
                 episode_id=episode_id,
+                expected_status="active",
                 label=label,
                 summary=content,
             )
         )
     index_fts = getattr(l2_store, "index_episode_fts", None)
-    if callable(index_fts):
+    if updated and callable(index_fts):
         await index_fts(
             episode_id=episode_id,
             summary=content,
@@ -153,7 +155,13 @@ async def backwrite_experience_review(
     update_experience = getattr(l2_store, "update_experience", None)
     if not callable(update_experience):
         return False
-    return bool(await update_experience(experience_id=experience_id, **updates))
+    return bool(
+        await update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            **updates,
+        )
+    )
 
 
 __all__ = [

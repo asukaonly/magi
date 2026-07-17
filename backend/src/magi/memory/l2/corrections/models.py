@@ -89,6 +89,9 @@ class MemoryCorrection:
     replacement_target_id: str | None = None
     reverted_at: float | None = None
     reverted_by: str | None = None
+    transition_applied_at: float | None = None
+    transition_cancelled_at: float | None = None
+    transition_cancel_reason: str | None = None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "MemoryCorrection":
@@ -113,6 +116,9 @@ class MemoryCorrection:
             reverted_at=_optional_float(row.get("reverted_at")),
             reverted_by=_optional_text(row.get("reverted_by")),
             reason=_optional_text(row.get("reason")),
+            transition_applied_at=_optional_float(row.get("transition_applied_at")),
+            transition_cancelled_at=_optional_float(row.get("transition_cancelled_at")),
+            transition_cancel_reason=_optional_text(row.get("transition_cancel_reason")),
         )
 
 
@@ -136,6 +142,7 @@ class ApplyAssertionCorrectionCommand:
     effective_at: float | None = None
     scope: Mapping[str, Any] | None = None
     source_event_id: str | None = None
+    source_event_observed_at: float | None = None
     audit_event_id: str | None = None
     expected_updated_at: float | None = None
 
@@ -161,6 +168,7 @@ class ApplyRelationshipCorrectionCommand:
     effective_at: float | None = None
     scope: Mapping[str, Any] | None = None
     source_event_id: str | None = None
+    source_event_observed_at: float | None = None
     audit_event_id: str | None = None
     expected_updated_at: float | None = None
 

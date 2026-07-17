@@ -14,6 +14,13 @@ from ..corrections.fingerprints import (
     relationship_slot_key,
     relationship_triple_id,
 )
+from ..corrections.forget_governance import (
+    ClaimGovernanceIdentityRewrite,
+    decode_evidence_event_ids,
+    forgotten_evidence_event_ids_for_claims,
+    rewrite_claim_governance_identities,
+)
+from ..corrections.models import CorrectionTargetKind
 from ..graph_conflicts import (
     GraphConflictRule,
     build_graph_conflict_matrix,
@@ -119,6 +126,17 @@ async def rekey_relationship_identity(
     affected_rows = [source, *([duplicate] if duplicate is not None else [])]
     affected_ids = {str(row["triple_id"]) for row in affected_rows}
     id_map = {old_id: target_triple_id for old_id in affected_ids if old_id != target_triple_id}
+    affected_corrections = await _load_affected_edge_corrections(db, affected_ids)
+    governance_rewrites = await _collect_relationship_governance_rewrites(
+        db,
+        affected_rows=affected_rows,
+        affected_ids=affected_ids,
+        affected_corrections=affected_corrections,
+        subject_id=subject_id,
+        predicate=normalized_predicate,
+        object_id=object_id,
+        slot_key=target_slot_key,
+    )
     await _write_current_edge(
         db,
         rows=affected_rows,
@@ -150,6 +168,12 @@ async def rekey_relationship_identity(
         predicate=normalized_predicate,
         object_id=object_id,
         reference_replacements=reference_replacements,
+        corrections=affected_corrections,
+    )
+    await rewrite_claim_governance_identities(
+        db,
+        target_kind=CorrectionTargetKind.EDGE,
+        rewrites=governance_rewrites,
     )
     await _rewrite_dependencies(db, id_map)
     combined_reference_map = dict(reference_replacements or {})
@@ -220,6 +244,7 @@ async def refresh_relationship_governance_history_for_predicate(
     """Refresh historical slots after a persisted conflict rule changes."""
     db.row_factory = aiosqlite.Row
     normalized_predicate = str(predicate).strip().upper()
+    governance_rewrites: list[ClaimGovernanceIdentityRewrite] = []
     async with db.execute(
         """
         SELECT * FROM knowledge_graph_versions
@@ -230,6 +255,7 @@ async def refresh_relationship_governance_history_for_predicate(
     ) as cursor:
         versions = await cursor.fetchall()
     for version in versions:
+        old_fingerprint = str(version["claim_fingerprint"] or "").strip()
         slot_key = await relationship_slot_key_on_connection(
             db,
             subject_id=str(version["subject_id"]),
@@ -243,6 +269,19 @@ async def refresh_relationship_governance_history_for_predicate(
             object_id=str(version["object_id"]),
             scope_key_value=str(version["scope_key"] or "global"),
         )
+        if old_fingerprint:
+            governance_rewrites.append(
+                ClaimGovernanceIdentityRewrite(
+                    old_claim_fingerprint=old_fingerprint,
+                    new_claim_fingerprint=fingerprint,
+                    new_semantic_fingerprint=relationship_claim_fingerprint(
+                        slot_key_value=slot_key,
+                        subject_id=str(version["subject_id"]),
+                        predicate=normalized_predicate,
+                        object_id=str(version["object_id"]),
+                    ),
+                )
+            )
         await db.execute(
             """
             UPDATE knowledge_graph_versions
@@ -269,6 +308,7 @@ async def refresh_relationship_governance_history_for_predicate(
         if not before_matches and not replacement_matches:
             continue
         if before_matches:
+            old_before_fingerprint = str(before.get("claim_fingerprint") or "").strip()
             await _set_payload_identity(
                 db,
                 before,
@@ -277,7 +317,21 @@ async def refresh_relationship_governance_history_for_predicate(
                 predicate=normalized_predicate,
                 object_id=str(before["object_id"]),
             )
+            if old_before_fingerprint:
+                governance_rewrites.append(
+                    ClaimGovernanceIdentityRewrite(
+                        old_claim_fingerprint=old_before_fingerprint,
+                        new_claim_fingerprint=str(before["claim_fingerprint"]),
+                        new_semantic_fingerprint=relationship_claim_fingerprint(
+                            slot_key_value=str(before["slot_key"]),
+                            subject_id=str(before["subject_id"]),
+                            predicate=normalized_predicate,
+                            object_id=str(before["object_id"]),
+                        ),
+                    )
+                )
         if replacement_matches and replacement is not None:
+            old_replacement_fingerprint = str(replacement.get("claim_fingerprint") or "").strip()
             await _set_payload_identity(
                 db,
                 replacement,
@@ -288,6 +342,19 @@ async def refresh_relationship_governance_history_for_predicate(
                 predicate=normalized_predicate,
                 object_id=str(replacement["object_id"]),
             )
+            if old_replacement_fingerprint:
+                governance_rewrites.append(
+                    ClaimGovernanceIdentityRewrite(
+                        old_claim_fingerprint=old_replacement_fingerprint,
+                        new_claim_fingerprint=str(replacement["claim_fingerprint"]),
+                        new_semantic_fingerprint=relationship_claim_fingerprint(
+                            slot_key_value=str(replacement["slot_key"]),
+                            subject_id=str(replacement["subject_id"]),
+                            predicate=normalized_predicate,
+                            object_id=str(replacement["object_id"]),
+                        ),
+                    )
+                )
         await db.execute(
             """
             UPDATE memory_corrections
@@ -309,6 +376,11 @@ async def refresh_relationship_governance_history_for_predicate(
             before=before,
             replacement=replacement,
         )
+    await rewrite_claim_governance_identities(
+        db,
+        target_kind=CorrectionTargetKind.EDGE,
+        rewrites=governance_rewrites,
+    )
 
 
 async def _load_edge(
@@ -342,6 +414,149 @@ async def _load_identity_duplicate(
         (subject_id, predicate, object_id, scope_key, source_triple_id),
     ) as cursor:
         return await cursor.fetchone()
+
+
+async def _collect_relationship_governance_rewrites(
+    db: aiosqlite.Connection,
+    *,
+    affected_rows: list[aiosqlite.Row],
+    affected_ids: set[str],
+    affected_corrections: list[aiosqlite.Row],
+    subject_id: str,
+    predicate: str,
+    object_id: str,
+    slot_key: str,
+) -> tuple[ClaimGovernanceIdentityRewrite, ...]:
+    """Capture every claim identity before relationship rows are rewritten."""
+    rewrites: list[ClaimGovernanceIdentityRewrite] = []
+    for row in affected_rows:
+        _append_relationship_governance_rewrite(
+            rewrites,
+            old_claim_fingerprint=row["claim_fingerprint"],
+            scope_key_value=str(row["scope_key"] or "global"),
+            subject_id=subject_id,
+            predicate=predicate,
+            object_id=object_id,
+            slot_key=slot_key,
+        )
+
+    placeholders = ", ".join("?" for _ in affected_ids)
+    async with db.execute(
+        f"""
+        SELECT claim_fingerprint, scope_key
+        FROM knowledge_graph_versions
+        WHERE triple_id IN ({placeholders})
+        """,
+        tuple(sorted(affected_ids)),
+    ) as cursor:
+        versions = await cursor.fetchall()
+    for version in versions:
+        _append_relationship_governance_rewrite(
+            rewrites,
+            old_claim_fingerprint=version["claim_fingerprint"],
+            scope_key_value=str(version["scope_key"] or "global"),
+            subject_id=subject_id,
+            predicate=predicate,
+            object_id=object_id,
+            slot_key=slot_key,
+        )
+
+    for correction in affected_corrections:
+        before = _decode_payload(correction["before_json"], correction["correction_id"])
+        replacement = _decode_payload(
+            correction["replacement_json"],
+            correction["correction_id"],
+            allow_none=True,
+        )
+        for payload, direct in (
+            (
+                before,
+                str(correction["target_id"]) in affected_ids
+                or str(before.get("triple_id") or "") in affected_ids,
+            ),
+            (
+                replacement,
+                bool(
+                    replacement is not None
+                    and (
+                        str(correction["replacement_target_id"] or "") in affected_ids
+                        or str(replacement.get("triple_id") or "") in affected_ids
+                    )
+                ),
+            ),
+        ):
+            if not direct or payload is None:
+                continue
+            _append_relationship_governance_rewrite(
+                rewrites,
+                old_claim_fingerprint=payload.get("claim_fingerprint"),
+                scope_key_value=str(payload.get("scope_key") or "global"),
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                slot_key=slot_key,
+            )
+    return tuple(rewrites)
+
+
+async def _load_affected_edge_corrections(
+    db: aiosqlite.Connection,
+    affected_ids: set[str],
+) -> list[aiosqlite.Row]:
+    """Load only corrections anchored to the relationship identities being moved."""
+    if not affected_ids:
+        return []
+    placeholders = ", ".join("?" for _ in affected_ids)
+    parameters = tuple(sorted(affected_ids))
+    # Direct target ids are the correction contract; payload ids are snapshots,
+    # not an alternate identity index. Both lookup arms have dedicated indexes.
+    async with db.execute(
+        f"""
+        SELECT * FROM memory_corrections
+        WHERE target_kind = 'edge'
+          AND target_id IN ({placeholders})
+        UNION
+        SELECT * FROM memory_corrections
+        WHERE target_kind = 'edge'
+          AND replacement_target_id IN ({placeholders})
+        ORDER BY correction_id
+        """,
+        (*parameters, *parameters),
+    ) as cursor:
+        return await cursor.fetchall()
+
+
+def _append_relationship_governance_rewrite(
+    rewrites: list[ClaimGovernanceIdentityRewrite],
+    *,
+    old_claim_fingerprint: Any,
+    scope_key_value: str,
+    subject_id: str,
+    predicate: str,
+    object_id: str,
+    slot_key: str,
+) -> None:
+    old_fingerprint = str(old_claim_fingerprint or "").strip()
+    if not old_fingerprint:
+        return
+    rewrites.append(
+        ClaimGovernanceIdentityRewrite(
+            old_claim_fingerprint=old_fingerprint,
+            new_claim_fingerprint=relationship_claim_fingerprint(
+                slot_key_value=slot_key,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+                scope_key_value=scope_key_value,
+            ),
+            new_semantic_fingerprint=relationship_claim_fingerprint(
+                slot_key_value=slot_key,
+                subject_id=subject_id,
+                predicate=predicate,
+                object_id=object_id,
+            ),
+        )
+    )
 
 
 async def _write_current_edge(
@@ -385,7 +600,18 @@ async def _write_current_edge(
             }
         )
     if len(rows) > 1:
-        final.update(_merged_current_evidence(rows))
+        forgotten_event_ids = await forgotten_evidence_event_ids_for_claims(
+            db,
+            target_kind=CorrectionTargetKind.EDGE,
+            claim_fingerprints=(str(row["claim_fingerprint"] or "") for row in rows),
+        )
+        final.update(
+            _merged_current_evidence(
+                rows,
+                forgotten_event_ids=forgotten_event_ids,
+                winner_id=str(winner["triple_id"]),
+            )
+        )
     deprecated_by = final.get("deprecated_by")
     if deprecated_by in source_ids:
         deprecated_by = target_triple_id
@@ -415,9 +641,17 @@ async def _pick_current_winner(
         triple_id = str(row["triple_id"])
         async with db.execute(
             """
-            SELECT MAX(created_at) FROM memory_corrections
-            WHERE target_kind = 'edge' AND state = 'active'
-              AND (target_id = ? OR replacement_target_id = ?)
+            SELECT MAX(created_at)
+            FROM (
+                SELECT created_at FROM memory_corrections
+                WHERE target_kind = 'edge' AND state = 'active'
+                  AND transition_cancelled_at IS NULL AND target_id = ?
+                UNION ALL
+                SELECT created_at FROM memory_corrections
+                WHERE target_kind = 'edge' AND state = 'active'
+                  AND transition_cancelled_at IS NULL
+                  AND replacement_target_id = ?
+            )
             """,
             (triple_id, triple_id),
         ) as cursor:
@@ -447,19 +681,49 @@ async def _pick_current_winner(
     return max(rows, key=rank)
 
 
-def _merged_current_evidence(rows: list[aiosqlite.Row]) -> dict[str, Any]:
+def _merged_current_evidence(
+    rows: list[aiosqlite.Row],
+    *,
+    forgotten_event_ids: set[str],
+    winner_id: str,
+) -> dict[str, Any]:
     evidence = "[]"
+    metadata_rows: list[aiosqlite.Row] = []
     for row in rows:
-        evidence = _merge_evidence_json(evidence, str(row["evidence_event_ids"] or "[]"))
+        raw_evidence = str(row["evidence_event_ids"] or "[]")
+        if not forgotten_event_ids:
+            metadata_rows.append(row)
+            evidence = _merge_evidence_json(evidence, raw_evidence)
+            continue
+        decoded_evidence, invalid_evidence = decode_evidence_event_ids(raw_evidence)
+        normalized_evidence = None if invalid_evidence else list(decoded_evidence)
+        retained_evidence = (
+            [event_id for event_id in normalized_evidence if event_id not in forgotten_event_ids]
+            if normalized_evidence is not None
+            else []
+        )
+        raw_evidence = json.dumps(retained_evidence, ensure_ascii=False)
+        evidence = _merge_evidence_json(evidence, raw_evidence)
+        forget_marker = str(row["status_reason"] or "") == "user_forget" or str(
+            row["authority_ref"] or ""
+        ).startswith("forget:")
+        if (
+            str(row["triple_id"]) == winner_id
+            or bool(retained_evidence)
+            or (normalized_evidence == [] and not forget_marker)
+        ):
+            metadata_rows.append(row)
     confirmed = [
-        float(row["last_confirmed_at"]) for row in rows if row["last_confirmed_at"] is not None
+        float(row["last_confirmed_at"])
+        for row in metadata_rows
+        if row["last_confirmed_at"] is not None
     ]
     return {
         "evidence_event_ids": evidence,
-        "observation_count": sum(int(row["observation_count"] or 0) for row in rows),
-        "confidence": max(float(row["confidence"] or 0.0) for row in rows),
-        "first_observed_at": min(float(row["first_observed_at"]) for row in rows),
-        "last_observed_at": max(float(row["last_observed_at"]) for row in rows),
+        "observation_count": sum(int(row["observation_count"] or 0) for row in metadata_rows),
+        "confidence": max(float(row["confidence"] or 0.0) for row in metadata_rows),
+        "first_observed_at": min(float(row["first_observed_at"]) for row in metadata_rows),
+        "last_observed_at": max(float(row["last_observed_at"]) for row in metadata_rows),
         "last_confirmed_at": max(confirmed) if confirmed else None,
     }
 
@@ -653,9 +917,8 @@ async def _rewrite_corrections(
     predicate: str,
     object_id: str,
     reference_replacements: Mapping[str, str] | None,
+    corrections: list[aiosqlite.Row],
 ) -> None:
-    async with db.execute("SELECT * FROM memory_corrections WHERE target_kind = 'edge'") as cursor:
-        corrections = await cursor.fetchall()
     reference_map = dict(reference_replacements or {})
     reference_map.update(id_map)
     for correction in corrections:
@@ -805,6 +1068,14 @@ async def _rewrite_correction_rules(
         (replacement or {}).get("claim_fingerprint") or before_fingerprint
     )
     replacement_scope = str((replacement or {}).get("scope_key") or before_scope)
+    old_replacement = _decode_payload(
+        correction["replacement_json"],
+        correction["correction_id"],
+        allow_none=True,
+    )
+    old_replacement_fingerprint = str(
+        (old_replacement or {}).get("claim_fingerprint") or ""
+    ).strip()
     async with db.execute(
         "SELECT * FROM memory_correction_rules WHERE correction_id = ?",
         (correction["correction_id"],),
@@ -818,7 +1089,11 @@ async def _rewrite_correction_rules(
     )
     for rule in rules:
         rule_kind = str(rule["rule_kind"])
-        if rule_kind == "authoritative_slot":
+        represents_replacement = bool(
+            old_replacement_fingerprint
+            and str(rule["claim_fingerprint"] or "") == old_replacement_fingerprint
+        )
+        if rule_kind == "authoritative_slot" or represents_replacement:
             slot_key = replacement_slot
             fingerprint = replacement_fingerprint
             scope_key = replacement_scope

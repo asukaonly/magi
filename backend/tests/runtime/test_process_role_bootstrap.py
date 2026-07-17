@@ -31,5 +31,10 @@ def test_build_runtime_modules_includes_full_runtime() -> None:
     assert "runtime_l3_maintenance_scheduler" in module_names
     assert "runtime_plugin_ingress_processor" in module_names
     assert "runtime_chat_store" in module_names
+    assert "runtime_chat_forgetting_recovery" in module_names
+    assert {
+        "runtime_chat_store",
+        "runtime_memory",
+    } <= set(module_by_name["runtime_chat_forgetting_recovery"].dependencies)
     assert "runtime_chat_store" in module_by_name["runtime_exports"].dependencies
     assert getattr(module_by_name["runtime_memory"], "start_memory_integration") is True

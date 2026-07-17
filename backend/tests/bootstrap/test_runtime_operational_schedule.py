@@ -13,8 +13,7 @@ from magi.scheduler.contracts import ScheduledTargetType
 def test_scheduled_target_type_includes_runtime_operational_gc() -> None:
     assert ScheduledTargetType.RUNTIME_OPERATIONAL_GC == "runtime_operational_gc"
     assert (
-        ScheduledTargetType("runtime_operational_gc")
-        is ScheduledTargetType.RUNTIME_OPERATIONAL_GC
+        ScheduledTargetType("runtime_operational_gc") is ScheduledTargetType.RUNTIME_OPERATIONAL_GC
     )
 
 
@@ -65,7 +64,8 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     from magi.bootstrap.maintenance import RuntimeOperationalGCScheduleContrib
 
     config = AppConfig()
-    config.lifecycle.chat_assets.delete_on_clear_memory = True
+    config.lifecycle.chat_assets.delete_on_session_delete = True
+    config.lifecycle.chat_assets.delete_on_clear_memory = False
     config.lifecycle.chat_assets.orphan_grace_hours = 7
     unified_memory = MagicMock()
     unified_memory.cleanup_runtime_data = AsyncMock(return_value={"expired_sessions": 2})
@@ -73,9 +73,7 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     runtime_gc = MagicMock()
     runtime_gc.run = AsyncMock(return_value={"llm_usage_raw_deleted": 3})
     chat_asset_gc = MagicMock()
-    chat_asset_gc.sweep_orphan_session_assets.return_value = {
-        "chat_asset_orphan_files_deleted": 4
-    }
+    chat_asset_gc.sweep_orphan_session_assets.return_value = {"chat_asset_orphan_files_deleted": 4}
 
     with (
         patch(
@@ -83,9 +81,10 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
             return_value=runtime_gc,
         ) as runtime_gc_cls,
         patch("magi.bootstrap.maintenance.ChatAssetGC", return_value=chat_asset_gc),
-        patch("magi.bootstrap.maintenance.asyncio.to_thread", new=AsyncMock(
-            side_effect=lambda func, **kwargs: func(**kwargs)
-        )),
+        patch(
+            "magi.bootstrap.maintenance.asyncio.to_thread",
+            new=AsyncMock(side_effect=lambda func, **kwargs: func(**kwargs)),
+        ),
     ):
         contrib = RuntimeOperationalGCScheduleContrib(
             unified_memory=unified_memory,
@@ -104,6 +103,35 @@ async def test_runtime_operational_gc_handler_runs_all_runtime_cleanup() -> None
     unified_memory.cleanup_runtime_data.assert_awaited_once()
     runtime_gc.run.assert_awaited_once()
     runtime_gc_cls.assert_called_once()
-    chat_asset_gc.sweep_orphan_session_assets.assert_called_once_with(
-        orphan_grace_hours=7
-    )
+    chat_asset_gc.sweep_orphan_session_assets.assert_called_once_with(orphan_grace_hours=7)
+
+
+@pytest.mark.asyncio
+async def test_runtime_operational_gc_skips_orphan_assets_when_disabled() -> None:
+    from magi.bootstrap.maintenance import RuntimeOperationalGCScheduleContrib
+
+    config = AppConfig()
+    config.lifecycle.chat_assets.delete_on_session_delete = False
+    config.lifecycle.chat_assets.delete_on_clear_memory = True
+    unified_memory = MagicMock()
+    unified_memory.cleanup_runtime_data = AsyncMock(return_value={})
+    runtime_gc = MagicMock()
+    runtime_gc.run = AsyncMock(return_value={})
+    chat_asset_gc = MagicMock()
+
+    with (
+        patch(
+            "magi.bootstrap.maintenance.RuntimeOperationalGC",
+            return_value=runtime_gc,
+        ),
+        patch("magi.bootstrap.maintenance.ChatAssetGC", return_value=chat_asset_gc),
+    ):
+        contrib = RuntimeOperationalGCScheduleContrib(
+            unified_memory=unified_memory,
+            get_config_func=lambda: config,
+            runtime_paths_provider=lambda: SimpleNamespace(runtime_dir="/tmp/runtime"),
+        )
+        result = await contrib.handle(MagicMock())
+
+    assert result.success is True
+    chat_asset_gc.sweep_orphan_session_assets.assert_not_called()

@@ -71,11 +71,11 @@ pub fn build_router(state: ApiState) -> Router {
         )
         .route(
             "/api/messages/session/{session_id}/message/{message_id}",
-            axum::routing::delete(messages::hide_message),
+            axum::routing::delete(proxy::proxy_handler),
         )
         .route(
             "/api/messages/session/{session_id}",
-            axum::routing::patch(messages::rename_session).delete(messages::delete_session),
+            axum::routing::patch(messages::rename_session).delete(proxy::proxy_handler),
         )
         .route("/api/messages/trace", axum::routing::get(trace::get_trace))
         // Tasks
@@ -157,14 +157,6 @@ pub fn build_router(state: ApiState) -> Router {
         .route(
             "/api/memory/l2/assertions",
             axum::routing::get(memory::list_l2_assertions),
-        )
-        .route(
-            "/api/memory/l2/assertions/{assertion_id}/feedback",
-            axum::routing::patch(memory::submit_l2_assertion_feedback),
-        )
-        .route(
-            "/api/memory/l2/assertions/{assertion_id}/correct",
-            axum::routing::post(memory::correct_l2_assertion),
         )
         .route(
             "/api/memory/l2/entities",

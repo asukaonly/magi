@@ -74,6 +74,22 @@ class L1EventQueryHostProtocol(Protocol):
 
     async def get_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...
 
+    async def get_active_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...
+
+    async def get_user_visible_event(self, event_id: str) -> Optional[Dict[str, Any]]: ...
+
+    async def get_raw_event_turn_ids(self, event_ids: List[str]) -> Dict[str, str]: ...
+
+    async def get_raw_event_source_identities(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, Dict[str, Any]]: ...
+
+    async def get_raw_event_active_states(
+        self,
+        event_ids: List[str],
+    ) -> Dict[str, bool]: ...
+
     async def query_events(
         self,
         *,

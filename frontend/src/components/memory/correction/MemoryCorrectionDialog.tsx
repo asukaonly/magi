@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { toApiClientError } from '@/api/client';
 import {
   memoryApi,
+  type MemoryCorrectionClaimValue,
   type MemoryCorrectionCommandResponse,
   type MemoryCorrectionContextOption,
   type MemoryCorrectionKind,
@@ -25,6 +26,8 @@ import {
   createInitialMemoryCorrectionDraft,
   createMemoryCorrectionRequestId,
   formatMemoryCorrectionValue,
+  isMemoryCorrectionScopeOccupied,
+  memoryCorrectionErrorCode,
   selectableProjectContextOptions,
   validateMemoryCorrectionDraft,
   type MemoryCorrectionDraft,
@@ -297,16 +300,33 @@ export function MemoryCorrectionDialog({
       );
     } catch (caught) {
       const clientError = toApiClientError(caught);
-      const validationCode = correctionValidationCode(clientError.details) ?? clientError.code;
+      const validationCode = memoryCorrectionErrorCode(clientError.details) ?? clientError.code;
       if (clientError.status === 409 || clientError.status === 404) {
-        setConflicted(true);
-        setError(t('memory.correction.errors.targetChanged', {
-          defaultValue: '这条记忆已经发生变化或不再存在，当前内容不会被覆盖。请查看最新内容后重新打开。',
-        }));
-        void runCallback(
-          onConflict,
-          'Failed to refresh memory after correction conflict'
-        );
+        if (isMemoryCorrectionScopeOccupied(validationCode)) {
+          setConflicted(false);
+          setError(t('memory.correction.errors.scopeOccupied', {
+            defaultValue: '所选项目里已经有一条当前记忆。请选择其他项目后重试。',
+          }));
+          focusCorrectionField('scopeContextId');
+        } else if (validationCode === 'memory_forgotten') {
+          setConflicted(true);
+          setError(t('memory.correction.errors.memoryForgotten', {
+            defaultValue: '这条记忆已经被删除，不能再恢复或修改。请返回最新列表。',
+          }));
+          void runCallback(
+            onConflict,
+            'Failed to refresh memory after correction conflict'
+          );
+        } else {
+          setConflicted(true);
+          setError(t('memory.correction.errors.targetChanged', {
+            defaultValue: '这条记忆已经发生变化或不再存在，当前内容不会被覆盖。请查看最新内容后重新打开。',
+          }));
+          void runCallback(
+            onConflict,
+            'Failed to refresh memory after correction conflict'
+          );
+        }
       } else if (
         clientError.status === 422
         && validationCode === 'effective_at_before_target'
@@ -764,7 +784,7 @@ function CorrectionSuccess({
   onDone: () => void;
 }) {
   const { t, i18n } = useTranslation('app');
-  const hasReplacement = Boolean(result.correction.replacement_target_id);
+  const hasReplacement = Boolean(result.correction.replacement);
   const currentValue = hasReplacement ? getReadableCurrentClaim(target, result.current_claim) : null;
   const locale = correctionLocale(i18n.resolvedLanguage || i18n.language);
   const effectiveAt = result.correction.effective_at
@@ -863,12 +883,6 @@ async function runCallback(
   }
 }
 
-function correctionValidationCode(details: unknown): string | null {
-  if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
-  const code = (details as Record<string, unknown>).code;
-  return typeof code === 'string' ? code : null;
-}
-
 function correctionValidationFallback(code: string): string {
   const messages: Record<string, string> = {
     replacement_required: '请填写正确内容。',
@@ -932,7 +946,10 @@ function focusProjectContextLoadResult(result: ProjectContextLoadResult): void {
   if (elementId) focusCorrectionElement(elementId);
 }
 
-function isPendingReviewClaim(claim: Record<string, unknown>): boolean {
+function isPendingReviewClaim(
+  claim: MemoryCorrectionClaimValue | null | undefined
+): boolean {
+  if (!claim) return false;
   const lifecycle = String(claim.status ?? claim.validation_state ?? '').trim().toLowerCase();
   return lifecycle === 'shadow' || lifecycle === 'pending';
 }
@@ -952,7 +969,7 @@ function mergeEntityOptions(
 
 function getReadableCurrentClaim(
   target: MemoryCorrectionUiTarget,
-  claim: Record<string, unknown> | null | undefined
+  claim: MemoryCorrectionClaimValue | null | undefined
 ): string | null {
   if (!claim) return null;
   if (target.kind === 'assertion') {

@@ -110,6 +110,7 @@ async def _hide_bad_existing_experiences(store: Any) -> int:
             continue
         updated = await store.update_experience(
             experience_id=str(experience["experience_id"]),
+            expected_status="active",
             status="hidden",
             last_recomputed_at=now,
         )
@@ -183,6 +184,7 @@ def _seed_processing_key(seed: dict[str, Any]) -> tuple[int, int, float, float]:
 async def _reject_seed(store: Any, *, seed_id: str, reason: str, status: str = "rejected") -> None:
     await store.update_experience_seed(
         seed_id=seed_id,
+        expected_statuses=["candidate", "accepted"],
         status=status,
         description=f"Rejected: {reason}",
         last_evaluated_at=time.time(),
@@ -211,6 +213,7 @@ async def _promote_seed_selection(
         source_episode_count=len(selection.included_episode_ids),
         source_event_count=0,
         source_seed_id=str(seed["seed_id"]),
+        validate_source_seed=True,
     )
     members: list[dict[str, Any]] = [
         {
@@ -232,15 +235,36 @@ async def _promote_seed_selection(
         if str(item.get("ref_type") or "episode") in {"episode", "event"}
         and str(item.get("ref_id") or "").strip()
     )
-    await store.add_experience_members(experience_id=experience_id, members=members)
+    added = await store.add_experience_members(
+        experience_id=experience_id,
+        members=members,
+        expected_status="active",
+    )
+    if added != len(members):
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+            last_recomputed_at=time.time(),
+        )
+        raise ValueError("Experience sources changed during promotion")
     await store.recompute_experience_counts(experience_id=experience_id)
-    await store.update_experience_seed(
+    finalized = await store.update_experience_seed(
         seed_id=str(seed["seed_id"]),
+        expected_statuses=["candidate", "accepted"],
         status="promoted",
         promoted_experience_id=experience_id,
         confidence=float(selection.confidence),
         last_evaluated_at=time.time(),
     )
+    if not finalized:
+        await store.update_experience(
+            experience_id=experience_id,
+            expected_status="active",
+            status="invalidated",
+            last_recomputed_at=time.time(),
+        )
+        raise ValueError("Experience seed changed during promotion")
     return experience_id
 
 
@@ -272,6 +296,8 @@ async def _promote_single_seed(
     selector: SelectionProvider | None,
     existing_sets: list[set[str]],
 ) -> SeedPromotionOutcome:
+    if str(seed.get("status") or "") not in {"candidate", "accepted"}:
+        return SeedPromotionOutcome()
     if seed.get("promoted_experience_id"):
         return SeedPromotionOutcome()
     if _candidate_confidence_below_threshold(seed):
@@ -314,11 +340,14 @@ async def _promote_single_seed(
         )
         return SeedPromotionOutcome(processed=1, skipped_duplicates=1)
 
-    experience_id = await _promote_seed_selection(
-        store,
-        seed=seed,
-        selection=selection,
-    )
+    try:
+        experience_id = await _promote_seed_selection(
+            store,
+            seed=seed,
+            selection=selection,
+        )
+    except ValueError:
+        return SeedPromotionOutcome(processed=1)
     return SeedPromotionOutcome(
         processed=1,
         promoted=1,
@@ -337,7 +366,9 @@ def _limit_selector_calls(
         return selector
     remaining = max(0, int(max_selector_calls))
 
-    async def limited_selector(seed: dict[str, Any], evidence_pack: dict[str, Any]) -> dict[str, Any]:
+    async def limited_selector(
+        seed: dict[str, Any], evidence_pack: dict[str, Any]
+    ) -> dict[str, Any]:
         nonlocal remaining
         if remaining <= 0:
             return {}

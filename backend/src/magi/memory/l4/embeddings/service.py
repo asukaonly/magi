@@ -18,6 +18,7 @@ from ...embedding.embedding_service import MemoryEmbeddingService
 from ...embedding.sqlite_vec_index import SqliteVecIndex
 from ...operation_barrier import optional_operation_guard
 from ..retrieval.search import ranked_semantic_skills
+from ..source_event_governance import active_skill_predicate
 from ..storage.schema import (
     EMBEDDING_STATUS_READY,
     SKILL_CHUNKS_TABLE,
@@ -88,11 +89,12 @@ class L4SkillEmbeddingMixin:
                 async with sqlite_connection_async(self.db_path) as db:
                     db.row_factory = aiosqlite.Row
                     async with db.execute(
-                        """
+                        f"""
                         SELECT rowid AS rebuild_rowid, skill_id, skill_name,
                             skill_category, optimized_prompt
-                        FROM procedural_skills
-                        WHERE rowid > ? AND rowid <= ? AND deleted_at IS NULL
+                        FROM procedural_skills AS skills
+                        WHERE rowid > ? AND rowid <= ?
+                          AND {active_skill_predicate("skills")}
                         ORDER BY rowid ASC
                         LIMIT ?
                         """,
@@ -118,7 +120,7 @@ class L4SkillEmbeddingMixin:
                     FROM {SKILL_CHUNKS_TABLE} AS chunks
                     JOIN procedural_skills AS skills
                       ON skills.skill_id = chunks.skill_id
-                    WHERE skills.deleted_at IS NULL
+                    WHERE {active_skill_predicate("skills")}
                 """,
                 mutation_guard_factory=self.embedding_mutation_guard,
             )
@@ -221,10 +223,12 @@ class L4SkillEmbeddingMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
-                SELECT skill_id, skill_name, skill_category, optimized_prompt, updated_at
-                FROM procedural_skills
-                WHERE skill_id = ? AND deleted_at IS NULL
+                f"""
+                SELECT skills.skill_id, skills.skill_name, skills.skill_category,
+                       skills.optimized_prompt, skills.updated_at
+                FROM procedural_skills AS skills
+                WHERE skills.skill_id = ?
+                  AND {active_skill_predicate("skills")}
                 """,
                 (skill_id,),
             ) as cursor:
@@ -247,10 +251,12 @@ class L4SkillEmbeddingMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                """
-                SELECT skill_name, skill_category, optimized_prompt, updated_at
-                FROM procedural_skills
-                WHERE skill_id = ? AND deleted_at IS NULL
+                f"""
+                SELECT skills.skill_name, skills.skill_category,
+                       skills.optimized_prompt, skills.updated_at
+                FROM procedural_skills AS skills
+                WHERE skills.skill_id = ?
+                  AND {active_skill_predicate("skills")}
                 """,
                 (str(snapshot["skill_id"]),),
             ) as cursor:
@@ -271,10 +277,12 @@ class L4SkillEmbeddingMixin:
             await db.execute("BEGIN IMMEDIATE")
             try:
                 async with db.execute(
-                    """
-                    SELECT skill_name, skill_category, optimized_prompt, updated_at
-                    FROM procedural_skills
-                    WHERE skill_id = ? AND deleted_at IS NULL
+                    f"""
+                    SELECT skills.skill_name, skills.skill_category,
+                           skills.optimized_prompt, skills.updated_at
+                    FROM procedural_skills AS skills
+                    WHERE skills.skill_id = ?
+                      AND {active_skill_predicate("skills")}
                     """,
                     (result.parent_id,),
                 ) as cursor:
@@ -362,7 +370,12 @@ class L4SkillEmbeddingMixin:
         async with sqlite_connection_async(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT * FROM procedural_skills WHERE skill_id IN ({placeholders}) AND deleted_at IS NULL",
+                f"""
+                SELECT skills.*
+                FROM procedural_skills AS skills
+                WHERE skills.skill_id IN ({placeholders})
+                  AND {active_skill_predicate("skills")}
+                """,
                 tuple(skill_ids),
             ) as cursor:
                 rows = await cursor.fetchall()

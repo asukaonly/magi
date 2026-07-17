@@ -149,8 +149,16 @@ vi.mock('@/api', () => ({
     detachRun: vi.fn(),
     labelMessage: vi.fn(),
     deleteMessage: vi.fn(),
+    clearHistory: vi.fn(),
     sendMessage: vi.fn().mockResolvedValue({ success: true, message: 'ok', data: { user_id: 'local_user', session_id: 'session-1', message_length: 0, timestamp: Date.now() / 1000 } }),
     getHistory: vi.fn().mockReturnValue(new Promise(() => {})),
+  },
+  commandsApi: {
+    list: vi.fn().mockResolvedValue([]),
+    listSkills: vi.fn().mockResolvedValue([]),
+    run: vi.fn(),
+    runSkillAsBackground: vi.fn(),
+    expandSkill: vi.fn(),
   },
   sensorsApi: {
     getStatus: vi.fn().mockResolvedValue({ sources: [] }),
@@ -231,6 +239,12 @@ describe('ChatPage', () => {
     vi.mocked(messagesApi.rememberWorkspace).mockReset().mockResolvedValue({ paths: [] } as any);
     vi.mocked(messagesApi.labelMessage).mockReset();
     vi.mocked(messagesApi.deleteMessage).mockReset();
+    vi.mocked(messagesApi.clearHistory).mockReset().mockResolvedValue({
+      success: true,
+      message: 'ok',
+      user_id: 'local_user',
+      session_id: 'session-1',
+    });
     vi.mocked(respondAsk).mockClear();
     vi.mocked(respondPermission).mockClear();
     vi.mocked(updateSessionSettings).mockClear();
@@ -289,6 +303,89 @@ describe('ChatPage', () => {
     expect(await screen.findByText('Archived Persona')).toBeInTheDocument();
     expect(screen.getByText('Stored persona answer')).toBeInTheDocument();
     expect(personasApi.list).toHaveBeenCalledWith({ includeDeleted: true });
+  });
+
+  it('confirms that clearing a chat also removes related memories', async () => {
+    const user = userEvent.setup();
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([{
+        message_id: 'message-before-clear',
+        message_kind: 'user_text',
+        role: 'user',
+        content: 'Remember this old message',
+        timestamp: 1000,
+        turn_id: 'turn-before-clear',
+        kind: 'user',
+      }]),
+      4,
+    );
+
+    render(<ChatPage />);
+
+    const composer = screen.getByPlaceholderText('chat.inputPlaceholder');
+    await user.type(composer, '/cl');
+    const clearCommand = await screen.findByRole('option', { name: /\/clear/ });
+    await user.click(clearCommand);
+
+    const dialog = await screen.findByRole('dialog', { name: 'chat.clearHistoryDialog.title' });
+    expect(within(dialog).getByText('chat.clearHistoryDialog.description')).toBeInTheDocument();
+    expect(within(dialog).getByText('chat.clearHistoryDialog.warning')).toBeInTheDocument();
+    expect(messagesApi.clearHistory).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'chat.clearHistoryDialog.confirm' }));
+
+    await waitFor(() => {
+      expect(messagesApi.clearHistory).toHaveBeenCalledWith('local_user', 'session-1');
+      expect(screen.queryByRole('dialog', { name: 'chat.clearHistoryDialog.title' })).not.toBeInTheDocument();
+    });
+    const state = useConversationStore.getState();
+    expect(state.currentSessionId).toBe('session-1');
+    expect(state.messagesBySession['session-1']).toEqual([]);
+  });
+
+  it('keeps chat clearing retryable when completion is not confirmed', async () => {
+    const user = userEvent.setup();
+    vi.mocked(messagesApi.clearHistory)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue({
+        success: true,
+        message: 'ok',
+        user_id: 'local_user',
+        session_id: 'session-1',
+      });
+    useConversationStore.getState().receiveHistory(
+      'session-1',
+      normalizeHistoryMessages([{
+        message_id: 'message-before-retry',
+        message_kind: 'user_text',
+        role: 'user',
+        content: 'Keep this until clearing finishes',
+        timestamp: 1000,
+        turn_id: 'turn-before-retry',
+        kind: 'user',
+      }]),
+      5,
+    );
+
+    render(<ChatPage />);
+
+    await user.type(screen.getByPlaceholderText('chat.inputPlaceholder'), '/cl');
+    await user.click(await screen.findByRole('option', { name: /\/clear/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'chat.clearHistoryDialog.title' });
+    await user.click(within(dialog).getByRole('button', { name: 'chat.clearHistoryDialog.confirm' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('chat.clearHistoryDialog.error');
+    expect(messagesApi.clearHistory).toHaveBeenCalledTimes(1);
+    expect(useConversationStore.getState().messagesBySession['session-1']).toHaveLength(1);
+
+    await user.click(within(dialog).getByRole('button', { name: 'chat.clearHistoryDialog.retry' }));
+
+    await waitFor(() => {
+      expect(messagesApi.clearHistory).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('dialog', { name: 'chat.clearHistoryDialog.title' })).not.toBeInTheDocument();
+    });
+    expect(useConversationStore.getState().messagesBySession['session-1']).toEqual([]);
   });
 
   it('shows the configured context window before runtime updates arrive', async () => {

@@ -40,7 +40,7 @@ async def test_upsert_event_does_not_reingest_into_unified_memory() -> None:
 @pytest.mark.asyncio
 async def test_get_context_bundle_resolves_episode_anchor() -> None:
     class _FakeL1:
-        async def get_event(self, event_id: str):  # type: ignore[no-untyped-def]
+        async def get_user_visible_event(self, event_id: str):  # type: ignore[no-untyped-def]
             if event_id != "evt-1":
                 return None
             return {
@@ -48,7 +48,12 @@ async def test_get_context_bundle_resolves_episode_anchor() -> None:
                 "timestamp": 100.0,
                 "source": "chat",
                 "content": "Episode evidence",
-                "metadata": {"activity_snapshot": {"title": "Episode event", "summary": "Episode evidence summary."}},
+                "metadata": {
+                    "activity_snapshot": {
+                        "title": "Episode event",
+                        "summary": "Episode evidence summary.",
+                    }
+                },
             }
 
     class _FakeL2:
@@ -74,3 +79,26 @@ async def test_get_context_bundle_resolves_episode_anchor() -> None:
     assert bundle["episode_id"] == "ep-1"
     assert bundle["anchor"]["anchor_type"] == "episode"
     assert bundle["l1_events"][0]["event_id"] == "evt-1"
+
+
+@pytest.mark.asyncio
+async def test_get_context_bundle_does_not_read_hidden_event_content() -> None:
+    l1 = SimpleNamespace(
+        get_event=AsyncMock(
+            return_value={
+                "event_id": "evt-deleted",
+                "content": "Deleted private content",
+            }
+        ),
+        get_user_visible_event=AsyncMock(return_value=None),
+    )
+    unified_memory = SimpleNamespace(l1=l1, l2=None, l3=None, l4=None)
+    service = TimelineService(unified_memory)
+
+    bundle = await service.get_context_bundle("evt-deleted")
+
+    assert bundle is not None
+    assert bundle["l1_events"] == []
+    assert "Deleted private content" not in str(bundle)
+    l1.get_user_visible_event.assert_awaited_once_with("evt-deleted")
+    l1.get_event.assert_not_awaited()

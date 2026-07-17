@@ -137,7 +137,17 @@ class _ChatHistoryOperationsHost(Protocol):
 
     def _delete_runtime_trace_rows(self, *, user_id: str, session_id: str) -> None: ...
 
+    def _delete_runtime_trace_turn_rows(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        turn_id: str,
+    ) -> None: ...
+
     def _delete_chat_session_assets(self, *, session_id: str) -> None: ...
+
+    def _delete_chat_message_assets(self, *, storage_rel_paths: list[str]) -> None: ...
 
 
 def _query_display_history_rows(
@@ -486,13 +496,13 @@ class ChatHistoryOperationsMixin:
         session_id: str,
         message_id: str,
     ) -> ChatDisplayMessage | None:
-        _ = user_id
         host = cast(_ChatHistoryOperationsHost, self)
         if not host._chat_db_path.exists():
             return None
         normalized_session_id = str(session_id or "").strip()
         normalized_message_id = str(message_id or "").strip()
-        if not normalized_session_id or not normalized_message_id:
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
             return None
         try:
             row = (
@@ -504,12 +514,13 @@ class ChatHistoryOperationsMixin:
                       sequence_no, replaces_message_id, replaced_by_message_id, persona_id,
                       reply_to_message_id, label_json
                 FROM {CHAT_MESSAGES_TABLE}
-                WHERE session_id = ?
+                WHERE user_id = ?
+                  AND session_id = ?
                   AND message_id = ?
                   AND is_visible = 1
                 LIMIT 1
                 """,
-                    (normalized_session_id, normalized_message_id),
+                    (normalized_user_id, normalized_session_id, normalized_message_id),
                 )
                 .fetchone()
             )
@@ -577,12 +588,215 @@ class ChatHistoryOperationsMixin:
             "sha256": str(row["sha256"] or "").strip() or None,
         }
 
+    def forget_message_artifacts(
+        self,
+        user_id: str,
+        session_id: str,
+        message_id: str,
+    ) -> bool:
+        """Irreversibly remove chat-owned copies of one governed message."""
+
+        host = cast(_ChatHistoryOperationsHost, self)
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(session_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        if not normalized_user_id or not normalized_session_id or not normalized_message_id:
+            raise ValueError("User ID, session ID, and message ID are required")
+        if not host._chat_db_path.exists():
+            return False
+
+        conn = host._get_conn()
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            target = conn.execute(
+                f"""
+                SELECT turn_id, payload_json
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ? AND session_id = ? AND message_id = ?
+                LIMIT 1
+                """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            ).fetchone()
+            if target is None:
+                conn.rollback()
+                return False
+            turn_id = str(target["turn_id"] or "").strip()
+            attachment_rows = conn.execute(
+                f"""
+                SELECT attachment_id, storage_rel_path
+                FROM {CHAT_ATTACHMENTS_TABLE}
+                WHERE user_id = ? AND session_id = ? AND message_id = ?
+                """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            ).fetchall()
+            storage_rel_paths = [
+                str(row["storage_rel_path"] or "").strip()
+                for row in attachment_rows
+                if str(row["storage_rel_path"] or "").strip()
+            ]
+            if turn_id:
+                for row in attachment_rows:
+                    attachment_id = str(row["attachment_id"] or "").strip()
+                    if not attachment_id or "/" in attachment_id or "\\" in attachment_id:
+                        continue
+                    storage_rel_paths.append(
+                        str(
+                            host._runtime_paths.chat_derived_dir
+                            / normalized_session_id
+                            / turn_id
+                            / f"{attachment_id}.txt"
+                        )
+                    )
+            payload = host._parse_message_payload_json(target["payload_json"])
+            attachments = payload.get("attachments")
+            if isinstance(attachments, list):
+                for attachment in attachments:
+                    if not isinstance(attachment, dict):
+                        continue
+                    for path_key in ("storage_path", "derived_text_path"):
+                        managed_path = str(attachment.get(path_key) or "").strip()
+                        if managed_path:
+                            storage_rel_paths.append(managed_path)
+
+            if turn_id:
+                host._delete_runtime_trace_turn_rows(
+                    user_id=normalized_user_id,
+                    session_id=normalized_session_id,
+                    turn_id=turn_id,
+                )
+            host._delete_chat_message_assets(storage_rel_paths=storage_rel_paths)
+
+            conn.execute(
+                f"""
+                UPDATE {CHAT_MESSAGES_TABLE}
+                SET content_text = '',
+                    payload_json = '{{}}',
+                    is_visible = 0,
+                    replaces_message_id = NULL,
+                    replaced_by_message_id = NULL,
+                    persona_id = NULL,
+                    reply_to_message_id = NULL,
+                    label_json = NULL
+                WHERE user_id = ? AND session_id = ? AND message_id = ?
+                """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            )
+            conn.execute(
+                f"""
+                UPDATE {CHAT_MESSAGES_TABLE}
+                SET reply_to_message_id = NULL
+                WHERE user_id = ? AND session_id = ? AND reply_to_message_id = ?
+                """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            )
+            conn.execute(
+                f"""
+                DELETE FROM {CHAT_ATTACHMENTS_TABLE}
+                WHERE user_id = ? AND session_id = ? AND message_id = ?
+                """,
+                (normalized_user_id, normalized_session_id, normalized_message_id),
+            )
+            if turn_id:
+                conn.execute(
+                    f"DELETE FROM {CHAT_USER_TURN_DELIVERY_TABLE} WHERE turn_id = ?",
+                    (turn_id,),
+                )
+            conn.execute(
+                f"""
+                DELETE FROM {CHAT_RUN_CONSUMED_EVENTS_TABLE}
+                WHERE session_id = ? AND message_id = ?
+                """,
+                (normalized_session_id, normalized_message_id),
+            )
+            conn.execute(
+                f"DELETE FROM {CHAT_CONTEXT_SUMMARIES_TABLE} WHERE session_id = ?",
+                (normalized_session_id,),
+            )
+            latest_user_message = conn.execute(
+                f"""
+                SELECT content_text, created_at_ms
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ? AND session_id = ?
+                  AND role = 'user' AND message_kind = 'user_text'
+                  AND is_visible = 1
+                ORDER BY created_at_ms DESC, sequence_no DESC, message_id DESC
+                LIMIT 1
+                """,
+                (normalized_user_id, normalized_session_id),
+            ).fetchone()
+            message_count_row = conn.execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM {CHAT_MESSAGES_TABLE}
+                WHERE user_id = ? AND session_id = ?
+                  AND role = 'user' AND message_kind = 'user_text'
+                  AND is_visible = 1
+                """,
+                (normalized_user_id, normalized_session_id),
+            ).fetchone()
+            preview = (
+                str(latest_user_message["content_text"] or "").strip()[:120]
+                if latest_user_message is not None
+                else ""
+            )
+            last_message_at_ms = (
+                int(latest_user_message["created_at_ms"])
+                if latest_user_message is not None
+                else None
+            )
+            message_count = int(message_count_row["total"] or 0)
+            conn.execute(
+                f"""
+                UPDATE {CHAT_SESSIONS_TABLE}
+                SET summary = '',
+                    updated_at_ms = CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+                    last_message_at_ms = ?,
+                    last_user_message_at_ms = ?,
+                    last_message_preview = ?,
+                    last_user_message_preview = ?,
+                    message_count = ?,
+                    history_version = history_version + 1
+                WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
+                """,
+                (
+                    last_message_at_ms,
+                    last_message_at_ms,
+                    preview,
+                    preview,
+                    message_count,
+                    normalized_user_id,
+                    normalized_session_id,
+                ),
+            )
+            conn.commit()
+            return True
+        except BaseException:
+            conn.rollback()
+            raise
+
     def clear_conversation_history(self, user_id: str, session_id: str) -> None:
         host = cast(_ChatHistoryOperationsHost, self)
         if not host._chat_db_path.exists():
             return
+        conn = host._get_conn()
+        session = conn.execute(
+            f"""
+            SELECT 1
+            FROM {CHAT_SESSIONS_TABLE}
+            WHERE user_id = ? AND session_id = ? AND deleted_at_ms IS NULL
+            LIMIT 1
+            """,
+            (user_id, session_id),
+        ).fetchone()
+        if session is None:
+            return
+
+        # User-requested deletion is strict: keep transcript rows and attachment
+        # metadata intact until every managed file is gone, so a failed request
+        # can locate the same files and retry safely.
+        host._delete_chat_session_assets(session_id=session_id)
         try:
-            conn = host._get_conn()
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 f"DELETE FROM {CHAT_MESSAGES_TABLE} WHERE user_id = ? AND session_id = ?",
                 (user_id, session_id),
@@ -632,10 +846,10 @@ class ChatHistoryOperationsMixin:
                 (user_id, session_id),
             )
             conn.commit()
-        except Exception as exc:
-            logger.exception(f"Failed to clear chat history: {exc}")
+        except BaseException:
+            conn.rollback()
+            raise
         host._delete_runtime_trace_rows(user_id=user_id, session_id=session_id)
-        host._delete_chat_session_assets(session_id=session_id)
 
 
 __all__ = ["ChatHistoryOperationsMixin"]
