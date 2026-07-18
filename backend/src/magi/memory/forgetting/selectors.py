@@ -42,8 +42,8 @@ class ForgetSelectorResolver:
         elif selector.kind == "entity":
             if not payload.get("delete_l1_events") or self._l1 is None:
                 return []
-            event_ids = await self._l1.list_raw_event_ids_by_entity(
-                str(payload["entity_id"]),
+            event_ids = await self._list_entity_source_events(
+                entity_id=str(payload["entity_id"]),
                 after_event_id=after_event_id,
                 limit=page_size,
             )
@@ -154,22 +154,11 @@ class ForgetSelectorResolver:
     ) -> list[str]:
         page_size = max(1, min(int(limit), 1000))
         if selector.kind == "entity" and scope == "entity_evidence":
-            entity_id = str(selector.payload["entity_id"])
-            l1_ids = (
-                await self._l1.list_raw_event_ids_by_entity(
-                    entity_id,
-                    after_event_id=after_event_id,
-                    limit=page_size,
-                )
-                if self._l1 is not None
-                else []
-            )
-            durable_ids = await self._list_entity_evidence_events(
-                entity_id=entity_id,
+            return await self._list_entity_source_events(
+                entity_id=str(selector.payload["entity_id"]),
                 after_event_id=after_event_id,
                 limit=page_size,
             )
-            return sorted(set(l1_ids).union(durable_ids))[:page_size]
         if selector.kind == "entity" and scope == "entity_backlog":
             return await self._list_entity_backlog_events(
                 after_event_id=after_event_id,
@@ -208,6 +197,31 @@ class ForgetSelectorResolver:
                 limit=page_size,
             )
         return []
+
+    async def _list_entity_source_events(
+        self,
+        *,
+        entity_id: str,
+        after_event_id: str,
+        limit: int,
+    ) -> list[str]:
+        """Return every source known to support an entity in stable key order."""
+        page_size = max(1, min(int(limit), 1000))
+        l1_ids = (
+            await self._l1.list_raw_event_ids_by_entity(
+                entity_id,
+                after_event_id=after_event_id,
+                limit=page_size,
+            )
+            if self._l1 is not None
+            else []
+        )
+        durable_ids = await self._list_entity_evidence_events(
+            entity_id=entity_id,
+            after_event_id=after_event_id,
+            limit=page_size,
+        )
+        return sorted(set(l1_ids).union(durable_ids))[:page_size]
 
     @staticmethod
     def event_reference_options(selector: ForgetSelector) -> tuple[bool, bool]:

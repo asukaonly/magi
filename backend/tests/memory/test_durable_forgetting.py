@@ -20,6 +20,7 @@ from magi.memory.event_contracts import (
 )
 from magi.memory.forgetting import DurableForgetRunner, ForgetReference, ForgetSelector
 from magi.memory.forgetting.repository import ForgetOperationRepository
+from magi.memory.forgetting.selectors import ForgetSelectorResolver
 from magi.memory.l3.daily_mood.models import DailyMoodAggregate
 from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.l3.models import L3Candidate
@@ -1180,6 +1181,164 @@ async def test_entity_forget_waits_for_active_l2_projection_batch(
         if forget_task is not None and not forget_task.done():
             forget_task.cancel()
             await asyncio.gather(forget_task, return_exceptions=True)
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_entity_forget_deletes_l1_events_linked_only_by_claim_evidence(
+    tmp_path: Path,
+) -> None:
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
+    memory = _build_memory(tmp_path)
+    await memory.initialize()
+    assert memory.l1 is not None
+    assert memory.l2 is not None
+    assert memory.l2_pipeline is not None
+    await memory.l2_pipeline.shutdown()
+    event = _event(
+        "event-claim-evidence-only",
+        content="Private Person likes quiet places",
+    )
+    await memory.l1.store(event)
+    assert (
+        await memory.l1.list_raw_event_ids_by_entity(
+            "person:private",
+            limit=10,
+        )
+        == []
+    )
+    assertion_id = await memory.l2.upsert_assertion_candidate(
+        {
+            "entity_id": "person:private",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_place",
+            "trait_value": "Quiet places",
+            "confidence_score": 0.8,
+            "evidence_events": [event.event_id],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": event.timestamp,
+            "last_validated_at": event.timestamp,
+            "temporal_scope": "persistent",
+        }
+    )
+
+    try:
+        result = await memory.forget_entity_memory(
+            entity_id="person:private",
+            delete_l1_events=True,
+        )
+
+        assert result["l1_events_deleted"] == 1
+        raw_event = await memory.l1.get_event(event.event_id)
+        assert raw_event is not None
+        assert raw_event["deleted_at"] is not None
+        assertion = await memory.l2.get_tom_assertion(assertion_id=assertion_id)
+        assert assertion is not None
+        assert assertion["status"] == "archived"
+    finally:
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_entity_claim_evidence_selection_pages_past_500_and_1000(
+    tmp_path: Path,
+) -> None:
+    await apply_memory_shared_schema(str(tmp_path / "memory.db"))
+    memory = _build_memory(tmp_path)
+    await memory.initialize()
+    assert memory.l2 is not None
+    assert memory.l2_pipeline is not None
+    await memory.l2_pipeline.shutdown()
+    event_ids = [f"event-evidence-{index:04d}" for index in range(1001)]
+    assertion_id = await memory.l2.upsert_assertion_candidate(
+        {
+            "entity_id": "person:private",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_place",
+            "trait_value": "Quiet places",
+            "confidence_score": 0.8,
+            "evidence_events": [event_ids[0]],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": 100.0,
+            "last_validated_at": 100.0,
+            "temporal_scope": "persistent",
+        }
+    )
+    async with aiosqlite.connect(tmp_path / "memory.db") as db:
+        async with db.execute(
+            """
+            SELECT claim_fingerprint
+            FROM tom_trait_assertions
+            WHERE assertion_id = ?
+            """,
+            (assertion_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        claim_fingerprint = str(row[0])
+        await db.executemany(
+            """
+            INSERT OR IGNORE INTO memory_claim_evidence_events(
+                target_kind, claim_fingerprint, event_id, observed_at,
+                observed_from, observed_to, observed_at_is_approximate, created_at
+            ) VALUES ('assertion', ?, ?, 100, 100, 100, 0, 100)
+            """,
+            [(claim_fingerprint, event_id) for event_id in event_ids],
+        )
+        await db.commit()
+
+    class EvidenceOnlyL1:
+        async def list_raw_event_ids_by_entity(
+            self,
+            entity_id: str,
+            *,
+            after_event_id: str,
+            limit: int,
+        ) -> list[str]:
+            del entity_id, after_event_id, limit
+            return []
+
+        async def get_raw_event_active_states(
+            self,
+            selected_event_ids: list[str],
+        ) -> dict[str, bool]:
+            return {event_id: True for event_id in selected_event_ids}
+
+    resolver = ForgetSelectorResolver(
+        memory_db_path=str(tmp_path / "memory.db"),
+        l1=EvidenceOnlyL1(),
+    )
+    selector = ForgetSelector.entity(
+        "person:private",
+        delete_l1_events=True,
+    )
+    selected_ids: list[str] = []
+    page_sizes: list[int] = []
+    after_event_id = ""
+    try:
+        while True:
+            page = await resolver.list_event_page(
+                selector,
+                after_event_id=after_event_id,
+                limit=500,
+            )
+            if not page:
+                break
+            page_sizes.append(len(page))
+            selected_ids.extend(item.event_id for item in page)
+            after_event_id = page[-1].event_id
+
+        assert page_sizes == [500, 500, 1]
+        assert selected_ids == event_ids
+    finally:
         await memory.shutdown()
 
 
