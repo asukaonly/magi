@@ -92,8 +92,8 @@ export const MemoryOverviewPage = () => {
       setCorrectionTarget({
         kind: 'assertion',
         id: item.payload.assertion_id,
-        statement: item.title,
-        currentValue: item.payload.trait_value,
+        displaySentence: item.title,
+        editableValue: item.payload.trait_value,
         expectedUpdatedAt: item.payload.updated_at ?? undefined,
       });
       return;

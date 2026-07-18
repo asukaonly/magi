@@ -484,8 +484,8 @@ function correctionValue(
   const safeValue = value ?? {};
   if (target.kind === 'assertion') {
     return formatMemoryCorrectionValue(
-      safeValue.value ?? safeValue.trait_value ?? target.currentValue,
-      target.displayValue ?? formatMemoryCorrectionValue(target.currentValue, target.currentValue)
+      safeValue.value ?? safeValue.trait_value ?? target.editableValue,
+      formatMemoryCorrectionValue(target.editableValue, target.editableValue)
     );
   }
   const objectId = String(safeValue.object_id ?? target.relationship.objectId).trim();

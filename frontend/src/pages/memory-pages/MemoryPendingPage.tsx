@@ -72,8 +72,8 @@ export const MemoryPendingPage = () => {
       setCorrectionTarget({
         kind: 'assertion',
         id: assertion.assertion_id,
-        statement: getPendingAssertionCopy(assertion, t).title,
-        currentValue: assertion.trait_value,
+        displaySentence: getPendingAssertionCopy(assertion, t).title,
+        editableValue: assertion.trait_value,
         expectedUpdatedAt: assertion.updated_at ?? undefined,
       });
       return;

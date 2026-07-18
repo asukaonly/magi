@@ -25,24 +25,31 @@ const UNKNOWN_CONTEXT_ID = `ctx_project_${'9'.repeat(64)}`;
 const assertionTarget: MemoryCorrectionUiTarget = {
   kind: 'assertion',
   id: 'assertion-1',
-  statement: '你的常用回复风格是直白',
-  currentValue: '直白',
+  displaySentence: '你的常用回复风格是直白',
+  editableValue: '直白',
   expectedUpdatedAt: 1719301200,
 };
 
 const structuredAssertionTarget: MemoryCorrectionUiTarget = {
   kind: 'assertion',
   id: 'assertion-structured',
-  statement: '子涵、哈基米',
-  currentValue: '["子涵", "哈基米"]',
-  displayValue: '子涵、哈基米',
+  displaySentence: '你常用的称呼包括子涵、哈基米。',
+  editableValue: '["子涵", "哈基米"]',
+  expectedUpdatedAt: 1719301200,
+};
+
+const sentenceAssertionTarget: MemoryCorrectionUiTarget = {
+  kind: 'assertion',
+  id: 'assertion-sentence',
+  displaySentence: '你的常住地点可能是杭州。',
+  editableValue: '杭州',
   expectedUpdatedAt: 1719301200,
 };
 
 const edgeTarget: MemoryCorrectionUiTarget = {
   kind: 'edge',
   id: 'edge-1',
-  statement: '你使用 Magi',
+  displaySentence: '你使用 Magi',
   expectedUpdatedAt: 1719301300,
   relationship: {
     subjectId: 'user:self',
@@ -122,10 +129,16 @@ describe('createInitialMemoryCorrectionDraft', () => {
     expect(draft.relationObjectId).toBe('tool:magi');
   });
 
-  it('shows a readable structured value instead of its stored representation', () => {
+  it('keeps a structured assertion value lossless while the display sentence stays separate', () => {
     const draft = createInitialMemoryCorrectionDraft(structuredAssertionTarget);
 
-    expect(draft.value).toBe('子涵、哈基米');
+    expect(draft.value).toBe('["子涵", "哈基米"]');
+  });
+
+  it('never uses the display sentence as the editable assertion value', () => {
+    const draft = createInitialMemoryCorrectionDraft(sentenceAssertionTarget);
+
+    expect(draft.value).toBe('杭州');
   });
 });
 
@@ -419,6 +432,16 @@ describe('buildMemoryCorrectionRequest', () => {
       correction_kind: 'record_error',
       replacement: { value: '简洁' },
       expected_updated_at: 1719301200,
+    });
+  });
+
+  it('submits only the edited value when the display sentence contains extra context', () => {
+    const draft = makeDraft(sentenceAssertionTarget, {
+      value: '上海',
+    });
+
+    expect(buildMemoryCorrectionRequest(sentenceAssertionTarget, draft)).toMatchObject({
+      replacement: { value: '上海' },
     });
   });
 

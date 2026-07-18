@@ -439,7 +439,7 @@ export function MemoryCorrectionDialog({
                   {t('memory.correction.currentLabel', { defaultValue: '当前记住的是' })}
                 </h3>
                 <p className="mt-2 break-words rounded-xl bg-muted/55 px-4 py-3 text-sm font-medium leading-6 text-foreground">
-                  {effectiveTarget.statement}
+                  {effectiveTarget.displaySentence}
                 </p>
               </section>
 
@@ -979,7 +979,7 @@ function getReadableCurrentClaim(
 
   const objectId = String(claim.object_id ?? '').trim();
   const objectName = target.entityOptions.find((entity) => entity.id === objectId)?.name;
-  if (!objectName) return target.statement;
+  if (!objectName) return target.displaySentence;
   return `${target.relationship.subjectName} ${target.relationship.predicateLabel} ${objectName}`;
 }
 

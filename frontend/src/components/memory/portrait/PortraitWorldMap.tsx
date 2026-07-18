@@ -1,12 +1,12 @@
 import { useTranslation } from 'react-i18next';
 import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import type { PortraitWorldGroup } from './portraitGrouping';
+import type { PortraitDisplayItem, PortraitWorldGroup } from './portraitGrouping';
 
 interface PortraitWorldMapProps {
   groups: PortraitWorldGroup[];
   totalCount: number;
-  onCorrect: (assertionId: string) => void;
+  onCorrect: (item: PortraitDisplayItem) => void;
   onEditProfile: () => void;
 }
 
@@ -56,13 +56,13 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                     group.items.slice(0, 4).map((item) => (
                       <div key={item.id} className="flex items-start justify-between gap-3">
                         <p className="min-w-0 flex-1 text-[0.95rem] leading-7 text-[hsl(var(--memory-title))]">{item.text}</p>
-                        {item.assertionId ? (
+                        {item.assertionId && item.correctionValue != null ? (
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
                             className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
-                            onClick={() => onCorrect(item.assertionId as string)}
+                            onClick={() => onCorrect(item)}
                             aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                           >
                             <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
@@ -85,13 +85,13 @@ export const PortraitWorldMap = ({ groups, totalCount, onCorrect, onEditProfile 
                         {detailItems.map((item) => (
                           <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-[hsl(var(--memory-panel-subtle)/0.4)] px-3 py-2.5">
                             <p className="min-w-0 flex-1 text-sm leading-6 text-[hsl(var(--memory-title))]">{item.text}</p>
-                            {item.assertionId ? (
+                            {item.assertionId && item.correctionValue != null ? (
                               <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
                                 className="min-h-9 shrink-0 px-2.5 text-[hsl(var(--memory-body))]"
-                                onClick={() => onCorrect(item.assertionId as string)}
+                                onClick={() => onCorrect(item)}
                                 aria-label={t('memory.portrait.world.correctItem', { defaultValue: '修正 {{value}}', value: item.text })}
                               >
                                 <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />

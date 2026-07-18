@@ -121,8 +121,8 @@ export const MemoryGovernancePage = () => {
       return {
         kind: 'assertion',
         id: selectedRecord.id,
-        statement: selectedRecord.title,
-        currentValue: selectedRecord.correction.currentValue,
+        displaySentence: selectedRecord.title,
+        editableValue: selectedRecord.correction.currentValue,
         expectedUpdatedAt: selectedRecord.correction.expectedUpdatedAt,
       };
     }
@@ -142,7 +142,7 @@ export const MemoryGovernancePage = () => {
     return {
       kind: 'edge',
       id: selectedRecord.id,
-      statement: selectedRecord.title,
+      displaySentence: selectedRecord.title,
       expectedUpdatedAt: selectedRecord.correction.expectedUpdatedAt,
       relationship,
       entityOptions,

@@ -40,15 +40,15 @@ vi.mock('@/api/modules/memory', () => ({
 const assertionTarget: MemoryCorrectionUiTarget = {
   kind: 'assertion',
   id: 'assertion-1',
-  statement: '你偏好直白的回答',
-  currentValue: '直白',
+  displaySentence: '你偏好直白的回答',
+  editableValue: '直白',
   expectedUpdatedAt: 1719301200,
 };
 
 const relationshipTarget: MemoryCorrectionUiTarget = {
   kind: 'edge',
   id: 'edge-1',
-  statement: '你 使用 Magi',
+  displaySentence: '你 使用 Magi',
   expectedUpdatedAt: 1719301300,
   relationship: {
     subjectId: 'user:self',
@@ -203,18 +203,18 @@ describe('MemoryCorrectionDialog request safety', () => {
   });
 
   it('wraps a long unbroken memory statement inside the dialog', async () => {
-    const statement = `记忆${'x'.repeat(600)}`;
+    const displaySentence = `记忆${'x'.repeat(600)}`;
 
     render(
       <MemoryCorrectionDialog
         open
-        target={{ ...assertionTarget, statement }}
+        target={{ ...assertionTarget, displaySentence }}
         onOpenChange={vi.fn()}
       />
     );
 
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    expect(within(dialog).getByText(statement)).toHaveClass('break-words');
+    expect(within(dialog).getByText(displaySentence)).toHaveClass('break-words');
   });
 
   it('submits once and locks the draft while the request is pending', async () => {

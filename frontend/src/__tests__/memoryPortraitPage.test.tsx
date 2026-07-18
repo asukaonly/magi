@@ -305,6 +305,7 @@ describe('MemoryPortraitPage', () => {
             items: [1, 2, 3, 4, 5].map((index) => ({
               id: `preference-${index}`,
               text: `偏好 ${index}`,
+              correction_value: `偏好 ${index}`,
               source: '',
               source_key: null,
               assertion_id: `assert-${index}`,
@@ -477,7 +478,7 @@ describe('MemoryPortraitPage', () => {
       self_view: {
         world: { total_count: 0, groups: [] },
         review: {
-          items: [{ id: 'review-1', text: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200 }],
+          items: [{ id: 'review-1', text: 'Magi 记忆体验', correction_value: 'Magi 记忆体验', source: '', source_key: null, assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200 }],
         },
         recent: { items: [] },
       },
@@ -524,6 +525,74 @@ describe('MemoryPortraitPage', () => {
       expected_updated_at: 1719301200,
     }));
     expect(await within(dialog).findByText('Magi 关于你页面')).toBeInTheDocument();
+  });
+
+  it('edits the raw assertion value instead of the portrait sentence', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      generated_at: 0,
+      self_view: {
+        world: { total_count: 0, groups: [] },
+        review: {
+          items: [{
+            id: 'review-location',
+            text: '你的常住地点可能是杭州。',
+            correction_value: '杭州',
+            source: '',
+            source_key: null,
+            assertion_id: 'assert-location',
+            basis_count: 1,
+            basis_refs: [],
+            updated_at: 1719301200,
+          }],
+        },
+        recent: { items: [] },
+      },
+      is_cold_start: false,
+      cold_start_line: null,
+      cold_start_reason: null,
+      is_stale: false,
+    });
+
+    renderPage();
+
+    await screen.findByText('你的常住地点可能是杭州。');
+    fireEvent.click(screen.getByRole('button', { name: '修改' }));
+    const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
+
+    expect(within(dialog).getByText('你的常住地点可能是杭州。')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('正确内容')).toHaveValue('杭州');
+  });
+
+  it('does not offer correction when a portrait item has no raw assertion value', async () => {
+    vi.mocked(memoryPortraitSelfApi.get).mockResolvedValue({
+      generated_at: 0,
+      self_view: {
+        world: { total_count: 0, groups: [] },
+        review: {
+          items: [{
+            id: 'review-without-value',
+            text: '你的常住地点可能是杭州。',
+            source: '',
+            source_key: null,
+            assertion_id: 'assert-without-value',
+            basis_count: 1,
+            basis_refs: [],
+          }],
+        },
+        recent: { items: [] },
+      },
+      is_cold_start: false,
+      cold_start_line: null,
+      cold_start_reason: null,
+      is_stale: false,
+    });
+
+    renderPage();
+
+    await screen.findByText('你的常住地点可能是杭州。');
+    expect(screen.getByRole('button', { name: '确认' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: '不准确' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '修改' })).toBeDisabled();
   });
 
   it('keeps a structured value intact when only its scope is corrected', async () => {
@@ -573,7 +642,7 @@ describe('MemoryPortraitPage', () => {
     await screen.findByText('子涵、哈基米');
     fireEvent.click(screen.getByRole('button', { name: '修改' }));
     const dialog = await screen.findByRole('dialog', { name: '修正这条记忆' });
-    expect(within(dialog).getByLabelText('正确内容')).toHaveValue('子涵、哈基米');
+    expect(within(dialog).getByLabelText('正确内容')).toHaveValue('["子涵", "哈基米"]');
     fireEvent.click(within(dialog).getByRole('button', { name: /只在某些情况下是这样/ }));
     fireEvent.change(await within(dialog).findByLabelText('选择项目'), {
       target: { value: MAGI_CONTEXT_ID },
@@ -600,6 +669,7 @@ describe('MemoryPortraitPage', () => {
             items: [{
               id: 'review-1',
               text: 'Magi 记忆体验',
+              correction_value: 'Magi 记忆体验',
               source: '',
               source_key: null,
               assertion_id: 'assert-1',
@@ -653,7 +723,7 @@ describe('MemoryPortraitPage', () => {
           world: { total_count: 0, groups: [] },
           review: {
             items: [{
-              id: 'review-1', text: '我每天跑步', source: '', source_key: null,
+              id: 'review-1', text: '我每天跑步', correction_value: '我每天跑步', source: '', source_key: null,
               assertion_id: 'assert-1', basis_count: 1, basis_refs: [], updated_at: 1719301200,
             }],
           },
@@ -705,7 +775,7 @@ describe('MemoryPortraitPage', () => {
             id: 'work_style',
             summary: '工作和沟通方式：先讲结论',
             items: [{
-              id: 'style-1', text: '先讲结论', source: '', source_key: null,
+              id: 'style-1', text: '先讲结论', correction_value: '先讲结论', source: '', source_key: null,
               assertion_id: 'assert-style', basis_count: 3, basis_refs: [], updated_at: 1719301200,
             }],
           }],

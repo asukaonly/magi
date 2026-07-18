@@ -680,6 +680,10 @@ describe('MemoryKnowledgePage correction entry', () => {
     expect(
       within(dialog).getByRole('button', { name: /memory\.correction\.actions\.removeAssertion/ })
     ).toHaveAttribute('aria-pressed', 'true');
+    await user.click(
+      within(dialog).getByRole('button', { name: /memory\.correction\.actions\.replaceAssertion/ })
+    );
+    expect(within(dialog).getByLabelText('memory.correction.correctValue')).toHaveValue('jazz');
     expect(submitAssertionFeedback).toHaveBeenCalledTimes(1);
   });
 });

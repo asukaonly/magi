@@ -124,14 +124,13 @@ export const MemoryPortraitPage = () => {
   };
 
   const openCorrection = (item: PortraitDisplayItem, action: 'replace' | 'remove' = 'replace') => {
-    if (!item.assertionId) return;
+    if (!item.assertionId || item.correctionValue == null) return;
     setCorrectionAction(action);
     setCorrectionTarget({
       kind: 'assertion',
       id: item.assertionId,
-      statement: item.text,
-      currentValue: item.correctionValue ?? item.text,
-      displayValue: item.text,
+      displaySentence: item.text,
+      editableValue: item.correctionValue,
       expectedUpdatedAt: item.updatedAt ?? undefined,
     });
   };
@@ -179,12 +178,7 @@ export const MemoryPortraitPage = () => {
             <PortraitWorldMap
               groups={viewModel.worldGroups}
               totalCount={viewModel.totalUnderstandingCount}
-              onCorrect={(assertionId) => {
-                const item = viewModel.worldGroups
-                  .flatMap((group) => group.items)
-                  .find((candidate) => candidate.assertionId === assertionId);
-                if (item) openCorrection(item);
-              }}
+              onCorrect={openCorrection}
               onEditProfile={() => {
                 setSettingsNavigationIntent({ section: 'personalProfile' });
                 setActivePanel('settings');

@@ -25,16 +25,18 @@ export interface MemoryCorrectionRelationship {
 export interface MemoryCorrectionAssertionTarget {
   kind: 'assertion';
   id: string;
-  statement: string;
-  currentValue: string;
-  displayValue?: string;
+  /** User-facing sentence shown for context. This value is never submitted. */
+  displaySentence: string;
+  /** Raw API assertion value shown in the editor and used as the replacement source. */
+  editableValue: string;
   expectedUpdatedAt?: number;
 }
 
 export interface MemoryCorrectionEdgeTarget {
   kind: 'edge';
   id: string;
-  statement: string;
+  /** User-facing sentence shown for context. This value is never submitted. */
+  displaySentence: string;
   expectedUpdatedAt?: number;
   relationship: MemoryCorrectionRelationship;
   entityOptions: MemoryCorrectionEntityOption[];
@@ -151,7 +153,7 @@ export const createInitialMemoryCorrectionDraft = (
   requestId: createMemoryCorrectionRequestId(),
   correctionKind: 'record_error',
   recordErrorAction: 'replace',
-  value: target.kind === 'assertion' ? assertionDisplayValue(target) : '',
+  value: target.kind === 'assertion' ? target.editableValue : '',
   effectiveAt: '',
   scopeContextId: '',
   reason: '',
@@ -218,7 +220,7 @@ export const buildMemoryCorrectionRequest = (
     );
     if (!selectedContext) return null;
     request.replacement = target.kind === 'assertion'
-      ? { value: target.currentValue.trim() }
+      ? { value: target.editableValue.trim() }
       : {};
     request.scope = {
       all_of: [{
@@ -320,7 +322,7 @@ const validateChangedReplacement = (
     const value = draft.value.trim();
     if (!value) {
       errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_REQUIRED;
-    } else if (value === assertionDisplayValue(target).trim()) {
+    } else if (value === target.editableValue.trim()) {
       errors.value = MEMORY_CORRECTION_VALIDATION_ERROR_CODES.REPLACEMENT_UNCHANGED;
     }
     return;
@@ -338,10 +340,6 @@ const validateChangedReplacement = (
       MEMORY_CORRECTION_VALIDATION_ERROR_CODES.RELATION_OBJECT_UNAVAILABLE;
   }
 };
-
-const assertionDisplayValue = (
-  target: MemoryCorrectionAssertionTarget
-): string => target.displayValue ?? formatMemoryCorrectionValue(target.currentValue, target.currentValue);
 
 export const formatMemoryCorrectionValue = (
   value: unknown,

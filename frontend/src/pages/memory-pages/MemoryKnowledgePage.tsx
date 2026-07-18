@@ -210,9 +210,8 @@ export const MemoryKnowledgePage = () => {
                   setCorrectionTarget({
                     kind: 'assertion',
                     id: item.assertionId,
-                    statement: item.title,
-                    currentValue: item.correctionValue,
-                    displayValue: item.title,
+                    displaySentence: item.title,
+                    editableValue: item.correctionValue,
                     expectedUpdatedAt: item.expectedUpdatedAt ?? undefined,
                   });
                 }}
