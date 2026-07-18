@@ -36,6 +36,7 @@ async def _manual_asset_is_referenced(*, db_path: str, asset_ref: str) -> bool:
                     """
                     SELECT 1 FROM manual_entries AS entry
                     WHERE entry.deleted_at IS NULL
+                      AND entry.delete_requested_at IS NULL
                       AND EXISTS (
                           SELECT 1
                           FROM json_each(CASE

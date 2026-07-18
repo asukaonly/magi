@@ -237,6 +237,22 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
             message_id,
         )
 
+    async def aclear_conversation_history_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
+    ) -> None:
+        """Physically remove one governed transcript snapshot."""
+        await self._run_threaded(
+            "clear_conversation_history_snapshot",
+            user_id,
+            session_id,
+            message_ids,
+            turn_ids,
+        )
+
     async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
         """Clear a session history without blocking the event loop."""
         await self._run_threaded("clear_conversation_history", user_id, session_id)
@@ -465,6 +481,21 @@ class ChatReadService(ChatSessionOperationsMixin, ChatHistoryOperationsMixin):
 
     def _delete_chat_message_assets(self, *, storage_rel_paths: list[str]) -> None:
         self._asset_gc.delete_message_assets(storage_rel_paths)
+
+    def _delete_chat_history_snapshot_assets(
+        self,
+        *,
+        session_id: str,
+        turn_ids: list[str],
+        storage_rel_paths: list[str],
+        delete_entire_session: bool,
+    ) -> None:
+        self._asset_gc.delete_history_snapshot_assets(
+            session_id=session_id,
+            turn_ids=turn_ids,
+            storage_rel_paths=storage_rel_paths,
+            delete_entire_session=delete_entire_session,
+        )
 
     def _clear_all_chat_assets(self) -> None:
         if not get_config().lifecycle.chat_assets.delete_on_clear_memory:

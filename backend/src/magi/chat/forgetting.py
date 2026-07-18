@@ -38,7 +38,13 @@ class _ChatReadServiceProtocol(Protocol):
         session_id: str,
     ) -> list[ChatMessageSourceIdentity]: ...
 
-    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None: ...
+    async def aclear_conversation_history_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
+    ) -> None: ...
 
     async def aforget_message_artifacts(
         self,
@@ -276,6 +282,8 @@ class ChatForgettingService:
                 outcome=outcome,
                 user_id=user_id,
                 session_id=session_id,
+                message_ids=[identity.message_id for identity in identities],
+                turn_ids=turn_ids,
             )
             return True
 
@@ -326,8 +334,15 @@ class ChatSurfaceFinalizer:
         outcome: ForgetOutcome,
         user_id: str,
         session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
     ) -> None:
-        await self._chat_read_service.aclear_conversation_history(user_id, session_id)
+        await self._chat_read_service.aclear_conversation_history_snapshot(
+            user_id,
+            session_id,
+            message_ids,
+            turn_ids,
+        )
         await self._memory.mark_chat_surface_finalized(outcome.operation_id)
 
     async def recover_pending(self) -> dict[str, int]:
@@ -362,14 +377,26 @@ class ChatSurfaceFinalizer:
             raw_message_ids = payload.get("surface_message_ids")
             if not isinstance(raw_message_ids, list):
                 raise RuntimeError("Completed chat history forget has no surface snapshot")
-            for raw_message_id in raw_message_ids:
-                message_id = str(raw_message_id or "").strip()
-                if message_id:
-                    await self._chat_read_service.aforget_message_artifacts(
-                        user_id,
-                        session_id,
-                        message_id,
-                    )
+            raw_turn_ids = payload.get("turn_ids")
+            if not isinstance(raw_turn_ids, list):
+                raise RuntimeError("Completed chat history forget has no turn snapshot")
+            message_ids = [
+                message_id
+                for raw_message_id in raw_message_ids
+                if (message_id := str(raw_message_id or "").strip())
+            ]
+            turn_ids = [
+                turn_id
+                for raw_turn_id in raw_turn_ids
+                if (turn_id := str(raw_turn_id or "").strip())
+            ]
+            async with chat_session_mutation(session_id):
+                await self._chat_read_service.aclear_conversation_history_snapshot(
+                    user_id,
+                    session_id,
+                    message_ids,
+                    turn_ids,
+                )
         else:
             raise RuntimeError("Unexpected chat surface forget selector")
         await self._memory.mark_chat_surface_finalized(operation.operation_id)

@@ -58,7 +58,15 @@ class _FakeReadService:
             _MessageIdentity("message-assistant", "assistant", "turn-1"),
         ]
 
-    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
+    async def aclear_conversation_history_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
+    ) -> None:
+        assert message_ids == ["message-user", "message-assistant"]
+        assert turn_ids == ["turn-1", "turn-2"]
         self.calls.append(f"clear-chat:{user_id}:{session_id}")
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:

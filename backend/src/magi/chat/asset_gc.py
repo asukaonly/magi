@@ -86,6 +86,54 @@ class ChatAssetGC:
             self._remove_empty_asset_parents(target.parent, resources_dir=resources_dir)
         return files_deleted
 
+    def delete_history_snapshot_assets(
+        self,
+        *,
+        session_id: str,
+        turn_ids: list[str],
+        storage_rel_paths: list[str],
+        delete_entire_session: bool,
+    ) -> dict[str, int]:
+        """Delete managed files owned by one immutable chat-history snapshot.
+
+        A normal clear owns the complete current session and removes each
+        session directory. Recovery may run after newer turns were added, so it
+        removes exact attachment paths plus only the old turn directories.
+        """
+
+        normalized_session_id = self._normalize_session_id(session_id)
+        if normalized_session_id is None:
+            raise ValueError("Session ID is not safe for managed asset deletion")
+        if delete_entire_session:
+            return self.delete_session_assets(normalized_session_id)
+
+        normalized_turn_ids: list[str] = []
+        for raw_turn_id in turn_ids:
+            normalized_turn_id = self._normalize_turn_id(raw_turn_id)
+            if normalized_turn_id is None:
+                raise ValueError("Turn ID is not safe for managed asset deletion")
+            if normalized_turn_id not in normalized_turn_ids:
+                normalized_turn_ids.append(normalized_turn_id)
+
+        files_deleted = self.delete_message_assets(storage_rel_paths)
+        dirs_deleted = 0
+        for root_dir in self._asset_roots():
+            for turn_id in normalized_turn_ids:
+                result = self._remove_tree(
+                    root_dir / normalized_session_id / turn_id,
+                    strict=True,
+                )
+                files_deleted += result["files_deleted"]
+                dirs_deleted += result["dirs_deleted"]
+            self._remove_empty_asset_parents(
+                root_dir / normalized_session_id,
+                resources_dir=root_dir,
+            )
+        return {
+            "chat_asset_files_deleted": files_deleted,
+            "chat_asset_dirs_deleted": dirs_deleted,
+        }
+
     def clear_all_assets(self) -> dict[str, int]:
         """Delete every managed chat asset directory under all chat asset roots."""
 
@@ -185,9 +233,7 @@ class ChatAssetGC:
             return {"files_deleted": 0, "dirs_deleted": 0}
         except Exception as exc:
             if strict:
-                raise ChatAssetDeletionError(
-                    "Managed chat assets could not be deleted"
-                ) from exc
+                raise ChatAssetDeletionError("Managed chat assets could not be deleted") from exc
             logger.warning(
                 "chat_asset_gc.delete_failed", path=str(path), error=str(exc), exc_info=True
             )
@@ -226,6 +272,13 @@ class ChatAssetGC:
     @staticmethod
     def _normalize_session_id(session_id: str) -> str | None:
         normalized = str(session_id or "").strip()
+        if not normalized or "/" in normalized or "\\" in normalized:
+            return None
+        return normalized
+
+    @staticmethod
+    def _normalize_turn_id(turn_id: str) -> str | None:
+        normalized = str(turn_id or "").strip()
         if not normalized or "/" in normalized or "\\" in normalized:
             return None
         return normalized

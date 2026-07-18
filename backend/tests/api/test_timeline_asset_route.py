@@ -190,6 +190,40 @@ async def test_serve_asset_requires_a_live_reference(unified_memory_for_tests, t
 
 
 @pytest.mark.asyncio
+async def test_serve_asset_rejects_a_delete_gated_manual_entry(
+    unified_memory_for_tests,
+    tmp_path,
+):
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    asset_ref = asset_store.store_bytes(b"private-bytes", content_type="image/png")
+    entry_store = ManualEntryStore(db_path=unified_memory_for_tests.memory_db_path)
+    await entry_store.create(
+        ManualEntry(
+            entry_id="entry-delete-gated",
+            created_at=time.time(),
+            event_at=time.time(),
+            body="private",
+            attachments=[asset_ref],
+        )
+    )
+    service = TimelineService(
+        unified_memory_for_tests,
+        manual_entry_asset_store=asset_store,
+    )
+    assert await service.serve_asset(asset_ref=asset_ref) == (
+        b"private-bytes",
+        "image/png",
+    )
+
+    assert await entry_store.request_delete(
+        "entry-delete-gated",
+        requested_at=time.time(),
+    )
+
+    assert await service.serve_asset(asset_ref=asset_ref) is None
+
+
+@pytest.mark.asyncio
 async def test_serve_asset_honors_other_user_visible_owners(
     unified_memory_for_tests,
     tmp_path,
@@ -324,9 +358,20 @@ def test_public_timeline_asset_route_streams_manual_entry_asset(
     assert response.content == b"cover-route-bytes"
     assert response.headers["content-type"] == "image/png"
 
-    asyncio.run(_delete_manual_entry(entry_store, "entry-route-asset"))
+    assert asyncio.run(
+        entry_store.request_delete(
+            "entry-route-asset",
+            requested_at=time.time(),
+        )
+    )
     hidden = TestClient(app).get(f"/api/timeline/asset/{quote(asset_ref, safe='')}")
     assert hidden.status_code == 404
+    assert asyncio.run(
+        entry_store.finalize_delete(
+            "entry-route-asset",
+            deleted_at=time.time(),
+        )
+    )
 
     outside = tmp_path / "private.jpg"
     outside.write_bytes(b"private-file")

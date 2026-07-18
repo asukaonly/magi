@@ -146,8 +146,19 @@ class _DirectReadAdapter:
     ):
         return self._service.list_session_message_source_identities(user_id, session_id)
 
-    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
-        self._service.clear_conversation_history(user_id, session_id)
+    async def aclear_conversation_history_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
+    ) -> None:
+        self._service.clear_conversation_history_snapshot(
+            user_id,
+            session_id,
+            message_ids,
+            turn_ids,
+        )
 
     async def adelete_session(self, user_id: str, session_id: str) -> None:
         self._service.delete_session(user_id, session_id)
@@ -224,10 +235,21 @@ class _CrashAfterMemoryReadAdapter(_DirectReadAdapter):
             raise RuntimeError("simulated surface crash")
         return await super().aforget_message_artifacts(user_id, session_id, message_id)
 
-    async def aclear_conversation_history(self, user_id: str, session_id: str) -> None:
+    async def aclear_conversation_history_snapshot(
+        self,
+        user_id: str,
+        session_id: str,
+        message_ids: list[str],
+        turn_ids: list[str],
+    ) -> None:
         if self._operation == "chat_history":
             raise RuntimeError("simulated surface crash")
-        await super().aclear_conversation_history(user_id, session_id)
+        await super().aclear_conversation_history_snapshot(
+            user_id,
+            session_id,
+            message_ids,
+            turn_ids,
+        )
 
 
 class _DirectSurfaceWriter:
@@ -952,6 +974,9 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
     crashed_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     crashed_read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
     crashed_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
+    crashed_read_service._delete_chat_history_snapshot_assets = (  # type: ignore[method-assign]
+        lambda **_kwargs: None
+    )
     service = ChatForgettingService(
         chat_read_service=_CrashAfterMemoryReadAdapter(
             crashed_read_service,
@@ -999,6 +1024,9 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
     recovered_read_service._delete_runtime_trace_turn_rows = lambda **_kwargs: None  # type: ignore[method-assign]
     recovered_read_service._delete_chat_session_assets = lambda **_kwargs: None  # type: ignore[method-assign]
     recovered_read_service._delete_chat_message_assets = lambda **_kwargs: None  # type: ignore[method-assign]
+    recovered_read_service._delete_chat_history_snapshot_assets = (  # type: ignore[method-assign]
+        lambda **_kwargs: None
+    )
     finalizer = ChatSurfaceFinalizer(
         chat_read_service=_DirectReadAdapter(recovered_read_service),
         memory=recovered_memory,
@@ -1017,13 +1045,23 @@ async def test_completed_chat_forget_recovers_its_surface_after_restart(
                 assert connection.execute(
                     "SELECT COUNT(*) FROM chat_messages WHERE session_id = 'session-1'"
                 ).fetchone() == (0,)
-            else:
+            elif selector_kind == "chat_message":
                 assert connection.execute("""
                     SELECT content_text, is_visible
                     FROM chat_messages
                     WHERE message_id = 'message-1'
                     """).fetchone() == ("", 0)
             if selector_kind == "chat_history":
+                assert connection.execute("""
+                    SELECT COUNT(*)
+                    FROM chat_messages
+                    WHERE message_id = 'message-1'
+                    """).fetchone() == (0,)
+                assert connection.execute("""
+                    SELECT COUNT(*)
+                    FROM chat_turns
+                    WHERE turn_id = 'turn-1'
+                    """).fetchone() == (0,)
                 assert connection.execute("""
                     SELECT content_text, is_visible
                     FROM chat_messages

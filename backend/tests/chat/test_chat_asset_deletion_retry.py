@@ -93,6 +93,68 @@ def _seed_chat(
     return asset_path
 
 
+def _seed_new_chat_after_snapshot(
+    service: ChatReadService,
+    runtime_paths: RuntimePaths,
+    *,
+    session_id: str,
+) -> Path:
+    turn_id = f"turn-new-{session_id}"
+    message_id = f"message-new-{session_id}"
+    attachment_id = f"attachment-new-{session_id}"
+    asset_path = runtime_paths.chat_files_dir / session_id / turn_id / f"{attachment_id}.txt"
+    asset_path.parent.mkdir(parents=True, exist_ok=True)
+    asset_path.write_text("new attachment", encoding="utf-8")
+    storage_rel_path = asset_path.relative_to(runtime_paths.base_dir).as_posix()
+
+    conn = service._get_conn()
+    conn.execute(
+        """
+        INSERT INTO chat_turns(
+            turn_id, session_id, user_id, status, response_mode,
+            ux_plan_json, created_at_ms, updated_at_ms
+        ) VALUES (?, ?, 'u1', 'completed', 'final_only', '{}', 2, 2)
+        """,
+        (turn_id, session_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO chat_messages(
+            message_id, session_id, turn_id, user_id, role, message_kind,
+            content_text, payload_json, is_final, is_visible,
+            created_at_ms, sequence_no
+        ) VALUES (?, ?, ?, 'u1', 'user', 'user_text',
+                  'new private message', '{}', 1, 1, 2, 2)
+        """,
+        (message_id, session_id, turn_id),
+    )
+    conn.execute(
+        """
+        INSERT INTO chat_attachments(
+            attachment_id, session_id, turn_id, message_id, user_id,
+            kind, original_name, mime_type, size_bytes,
+            storage_rel_path, created_at_ms
+        ) VALUES (?, ?, ?, ?, 'u1', 'file', 'new-private.txt',
+                  'text/plain', 14, ?, 2)
+        """,
+        (attachment_id, session_id, turn_id, message_id, storage_rel_path),
+    )
+    conn.execute(
+        """
+        UPDATE chat_sessions
+        SET last_message_at_ms = 2,
+            last_user_message_at_ms = 2,
+            last_message_preview = 'new private message',
+            last_user_message_preview = 'new private message',
+            message_count = 2
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    )
+    conn.commit()
+    return asset_path
+
+
 def _fail_once(monkeypatch: pytest.MonkeyPatch, target: object, method_name: str) -> None:
     original = getattr(target, method_name)
     attempts = 0
@@ -202,6 +264,134 @@ def test_history_clear_failure_keeps_attachment_metadata_for_retry(
         ).fetchone()[0]
         == 0
     )
+    service.close()
+
+
+def test_history_snapshot_recovery_physically_removes_only_the_old_transcript(
+    tmp_path: Path,
+) -> None:
+    service, runtime_paths = _build_service(tmp_path)
+    old_asset_path = _seed_chat(
+        service,
+        runtime_paths,
+        session_id="session-recovery",
+        message_id="message-recovery",
+    )
+    old_turn_id = "turn-session-recovery"
+    orphan_old_asset = (
+        runtime_paths.chat_derived_dir / "session-recovery" / old_turn_id / "orphan-private.txt"
+    )
+    orphan_old_asset.parent.mkdir(parents=True, exist_ok=True)
+    orphan_old_asset.write_text("old derived content", encoding="utf-8")
+    new_asset_path = _seed_new_chat_after_snapshot(
+        service,
+        runtime_paths,
+        session_id="session-recovery",
+    )
+
+    service.clear_conversation_history_snapshot(
+        "u1",
+        "session-recovery",
+        ["message-recovery"],
+        [old_turn_id],
+    )
+
+    conn = service._get_conn()
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE message_id = 'message-recovery'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM chat_turns WHERE turn_id = ?",
+            (old_turn_id,),
+        ).fetchone()[0]
+        == 0
+    )
+    assert tuple(conn.execute("""
+            SELECT content_text, is_visible
+            FROM chat_messages
+            WHERE message_id = 'message-new-session-recovery'
+            """).fetchone()) == ("new private message", 1)
+    assert not old_asset_path.exists()
+    assert not orphan_old_asset.exists()
+    assert new_asset_path.exists()
+
+    history_version = conn.execute(
+        "SELECT history_version FROM chat_sessions WHERE session_id = 'session-recovery'"
+    ).fetchone()[0]
+    service.clear_conversation_history_snapshot(
+        "u1",
+        "session-recovery",
+        ["message-recovery"],
+        [old_turn_id],
+    )
+    assert (
+        conn.execute(
+            "SELECT history_version FROM chat_sessions WHERE session_id = 'session-recovery'"
+        ).fetchone()[0]
+        == history_version
+    )
+    service.close()
+
+
+def test_history_snapshot_asset_failure_keeps_old_rows_for_recovery_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, runtime_paths = _build_service(tmp_path)
+    old_asset_path = _seed_chat(
+        service,
+        runtime_paths,
+        session_id="session-snapshot-retry",
+        message_id="message-snapshot-retry",
+    )
+    new_asset_path = _seed_new_chat_after_snapshot(
+        service,
+        runtime_paths,
+        session_id="session-snapshot-retry",
+    )
+    _fail_once(
+        monkeypatch,
+        service._asset_gc,
+        "delete_history_snapshot_assets",
+    )
+
+    with pytest.raises(ChatAssetDeletionError):
+        service.clear_conversation_history_snapshot(
+            "u1",
+            "session-snapshot-retry",
+            ["message-snapshot-retry"],
+            ["turn-session-snapshot-retry"],
+        )
+
+    conn = service._get_conn()
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE message_id = 'message-snapshot-retry'"
+        ).fetchone()[0]
+        == 1
+    )
+    assert old_asset_path.exists()
+    assert new_asset_path.exists()
+
+    service.clear_conversation_history_snapshot(
+        "u1",
+        "session-snapshot-retry",
+        ["message-snapshot-retry"],
+        ["turn-session-snapshot-retry"],
+    )
+
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE message_id = 'message-snapshot-retry'"
+        ).fetchone()[0]
+        == 0
+    )
+    assert not old_asset_path.exists()
+    assert new_asset_path.exists()
     service.close()
 
 
