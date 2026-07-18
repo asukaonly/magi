@@ -4,6 +4,7 @@ import asyncio
 import copy
 import json
 import sqlite3
+from contextlib import asynccontextmanager
 
 import pytest
 from fastapi import HTTPException
@@ -17,9 +18,13 @@ from magi.memory.operation_barrier import AsyncOperationBarrier
 from magi.memory.manual_entries import (
     ManualEntry,
     ManualEntryL1Projector,
+    ManualEntryRecoveryService,
     ManualEntryStore,
 )
 from magi.memory.manual_entries.asset_store import ManualEntryAssetStore
+from magi.memory.manual_entries.source_forgetting import (
+    ManualEntrySourceForgetOwner,
+)
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
 
@@ -64,6 +69,8 @@ class _EntryStore:
         self.fail_complete_count = 0
         self.fail_complete_after_commit_count = 0
         self.complete_false_count = 0
+        self.fail_replace_count = 0
+        self.fail_replace_after_commit_count = 0
         self.fail_delete_request_count = 0
         self.fail_delete_request_after_commit_count = 0
         self.fail_finalize_delete_count = 0
@@ -158,6 +165,42 @@ class _EntryStore:
             raise RuntimeError("reserve response lost after commit")
         return True
 
+    async def replace_and_reserve_l1_projection(
+        self,
+        entry: ManualEntry,
+        event_id: str,
+        *,
+        expected_previous_event_id: str | None,
+    ) -> bool:
+        await asyncio.sleep(0)
+        assert entry.entry_id == self.entry.entry_id
+        if self.fail_replace_count:
+            self.fail_replace_count -= 1
+            raise sqlite3.OperationalError("database is locked")
+        if (
+            self.entry.deleted_at is not None
+            or self.entry.delete_requested_at is not None
+            or self.entry.l1_event_id != expected_previous_event_id
+            or (
+                self.entry.pending_l1_event_id is not None
+                and (
+                    self.entry.pending_l1_event_id != event_id
+                    or self.entry.pending_l1_predecessor_event_id != expected_previous_event_id
+                )
+            )
+        ):
+            return False
+        linked_event_id = self.entry.l1_event_id
+        self.entry = copy.deepcopy(entry)
+        self.entry.l1_event_id = linked_event_id
+        self.entry.pending_l1_event_id = event_id
+        self.entry.pending_l1_predecessor_event_id = expected_previous_event_id
+        self.update_calls += 1
+        if self.fail_replace_after_commit_count:
+            self.fail_replace_after_commit_count -= 1
+            raise RuntimeError("replace response lost after commit")
+        return True
+
     async def complete_l1_projection(
         self,
         entry_id: str,
@@ -235,6 +278,12 @@ class _EntryStore:
         self.list_include_deleted = include_deleted
         if self.entry.deleted_at is not None and not include_deleted:
             return []
+        if (
+            not include_deleted
+            and self.entry.pending_l1_event_id is not None
+            and self.entry.pending_l1_predecessor_event_id is not None
+        ):
+            return []
         return [copy.deepcopy(self.entry)]
 
 
@@ -247,10 +296,18 @@ class _L1View:
         event = self.events.get(event_id)
         return copy.deepcopy(event) if event is not None else None
 
+    async def get_raw_event_active_states(self, event_ids: list[str]):
+        return {
+            event_id: event["deleted_at"] is None
+            for event_id in event_ids
+            if (event := self.events.get(event_id)) is not None
+        }
+
 
 class _Memory:
     def __init__(self) -> None:
         self._operation_barrier = AsyncOperationBarrier()
+        self._write_lock = asyncio.Lock()
         self.l1 = _L1View()
         self.fail_forget_count = 0
         self.forgotten: list[tuple[str, str]] = []
@@ -259,6 +316,25 @@ class _Memory:
 
     def memory_operation_guard(self):
         return self._operation_barrier.operation()
+
+    @asynccontextmanager
+    async def governed_l1_write_guard(self):
+        async with self.memory_operation_guard():
+            async with self._write_lock:
+                yield
+
+    async def governed_l1_event_rejection_reason(self, _event):
+        return None
+
+    async def governed_l1_event_rejection_reason_guarded(self, _event):
+        return None
+
+    async def store_governed_l1_event_under_write_lock(self, event) -> str:
+        self.l1.events.setdefault(
+            event.event_id,
+            {"event_id": event.event_id, "deleted_at": None},
+        )
+        return event.event_id
 
     async def forget_known_source_events(
         self,
@@ -291,6 +367,7 @@ class _Projector:
         self._ids_by_key: dict[str, str] = {}
         self.project_started: asyncio.Event | None = None
         self.project_continue: asyncio.Event | None = None
+        self.fail_ensure_count = 0
 
     def event_id_for(
         self,
@@ -304,6 +381,28 @@ class _Projector:
             sort_keys=True,
         )
         return self._ids_by_key.setdefault(key, f"event-new-{len(self._ids_by_key) + 1}")
+
+    def governed_write_guard(self):
+        return self.memory.governed_l1_write_guard()
+
+    async def ensure_projectable(
+        self,
+        _entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> None:
+        _ = predecessor_event_id
+        if self.fail_ensure_count:
+            self.fail_ensure_count -= 1
+            raise RuntimeError("governance lookup failed")
+
+    async def ensure_projectable_guarded(
+        self,
+        _entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> None:
+        _ = predecessor_event_id
 
     async def project_current(
         self,
@@ -326,6 +425,17 @@ class _Projector:
         )
         self.memory.l1.events.setdefault(event_id, {"event_id": event_id, "deleted_at": None})
         return event_id
+
+    async def project_current_guarded(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> str:
+        return await self.project_current(
+            entry,
+            predecessor_event_id=predecessor_event_id,
+        )
 
 
 def _install_stores(monkeypatch, entry: ManualEntry, *, weather_fetcher=None):
@@ -363,7 +473,9 @@ def _install_stores_with_assets(
 
 
 @pytest.mark.asyncio
-async def test_update_cleanup_failure_keeps_old_entry_and_allows_retry(monkeypatch):
+async def test_update_cleanup_failure_hides_reserved_replacement_and_allows_retry(
+    monkeypatch,
+):
     store, memory, projector = _install_stores(monkeypatch, _entry())
     memory.fail_forget_count = 1
     body = routes.ManualEntryUpdateBody(body="after")
@@ -372,17 +484,56 @@ async def test_update_cleanup_failure_keeps_old_entry_and_allows_retry(monkeypat
         await routes.update_manual_entry("manual-1", body)
 
     assert error.value.status_code == 503
-    assert store.entry.body == "before"
-    assert store.update_calls == 0
-    assert projector.calls == []
+    assert store.entry.body == "after"
+    assert store.entry.pending_l1_event_id is not None
+    assert store.update_calls == 1
+    assert len(projector.calls) == 1
+    assert memory.l1.events["event-old"]["deleted_at"] is None
+    assert await routes.list_manual_entries(time_start=0, time_end=1000, limit=500) == {"items": []}
 
     result = await routes.update_manual_entry("manual-1", body)
 
     assert result["body"] == "after"
     assert store.entry.l1_event_id.startswith("event-new-")
     assert memory.l1.events["event-old"]["deleted_at"] is not None
-    assert memory.forgotten == [("event-old", "manual_entry_update")]
-    assert memory.source_item_block_flags == [("event-old", "manual_entry_update", False)]
+    assert memory.forgotten == [("event-old", "manual_entry_update_repair")]
+    assert memory.source_item_block_flags == [("event-old", "manual_entry_update_repair", False)]
+
+
+@pytest.mark.asyncio
+async def test_update_reservation_failure_leaves_old_source_and_projection(
+    monkeypatch,
+):
+    store, memory, projector = _install_stores(monkeypatch, _entry())
+    store.fail_replace_count = 1
+
+    with pytest.raises(HTTPException) as error:
+        await routes.update_manual_entry(
+            "manual-1",
+            routes.ManualEntryUpdateBody(body="after"),
+        )
+
+    assert error.value.status_code == 503
+    assert store.entry.body == "before"
+    assert store.entry.pending_l1_event_id is None
+    assert memory.l1.events["event-old"]["deleted_at"] is None
+    assert projector.calls == []
+
+
+@pytest.mark.asyncio
+async def test_update_recovers_replacement_reservation_commit_ack_loss(monkeypatch):
+    store, memory, _ = _install_stores(monkeypatch, _entry())
+    store.fail_replace_after_commit_count = 1
+
+    result = await routes.update_manual_entry(
+        "manual-1",
+        routes.ManualEntryUpdateBody(body="after"),
+    )
+
+    assert result["body"] == "after"
+    assert result["l1_event_id"].startswith("event-new-")
+    assert store.entry.pending_l1_event_id is None
+    assert memory.l1.events["event-old"]["deleted_at"] is not None
 
 
 @pytest.mark.asyncio
@@ -423,7 +574,11 @@ async def test_create_rejects_forged_or_missing_attachment_refs(
 
     with pytest.raises(HTTPException) as error:
         await routes.create_manual_entry(
-            routes.ManualEntryCreateBody(body="entry", attachment_refs=[asset_ref])
+            routes.ManualEntryCreateBody(
+                entry_id="me-create-invalid-asset",
+                body="entry",
+                attachment_refs=[asset_ref],
+            )
         )
 
     assert error.value.status_code == 400
@@ -439,10 +594,14 @@ async def test_create_completion_failure_keeps_owned_projection_discoverable_and
     store, memory, _ = _install_stores(monkeypatch, _entry())
     store.fail_complete_count = 1
 
-    with pytest.raises(HTTPException) as error:
-        await routes.create_manual_entry(routes.ManualEntryCreateBody(body="new entry"))
+    result = await routes.create_manual_entry(
+        routes.ManualEntryCreateBody(
+            entry_id="me-create-completion-failure",
+            body="new entry",
+        )
+    )
 
-    assert error.value.status_code == 503
+    assert result["memory_status"] == "pending"
     entry_id = store.entry.entry_id
     pending_event_id = store.entry.pending_l1_event_id
     assert entry_id.startswith("me-")
@@ -464,7 +623,12 @@ async def test_create_recovers_reservation_and_completion_commit_ack_loss(monkey
     store.fail_reserve_after_commit_count = 1
     store.fail_complete_after_commit_count = 1
 
-    result = await routes.create_manual_entry(routes.ManualEntryCreateBody(body="new entry"))
+    result = await routes.create_manual_entry(
+        routes.ManualEntryCreateBody(
+            entry_id="me-create-ack-loss",
+            body="new entry",
+        )
+    )
 
     assert result["l1_event_id"] is not None
     assert store.entry.l1_event_id == result["l1_event_id"]
@@ -476,10 +640,14 @@ async def test_create_database_lock_writes_no_l1_and_noop_update_repairs(monkeyp
     store, memory, projector = _install_stores(monkeypatch, _entry())
     store.fail_reserve_count = 1
 
-    with pytest.raises(HTTPException) as error:
-        await routes.create_manual_entry(routes.ManualEntryCreateBody(body="new entry"))
+    create_result = await routes.create_manual_entry(
+        routes.ManualEntryCreateBody(
+            entry_id="me-create-reserve-failure",
+            body="new entry",
+        )
+    )
 
-    assert error.value.status_code == 503
+    assert create_result["memory_status"] == "pending"
     assert store.entry.l1_event_id is None
     assert store.entry.pending_l1_event_id is None
     assert projector.calls == []
@@ -498,9 +666,14 @@ async def test_create_complete_false_is_repaired_without_a_second_l1_row(monkeyp
     store, memory, _ = _install_stores(monkeypatch, _entry())
     store.complete_false_count = 1
 
-    with pytest.raises(HTTPException):
-        await routes.create_manual_entry(routes.ManualEntryCreateBody(body="new entry"))
+    create_result = await routes.create_manual_entry(
+        routes.ManualEntryCreateBody(
+            entry_id="me-create-complete-false",
+            body="new entry",
+        )
+    )
 
+    assert create_result["memory_status"] == "pending"
     pending_event_id = store.entry.pending_l1_event_id
     assert pending_event_id is not None
     assert list(memory.l1.events).count(pending_event_id) == 1
@@ -513,6 +686,243 @@ async def test_create_complete_false_is_repaired_without_a_second_l1_row(monkeyp
     assert result["l1_event_id"] == pending_event_id
     assert store.entry.pending_l1_event_id is None
     assert list(memory.l1.events).count(pending_event_id) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_retry_reuses_client_identity_without_duplicate_source(
+    monkeypatch,
+    tmp_path,
+):
+    memory_db = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db))
+    store = ManualEntryStore(db_path=str(memory_db))
+    assets = ManualEntryAssetStore(media_root=tmp_path / "media")
+    memory = _Memory()
+    projector = _Projector(memory)
+    projector.fail_count = 1
+    monkeypatch.setattr(
+        routes,
+        "_resolve_stores",
+        lambda: (store, assets, projector, None, None, memory),
+    )
+    body = routes.ManualEntryCreateBody(
+        entry_id="me-stable-create-retry",
+        body="same user note",
+    )
+
+    first_result = await routes.create_manual_entry(body)
+    assert first_result["memory_status"] == "pending"
+    first = await store.get(body.entry_id)
+    assert first is not None
+    first_event_at = first.event_at
+
+    result = await routes.create_manual_entry(body)
+    assert result["entry_id"] == body.entry_id
+    assert result["event_at"] == first_event_at
+    assert result["memory_status"] == "ready"
+
+    recovery = ManualEntryRecoveryService(
+        store=store,
+        projector=projector,
+        memory=memory,
+        interval_seconds=0,
+    )
+    startup = await recovery.start()
+    entries = await store.list_window(time_start=0, time_end=10**12)
+    assert startup.skipped == 1
+    assert [entry.entry_id for entry in entries] == [body.entry_id]
+
+    with pytest.raises(HTTPException) as conflict:
+        await routes.create_manual_entry(
+            routes.ManualEntryCreateBody(
+                entry_id=body.entry_id,
+                body="different note",
+            )
+        )
+    assert conflict.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_create_forget_between_l1_write_and_link_returns_terminal_conflict(
+    monkeypatch,
+    tmp_path,
+):
+    memory_db = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db))
+    memory = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(memory_db),
+        enable_l0=False,
+        enable_l1=True,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+        tuning=MemoryStoreTuning(
+            enable_l1_vectors=False,
+            async_embeddings=False,
+        ),
+    )
+    await memory.initialize()
+    continue_completion = asyncio.Event()
+    try:
+        store = ManualEntryStore(db_path=str(memory_db))
+        memory.register_source_forget_owner(
+            "manual_entry",
+            ManualEntrySourceForgetOwner(store=store),
+        )
+        assets = ManualEntryAssetStore(media_root=tmp_path / "media")
+        projector = ManualEntryL1Projector(memory=memory)
+        completion_started = asyncio.Event()
+        original_complete = store.complete_l1_projection
+
+        async def pause_completion(*args, **kwargs):
+            completion_started.set()
+            await continue_completion.wait()
+            return await original_complete(*args, **kwargs)
+
+        monkeypatch.setattr(store, "complete_l1_projection", pause_completion)
+        monkeypatch.setattr(
+            routes,
+            "_resolve_stores",
+            lambda: (store, assets, projector, None, None, memory),
+        )
+        body = routes.ManualEntryCreateBody(
+            entry_id="me-forgotten-before-link",
+            body="private source",
+            event_at=1_000.0,
+        )
+        create_task = asyncio.create_task(routes.create_manual_entry(body))
+        await asyncio.wait_for(completion_started.wait(), timeout=2.0)
+        pending = await store.get(body.entry_id)
+        assert pending is not None
+        assert pending.pending_l1_event_id is not None
+
+        assert (
+            await memory.forget_known_source_events(
+                [pending.pending_l1_event_id],
+                reason="external_user_forget",
+                block_source_item=True,
+            )
+            == 1
+        )
+        continue_completion.set()
+
+        with pytest.raises(HTTPException) as first_error:
+            await create_task
+        assert first_error.value.status_code == 409
+        assert first_error.value.detail == {
+            "code": "manual_entry_memory_forgotten",
+            "reason": "source_reference",
+            "retry_as_new": True,
+            "source_preserved": False,
+            "message": (
+                "This occurrence is covered by a durable memory-forget rule"
+            ),
+        }
+
+        with pytest.raises(HTTPException) as retry_error:
+            await routes.create_manual_entry(body)
+        assert retry_error.value.status_code == 409
+        assert retry_error.value.detail == first_error.value.detail
+    finally:
+        continue_completion.set()
+        await memory.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_weather_commit_ack_loss_projects_confirmed_snapshot(
+    monkeypatch,
+    tmp_path,
+):
+    memory_db = tmp_path / "memory.db"
+    await apply_memory_shared_schema(str(memory_db))
+    memory = UnifiedMemoryStore(
+        persist_dir=str(tmp_path / "memory"),
+        l1_db_path=str(tmp_path / "l1.db"),
+        memory_db_path=str(memory_db),
+        enable_l0=False,
+        enable_l1=True,
+        enable_l2=False,
+        enable_l3=False,
+        enable_l4=False,
+        tuning=MemoryStoreTuning(
+            enable_l1_vectors=False,
+            async_embeddings=False,
+        ),
+    )
+    await memory.initialize()
+    try:
+        store = ManualEntryStore(db_path=str(memory_db))
+        memory.register_source_forget_owner(
+            "manual_entry",
+            ManualEntrySourceForgetOwner(store=store),
+        )
+        assets = ManualEntryAssetStore(media_root=tmp_path / "media")
+        projector = ManualEntryL1Projector(memory=memory)
+        weather = {"code": 65, "temp_c": 15.5}
+
+        class _WeatherFetcher:
+            async def fetch(self, **_kwargs):
+                return dict(weather)
+
+        original_set_weather = store.set_weather
+
+        async def set_weather_then_lose_ack(entry_id, snapshot):
+            assert await original_set_weather(entry_id, snapshot)
+            raise sqlite3.OperationalError("weather commit acknowledgement lost")
+
+        monkeypatch.setattr(store, "set_weather", set_weather_then_lose_ack)
+        monkeypatch.setattr(
+            routes,
+            "_resolve_stores",
+            lambda: (
+                store,
+                assets,
+                projector,
+                _WeatherFetcher(),
+                None,
+                memory,
+            ),
+        )
+
+        result = await routes.create_manual_entry(
+            routes.ManualEntryCreateBody(
+                entry_id="me-weather-ack-loss",
+                body="rain",
+                event_at=1_000.0,
+                location_lat=30.0,
+                location_lng=120.0,
+            )
+        )
+
+        assert result["memory_status"] == "ready"
+        assert result["weather"] == weather
+        stored = await store.get(result["entry_id"])
+        assert stored is not None
+        assert stored.weather == weather
+        projected = await memory.l1.get_memory_event(result["l1_event_id"])
+        assert projected is not None
+        assert projected.metadata_json["manual_entry"]["weather"] == weather
+
+        recovery = ManualEntryRecoveryService(
+            store=store,
+            projector=projector,
+            memory=memory,
+            interval_seconds=0,
+        )
+        stats = await recovery.start()
+        assert stats.to_dict() == {
+            "scanned": 1,
+            "recovered": 0,
+            "failed": 0,
+            "skipped": 1,
+        }
+        after_recovery = await store.get(result["entry_id"])
+        assert after_recovery is not None
+        assert after_recovery.l1_event_id == result["l1_event_id"]
+    finally:
+        await memory.shutdown()
 
 
 @pytest.mark.asyncio
@@ -568,13 +978,15 @@ async def test_update_projection_failure_is_completed_by_idempotent_retry(monkey
     assert error.value.status_code == 503
     assert store.entry.body == "after"
     assert store.entry.l1_event_id == "event-old"
-    assert memory.l1.events["event-old"]["deleted_at"] is not None
+    assert memory.l1.events["event-old"]["deleted_at"] is None
 
     result = await routes.update_manual_entry("manual-1", body)
 
     assert result["l1_event_id"].startswith("event-new-")
     assert store.update_calls == 1
-    assert memory.forgotten == [("event-old", "manual_entry_update")]
+    assert memory.forgotten == [
+        ("event-old", "manual_entry_update_repair"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -677,14 +1089,75 @@ async def test_cross_process_projection_delete_race_compensates_late_l1_write(mo
     assert pending_event_id is not None
 
     delete_result = await routes._delete_manual_entry_locked("manual-1")
+    projector.fail_ensure_count = 1
     projector.project_continue.set()
     with pytest.raises(HTTPException) as error:
         await projection_task
 
-    assert error.value.status_code == 503
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "manual_entry_memory_forgotten"
+    assert error.value.detail["reason"] == "source_reference"
+    assert error.value.detail["retry_as_new"] is True
     assert delete_result == {"ok": True}
     assert store.entry.deleted_at is not None
     assert memory.l1.events[pending_event_id]["deleted_at"] is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation",
+    ("create", "update", "clear_weather"),
+)
+@pytest.mark.parametrize(
+    "terminal_state",
+    ("delete_requested", "deleted"),
+)
+async def test_terminal_write_retry_returns_forgotten_conflict(
+    monkeypatch,
+    operation,
+    terminal_state,
+):
+    terminal_fields = (
+        {"delete_requested_at": 200.0}
+        if terminal_state == "delete_requested"
+        else {"deleted_at": 200.0}
+    )
+    store, _, projector = _install_stores(
+        monkeypatch,
+        _entry(
+            entry_id="me-terminal-retry",
+            **terminal_fields,
+        ),
+    )
+    projector.fail_ensure_count = 1
+
+    with pytest.raises(HTTPException) as error:
+        if operation == "create":
+            await routes.create_manual_entry(
+                routes.ManualEntryCreateBody(
+                    entry_id="me-terminal-retry",
+                    body="before",
+                )
+            )
+        elif operation == "update":
+            await routes.update_manual_entry(
+                "me-terminal-retry",
+                routes.ManualEntryUpdateBody(body="retry after lost response"),
+            )
+        else:
+            await routes.clear_manual_entry_weather("me-terminal-retry")
+
+    assert error.value.status_code == 409
+    assert error.value.detail == {
+        "code": "manual_entry_memory_forgotten",
+        "reason": "source_reference",
+        "retry_as_new": True,
+        "source_preserved": False,
+        "message": (
+            "This occurrence is covered by a durable memory-forget rule"
+        ),
+    }
+    assert getattr(store.entry, f"{terminal_state}_at") == 200.0
 
 
 @pytest.mark.asyncio
@@ -767,7 +1240,7 @@ async def test_public_manual_entry_list_never_returns_deleted_rows(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_weather_clear_cleanup_failure_preserves_weather_then_retry_reprojects(
+async def test_weather_clear_cleanup_failure_hides_reserved_change_then_retries(
     monkeypatch,
 ):
     store, memory, projector = _install_stores(monkeypatch, _entry())
@@ -777,15 +1250,16 @@ async def test_weather_clear_cleanup_failure_preserves_weather_then_retry_reproj
         await routes.clear_manual_entry_weather("manual-1")
 
     assert error.value.status_code == 503
-    assert store.entry.weather == {"code": 1, "temp_c": 20.0}
-    assert projector.calls == []
+    assert store.entry.weather is None
+    assert store.entry.pending_l1_event_id is not None
+    assert len(projector.calls) == 1
 
     result = await routes.clear_manual_entry_weather("manual-1")
 
     assert result["weather"] is None
     assert store.entry.weather is None
     assert store.entry.l1_event_id.startswith("event-new-")
-    assert memory.source_item_block_flags == [("event-old", "manual_entry_weather_clear", False)]
+    assert memory.source_item_block_flags == [("event-old", "manual_entry_weather_repair", False)]
 
 
 @pytest.mark.asyncio
@@ -809,7 +1283,7 @@ async def test_weather_projection_failure_is_repaired_when_clear_is_retried(monk
 @pytest.mark.asyncio
 async def test_weather_clear_persistence_failure_preserves_value_for_retry(monkeypatch):
     store, _, _ = _install_stores(monkeypatch, _entry())
-    store.fail_weather_count = 1
+    store.fail_replace_count = 1
 
     with pytest.raises(HTTPException) as error:
         await routes.clear_manual_entry_weather("manual-1")
@@ -822,7 +1296,7 @@ async def test_weather_clear_persistence_failure_preserves_value_for_retry(monke
 
 
 @pytest.mark.asyncio
-async def test_event_time_update_never_projects_unpersisted_replacement_weather(monkeypatch):
+async def test_event_time_update_persists_and_projects_one_weather_snapshot(monkeypatch):
     class _WeatherFetcher:
         async def fetch(self, **_kwargs):
             return {"code": 9, "temp_c": 30.0}
@@ -832,17 +1306,15 @@ async def test_event_time_update_never_projects_unpersisted_replacement_weather(
         _entry(location_lat=30.0, location_lng=120.0),
         weather_fetcher=_WeatherFetcher(),
     )
-    store.fail_weather_count = 1
-
     result = await routes.update_manual_entry(
         "manual-1",
         routes.ManualEntryUpdateBody(event_at=1000.0),
     )
 
     assert result["event_at"] == 1000.0
-    assert result["weather"] is None
-    assert store.entry.weather is None
-    assert projector.calls[-1][2] is None
+    assert result["weather"] == {"code": 9, "temp_c": 30.0}
+    assert store.entry.weather == {"code": 9, "temp_c": 30.0}
+    assert projector.calls[-1][2] == {"code": 9, "temp_c": 30.0}
 
 
 @pytest.mark.asyncio
@@ -878,6 +1350,10 @@ async def test_real_failed_completion_delete_removes_l1_through_l4(
         assert memory.l3 is not None
         assert memory.l4 is not None
         store = ManualEntryStore(db_path=str(memory_db))
+        memory.register_source_forget_owner(
+            "manual_entry",
+            ManualEntrySourceForgetOwner(store=store),
+        )
         assets = ManualEntryAssetStore(media_root=tmp_path / "media")
         projector = ManualEntryL1Projector(memory=memory)
         original_complete = store.complete_l1_projection
@@ -897,11 +1373,13 @@ async def test_real_failed_completion_delete_removes_l1_through_l4(
             lambda: (store, assets, projector, None, None, memory),
         )
 
-        with pytest.raises(HTTPException) as error:
-            await routes.create_manual_entry(
-                routes.ManualEntryCreateBody(body="private manual source")
+        create_result = await routes.create_manual_entry(
+            routes.ManualEntryCreateBody(
+                entry_id="me-private-manual-source",
+                body="private manual source",
             )
-        assert error.value.status_code == 503
+        )
+        assert create_result["memory_status"] == "pending"
 
         entries = await store.list_window(time_start=0, time_end=10**12)
         assert len(entries) == 1

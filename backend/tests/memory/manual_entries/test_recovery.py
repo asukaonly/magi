@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import copy
+from dataclasses import replace
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from magi.bootstrap.context import RuntimeBootstrapContext
+from magi.core.sqlite import sqlite_connection_async
 from magi.memory.manual_entries import (
     ManualEntry,
     ManualEntryL1Projector,
@@ -35,32 +38,77 @@ def _entry(entry_id: str, *, body: str) -> ManualEntry:
 class _FakeL1:
     def __init__(self) -> None:
         self.events: dict[str, dict] = {}
+        self.active_state_batches = 0
+        self.fail_active_state_batches = 0
 
     async def get_event(self, event_id: str):
         event = self.events.get(event_id)
         return copy.deepcopy(event) if event is not None else None
 
+    async def get_raw_event_active_states(self, event_ids: list[str]):
+        self.active_state_batches += 1
+        if self.fail_active_state_batches:
+            self.fail_active_state_batches -= 1
+            raise RuntimeError("injected linked-state batch failure")
+        return {
+            event_id: event["deleted_at"] is None
+            for event_id in event_ids
+            if (event := self.events.get(event_id)) is not None
+        }
+
 
 class _FakeMemory:
     def __init__(self) -> None:
         self.operation_barrier = AsyncOperationBarrier()
+        self._write_lock = asyncio.Lock()
         self.l1 = _FakeL1()
         self.fail_forget_count = 0
+        self.source_forget_owners: dict[str, object] = {}
+        self.forget_recovery_calls: list[dict] = []
+        self.source_forget_owners_at_recovery: list[set[str]] = []
 
     def memory_operation_guard(self):
         return self.operation_barrier.operation()
 
-    async def store_governed_l1_event(self, event) -> str:
+    @asynccontextmanager
+    async def governed_l1_write_guard(self):
         async with self.memory_operation_guard():
-            self.l1.events.setdefault(
-                event.event_id,
-                {
-                    "event_id": event.event_id,
-                    "source_item_id": event.source_item_id,
-                    "deleted_at": None,
-                },
-            )
-            return event.event_id
+            async with self._write_lock:
+                yield
+
+    async def governed_l1_event_rejection_reason(self, _event):
+        return None
+
+    async def governed_l1_event_rejection_reason_guarded(self, _event):
+        return None
+
+    async def store_governed_l1_event_under_write_lock(self, event) -> str:
+        self.l1.events.setdefault(
+            event.event_id,
+            {
+                "event_id": event.event_id,
+                "source_item_id": event.source_item_id,
+                "deleted_at": None,
+            },
+        )
+        return event.event_id
+
+    async def store_governed_l1_event(self, event) -> str:
+        async with self.governed_l1_write_guard():
+            return await self.store_governed_l1_event_under_write_lock(event)
+
+    def register_source_forget_owner(self, name: str, owner: object) -> None:
+        self.source_forget_owners[name] = owner
+
+    def unregister_source_forget_owner(self, name: str) -> None:
+        self.source_forget_owners.pop(name, None)
+
+    async def resume_pending_forget_operations(self, **kwargs):
+        self.forget_recovery_calls.append(dict(kwargs))
+        self.source_forget_owners_at_recovery.append(
+            set(self.source_forget_owners)
+        )
+        return {"found": 0, "completed": 0, "failed": 0}
 
     async def forget_known_source_events(
         self,
@@ -90,6 +138,16 @@ class _FakeMemory:
             return changed
 
 
+class _CountingManualEntryStore(ManualEntryStore):
+    def __init__(self, *, db_path: str) -> None:
+        super().__init__(db_path=db_path)
+        self.get_calls = 0
+
+    async def get(self, entry_id: str):
+        self.get_calls += 1
+        return await super().get(entry_id)
+
+
 async def _project(
     store: ManualEntryStore,
     projector: ManualEntryL1Projector,
@@ -101,6 +159,112 @@ async def _project(
         projector=projector,
         memory=memory,
     ).project_and_link(entry=entry, predecessor_event_id=None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_count", [2_000, 4_000])
+async def test_startup_verifies_linked_entries_in_bounded_batches(
+    manual_entry_db: str,
+    entry_count: int,
+) -> None:
+    store = _CountingManualEntryStore(db_path=manual_entry_db)
+    memory = _FakeMemory()
+    rows = [
+        (
+            f"me-scale-{index:05d}",
+            100.0,
+            100.0,
+            "quick",
+            "healthy",
+            "[]",
+            f"event-scale-{index:05d}",
+        )
+        for index in range(entry_count)
+    ]
+    async with sqlite_connection_async(manual_entry_db) as db:
+        await db.executemany(
+            """
+            INSERT INTO manual_entries(
+                entry_id, created_at, event_at, kind, body,
+                attachments_json, l1_event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        await db.commit()
+    memory.l1.events = {
+        event_id: {
+            "event_id": event_id,
+            "source_item_id": entry_id,
+            "deleted_at": None,
+        }
+        for entry_id, _, _, _, _, _, event_id in rows
+    }
+    service = ManualEntryRecoveryService(
+        store=store,
+        projector=ManualEntryL1Projector(memory=memory),
+        memory=memory,
+        page_size=500,
+        interval_seconds=0,
+    )
+
+    stats = await service.start()
+
+    assert stats.to_dict() == {
+        "scanned": entry_count,
+        "recovered": 0,
+        "failed": 0,
+        "skipped": entry_count,
+    }
+    assert store.get_calls == 0
+    assert memory.l1.active_state_batches == entry_count // 500
+
+
+@pytest.mark.asyncio
+async def test_linked_batch_failure_retries_only_exact_entry_ids(
+    manual_entry_db: str,
+) -> None:
+    store = _CountingManualEntryStore(db_path=manual_entry_db)
+    memory = _FakeMemory()
+    projector = ManualEntryL1Projector(memory=memory)
+    for index in range(3):
+        entry = _entry(f"me-exact-retry-{index}", body="healthy")
+        await store.create(entry)
+        await _project(store, projector, memory, entry)
+    memory.l1.fail_active_state_batches = 1
+    service = ManualEntryRecoveryService(
+        store=store,
+        projector=projector,
+        memory=memory,
+        page_size=10,
+        interval_seconds=0,
+    )
+
+    startup = await service.start()
+    store.get_calls = 0
+    retry = await service.recover_pending(verify_linked=False)
+    after_retry = await service.recover_pending(verify_linked=False)
+
+    assert startup.to_dict() == {
+        "scanned": 3,
+        "recovered": 0,
+        "failed": 3,
+        "skipped": 0,
+    }
+    assert retry.to_dict() == {
+        "scanned": 3,
+        "recovered": 0,
+        "failed": 0,
+        "skipped": 3,
+    }
+    assert after_retry.to_dict() == {
+        "scanned": 0,
+        "recovered": 0,
+        "failed": 0,
+        "skipped": 0,
+    }
+    assert store.get_calls == 0
+    assert memory.l1.active_state_batches == 2
 
 
 @pytest.mark.asyncio
@@ -152,10 +316,10 @@ async def test_recovery_pages_every_candidate_and_leaves_healthy_rows_untouched(
     stats = await service.start()
 
     assert stats.to_dict() == {
-        "scanned": 3,
+        "scanned": 4,
         "recovered": 3,
         "failed": 0,
-        "skipped": 0,
+        "skipped": 1,
     }
     recovered_pending = await store.get(pending.entry_id)
     recovered_half = await store.get(half_created.entry_id)
@@ -221,6 +385,86 @@ async def test_failed_delete_recovery_stays_hidden_and_succeeds_on_retry(
 
 
 @pytest.mark.asyncio
+async def test_startup_repairs_linked_row_when_its_l1_event_is_missing(
+    manual_entry_db: str,
+) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    memory = _FakeMemory()
+    projector = ManualEntryL1Projector(memory=memory)
+    entry = _entry("me-missing-linked", body="keep me")
+    entry.l1_event_id = "event-missing"
+    await store.create(entry)
+
+    service = ManualEntryRecoveryService(
+        store=store,
+        projector=projector,
+        memory=memory,
+        interval_seconds=0,
+    )
+    stats = await service.start()
+
+    repaired = await store.get(entry.entry_id)
+    assert stats.to_dict() == {
+        "scanned": 1,
+        "recovered": 1,
+        "failed": 0,
+        "skipped": 0,
+    }
+    assert repaired is not None
+    assert repaired.l1_event_id is not None
+    assert repaired.l1_event_id != "event-missing"
+    assert repaired.pending_l1_event_id is None
+    assert memory.l1.events["event-missing"]["deleted_at"] is not None
+    assert memory.l1.events[repaired.l1_event_id]["deleted_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_startup_finishes_replacement_reserved_before_old_cleanup(
+    manual_entry_db: str,
+) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    memory = _FakeMemory()
+    projector = ManualEntryL1Projector(memory=memory)
+    original = _entry("me-reserved-replacement", body="before")
+    await store.create(original)
+    await _project(store, projector, memory, original)
+    old_event_id = original.l1_event_id
+    assert old_event_id is not None
+
+    replacement = replace(original, body="after")
+    new_event_id = projector.event_id_for(
+        replacement,
+        predecessor_event_id=old_event_id,
+    )
+    assert await store.replace_and_reserve_l1_projection(
+        replacement,
+        new_event_id,
+        expected_previous_event_id=old_event_id,
+    )
+    assert await store.list_window(time_start=0.0, time_end=1000.0) == []
+    assert memory.l1.events[old_event_id]["deleted_at"] is None
+
+    service = ManualEntryRecoveryService(
+        store=store,
+        projector=projector,
+        memory=memory,
+        interval_seconds=0,
+    )
+    stats = await service.start()
+
+    recovered = await store.get(original.entry_id)
+    assert stats.recovered == 1
+    assert recovered is not None
+    assert recovered.body == "after"
+    assert recovered.l1_event_id == new_event_id
+    assert recovered.pending_l1_event_id is None
+    assert memory.l1.events[old_event_id]["deleted_at"] is not None
+    assert memory.l1.events[new_event_id]["deleted_at"] is None
+    visible = await store.list_window(time_start=0.0, time_end=1000.0)
+    assert [entry.body for entry in visible] == ["after"]
+
+
+@pytest.mark.asyncio
 async def test_lifecycle_recovers_half_created_entry_before_init_returns(
     manual_entry_db: str,
     tmp_path: Path,
@@ -244,6 +488,16 @@ async def test_lifecycle_recovers_half_created_entry_before_init_returns(
         assert recovered is not None
         assert recovered.l1_event_id is not None
         assert context.manual_entries.recovery_service is not None
+        assert memory.forget_recovery_calls == [
+            {
+                "force": True,
+                "fail_on_barrier_error": True,
+            }
+        ]
+        assert memory.source_forget_owners_at_recovery == [
+            {"manual_entry"}
+        ]
+        assert "manual_entry" in memory.source_forget_owners
     finally:
         await module.shutdown()
 

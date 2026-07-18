@@ -14,11 +14,20 @@ from magi.memory.event_contracts import (
     RetentionClass,
     TomDepth,
 )
-from magi.memory.forgetting import DurableForgetRunner
+from magi.memory.forgetting import (
+    DurableForgetRunner,
+    SourceForgetBatch,
+    SourceForgetClaim,
+    SourceForgetGateResult,
+    SourceForgetIdentity,
+    SourceForgetOwnerRegistry,
+    SourceForgetOwnerUnavailableError,
+)
 from magi.memory.forgetting.references import ForgetReferenceBuilder
 from magi.memory.l3.daily_mood.models import DailyMoodAggregate
 from magi.memory.l3.daily_mood.store import DailyMoodAggregateStore
 from magi.memory.operation_barrier import AsyncOperationBarrier
+from magi.memory.source_event_governance import business_source_references
 from magi.memory.store_source_event_forgetting import UnifiedSourceEventForgettingMixin
 from magi.memory.unified_store import MemoryStoreTuning, UnifiedMemoryStore
 
@@ -125,6 +134,88 @@ async def _create_memory_schema(db_path: Path) -> None:
     await apply_memory_shared_schema(str(db_path))
 
 
+class _ClaimingSourceOwner:
+    def __init__(self, result: SourceForgetGateResult) -> None:
+        self.result = result
+
+    async def gate(
+        self,
+        _batch: SourceForgetBatch,
+    ) -> SourceForgetGateResult:
+        return self.result
+
+    async def finalize(
+        self,
+        _claims: tuple[SourceForgetClaim, ...],
+    ) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("claim_source", "claim_item_id"),
+    (
+        ("other-source", "item-1"),
+        ("owned-source", "other-item"),
+    ),
+)
+async def test_source_owner_cannot_claim_an_unrouted_source_identity(
+    claim_source: str,
+    claim_item_id: str,
+) -> None:
+    registry = SourceForgetOwnerRegistry()
+    registry.register(
+        "owned-source",
+        _ClaimingSourceOwner(
+            SourceForgetGateResult(
+                claims=(
+                    SourceForgetClaim(
+                        source=claim_source,
+                        source_item_id=claim_item_id,
+                        event_ids=("current-event",),
+                    ),
+                ),
+            )
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="claim outside its source batch"):
+        await registry.gate(
+            SourceForgetBatch(
+                operation_id="forget:claim-boundary",
+                selector_kind="known_events",
+                identities=(
+                    SourceForgetIdentity(
+                        event_id="selected-event",
+                        source="owned-source",
+                        source_item_id="item-1",
+                    ),
+                ),
+                reason="user_forget",
+                block_source_item=True,
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_persisted_claim_requires_owner_even_for_optional_source() -> None:
+    registry = SourceForgetOwnerRegistry()
+
+    with pytest.raises(
+        SourceForgetOwnerUnavailableError,
+        match="Claimed source-forget owner is unavailable",
+    ):
+        await registry.finalize(
+            (
+                SourceForgetClaim(
+                    source="future-source",
+                    source_item_id="item-1",
+                    event_ids=("event-1",),
+                ),
+            )
+        )
+
+
 @pytest.mark.asyncio
 async def test_unified_forgetting_hides_l1_before_retrying_failed_cleanup(
     tmp_path: Path,
@@ -227,6 +318,50 @@ async def test_known_event_forgetting_uses_stable_sorted_batches(
     assert deleted == 2
     assert memory.l1.events["evt-0"]["deleted_at"] is not None
     assert memory.l1.events["evt-1"]["deleted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_unowned_source_keeps_source_item_and_idempotency_barriers(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "memory.db"
+    await _create_memory_schema(db_path)
+    memory = _UnifiedHarness(db_path)
+    memory.l1.events["evt-1"].update(
+        {
+            "event_type": "plugin.activity",
+            "source": "plugin-source",
+            "source_item_id": "item-1",
+            "idempotency_key": "idem-1",
+        }
+    )
+
+    await memory.forget_known_source_events(
+        ["evt-1"],
+        reason="user_forget_plugin_event",
+        block_source_item=True,
+    )
+
+    expected = {
+        "evt-1",
+        *business_source_references(
+            source="plugin-source",
+            event_type="plugin.activity",
+            source_item_id="item-1",
+            idempotency_key="idem-1",
+        ),
+    }
+    async with aiosqlite.connect(db_path) as db:
+        async with db.execute(
+            """
+            SELECT event_id
+            FROM memory_source_event_tombstones
+            WHERE event_id IN (?, ?, ?)
+            """,
+            tuple(sorted(expected)),
+        ) as cursor:
+            persisted = {str(row[0]) for row in await cursor.fetchall()}
+    assert persisted == expected
 
 
 @pytest.mark.asyncio

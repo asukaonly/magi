@@ -25,6 +25,7 @@ from ...core.logger import get_logger
 from .asset_store import ManualEntryAssetStore
 from .l1_projector import ManualEntryL1Projector
 from .recovery import ManualEntryRecoveryService
+from .source_forgetting import ManualEntrySourceForgetOwner
 from .store import ManualEntryStore
 from .weather_fetcher import WeatherFetcher
 
@@ -35,6 +36,7 @@ _BINDINGS = (
     "manual_entry_asset_store",
     "manual_entry_weather_fetcher",
 )
+_SOURCE_FORGET_OWNER_NAME = "manual_entry"
 
 
 class ManualEntriesModule(LifecycleModule):
@@ -66,6 +68,7 @@ class ManualEntriesModule(LifecycleModule):
             projector=projector,
             memory=memory,
         )
+        source_forget_owner = ManualEntrySourceForgetOwner(store=store)
 
         slot = self._context.manual_entries
         slot.store = store
@@ -77,9 +80,31 @@ class ManualEntriesModule(LifecycleModule):
         container.manual_entry_store.override(providers.Object(store))
         container.manual_entry_asset_store.override(providers.Object(asset_store))
         container.manual_entry_weather_fetcher.override(providers.Object(weather_fetcher))
-        recovery_stats = await recovery_service.start()
+        owner_registered = False
+        try:
+            memory.register_source_forget_owner(
+                _SOURCE_FORGET_OWNER_NAME,
+                source_forget_owner,
+            )
+            owner_registered = True
+            forget_recovery = await memory.resume_pending_forget_operations(
+                force=True,
+                fail_on_barrier_error=True,
+            )
+            recovery_stats = await recovery_service.start()
+        except BaseException:
+            if owner_registered:
+                memory.unregister_source_forget_owner(_SOURCE_FORGET_OWNER_NAME)
+            for name in _BINDINGS:
+                getattr(container, name).reset_override()
+            slot.store = None
+            slot.asset_store = None
+            slot.weather_fetcher = None
+            slot.recovery_service = None
+            raise
         logger.info(
             "Manual-entries subsystem initialized",
+            forget_recovery=forget_recovery,
             recovery=recovery_stats.to_dict(),
         )
 
@@ -87,6 +112,9 @@ class ManualEntriesModule(LifecycleModule):
         slot = self._context.manual_entries
         if slot.recovery_service is not None:
             await slot.recovery_service.stop()
+        memory = self._context.memory.unified_memory
+        if memory is not None:
+            memory.unregister_source_forget_owner(_SOURCE_FORGET_OWNER_NAME)
         container = get_container()
         for name in _BINDINGS:
             try:

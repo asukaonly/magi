@@ -12,10 +12,22 @@ from contextlib import asynccontextmanager, suppress
 from typing import Any
 
 from .cleanup import ForgetLayerCleanup
-from .models import ForgetOperation, ForgetOutcome, ForgetReference, ForgetSelector
+from .models import (
+    ForgetOperation,
+    ForgetOutcome,
+    ForgetReference,
+    ForgetSelector,
+    SelectedEvent,
+)
 from .references import ForgetReferenceBuilder
 from .repository import ForgetOperationRepository
 from .selectors import ForgetSelectorResolver
+from .source_owners import (
+    SourceForgetBatch,
+    SourceForgetClaim,
+    SourceForgetGateResult,
+    SourceForgetIdentity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -326,13 +338,90 @@ class DurableForgetRunner:
                 )
                 if not selected_events:
                     break
-                event_ids = [event.event_id for event in selected_events]
-                references = await self._references.event_references(
-                    event_ids,
-                    include_turn_references=include_turn,
-                    block_source_item=block_source_item,
+                selected_event_ids = [
+                    event.event_id for event in selected_events
+                ]
+                event_ids = list(selected_event_ids)
+                source_gate = SourceForgetGateResult()
+                if block_source_item:
+                    source_identities = await self._source_identities(event_ids)
+                    gate_source_owners = getattr(
+                        self._host,
+                        "_notify_source_forget_owners",
+                        None,
+                    )
+                    if callable(gate_source_owners):
+                        source_gate = await gate_source_owners(
+                            SourceForgetBatch(
+                                operation_id=current.operation_id,
+                                selector_kind=current.selector.kind,
+                                identities=source_identities,
+                                reason=current.reason,
+                                block_source_item=True,
+                            )
+                        )
+                    claimed_event_ids = {
+                        event_id
+                        for claim in source_gate.claims
+                        for event_id in claim.event_ids
+                    }
+                    extra_event_ids = sorted(
+                        claimed_event_ids - set(event_ids)
+                    )
+                    if extra_event_ids:
+                        active_states = (
+                            await self._host.l1.get_raw_event_active_states(
+                                extra_event_ids
+                            )
+                            if self._host.l1 is not None
+                            else {}
+                        )
+                        selected_events.extend(
+                            SelectedEvent(
+                                event_id=event_id,
+                                was_active=bool(active_states.get(event_id)),
+                            )
+                            for event_id in extra_event_ids
+                        )
+                        event_ids.extend(extra_event_ids)
+                exact_only_event_ids = set(
+                    source_gate.exact_only_event_ids
                 )
-                after_event_id = event_ids[-1]
+                source_blocked_event_ids = [
+                    event_id
+                    for event_id in event_ids
+                    if event_id not in exact_only_event_ids
+                ]
+                exact_only_event_ids = [
+                    event_id
+                    for event_id in event_ids
+                    if event_id in exact_only_event_ids
+                ]
+                references = (
+                    *await self._references.event_references(
+                        source_blocked_event_ids,
+                        include_turn_references=include_turn,
+                        block_source_item=block_source_item,
+                    ),
+                    *await self._references.event_references(
+                        exact_only_event_ids,
+                        include_turn_references=include_turn,
+                        block_source_item=False,
+                    ),
+                )
+                references = (
+                    *references,
+                    *(
+                        ForgetReference(
+                            "",
+                            "target",
+                            "source_owner",
+                            self._encode_source_claim(claim),
+                        )
+                        for claim in source_gate.claims
+                    ),
+                )
+                after_event_id = selected_event_ids[-1]
                 await self._repository.persist_event_page(
                     current.operation_id,
                     events=selected_events,
@@ -407,9 +496,9 @@ class DurableForgetRunner:
                     end=float(payload["end"]),
                 )
             )
-            target_result["projection_source_references"] = (
-                await self._cleanup_time_range_projection_sources(operation)
-            )
+            target_result[
+                "projection_source_references"
+            ] = await self._cleanup_time_range_projection_sources(operation)
         elif selector.kind == "episode":
             if self._host.l2 is None:
                 raise RuntimeError("L2 store is required to forget an episode")
@@ -524,7 +613,7 @@ class DurableForgetRunner:
                 limit=_CLEANUP_BATCH_SIZE,
             )
             if not event_ids:
-                return
+                break
             references = await self._repository.cleanup_references_for_events(
                 operation.operation_id,
                 event_ids,
@@ -538,6 +627,98 @@ class DurableForgetRunner:
                 operation.operation_id,
                 event_ids,
             )
+        await self._finalize_source_owner_claims(operation)
+
+    async def _source_identities(
+        self,
+        event_ids: list[str],
+    ) -> tuple[SourceForgetIdentity, ...]:
+        if self._host.l1 is None or not event_ids:
+            return ()
+        raw = await self._host.l1.get_raw_event_source_identities(event_ids)
+        identities: list[SourceForgetIdentity] = []
+        for event_id in event_ids:
+            identity = raw.get(event_id)
+            if not identity:
+                continue
+            source = str(identity.get("source") or "").strip()
+            source_item_id = str(identity.get("source_item_id") or "").strip()
+            if source and source_item_id:
+                identities.append(
+                    SourceForgetIdentity(
+                        event_id=event_id,
+                        source=source,
+                        source_item_id=source_item_id,
+                    )
+                )
+        return tuple(identities)
+
+    async def _finalize_source_owner_claims(
+        self,
+        operation: ForgetOperation,
+    ) -> None:
+        encoded_claims = await self._repository.target_references(
+            operation.operation_id,
+            ref_type="source_owner",
+        )
+        finalize_source_owners = getattr(
+            self._host,
+            "_finalize_source_forget_owners",
+            None,
+        )
+        if not callable(finalize_source_owners):
+            return
+        claims: dict[tuple[str, str], SourceForgetClaim] = {}
+        for encoded in encoded_claims:
+            claim = self._decode_source_claim(encoded)
+            if claim is None:
+                raise RuntimeError(
+                    "Persisted source-forget owner claim is invalid"
+                )
+            key = (claim.source, claim.source_item_id)
+            previous = claims.get(key)
+            claims[key] = SourceForgetClaim(
+                source=claim.source,
+                source_item_id=claim.source_item_id,
+                event_ids=(
+                    *(() if previous is None else previous.event_ids),
+                    *claim.event_ids,
+                ),
+            )
+        await finalize_source_owners(tuple(claims.values()))
+
+    @staticmethod
+    def _encode_source_claim(claim: SourceForgetClaim) -> str:
+        return json.dumps(
+            {
+                "event_ids": list(claim.event_ids),
+                "source": claim.source,
+                "source_item_id": claim.source_item_id,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+
+    @staticmethod
+    def _decode_source_claim(value: str) -> SourceForgetClaim | None:
+        try:
+            payload = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        try:
+            return SourceForgetClaim(
+                source=str(payload.get("source") or ""),
+                source_item_id=str(payload.get("source_item_id") or ""),
+                event_ids=tuple(
+                    str(event_id)
+                    for event_id in payload.get("event_ids", [])
+                ),
+            )
+        except (TypeError, ValueError):
+            return None
 
     async def _cleanup_reference_batch(
         self,

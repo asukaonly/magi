@@ -6262,6 +6262,8 @@ export interface components {
             readonly body_doc?: {
                 readonly [key: string]: unknown;
             } | null;
+            /** Entry Id */
+            readonly entry_id: string;
             /** Event At */
             readonly event_at?: number | null;
             /** Location Label */
@@ -6272,6 +6274,53 @@ export interface components {
             readonly location_lng?: number | null;
             /** Mood */
             readonly mood?: string | null;
+        };
+        /**
+         * ManualEntryCreateResponse
+         * @description Public entry plus the readiness of its derived memory.
+         */
+        readonly ManualEntryCreateResponse: {
+            /** Attachments */
+            readonly attachments: readonly string[];
+            /** Body */
+            readonly body: string;
+            /** Body Doc */
+            readonly body_doc?: {
+                readonly [key: string]: unknown;
+            } | null;
+            /** Created At */
+            readonly created_at: number;
+            /** Deleted At */
+            readonly deleted_at?: number | null;
+            /** Entry Id */
+            readonly entry_id: string;
+            /** Event At */
+            readonly event_at: number;
+            /** Exclude From Llm */
+            readonly exclude_from_llm: boolean;
+            /** Kind */
+            readonly kind: string;
+            /** L1 Event Id */
+            readonly l1_event_id?: string | null;
+            /** Location Label */
+            readonly location_label?: string | null;
+            /** Location Lat */
+            readonly location_lat?: number | null;
+            /** Location Lng */
+            readonly location_lng?: number | null;
+            /**
+             * Memory Status
+             * @enum {string}
+             */
+            readonly memory_status: "ready" | "pending";
+            /** Mood */
+            readonly mood?: string | null;
+            /** User Pinned */
+            readonly user_pinned: boolean;
+            /** Weather */
+            readonly weather?: {
+                readonly [key: string]: unknown;
+            } | null;
         };
         /** ManualEntryUpdateBody */
         readonly ManualEntryUpdateBody: {
@@ -13337,7 +13386,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": unknown;
+                    readonly "application/json": components["schemas"]["ManualEntryCreateResponse"];
                 };
             };
             /** @description Validation Error */

@@ -35,7 +35,32 @@ from .models import ManualEntry
 
 
 class _GovernedL1WriteProtocol(Protocol):
+    def governed_l1_write_guard(self): ...
+
     async def store_governed_l1_event(self, event: MemoryEvent) -> str | None: ...
+
+    async def governed_l1_event_rejection_reason(
+        self,
+        event: MemoryEvent,
+    ) -> str | None: ...
+
+    async def governed_l1_event_rejection_reason_guarded(
+        self,
+        event: MemoryEvent,
+    ) -> str | None: ...
+
+    async def store_governed_l1_event_under_write_lock(
+        self,
+        event: MemoryEvent,
+    ) -> str | None: ...
+
+
+class ManualEntryProjectionGovernedError(RuntimeError):
+    """A durable forget rule rejected the manual-entry projection."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("Manual-entry projection is blocked by memory governance")
+        self.reason = str(reason or "source_reference")
 
 
 # Event type tag used by L1 + downstream consumers. Distinct from
@@ -137,6 +162,10 @@ class ManualEntryL1Projector:
     def __init__(self, *, memory: _GovernedL1WriteProtocol) -> None:
         self._memory = memory
 
+    def governed_write_guard(self):
+        """Return the memory-owned lock shared with durable forget selection."""
+        return self._memory.governed_l1_write_guard()
+
     @staticmethod
     def event_id_for(
         entry: ManualEntry,
@@ -145,6 +174,40 @@ class ManualEntryL1Projector:
     ) -> str | None:
         """Return the stable identity for a retryable projection."""
         return _projection_event_id(entry, predecessor_event_id)
+
+    async def ensure_projectable(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> None:
+        """Raise when a durable forget rule already governs this occurrence."""
+        event = _build_memory_event(
+            entry,
+            predecessor_event_id=predecessor_event_id,
+        )
+        reason = await self._memory.governed_l1_event_rejection_reason(event)
+        if reason is not None:
+            raise ManualEntryProjectionGovernedError(reason)
+
+    async def ensure_projectable_guarded(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> None:
+        """Check governance while the shared write guard is already held."""
+        event = _build_memory_event(
+            entry,
+            predecessor_event_id=predecessor_event_id,
+        )
+        reason = (
+            await self._memory.governed_l1_event_rejection_reason_guarded(
+                event
+            )
+        )
+        if reason is not None:
+            raise ManualEntryProjectionGovernedError(reason)
 
     async def project_current(
         self,
@@ -157,4 +220,44 @@ class ManualEntryL1Projector:
             entry,
             predecessor_event_id=predecessor_event_id,
         )
-        return await self._memory.store_governed_l1_event(event)
+        stored_event_id = await self._memory.store_governed_l1_event(event)
+        if stored_event_id is None:
+            reason = await self._memory.governed_l1_event_rejection_reason(
+                event
+            )
+            raise ManualEntryProjectionGovernedError(
+                reason or "source_reference"
+            )
+        return stored_event_id
+
+    async def project_current_guarded(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> str:
+        """Persist while the shared governed write guard is already held."""
+        event = _build_memory_event(
+            entry,
+            predecessor_event_id=predecessor_event_id,
+        )
+        stored_event_id = (
+            await self._memory.store_governed_l1_event_under_write_lock(event)
+        )
+        if stored_event_id is None:
+            reason = (
+                await self._memory.governed_l1_event_rejection_reason_guarded(
+                    event
+                )
+            )
+            raise ManualEntryProjectionGovernedError(
+                reason or "source_reference"
+            )
+        return stored_event_id
+
+
+__all__ = [
+    "MANUAL_ENTRY_EVENT_TYPE",
+    "ManualEntryL1Projector",
+    "ManualEntryProjectionGovernedError",
+]

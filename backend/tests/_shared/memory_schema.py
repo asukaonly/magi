@@ -54,6 +54,7 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v29_correction_revert_blocks.py",
     "v30_correction_request_fingerprints.py",
     "v31_correction_replacement_slot_index.py",
+    "v32_forget_source_owner_refs.py",
 )
 
 

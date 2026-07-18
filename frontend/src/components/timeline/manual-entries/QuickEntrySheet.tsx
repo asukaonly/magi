@@ -124,6 +124,98 @@ function nextDraftId(): string {
   return `draft-${Date.now()}-${_draftCounter}`;
 }
 
+function nextManualEntryId(): string {
+  return `me-${globalThis.crypto.randomUUID()}`;
+}
+
+function normalizeLocationHint(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+interface CreateAttempt {
+  fingerprint: string;
+  entryId: string;
+  eventAt: number;
+}
+
+function timeShiftFingerprint(shift: TimeShift): string {
+  switch (shift.kind) {
+    case 'now':
+    case 'this-morning':
+    case 'last-night':
+      return shift.kind;
+    case 'minus-hour':
+      return `${shift.kind}:${shift.hours}`;
+    case 'custom':
+      return `${shift.kind}:${shift.eventAt}`;
+  }
+}
+
+function createDraftFingerprint({
+  body,
+  bodyDoc,
+  mood,
+  location,
+  attachmentRefs,
+  timeShift,
+}: {
+  body: string;
+  bodyDoc: Record<string, unknown> | null;
+  mood: MoodValence | null;
+  location: string | null;
+  attachmentRefs: string[];
+  timeShift: TimeShift;
+}): string {
+  return JSON.stringify({
+    body: body.trim(),
+    bodyDoc,
+    mood,
+    location,
+    attachmentRefs,
+    timeShift: timeShiftFingerprint(timeShift),
+  });
+}
+
+interface MemoryForgetConflict {
+  reason: 'time_range' | 'source_reference' | null;
+  sourcePreserved: boolean | null;
+  retryAsNew: boolean | null;
+}
+
+function getMemoryForgetConflict(error: unknown): MemoryForgetConflict | null {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as {
+    code?: unknown;
+    details?: unknown;
+  };
+  const details = candidate.details && typeof candidate.details === 'object'
+    ? candidate.details as {
+      code?: unknown;
+      reason?: unknown;
+      source_preserved?: unknown;
+      retry_as_new?: unknown;
+    }
+    : null;
+  if (
+    candidate.code !== 'manual_entry_memory_forgotten'
+    && details?.code !== 'manual_entry_memory_forgotten'
+  ) {
+    return null;
+  }
+  return {
+    reason: details?.reason === 'time_range' || details?.reason === 'source_reference'
+      ? details.reason
+      : null,
+    sourcePreserved: typeof details?.source_preserved === 'boolean'
+      ? details.source_preserved
+      : null,
+    retryAsNew: typeof details?.retry_as_new === 'boolean'
+      ? details.retry_as_new
+      : null,
+  };
+}
+
 /** Editor mode. ``quick`` is a plain <textarea> — the default for new
  *  entries because most captures are short and the toolbar would feel
  *  ceremonial. ``long`` swaps in Tiptap with the full toolbar; entries
@@ -140,6 +232,12 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const { t } = useTranslation('app');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const createAttemptRef = useRef<CreateAttempt | null>(null);
+  const editRetryAsNewRef = useRef(false);
+  const wasOpenRef = useRef(false);
+  const initializedEntryKeyRef = useRef<string | null>(null);
+  const locationEditedRef = useRef(false);
+  const autoLocationLabelRef = useRef<string | null>(null);
 
   const [body, setBody] = useState('');
   const [mode, setMode] = useState<EditorMode>('quick');
@@ -168,10 +266,29 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
   const [weather, setWeather] = useState<ManualEntryWeather | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Pre-fill in edit mode; reset on open/close
+  // Initialize once per real open or entry switch. A late location resolver
+  // update must not reset text the user has already entered.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      wasOpenRef.current = false;
+      initializedEntryKeyRef.current = null;
+      createAttemptRef.current = null;
+      editRetryAsNewRef.current = false;
+      return;
+    }
+
+    const entryKey = existingEntry ? `edit:${existingEntry.entry_id}` : 'create';
+    if (wasOpenRef.current && initializedEntryKeyRef.current === entryKey) {
+      return;
+    }
+    wasOpenRef.current = true;
+    initializedEntryKeyRef.current = entryKey;
+    createAttemptRef.current = null;
+    editRetryAsNewRef.current = false;
+    locationEditedRef.current = false;
+
     if (existingEntry) {
+      autoLocationLabelRef.current = null;
       setBody(existingEntry.body);
       setBodyDoc(existingEntry.body_doc ?? null);
       // Entries that were saved with a rich doc open back into long
@@ -189,6 +306,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       setLocation(existingEntry.location_label);
       setWeather(existingEntry.weather ?? null);
     } else {
+      const initialAutoLocation = normalizeLocationHint(initialLocationLabel);
+      autoLocationLabelRef.current = initialAutoLocation;
       setBody('');
       setBodyDoc(null);
       // New entries always start in quick mode. The "📄 转长文" button
@@ -198,7 +317,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
       setAttachments([]);
       setMood(null);
       setTimeShift({ kind: 'now' });
-      setLocation(initialLocationLabel ?? null);
+      setLocation(initialAutoLocation);
       setWeather(null);
     }
     // Reset transient UI state on every open so stale edit flags from
@@ -206,6 +325,31 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     setTimePickerOpen(false);
     setMoodPickerOpen(false);
     setEditingLocation(false);
+  }, [open, existingEntry, initialLocationLabel]);
+
+  // Apply a location that resolves after the sheet opens without touching the
+  // rest of the draft. Once the user edits or clears location, their choice
+  // wins over later resolver updates. Freeze automatic enrichment after the
+  // first create attempt because an unknown response may already have
+  // committed the exact payload represented by createAttemptRef.
+  useEffect(() => {
+    if (
+      !open
+      || existingEntry
+      || locationEditedRef.current
+      || createAttemptRef.current
+    ) {
+      return;
+    }
+    const nextAutoLocation = normalizeLocationHint(initialLocationLabel);
+    if (!nextAutoLocation) {
+      return;
+    }
+    if (autoLocationLabelRef.current === nextAutoLocation) {
+      return;
+    }
+    autoLocationLabelRef.current = nextAutoLocation;
+    setLocation(nextAutoLocation);
   }, [open, existingEntry, initialLocationLabel]);
 
   // Free object URLs created for upload previews when the sheet closes.
@@ -299,9 +443,32 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     // would pollute quick-mode saves with an explicit empty document.
     // The backend's reader treats absent and null identically (falls
     // back to plain body), so omitting is the cleaner signal.
+    const requestedEventAt = shiftToEventAt(timeShift);
+    const createAsNew = !existingEntry || editRetryAsNewRef.current;
+    let createAttempt: CreateAttempt | null = null;
+    if (createAsNew) {
+      const fingerprint = createDraftFingerprint({
+        body,
+        bodyDoc,
+        mood,
+        location,
+        attachmentRefs: refs,
+        timeShift,
+      });
+      createAttempt = createAttemptRef.current;
+      if (!createAttempt || createAttempt.fingerprint !== fingerprint) {
+        createAttempt = {
+          fingerprint,
+          entryId: nextManualEntryId(),
+          eventAt: requestedEventAt,
+        };
+        createAttemptRef.current = createAttempt;
+      }
+    }
+    const eventAt = createAttempt?.eventAt ?? requestedEventAt;
     const payload = {
       body: body.trim(),
-      event_at: shiftToEventAt(timeShift),
+      event_at: eventAt,
       mood,
       location_label: location,
       attachment_refs: refs,
@@ -309,7 +476,8 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
     };
     try {
       let result: ManualEntry;
-      if (existingEntry) {
+      let memoryStatus: 'ready' | 'pending' = 'ready';
+      if (existingEntry && !createAsNew) {
         // Use the empty-string-clears convention for the two text
         // fields the backend supports clearing (mood, location_label).
         // For weather we hit a dedicated DELETE endpoint AFTER the
@@ -331,20 +499,59 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           // refreshed entry (with weather=null) for onSaved.
           try {
             result = await manualEntriesApi.clearWeather(existingEntry.entry_id);
-          } catch {
+          } catch (clearError) {
+            if (getMemoryForgetConflict(clearError)) {
+              throw clearError;
+            }
             // Non-fatal: the primary edit already landed. Worst case
             // the chip reappears on next open; user can try again.
           }
         }
       } else {
-        result = await manualEntriesApi.create(payload);
+        const created = await manualEntriesApi.create({
+          entry_id: createAttempt!.entryId,
+          ...payload,
+        });
+        result = created;
+        memoryStatus = created.memory_status;
       }
       toast.success(
-        t('timeline.manualEntry.savedToast', { defaultValue: '已记录' }),
+        memoryStatus === 'pending'
+          ? t('timeline.manualEntry.savedPendingToast', {
+            defaultValue: '已记录，相关记忆稍后完成',
+          })
+          : t('timeline.manualEntry.savedToast', { defaultValue: '已记录' }),
       );
       onSaved?.(result);
       onClose();
     } catch (err: any) {
+      const memoryForgetConflict = getMemoryForgetConflict(err);
+      if (memoryForgetConflict) {
+        // A rejected create cannot reuse its governed identity. An edit keeps
+        // targeting the original entry when the source survived. Only an
+        // explicitly terminalized edit is retried as a new record.
+        if (!existingEntry || createAsNew) {
+          createAttemptRef.current = null;
+        } else if (memoryForgetConflict.retryAsNew === true) {
+          editRetryAsNewRef.current = true;
+          createAttemptRef.current = null;
+        } else if (
+          memoryForgetConflict.sourcePreserved === true
+          && memoryForgetConflict.retryAsNew === false
+        ) {
+          editRetryAsNewRef.current = false;
+        }
+        toast.error(
+          memoryForgetConflict.reason === 'source_reference'
+            ? t('timeline.manualEntry.errors.forgottenSourceReference', {
+              defaultValue: '这条记录已被遗忘，如需保留请另存',
+            })
+            : t('timeline.manualEntry.errors.forgottenRange', {
+              defaultValue: '这个时间段已被遗忘，请调整时间后重新保存',
+            }),
+        );
+        return;
+      }
       toast.error(
         t('timeline.manualEntry.errors.saveFailed', {
           defaultValue: '保存失败',
@@ -634,6 +841,7 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           })}
           onBlur={(e) => {
             const v = e.target.value.trim();
+            locationEditedRef.current = true;
             setLocation(v ? v : null);
             setEditingLocation(false);
           }}
@@ -661,7 +869,10 @@ export const QuickEntrySheet: React.FC<QuickEntrySheetProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setLocation(null)}
+            onClick={() => {
+              locationEditedRef.current = true;
+              setLocation(null);
+            }}
             aria-label={t('timeline.manualEntry.clearLocation', { defaultValue: '清除地点' })}
             className="ml-0.5 text-muted-foreground hover:text-foreground"
           >

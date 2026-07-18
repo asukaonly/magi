@@ -86,6 +86,8 @@ export interface ListManualEntriesOptions {
 }
 
 export interface ManualEntryCreate {
+  /** Stable client-owned identity. Reuse it when retrying the same draft. */
+  entry_id: string;
   body: string;
   /** Optional ProseMirror JSON; if set, the entry round-trips with
    *  formatting preserved. Both fields are derived from the same
@@ -99,6 +101,11 @@ export interface ManualEntryCreate {
   location_lat?: number | null;
   location_lng?: number | null;
   attachment_refs?: string[];
+}
+
+export interface ManualEntryCreateResult extends ManualEntry {
+  /** Whether recall-ready memory is linked or will be completed in the background. */
+  memory_status: 'ready' | 'pending';
 }
 
 export interface ManualEntryUpdate {
@@ -142,8 +149,11 @@ export const manualEntriesApi = {
     return data.items || [];
   },
 
-  async create(body: ManualEntryCreate): Promise<ManualEntry> {
-    const response = await api.post<ManualEntry>(`/memory/manual-entries`, body);
+  async create(body: ManualEntryCreate): Promise<ManualEntryCreateResult> {
+    const response = await api.post<ManualEntryCreateResult>(
+      `/memory/manual-entries`,
+      body,
+    );
     return unwrapGatewayPayload(response);
   },
 

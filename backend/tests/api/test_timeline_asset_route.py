@@ -112,7 +112,7 @@ async def test_serve_asset_streams_apple_photos_metadata_file(tmp_path):
                         "representative_photos": [
                             {
                                 "asset_local_id": (
-                                    "apple-photos:" "9456A1CD-8623-4061-88F0-13BA88023FAA"
+                                    "apple-photos:9456A1CD-8623-4061-88F0-13BA88023FAA"
                                 ),
                                 "path": str(fake_file),
                             }
@@ -221,6 +221,45 @@ async def test_serve_asset_rejects_a_delete_gated_manual_entry(
     )
 
     assert await service.serve_asset(asset_ref=asset_ref) is None
+
+
+@pytest.mark.asyncio
+async def test_serve_asset_rejects_an_incomplete_manual_entry_replacement(
+    unified_memory_for_tests,
+    tmp_path,
+):
+    asset_store = ManualEntryAssetStore(media_root=tmp_path / "media")
+    old_asset_ref = asset_store.store_bytes(b"old-bytes", content_type="image/png")
+    new_asset_ref = asset_store.store_bytes(b"new-bytes", content_type="image/png")
+    entry_store = ManualEntryStore(db_path=unified_memory_for_tests.memory_db_path)
+    entry = ManualEntry(
+        entry_id="entry-replacement-pending",
+        created_at=time.time(),
+        event_at=time.time(),
+        body="before",
+        attachments=[old_asset_ref],
+        l1_event_id="event-old",
+    )
+    await entry_store.create(entry)
+    service = TimelineService(
+        unified_memory_for_tests,
+        manual_entry_asset_store=asset_store,
+    )
+    assert await service.serve_asset(asset_ref=old_asset_ref) == (
+        b"old-bytes",
+        "image/png",
+    )
+
+    entry.body = "after"
+    entry.attachments = [new_asset_ref]
+    assert await entry_store.replace_and_reserve_l1_projection(
+        entry,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+
+    assert await service.serve_asset(asset_ref=old_asset_ref) is None
+    assert await service.serve_asset(asset_ref=new_asset_ref) is None
 
 
 @pytest.mark.asyncio

@@ -5,15 +5,36 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
 
 from ...core.sqlite import sqlite_connection_async
+from ..source_event_governance import source_occurrence_visible_predicate
 from .models import ManualEntry
 
 _EXPECTED_L1_EVENT_UNSET = object()
+
+
+@dataclass(frozen=True, slots=True)
+class ManualEntryRecoveryIdentity:
+    """Lightweight source identity used by projection recovery scans."""
+
+    entry_id: str
+    l1_event_id: Optional[str]
+    pending_l1_event_id: Optional[str]
+    pending_l1_predecessor_event_id: Optional[str]
+    delete_requested_at: Optional[float]
+
+
+@dataclass(frozen=True, slots=True)
+class ManualEntrySourceForgetGate:
+    """Atomic current/obsolete classification for one selected source page."""
+
+    gated_entries: tuple[ManualEntryRecoveryIdentity, ...]
+    obsolete_event_ids: tuple[str, ...]
 
 
 class ManualEntryStore:
@@ -58,7 +79,11 @@ class ManualEntryStore:
                     entry.deleted_at,
                     entry.l1_event_id,
                     json.dumps(entry.weather, ensure_ascii=False) if entry.weather else None,
-                    json.dumps(entry.body_doc, ensure_ascii=False) if entry.body_doc else None,
+                    (
+                        json.dumps(entry.body_doc, ensure_ascii=False)
+                        if entry.body_doc is not None
+                        else None
+                    ),
                 ),
             )
             await db.commit()
@@ -145,6 +170,79 @@ class ManualEntryStore:
             cursor = await db.execute(sql, tuple(values))
             await db.commit()
             return cursor.rowcount > 0
+
+    async def replace_and_reserve_l1_projection(
+        self,
+        entry: ManualEntry,
+        event_id: str,
+        *,
+        expected_previous_event_id: Optional[str],
+    ) -> bool:
+        """Persist a replacement source snapshot and its L1 intent atomically."""
+        normalized_event_id = str(event_id).strip()
+        if not normalized_event_id:
+            raise ValueError("event_id must not be empty")
+
+        async with sqlite_connection_async(self.db_path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET event_at = ?,
+                        body = ?,
+                        mood = ?,
+                        location_label = ?,
+                        location_lat = ?,
+                        location_lng = ?,
+                        attachments_json = ?,
+                        exclude_from_llm = ?,
+                        user_pinned = ?,
+                        weather_json = ?,
+                        body_doc = ?,
+                        pending_l1_event_id = ?,
+                        pending_l1_predecessor_event_id = ?
+                    WHERE entry_id = ?
+                      AND deleted_at IS NULL
+                      AND delete_requested_at IS NULL
+                      AND l1_event_id IS ?
+                      AND (
+                          pending_l1_event_id IS NULL
+                          OR (
+                              pending_l1_event_id = ?
+                              AND pending_l1_predecessor_event_id IS ?
+                          )
+                      )
+                    """,
+                    (
+                        float(entry.event_at),
+                        entry.body,
+                        entry.mood,
+                        entry.location_label,
+                        entry.location_lat,
+                        entry.location_lng,
+                        json.dumps(entry.attachments or [], ensure_ascii=False),
+                        1 if entry.exclude_from_llm else 0,
+                        1 if entry.user_pinned else 0,
+                        (json.dumps(entry.weather, ensure_ascii=False) if entry.weather else None),
+                        (
+                            json.dumps(entry.body_doc, ensure_ascii=False)
+                            if entry.body_doc is not None
+                            else None
+                        ),
+                        normalized_event_id,
+                        expected_previous_event_id,
+                        entry.entry_id,
+                        expected_previous_event_id,
+                        normalized_event_id,
+                        expected_previous_event_id,
+                    ),
+                )
+                await db.commit()
+                return cursor.rowcount > 0
+            except BaseException:
+                await db.rollback()
+                raise
 
     async def reserve_l1_projection(
         self,
@@ -284,6 +382,189 @@ class ManualEntryStore:
                 await db.rollback()
                 raise
 
+    async def gate_source_forget_entries(
+        self,
+        selected_event_ids_by_entry: dict[str, tuple[str, ...]],
+        *,
+        requested_at: float,
+    ) -> ManualEntrySourceForgetGate:
+        """Gate entries only when the selection contains their current occurrence."""
+        normalized = {
+            str(entry_id).strip(): {
+                str(event_id).strip() for event_id in event_ids if str(event_id).strip()
+            }
+            for entry_id, event_ids in selected_event_ids_by_entry.items()
+            if str(entry_id).strip()
+        }
+        normalized = {
+            entry_id: event_ids for entry_id, event_ids in normalized.items() if event_ids
+        }
+        if not normalized:
+            return ManualEntrySourceForgetGate((), ())
+        if len(normalized) > 1000:
+            raise ValueError("selected_event_ids_by_entry must contain at most 1000 items")
+        encoded_ids = json.dumps(list(normalized), ensure_ascii=False)
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    """
+                    SELECT entry_id,
+                           l1_event_id,
+                           pending_l1_event_id,
+                           pending_l1_predecessor_event_id,
+                           delete_requested_at
+                    FROM manual_entries
+                    WHERE deleted_at IS NULL
+                      AND entry_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    ORDER BY entry_id
+                    """,
+                    (encoded_ids,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                gate_entry_ids = []
+                obsolete_event_ids: list[str] = []
+                for row in rows:
+                    entry_id = str(row["entry_id"])
+                    current_event_id = str(
+                        row["pending_l1_event_id"] or row["l1_event_id"] or ""
+                    ).strip()
+                    if not current_event_id:
+                        # Legacy/crash-shaped active rows have no durable
+                        # pointer that can prove the selected event obsolete.
+                        # The selected L1 event still names this source item,
+                        # so privacy requires gating the source immediately.
+                        gate_entry_ids.append(entry_id)
+                    elif current_event_id in normalized[entry_id]:
+                        gate_entry_ids.append(entry_id)
+                    else:
+                        obsolete_event_ids.extend(sorted(normalized[entry_id]))
+                if not gate_entry_ids:
+                    await db.commit()
+                    return ManualEntrySourceForgetGate(
+                        (),
+                        tuple(obsolete_event_ids),
+                    )
+                encoded_gate_ids = json.dumps(
+                    gate_entry_ids,
+                    ensure_ascii=False,
+                )
+                await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET delete_requested_at = COALESCE(delete_requested_at, ?)
+                    WHERE deleted_at IS NULL
+                      AND entry_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    """,
+                    (float(requested_at), encoded_gate_ids),
+                )
+                async with db.execute(
+                    """
+                    SELECT entry_id,
+                           l1_event_id,
+                           pending_l1_event_id,
+                           pending_l1_predecessor_event_id,
+                           delete_requested_at
+                    FROM manual_entries
+                    WHERE deleted_at IS NULL
+                      AND entry_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    ORDER BY entry_id
+                    """,
+                    (encoded_gate_ids,),
+                ) as cursor:
+                    gated_rows = await cursor.fetchall()
+                await db.commit()
+            except BaseException:
+                await db.rollback()
+                raise
+        return ManualEntrySourceForgetGate(
+            tuple(self._row_to_recovery_identity(row) for row in gated_rows),
+            tuple(obsolete_event_ids),
+        )
+
+    async def finalize_source_forget_entries(
+        self,
+        claims: dict[str, tuple[str, ...]],
+        *,
+        deleted_at: float,
+    ) -> int:
+        """Finalize one gated source batch after all claimed events are gone."""
+        normalized_claims = {
+            str(entry_id).strip(): set(
+                str(event_id).strip() for event_id in event_ids if str(event_id).strip()
+            )
+            for entry_id, event_ids in claims.items()
+            if str(entry_id).strip()
+        }
+        if not normalized_claims:
+            return 0
+        if len(normalized_claims) > 1000:
+            raise ValueError("claims must contain at most 1000 entries")
+        encoded_ids = json.dumps(
+            list(normalized_claims),
+            ensure_ascii=False,
+        )
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            await db.execute("BEGIN IMMEDIATE")
+            try:
+                async with db.execute(
+                    """
+                    SELECT entry_id,
+                           l1_event_id,
+                           pending_l1_event_id,
+                           delete_requested_at
+                    FROM manual_entries
+                    WHERE deleted_at IS NULL
+                      AND entry_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    """,
+                    (encoded_ids,),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+                for row in rows:
+                    if row["delete_requested_at"] is None:
+                        raise RuntimeError("Manual-entry source is not delete-gated")
+                    current_ids = {
+                        str(event_id or "").strip()
+                        for event_id in (
+                            row["l1_event_id"],
+                            row["pending_l1_event_id"],
+                        )
+                        if str(event_id or "").strip()
+                    }
+                    if not current_ids.issubset(normalized_claims[str(row["entry_id"])]):
+                        raise RuntimeError("Manual-entry source changed after its forget gate")
+                cursor = await db.execute(
+                    """
+                    UPDATE manual_entries
+                    SET deleted_at = ?,
+                        l1_event_id = NULL,
+                        pending_l1_event_id = NULL,
+                        pending_l1_predecessor_event_id = NULL,
+                        delete_requested_at = NULL
+                    WHERE deleted_at IS NULL
+                      AND delete_requested_at IS NOT NULL
+                      AND entry_id IN (
+                          SELECT CAST(value AS TEXT) FROM json_each(?)
+                      )
+                    """,
+                    (float(deleted_at), encoded_ids),
+                )
+                await db.commit()
+                return max(int(cursor.rowcount or 0), 0)
+            except BaseException:
+                await db.rollback()
+                raise
+
     async def set_weather(
         self,
         entry_id: str,
@@ -328,7 +609,20 @@ class ManualEntryStore:
         sql = "SELECT * FROM manual_entries WHERE event_at >= ? AND event_at <= ?"
         args: list = [float(time_start), float(time_end)]
         if not include_deleted:
-            sql += " AND deleted_at IS NULL AND delete_requested_at IS NULL"
+            sql += f"""
+                AND deleted_at IS NULL
+                AND delete_requested_at IS NULL
+                AND (
+                    pending_l1_event_id IS NULL
+                    OR pending_l1_predecessor_event_id IS NULL
+                )
+                AND {
+                    source_occurrence_visible_predicate(
+                        "manual_entries.event_at",
+                        barrier_alias="manual_entry_forget_range",
+                    )
+                }
+            """
         sql += " ORDER BY event_at ASC LIMIT ?"
         args.append(int(limit))
 
@@ -343,20 +637,28 @@ class ManualEntryStore:
         *,
         after_entry_id: str | None = None,
         limit: int = 100,
-    ) -> list[ManualEntry]:
-        """Page active rows with an incomplete projection or deletion."""
+        include_linked: bool = False,
+    ) -> list[ManualEntryRecoveryIdentity]:
+        """Page lightweight identities for incomplete or linked active rows."""
         if limit < 1 or limit > 1000:
             raise ValueError("limit must be between 1 and 1000")
         sql = """
-            SELECT *
+            SELECT entry_id,
+                   l1_event_id,
+                   pending_l1_event_id,
+                   pending_l1_predecessor_event_id,
+                   delete_requested_at
             FROM manual_entries
             WHERE deleted_at IS NULL
-              AND (
-                  delete_requested_at IS NOT NULL
-                  OR pending_l1_event_id IS NOT NULL
-                  OR l1_event_id IS NULL
-              )
         """
+        if not include_linked:
+            sql += """
+                AND (
+                    delete_requested_at IS NOT NULL
+                    OR pending_l1_event_id IS NOT NULL
+                    OR l1_event_id IS NULL
+                )
+            """
         args: list[object] = []
         if after_entry_id is not None:
             sql += " AND entry_id > ?"
@@ -368,7 +670,47 @@ class ManualEntryStore:
             db.row_factory = aiosqlite.Row
             async with db.execute(sql, tuple(args)) as cursor:
                 rows = await cursor.fetchall()
-        return [self._row_to_entry(row) for row in rows]
+        return [self._row_to_recovery_identity(row) for row in rows]
+
+    async def get_recovery_candidates(
+        self,
+        entry_ids: list[str],
+    ) -> list[ManualEntryRecoveryIdentity]:
+        """Load active recovery identities for an exact bounded ID set."""
+        normalized = list(
+            dict.fromkeys(str(entry_id).strip() for entry_id in entry_ids if str(entry_id).strip())
+        )
+        if not normalized:
+            return []
+        if len(normalized) > 1000:
+            raise ValueError("entry_ids must contain at most 1000 items")
+        placeholders = ",".join("?" for _ in normalized)
+        sql = f"""
+            SELECT entry_id,
+                   l1_event_id,
+                   pending_l1_event_id,
+                   pending_l1_predecessor_event_id,
+                   delete_requested_at
+            FROM manual_entries
+            WHERE deleted_at IS NULL
+              AND entry_id IN ({placeholders})
+            ORDER BY entry_id ASC
+        """
+        async with sqlite_connection_async(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(sql, tuple(normalized)) as cursor:
+                rows = await cursor.fetchall()
+        return [self._row_to_recovery_identity(row) for row in rows]
+
+    @staticmethod
+    def _row_to_recovery_identity(row) -> ManualEntryRecoveryIdentity:
+        return ManualEntryRecoveryIdentity(
+            entry_id=str(row["entry_id"]),
+            l1_event_id=row["l1_event_id"],
+            pending_l1_event_id=row["pending_l1_event_id"],
+            pending_l1_predecessor_event_id=row["pending_l1_predecessor_event_id"],
+            delete_requested_at=row["delete_requested_at"],
+        )
 
     @staticmethod
     def _row_to_entry(row) -> ManualEntry:

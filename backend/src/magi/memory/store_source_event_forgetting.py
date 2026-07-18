@@ -11,6 +11,12 @@ from .forgetting import (
     ForgetOperation,
     ForgetOutcome,
     ForgetSelector,
+    SourceForgetBatch,
+    SourceForgetClaim,
+    SourceForgetGateResult,
+    SourceForgetOwner,
+    SourceForgetOwnerRegistry,
+    SourceForgetOwnerUnavailableError,
 )
 from .source_event_governance import (
     normalize_source_event_ids,
@@ -26,6 +32,47 @@ class UnifiedSourceEventForgettingMixin:
     l2: Any
     _clear_barrier: Any
     _durable_forget_runner: DurableForgetRunner
+    _source_forget_owners: SourceForgetOwnerRegistry
+
+    def register_source_forget_owner(
+        self,
+        name: str,
+        owner: SourceForgetOwner,
+    ) -> None:
+        """Register one source-domain finalizer for exact forget batches."""
+        registry = getattr(self, "_source_forget_owners", None)
+        if registry is None:
+            registry = SourceForgetOwnerRegistry()
+            self._source_forget_owners = registry
+        registry.register(name, owner)
+
+    def unregister_source_forget_owner(self, name: str) -> None:
+        """Remove a previously registered source-domain finalizer."""
+        self._source_forget_owners.unregister(name)
+
+    async def _notify_source_forget_owners(
+        self,
+        batch: SourceForgetBatch,
+    ) -> SourceForgetGateResult:
+        """Gate selected source-owned state before its page is checkpointed."""
+        registry = getattr(self, "_source_forget_owners", None)
+        if registry is None:
+            return SourceForgetGateResult()
+        return await registry.gate(batch)
+
+    async def _finalize_source_forget_owners(
+        self,
+        claims: tuple[SourceForgetClaim, ...],
+    ) -> None:
+        """Finalize durable source obligations after memory cleanup."""
+        registry = getattr(self, "_source_forget_owners", None)
+        if registry is None:
+            if claims:
+                raise SourceForgetOwnerUnavailableError(
+                    "Claimed source-forget owner registry is unavailable"
+                )
+            return
+        await registry.finalize(claims)
 
     async def forget_chat_session_sources(
         self,

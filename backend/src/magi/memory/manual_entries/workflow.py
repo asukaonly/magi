@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Concatenate, ParamSpec, TypeVar
 
+from .l1_projector import ManualEntryProjectionGovernedError
 from .models import ManualEntry
 
 _P = ParamSpec("_P")
@@ -43,6 +44,21 @@ class ManualEntryWorkflowError(RuntimeError):
 
 class ManualEntryProjectionError(ManualEntryWorkflowError):
     """The L1 projection could not be durably linked."""
+
+
+class ManualEntryGovernanceRejectedError(ManualEntryProjectionError):
+    """A durable user-forget rule rejected the source occurrence."""
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        source_preserved: bool = False,
+    ) -> None:
+        super().__init__("Manual-entry projection is blocked by memory governance")
+        self.reason = str(reason or "source_reference")
+        self.source_preserved = bool(source_preserved)
+        self.retry_as_new = not self.source_preserved
 
 
 class ManualEntryCleanupError(ManualEntryWorkflowError):
@@ -205,6 +221,7 @@ class ManualEntryWorkflow:
         *,
         entry: ManualEntry,
         predecessor_event_id: str | None,
+        replacement_reason: str = "manual_entry_projection_replace",
     ) -> None:
         """Reserve, write, and complete one retry-safe cross-store projection."""
         if self._projector is None:
@@ -217,6 +234,22 @@ class ManualEntryWorkflow:
             or normalized_event_id(entry.l1_event_id) != normalized_predecessor
         ):
             raise ManualEntryProjectionError("Projection source state changed")
+
+        try:
+            await self._projector.ensure_projectable(
+                entry,
+                predecessor_event_id=normalized_predecessor,
+            )
+        except ManualEntryProjectionGovernedError as exc:
+            await self._finalize_governed_projection_rejection(
+                entry,
+                reason=exc.reason,
+            )
+            raise ManualEntryGovernanceRejectedError(exc.reason) from exc
+        except Exception as exc:
+            raise ManualEntryProjectionError(
+                "Could not verify projection governance"
+            ) from exc
 
         try:
             event_id = normalized_event_id(
@@ -272,6 +305,13 @@ class ManualEntryWorkflow:
                 entry.pending_l1_event_id = event_id
                 entry.pending_l1_predecessor_event_id = normalized_predecessor
 
+        if normalized_predecessor is not None:
+            await self.forget_event_ids(
+                event_ids=[normalized_predecessor],
+                reason=replacement_reason,
+                block_source_item=False,
+            )
+
         try:
             stored_event_id = normalized_event_id(
                 await self._projector.project_current(
@@ -279,6 +319,12 @@ class ManualEntryWorkflow:
                     predecessor_event_id=normalized_predecessor,
                 )
             )
+        except ManualEntryProjectionGovernedError as exc:
+            await self._finalize_governed_projection_rejection(
+                entry,
+                reason=exc.reason,
+            )
+            raise ManualEntryGovernanceRejectedError(exc.reason) from exc
         except Exception as exc:
             raise ManualEntryProjectionError("Projection write failed") from exc
         if stored_event_id is None:
@@ -300,6 +346,23 @@ class ManualEntryWorkflow:
         except Exception as exc:
             current = await self.load_projection_state(entry.entry_id)
             if not self._projection_is_complete(current, event_id=event_id):
+                if (
+                    current.deleted_at is not None
+                    or current.delete_requested_at is not None
+                ):
+                    governance_reason = (
+                        await self._current_projection_governance_reason(
+                            entry,
+                            predecessor_event_id=normalized_predecessor,
+                        )
+                    )
+                    await self._compensate_cancelled_projection(
+                        current,
+                        event_id,
+                    )
+                    raise ManualEntryGovernanceRejectedError(
+                        governance_reason,
+                    ) from exc
                 await self._compensate_cancelled_projection(current, event_id)
                 raise ManualEntryProjectionError("Projection link failed") from exc
             self._copy_projection_state(entry, current)
@@ -308,8 +371,232 @@ class ManualEntryWorkflow:
         if not completed:
             current = await self.load_projection_state(entry.entry_id)
             if not self._projection_is_complete(current, event_id=event_id):
+                if (
+                    current.deleted_at is not None
+                    or current.delete_requested_at is not None
+                ):
+                    governance_reason = (
+                        await self._current_projection_governance_reason(
+                            entry,
+                            predecessor_event_id=normalized_predecessor,
+                        )
+                    )
+                    await self._compensate_cancelled_projection(
+                        current,
+                        event_id,
+                    )
+                    raise ManualEntryGovernanceRejectedError(
+                        governance_reason,
+                    )
                 await self._compensate_cancelled_projection(current, event_id)
                 raise ManualEntryProjectionError("Projection link was rejected")
+            self._copy_projection_state(entry, current)
+            return
+
+        entry.l1_event_id = event_id
+        entry.pending_l1_event_id = None
+        entry.pending_l1_predecessor_event_id = None
+
+    @_memory_guarded
+    async def replace_and_project(
+        self,
+        *,
+        entry: ManualEntry,
+        predecessor_event_id: str | None,
+        reason: str,
+    ) -> None:
+        """Atomically reserve a replacement source snapshot, then project it."""
+        if self._projector is None:
+            raise ManualEntryProjectionError("Manual-entry projector is unavailable")
+
+        normalized_predecessor = normalized_event_id(predecessor_event_id)
+        if (
+            entry.deleted_at is not None
+            or entry.delete_requested_at is not None
+            or normalized_event_id(entry.l1_event_id) != normalized_predecessor
+        ):
+            raise ManualEntryProjectionError("Replacement source state changed")
+        try:
+            event_id = normalized_event_id(
+                self._projector.event_id_for(
+                    entry,
+                    predecessor_event_id=normalized_predecessor,
+                )
+            )
+        except Exception as exc:
+            raise ManualEntryProjectionError("Could not derive projection identity") from exc
+        if event_id is None:
+            raise ManualEntryProjectionError("Projection identity is empty")
+
+        try:
+            async with self._projector.governed_write_guard():
+                await self._projector.ensure_projectable_guarded(
+                    entry,
+                    predecessor_event_id=normalized_predecessor,
+                )
+                try:
+                    reserved = (
+                        await self._store.replace_and_reserve_l1_projection(
+                            entry,
+                            event_id,
+                            expected_previous_event_id=normalized_predecessor,
+                        )
+                    )
+                except Exception as exc:
+                    current = await self.load_projection_state(entry.entry_id)
+                    if not self._projection_is_reserved(
+                        current,
+                        event_id=event_id,
+                        predecessor_event_id=normalized_predecessor,
+                    ):
+                        raise ManualEntryProjectionError(
+                            "Replacement projection reservation failed"
+                        ) from exc
+                else:
+                    if not reserved:
+                        current = await self.load_projection_state(
+                            entry.entry_id
+                        )
+                        if not self._projection_is_reserved(
+                            current,
+                            event_id=event_id,
+                            predecessor_event_id=normalized_predecessor,
+                        ):
+                            raise ManualEntryProjectionError(
+                                "Replacement projection reservation was rejected"
+                            )
+
+                entry.pending_l1_event_id = event_id
+                entry.pending_l1_predecessor_event_id = normalized_predecessor
+                stored_event_id = normalized_event_id(
+                    await self._projector.project_current_guarded(
+                        entry,
+                        predecessor_event_id=normalized_predecessor,
+                    )
+                )
+        except ManualEntryProjectionGovernedError as exc:
+            # A pre-existing barrier wins before source reservation. Because
+            # reservation and the guarded write share the forget lock, a
+            # rejection after reservation can only be an explicit source rule
+            # and must end that exact pending source.
+            current = await self.load_projection_state(entry.entry_id)
+            if self._projection_is_reserved(
+                current,
+                event_id=event_id,
+                predecessor_event_id=normalized_predecessor,
+            ):
+                self._copy_projection_state(entry, current)
+                await self._finalize_governed_projection_rejection(
+                    entry,
+                    reason=exc.reason,
+                )
+                raise ManualEntryGovernanceRejectedError(
+                    exc.reason,
+                ) from exc
+            if (
+                current.deleted_at is not None
+                or current.delete_requested_at is not None
+            ):
+                raise ManualEntryGovernanceRejectedError(
+                    exc.reason,
+                ) from exc
+            if exc.reason != "time_range":
+                await self._finalize_governed_projection_rejection(
+                    current,
+                    reason=exc.reason,
+                )
+                raise ManualEntryGovernanceRejectedError(
+                    exc.reason,
+                ) from exc
+            raise ManualEntryGovernanceRejectedError(
+                exc.reason,
+                source_preserved=True,
+            ) from exc
+        except ManualEntryWorkflowError:
+            raise
+        except Exception as exc:
+            raise ManualEntryProjectionError(
+                "Replacement projection write failed"
+            ) from exc
+
+        if stored_event_id is None:
+            raise ManualEntryProjectionError(
+                "Replacement projection write returned no identity"
+            )
+        if stored_event_id != event_id:
+            await self.forget_event_ids(
+                event_ids=[stored_event_id, event_id],
+                reason="manual_entry_projection_identity_mismatch",
+                block_source_item=False,
+            )
+            raise ManualEntryProjectionError(
+                "Replacement projection write returned a different identity"
+            )
+
+        if normalized_predecessor is not None:
+            await self.forget_event_ids(
+                event_ids=[normalized_predecessor],
+                reason=reason,
+                block_source_item=False,
+            )
+
+        try:
+            completed = await self._store.complete_l1_projection(
+                entry.entry_id,
+                event_id,
+                expected_previous_event_id=normalized_predecessor,
+            )
+        except Exception as exc:
+            current = await self.load_projection_state(entry.entry_id)
+            if not self._projection_is_complete(current, event_id=event_id):
+                if (
+                    current.deleted_at is not None
+                    or current.delete_requested_at is not None
+                ):
+                    governance_reason = (
+                        await self._current_projection_governance_reason(
+                            entry,
+                            predecessor_event_id=normalized_predecessor,
+                        )
+                    )
+                    await self._compensate_cancelled_projection(
+                        current,
+                        event_id,
+                    )
+                    raise ManualEntryGovernanceRejectedError(
+                        governance_reason,
+                    ) from exc
+                await self._compensate_cancelled_projection(current, event_id)
+                raise ManualEntryProjectionError(
+                    "Replacement projection link failed"
+                ) from exc
+            self._copy_projection_state(entry, current)
+            return
+
+        if not completed:
+            current = await self.load_projection_state(entry.entry_id)
+            if not self._projection_is_complete(current, event_id=event_id):
+                if (
+                    current.deleted_at is not None
+                    or current.delete_requested_at is not None
+                ):
+                    governance_reason = (
+                        await self._current_projection_governance_reason(
+                            entry,
+                            predecessor_event_id=normalized_predecessor,
+                        )
+                    )
+                    await self._compensate_cancelled_projection(
+                        current,
+                        event_id,
+                    )
+                    raise ManualEntryGovernanceRejectedError(
+                        governance_reason,
+                    )
+                await self._compensate_cancelled_projection(current, event_id)
+                raise ManualEntryProjectionError(
+                    "Replacement projection link was rejected"
+                )
             self._copy_projection_state(entry, current)
             return
 
@@ -323,20 +610,21 @@ class ManualEntryWorkflow:
         *,
         entry: ManualEntry,
         reason: str,
-    ) -> None:
+    ) -> bool:
         """Finish a projection left incomplete by an earlier request."""
-        if self._projector is None:
-            raise ManualEntryProjectionError("Manual-entry projector is unavailable")
         if entry.delete_requested_at is not None:
             raise ManualEntryDeletionInProgressError("Entry deletion is in progress")
 
         pending_event_id = normalized_event_id(entry.pending_l1_event_id)
         if pending_event_id is not None:
+            if self._projector is None:
+                raise ManualEntryProjectionError("Manual-entry projector is unavailable")
             await self.project_and_link(
                 entry=entry,
                 predecessor_event_id=normalized_event_id(entry.pending_l1_predecessor_event_id),
+                replacement_reason=reason,
             )
-            return
+            return True
 
         predecessor_event_id = normalized_event_id(entry.l1_event_id)
         if predecessor_event_id is not None:
@@ -346,18 +634,23 @@ class ManualEntryWorkflow:
                 linked = await self._memory.l1.get_event(predecessor_event_id)
             except Exception as exc:
                 raise ManualEntryCleanupError("Could not read linked projection") from exc
-            if linked is not None and linked.get("deleted_at") is None:
-                return
-            await self.forget_event_ids(
-                event_ids=[predecessor_event_id],
-                reason=reason,
-                block_source_item=False,
-            )
+            if linked is not None:
+                if linked.get("deleted_at") is None:
+                    return False
+                # A present-but-deleted row is durable user governance, not a
+                # crash-shaped absence. Advance the source through its own
+                # deletion workflow so it cannot be resurrected by recovery.
+                await self.delete_entry(entry.entry_id)
+                return True
 
+        if self._projector is None:
+            raise ManualEntryProjectionError("Manual-entry projector is unavailable")
         await self.project_and_link(
             entry=entry,
             predecessor_event_id=predecessor_event_id,
+            replacement_reason=reason,
         )
+        return True
 
     @_memory_guarded
     async def delete_entry(self, entry_id: str) -> ManualEntryDeleteResult:
@@ -434,15 +727,66 @@ class ManualEntryWorkflow:
                 raise ManualEntryDeleteConflictError("Delete finalization was rejected")
 
     @_memory_guarded
-    async def recover_entry(self, entry: ManualEntry) -> None:
+    async def recover_entry(self, entry: ManualEntry) -> bool:
         """Advance one row selected by the durable recovery scan."""
         if entry.delete_requested_at is not None:
             await self.finish_delete(entry)
-            return
-        await self.repair_projection_if_needed(
-            entry=entry,
-            reason="manual_entry_recovery",
-        )
+            return True
+        try:
+            return await self.repair_projection_if_needed(
+                entry=entry,
+                reason="manual_entry_recovery",
+            )
+        except ManualEntryGovernanceRejectedError:
+            current = await self.load_projection_state(entry.entry_id)
+            if current.deleted_at is not None:
+                self._copy_projection_state(entry, current)
+                return True
+            raise
+
+    async def _finalize_governed_projection_rejection(
+        self,
+        entry: ManualEntry,
+        *,
+        reason: str,
+    ) -> None:
+        """End the exact source state that a durable forget rule rejected."""
+        try:
+            await self.delete_entry(entry.entry_id)
+        except Exception as exc:
+            # Once governance has rejected an occurrence, the API must never
+            # downgrade it to a normal delayed projection. Delete gating and
+            # recovery may still be pending, but the user-visible outcome is
+            # terminal.
+            raise ManualEntryGovernanceRejectedError(reason) from exc
+        try:
+            current = await self.load_projection_state(entry.entry_id)
+        except ManualEntryWorkflowError as exc:
+            raise ManualEntryGovernanceRejectedError(reason) from exc
+        if current.deleted_at is None:
+            raise ManualEntryGovernanceRejectedError(reason)
+        self._copy_projection_state(entry, current)
+
+    async def _current_projection_governance_reason(
+        self,
+        entry: ManualEntry,
+        *,
+        predecessor_event_id: str | None,
+    ) -> str:
+        """Reload the durable rule that terminalized a pending replacement."""
+        try:
+            await self._projector.ensure_projectable(
+                entry,
+                predecessor_event_id=predecessor_event_id,
+            )
+        except ManualEntryProjectionGovernedError as exc:
+            return exc.reason
+        except Exception:
+            # The caller only asks after the source is already delete-gated
+            # or deleted. A transient reason lookup must not turn a terminal
+            # outcome into a retryable projection failure.
+            return "source_reference"
+        return "source_reference"
 
     def _memory_operation_guard(self) -> Any:
         factory = getattr(self._memory, "memory_operation_guard", None)
@@ -519,6 +863,7 @@ __all__ = [
     "ManualEntryDeleteResult",
     "ManualEntryDeleteStartError",
     "ManualEntryDeletionInProgressError",
+    "ManualEntryGovernanceRejectedError",
     "ManualEntryNotFoundError",
     "ManualEntryProjectionError",
     "ManualEntryWorkflow",

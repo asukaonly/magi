@@ -66,6 +66,23 @@ def source_event_time_range_block_predicate(alias: str = "projection_blocks") ->
     """
 
 
+def source_occurrence_visible_predicate(
+    timestamp_expression: str,
+    *,
+    barrier_alias: str = "forget_range",
+) -> str:
+    """Return SQL that hides source rows covered by an L1-delete range."""
+    return f"""
+        NOT EXISTS (
+            SELECT 1
+            FROM memory_time_range_forget_barriers AS {barrier_alias}
+            WHERE {barrier_alias}.delete_l1_events = 1
+              AND {barrier_alias}.range_start <= {timestamp_expression}
+              AND {barrier_alias}.range_end >= {timestamp_expression}
+        )
+    """
+
+
 def normalize_source_event_ids(event_ids: Iterable[str]) -> tuple[str, ...]:
     """Return stable, non-empty source event identities."""
     return tuple(
@@ -460,5 +477,6 @@ __all__ = [
     "source_event_time_range_block_ids",
     "source_event_time_range_block_predicate",
     "source_event_tombstone_ids",
+    "source_occurrence_visible_predicate",
     "tombstone_source_event_ids",
 ]

@@ -7,6 +7,15 @@ from .models import (
     ForgetSelector,
 )
 from .runner import DurableForgetRunner
+from .source_owners import (
+    SourceForgetBatch,
+    SourceForgetClaim,
+    SourceForgetGateResult,
+    SourceForgetIdentity,
+    SourceForgetOwner,
+    SourceForgetOwnerRegistry,
+    SourceForgetOwnerUnavailableError,
+)
 
 __all__ = [
     "DurableForgetRunner",
@@ -14,4 +23,11 @@ __all__ = [
     "ForgetOutcome",
     "ForgetReference",
     "ForgetSelector",
+    "SourceForgetBatch",
+    "SourceForgetClaim",
+    "SourceForgetGateResult",
+    "SourceForgetIdentity",
+    "SourceForgetOwner",
+    "SourceForgetOwnerRegistry",
+    "SourceForgetOwnerUnavailableError",
 ]

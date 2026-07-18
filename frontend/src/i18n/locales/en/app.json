@@ -711,6 +711,7 @@
       "cancel": "Cancel",
       "save": "Save",
       "savedToast": "Saved",
+      "savedPendingToast": "Saved. Related memory will finish shortly.",
       "deletedToast": "Deleted",
       "groupLabel": "Your notes",
       "entryCount": "{{count}} notes",
@@ -735,6 +736,8 @@
         "divider": "Divider"
       },
       "errors": {
+        "forgottenRange": "This time range was forgotten. Choose another time and save again.",
+        "forgottenSourceReference": "This entry was forgotten. Save it as a new entry if you want to keep it.",
         "imageTooLarge": "Image exceeds the {{maxMb}}MB limit",
         "uploadFailed": "Image upload failed",
         "saveFailed": "Save failed",

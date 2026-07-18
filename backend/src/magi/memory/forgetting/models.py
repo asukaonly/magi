@@ -30,6 +30,7 @@ ReferenceType = Literal[
     "chat_projection",
     "entity_refresh",
     "entity_refresh_prepared",
+    "source_owner",
 ]
 
 

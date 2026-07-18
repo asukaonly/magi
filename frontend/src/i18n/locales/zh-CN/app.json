@@ -711,6 +711,7 @@
       "cancel": "取消",
       "save": "保存",
       "savedToast": "已记录",
+      "savedPendingToast": "已记录，相关记忆稍后完成",
       "deletedToast": "已删除",
       "groupLabel": "你的记录",
       "entryCount": "{{count}} 条",
@@ -735,6 +736,8 @@
         "divider": "分割线"
       },
       "errors": {
+        "forgottenRange": "这个时间段已被遗忘，请调整时间后重新保存",
+        "forgottenSourceReference": "这条记录已被遗忘，如需保留请另存",
         "imageTooLarge": "图片超过 {{maxMb}}MB 上限",
         "uploadFailed": "图片上传失败",
         "saveFailed": "保存失败",

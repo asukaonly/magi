@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from .embedding.embedding_service import MemoryEmbeddingService
 from .hybrid_retrieval.entity_semantic_builder import EntityScopedSemanticBuilder
-from .forgetting import DurableForgetRunner
+from .forgetting import DurableForgetRunner, SourceForgetOwnerRegistry
 from .l0.working_memory import L0WorkingMemoryStore
 from .l1.event_store import L1EventStore
 from .l2.edge_embedding_drain import EdgeEmbeddingDrainer, L2EdgeEmbeddingWorker
@@ -223,6 +223,9 @@ class UnifiedMemoryStore(
         self._write_lock = asyncio.Lock()
         self._clear_barrier = AsyncOperationBarrier()
         self._clear_epoch = 0
+        self._source_forget_owners = SourceForgetOwnerRegistry(
+            required_sources=("manual_entry",),
+        )
         self._durable_forget_runner = DurableForgetRunner(self)
         if self.l2_pipeline is not None:
             self.l2_pipeline.set_operation_guard_factory(self.memory_operation_guard)

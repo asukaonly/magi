@@ -5,6 +5,9 @@ from __future__ import annotations
 import pytest
 
 from magi.memory.manual_entries import ManualEntry, ManualEntryL1Projector
+from magi.memory.manual_entries.l1_projector import (
+    ManualEntryProjectionGovernedError,
+)
 
 
 class _StubGovernedMemory:
@@ -14,8 +17,11 @@ class _StubGovernedMemory:
         self.stored: list = []
         self._event_ids_by_key: dict[str, str] = {}
         self._next_id_seq = 0
+        self.rejection_reason: str | None = None
 
     async def store_governed_l1_event(self, event):
+        if self.rejection_reason is not None:
+            return None
         existing = self._event_ids_by_key.get(event.idempotency_key)
         if existing is not None:
             return existing
@@ -23,6 +29,9 @@ class _StubGovernedMemory:
         self.stored.append(event)
         self._event_ids_by_key[event.idempotency_key] = event.event_id
         return event.event_id
+
+    async def governed_l1_event_rejection_reason(self, _event):
+        return self.rejection_reason
 
 
 def _entry(**overrides) -> ManualEntry:
@@ -79,6 +88,21 @@ async def test_project_current_retry_resolves_the_same_event():
 
     assert retry_id == first_id
     assert len(l1.stored) == 1
+
+
+@pytest.mark.asyncio
+async def test_project_current_preserves_time_range_rejection_reason():
+    memory = _StubGovernedMemory()
+    memory.rejection_reason = "time_range"
+    projector = ManualEntryL1Projector(memory=memory)
+
+    with pytest.raises(ManualEntryProjectionGovernedError) as error:
+        await projector.project_current(
+            _entry(),
+            predecessor_event_id=None,
+        )
+
+    assert getattr(error.value, "reason", None) == "time_range"
 
 
 @pytest.mark.asyncio

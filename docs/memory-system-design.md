@@ -229,25 +229,40 @@ Counter-examples:
 The `manual_entries` row is the product's editable source record; its immutable
 L1 projection is the canonical input to recall, timeline assembly, episodes,
 experiences, mood aggregation, and later summaries. Editing projected content
-does not rewrite the previous L1 event. The mutation path first forgets the old
-projection through the normal source-deletion workflow, updates the source row
-with an expected-current projection check, then reserves the deterministic
-replacement identity on that source row before writing L1. Linking clears the
-reservation only after the L1 write succeeds. A failed or ambiguously committed
-link therefore leaves a discoverable recovery identity rather than an unowned
-L1 event. Mutations for one entry are serialized, and retries resolve the same
-replacement identity instead of producing duplicate history.
+does not rewrite the previous L1 event. The mutation path uses the same governed
+write boundary as durable forgetting: it checks the replacement occurrence,
+atomically stores the complete replacement source snapshot and deterministic
+reservation, and writes the replacement L1 event before releasing that
+boundary. The pending source stays hidden while the old projection is cleaned
+and the new link is completed. A failed or ambiguously committed step therefore
+leaves a discoverable recovery identity rather than an unowned L1 event.
+Mutations for one entry are serialized, and retries resolve the same replacement
+identity instead of producing duplicate source rows.
 
 Creation preserves the user's source row even if its initial L1 projection
-temporarily fails, and the failure is surfaced instead of being silently
-reported as a fully projected save. A later no-op mutation or repair attempt
-finishes the reserved projection. Deletion first closes source mutation and
-projection completion with a durable request marker, then governs the linked,
-reserved, and deterministically reconstructable event identities across every
-memory layer, and only then hides the source row. Edit, delete, and weather
-removal fail closed when downstream cleanup cannot complete; they must not leave
-the edited source record pointing at still-visible derived memory. Public list
-and timeline reads exclude deleted entries and deleted projections.
+temporarily fails. The API returns the saved entry with `memory_status=pending`;
+the product closes the editor and tells the user that related memory will finish
+later. A later repair completes the same deterministic projection. Startup
+recovery pages lightweight identities and checks linked L1 states in batches,
+then periodically revisits only durable unfinished rows and exact identities
+whose prior batch check failed.
+
+Deletion first closes source mutation and projection completion with a durable
+request marker, then governs the linked, reserved, and deterministically
+reconstructable event identities across every memory layer. External event or
+time-range forgetting uses the same source-owner boundary: selecting the
+entry's current occurrence gates and finalizes the source in that forget
+operation, while selecting an obsolete projection version removes only that
+old event and does not delete the current entry. A time-range rejection before
+an edit reservation preserves the old entry so the user can change the time and
+retry; a source-identity rejection, or forgetting that wins after the
+replacement write, terminalizes the old entry and requires a new identity.
+If an initial projection has not reached L1 yet, the durable time-range barrier
+still removes the covered source from manual-entry lists and attachment access
+as soon as forgetting returns; recovery then completes source deletion without
+re-exposing it.
+Public list, timeline, and attachment reads exclude pending-deletion and deleted
+entries.
 
 Uploaded manual-entry assets are content-addressed but not public by possession
 of the reference. The timeline asset route serves an asset only while it is

@@ -8,9 +8,12 @@ from urllib.parse import unquote
 
 from magi.events.sensor_activity_snapshot import activity_snapshot_from_metadata
 
+from .. import i18n as core_i18n
 from ..core.sqlite import sqlite_connection_async
 from ..media.adapters.photo_library import PHOTO_LIBRARY_SOURCE_FILTERS
-from .. import i18n as core_i18n
+from ..memory.source_event_governance import (
+    source_occurrence_visible_predicate,
+)
 from .contracts import TimelineEvent
 from .cover_store import (
     TIMELINE_COVER_ASSET_SOURCES,
@@ -31,12 +34,20 @@ async def _manual_asset_is_referenced(*, db_path: str, asset_ref: str) -> bool:
 
         checks: list[tuple[str, tuple[str, ...]]] = []
         if "manual_entries" in tables:
+            time_range_visibility = source_occurrence_visible_predicate(
+                "entry.event_at",
+                barrier_alias="manual_asset_forget_range",
+            )
             checks.append(
                 (
-                    """
+                    f"""
                     SELECT 1 FROM manual_entries AS entry
                     WHERE entry.deleted_at IS NULL
                       AND entry.delete_requested_at IS NULL
+                      AND (
+                          entry.pending_l1_event_id IS NULL
+                          OR entry.pending_l1_predecessor_event_id IS NULL
+                      )
                       AND EXISTS (
                           SELECT 1
                           FROM json_each(CASE
@@ -46,6 +57,7 @@ async def _manual_asset_is_referenced(*, db_path: str, asset_ref: str) -> bool:
                           END) AS attachment
                           WHERE CAST(attachment.value AS TEXT) = ?
                       )
+                      AND {time_range_visibility}
                     LIMIT 1
                     """,
                     (asset_ref,),

@@ -6,6 +6,7 @@ import time
 
 import pytest
 
+from magi.core.sqlite import sqlite_connection_async
 from magi.memory.manual_entries import ManualEntry, ManualEntryStore
 
 
@@ -195,6 +196,47 @@ async def test_projection_reservation_and_completion(manual_entry_db: str):
     assert fetched is not None
     assert fetched.l1_event_id == "01HXYZ123"
     assert fetched.pending_l1_event_id is None
+
+
+@pytest.mark.asyncio
+async def test_replacement_snapshot_and_projection_intent_are_atomic_and_hidden(
+    manual_entry_db: str,
+) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    entry_id = await store.create(
+        _entry(
+            entry_id="me-replacement",
+            body="before",
+            l1_event_id="event-old",
+        )
+    )
+    replacement = await store.get(entry_id)
+    assert replacement is not None
+    replacement.body = "after"
+    replacement.body_doc = {}
+
+    assert await store.replace_and_reserve_l1_projection(
+        replacement,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+
+    pending = await store.get(entry_id)
+    assert pending is not None
+    assert pending.body == "after"
+    assert pending.body_doc == {}
+    assert pending.l1_event_id == "event-old"
+    assert pending.pending_l1_event_id == "event-new"
+    assert pending.pending_l1_predecessor_event_id == "event-old"
+    assert await store.list_window(time_start=0.0, time_end=time.time() + 1) == []
+
+    assert await store.complete_l1_projection(
+        entry_id,
+        "event-new",
+        expected_previous_event_id="event-old",
+    )
+    visible = await store.list_window(time_start=0.0, time_end=time.time() + 1)
+    assert [entry.body for entry in visible] == ["after"]
 
 
 @pytest.mark.asyncio
@@ -430,3 +472,69 @@ async def test_update_location_label_set_and_clear(manual_entry_db: str):
     await store.update(entry_id, location_label="苏州")
     await store.update(entry_id, body="边改")
     assert (await store.get(entry_id)).location_label == "苏州"
+
+
+@pytest.mark.asyncio
+async def test_source_forget_batches_twenty_thousand_entries(
+    manual_entry_db: str,
+) -> None:
+    store = ManualEntryStore(db_path=manual_entry_db)
+    rows = [
+        (
+            f"me-forget-scale-{index:05d}",
+            100.0,
+            100.0,
+            "quick",
+            "private",
+            "[]",
+            f"event-forget-scale-{index:05d}",
+        )
+        for index in range(20_000)
+    ]
+    async with sqlite_connection_async(manual_entry_db) as db:
+        await db.executemany(
+            """
+            INSERT INTO manual_entries(
+                entry_id, created_at, event_at, kind, body,
+                attachments_json, l1_event_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        await db.commit()
+
+    finalized = 0
+    for offset in range(0, len(rows), 500):
+        chunk = rows[offset : offset + 500]
+        selected = {
+            entry_id: (event_id,)
+            for entry_id, _, _, _, _, _, event_id in chunk
+        }
+        gate = await store.gate_source_forget_entries(
+            selected,
+            requested_at=200.0,
+        )
+        assert len(gate.gated_entries) == len(chunk)
+        assert gate.obsolete_event_ids == ()
+        finalized += await store.finalize_source_forget_entries(
+            {
+                identity.entry_id: (
+                    str(identity.l1_event_id),
+                )
+                for identity in gate.gated_entries
+            },
+            deleted_at=300.0,
+        )
+
+    assert finalized == 20_000
+    async with sqlite_connection_async(manual_entry_db) as db:
+        async with db.execute(
+            """
+            SELECT COUNT(*)
+            FROM manual_entries
+            WHERE deleted_at = 300.0
+            """
+        ) as cursor:
+            row = await cursor.fetchone()
+    assert row is not None
+    assert int(row[0]) == 20_000
