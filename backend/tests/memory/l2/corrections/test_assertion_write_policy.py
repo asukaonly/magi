@@ -225,7 +225,10 @@ async def test_scheduled_rules_follow_candidate_observation_time(l2_store_with_s
     )
     assert corrected is not None
     correction = corrected["correction"]
-    replacement = corrected["current_assertion"]
+    replacement = await store.get_tom_assertion(
+        assertion_id=correction["replacement_target_id"]
+    )
+    assert replacement is not None
     evaluator = CorrectionPolicyEvaluator()
 
     async with sqlite_connection_async(store.db_path) as db:

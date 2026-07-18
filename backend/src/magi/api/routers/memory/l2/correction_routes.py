@@ -79,7 +79,6 @@ async def apply_memory_correction(
                 audit_event_id=audit_event_id,
                 expected_updated_at=body.expected_updated_at,
             )
-            current_claim_key = "current_assertion"
         else:
             result = await l2.apply_relationship_correction(
                 triple_id=body.target.id,
@@ -94,7 +93,6 @@ async def apply_memory_correction(
                 audit_event_id=audit_event_id,
                 expected_updated_at=body.expected_updated_at,
             )
-            current_claim_key = "current_relationship"
     except MemoryCorrectionConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -117,7 +115,7 @@ async def apply_memory_correction(
                 "memory.errors.correction_target_not_found", "Correction target not found"
             ),
         )
-    return await _command_response(l2, result, current_claim_key=current_claim_key)
+    return await _command_response(l2, result)
 
 
 @memory_router.get(
@@ -198,14 +196,12 @@ async def revert_memory_correction(
                 request_id=body.request_id,
                 actor_id=canonical_self_id(unified_memory),
             )
-            current_claim_key = "current_assertion"
         else:
             result = await l2.revert_relationship_correction(
                 correction_id=correction_id,
                 request_id=body.request_id,
                 actor_id=canonical_self_id(unified_memory),
             )
-            current_claim_key = "current_relationship"
     except MemoryCorrectionConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -223,7 +219,7 @@ async def revert_memory_correction(
         ) from exc
     if result is None:
         raise _target_not_found()
-    return await _command_response(l2, result, current_claim_key=current_claim_key)
+    return await _command_response(l2, result)
 
 
 def _require_l2_memory():
@@ -260,21 +256,25 @@ def _conflict_error_detail(exc: MemoryCorrectionConflictError) -> str | dict[str
 async def _command_response(
     l2,
     result: dict,
-    *,
-    current_claim_key: str,
 ) -> MemoryCorrectionCommandResponse:
     correction = result["correction"]
     decorated = await decorate_correction_records(l2.db_path, [correction])
-    current_claim = (
-        None
-        if decorated[0]["content_redacted"]
-        else public_current_claim(
-            CorrectionTargetKind(
-                getattr(correction["target_kind"], "value", correction["target_kind"])
-            ),
-            result[current_claim_key],
-        )
+    target_kind = CorrectionTargetKind(
+        getattr(correction["target_kind"], "value", correction["target_kind"])
     )
+    if decorated[0]["content_redacted"]:
+        current_claim = None
+    else:
+        current_result_key = (
+            "current_assertion"
+            if target_kind == CorrectionTargetKind.ASSERTION
+            else "current_relationship"
+        )
+        actual_current_claim = result[current_result_key]
+        current_claim = public_current_claim(
+            target_kind,
+            actual_current_claim,
+        )
     derivation_state = await l2.get_memory_correction_derivation_state(
         str(correction["correction_id"])
     )

@@ -1098,6 +1098,22 @@ The older correction becomes eligible only when no newer active correction still
 depends on it. The API owns `can_revert`; clients must not infer eligibility from
 timestamps, visible status, or the presence of a replacement.
 
+The request identity used for retries is stored separately from mutable claim
+identities in the same transaction as the correction. Entity repair and identity
+merges never rewrite it. A retry therefore remains the same operation after a
+claim moves, while reuse of that request identity with different content is
+rejected. Corrections created before this immutable identity existed are not
+assigned a guessed identity during migration; an unverifiable legacy retry fails
+closed instead of being mistaken for a different operation.
+
+Apply, retry, and revert responses all expose the claim that is current at the
+response read snapshot. They never return an archived replacement merely because
+that row was created by the requested correction, and a retry follows later
+corrections or identity merges to the actual current descendant. For a scheduled
+change, the current claim remains the committed claim until activation; callers
+that need to address the future segment use the correction's explicit replacement
+target instead of treating it as current.
+
 Correction scopes use stable local context identities rather than free-text
 labels. The stored contract is an `all_of` list of typed context IDs; an empty
 retrieval context matches global claims only. The ordinary product currently
@@ -1164,6 +1180,32 @@ does not merely rewrite the current graph row. Forgotten evidence is filtered
 before colliding records are combined. Existing snapshots for both identities
 are removed inside the rekey transaction and the survivor is rebuilt afterward,
 so a failed refresh leaves no stale pre-merge portrait visible.
+
+One exception keeps a rejected duplicate from contaminating an independent
+survivor. If a correction removed a claim without a replacement and identity
+repair later proves that rejected branch identical to a separately supported
+current claim, the old correction is resolved as no longer distinguishable and
+its active rules are disabled. Evidence from the rejected branch remains on its
+old claim identity; it is not moved into the survivor's evidence ledger or
+reintroduced by later deletion recovery. Public history presents this outcome
+as resolved by the merge rather than as an ordinary user revert.
+
+If independently corrected identities collapse into the same assertion or
+relationship slot, their pre-merge undo lineages are no longer assumed to be
+interchangeable. Only an explicit forward handoff such as `A -> B -> C` joins
+two corrections into one undo lineage. Multiple disconnected lineages in the
+same scope are kept visible but marked non-revertible; databases upgrading with
+an existing collision receive the same durable protection. The user can still
+correct the surviving current claim. This block survives restarts and identity
+maintenance retries, so an old revert cannot silently overwrite the winner
+chosen by the merge.
+
+The same protection applies when a correction replacement converges on an
+independently supported current claim in the original slot and scope: the
+correction remains effective, but its old revert is durably blocked because
+restoring the former value would displace independent evidence. A
+`scope_refinement` whose original and replacement scopes remain distinct is not
+blocked by this rule and can still be reverted safely.
 
 When the same relationship becomes true again after an intervening state, it
 reuses the relationship identity but starts a new, non-overlapping validity

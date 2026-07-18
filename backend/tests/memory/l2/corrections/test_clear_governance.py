@@ -102,6 +102,7 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
             claim_fingerprint="claim-invalid-evidence",
             correction_kind=CorrectionKind.RECORD_ERROR,
             before={"evidence_events": [{"event_id": "invalid"}]},
+            request_fingerprint="fingerprint-invalid-evidence",
             created_at=now,
         )
     )
@@ -126,6 +127,8 @@ async def test_clear_removes_correction_history_rules_and_versions(tmp_path) -> 
         "memory_correction_evidence_fail_closed",
         "memory_correction_evidence_events",
         "memory_relationship_conflict_effects",
+        "memory_correction_request_fingerprints",
+        "memory_correction_revert_blocks",
         "memory_correction_rules",
         "memory_corrections",
         "memory_subject_revisions",

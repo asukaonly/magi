@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -180,6 +180,11 @@ async def test_hybrid_assertion_recall_respects_scheduled_change_and_as_of(
         TimeRange(start=effective_at - 1, end=effective_at + 1),
         user_id="u1",
     )
+    with patch("time.time", return_value=effective_at + 1):
+        due_but_unprocessed = await handler.execute(
+            _assertion_conditions(),
+            user_id="u1",
+        )
 
     assert [item["trait_value"] for item in before["assertions"]] == ["Hangzhou"]
     assert [item["trait_value"] for item in historical["assertions"]] == ["Hangzhou"]
@@ -188,6 +193,7 @@ async def test_hybrid_assertion_recall_respects_scheduled_change_and_as_of(
         "Hangzhou",
         "Shanghai",
     }
+    assert [item["trait_value"] for item in due_but_unprocessed["assertions"]] == ["Hangzhou"]
 
 
 @pytest.mark.asyncio
@@ -482,6 +488,11 @@ async def test_hybrid_relationship_recall_respects_scheduled_change_and_as_of(
         TimeRange(start=effective_at - 1, end=effective_at + 1),
         user_id="u1",
     )
+    with patch("time.time", return_value=effective_at + 1):
+        due_but_unprocessed = await handler.execute(
+            _relationship_conditions(),
+            user_id="u1",
+        )
 
     assert [item["object_id"] for item in before["relationships"]] == ["place:hangzhou"]
     assert [item["object_id"] for item in historical["relationships"]] == ["place:hangzhou"]
@@ -490,6 +501,9 @@ async def test_hybrid_relationship_recall_respects_scheduled_change_and_as_of(
         "place:hangzhou",
         "place:shanghai",
     }
+    assert [item["object_id"] for item in due_but_unprocessed["relationships"]] == [
+        "place:hangzhou"
+    ]
 
 
 @pytest.mark.asyncio
@@ -872,6 +886,7 @@ async def test_new_correction_evidence_parser_accepts_two_nested_json_layers(
             claim_fingerprint="claim-nested",
             correction_kind=CorrectionKind.RECORD_ERROR,
             before={"evidence_events": json.dumps(json.dumps(["evt-nested"]))},
+            request_fingerprint="fingerprint-nested-evidence",
             created_at=now,
         )
     )
@@ -898,6 +913,7 @@ async def test_literal_star_evidence_id_does_not_govern_unrelated_events(
             claim_fingerprint="claim-literal-star",
             correction_kind=CorrectionKind.RECORD_ERROR,
             before={"evidence_events": ["*"]},
+            request_fingerprint="fingerprint-literal-star",
             created_at=now,
         )
     )
@@ -922,6 +938,7 @@ async def test_new_correction_evidence_parser_fails_closed_on_nonstring_item(
             claim_fingerprint="claim-invalid-item",
             correction_kind=CorrectionKind.RECORD_ERROR,
             before={"evidence_events": ["evt-valid", {"event_id": "evt-invalid"}]},
+            request_fingerprint="fingerprint-invalid-item",
             created_at=now,
         )
     )

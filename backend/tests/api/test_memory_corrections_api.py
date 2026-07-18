@@ -112,13 +112,14 @@ def _seed_relationship(
     *,
     object_id: str = "place:hangzhou",
     event_id: str = "evt-edge-original",
+    predicate: str = "CURRENT_LIVES_IN",
 ) -> str:
     assert memory.l2 is not None
     return asyncio.run(
         memory.l2.upsert_knowledge_edge(
             subject_id="user:local_user",
             subject_type="user",
-            predicate="CURRENT_LIVES_IN",
+            predicate=predicate,
             object_id=object_id,
             object_type="place",
             evidence_event_ids=[event_id],
@@ -152,6 +153,66 @@ def test_public_correction_schema_fails_closed_when_revert_decision_is_missing()
     )
 
     assert record.can_revert is False
+
+
+def test_history_explains_when_identity_merge_makes_correction_unnecessary(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+
+    corrected = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "identity-merge-noop-history",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+        },
+    )
+    assert corrected.status_code == 200
+    correction_id = corrected.json()["correction"]["correction_id"]
+
+    assert memory.l2 is not None
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute(
+            """
+            UPDATE memory_corrections
+            SET state = 'reverted', reverted_at = ?, reverted_by = ?
+            WHERE correction_id = ?
+            """,
+            (time.time(), "system:identity_merge_noop", correction_id),
+        )
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+    assert history.status_code == 200
+    public_record = history.json()["corrections"][0]
+    assert public_record["state"] == "reverted"
+    assert public_record["resolution_reason"] == "identity_merge_noop"
+    assert public_record["can_revert"] is False
+    assert "reverted_by" not in public_record
+
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute(
+            """
+            UPDATE memory_corrections
+            SET reverted_by = ?
+            WHERE correction_id = ?
+            """,
+            ("user:local_user", correction_id),
+        )
+
+    ordinary_revert_history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+    assert ordinary_revert_history.status_code == 200
+    assert ordinary_revert_history.json()["corrections"][0]["resolution_reason"] is None
 
 
 def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, monkeypatch):
@@ -223,6 +284,59 @@ def test_assertion_correction_api_audits_blocks_replay_and_reverts(tmp_path, mon
     assert reverted.json()["current_claim"]["trait_value"] == "Hangzhou"
     assert reverted.json()["correction"]["state"] == "reverted"
     assert reverted.json()["correction"]["can_revert"] is False
+
+
+def test_correction_api_returns_the_store_commit_snapshot(tmp_path, monkeypatch):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    assert memory.l2 is not None
+    original_apply = memory.l2.apply_assertion_correction
+    captured: dict[str, object] = {}
+
+    async def apply_then_simulate_concurrent_write(**kwargs):
+        result = await original_apply(**kwargs)
+        assert result is not None
+        committed = dict(result["current_assertion"])
+        captured["committed"] = committed
+        with sqlite3.connect(memory.l2.db_path) as db:
+            db.execute(
+                """
+                UPDATE tom_trait_assertions
+                SET trait_value = 'Concurrent later value'
+                WHERE assertion_id = ?
+                """,
+                (committed["assertion_id"],),
+            )
+            db.commit()
+        return result
+
+    monkeypatch.setattr(
+        memory.l2,
+        "apply_assertion_correction",
+        apply_then_simulate_concurrent_write,
+    )
+    client = _client(monkeypatch, memory)
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "store-snapshot-response",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+        },
+    )
+
+    assert response.status_code == 200
+    committed = captured["committed"]
+    assert isinstance(committed, dict)
+    assert committed["trait_value"] == "Shanghai"
+    assert response.json()["current_claim"]["trait_value"] == committed["trait_value"]
+    changed = asyncio.run(
+        memory.l2.get_tom_assertion(assertion_id=str(committed["assertion_id"]))
+    )
+    assert changed is not None
+    assert changed["trait_value"] == "Concurrent later value"
 
 
 def test_forgetting_claim_evidence_hides_its_l1_correction_audit(tmp_path, monkeypatch):
@@ -643,6 +757,237 @@ def test_history_marks_only_latest_dependent_correction_revertible(tmp_path, mon
     }
     assert corrections[first.json()["correction"]["correction_id"]]["can_revert"] is False
     assert corrections[second.json()["correction"]["correction_id"]]["can_revert"] is True
+
+
+def test_history_exposes_durable_lineage_collision_without_offering_revert(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    corrected = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "lineage-collision-correction",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+        },
+    )
+    assert corrected.status_code == 200
+    correction_id = corrected.json()["correction"]["correction_id"]
+    assert memory.l2 is not None
+    with sqlite3.connect(memory.l2.db_path) as db:
+        db.execute(
+            """
+            INSERT INTO memory_correction_revert_blocks(
+                correction_id, block_reason, created_at
+            ) VALUES (?, 'lineage_collision', ?)
+            """,
+            (correction_id, time.time()),
+        )
+        db.commit()
+
+    history = client.get(
+        "/api/memory/l2/corrections",
+        params={"target_kind": "assertion", "target_id": assertion_id},
+    )
+    reverted = client.post(
+        f"/api/memory/l2/corrections/{correction_id}/revert",
+        json={"request_id": "blocked-lineage-revert"},
+    )
+
+    assert history.status_code == 200
+    record = history.json()["corrections"][0]
+    assert record["revert_blocked_reason"] == "lineage_collision"
+    assert record["can_revert"] is False
+    assert reverted.status_code == 409
+    assert reverted.json()["detail"]["code"] == "correction_lineage_revert_blocked"
+
+
+def test_record_error_without_replacement_returns_no_current_claim(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "reject-without-replacement",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["current_claim"] is None
+
+
+def test_relationship_correction_returns_replacement_from_its_new_slot(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    triple_id = _seed_relationship(memory, predicate="VISITED")
+    client = _client(monkeypatch, memory)
+
+    response = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "move-nonexclusive-relationship",
+            "target": {"kind": "edge", "id": triple_id},
+            "correction_kind": "record_error",
+            "replacement": {
+                "object_id": "place:shanghai",
+                "object_type": "place",
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["current_claim"]["predicate"] == "VISITED"
+    assert response.json()["current_claim"]["object_id"] == "place:shanghai"
+
+
+def test_retried_relationship_correction_follows_later_cross_slot_changes(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    triple_id = _seed_relationship(memory, predicate="VISITED")
+    client = _client(monkeypatch, memory)
+    first_payload = {
+        "request_id": "first-cross-slot-change",
+        "target": {"kind": "edge", "id": triple_id},
+        "correction_kind": "record_error",
+        "replacement": {
+            "object_id": "place:shanghai",
+            "object_type": "place",
+        },
+    }
+    first = client.post("/api/memory/l2/corrections", json=first_payload)
+    assert first.status_code == 200
+    first_replacement_id = _replacement_target_id(
+        memory,
+        first.json()["correction"]["correction_id"],
+    )
+    second = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "second-cross-slot-change",
+            "target": {"kind": "edge", "id": first_replacement_id},
+            "correction_kind": "record_error",
+            "replacement": {
+                "object_id": "place:beijing",
+                "object_type": "place",
+            },
+        },
+    )
+    assert second.status_code == 200
+
+    retried = client.post("/api/memory/l2/corrections", json=first_payload)
+
+    assert retried.status_code == 200
+    assert retried.json()["created"] is False
+    assert retried.json()["current_claim"]["object_id"] == "place:beijing"
+
+
+def test_retried_old_assertion_revert_returns_the_actual_current_claim(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    assertion_id = _seed_assertion(memory)
+    client = _client(monkeypatch, memory)
+    first = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "first-city-correction",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Shanghai"},
+        },
+    )
+    assert first.status_code == 200
+    correction_id = first.json()["correction"]["correction_id"]
+    reverted = client.post(
+        f"/api/memory/l2/corrections/{correction_id}/revert",
+        json={"request_id": "revert-first-city"},
+    )
+    assert reverted.status_code == 200
+    second = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "second-city-correction",
+            "target": {"kind": "assertion", "id": assertion_id},
+            "correction_kind": "record_error",
+            "replacement": {"value": "Beijing"},
+        },
+    )
+    assert second.status_code == 200
+
+    retried_revert = client.post(
+        f"/api/memory/l2/corrections/{correction_id}/revert",
+        json={"request_id": "revert-first-city"},
+    )
+
+    assert retried_revert.status_code == 200
+    assert retried_revert.json()["created"] is False
+    assert retried_revert.json()["current_claim"]["trait_value"] == "Beijing"
+
+
+def test_retried_old_relationship_revert_returns_the_actual_current_claim(
+    tmp_path,
+    monkeypatch,
+):
+    memory = _memory(tmp_path)
+    triple_id = _seed_relationship(memory)
+    client = _client(monkeypatch, memory)
+    first = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "first-home-correction",
+            "target": {"kind": "edge", "id": triple_id},
+            "correction_kind": "record_error",
+            "replacement": {
+                "object_id": "place:shanghai",
+                "object_type": "place",
+            },
+        },
+    )
+    assert first.status_code == 200
+    correction_id = first.json()["correction"]["correction_id"]
+    reverted = client.post(
+        f"/api/memory/l2/corrections/{correction_id}/revert",
+        json={"request_id": "revert-first-home"},
+    )
+    assert reverted.status_code == 200
+    second = client.post(
+        "/api/memory/l2/corrections",
+        json={
+            "request_id": "second-home-correction",
+            "target": {"kind": "edge", "id": triple_id},
+            "correction_kind": "record_error",
+            "replacement": {
+                "object_id": "place:beijing",
+                "object_type": "place",
+            },
+        },
+    )
+    assert second.status_code == 200
+
+    retried_revert = client.post(
+        f"/api/memory/l2/corrections/{correction_id}/revert",
+        json={"request_id": "revert-first-home"},
+    )
+
+    assert retried_revert.status_code == 200
+    assert retried_revert.json()["created"] is False
+    assert retried_revert.json()["current_claim"]["object_id"] == "place:beijing"
 
 
 def test_memory_correction_api_rejects_unbounded_user_input(tmp_path, monkeypatch):

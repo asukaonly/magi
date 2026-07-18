@@ -153,6 +153,14 @@ export function MemoryCorrectionHistory({
             setError(t('memory.correction.errors.memoryForgotten', {
               defaultValue: '这条记忆已经被删除，不能再恢复或修改。请返回最新列表。',
             }));
+          } else if (conflictCode === 'identity_merge_revert_blocked') {
+            setError(t('memory.correction.history.identityMergeRevertBlocked', {
+              defaultValue: '这条记忆后来与另一条记忆合并了，无法安全恢复到合并前。如需调整，请从最新记忆重新修正。',
+            }));
+          } else if (conflictCode === 'correction_lineage_revert_blocked') {
+            setError(t('memory.correction.history.lineageCollisionRevertBlocked', {
+              defaultValue: '这条记忆的多段修改历史后来汇合了，无法安全恢复到其中某一段。如需调整，请从最新记忆重新修正。',
+            }));
           } else if (isMemoryCorrectionScopeOccupied(conflictCode)) {
             setError(t('memory.correction.history.scopeOccupied', {
               defaultValue: '原来的适用范围里已经有一条当前记忆，所以无法直接撤销。',
@@ -253,6 +261,10 @@ export function MemoryCorrectionHistory({
                   )}>
                     {historyStatus === 'content_deleted'
                       ? t('memory.correction.history.contentDeletedStatus', { defaultValue: '内容已删除' })
+                      : historyStatus === 'resolved'
+                      ? t('memory.correction.history.identityMergeResolved', { defaultValue: '合并后已无需修正' })
+                      : historyStatus === 'applied'
+                      ? t('memory.correction.history.applied', { defaultValue: '已应用' })
                       : historyStatus === 'cancelled'
                       ? t('memory.correction.history.cancelled', { defaultValue: '已取消' })
                       : historyStatus === 'scheduled'
@@ -278,6 +290,14 @@ export function MemoryCorrectionHistory({
                   </p>
                 ) : null}
 
+                {historyStatus === 'resolved' ? (
+                  <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-muted))]">
+                    {t('memory.correction.history.identityMergeResolvedDetail', {
+                      defaultValue: '相关记忆合并后，原来和修正后的内容已经指向同一条记忆，因此这次修正不再需要。',
+                    })}
+                  </p>
+                ) : null}
+
                 {correction.reason && !correction.content_redacted ? (
                   <p className="mt-2 break-words text-xs leading-5 text-[hsl(var(--memory-body))]">
                     {t('memory.correction.history.reason', { defaultValue: '说明：{{reason}}', reason: correction.reason })}
@@ -286,9 +306,17 @@ export function MemoryCorrectionHistory({
 
                 {explainUnavailableRevert ? (
                   <p className="mt-3 border-t border-[hsl(var(--memory-divider)/0.45)] pt-3 text-xs leading-5 text-[hsl(var(--memory-muted))]">
-                    {t('memory.correction.history.revertUnavailable', {
-                      defaultValue: '当前不能撤销这次修正。如需调整，请从最新记忆重新修正。',
-                    })}
+                    {correction.revert_blocked_reason === 'identity_merge'
+                      ? t('memory.correction.history.identityMergeRevertBlocked', {
+                        defaultValue: '这条记忆后来与另一条记忆合并了，无法安全恢复到合并前。如需调整，请从最新记忆重新修正。',
+                      })
+                      : correction.revert_blocked_reason === 'lineage_collision'
+                      ? t('memory.correction.history.lineageCollisionRevertBlocked', {
+                        defaultValue: '这条记忆的多段修改历史后来汇合了，无法安全恢复到其中某一段。如需调整，请从最新记忆重新修正。',
+                      })
+                      : t('memory.correction.history.revertUnavailable', {
+                        defaultValue: '当前不能撤销这次修正。如需调整，请从最新记忆重新修正。',
+                      })}
                   </p>
                 ) : null}
 

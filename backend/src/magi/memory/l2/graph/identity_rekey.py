@@ -20,13 +20,24 @@ from ..corrections.forget_governance import (
     forgotten_evidence_event_ids_for_claims,
     rewrite_claim_governance_identities,
 )
-from ..corrections.models import CorrectionTargetKind
+from ..corrections.identity_resolution import (
+    resolve_correction_after_identity_merge,
+)
+from ..corrections.models import CorrectionTargetKind, MemoryCorrection
+from ..corrections.ownership import has_correction_owner
+from ..corrections.revert_blocks import (
+    IDENTITY_MERGE_REVERT_BLOCK,
+    LINEAGE_COLLISION_REVERT_BLOCK,
+    block_correction_reverts,
+    block_colliding_correction_lineages,
+)
 from ..graph_conflicts import (
     GraphConflictRule,
     build_graph_conflict_matrix,
     relationship_predicate_slot,
 )
 from ..storage.utils import max_evidence_event_ids
+from .versions import append_knowledge_graph_version
 
 
 def _merge_evidence_json(left: str, right: str) -> str:
@@ -127,6 +138,18 @@ async def rekey_relationship_identity(
     affected_ids = {str(row["triple_id"]) for row in affected_rows}
     id_map = {old_id: target_triple_id for old_id in affected_ids if old_id != target_triple_id}
     affected_corrections = await _load_affected_edge_corrections(db, affected_ids)
+    rejected_target_ids = _rejected_relationship_target_ids(affected_corrections)
+    converged_rejected_target_ids = _rejected_relationship_convergence_ids(
+        affected_rows,
+        rejected_target_ids=rejected_target_ids,
+        now=now,
+    )
+    rejected_claim_fingerprints = {
+        str(row["claim_fingerprint"] or "").strip()
+        for row in affected_rows
+        if str(row["triple_id"]) in converged_rejected_target_ids
+        and str(row["claim_fingerprint"] or "").strip()
+    }
     governance_rewrites = await _collect_relationship_governance_rewrites(
         db,
         affected_rows=affected_rows,
@@ -136,6 +159,11 @@ async def rekey_relationship_identity(
         predicate=normalized_predicate,
         object_id=object_id,
         slot_key=target_slot_key,
+    )
+    governance_rewrites = tuple(
+        rewrite
+        for rewrite in governance_rewrites
+        if rewrite.old_claim_fingerprint not in rejected_claim_fingerprints
     )
     await _write_current_edge(
         db,
@@ -148,6 +176,7 @@ async def rekey_relationship_identity(
         claim_fingerprint=target_fingerprint,
         now=now,
         content_identity_changed=content_identity_changed,
+        excluded_evidence_ids=converged_rejected_target_ids,
     )
     await _rewrite_versions(
         db,
@@ -170,6 +199,20 @@ async def rekey_relationship_identity(
         reference_replacements=reference_replacements,
         corrections=affected_corrections,
     )
+    await _reconcile_rewritten_corrections(
+        db,
+        correction_ids={
+            str(correction["correction_id"]) for correction in affected_corrections
+        },
+        now=now,
+    )
+    await block_colliding_correction_lineages(
+        db,
+        target_kind=CorrectionTargetKind.EDGE,
+        slot_keys={target_slot_key},
+        block_reason=LINEAGE_COLLISION_REVERT_BLOCK,
+        created_at=now,
+    )
     await rewrite_claim_governance_identities(
         db,
         target_kind=CorrectionTargetKind.EDGE,
@@ -191,6 +234,181 @@ async def rekey_relationship_identity(
         invalidated_vector_ids=invalidated_ids,
         rewritten_reference_ids=tuple(sorted(id_map.items())),
     )
+
+
+async def _reconcile_rewritten_corrections(
+    db: aiosqlite.Connection,
+    *,
+    correction_ids: set[str],
+    now: float,
+) -> None:
+    """Reapply active correction semantics after relationship identities move."""
+    if not correction_ids:
+        return
+    from ..corrections.relationship_conflict_effects import (
+        apply_relationship_conflict_effects,
+        load_relationship_graph_conflict_rules,
+        restore_relationship_conflict_effects,
+    )
+    from ..corrections.relationship_service import (
+        restore_relationship_snapshot_on_connection,
+    )
+
+    graph_conflict_rules: dict[str, GraphConflictRule] | None = None
+    for correction_id in sorted(correction_ids):
+        async with db.execute(
+            "SELECT * FROM memory_corrections WHERE correction_id = ?",
+            (correction_id,),
+        ) as cursor:
+            correction = await cursor.fetchone()
+        if (
+            correction is None
+            or str(correction["state"]) != "active"
+            or correction["transition_cancelled_at"] is not None
+        ):
+            continue
+        model = MemoryCorrection.from_row(dict(correction))
+        target_id = str(correction["target_id"])
+        replacement_id = str(correction["replacement_target_id"] or "")
+        independent_target = await _independent_relationship_survivor(
+            db,
+            triple_id=target_id,
+            now=now,
+        )
+        if (
+            not replacement_id
+            and model.correction_kind.value == "record_error"
+            and model.replacement is None
+            and independent_target is not None
+        ):
+            await resolve_correction_after_identity_merge(
+                db,
+                correction_id=correction_id,
+                resolved_at=now,
+            )
+            continue
+        if replacement_id and target_id == replacement_id:
+            await restore_relationship_conflict_effects(
+                db,
+                correction_id=correction_id,
+                replacement_id=replacement_id,
+                now=now,
+            )
+            if independent_target is None:
+                await restore_relationship_snapshot_on_connection(
+                    db,
+                    triple_id=target_id,
+                    before=model.before,
+                    now=now,
+                )
+                await append_knowledge_graph_version(
+                    db,
+                    triple_id=target_id,
+                    correction_id=correction_id,
+                    created_at=now,
+                )
+            await resolve_correction_after_identity_merge(
+                db,
+                correction_id=correction_id,
+                resolved_at=now,
+            )
+            continue
+        if not replacement_id:
+            continue
+        replacement_row = await _independent_relationship_survivor(
+            db,
+            triple_id=replacement_id,
+            now=now,
+        )
+        if (
+            replacement_row is not None
+            and str(model.before.get("slot_key") or correction["slot_key"])
+            == str(replacement_row["slot_key"])
+            and str(model.before.get("scope_key") or "global")
+            == str(replacement_row["scope_key"] or "global")
+        ):
+            await block_correction_reverts(
+                db,
+                correction_ids={correction_id},
+                block_reason=IDENTITY_MERGE_REVERT_BLOCK,
+                created_at=now,
+            )
+        if not _correction_transition_is_committed(correction):
+            continue
+        replacement = _decode_payload(
+            correction["replacement_json"],
+            correction_id,
+            allow_none=True,
+        )
+        if replacement is None or not await _relationship_is_current_at(
+            db,
+            triple_id=replacement_id,
+            now=now,
+        ):
+            continue
+        if graph_conflict_rules is None:
+            graph_conflict_rules = await load_relationship_graph_conflict_rules(db)
+        await apply_relationship_conflict_effects(
+            db,
+            replacement=replacement,
+            correction_id=correction_id,
+            graph_conflict_rules=graph_conflict_rules,
+            effective_at=now,
+            now=now,
+        )
+
+
+def _correction_transition_is_committed(correction: Mapping[str, Any]) -> bool:
+    return (
+        str(correction["correction_kind"]) != "situation_changed"
+        or correction["transition_applied_at"] is not None
+    )
+
+
+async def _relationship_is_current_at(
+    db: aiosqlite.Connection,
+    *,
+    triple_id: str,
+    now: float,
+) -> bool:
+    async with db.execute(
+        """
+        SELECT status, valid_from, valid_to, expires_at
+        FROM knowledge_graph
+        WHERE triple_id = ?
+        """,
+        (triple_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None or str(row["status"]) not in {"active", "deprecated"}:
+        return False
+    valid_from = float(row["valid_from"]) if row["valid_from"] is not None else -float("inf")
+    valid_to = float(row["valid_to"]) if row["valid_to"] is not None else float("inf")
+    expires_at = float(row["expires_at"]) if row["expires_at"] is not None else float("inf")
+    return valid_from <= now < valid_to and now < expires_at
+
+
+async def _independent_relationship_survivor(
+    db: aiosqlite.Connection,
+    *,
+    triple_id: str,
+    now: float,
+) -> Mapping[str, Any] | None:
+    row = await _load_edge(db, triple_id)
+    if row is None:
+        return None
+    authority_ref = row["authority_ref"]
+    if has_correction_owner(authority_ref):
+        return None
+    if str(authority_ref or "").startswith("forget:"):
+        return None
+    if str(row["status_reason"] or "") in {"user_correction", "user_forget"}:
+        return None
+    if str(row["status"] or "") != "active":
+        return None
+    if not await _relationship_is_current_at(db, triple_id=triple_id, now=now):
+        return None
+    return dict(row)
 
 
 async def rewrite_materialized_relationship_references(
@@ -571,12 +789,13 @@ async def _write_current_edge(
     claim_fingerprint: str,
     now: float,
     content_identity_changed: bool,
+    excluded_evidence_ids: set[str],
 ) -> None:
     source_ids = {str(row["triple_id"]) for row in rows}
     unrelated = await _load_edge(db, target_triple_id)
     if unrelated is not None and str(unrelated["triple_id"]) not in source_ids:
         raise ValueError(f"Deterministic relationship id is already used: {target_triple_id}")
-    winner = await _pick_current_winner(db, rows)
+    winner = await _pick_current_winner(db, rows, now=now)
     final = dict(winner)
     final.update(
         {
@@ -610,6 +829,7 @@ async def _write_current_edge(
                 rows,
                 forgotten_event_ids=forgotten_event_ids,
                 winner_id=str(winner["triple_id"]),
+                excluded_evidence_ids=excluded_evidence_ids,
             )
         )
     deprecated_by = final.get("deprecated_by")
@@ -635,19 +855,24 @@ async def _write_current_edge(
 async def _pick_current_winner(
     db: aiosqlite.Connection,
     rows: list[aiosqlite.Row],
+    *,
+    now: float,
 ) -> aiosqlite.Row:
     correction_times: dict[str, float | None] = {}
+    pending_target_ids: set[str] = set()
     for row in rows:
         triple_id = str(row["triple_id"])
         async with db.execute(
             """
-            SELECT MAX(created_at)
+            SELECT created_at, target_id, correction_kind, transition_applied_at
             FROM (
-                SELECT created_at FROM memory_corrections
+                SELECT created_at, target_id, correction_kind, transition_applied_at
+                FROM memory_corrections
                 WHERE target_kind = 'edge' AND state = 'active'
                   AND transition_cancelled_at IS NULL AND target_id = ?
                 UNION ALL
-                SELECT created_at FROM memory_corrections
+                SELECT created_at, target_id, correction_kind, transition_applied_at
+                FROM memory_corrections
                 WHERE target_kind = 'edge' AND state = 'active'
                   AND transition_cancelled_at IS NULL
                   AND replacement_target_id = ?
@@ -655,9 +880,16 @@ async def _pick_current_winner(
             """,
             (triple_id, triple_id),
         ) as cursor:
-            match = await cursor.fetchone()
-        correction_times[triple_id] = (
-            float(match[0]) if match is not None and match[0] is not None else None
+            matches = await cursor.fetchall()
+        correction_times[triple_id] = max(
+            (float(match["created_at"]) for match in matches),
+            default=None,
+        )
+        pending_target_ids.update(
+            str(match["target_id"])
+            for match in matches
+            if str(match["correction_kind"]) == "situation_changed"
+            and match["transition_applied_at"] is None
         )
 
     def rank(row: aiosqlite.Row) -> tuple[Any, ...]:
@@ -668,6 +900,11 @@ async def _pick_current_winner(
             "user_forget",
         }
         return (
+            _is_current_independent_relationship(
+                dict(row),
+                now=now,
+                pending_target_ids=pending_target_ids,
+            ),
             user_governed,
             correction_at or 0.0,
             bool(row["authority_ref"]),
@@ -681,15 +918,51 @@ async def _pick_current_winner(
     return max(rows, key=rank)
 
 
+def _is_current_independent_relationship(
+    row: Mapping[str, Any],
+    *,
+    now: float,
+    pending_target_ids: set[str],
+) -> bool:
+    authority_ref = row.get("authority_ref")
+    if has_correction_owner(authority_ref) or str(authority_ref or "").startswith("forget:"):
+        return False
+    if str(row.get("status_reason") or "") == "user_forget":
+        return False
+    valid_from = row.get("valid_from")
+    if valid_from is None:
+        valid_from = row.get("first_observed_at")
+    if valid_from is not None and float(valid_from) > now:
+        return False
+    expires_at = row.get("expires_at")
+    if expires_at is not None and float(expires_at) <= now:
+        return False
+    triple_id = str(row["triple_id"])
+    valid_to = row.get("valid_to")
+    pending_target = triple_id in pending_target_ids
+    if valid_to is not None and float(valid_to) <= now and not pending_target:
+        return False
+    status = str(row.get("status") or "active")
+    return status == "active" or (
+        status == "deprecated" and valid_to is not None and (float(valid_to) > now or pending_target)
+    )
+
+
 def _merged_current_evidence(
     rows: list[aiosqlite.Row],
     *,
     forgotten_event_ids: set[str],
     winner_id: str,
+    excluded_evidence_ids: set[str],
 ) -> dict[str, Any]:
     evidence = "[]"
     metadata_rows: list[aiosqlite.Row] = []
     for row in rows:
+        if (
+            str(row["triple_id"]) in excluded_evidence_ids
+            and str(row["triple_id"]) != winner_id
+        ):
+            continue
         raw_evidence = str(row["evidence_event_ids"] or "[]")
         if not forgotten_event_ids:
             metadata_rows.append(row)
@@ -725,6 +998,47 @@ def _merged_current_evidence(
         "first_observed_at": min(float(row["first_observed_at"]) for row in metadata_rows),
         "last_observed_at": max(float(row["last_observed_at"]) for row in metadata_rows),
         "last_confirmed_at": max(confirmed) if confirmed else None,
+    }
+
+
+def _rejected_relationship_target_ids(
+    corrections: list[aiosqlite.Row],
+) -> set[str]:
+    """Return correction targets whose rejected evidence must not cross a merge."""
+    return {
+        str(correction["target_id"])
+        for correction in corrections
+        if str(correction["state"]) == "active"
+        and correction["transition_cancelled_at"] is None
+        and str(correction["correction_kind"]) == "record_error"
+        and not str(correction["replacement_target_id"] or "").strip()
+        and correction["replacement_json"] in (None, "", "null")
+    }
+
+
+def _rejected_relationship_convergence_ids(
+    rows: list[aiosqlite.Row],
+    *,
+    rejected_target_ids: set[str],
+    now: float,
+) -> set[str]:
+    """Return rejected branches that collided with an independent same claim."""
+    independent_ids = {
+        str(row["triple_id"])
+        for row in rows
+        if _is_current_independent_relationship(
+            dict(row),
+            now=now,
+            pending_target_ids=set(),
+        )
+        and str(row["status_reason"] or "") not in {"user_correction", "user_forget"}
+    }
+    if not independent_ids:
+        return set()
+    return {
+        target_id
+        for target_id in rejected_target_ids
+        if any(independent_id != target_id for independent_id in independent_ids)
     }
 
 
@@ -1266,7 +1580,7 @@ async def _rewrite_materialized_json_references(
                 )
             if assignments:
                 await db.execute(
-                    f"UPDATE {table} SET {', '.join(assignments)} " f"WHERE {identity_column} = ?",
+                    f"UPDATE {table} SET {', '.join(assignments)} WHERE {identity_column} = ?",
                     (*values, row[identity_column]),
                 )
 

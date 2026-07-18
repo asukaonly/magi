@@ -303,6 +303,8 @@ class MemoryCorrectionRecord(BaseModel):
     target_forgotten: bool = False
     forget_affected: bool = False
     content_redacted: bool = False
+    revert_blocked_reason: Optional[Literal["identity_merge", "lineage_collision"]] = None
+    resolution_reason: Optional[Literal["identity_merge_noop"]] = None
     can_revert: bool = False
 
 

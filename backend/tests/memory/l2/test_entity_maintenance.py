@@ -5,10 +5,12 @@ import tempfile
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import aiosqlite
 import pytest
 
+from _shared.context_scope import context_scope
 from magi.core.sqlite import sqlite_connection_async
 from magi.memory.l2.corrections.fingerprints import (
     assertion_claim_fingerprint,
@@ -18,7 +20,10 @@ from magi.memory.l2.corrections.fingerprints import (
     relationship_triple_id,
     scope_key,
 )
+from magi.memory.l2.corrections.current_claim import resolve_current_claim
 from magi.memory.l2.corrections.models import CorrectionKind
+from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
+from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
 from magi.memory.l2.entities.catalog import L2EntityCatalog
 from magi.memory.l2.entities.maintenance import L2EntityMaintenance, _canonical_entity_id
 from magi.memory.l2.graph.identity_rekey import (
@@ -45,6 +50,322 @@ async def _init_schema(db_path: str) -> None:
     await store.initialize()
     catalog = L2EntityCatalog(db_path=db_path)
     await catalog.initialize()
+
+
+async def _correction_revert_block_reason(
+    db_path: str,
+    *,
+    correction_id: str,
+) -> str | None:
+    reasons = await MemoryCorrectionRepository(
+        db_path
+    ).correction_revert_block_reasons(
+        [correction_id],
+    )
+    return reasons.get(correction_id)
+
+
+async def _seed_shared_relationship_replacement(
+    db_path: str,
+    *,
+    correction_kind: CorrectionKind,
+    effective_at: float | None = None,
+    source_event_id: str | None = None,
+) -> tuple[L2CognitionStore, str, str]:
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-independent"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="conversation",
+    )
+    source_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="HEARD_OF",
+        object_id="place:loser",
+        object_type="place",
+        evidence_event_ids=["evt-source"],
+        confidence=0.8,
+        observed_at=time.time() - 50,
+        source_type="conversation",
+    )
+    result = await store.apply_relationship_correction(
+        triple_id=source_id,
+        request_id=f"correct-shared-{correction_kind.value}",
+        actor_id="user:self",
+        correction_kind=correction_kind,
+        replacement={"predicate": "VISITED"},
+        effective_at=effective_at,
+        source_event_id=source_event_id,
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+    return store, str(result["correction"]["correction_id"]), source_id
+
+
+async def _seed_shared_same_slot_relationship_replacement(
+    db_path: str,
+    *,
+    correction_kind: CorrectionKind,
+    effective_at: float | None = None,
+    source_event_id: str | None = None,
+) -> tuple[L2CognitionStore, str]:
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="DISLIKES",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-independent"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="conversation",
+    )
+    source_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="place:loser",
+        object_type="place",
+        evidence_event_ids=["evt-source"],
+        confidence=0.8,
+        observed_at=time.time() - 50,
+        source_type="conversation",
+    )
+    result = await store.apply_relationship_correction(
+        triple_id=source_id,
+        request_id=f"correct-same-slot-shared-{correction_kind.value}",
+        actor_id="user:self",
+        correction_kind=correction_kind,
+        replacement={"predicate": "DISLIKES"},
+        effective_at=effective_at,
+        source_event_id=source_event_id,
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+    return store, str(result["correction"]["correction_id"])
+
+
+def _assert_shared_relationships_survive(
+    relationships: list[dict[str, object]],
+) -> None:
+    assert {
+        (item["predicate"], item["object_id"]) for item in relationships
+    } == {
+        ("HEARD_OF", "place:winner"),
+        ("VISITED", "place:winner"),
+    }
+    visited = next(item for item in relationships if item["predicate"] == "VISITED")
+    assert "evt-independent" in visited["evidence_event_ids"]
+
+
+async def _seed_colliding_assertion_correction(
+    db_path: str,
+    *,
+    correction_kind: CorrectionKind,
+    effective_at: float | None = None,
+) -> tuple[L2CognitionStore, str]:
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    now = time.time() - 60
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:winner",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_drink",
+            "trait_value": "Coffee",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-independent"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "temporal_scope": "persistent",
+        }
+    )
+    source_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:loser",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_drink",
+            "trait_value": "Coffee",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-source"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+            "temporal_scope": "persistent",
+        }
+    )
+    result = await store.apply_assertion_correction(
+        assertion_id=source_id,
+        request_id=f"correct-colliding-assertion-{correction_kind.value}",
+        actor_id="user:self",
+        correction_kind=correction_kind,
+        replacement_value="Tea",
+        effective_at=effective_at,
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+    return store, str(result["correction"]["correction_id"])
+
+
+async def _seed_shared_assertion_replacement(
+    db_path: str,
+) -> tuple[L2CognitionStore, str, str]:
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    now = time.time() - 60
+    await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:winner",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_drink",
+            "trait_value": "Tea",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-independent"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "temporal_scope": "persistent",
+        }
+    )
+    source_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:loser",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_drink",
+            "trait_value": "Coffee",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-source"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+            "temporal_scope": "persistent",
+        }
+    )
+    result = await store.apply_assertion_correction(
+        assertion_id=source_id,
+        request_id="correct-shared-assertion-replacement",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Tea",
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+    return store, str(result["correction"]["correction_id"]), source_id
+
+
+async def _seed_colliding_relationship_correction(
+    db_path: str,
+    *,
+    correction_kind: CorrectionKind,
+    effective_at: float | None = None,
+) -> tuple[L2CognitionStore, str]:
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-independent"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="conversation",
+    )
+    source_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="place:loser",
+        object_type="place",
+        evidence_event_ids=["evt-source"],
+        confidence=0.8,
+        observed_at=time.time() - 50,
+        source_type="conversation",
+    )
+    result = await store.apply_relationship_correction(
+        triple_id=source_id,
+        request_id=f"correct-colliding-relationship-{correction_kind.value}",
+        actor_id="user:self",
+        correction_kind=correction_kind,
+        replacement={"predicate": "DISLIKES"},
+        effective_at=effective_at,
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+    return store, str(result["correction"]["correction_id"])
 
 
 @pytest.mark.asyncio
@@ -134,6 +455,1340 @@ async def test_entity_merge_rekeys_name_evidence_and_preserves_independent_alias
     assert entity["entity_id"] == "person:winner"
     assert entity["canonical_name"] == "Winner name"
     assert entity["aliases"] == ["Independent alias"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_ambiguous_assertion_branch_reverts(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    now = time.time() - 60
+    winner_assertion_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:winner",
+            "entity_type": "person",
+            "trait_family": "identity_profile",
+            "trait_name": "location.home",
+            "trait_value": "Hangzhou",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-winner-home"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "temporal_scope": "persistent",
+        }
+    )
+    loser_assertion_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:loser",
+            "entity_type": "person",
+            "trait_family": "identity_profile",
+            "trait_name": "location.home",
+            "trait_value": "Beijing",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-loser-home"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+            "temporal_scope": "persistent",
+        }
+    )
+    winner_correction = await store.apply_assertion_correction(
+        assertion_id=winner_assertion_id,
+        request_id="correct-winner-home",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+    )
+    loser_correction = await store.apply_assertion_correction(
+        assertion_id=loser_assertion_id,
+        request_id="correct-loser-home",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shenzhen",
+    )
+    assert winner_correction is not None
+    assert loser_correction is not None
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in current] == ["Shenzhen"]
+    correction_ids = [
+        winner_correction["correction"]["correction_id"],
+        loser_correction["correction"]["correction_id"],
+    ]
+    restarted_store = L2CognitionStore(db_path=db_path)
+    for assertion_id, request_id, replacement_value, correction_id in (
+        (
+            winner_assertion_id,
+            "correct-winner-home",
+            "Shanghai",
+            correction_ids[0],
+        ),
+        (
+            loser_assertion_id,
+            "correct-loser-home",
+            "Shenzhen",
+            correction_ids[1],
+        ),
+    ):
+        retried = await restarted_store.apply_assertion_correction(
+            assertion_id=assertion_id,
+            request_id=request_id,
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement_value=replacement_value,
+        )
+        assert retried is not None
+        assert retried["created"] is False
+        assert retried["correction"]["correction_id"] == correction_id
+    with pytest.raises(MemoryCorrectionConflictError):
+        await restarted_store.apply_assertion_correction(
+            assertion_id=winner_assertion_id,
+            request_id="correct-winner-home",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement_value="Different value",
+        )
+    async with sqlite_connection_async(db_path) as db:
+        blocked = await (
+            await db.execute(
+                """
+                SELECT correction_id, block_reason
+                FROM memory_correction_revert_blocks
+                ORDER BY correction_id
+                """
+            )
+        ).fetchall()
+    assert {tuple(row) for row in blocked} == {
+        (correction_ids[0], "identity_merge"),
+        (correction_ids[1], "identity_merge"),
+    }
+    for correction_id in correction_ids:
+        with pytest.raises(
+            MemoryCorrectionConflictError,
+            match="histories converged",
+        ) as exc_info:
+            await store.revert_assertion_correction(
+                correction_id=correction_id,
+                request_id=f"revert-{correction_id}",
+                actor_id="user:self",
+            )
+        assert exc_info.value.code == "identity_merge_revert_blocked"
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_ambiguous_relationship_branch_reverts(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    relationship_ids = []
+    for index, object_id in enumerate(("place:winner", "place:loser")):
+        relationship_ids.append(
+            await store.upsert_knowledge_edge(
+                subject_id="user:self",
+                subject_type="user",
+                predicate="VISITED",
+                object_id=object_id,
+                object_type="place",
+                evidence_event_ids=[f"evt-visit-{index}"],
+                confidence=0.8,
+                observed_at=time.time() - 60 + index,
+                source_type="conversation",
+            )
+        )
+    corrections = []
+    for index, relationship_id in enumerate(relationship_ids):
+        correction = await store.apply_relationship_correction(
+            triple_id=relationship_id,
+            request_id=f"correct-visit-{index}",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"predicate": "LIKES"},
+        )
+        assert correction is not None
+        corrections.append(correction)
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert len(current) == 1
+    assert current[0]["object_id"] == "place:winner"
+    correction_ids = [correction["correction"]["correction_id"] for correction in corrections]
+    restarted_store = L2CognitionStore(db_path=db_path)
+    for index, relationship_id in enumerate(relationship_ids):
+        retried = await restarted_store.apply_relationship_correction(
+            triple_id=relationship_id,
+            request_id=f"correct-visit-{index}",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"predicate": "LIKES"},
+        )
+        assert retried is not None
+        assert retried["created"] is False
+        assert retried["correction"]["correction_id"] == correction_ids[index]
+    with pytest.raises(MemoryCorrectionConflictError):
+        await restarted_store.apply_relationship_correction(
+            triple_id=relationship_ids[0],
+            request_id="correct-visit-0",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"predicate": "DISLIKES"},
+        )
+    for correction_id in correction_ids:
+        with pytest.raises(
+            MemoryCorrectionConflictError,
+            match="histories converged",
+        ) as exc_info:
+            await store.revert_relationship_correction(
+                correction_id=correction_id,
+                request_id=f"revert-{correction_id}",
+                actor_id="user:self",
+            )
+        assert exc_info.value.code == "correction_lineage_revert_blocked"
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_revert_preserves_independent_shared_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, correction_id, _ = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    await store.revert_relationship_correction(
+        correction_id=correction_id,
+        request_id="revert-shared-record-error",
+        actor_id="user:self",
+    )
+
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    _assert_shared_relationships_survive(current)
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_relationship_retry_returns_current_shared_replacement(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, _, source_id = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    repeated = await store.apply_relationship_correction(
+        triple_id=source_id,
+        request_id="correct-shared-record_error",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement={"predicate": "VISITED"},
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["VISITED"],
+        limit=20,
+    )
+
+    assert repeated is not None
+    assert repeated["created"] is False
+    assert repeated["current_relationship"] is not None
+    assert repeated["current_relationship"]["triple_id"] == current[0]["triple_id"]
+    assert repeated["current_relationship"]["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_revert_that_would_replace_independent_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, correction_id = await _seed_shared_same_slot_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    block_reason = await _correction_revert_block_reason(
+        db_path,
+        correction_id=correction_id,
+    )
+    assert block_reason == "identity_merge"
+    with pytest.raises(MemoryCorrectionConflictError) as exc_info:
+        await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="unsafe-shared-relationship-revert",
+            actor_id="user:self",
+        )
+    assert exc_info.value.code == "identity_merge_revert_blocked"
+
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in current] == [
+        ("DISLIKES", "place:winner"),
+    ]
+    assert current[0]["evidence_event_ids"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_pending_same_slot_relationship_revert(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, correction_id = await _seed_shared_same_slot_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    block_reason = await _correction_revert_block_reason(
+        db_path,
+        correction_id=correction_id,
+    )
+    assert block_reason == "identity_merge"
+    with pytest.raises(MemoryCorrectionConflictError) as exc_info:
+        await store.revert_relationship_correction(
+            correction_id=correction_id,
+            request_id="unsafe-pending-shared-relationship-revert",
+            actor_id="user:self",
+        )
+    assert exc_info.value.code == "identity_merge_revert_blocked"
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in current] == [
+        ("DISLIKES", "place:winner"),
+    ]
+    assert current[0]["evidence_event_ids"] == ["evt-independent"]
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        after_due = await store.list_current_relationships(
+            subject_id="user:self",
+            limit=20,
+        )
+    assert stats["activated"] == 1
+    assert [(item["predicate"], item["object_id"]) for item in after_due] == [
+        ("DISLIKES", "place:winner"),
+    ]
+    assert after_due[0]["evidence_event_ids"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_time_forget_cancels_shared_same_slot_transition_without_data_loss(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, _ = await _seed_shared_same_slot_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    await store.forget_time_range(
+        start=effective_at - 1,
+        end=effective_at + 1,
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in current] == [
+        ("DISLIKES", "place:winner"),
+    ]
+    assert current[0]["evidence_event_ids"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_forgetting_correction_source_preserves_independent_shared_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, _, _ = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        source_event_id="evt-correction-feedback",
+    )
+
+    await store.forget_source_events(
+        ["evt-correction-feedback"],
+        reason="user_delete_event",
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+
+    _assert_shared_relationships_survive(current)
+
+
+@pytest.mark.asyncio
+async def test_forgetting_shared_same_slot_correction_preserves_independent_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, _ = await _seed_shared_same_slot_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        source_event_id="evt-correction-feedback",
+    )
+
+    await store.forget_source_events(
+        ["evt-correction-feedback"],
+        reason="user_delete_event",
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in current] == [
+        ("DISLIKES", "place:winner"),
+    ]
+    assert current[0]["evidence_event_ids"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_resolves_rejected_duplicate_relationship_without_evidence_leak(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-independent"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="conversation",
+    )
+    rejected_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:loser",
+        object_type="place",
+        evidence_event_ids=["evt-rejected"],
+        confidence=0.8,
+        observed_at=time.time() - 50,
+        source_type="conversation",
+    )
+    result = await store.apply_relationship_correction(
+        triple_id=rejected_id,
+        request_id="reject-duplicate-relationship",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+    assert result is not None
+    correction_id = str(result["correction"]["correction_id"])
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["VISITED"],
+        limit=20,
+    )
+    assert current[0]["evidence_event_ids"] == ["evt-independent"]
+    correction = await MemoryCorrectionRepository(db_path).get(correction_id)
+    assert correction is not None
+    assert correction.state.value == "reverted"
+    assert correction.reverted_by == "system:identity_merge_noop"
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="VISITED",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-later"],
+        confidence=0.9,
+        observed_at=time.time(),
+        source_type="conversation",
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["VISITED"],
+        limit=20,
+    )
+    assert set(current[0]["evidence_event_ids"]) == {"evt-independent", "evt-later"}
+
+    await store.forget_source_events(["evt-independent"], reason="user_delete_event")
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["VISITED"],
+        limit=20,
+    )
+    assert current[0]["evidence_event_ids"] == ["evt-later"]
+    await store.forget_source_events(["evt-later"], reason="user_delete_event")
+    assert (
+        await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["VISITED"],
+            limit=20,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_pending_replacement_does_not_hide_independent_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, correction_id, _ = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    before_revert = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    _assert_shared_relationships_survive(before_revert)
+
+    await store.revert_relationship_correction(
+        correction_id=correction_id,
+        request_id="revert-shared-scheduled",
+        actor_id="user:self",
+    )
+    after_revert = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+    _assert_shared_relationships_survive(after_revert)
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_cancelled_replacement_preserves_independent_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, _, _ = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    await store.forget_time_range(
+        start=effective_at - 1,
+        end=effective_at + 1,
+    )
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        limit=20,
+    )
+
+    _assert_shared_relationships_survive(current)
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_due_replacement_only_closes_its_original_relationship(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, _, _ = await _seed_shared_relationship_replacement(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        current = await store.list_current_relationships(
+            subject_id="user:self",
+            limit=20,
+        )
+
+    assert stats["activated"] == 1
+    assert [(item["predicate"], item["object_id"]) for item in current] == [
+        ("VISITED", "place:winner"),
+    ]
+    assert "evt-independent" in current[0]["evidence_event_ids"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_preserves_immediate_assertion_correction_and_revert_evidence(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, correction_id = await _seed_colliding_assertion_correction(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    corrected = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in corrected] == ["Tea"]
+
+    await store.revert_assertion_correction(
+        correction_id=correction_id,
+        request_id="revert-colliding-assertion",
+        actor_id="user:self",
+    )
+    reverted = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in reverted] == ["Coffee"]
+    assert set(reverted[0]["evidence_events"]) >= {
+        "evt-independent",
+        "evt-source",
+    }
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_shared_assertion_replacement_revert(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, correction_id, _ = await _seed_shared_assertion_replacement(db_path)
+
+    block_reason = await _correction_revert_block_reason(
+        db_path,
+        correction_id=correction_id,
+    )
+    assert block_reason == "identity_merge"
+    with pytest.raises(MemoryCorrectionConflictError) as exc_info:
+        await store.revert_assertion_correction(
+            correction_id=correction_id,
+            request_id="unsafe-shared-assertion-revert",
+            actor_id="user:self",
+        )
+    assert exc_info.value.code == "identity_merge_revert_blocked"
+
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in current] == ["Tea"]
+    assert current[0]["evidence_events"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_assertion_retry_returns_current_shared_replacement(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, _, source_id = await _seed_shared_assertion_replacement(db_path)
+
+    repeated = await store.apply_assertion_correction(
+        assertion_id=source_id,
+        request_id="correct-shared-assertion-replacement",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Tea",
+    )
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+
+    assert repeated is not None
+    assert repeated["created"] is False
+    assert repeated["current_assertion"] is not None
+    assert repeated["current_assertion"]["assertion_id"] == current[0]["assertion_id"]
+    assert repeated["current_assertion"]["status"] not in {
+        "archived",
+        "expired",
+        "superseded",
+        "user_rejected",
+    }
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_keeps_cross_scope_assertion_revert_available(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    project_scope = context_scope(project="magi")
+    now = time.time() - 60
+    base = {
+        "entity_type": "person",
+        "trait_family": "preference_profile",
+        "trait_name": "favorite_drink",
+        "trait_value": "Coffee",
+        "confidence_score": 0.8,
+        "volatility_index": 0.1,
+        "source_domain": "conversation",
+        "inference_depth": "explicit",
+        "validation_state": "stable",
+        "temporal_scope": "persistent",
+    }
+    await store.upsert_assertion_candidate(
+        {
+            **base,
+            "entity_id": "person:winner",
+            "evidence_events": ["evt-independent"],
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "scope": project_scope,
+        }
+    )
+    source_id = await store.upsert_assertion_candidate(
+        {
+            **base,
+            "entity_id": "person:loser",
+            "evidence_events": ["evt-source"],
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+        }
+    )
+    result = await store.apply_assertion_correction(
+        assertion_id=source_id,
+        request_id="refine-shared-assertion-scope",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.SCOPE_REFINEMENT,
+        replacement_value="Coffee",
+        scope=project_scope,
+    )
+    assert result is not None
+    correction_id = str(result["correction"]["correction_id"])
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+
+    assert (
+        await _correction_revert_block_reason(
+            db_path,
+            correction_id=correction_id,
+        )
+        is None
+    )
+    await store.revert_assertion_correction(
+        correction_id=correction_id,
+        request_id="revert-refined-shared-assertion-scope",
+        actor_id="user:self",
+    )
+    global_current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    project_current = await store.list_current_assertions(
+        entity_id="person:winner",
+        context_scope=project_scope,
+        limit=20,
+    )
+    assert global_current[0]["evidence_events"] == ["evt-source"]
+    assert project_current[0]["evidence_events"] == ["evt-independent"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_resolves_rejected_duplicate_assertion_without_evidence_leak(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    now = time.time() - 60
+    base = {
+        "entity_type": "person",
+        "trait_family": "preference_profile",
+        "trait_name": "favorite_drink",
+        "trait_value": "Coffee",
+        "confidence_score": 0.8,
+        "volatility_index": 0.1,
+        "source_domain": "conversation",
+        "inference_depth": "explicit",
+        "validation_state": "stable",
+        "temporal_scope": "persistent",
+    }
+    await store.upsert_assertion_candidate(
+        {
+            **base,
+            "entity_id": "person:winner",
+            "evidence_events": ["evt-independent"],
+            "first_inferred_at": now,
+            "last_validated_at": now,
+        }
+    )
+    rejected_id = await store.upsert_assertion_candidate(
+        {
+            **base,
+            "entity_id": "person:loser",
+            "evidence_events": ["evt-rejected"],
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+        }
+    )
+    result = await store.apply_assertion_correction(
+        assertion_id=rejected_id,
+        request_id="reject-duplicate-assertion",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+    assert result is not None
+    correction_id = str(result["correction"]["correction_id"])
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert current[0]["evidence_events"] == ["evt-independent"]
+    correction = await MemoryCorrectionRepository(db_path).get(correction_id)
+    assert correction is not None
+    assert correction.state.value == "reverted"
+    assert correction.reverted_by == "system:identity_merge_noop"
+
+    await store.upsert_assertion_candidate(
+        {
+            **base,
+            "entity_id": "person:winner",
+            "evidence_events": ["evt-later"],
+            "first_inferred_at": time.time(),
+            "last_validated_at": time.time(),
+        }
+    )
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert set(current[0]["evidence_events"]) == {"evt-independent", "evt-later"}
+
+    await store.forget_source_events(["evt-independent"], reason="user_delete_event")
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert current[0]["evidence_events"] == ["evt-later"]
+    await store.forget_source_events(["evt-later"], reason="user_delete_event")
+    assert (
+        await store.list_current_assertions(
+            entity_id="person:winner",
+            limit=20,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_scheduled_assertion_activates_after_preserving_old_evidence(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, _ = await _seed_colliding_assertion_correction(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    before_due = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in before_due] == ["Coffee"]
+    assert set(before_due[0]["evidence_events"]) >= {
+        "evt-independent",
+        "evt-source",
+    }
+
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        after_due = await store.list_current_assertions(
+            entity_id="person:winner",
+            limit=20,
+        )
+
+    assert stats["activated"] == 1
+    assert [item["trait_value"] for item in after_due] == ["Tea"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_scheduled_assertion_can_be_reverted_before_due(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, correction_id = await _seed_colliding_assertion_correction(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    await store.revert_assertion_correction(
+        correction_id=correction_id,
+        request_id="revert-colliding-scheduled-assertion",
+        actor_id="user:self",
+    )
+    reverted = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [item["trait_value"] for item in reverted] == ["Coffee"]
+    assert set(reverted[0]["evidence_events"]) >= {
+        "evt-independent",
+        "evt-source",
+    }
+
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        after_due = await store.list_current_assertions(
+            entity_id="person:winner",
+            limit=20,
+        )
+    assert stats["activated"] == 0
+    assert [item["trait_value"] for item in after_due] == ["Coffee"]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_reapplies_immediate_relationship_conflicts_and_reverts_safely(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    store, correction_id = await _seed_colliding_relationship_correction(
+        db_path,
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    assert (
+        await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["LIKES"],
+            limit=20,
+        )
+        == []
+    )
+    corrected = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["DISLIKES"],
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in corrected] == [
+        ("DISLIKES", "place:winner"),
+    ]
+
+    await store.revert_relationship_correction(
+        correction_id=correction_id,
+        request_id="revert-colliding-relationship",
+        actor_id="user:self",
+    )
+    reverted = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in reverted] == [
+        ("LIKES", "place:winner"),
+    ]
+    assert set(reverted[0]["evidence_event_ids"]) >= {
+        "evt-independent",
+        "evt-source",
+    }
+    assert (
+        await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["DISLIKES"],
+            limit=20,
+        )
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_scheduled_relationship_applies_conflict_only_when_due(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    effective_at = time.time() + 3_600
+    store, _ = await _seed_colliding_relationship_correction(
+        db_path,
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        effective_at=effective_at,
+    )
+
+    before_due = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in before_due] == [
+        ("LIKES", "place:winner"),
+    ]
+
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        old_claim = await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["LIKES"],
+            limit=20,
+        )
+        replacement = await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["DISLIKES"],
+            limit=20,
+        )
+
+    assert stats["activated"] == 1
+    assert old_claim == []
+    assert [(item["predicate"], item["object_id"]) for item in replacement] == [
+        ("DISLIKES", "place:winner"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_collapses_scheduled_relationship_noop_and_keeps_evidence(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    source_id = await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="place:loser",
+        object_type="place",
+        evidence_event_ids=["evt-source"],
+        confidence=0.8,
+        observed_at=time.time() - 60,
+        source_type="conversation",
+    )
+    effective_at = time.time() + 3_600
+    result = await store.apply_relationship_correction(
+        triple_id=source_id,
+        request_id="scheduled-relationship-noop-after-merge",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.SITUATION_CHANGED,
+        replacement={
+            "object_id": "place:winner",
+            "object_type": "place",
+        },
+        effective_at=effective_at,
+    )
+    assert result is not None
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+    before_due = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert [(item["predicate"], item["object_id"]) for item in before_due] == [
+        ("LIKES", "place:winner"),
+    ]
+    assert "evt-source" in before_due[0]["evidence_event_ids"]
+
+    await store.upsert_knowledge_edge(
+        subject_id="user:self",
+        subject_type="user",
+        predicate="LIKES",
+        object_id="place:winner",
+        object_type="place",
+        evidence_event_ids=["evt-later"],
+        confidence=0.9,
+        observed_at=time.time(),
+        source_type="conversation",
+    )
+    with patch("time.time", return_value=effective_at + 1):
+        stats = await store.process_memory_correction_jobs(limit=20)
+        after_due = await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["LIKES"],
+            limit=20,
+        )
+
+    assert stats["activated"] == 0
+    assert [(item["predicate"], item["object_id"]) for item in after_due] == [
+        ("LIKES", "place:winner"),
+    ]
+    assert set(after_due[0]["evidence_event_ids"]) >= {
+        "evt-source",
+        "evt-later",
+    }
+    async with sqlite_connection_async(db_path) as db:
+        correction_row = await (
+            await db.execute(
+                """
+                SELECT state, reverted_by,
+                       (SELECT COUNT(*) FROM memory_correction_rules AS rules
+                        WHERE rules.correction_id = corrections.correction_id
+                          AND rules.active = 1)
+                FROM memory_corrections AS corrections
+                WHERE correction_id = ?
+                """,
+                (result["correction"]["correction_id"],),
+            )
+        ).fetchone()
+    assert tuple(correction_row) == ("reverted", "system:identity_merge_noop", 0)
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_relationship_branches_that_share_a_final_slot(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    corrections = []
+    for index, (subject_id, old_city, new_city) in enumerate(
+        (
+            ("person:winner", "place:hangzhou", "place:shanghai"),
+            ("person:loser", "place:beijing", "place:shenzhen"),
+        )
+    ):
+        relationship_id = await store.upsert_knowledge_edge(
+            subject_id=subject_id,
+            subject_type="person",
+            predicate="CURRENT_LIVES_IN",
+            object_id=old_city,
+            object_type="place",
+            evidence_event_ids=[f"evt-home-{index}"],
+            confidence=0.8,
+            observed_at=time.time() - 60 + index,
+            source_type="conversation",
+        )
+        correction = await store.apply_relationship_correction(
+            triple_id=relationship_id,
+            request_id=f"correct-home-{index}",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={
+                "object_id": new_city,
+                "object_type": "place",
+            },
+        )
+        assert correction is not None
+        corrections.append(correction)
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+
+    current = await store.list_current_relationships(
+        subject_id="person:winner",
+        predicates=["CURRENT_LIVES_IN"],
+        limit=20,
+    )
+    assert len(current) == 1
+    assert current[0]["object_id"] == "place:shenzhen"
+    for correction in corrections:
+        resolved = await resolve_current_claim(
+            db_path,
+            correction=correction["correction"],
+        )
+        assert resolved is not None
+        assert resolved["triple_id"] == current[0]["triple_id"]
+
+    correction_ids = {correction["correction"]["correction_id"] for correction in corrections}
+    async with sqlite_connection_async(db_path) as db:
+        blocked = await (
+            await db.execute(
+                """
+                SELECT correction_id, block_reason
+                FROM memory_correction_revert_blocks
+                WHERE correction_id IN (?, ?)
+                """,
+                tuple(sorted(correction_ids)),
+            )
+        ).fetchall()
+    assert {str(row[0]) for row in blocked} == correction_ids
+    assert {str(row[1]) for row in blocked} == {"lineage_collision"}
+
+
+@pytest.mark.asyncio
+async def test_entity_merge_blocks_different_relationships_with_one_replacement(
+    tmp_path: Path,
+) -> None:
+    db_path = str(tmp_path / "memory.db")
+    await _init_schema(db_path)
+    catalog = L2EntityCatalog(db_path=db_path, vector_enabled=False)
+    for entity_id in ("place:winner", "place:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same place",
+            entity_type="place",
+        )
+    store = L2CognitionStore(db_path=db_path)
+    corrections = []
+    for index, (predicate, object_id) in enumerate(
+        (
+            ("VISITED", "place:winner"),
+            ("HEARD_OF", "place:loser"),
+        )
+    ):
+        relationship_id = await store.upsert_knowledge_edge(
+            subject_id="user:self",
+            subject_type="user",
+            predicate=predicate,
+            object_id=object_id,
+            object_type="place",
+            evidence_event_ids=[f"evt-shared-like-{index}"],
+            confidence=0.8,
+            observed_at=time.time() - 60 + index,
+            source_type="conversation",
+        )
+        correction = await store.apply_relationship_correction(
+            triple_id=relationship_id,
+            request_id=f"correct-shared-like-{index}",
+            actor_id="user:self",
+            correction_kind=CorrectionKind.RECORD_ERROR,
+            replacement={"predicate": "LIKES"},
+        )
+        assert correction is not None
+        corrections.append(correction)
+
+    await L2EntityMaintenance(db_path=db_path)._merge_entity_into(
+        "place:winner",
+        "place:loser",
+    )
+
+    current = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert len(current) == 1
+    assert current[0]["object_id"] == "place:winner"
+    correction_ids = [correction["correction"]["correction_id"] for correction in corrections]
+    async with sqlite_connection_async(db_path) as db:
+        blocked = await (
+            await db.execute(
+                """
+                SELECT correction_id, block_reason
+                FROM memory_correction_revert_blocks
+                WHERE correction_id IN (?, ?)
+                ORDER BY correction_id
+                """,
+                tuple(correction_ids),
+            )
+        ).fetchall()
+    assert {tuple(row) for row in blocked} == {
+        (correction_ids[0], "lineage_collision"),
+        (correction_ids[1], "lineage_collision"),
+    }
+    for correction_id in correction_ids:
+        with pytest.raises(MemoryCorrectionConflictError) as exc_info:
+            await store.revert_relationship_correction(
+                correction_id=correction_id,
+                request_id=f"revert-{correction_id}",
+                actor_id="user:self",
+            )
+        assert exc_info.value.code == "correction_lineage_revert_blocked"
+    after_revert_attempts = await store.list_current_relationships(
+        subject_id="user:self",
+        predicates=["LIKES"],
+        limit=20,
+    )
+    assert [item["triple_id"] for item in after_revert_attempts] == [current[0]["triple_id"]]
 
 
 @pytest.mark.asyncio
@@ -460,7 +2115,7 @@ async def test_ghost_rewrite_rekeys_relationship_governance_references() -> None
 
 
 @pytest.mark.asyncio
-async def test_ghost_rewrite_collision_keeps_authoritative_correction_history() -> None:
+async def test_ghost_rewrite_collision_keeps_independent_claim_through_revert() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "m.db")
         await _init_schema(db_path)
@@ -521,11 +2176,13 @@ async def test_ghost_rewrite_collision_keeps_authoritative_correction_history() 
                     (canonical_triple_id,),
                 )
             ).fetchone()
-            duplicates = await (await db.execute("""
+            duplicates = await (
+                await db.execute("""
                     SELECT COUNT(*) FROM knowledge_graph
                     WHERE subject_id = 'user:self' AND predicate = 'LIKES'
                       AND object_id = 'food:ramen-canonical' AND scope_key = 'global'
-                    """)).fetchone()
+                    """)
+            ).fetchone()
             correction = await (
                 await db.execute(
                     "SELECT * FROM memory_corrections WHERE correction_id = ?",
@@ -546,7 +2203,7 @@ async def test_ghost_rewrite_collision_keeps_authoritative_correction_history() 
             ).fetchone()
 
         assert current is not None
-        assert current["authority_ref"] == f"correction:{correction_id}"
+        assert current["authority_ref"] is None
         assert current["status"] == "active"
         assert set(json.loads(current["evidence_event_ids"])) == {"evt-canonical"}
         assert duplicates[0] == 1
@@ -564,6 +2221,17 @@ async def test_ghost_rewrite_collision_keeps_authoritative_correction_history() 
         )
         assert reverted is not None
         assert reverted["current_relationship"]["triple_id"] == original_id
+        after_revert = await store.list_current_relationships(
+            subject_id="user:self",
+            predicates=["LIKES"],
+            limit=20,
+        )
+        assert {
+            (item["object_id"], tuple(item["evidence_event_ids"])) for item in after_revert
+        } == {
+            ("food:udon", ("evt-udon",)),
+            ("food:ramen-canonical", ("evt-canonical",)),
+        }
 
 
 @pytest.mark.asyncio
@@ -1237,11 +2905,13 @@ async def test_merge_same_name_mergeable_types() -> None:
                 ("claude",),
             ) as cur:
                 entities = await cur.fetchall()
-            snapshot = await (await db.execute("""
+            snapshot = await (
+                await db.execute("""
                     SELECT entity_id, current_mood, update_source_assertion_ids
                     FROM tom_snapshots
                     WHERE entity_id IN ('software:claude-app', 'technology:claude-ai')
-                    """)).fetchone()
+                    """)
+            ).fetchone()
         assert [row["entity_id"] for row in entities] == ["software:claude-app"]
         assert snapshot is not None
         assert snapshot["entity_id"] == "software:claude-app"
@@ -2399,7 +4069,8 @@ async def test_tom_ghost_rewrite_keeps_distinct_project_scopes_current() -> None
 
         async with sqlite_connection_async(db_path) as db:
             db.row_factory = aiosqlite.Row
-            rows = await (await db.execute("""
+            rows = await (
+                await db.execute("""
                     SELECT entity_id, trait_value, scope_key, status
                     FROM tom_trait_assertions
                     WHERE entity_id = 'person:alice-canon'
@@ -2408,7 +4079,8 @@ async def test_tom_ghost_rewrite_keeps_distinct_project_scopes_current() -> None
                           'user_rejected', 'shadow'
                       )
                     ORDER BY scope_key
-                    """)).fetchall()
+                    """)
+            ).fetchall()
         assert len(rows) == 2
         assert {row["trait_value"] for row in rows} == {"happy", "focused"}
         assert {row["scope_key"] for row in rows} == {
@@ -2687,12 +4359,14 @@ async def test_forgotten_assertion_history_stays_governed_after_ghost_rekey() ->
                     (correction_id,),
                 )
             ).fetchone()
-            rules = await (await db.execute("""
+            rules = await (
+                await db.execute("""
                     SELECT claim_fingerprint, semantic_fingerprint
                     FROM memory_forget_claim_rules
                     WHERE target_kind = 'assertion'
                     ORDER BY claim_fingerprint
-                    """)).fetchall()
+                    """)
+            ).fetchall()
             stale_governance = await (
                 await db.execute(
                     """

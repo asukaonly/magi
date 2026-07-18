@@ -53,6 +53,12 @@ class MemoryCorrectionRepository:
                     correction.request_id,
                 )
                 if existing is not None:
+                    stored_fingerprint = await self.request_fingerprint_on_connection(
+                        db,
+                        existing.correction_id,
+                    )
+                    if correction.request_fingerprint != stored_fingerprint:
+                        raise ValueError("request_id was already used for a different correction")
                     await db.commit()
                     return CorrectionCreateResult(
                         correction=existing,
@@ -121,6 +127,21 @@ class MemoryCorrectionRepository:
                 _optional_text(correction.replacement_target_id),
                 correction.created_at,
                 _initial_transition_applied_at(correction),
+            ),
+        )
+        request_fingerprint = str(correction.request_fingerprint).strip()
+        if not request_fingerprint:
+            raise ValueError("Correction request fingerprint is required")
+        await db.execute(
+            """
+            INSERT INTO memory_correction_request_fingerprints(
+                correction_id, request_fingerprint, created_at
+            ) VALUES (?, ?, ?)
+            """,
+            (
+                correction.correction_id,
+                request_fingerprint,
+                correction.created_at,
             ),
         )
         evidence_event_ids, evidence_fail_closed = _correction_evidence_governance(correction)
@@ -248,6 +269,28 @@ class MemoryCorrectionRepository:
             row = await cursor.fetchone()
         return MemoryCorrection.from_row(dict(row)) if row is not None else None
 
+    async def request_fingerprint_on_connection(
+        self,
+        db: aiosqlite.Connection,
+        correction_id: str,
+    ) -> str | None:
+        """Return the single immutable caller-intent fingerprint for one correction."""
+        async with db.execute(
+            """
+            SELECT request_fingerprint
+            FROM memory_correction_request_fingerprints
+            WHERE correction_id = ?
+            """,
+            (correction_id,),
+        ) as cursor:
+            rows = await cursor.fetchmany(2)
+        if len(rows) > 1:
+            raise ValueError("Correction has multiple request fingerprints")
+        if not rows:
+            return None
+        fingerprint = str(rows[0][0] or "").strip()
+        return fingerprint or None
+
     async def list_for_target(
         self,
         *,
@@ -296,6 +339,41 @@ class MemoryCorrectionRepository:
                 (candidate_json,),
             ) as cursor:
                 return {str(row[0]) for row in await cursor.fetchall()}
+
+    async def correction_revert_block_reasons(
+        self,
+        correction_ids: Iterable[str],
+    ) -> dict[str, str]:
+        """Return durable reasons that make correction reverts unsafe."""
+        normalized = list(
+            dict.fromkeys(
+                str(correction_id).strip()
+                for correction_id in correction_ids
+                if str(correction_id).strip()
+            )
+        )
+        if not normalized:
+            return {}
+        candidate_json = json.dumps(
+            normalized,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        async with sqlite_connection_async(self.db_path) as db:
+            async with db.execute(
+                """
+                SELECT correction_id, block_reason
+                FROM memory_correction_revert_blocks
+                WHERE correction_id IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                """,
+                (candidate_json,),
+            ) as cursor:
+                return {
+                    str(correction_id): str(block_reason)
+                    for correction_id, block_reason in await cursor.fetchall()
+                }
 
     async def list_active_rules(
         self,
@@ -1052,7 +1130,7 @@ class MemoryCorrectionRepository:
             FROM memory_derivation_dependencies AS dependencies
             JOIN summaries ON summaries.summary_id = dependencies.artifact_id
             WHERE dependencies.artifact_kind = 'l3_insight'
-              AND ({' OR '.join(clauses)})
+              AND ({" OR ".join(clauses)})
             """,
             tuple(args),
         ) as cursor:

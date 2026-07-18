@@ -98,6 +98,7 @@ class GovernedL2RecallView:
             context_scope=self._context_scope,
             effective_at=self._effective_at,
             effective_range=self._effective_range,
+            committed_only=not self._include_relationship_history,
             limit=limit,
         )
         return [self._mark_governed(item) for item in assertions]
@@ -130,6 +131,7 @@ class GovernedL2RecallView:
             context_scope=self._context_scope,
             effective_at=self._effective_at,
             effective_range=self._effective_range,
+            committed_only=not self._include_relationship_history,
             limit_per_entity=limit_per_entity,
         )
         return {
@@ -164,6 +166,7 @@ class GovernedL2RecallView:
             effective_at=self._effective_at,
             effective_range=self._effective_range,
             include_history=self._include_relationship_history,
+            committed_only=not self._include_relationship_history,
             limit=limit,
         )
         return [self._mark_governed(item) for item in relationships]
@@ -198,6 +201,7 @@ class GovernedL2RecallView:
             effective_at=self._effective_at,
             effective_range=self._effective_range,
             include_history=self._include_relationship_history,
+            committed_only=not self._include_relationship_history,
             limit_per_entity=limit_per_entity,
         )
         return {
@@ -257,9 +261,7 @@ class GovernedL2RecallView:
     ) -> list[dict[str, Any]]:
         triple_ids = list(
             dict.fromkeys(
-                str(item.get("triple_id"))
-                for item in candidates
-                if item.get("triple_id")
+                str(item.get("triple_id")) for item in candidates if item.get("triple_id")
             )
         )
         if not triple_ids:
@@ -271,6 +273,7 @@ class GovernedL2RecallView:
             effective_at=self._effective_at,
             effective_range=self._effective_range,
             include_history=self._include_relationship_history,
+            committed_only=not self._include_relationship_history,
             limit=max(len(triple_ids), requested_limit),
         )
         governed_by_id: dict[str, list[dict[str, Any]]] = {}

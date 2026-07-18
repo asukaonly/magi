@@ -16,6 +16,7 @@ from ..graph.versions import append_knowledge_graph_version, list_knowledge_grap
 from ..graph_conflicts import GraphConflictRule, relationship_predicate_slot
 from ..storage.utils import normalize_store_entity_ref, normalize_store_entity_type
 from .cache_signals import mark_subject_changed
+from .current_claim import resolve_current_claim
 from .evidence_ledger import append_claim_evidence_event_ids
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
@@ -38,6 +39,7 @@ from .models import (
     NewMemoryCorrection,
     RelationshipCorrectionResult,
 )
+from .ownership import correction_authority_ref, has_correction_owner
 from .repository import MemoryCorrectionRepository
 from .relationship_conflict_effects import (
     RelationshipConflictEffects,
@@ -45,7 +47,8 @@ from .relationship_conflict_effects import (
     load_relationship_graph_conflict_rules,
     restore_relationship_conflict_effects,
 )
-from .request_identity import correction_request_matches
+from .request_identity import correction_request_fingerprint
+from .revert_blocks import correction_revert_block_reason_on_connection
 from .service import (
     MemoryCorrectionConflictError,
     MemoryCorrectionValidationError,
@@ -128,9 +131,19 @@ class RelationshipCorrectionService:
                     command.request_id,
                 )
                 if existing_correction is not None:
-                    _ensure_relationship_retry_matches(existing_correction, command)
+                    await _ensure_relationship_retry_matches(
+                        db,
+                        self.repository,
+                        existing_correction,
+                        command,
+                    )
                     await db.commit()
-                    return _existing_result(existing_correction)
+                    return await _relationship_correction_result(
+                        self.db_path,
+                        existing_correction,
+                        created=False,
+                        subject_revision=None,
+                    )
                 graph_conflict_rules = await self._load_graph_conflict_rules(db)
                 _validate_command(command)
                 await ensure_correction_source_event_is_active(
@@ -205,6 +218,7 @@ class RelationshipCorrectionService:
                     correction_kind=command.correction_kind,
                     reason=command.reason,
                     before=before,
+                    request_fingerprint=_relationship_request_fingerprint(command),
                     replacement=replacement,
                     effective_at=(
                         effective_at
@@ -348,10 +362,10 @@ class RelationshipCorrectionService:
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
-        return RelationshipCorrectionResult(
-            correction=stored,
+        return await _relationship_correction_result(
+            self.db_path,
+            stored,
             created=True,
-            current_triple_id=replacement_id,
             subject_revision=subject_revision,
         )
 
@@ -392,16 +406,29 @@ class RelationshipCorrectionService:
                     )
                 if correction.state == CorrectionState.REVERTED:
                     await db.commit()
-                    return RelationshipCorrectionResult(
-                        correction=correction,
+                    return await _relationship_correction_result(
+                        self.db_path,
+                        correction,
                         created=False,
-                        current_triple_id=correction.target_id,
                         subject_revision=None,
                     )
                 if await correction_target_was_forgotten(db, correction):
                     raise MemoryCorrectionConflictError(
                         "Forgotten memories cannot be restored",
                         code="memory_forgotten",
+                    )
+                revert_block_reason = await correction_revert_block_reason_on_connection(
+                    db,
+                    correction_id,
+                )
+                if revert_block_reason:
+                    raise MemoryCorrectionConflictError(
+                        "This correction can no longer be safely reverted after correction histories converged",
+                        code=(
+                            "identity_merge_revert_blocked"
+                            if revert_block_reason == "identity_merge"
+                            else "correction_lineage_revert_blocked"
+                        ),
                     )
                 if await _has_newer_correction(db, correction):
                     raise MemoryCorrectionConflictError("A newer correction must be reverted first")
@@ -419,21 +446,27 @@ class RelationshipCorrectionService:
                     ),
                 )
                 if replacement_id and replacement_id != correction.target_id:
-                    await db.execute(
+                    archive_cursor = await db.execute(
                         """
                         UPDATE knowledge_graph
                         SET status = 'archived', valid_to = COALESCE(valid_to, ?),
                             updated_at = ?
-                        WHERE triple_id = ?
+                        WHERE triple_id = ? AND authority_ref = ?
                         """,
-                        (now, now, replacement_id),
+                        (
+                            now,
+                            now,
+                            replacement_id,
+                            correction_authority_ref(correction_id),
+                        ),
                     )
-                    await append_knowledge_graph_version(
-                        db,
-                        triple_id=replacement_id,
-                        correction_id=correction_id,
-                        created_at=now,
-                    )
+                    if archive_cursor.rowcount:
+                        await append_knowledge_graph_version(
+                            db,
+                            triple_id=replacement_id,
+                            correction_id=correction_id,
+                            created_at=now,
+                        )
                 conflict_effects = await restore_relationship_conflict_effects(
                     db,
                     correction_id=correction_id,
@@ -517,10 +550,10 @@ class RelationshipCorrectionService:
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
-        return RelationshipCorrectionResult(
-            correction=stored,
+        return await _relationship_correction_result(
+            self.db_path,
+            stored,
             created=True,
-            current_triple_id=correction.target_id,
             subject_revision=subject_revision,
         )
 
@@ -613,7 +646,9 @@ def _validate_command(command: ApplyRelationshipCorrectionCommand) -> None:
         raise MemoryCorrectionValidationError(f"Unsupported scope fields: {unknown}")
 
 
-def _ensure_relationship_retry_matches(
+async def _ensure_relationship_retry_matches(
+    db: aiosqlite.Connection,
+    repository: MemoryCorrectionRepository,
     existing: MemoryCorrection,
     command: ApplyRelationshipCorrectionCommand,
 ) -> None:
@@ -630,36 +665,29 @@ def _ensure_relationship_retry_matches(
         raise MemoryCorrectionConflictError(
             "request_id was already used for a different correction"
         )
-    expected_replacement = _relationship_claim_fields(
-        command.replacement,
-        existing.before,
+    stored_fingerprint = await repository.request_fingerprint_on_connection(
+        db,
+        existing.correction_id,
     )
-    expected_scope = _effective_relationship_scope(command, existing.before)
-    stored_replacement = _relationship_claim_fields(
-        existing.replacement,
-        existing.before,
-    )
-    expected_effective_at = (
-        float(command.effective_at)
-        if command.correction_kind == CorrectionKind.SITUATION_CHANGED
-        and command.effective_at is not None
-        else None
-    )
-    if correction_request_matches(
-        existing,
+    if _relationship_request_fingerprint(command) == stored_fingerprint:
+        return
+    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+
+
+def _relationship_request_fingerprint(
+    command: ApplyRelationshipCorrectionCommand,
+) -> str:
+    return correction_request_fingerprint(
         actor_id=command.actor_id,
         target_kind=CorrectionTargetKind.EDGE,
         target_id=command.triple_id,
         correction_kind=command.correction_kind,
         reason=command.reason,
-        replacement=expected_replacement,
-        stored_replacement=stored_replacement,
-        effective_at=expected_effective_at,
-        scope=expected_scope,
+        replacement=command.replacement,
+        effective_at=command.effective_at,
+        scope=command.scope,
         source_event_id=command.source_event_id,
-    ):
-        return
-    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+    )
 
 
 def _reject_embedded_replacement_scope(
@@ -1076,7 +1104,7 @@ async def _write_authoritative_replacement(
     evidence = [source_event_id] if source_event_id else []
     evidence_json = json.dumps(evidence, ensure_ascii=False)
     valid_from = float(replacement["valid_from"])
-    authority_ref = f"correction:{correction_id}"
+    authority_ref = correction_authority_ref(correction_id)
     existing = await _load_edge(db, str(replacement["triple_id"]))
     if existing is not None:
         await db.execute(
@@ -1278,6 +1306,13 @@ async def _latest_relationship_evidence_for_segment(
         current_snapshot = dict(current)
         if _same_relationship_evidence_segment(before, current_snapshot):
             return current_snapshot
+        if (
+            _same_relationship_claim_identity(before, current_snapshot)
+            and not has_correction_owner(current_snapshot.get("authority_ref"))
+            and not str(current_snapshot.get("authority_ref") or "").startswith("forget:")
+            and str(current_snapshot.get("status_reason") or "") != "user_forget"
+        ):
+            return current_snapshot
     async with db.execute(
         """
         SELECT * FROM knowledge_graph_versions
@@ -1320,6 +1355,22 @@ def _same_relationship_evidence_segment(
         float(current_start),
         rel_tol=0.0,
         abs_tol=1e-6,
+    )
+
+
+def _same_relationship_claim_identity(
+    before: Mapping[str, Any],
+    current: Mapping[str, Any],
+) -> bool:
+    return all(
+        str(before.get(column) or "") == str(current.get(column) or "")
+        for column in (
+            "subject_id",
+            "predicate",
+            "object_id",
+            "scope_key",
+            "claim_fingerprint",
+        )
     )
 
 
@@ -1366,17 +1417,25 @@ def _newer_correction_blocks_revert(
     return canonical_scope_json(candidate.scope) == canonical_scope_json(correction.scope)
 
 
-def _existing_result(correction: MemoryCorrection) -> RelationshipCorrectionResult:
-    current_id = correction.replacement_target_id
-    if correction.state == CorrectionState.REVERTED or (
-        correction.transition_cancelled_at is not None and correction.transition_applied_at is None
-    ):
-        current_id = correction.target_id
+async def _relationship_correction_result(
+    db_path: str,
+    correction: MemoryCorrection,
+    *,
+    created: bool,
+    subject_revision: int | None,
+) -> RelationshipCorrectionResult:
+    current_claim = await resolve_current_claim(
+        db_path,
+        correction={"correction_id": correction.correction_id},
+    )
     return RelationshipCorrectionResult(
         correction=correction,
-        created=False,
-        current_triple_id=current_id,
-        subject_revision=None,
+        created=created,
+        current_triple_id=(
+            str(current_claim["triple_id"]) if current_claim is not None else None
+        ),
+        subject_revision=subject_revision,
+        current_claim=current_claim,
     )
 
 

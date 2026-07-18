@@ -128,6 +128,7 @@ class L2StoreProtocol(Protocol):
         effective_at: float | None = ...,
         effective_range: tuple[float | None, float | None] | None = ...,
         include_expired: bool = ...,
+        committed_only: bool | None = ...,
         limit_per_entity: int = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
 
@@ -166,6 +167,7 @@ class L2StoreProtocol(Protocol):
         effective_at: float | None = ...,
         effective_range: tuple[float | None, float | None] | None = ...,
         include_history: bool | None = ...,
+        committed_only: bool | None = ...,
         limit_per_entity: int = ...,
     ) -> Dict[str, List[Dict[str, Any]]]: ...
 

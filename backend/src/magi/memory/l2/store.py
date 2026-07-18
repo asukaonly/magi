@@ -196,6 +196,15 @@ class L2CognitionStore(
                         now,
                     ),
                 )
+                # Converge before identity rekeying: rekey reconciliation can
+                # apply the new rule, which must not hide an ambiguous pair of
+                # user-authoritative claims from the safety check.
+                convergence = await converge_existing_graph_conflicts(
+                    db,
+                    rule=normalized,
+                    rules=next_rules,
+                    now=now,
+                )
                 async with db.execute(
                     """
                     SELECT triple_id, subject_id, predicate, object_id, slot_key,
@@ -241,12 +250,6 @@ class L2CognitionStore(
                 await refresh_relationship_governance_history_for_predicate(
                     db,
                     predicate=normalized.predicate,
-                )
-                convergence = await converge_existing_graph_conflicts(
-                    db,
-                    rule=normalized,
-                    rules=next_rules,
-                    now=now,
                 )
                 if convergence.loser_ids:
                     repository = MemoryCorrectionRepository(self.db_path)
@@ -465,6 +468,8 @@ _SHARED_USER_MEMORY_TABLES = (
     "memory_correction_evidence_fail_closed",
     "memory_correction_evidence_events",
     "memory_relationship_conflict_effects",
+    "memory_correction_request_fingerprints",
+    "memory_correction_revert_blocks",
     "memory_correction_rules",
     "memory_corrections",
     "memory_subject_revisions",

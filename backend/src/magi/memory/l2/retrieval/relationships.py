@@ -14,8 +14,13 @@ from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
 from .common import (
     L2RetrievalQueryHostProtocol,
+    bounded_committed_candidates_sql,
+    bounded_normal_candidates_sql,
     bounded_scoped_candidate_limit,
+    committed_situation_change_head_sql,
     matching_scope_keys,
+    pending_situation_change_exists_sql,
+    select_bounded_committed_candidates,
     select_governed_range_rows,
 )
 from .relationship_history import _list_governed_relationship_history
@@ -45,6 +50,7 @@ class L2StoreRelationshipQueryMixin:
         effective_at: float | None = None,
         effective_range: tuple[float | None, float | None] | None = None,
         include_history: bool | None = None,
+        committed_only: bool | None = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Return governed relationships that are valid at one point in time.
@@ -63,6 +69,12 @@ class L2StoreRelationshipQueryMixin:
             else include_history
         )
         at = float(effective_at if effective_at is not None else time.time())
+        read_committed_only = (
+            effective_at is None and effective_range is None
+            if committed_only is None
+            else bool(committed_only)
+        )
+        committed_current_read = read_committed_only and effective_range is None
         if history_requested:
             return await _list_governed_relationship_history(
                 host,
@@ -81,6 +93,11 @@ class L2StoreRelationshipQueryMixin:
             )
         sql = "SELECT * FROM knowledge_graph WHERE status IN ('active', 'deprecated')"
         args: list[Any] = []
+        committed_normal_clauses: list[str] = []
+        committed_normal_args: list[Any] = []
+        normal_sql: str | None = None
+        probe_base_query: str | None = None
+        probe_base_args: tuple[Any, ...] | None = None
         if subject_id:
             sql += " AND subject_id = ?"
             args.append(subject_id)
@@ -93,7 +110,7 @@ class L2StoreRelationshipQueryMixin:
                 sql += f" AND object_id IN ({placeholders})"
                 args.extend(unique_entity_ids)
             elif direction == "both":
-                sql += f" AND (subject_id IN ({placeholders})" f" OR object_id IN ({placeholders}))"
+                sql += f" AND (subject_id IN ({placeholders}) OR object_id IN ({placeholders}))"
                 args.extend(unique_entity_ids)
                 args.extend(unique_entity_ids)
             else:
@@ -112,8 +129,15 @@ class L2StoreRelationshipQueryMixin:
             args.extend(str(item).strip().lower() for item in object_types)
         if evidence_classes:
             placeholders = ", ".join("?" for _ in evidence_classes)
-            sql += f" AND evidence_class IN ({placeholders})"
-            args.extend(str(item).strip() for item in evidence_classes)
+            evidence_args = [str(item).strip() for item in evidence_classes]
+            if committed_current_read:
+                committed_normal_clauses.append(
+                    f"governed_candidate.evidence_class IN ({placeholders})"
+                )
+                committed_normal_args.extend(evidence_args)
+            else:
+                sql += f" AND evidence_class IN ({placeholders})"
+                args.extend(evidence_args)
         if triple_ids:
             unique_triple_ids = list(dict.fromkeys(str(item) for item in triple_ids if item))
             if not unique_triple_ids:
@@ -123,11 +147,31 @@ class L2StoreRelationshipQueryMixin:
             args.extend(unique_triple_ids)
         sql += " AND (status != 'deprecated' OR valid_to IS NOT NULL)"
         if effective_range is None:
-            sql += " AND (valid_from IS NULL OR valid_from <= ?)"
-            sql += " AND (valid_to IS NULL OR valid_to > ?)"
-            args.extend((at, at))
-            sql += " AND (expires_at IS NULL OR expires_at > ?)"
-            args.append(at)
+            if committed_current_read:
+                pending_replacement = pending_situation_change_exists_sql(
+                    target_kind="edge",
+                    row_id_sql="governed_candidate.triple_id",
+                    identity_column="replacement_target_id",
+                    authority_ref_sql="governed_candidate.authority_ref",
+                )
+                committed_normal_clauses.extend(
+                    (
+                        "(governed_candidate.valid_from IS NULL "
+                        "OR governed_candidate.valid_from <= ?)",
+                        f"NOT ({pending_replacement})",
+                        "(governed_candidate.valid_to IS NULL "
+                        "OR governed_candidate.valid_to > ?)",
+                        "(governed_candidate.expires_at IS NULL "
+                        "OR governed_candidate.expires_at > ?)",
+                    )
+                )
+                committed_normal_args.extend((at, at, at))
+            else:
+                sql += " AND (valid_from IS NULL OR valid_from <= ?)"
+                sql += " AND (valid_to IS NULL OR valid_to > ?)"
+                args.extend((at, at))
+                sql += " AND (expires_at IS NULL OR expires_at > ?)"
+                args.append(at)
         else:
             range_start, range_end = effective_range
             if range_end is not None:
@@ -140,29 +184,90 @@ class L2StoreRelationshipQueryMixin:
                 args.append(float(range_start))
         if not requested_scope:
             sql += " AND scope_key = 'global'"
-            sql += " ORDER BY updated_at DESC"
-            sql += " LIMIT ?"
-            args.append(max(1, int(limit)) * 4)
+            candidate_limit = max(1, int(limit)) * 4
+            committed_ordering = "governed_candidate.updated_at DESC"
+            if not committed_current_read:
+                sql += " ORDER BY updated_at DESC"
+                sql += " LIMIT ?"
+                args.append(candidate_limit)
         else:
             eligible_scope_keys = matching_scope_keys(requested_scope)
             placeholders = ", ".join("?" for _ in eligible_scope_keys)
             sql += f" AND scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
-            sql += (
-                " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
-                " updated_at DESC LIMIT ?"
+            candidate_limit = bounded_scoped_candidate_limit(limit)
+            committed_ordering = (
+                "json_array_length(governed_candidate.scope_json, '$.all_of') DESC, "
+                "governed_candidate.updated_at DESC"
             )
-            args.append(bounded_scoped_candidate_limit(limit))
+            if not committed_current_read:
+                sql += (
+                    " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
+                    " updated_at DESC LIMIT ?"
+                )
+                args.append(candidate_limit)
+        if committed_current_read:
+            probe_base_query = sql
+            probe_base_args = tuple(args)
+            committed_head = committed_situation_change_head_sql(
+                target_kind="edge",
+                row_id_sql="governed_candidate.triple_id",
+                authority_ref_sql="governed_candidate.authority_ref",
+            )
+            normal_sql = bounded_normal_candidates_sql(
+                base_sql=sql,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+            )
+            sql = bounded_committed_candidates_sql(
+                base_sql=sql,
+                committed_head_sql=committed_head,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+            )
+            args.extend((*committed_normal_args, candidate_limit))
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(sql, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
+            if committed_current_read:
+                assert normal_sql is not None
+                assert probe_base_query is not None
+                assert probe_base_args is not None
+                rows = await select_bounded_committed_candidates(
+                    db,
+                    target_kind="edge",
+                    identity_field="triple_id",
+                    probe_base_sql=probe_base_query,
+                    probe_base_args=probe_base_args,
+                    normal_sql=normal_sql,
+                    committed_sql=sql,
+                    args=tuple(args),
+                )
+            else:
+                async with db.execute(sql, tuple(args)) as cursor:
+                    rows = await cursor.fetchall()
         relationships = [host._relation_row_to_dict(row) for row in rows]
         relationships = [
             relationship
             for relationship in relationships
             if scope_matches(relationship.get("scope"), requested_scope)
         ]
+        if committed_current_read:
+            relationships = [
+                relationship
+                for relationship in relationships
+                if relationship.get("expires_at") is None
+                or float(relationship["expires_at"]) > at
+            ]
+            if evidence_classes:
+                allowed_evidence_classes = {
+                    str(item).strip() for item in evidence_classes
+                }
+                relationships = [
+                    relationship
+                    for relationship in relationships
+                    if str(relationship.get("evidence_class") or "")
+                    in allowed_evidence_classes
+                ]
         relationships.sort(
             key=lambda relationship: (
                 scope_specificity(relationship.get("scope")),
@@ -203,6 +308,7 @@ class L2StoreRelationshipQueryMixin:
         effective_at: float | None = None,
         effective_range: tuple[float | None, float | None] | None = None,
         include_history: bool | None = None,
+        committed_only: bool | None = None,
         limit_per_entity: int = 100,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Return governed relationships for many entities with fixed query count."""
@@ -218,6 +324,12 @@ class L2StoreRelationshipQueryMixin:
             else include_history
         )
         at = float(effective_at if effective_at is not None else time.time())
+        read_committed_only = (
+            effective_at is None and effective_range is None
+            if committed_only is None
+            else bool(committed_only)
+        )
+        committed_current_read = read_committed_only and effective_range is None
         if history_requested:
             return await _batch_list_governed_relationship_history(
                 host,
@@ -243,6 +355,10 @@ class L2StoreRelationshipQueryMixin:
             WHERE relationships.status IN ('active', 'deprecated')
         """
         args: list[Any] = []
+        committed_normal_clauses: list[str] = []
+        committed_normal_args: list[Any] = []
+        normal_ranked_query: str | None = None
+        probe_base_args: tuple[Any, ...] | None = None
         if object_id:
             query += " AND relationships.object_id = ?"
             args.append(object_id)
@@ -256,14 +372,44 @@ class L2StoreRelationshipQueryMixin:
             args.extend(str(item).strip().lower() for item in object_types)
         if evidence_classes:
             placeholders = ", ".join("?" for _ in evidence_classes)
-            query += f" AND relationships.evidence_class IN ({placeholders})"
-            args.extend(str(item).strip() for item in evidence_classes)
+            evidence_args = [str(item).strip() for item in evidence_classes]
+            if committed_current_read:
+                committed_normal_clauses.append(
+                    f"governed_candidate.evidence_class IN ({placeholders})"
+                )
+                committed_normal_args.extend(evidence_args)
+            else:
+                query += f" AND relationships.evidence_class IN ({placeholders})"
+                args.extend(evidence_args)
         query += " AND (relationships.status != 'deprecated' OR relationships.valid_to IS NOT NULL)"
         if effective_range is None:
-            query += " AND (relationships.valid_from IS NULL OR relationships.valid_from <= ?)"
-            query += " AND (relationships.valid_to IS NULL OR relationships.valid_to > ?)"
-            query += " AND (relationships.expires_at IS NULL OR relationships.expires_at > ?)"
-            args.extend((at, at, at))
+            if committed_current_read:
+                pending_replacement = pending_situation_change_exists_sql(
+                    target_kind="edge",
+                    row_id_sql="governed_candidate.triple_id",
+                    identity_column="replacement_target_id",
+                    authority_ref_sql="governed_candidate.authority_ref",
+                )
+                committed_normal_clauses.extend(
+                    (
+                        "(governed_candidate.valid_from IS NULL "
+                        "OR governed_candidate.valid_from <= ?)",
+                        f"NOT ({pending_replacement})",
+                        "(governed_candidate.valid_to IS NULL "
+                        "OR governed_candidate.valid_to > ?)",
+                        "(governed_candidate.expires_at IS NULL "
+                        "OR governed_candidate.expires_at > ?)",
+                    )
+                )
+                committed_normal_args.extend((at, at, at))
+            else:
+                query += " AND (relationships.valid_from IS NULL OR relationships.valid_from <= ?)"
+                query += " AND (relationships.valid_to IS NULL OR relationships.valid_to > ?)"
+                query += (
+                    " AND (relationships.expires_at IS NULL "
+                    "OR relationships.expires_at > ?)"
+                )
+                args.extend((at, at, at))
         else:
             range_start, range_end = effective_range
             if range_end is not None:
@@ -276,6 +422,7 @@ class L2StoreRelationshipQueryMixin:
         if not requested_scope:
             query += " AND relationships.scope_key = 'global'"
             ordering = "candidates.updated_at DESC"
+            committed_ordering = "governed_candidate.updated_at DESC"
             candidate_limit = requested_limit * 4
         else:
             eligible_scope_keys = matching_scope_keys(requested_scope)
@@ -286,31 +433,93 @@ class L2StoreRelationshipQueryMixin:
                 "json_array_length(candidates.scope_json, '$.all_of') DESC, "
                 "candidates.updated_at DESC"
             )
-            candidate_limit = bounded_scoped_candidate_limit(requested_limit)
-        ranked_query = f"""
-            WITH requested_entities(entity_id) AS (
-                SELECT CAST(value AS TEXT) FROM json_each(?)
-            ), candidates AS (
-                {query}
-            ), ranked_relationships AS (
-                SELECT candidates.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY candidates.governed_bucket_entity_id
-                           ORDER BY {ordering}
-                       ) AS governed_entity_rank
-                FROM candidates
+            committed_ordering = (
+                "json_array_length(governed_candidate.scope_json, '$.all_of') DESC, "
+                "governed_candidate.updated_at DESC"
             )
-            SELECT *
-            FROM ranked_relationships
-            WHERE governed_entity_rank <= ?
-            ORDER BY governed_bucket_entity_id, governed_entity_rank
-        """
+            candidate_limit = bounded_scoped_candidate_limit(requested_limit)
         requested_json = json.dumps(unique_ids, ensure_ascii=False, separators=(",", ":"))
-        query_args = [requested_json, *args, candidate_limit]
+        requested_entities_cte = (
+            "requested_entities(entity_id) AS ("
+            "SELECT CAST(value AS TEXT) FROM json_each(?)"
+            ")"
+        )
+        if committed_current_read:
+            probe_base_args = (requested_json, *args)
+            committed_head = committed_situation_change_head_sql(
+                target_kind="edge",
+                row_id_sql="governed_candidate.triple_id",
+                authority_ref_sql="governed_candidate.authority_ref",
+            )
+            normal_ranked_query = bounded_normal_candidates_sql(
+                base_sql=query,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+                partition_by_sql=(
+                    "governed_candidate.governed_bucket_entity_id"
+                ),
+                result_ordering_sql=(
+                    "governed_bucket_entity_id, governed_candidate_rank"
+                ),
+                cte_prefix_sql=requested_entities_cte,
+            )
+            ranked_query = bounded_committed_candidates_sql(
+                base_sql=query,
+                committed_head_sql=committed_head,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+                partition_by_sql="governed_candidate.governed_bucket_entity_id",
+                result_ordering_sql=(
+                    "governed_bucket_entity_id, governed_committed_head DESC, "
+                    "governed_candidate_rank"
+                ),
+                cte_prefix_sql=requested_entities_cte,
+            )
+            query_args = [
+                requested_json,
+                *args,
+                *committed_normal_args,
+                candidate_limit,
+            ]
+        else:
+            ranked_query = f"""
+                WITH requested_entities(entity_id) AS (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                ), candidates AS (
+                    {query}
+                ), ranked_relationships AS (
+                    SELECT candidates.*,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY candidates.governed_bucket_entity_id
+                               ORDER BY {ordering}
+                           ) AS governed_entity_rank
+                    FROM candidates
+                )
+                SELECT *
+                FROM ranked_relationships
+                WHERE governed_entity_rank <= ?
+                ORDER BY governed_bucket_entity_id, governed_entity_rank
+            """
+            query_args = [requested_json, *args, candidate_limit]
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(ranked_query, tuple(query_args)) as cursor:
-                rows = await cursor.fetchall()
+            if committed_current_read:
+                assert normal_ranked_query is not None
+                assert probe_base_args is not None
+                rows = await select_bounded_committed_candidates(
+                    db,
+                    target_kind="edge",
+                    identity_field="triple_id",
+                    probe_base_sql=query,
+                    probe_base_args=probe_base_args,
+                    probe_cte_prefix_sql=requested_entities_cte,
+                    normal_sql=normal_ranked_query,
+                    committed_sql=ranked_query,
+                    args=tuple(query_args),
+                )
+            else:
+                async with db.execute(ranked_query, tuple(query_args)) as cursor:
+                    rows = await cursor.fetchall()
 
         candidates_by_entity: Dict[str, List[Dict[str, Any]]] = {
             entity_id: [] for entity_id in unique_ids
@@ -326,6 +535,23 @@ class L2StoreRelationshipQueryMixin:
                 for relationship in relationships
                 if scope_matches(relationship.get("scope"), requested_scope)
             ]
+            if committed_current_read:
+                relationships = [
+                    relationship
+                    for relationship in relationships
+                    if relationship.get("expires_at") is None
+                    or float(relationship["expires_at"]) > at
+                ]
+                if evidence_classes:
+                    allowed_evidence_classes = {
+                        str(item).strip() for item in evidence_classes
+                    }
+                    relationships = [
+                        relationship
+                        for relationship in relationships
+                        if str(relationship.get("evidence_class") or "")
+                        in allowed_evidence_classes
+                    ]
             relationships.sort(
                 key=lambda relationship: (
                     scope_specificity(relationship.get("scope")),

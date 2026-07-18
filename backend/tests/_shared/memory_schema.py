@@ -51,6 +51,9 @@ MEMORY_SHARED_MIGRATIONS: tuple[str, ...] = (
     "v26_manual_entry_projection_intent.py",
     "v27_durable_forget_operations.py",
     "v28_time_range_forget_barriers.py",
+    "v29_correction_revert_blocks.py",
+    "v30_correction_request_fingerprints.py",
+    "v31_correction_replacement_slot_index.py",
 )
 
 

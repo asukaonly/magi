@@ -8,6 +8,8 @@ import pytest
 
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.service import MemoryCorrectionConflictError
+from magi.memory.l2.entities.catalog import L2EntityCatalog
+from magi.memory.l2.entities.maintenance import L2EntityMaintenance
 from magi.memory.l3.models import L3Candidate
 
 
@@ -1593,6 +1595,84 @@ async def test_forgetting_correction_source_restores_record_error_without_replac
         ("reverted", "system:forgotten_source_event", 0),
         ("reverted", "system:forgotten_source_event", 0),
     ]
+
+
+@pytest.mark.asyncio
+async def test_forgetting_assertion_correction_source_preserves_independent_merged_claim(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    catalog = L2EntityCatalog(db_path=store.db_path, vector_enabled=False)
+    for entity_id in ("person:winner", "person:loser"):
+        await catalog.upsert_entity(
+            entity_id=entity_id,
+            canonical_name="Same person",
+            entity_type="person",
+        )
+    now = time.time() - 60
+    ordinary_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:winner",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_city",
+            "trait_value": "Shanghai",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-independent"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now,
+            "last_validated_at": now,
+            "temporal_scope": "persistent",
+        }
+    )
+    source_id = await store.upsert_assertion_candidate(
+        {
+            "entity_id": "person:loser",
+            "entity_type": "person",
+            "trait_family": "preference_profile",
+            "trait_name": "favorite_city",
+            "trait_value": "Hangzhou",
+            "confidence_score": 0.8,
+            "evidence_events": ["evt-source"],
+            "volatility_index": 0.1,
+            "source_domain": "conversation",
+            "inference_depth": "explicit",
+            "validation_state": "stable",
+            "first_inferred_at": now + 1,
+            "last_validated_at": now + 1,
+            "temporal_scope": "persistent",
+        }
+    )
+    result = await store.apply_assertion_correction(
+        assertion_id=source_id,
+        request_id="correct-shared-assertion",
+        actor_id="user:self",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Shanghai",
+        source_event_id="evt-correction-feedback",
+    )
+    assert result is not None
+    await L2EntityMaintenance(db_path=store.db_path)._merge_entity_into(
+        "person:winner",
+        "person:loser",
+    )
+
+    await store.forget_source_events(
+        ["evt-correction-feedback"],
+        reason="user_delete_event",
+    )
+
+    current = await store.list_current_assertions(
+        entity_id="person:winner",
+        limit=20,
+    )
+    assert [(item["assertion_id"], item["trait_value"]) for item in current] == [
+        (ordinary_id, "Shanghai"),
+    ]
+    assert "evt-independent" in current[0]["evidence_events"]
 
 
 @pytest.mark.asyncio

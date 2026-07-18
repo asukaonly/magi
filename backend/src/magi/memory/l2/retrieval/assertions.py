@@ -15,8 +15,13 @@ from ..corrections.fingerprints import scope_matches, scope_specificity
 from ...sql_search import build_like_search_clause
 from .common import (
     L2RetrievalQueryHostProtocol,
+    bounded_committed_candidates_sql,
+    bounded_normal_candidates_sql,
     bounded_scoped_candidate_limit,
+    committed_situation_change_head_sql,
     matching_scope_keys,
+    pending_situation_change_exists_sql,
+    select_bounded_committed_candidates,
     select_governed_range_rows,
 )
 
@@ -47,6 +52,7 @@ class L2StoreAssertionQueryMixin:
         effective_at: float | None = None,
         effective_range: tuple[float | None, float | None] | None = None,
         include_expired: bool = False,
+        committed_only: bool | None = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """Return governed assertions that are valid at one point in time.
@@ -61,9 +67,20 @@ class L2StoreAssertionQueryMixin:
         host = cast(L2RetrievalQueryHostProtocol, self)
         await host.initialize()
         at = float(effective_at if effective_at is not None else time.time())
+        read_committed_only = (
+            effective_at is None and effective_range is None
+            if committed_only is None
+            else bool(committed_only)
+        )
+        committed_current_read = read_committed_only and effective_range is None
         requested_scope = dict(context_scope or {})
         query = "SELECT * FROM tom_trait_assertions WHERE 1=1"
         args: list[Any] = []
+        committed_normal_clauses: list[str] = []
+        committed_normal_args: list[Any] = []
+        normal_query: str | None = None
+        probe_base_query: str | None = None
+        probe_base_args: tuple[Any, ...] | None = None
         if entity_id:
             query += " AND entity_id = ?"
             args.append(entity_id)
@@ -83,8 +100,15 @@ class L2StoreAssertionQueryMixin:
             args.extend(str(item).strip().lower() for item in trait_families)
         if validation_states:
             placeholders = ", ".join("?" for _ in validation_states)
-            query += f" AND validation_state IN ({placeholders})"
-            args.extend(str(item).strip() for item in validation_states)
+            validation_args = [str(item).strip() for item in validation_states]
+            if committed_current_read:
+                committed_normal_clauses.append(
+                    f"governed_candidate.validation_state IN ({placeholders})"
+                )
+                committed_normal_args.extend(validation_args)
+            else:
+                query += f" AND validation_state IN ({placeholders})"
+                args.extend(validation_args)
         if target_entity_id:
             query += " AND target_entity_id = ?"
             args.append(target_entity_id)
@@ -93,12 +117,36 @@ class L2StoreAssertionQueryMixin:
         args.extend(status_args)
         query += " AND (status != 'superseded' OR valid_to IS NOT NULL)"
         if effective_range is None:
-            query += " AND (valid_from IS NULL OR valid_from <= ?)"
-            query += " AND (valid_to IS NULL OR valid_to > ?)"
-            args.extend((at, at))
-            if not include_expired:
-                query += " AND (expires_at IS NULL OR expires_at > ?)"
-                args.append(at)
+            if committed_current_read:
+                pending_replacement = pending_situation_change_exists_sql(
+                    target_kind="assertion",
+                    row_id_sql="governed_candidate.assertion_id",
+                    identity_column="replacement_target_id",
+                    authority_ref_sql="governed_candidate.authority_ref",
+                )
+                committed_normal_clauses.extend(
+                    (
+                        "(governed_candidate.valid_from IS NULL "
+                        "OR governed_candidate.valid_from <= ?)",
+                        f"NOT ({pending_replacement})",
+                        "(governed_candidate.valid_to IS NULL "
+                        "OR governed_candidate.valid_to > ?)",
+                    )
+                )
+                committed_normal_args.extend((at, at))
+                if not include_expired:
+                    committed_normal_clauses.append(
+                        "(governed_candidate.expires_at IS NULL "
+                        "OR governed_candidate.expires_at > ?)"
+                    )
+                    committed_normal_args.append(at)
+            else:
+                query += " AND (valid_from IS NULL OR valid_from <= ?)"
+                query += " AND (valid_to IS NULL OR valid_to > ?)"
+                args.extend((at, at))
+                if not include_expired:
+                    query += " AND (expires_at IS NULL OR expires_at > ?)"
+                    args.append(at)
         else:
             range_start, range_end = effective_range
             if range_end is not None:
@@ -112,24 +160,69 @@ class L2StoreAssertionQueryMixin:
                     args.append(float(range_start))
         if not requested_scope:
             query += " AND scope_key = 'global'"
-            query += " ORDER BY updated_at DESC"
-            query += " LIMIT ?"
-            args.append(max(1, int(limit)) * 4)
+            candidate_limit = max(1, int(limit)) * 4
+            committed_ordering = "governed_candidate.updated_at DESC"
+            if not committed_current_read:
+                query += " ORDER BY updated_at DESC"
+                query += " LIMIT ?"
+                args.append(candidate_limit)
         else:
             eligible_scope_keys = matching_scope_keys(requested_scope)
             placeholders = ", ".join("?" for _ in eligible_scope_keys)
             query += f" AND scope_key IN ({placeholders})"
             args.extend(eligible_scope_keys)
-            query += (
-                " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
-                " updated_at DESC LIMIT ?"
+            candidate_limit = bounded_scoped_candidate_limit(limit)
+            committed_ordering = (
+                "json_array_length(governed_candidate.scope_json, '$.all_of') DESC, "
+                "governed_candidate.updated_at DESC"
             )
-            args.append(bounded_scoped_candidate_limit(limit))
+            if not committed_current_read:
+                query += (
+                    " ORDER BY json_array_length(scope_json, '$.all_of') DESC,"
+                    " updated_at DESC LIMIT ?"
+                )
+                args.append(candidate_limit)
+
+        if committed_current_read:
+            probe_base_query = query
+            probe_base_args = tuple(args)
+            committed_head = committed_situation_change_head_sql(
+                target_kind="assertion",
+                row_id_sql="governed_candidate.assertion_id",
+                authority_ref_sql="governed_candidate.authority_ref",
+            )
+            normal_query = bounded_normal_candidates_sql(
+                base_sql=query,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+            )
+            query = bounded_committed_candidates_sql(
+                base_sql=query,
+                committed_head_sql=committed_head,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+            )
+            args.extend((*committed_normal_args, candidate_limit))
 
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
+            if committed_current_read:
+                assert normal_query is not None
+                assert probe_base_query is not None
+                assert probe_base_args is not None
+                rows = await select_bounded_committed_candidates(
+                    db,
+                    target_kind="assertion",
+                    identity_field="assertion_id",
+                    probe_base_sql=probe_base_query,
+                    probe_base_args=probe_base_args,
+                    normal_sql=normal_query,
+                    committed_sql=query,
+                    args=tuple(args),
+                )
+            else:
+                async with db.execute(query, tuple(args)) as cursor:
+                    rows = await cursor.fetchall()
 
         assertions = [host._assertion_row_to_dict(row) for row in rows]
         assertions = [
@@ -137,6 +230,22 @@ class L2StoreAssertionQueryMixin:
             for assertion in assertions
             if scope_matches(assertion.get("scope"), requested_scope)
         ]
+        if committed_current_read:
+            if not include_expired:
+                assertions = [
+                    assertion
+                    for assertion in assertions
+                    if assertion.get("expires_at") is None
+                    or float(assertion["expires_at"]) > at
+                ]
+            if validation_states:
+                allowed_validation_states = {str(item).strip() for item in validation_states}
+                assertions = [
+                    assertion
+                    for assertion in assertions
+                    if str(assertion.get("validation_state") or "")
+                    in allowed_validation_states
+                ]
         assertions.sort(
             key=lambda assertion: (
                 scope_specificity(assertion.get("scope")),
@@ -182,6 +291,7 @@ class L2StoreAssertionQueryMixin:
         effective_at: float | None = None,
         effective_range: tuple[float | None, float | None] | None = None,
         include_expired: bool = False,
+        committed_only: bool | None = None,
         limit_per_entity: int = 100,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Return governed assertions for many entities using one SQL query."""
@@ -192,10 +302,21 @@ class L2StoreAssertionQueryMixin:
             return {}
 
         at = float(effective_at if effective_at is not None else time.time())
+        read_committed_only = (
+            effective_at is None and effective_range is None
+            if committed_only is None
+            else bool(committed_only)
+        )
+        committed_current_read = read_committed_only and effective_range is None
         requested_scope = dict(context_scope or {})
         requested_limit = max(1, int(limit_per_entity))
         query = "SELECT assertions.* FROM tom_trait_assertions AS assertions WHERE 1=1"
         args: list[Any] = []
+        committed_normal_clauses: list[str] = []
+        committed_normal_args: list[Any] = []
+        normal_ranked_query: str | None = None
+        probe_base_query: str | None = None
+        probe_base_args: tuple[Any, ...] | None = None
         query += " AND assertions.entity_id IN (SELECT CAST(value AS TEXT) FROM json_each(?))"
         args.append(json.dumps(unique_ids, ensure_ascii=False, separators=(",", ":")))
         if entity_type:
@@ -207,8 +328,15 @@ class L2StoreAssertionQueryMixin:
             args.extend(str(item).strip().lower() for item in trait_families)
         if validation_states:
             placeholders = ", ".join("?" for _ in validation_states)
-            query += f" AND assertions.validation_state IN ({placeholders})"
-            args.extend(str(item).strip() for item in validation_states)
+            validation_args = [str(item).strip() for item in validation_states]
+            if committed_current_read:
+                committed_normal_clauses.append(
+                    f"governed_candidate.validation_state IN ({placeholders})"
+                )
+                committed_normal_args.extend(validation_args)
+            else:
+                query += f" AND assertions.validation_state IN ({placeholders})"
+                args.extend(validation_args)
         if target_entity_id:
             query += " AND assertions.target_entity_id = ?"
             args.append(target_entity_id)
@@ -217,12 +345,36 @@ class L2StoreAssertionQueryMixin:
         args.extend(status_args)
         query += " AND (assertions.status != 'superseded' OR assertions.valid_to IS NOT NULL)"
         if effective_range is None:
-            query += " AND (assertions.valid_from IS NULL OR assertions.valid_from <= ?)"
-            query += " AND (assertions.valid_to IS NULL OR assertions.valid_to > ?)"
-            args.extend((at, at))
-            if not include_expired:
-                query += " AND (assertions.expires_at IS NULL OR assertions.expires_at > ?)"
-                args.append(at)
+            if committed_current_read:
+                pending_replacement = pending_situation_change_exists_sql(
+                    target_kind="assertion",
+                    row_id_sql="governed_candidate.assertion_id",
+                    identity_column="replacement_target_id",
+                    authority_ref_sql="governed_candidate.authority_ref",
+                )
+                committed_normal_clauses.extend(
+                    (
+                        "(governed_candidate.valid_from IS NULL "
+                        "OR governed_candidate.valid_from <= ?)",
+                        f"NOT ({pending_replacement})",
+                        "(governed_candidate.valid_to IS NULL "
+                        "OR governed_candidate.valid_to > ?)",
+                    )
+                )
+                committed_normal_args.extend((at, at))
+                if not include_expired:
+                    committed_normal_clauses.append(
+                        "(governed_candidate.expires_at IS NULL "
+                        "OR governed_candidate.expires_at > ?)"
+                    )
+                    committed_normal_args.append(at)
+            else:
+                query += " AND (assertions.valid_from IS NULL OR assertions.valid_from <= ?)"
+                query += " AND (assertions.valid_to IS NULL OR assertions.valid_to > ?)"
+                args.extend((at, at))
+                if not include_expired:
+                    query += " AND (assertions.expires_at IS NULL OR assertions.expires_at > ?)"
+                    args.append(at)
         else:
             range_start, range_end = effective_range
             if range_end is not None:
@@ -237,6 +389,7 @@ class L2StoreAssertionQueryMixin:
         if not requested_scope:
             query += " AND assertions.scope_key = 'global'"
             ordering = "assertions.updated_at DESC"
+            committed_ordering = "governed_candidate.updated_at DESC"
             candidate_limit = requested_limit * 4
         else:
             eligible_scope_keys = matching_scope_keys(requested_scope)
@@ -247,27 +400,73 @@ class L2StoreAssertionQueryMixin:
                 "json_array_length(assertions.scope_json, '$.all_of') DESC, "
                 "assertions.updated_at DESC"
             )
+            committed_ordering = (
+                "json_array_length(governed_candidate.scope_json, '$.all_of') DESC, "
+                "governed_candidate.updated_at DESC"
+            )
             candidate_limit = bounded_scoped_candidate_limit(requested_limit)
 
-        ranked_query = f"""
-            WITH ranked_assertions AS (
-                SELECT candidates.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY candidates.entity_id
-                           ORDER BY {ordering.replace('assertions.', 'candidates.')}
-                       ) AS governed_entity_rank
-                FROM ({query}) AS candidates
+        if committed_current_read:
+            probe_base_query = query
+            probe_base_args = tuple(args)
+            committed_head = committed_situation_change_head_sql(
+                target_kind="assertion",
+                row_id_sql="governed_candidate.assertion_id",
+                authority_ref_sql="governed_candidate.authority_ref",
             )
-            SELECT *
-            FROM ranked_assertions
-            WHERE governed_entity_rank <= ?
-            ORDER BY entity_id, governed_entity_rank
-        """
-        args.append(candidate_limit)
+            normal_ranked_query = bounded_normal_candidates_sql(
+                base_sql=query,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+                partition_by_sql="governed_candidate.entity_id",
+                result_ordering_sql="entity_id, governed_candidate_rank",
+            )
+            ranked_query = bounded_committed_candidates_sql(
+                base_sql=query,
+                committed_head_sql=committed_head,
+                normal_eligibility_sql=" AND ".join(committed_normal_clauses),
+                ordering_sql=committed_ordering,
+                partition_by_sql="governed_candidate.entity_id",
+                result_ordering_sql=(
+                    "entity_id, governed_committed_head DESC, governed_candidate_rank"
+                ),
+            )
+            args.extend((*committed_normal_args, candidate_limit))
+        else:
+            ranked_query = f"""
+                WITH ranked_assertions AS (
+                    SELECT candidates.*,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY candidates.entity_id
+                               ORDER BY {ordering.replace("assertions.", "candidates.")}
+                           ) AS governed_entity_rank
+                    FROM ({query}) AS candidates
+                )
+                SELECT *
+                FROM ranked_assertions
+                WHERE governed_entity_rank <= ?
+                ORDER BY entity_id, governed_entity_rank
+            """
+            args.append(candidate_limit)
         async with sqlite_connection_async(host.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(ranked_query, tuple(args)) as cursor:
-                rows = await cursor.fetchall()
+            if committed_current_read:
+                assert normal_ranked_query is not None
+                assert probe_base_query is not None
+                assert probe_base_args is not None
+                rows = await select_bounded_committed_candidates(
+                    db,
+                    target_kind="assertion",
+                    identity_field="assertion_id",
+                    probe_base_sql=probe_base_query,
+                    probe_base_args=probe_base_args,
+                    normal_sql=normal_ranked_query,
+                    committed_sql=ranked_query,
+                    args=tuple(args),
+                )
+            else:
+                async with db.execute(ranked_query, tuple(args)) as cursor:
+                    rows = await cursor.fetchall()
 
         candidates: Dict[str, List[Dict[str, Any]]] = {entity_id: [] for entity_id in unique_ids}
         for row in rows:
@@ -281,6 +480,24 @@ class L2StoreAssertionQueryMixin:
                 for assertion in assertions
                 if scope_matches(assertion.get("scope"), requested_scope)
             ]
+            if committed_current_read:
+                if not include_expired:
+                    assertions = [
+                        assertion
+                        for assertion in assertions
+                        if assertion.get("expires_at") is None
+                        or float(assertion["expires_at"]) > at
+                    ]
+                if validation_states:
+                    allowed_validation_states = {
+                        str(item).strip() for item in validation_states
+                    }
+                    assertions = [
+                        assertion
+                        for assertion in assertions
+                        if str(assertion.get("validation_state") or "")
+                        in allowed_validation_states
+                    ]
             assertions.sort(
                 key=lambda assertion: (
                     scope_specificity(assertion.get("scope")),

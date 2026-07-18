@@ -227,6 +227,7 @@ export interface L2Assertion {
 export type MemoryCorrectionTargetKind = 'assertion' | 'edge';
 export type MemoryCorrectionKind = 'record_error' | 'situation_changed' | 'scope_refinement';
 export type MemoryCorrectionState = 'active' | 'reverted';
+export type MemoryCorrectionResolutionReason = 'identity_merge_noop';
 export type MemoryCorrectionDerivationState = 'pending' | 'running' | 'completed' | 'failed';
 export type MemoryCorrectionContextDimension = 'project' | 'activity' | 'place' | 'person' | 'time';
 export type MemoryCorrectionWritableContextDimension = 'project';
@@ -290,6 +291,8 @@ export interface MemoryCorrectionRecord {
   target_forgotten?: boolean;
   forget_affected?: boolean;
   content_redacted?: boolean;
+  revert_blocked_reason?: 'identity_merge' | 'lineage_collision' | null;
+  resolution_reason?: MemoryCorrectionResolutionReason | null;
   can_revert?: boolean;
 }
 

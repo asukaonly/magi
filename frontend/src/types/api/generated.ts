@@ -6466,6 +6466,10 @@ export interface components {
             /** Reason */
             readonly reason?: string | null;
             readonly replacement?: components["schemas"]["MemoryCorrectionClaimValue"] | null;
+            /** Resolution Reason */
+            readonly resolution_reason?: "identity_merge_noop" | null;
+            /** Revert Blocked Reason */
+            readonly revert_blocked_reason?: ("identity_merge" | "lineage_collision") | null;
             readonly scope?: components["schemas"]["MemoryStoredContextScope"] | null;
             /**
              * State

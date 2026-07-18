@@ -100,7 +100,9 @@ export type MemoryCorrectionLifecycleStatus = 'active' | 'scheduled' | 'cancelle
 
 export type MemoryCorrectionHistoryStatus =
   | MemoryCorrectionLifecycleStatus
-  | 'content_deleted';
+  | 'applied'
+  | 'content_deleted'
+  | 'resolved';
 
 export function memoryCorrectionLifecycleStatus(
   correction: MemoryCorrectionRecord,
@@ -126,11 +128,19 @@ export function memoryCorrectionHistoryStatus(
   nowSeconds = Date.now() / 1000
 ): MemoryCorrectionHistoryStatus {
   const lifecycleStatus = memoryCorrectionLifecycleStatus(correction, nowSeconds);
-  return (
-    lifecycleStatus === 'active' || lifecycleStatus === 'scheduled'
-  ) && correction.content_redacted === true
-    ? 'content_deleted'
-    : lifecycleStatus;
+  if (
+    lifecycleStatus === 'reverted'
+    && correction.resolution_reason === 'identity_merge_noop'
+  ) return 'resolved';
+  if (
+    (lifecycleStatus === 'active' || lifecycleStatus === 'scheduled')
+    && correction.content_redacted === true
+  ) return 'content_deleted';
+  if (
+    lifecycleStatus === 'active'
+    && correction.revert_blocked_reason != null
+  ) return 'applied';
+  return lifecycleStatus;
 }
 
 export interface MemoryCorrectionValidationResult {

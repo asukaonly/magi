@@ -42,6 +42,7 @@ class NewMemoryCorrection:
     claim_fingerprint: str
     correction_kind: CorrectionKind
     before: Mapping[str, Any]
+    request_fingerprint: str
     created_at: float
     reason: str | None = None
     replacement: Mapping[str, Any] | None = None
@@ -153,6 +154,7 @@ class AssertionCorrectionResult:
     created: bool
     current_assertion_id: str | None
     subject_revision: int | None
+    current_claim: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -179,6 +181,7 @@ class RelationshipCorrectionResult:
     created: bool
     current_triple_id: str | None
     subject_revision: int | None
+    current_claim: dict[str, Any] | None = None
 
 
 def _json_object(value: Any) -> dict[str, Any] | None:

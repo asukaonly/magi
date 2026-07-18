@@ -196,6 +196,9 @@ async def _decorate_normalized_corrections(
 ) -> list[dict[str, Any]]:
     newer_candidates = await _load_relevant_active_corrections(db_path, corrections)
     forgotten_source_ids = await _forgotten_correction_source_ids(db_path, corrections)
+    revert_block_reasons = await MemoryCorrectionRepository(
+        db_path
+    ).correction_revert_block_reasons(correction.correction_id for correction in corrections)
     records: list[dict[str, Any]] = []
     for correction in corrections:
         forgotten_ids = forgotten_ids_by_kind.get(correction.target_kind, set())
@@ -243,11 +246,21 @@ async def _decorate_normalized_corrections(
             "target_forgotten": target_forgotten,
             "forget_affected": forget_affected,
             "content_redacted": content_redacted,
+            "revert_blocked_reason": revert_block_reasons.get(correction.correction_id),
+            "resolution_reason": (
+                "identity_merge_noop"
+                if (
+                    correction.state == CorrectionState.REVERTED
+                    and correction.reverted_by == "system:identity_merge_noop"
+                )
+                else None
+            ),
             "can_revert": (
                 correction.state == CorrectionState.ACTIVE
                 and correction.transition_cancelled_at is None
                 and not forget_affected
                 and not blocked_by_newer
+                and correction.correction_id not in revert_block_reasons
             ),
         }
         records.append(record)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from magi.memory.l2.corrections.models import (
     CorrectionKind,
     CorrectionRule,
@@ -10,6 +12,35 @@ from magi.memory.l2.corrections.models import (
     NewMemoryCorrection,
 )
 from magi.memory.l2.corrections.repository import MemoryCorrectionRepository
+from magi.memory.l2.corrections.request_identity import correction_request_fingerprint
+
+
+def test_request_fingerprint_is_versioned_and_stable() -> None:
+    first = correction_request_fingerprint(
+        actor_id="local_user",
+        target_kind=CorrectionTargetKind.ASSERTION,
+        target_id="assertion-1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        reason="Wrong city",
+        replacement={"value": " Shanghai "},
+        effective_at=None,
+        scope=None,
+        source_event_id=None,
+    )
+    second = correction_request_fingerprint(
+        actor_id="local_user",
+        target_kind=CorrectionTargetKind.ASSERTION,
+        target_id="assertion-1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        reason="Wrong city",
+        replacement={"value": "Shanghai"},
+        effective_at=None,
+        scope={},
+        source_event_id=None,
+    )
+
+    assert first.startswith("v1:")
+    assert first == second
 
 
 async def test_repository_creates_correction_rule_and_revision(
@@ -26,6 +57,7 @@ async def test_repository_creates_correction_rule_and_revision(
         claim_fingerprint="claim-1",
         correction_kind=CorrectionKind.RECORD_ERROR,
         before={"trait_value": "old"},
+        request_fingerprint="fingerprint-1",
         reason="That is not true",
         created_at=100.0,
     )
@@ -71,6 +103,7 @@ async def test_repository_request_id_is_idempotent(l2_store_with_schema) -> None
         claim_fingerprint="claim-1",
         correction_kind=CorrectionKind.RECORD_ERROR,
         before={"predicate": "LIKES"},
+        request_fingerprint="fingerprint-1",
         created_at=100.0,
     )
 
@@ -84,6 +117,18 @@ async def test_repository_request_id_is_idempotent(l2_store_with_schema) -> None
     assert second.created is False
     assert second.correction.correction_id == "correction-1"
     assert await repository.current_subject_revision("user:local_user") == 1
+
+    with pytest.raises(ValueError, match="different correction"):
+        await repository.create(
+            NewMemoryCorrection(
+                **{
+                    **correction.__dict__,
+                    "correction_id": "correction-3",
+                    "request_fingerprint": "different-fingerprint",
+                }
+            ),
+            subject_keys=["user:local_user"],
+        )
 
 
 async def test_repository_lists_target_history_newest_first(l2_store_with_schema) -> None:
@@ -100,6 +145,7 @@ async def test_repository_lists_target_history_newest_first(l2_store_with_schema
                 claim_fingerprint=f"claim-{number}",
                 correction_kind=CorrectionKind.SITUATION_CHANGED,
                 before={"trait_value": str(number)},
+                request_fingerprint=f"fingerprint-{number}",
                 created_at=float(number),
             )
         )

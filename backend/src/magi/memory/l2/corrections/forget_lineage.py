@@ -19,6 +19,7 @@ from .forget_governance import (
     record_forget_claim_rules,
 )
 from .models import CorrectionKind, CorrectionTargetKind, MemoryCorrection
+from .ownership import correction_authority_ref
 
 
 async def revert_corrections_for_forgotten_source_events(
@@ -73,9 +74,14 @@ async def revert_corrections_for_forgotten_source_events(
                     UPDATE tom_trait_assertions
                     SET status = 'archived', valid_to = COALESCE(valid_to, ?),
                         updated_at = ?
-                    WHERE assertion_id = ?
+                    WHERE assertion_id = ? AND authority_ref = ?
                     """,
-                    (now, now, replacement_id),
+                    (
+                        now,
+                        now,
+                        replacement_id,
+                        correction_authority_ref(correction.correction_id),
+                    ),
                 )
         else:
             await restore_relationship_conflict_effects(
@@ -85,7 +91,7 @@ async def revert_corrections_for_forgotten_source_events(
                 now=now,
             )
             if replacement_id and replacement_id != correction.target_id:
-                await db.execute(
+                archive_cursor = await db.execute(
                     """
                     UPDATE knowledge_graph
                     SET status = 'archived', status_reason = CASE
@@ -93,16 +99,22 @@ async def revert_corrections_for_forgotten_source_events(
                             ELSE 'correction_cancelled'
                         END,
                         valid_to = COALESCE(valid_to, ?), updated_at = ?
-                    WHERE triple_id = ?
+                    WHERE triple_id = ? AND authority_ref = ?
                     """,
-                    (now, now, replacement_id),
+                    (
+                        now,
+                        now,
+                        replacement_id,
+                        correction_authority_ref(correction.correction_id),
+                    ),
                 )
-                await append_knowledge_graph_version(
-                    db,
-                    triple_id=replacement_id,
-                    correction_id=correction.correction_id,
-                    created_at=now,
-                )
+                if archive_cursor.rowcount:
+                    await append_knowledge_graph_version(
+                        db,
+                        triple_id=replacement_id,
+                        correction_id=correction.correction_id,
+                        created_at=now,
+                    )
         await db.execute(
             "UPDATE memory_correction_rules SET active = 0 WHERE correction_id = ?",
             (correction.correction_id,),
@@ -561,12 +573,12 @@ async def _archive_cancelled_replacement(
             UPDATE tom_trait_assertions
             SET status = 'archived', valid_to = COALESCE(valid_to, valid_from),
                 updated_at = ?
-            WHERE assertion_id = ?
+            WHERE assertion_id = ? AND authority_ref = ?
             """,
-            (now, replacement_id),
+            (now, replacement_id, correction_authority_ref(correction_id)),
         )
         return
-    await db.execute(
+    archive_cursor = await db.execute(
         """
         UPDATE knowledge_graph
         SET status = 'archived',
@@ -575,16 +587,17 @@ async def _archive_cancelled_replacement(
                 ELSE 'correction_cancelled'
             END,
             valid_to = COALESCE(valid_to, valid_from), updated_at = ?
-        WHERE triple_id = ?
+        WHERE triple_id = ? AND authority_ref = ?
         """,
-        (now, replacement_id),
+        (now, replacement_id, correction_authority_ref(correction_id)),
     )
-    await append_knowledge_graph_version(
-        db,
-        triple_id=replacement_id,
-        correction_id=correction_id,
-        created_at=now,
-    )
+    if archive_cursor.rowcount:
+        await append_knowledge_graph_version(
+            db,
+            triple_id=replacement_id,
+            correction_id=correction_id,
+            created_at=now,
+        )
 
 
 async def _restore_transition_root(

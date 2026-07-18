@@ -8,6 +8,7 @@ import aiosqlite
 import pytest
 
 from magi.core.sqlite import sqlite_connection_async
+from magi.memory.l2.corrections.current_claim import resolve_current_claim
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.policy import CorrectionPolicyEvaluator
 from magi.memory.l2.corrections.service import (
@@ -149,7 +150,7 @@ async def test_forget_entity_blocks_revert_and_cancels_future_relationship_corre
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_entity(entity_id="user:u1")
 
@@ -220,7 +221,7 @@ async def test_forget_time_range_blocks_relationship_revert_without_forgetting_r
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=observed_at - 1, end=observed_at + 1)
 
@@ -275,7 +276,7 @@ async def test_forget_time_range_cancels_future_relationship_and_restores_origin
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
 
@@ -392,7 +393,7 @@ async def test_forget_time_range_restores_partially_supported_relationship_after
         effective_at=effective_at,
     )
     assert applied is not None
-    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
 
@@ -427,7 +428,7 @@ async def test_forget_time_range_after_due_relationship_activation_restores_orig
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_relationship"]["triple_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
     with patch("time.time", return_value=effective_at + 1):
         stats = await store.process_memory_correction_jobs(limit=10)
     assert stats["activated"] == 1
@@ -477,7 +478,7 @@ async def test_forget_time_range_cascades_through_future_relationship_chain(
         effective_at=first_at,
     )
     assert first is not None
-    first_replacement_id = first["current_relationship"]["triple_id"]
+    first_replacement_id = first["correction"]["replacement_target_id"]
     second = await store.apply_relationship_correction(
         triple_id=first_replacement_id,
         request_id="forgotten-relationship-chain-b-c",
@@ -487,7 +488,7 @@ async def test_forget_time_range_cascades_through_future_relationship_chain(
         effective_at=second_at,
     )
     assert second is not None
-    second_replacement_id = second["current_relationship"]["triple_id"]
+    second_replacement_id = second["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=first_at - 1, end=first_at + 1)
 
@@ -581,7 +582,7 @@ async def test_forget_middle_of_applied_relationship_chain_preserves_latest_then
     )
     assert retried is not None
     assert retried["created"] is False
-    assert retried["current_relationship"]["triple_id"] == middle_id
+    assert retried["current_relationship"]["triple_id"] == latest_id
 
     await store.forget_time_range(start=second_at - 1, end=second_at + 1)
 
@@ -626,7 +627,7 @@ async def test_forget_applied_relationship_with_pending_successor_restores_root(
         effective_at=pending_at,
     )
     assert second is not None
-    pending_id = second["current_relationship"]["triple_id"]
+    pending_id = second["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=applied_at - 1, end=applied_at + 1)
 
@@ -736,7 +737,7 @@ async def test_due_chained_relationship_changes_keep_latest_value(
         effective_at=first_at,
     )
     second = await store.apply_relationship_correction(
-        triple_id=first["current_relationship"]["triple_id"],
+        triple_id=first["correction"]["replacement_target_id"],
         request_id="scheduled-chain-shanghai-beijing",
         actor_id="user:u1",
         correction_kind=CorrectionKind.SITUATION_CHANGED,
@@ -752,7 +753,9 @@ async def test_due_chained_relationship_changes_keep_latest_value(
         subject_id="user:u1",
         effective_at=second_at + 1,
     )
-    assert [item["triple_id"] for item in current] == [second["current_relationship"]["triple_id"]]
+    assert [item["triple_id"] for item in current] == [
+        second["correction"]["replacement_target_id"]
+    ]
     assert current[0]["object_id"] == "place:beijing"
 
 
@@ -1414,7 +1417,7 @@ async def test_future_relationship_change_only_blocks_early_replacement_evidence
         effective_at=effective_at,
     )
     assert corrected is not None
-    replacement_id = corrected["current_relationship"]["triple_id"]
+    replacement_id = corrected["correction"]["replacement_target_id"]
 
     same_value_id = await _edge(
         store,
@@ -2655,6 +2658,19 @@ async def test_future_relationship_conflict_keeps_old_facts_visible_until_effect
     assert pending_opposite["status"] == "active"
 
     with patch("time.time", return_value=effective_at + 1):
+        committed_before_runner = await store.list_current_relationships(
+            subject_id="user:u1",
+        )
+        current_claim_before_runner = await resolve_current_claim(
+            store.db_path,
+            correction=corrected["correction"],
+        )
+        assert {(item["predicate"], item["object_id"]) for item in committed_before_runner} == {
+            ("DISLIKES", "place:ramen"),
+            ("LIKES", "place:udon"),
+        }
+        assert current_claim_before_runner is not None
+        assert current_claim_before_runner["triple_id"] == target_id
         processed = await store.process_memory_correction_jobs(limit=20)
         assert processed["activated"] == 1
         applied_opposite = await store.get_relationship(triple_id=opposite_id)

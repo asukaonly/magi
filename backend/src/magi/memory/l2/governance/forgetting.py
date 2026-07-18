@@ -58,6 +58,8 @@ class _ForgettingHostProtocol(Protocol):
 
     async def get_relationship(self, *, triple_id: str) -> Optional[Dict[str, Any]]: ...
 
+    def _relation_row_to_dict(self, row: Any) -> Dict[str, Any]: ...
+
     async def wake_memory_correction_jobs(self) -> bool: ...
 
     async def resolve_evidence_timestamps(
@@ -150,8 +152,8 @@ class L2StoreForgettingMixin:
             return None
         await host.wake_memory_correction_jobs()
         current_relationship = (
-            await host.get_relationship(triple_id=result.current_triple_id)
-            if result.current_triple_id
+            host._relation_row_to_dict(result.current_claim)
+            if result.current_claim is not None
             else None
         )
         logger.info(
@@ -187,8 +189,10 @@ class L2StoreForgettingMixin:
         if result is None:
             return None
         await host.wake_memory_correction_jobs()
-        current_relationship = await host.get_relationship(
-            triple_id=result.current_triple_id or result.correction.target_id
+        current_relationship = (
+            host._relation_row_to_dict(result.current_claim)
+            if result.current_claim is not None
+            else None
         )
         return {
             "correction": asdict(result.correction),

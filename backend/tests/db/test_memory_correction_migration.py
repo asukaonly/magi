@@ -266,31 +266,25 @@ def test_relationship_reconciliation_upgrades_an_already_v14_database(
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "v28_time_range_forget_barriers",
+            "v31_correction_replacement_slot_index",
         )
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT status, status_reason, deprecated_by
             FROM knowledge_graph
             WHERE triple_id = 'legacy-dislikes-ramen'
-            """).fetchone()
-            == (
-                "deprecated",
-                "user_correction_conflict:legacy-like-correction",
-                "legacy-likes-ramen",
-            )
+            """).fetchone() == (
+            "deprecated",
+            "user_correction_conflict:legacy-like-correction",
+            "legacy-likes-ramen",
         )
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT correction_id, victim_triple_id, replacement_triple_id, pre_status
             FROM memory_relationship_conflict_effects
-            """).fetchone()
-            == (
-                "legacy-like-correction",
-                "legacy-dislikes-ramen",
-                "legacy-likes-ramen",
-                "active",
-            )
+            """).fetchone() == (
+            "legacy-like-correction",
+            "legacy-dislikes-ramen",
+            "legacy-likes-ramen",
+            "active",
         )
         assert connection.execute("""
             SELECT derivation_state
@@ -317,39 +311,33 @@ def test_relationship_reconciliation_upgrades_an_already_v14_database(
             FROM memory_subject_revisions
             WHERE subject_key = 'user:u1'
             """).fetchone() == (1,)
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT job_kind, status, target_revision
             FROM memory_derivation_jobs
             WHERE correction_id = 'legacy-like-correction'
               AND target_key = 'user:u1'
             ORDER BY job_kind
-            """).fetchall()
-            == [
-                ("l3_insight", "pending", 1),
-                ("portrait", "pending", 1),
-                ("profile", "pending", 1),
-                ("snapshot", "pending", 1),
-            ]
-        )
+            """).fetchall() == [
+            ("l3_insight", "pending", 1),
+            ("portrait", "pending", 1),
+            ("profile", "pending", 1),
+            ("snapshot", "pending", 1),
+        ]
         assert connection.execute("""
             SELECT revision
             FROM memory_subject_revisions
             WHERE subject_key = 'food:ramen'
             """).fetchone() == (1,)
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT job_kind, status, target_revision
             FROM memory_derivation_jobs
             WHERE correction_id = 'legacy-like-correction'
               AND target_key = 'food:ramen'
             ORDER BY job_kind
-            """).fetchall()
-            == [
-                ("l3_insight", "pending", 1),
-                ("snapshot", "pending", 1),
-            ]
-        )
+            """).fetchall() == [
+            ("l3_insight", "pending", 1),
+            ("snapshot", "pending", 1),
+        ]
 
 
 def test_relationship_reconciliation_replays_corrections_in_effective_order(
@@ -412,28 +400,25 @@ def test_relationship_reconciliation_replays_corrections_in_effective_order(
                 "residence-replacement-3",
             ),
         ]
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id LIKE 'residence-%'
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("residence-baseline", "deprecated", "residence-replacement-1"),
-                (
-                    "residence-replacement-1",
-                    "deprecated",
-                    "residence-replacement-2",
-                ),
-                (
-                    "residence-replacement-2",
-                    "deprecated",
-                    "residence-replacement-3",
-                ),
-                ("residence-replacement-3", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("residence-baseline", "deprecated", "residence-replacement-1"),
+            (
+                "residence-replacement-1",
+                "deprecated",
+                "residence-replacement-2",
+            ),
+            (
+                "residence-replacement-2",
+                "deprecated",
+                "residence-replacement-3",
+            ),
+            ("residence-replacement-3", "active", None),
+        ]
 
     asyncio.run(
         _restore_migrated_effects(
@@ -444,24 +429,21 @@ def test_relationship_reconciliation_replays_corrections_in_effective_order(
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN ('residence-baseline', 'residence-replacement-1',
                                 'residence-replacement-2')
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("residence-baseline", "deprecated", "residence-replacement-1"),
-                (
-                    "residence-replacement-1",
-                    "deprecated",
-                    "residence-replacement-2",
-                ),
-                ("residence-replacement-2", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("residence-baseline", "deprecated", "residence-replacement-1"),
+            (
+                "residence-replacement-1",
+                "deprecated",
+                "residence-replacement-2",
+            ),
+            ("residence-replacement-2", "active", None),
+        ]
 
     asyncio.run(
         _restore_migrated_effects(
@@ -472,18 +454,15 @@ def test_relationship_reconciliation_replays_corrections_in_effective_order(
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN ('residence-baseline', 'residence-replacement-1')
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("residence-baseline", "deprecated", "residence-replacement-1"),
-                ("residence-replacement-1", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("residence-baseline", "deprecated", "residence-replacement-1"),
+            ("residence-replacement-1", "active", None),
+        ]
 
     asyncio.run(
         _restore_migrated_effects(
@@ -586,38 +565,32 @@ def test_relationship_reconciliation_repairs_mixed_legacy_and_runtime_effects(
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT correction_id, victim_triple_id, replacement_triple_id
             FROM memory_relationship_conflict_effects
             ORDER BY correction_id, victim_triple_id
-            """).fetchall()
-            == [
-                (
-                    "mixed-correction-first",
-                    "mixed-residence-baseline",
-                    "mixed-residence-first",
-                ),
-                (
-                    "mixed-correction-second",
-                    "mixed-residence-first",
-                    "mixed-residence-second",
-                ),
-            ]
-        )
-        assert (
-            connection.execute("""
+            """).fetchall() == [
+            (
+                "mixed-correction-first",
+                "mixed-residence-baseline",
+                "mixed-residence-first",
+            ),
+            (
+                "mixed-correction-second",
+                "mixed-residence-first",
+                "mixed-residence-second",
+            ),
+        ]
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id LIKE 'mixed-residence-%'
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("mixed-residence-baseline", "deprecated", "mixed-residence-first"),
-                ("mixed-residence-first", "deprecated", "mixed-residence-second"),
-                ("mixed-residence-second", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("mixed-residence-baseline", "deprecated", "mixed-residence-first"),
+            ("mixed-residence-first", "deprecated", "mixed-residence-second"),
+            ("mixed-residence-second", "active", None),
+        ]
 
     asyncio.run(
         _restore_migrated_effects(
@@ -628,18 +601,15 @@ def test_relationship_reconciliation_repairs_mixed_legacy_and_runtime_effects(
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN ('mixed-residence-baseline', 'mixed-residence-first')
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("mixed-residence-baseline", "deprecated", "mixed-residence-first"),
-                ("mixed-residence-first", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("mixed-residence-baseline", "deprecated", "mixed-residence-first"),
+            ("mixed-residence-first", "active", None),
+        ]
 
 
 def test_relationship_reconciliation_preserves_later_runtime_effects(
@@ -730,28 +700,25 @@ def test_relationship_reconciliation_preserves_later_runtime_effects(
             (effects[0][0], "preserved-residence-baseline"),
             ("runtime-later-effect", "preserved-residence-later"),
         ]
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN (
                 'preserved-residence-baseline', 'preserved-residence-later'
             )
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                (
-                    "preserved-residence-baseline",
-                    "deprecated",
-                    "preserved-residence-replacement",
-                ),
-                (
-                    "preserved-residence-later",
-                    "deprecated",
-                    "preserved-residence-replacement",
-                ),
-            ]
-        )
+            """).fetchall() == [
+            (
+                "preserved-residence-baseline",
+                "deprecated",
+                "preserved-residence-replacement",
+            ),
+            (
+                "preserved-residence-later",
+                "deprecated",
+                "preserved-residence-replacement",
+            ),
+        ]
 
     asyncio.run(
         _restore_migrated_effects(
@@ -762,20 +729,17 @@ def test_relationship_reconciliation_preserves_later_runtime_effects(
         )
     )
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN (
                 'preserved-residence-baseline', 'preserved-residence-later'
             )
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("preserved-residence-baseline", "active", None),
-                ("preserved-residence-later", "active", None),
-            ]
-        )
+            """).fetchall() == [
+            ("preserved-residence-baseline", "active", None),
+            ("preserved-residence-later", "active", None),
+        ]
 
 
 def test_relationship_reconciliation_defers_pending_future_corrections(
@@ -955,8 +919,7 @@ def test_relationship_reconciliation_uses_persisted_custom_rules_and_scope(
     command.upgrade(config, "head")
 
     with sqlite3.connect(db_path) as connection:
-        assert (
-            connection.execute("""
+        assert connection.execute("""
             SELECT triple_id, status, deprecated_by
             FROM knowledge_graph
             WHERE triple_id IN (
@@ -964,24 +927,19 @@ def test_relationship_reconciliation_uses_persisted_custom_rules_and_scope(
                 'custom-primary-focus'
             )
             ORDER BY triple_id
-            """).fetchall()
-            == [
-                ("custom-avoids-global", "conflicted", "custom-prefers-global"),
-                ("custom-avoids-other-scope", "active", None),
-                ("custom-primary-focus", "deprecated", "custom-current-focus"),
-            ]
-        )
-        assert (
-            connection.execute("""
+            """).fetchall() == [
+            ("custom-avoids-global", "conflicted", "custom-prefers-global"),
+            ("custom-avoids-other-scope", "active", None),
+            ("custom-primary-focus", "deprecated", "custom-current-focus"),
+        ]
+        assert connection.execute("""
             SELECT correction_id, victim_triple_id
             FROM memory_relationship_conflict_effects
             ORDER BY correction_id
-            """).fetchall()
-            == [
-                ("custom-focus-correction", "custom-primary-focus"),
-                ("custom-prefers-correction", "custom-avoids-global"),
-            ]
-        )
+            """).fetchall() == [
+            ("custom-focus-correction", "custom-primary-focus"),
+            ("custom-prefers-correction", "custom-avoids-global"),
+        ]
 
 
 def test_relationship_reconciliation_is_idempotent_and_retryable(
@@ -1182,11 +1140,13 @@ def test_scheduled_transition_migration_marks_only_due_changes_applied(
         indexes = {
             str(row[1]) for row in connection.execute("PRAGMA index_list(memory_corrections)")
         }
-        markers = dict(connection.execute("""
+        markers = dict(
+            connection.execute("""
             SELECT correction_id, transition_applied_at
             FROM memory_corrections
             ORDER BY correction_id
-            """).fetchall())
+            """).fetchall()
+        )
 
     assert "transition_applied_at" in columns
     assert "idx_memory_corrections_due_transition" in indexes

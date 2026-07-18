@@ -229,7 +229,7 @@ def test_claim_evidence_ledger_backfills_valid_arrays_and_skips_malformed(
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
-            "v28_time_range_forget_barriers",
+            "v31_correction_replacement_slot_index",
         )
         rows = connection.execute("""
             SELECT target_kind, claim_fingerprint, event_id,

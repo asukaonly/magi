@@ -54,6 +54,8 @@ class _FeedbackHostProtocol(Protocol):
 
     async def get_tom_assertion(self, *, assertion_id: str) -> Optional[Dict[str, Any]]: ...
 
+    def _assertion_row_to_dict(self, row: Any) -> Dict[str, Any]: ...
+
     async def refresh_entity_snapshot(
         self,
         *,
@@ -219,8 +221,11 @@ class L2StoreFeedbackMixin:
         if result is None:
             return None
         await host.wake_memory_correction_jobs()
-        changed_assertion_id = result.current_assertion_id or assertion_id
-        current_assertion = await host.get_tom_assertion(assertion_id=changed_assertion_id)
+        current_assertion = (
+            host._assertion_row_to_dict(result.current_claim)
+            if result.current_claim is not None
+            else None
+        )
         if result.subject_revision is not None:
             await _notify_feedback_assertion_changed(host, current_assertion)
         logger.info(
@@ -256,8 +261,10 @@ class L2StoreFeedbackMixin:
         if result is None:
             return None
         await host.wake_memory_correction_jobs()
-        current_assertion = await host.get_tom_assertion(
-            assertion_id=result.current_assertion_id or result.correction.target_id
+        current_assertion = (
+            host._assertion_row_to_dict(result.current_claim)
+            if result.current_claim is not None
+            else None
         )
         if result.subject_revision is not None:
             await _notify_feedback_assertion_changed(host, current_assertion)

@@ -1260,6 +1260,51 @@ describe('MemoryCorrectionHistory request safety', () => {
     expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
   });
 
+  it('explains when an identity merge makes an old correction unsafe to revert', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        can_revert: false,
+        revert_blocked_reason: 'identity_merge',
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('已应用')).toBeInTheDocument();
+    expect(screen.getByText(
+      '这条记忆后来与另一条记忆合并了，无法安全恢复到合并前。如需调整，请从最新记忆重新修正。'
+    )).toBeInTheDocument();
+    expect(screen.queryByText(
+      '当前不能撤销这次修正。如需调整，请从最新记忆重新修正。'
+    )).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('explains when independent correction histories converged', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        can_revert: false,
+        revert_blocked_reason: 'lineage_collision',
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('已应用')).toBeInTheDocument();
+    expect(screen.getByText(
+      '这条记忆的多段修改历史后来汇合了，无法安全恢复到其中某一段。如需调整，请从最新记忆重新修正。'
+    )).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
   it('explains a partial source deletion without calling the whole memory deleted', async () => {
     vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
       target: { kind: 'assertion', id: 'assertion-1' },
@@ -1298,6 +1343,29 @@ describe('MemoryCorrectionHistory request safety', () => {
     render(<MemoryCorrectionHistory target={assertionTarget} />);
 
     expect(await screen.findByText('已撤销')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
+  });
+
+  it('explains when a merge makes the correction unnecessary', async () => {
+    vi.mocked(memoryApi.getCorrectionHistory).mockResolvedValue({
+      target: { kind: 'assertion', id: 'assertion-1' },
+      versions: [],
+      corrections: [{
+        ...correction,
+        state: 'reverted',
+        resolution_reason: 'identity_merge_noop',
+        can_revert: false,
+      }],
+      context_labels: {},
+    });
+
+    render(<MemoryCorrectionHistory target={assertionTarget} />);
+
+    expect(await screen.findByText('合并后已无需修正')).toBeInTheDocument();
+    expect(screen.getByText(
+      '相关记忆合并后，原来和修正后的内容已经指向同一条记忆，因此这次修正不再需要。'
+    )).toBeInTheDocument();
+    expect(screen.queryByText('已撤销')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '撤销这次修正' })).not.toBeInTheDocument();
   });
 

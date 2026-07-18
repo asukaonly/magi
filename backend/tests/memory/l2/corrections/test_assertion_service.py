@@ -6,6 +6,7 @@ import aiosqlite
 import pytest
 
 from _shared.context_scope import context_scope
+from magi.memory.l2.corrections.current_claim import resolve_current_claim
 from magi.memory.l2.corrections.models import CorrectionKind
 from magi.memory.l2.corrections.service import (
     MemoryCorrectionConflictError,
@@ -66,7 +67,7 @@ async def test_forget_entity_blocks_revert_and_cancels_future_assertion_correcti
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_entity(entity_id="user:u1")
 
@@ -129,7 +130,7 @@ async def test_forget_time_range_blocks_assertion_revert_without_forgetting_repl
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=original_time - 1, end=original_time + 1)
 
@@ -181,7 +182,7 @@ async def test_forget_time_range_cancels_future_assertion_and_restores_original(
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
 
@@ -291,7 +292,7 @@ async def test_forget_time_range_restores_partially_supported_assertion_after_ca
         effective_at=effective_at,
     )
     assert applied is not None
-    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=effective_at - 1, end=effective_at + 1)
 
@@ -321,7 +322,7 @@ async def test_forget_time_range_after_due_assertion_activation_restores_origina
     )
     assert applied is not None
     correction_id = applied["correction"]["correction_id"]
-    replacement_id = applied["current_assertion"]["assertion_id"]
+    replacement_id = applied["correction"]["replacement_target_id"]
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.setattr(time, "time", lambda: effective_at + 1)
         stats = await store.process_memory_correction_jobs(limit=10)
@@ -365,7 +366,7 @@ async def test_forget_time_range_cascades_through_future_assertion_chain(
         effective_at=first_at,
     )
     assert first is not None
-    first_replacement_id = first["current_assertion"]["assertion_id"]
+    first_replacement_id = first["correction"]["replacement_target_id"]
     second = await store.apply_assertion_correction(
         assertion_id=first_replacement_id,
         request_id="assertion-chain-b-c",
@@ -375,7 +376,7 @@ async def test_forget_time_range_cascades_through_future_assertion_chain(
         effective_at=second_at,
     )
     assert second is not None
-    second_replacement_id = second["current_assertion"]["assertion_id"]
+    second_replacement_id = second["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=first_at - 1, end=first_at + 1)
 
@@ -462,7 +463,7 @@ async def test_forget_middle_of_applied_assertion_chain_preserves_latest_then_ro
     )
     assert retried is not None
     assert retried["created"] is False
-    assert retried["current_assertion"]["assertion_id"] == middle_id
+    assert retried["current_assertion"]["assertion_id"] == latest_id
 
     await store.forget_time_range(start=second_at - 1, end=second_at + 1)
 
@@ -502,7 +503,7 @@ async def test_forget_applied_assertion_with_pending_successor_restores_root(
         effective_at=pending_at,
     )
     assert second is not None
-    pending_id = second["current_assertion"]["assertion_id"]
+    pending_id = second["correction"]["replacement_target_id"]
 
     await store.forget_time_range(start=applied_at - 1, end=applied_at + 1)
 
@@ -967,6 +968,93 @@ async def test_scope_refinement_only_reads_in_matching_context(l2_store_with_sch
     assert [item["assertion_id"] for item in matching] == [
         result["current_assertion"]["assertion_id"]
     ]
+
+
+@pytest.mark.asyncio
+async def test_current_claim_uses_most_specific_matching_scope(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    project_scope = context_scope(project="magi")
+    global_id = await _seed_assertion(
+        store,
+        trait_value="Global",
+        evidence_events=["evt-global-current-claim"],
+    )
+    project_id = await _seed_assertion(
+        store,
+        trait_value="Project",
+        evidence_events=["evt-project-current-claim"],
+        scope=project_scope,
+    )
+    global_result = await store.apply_assertion_correction(
+        assertion_id=global_id,
+        request_id="correct-global-current-claim",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Global corrected",
+    )
+    project_result = await store.apply_assertion_correction(
+        assertion_id=project_id,
+        request_id="correct-project-current-claim",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+        replacement_value="Project corrected",
+    )
+
+    global_current = await resolve_current_claim(
+        store.db_path,
+        correction=global_result["correction"],
+    )
+    project_current = await resolve_current_claim(
+        store.db_path,
+        correction=project_result["correction"],
+    )
+
+    assert global_current is not None
+    assert global_current["trait_value"] == "Global corrected"
+    assert project_current is not None
+    assert project_current["trait_value"] == "Project corrected"
+    assert project_current["scope_json"] != global_current["scope_json"]
+
+
+@pytest.mark.asyncio
+async def test_rejected_scoped_claim_returns_global_fallback_as_current(
+    l2_store_with_schema,
+) -> None:
+    store = l2_store_with_schema
+    project_scope = context_scope(project="magi")
+    global_id = await _seed_assertion(
+        store,
+        trait_value="Global",
+        evidence_events=["evt-global-fallback"],
+    )
+    project_id = await _seed_assertion(
+        store,
+        trait_value="Project",
+        evidence_events=["evt-project-rejected"],
+        scope=project_scope,
+    )
+    corrected = await store.apply_assertion_correction(
+        assertion_id=project_id,
+        request_id="reject-project-current-claim",
+        actor_id="user:u1",
+        correction_kind=CorrectionKind.RECORD_ERROR,
+    )
+
+    listed = await store.list_current_assertions(
+        entity_id="user:u1",
+        context_scope=project_scope,
+    )
+    resolved = await resolve_current_claim(
+        store.db_path,
+        correction=corrected["correction"],
+    )
+
+    assert [item["assertion_id"] for item in listed] == [global_id]
+    assert resolved is not None
+    assert resolved["assertion_id"] == global_id
+    assert resolved["trait_value"] == "Global"
 
 
 @pytest.mark.asyncio

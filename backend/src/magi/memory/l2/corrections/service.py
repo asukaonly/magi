@@ -23,6 +23,7 @@ from ..assertions.settings import (
 from ..graph_conflicts import GraphConflictRule
 from ..storage.utils import max_evidence_event_ids
 from .cache_signals import mark_subject_changed
+from .current_claim import resolve_current_claim
 from .evidence_ledger import append_claim_evidence_event_ids
 from .fingerprints import (
     SUPPORTED_SCOPE_FIELDS,
@@ -47,8 +48,10 @@ from .models import (
     NewMemoryCorrection,
     RelationshipCorrectionResult,
 )
+from .ownership import correction_authority_ref
 from .repository import MemoryCorrectionRepository
-from .request_identity import correction_request_matches, normalized_optional_text
+from .request_identity import correction_request_fingerprint, normalized_optional_text
+from .revert_blocks import correction_revert_block_reason_on_connection
 
 _INACTIVE_ASSERTION_STATUSES = {
     "archived",
@@ -201,9 +204,19 @@ class MemoryCorrectionService:
                     command.request_id,
                 )
                 if existing_correction is not None:
-                    _ensure_assertion_retry_matches(existing_correction, command)
+                    await _ensure_assertion_retry_matches(
+                        db,
+                        self.repository,
+                        existing_correction,
+                        command,
+                    )
                     await db.commit()
-                    return _result_for_existing_correction(existing_correction)
+                    return await _assertion_correction_result(
+                        self.db_path,
+                        existing_correction,
+                        created=False,
+                        subject_revision=None,
+                    )
 
                 _validate_assertion_command(command)
                 await ensure_correction_source_event_is_active(
@@ -270,6 +283,7 @@ class MemoryCorrectionService:
                     correction_kind=command.correction_kind,
                     reason=command.reason,
                     before=before,
+                    request_fingerprint=_assertion_request_fingerprint(command),
                     replacement=(
                         {
                             "value": command.replacement_value,
@@ -387,10 +401,10 @@ class MemoryCorrectionService:
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
-        return AssertionCorrectionResult(
-            correction=stored,
+        return await _assertion_correction_result(
+            self.db_path,
+            stored,
             created=True,
-            current_assertion_id=replacement_id,
             subject_revision=subject_revision,
         )
 
@@ -420,16 +434,29 @@ class MemoryCorrectionService:
                     raise MemoryCorrectionValidationError("Correction does not target an assertion")
                 if correction.state == CorrectionState.REVERTED:
                     await db.commit()
-                    return AssertionCorrectionResult(
-                        correction=correction,
+                    return await _assertion_correction_result(
+                        self.db_path,
+                        correction,
                         created=False,
-                        current_assertion_id=correction.target_id,
                         subject_revision=None,
                     )
                 if await correction_target_was_forgotten(db, correction):
                     raise MemoryCorrectionConflictError(
                         "Forgotten memories cannot be restored",
                         code="memory_forgotten",
+                    )
+                revert_block_reason = await correction_revert_block_reason_on_connection(
+                    db,
+                    correction_id,
+                )
+                if revert_block_reason:
+                    raise MemoryCorrectionConflictError(
+                        "This correction can no longer be safely reverted after correction histories converged",
+                        code=(
+                            "identity_merge_revert_blocked"
+                            if revert_block_reason == "identity_merge"
+                            else "correction_lineage_revert_blocked"
+                        ),
                     )
                 if await _has_newer_active_correction(db, correction):
                     raise MemoryCorrectionConflictError("A newer correction must be reverted first")
@@ -457,9 +484,14 @@ class MemoryCorrectionService:
                         UPDATE tom_trait_assertions
                         SET status = 'archived', valid_to = COALESCE(valid_to, ?),
                             updated_at = ?
-                        WHERE assertion_id = ?
+                        WHERE assertion_id = ? AND authority_ref = ?
                         """,
-                        (now, now, correction.replacement_target_id),
+                        (
+                            now,
+                            now,
+                            correction.replacement_target_id,
+                            correction_authority_ref(correction_id),
+                        ),
                     )
                 await _restore_original_assertion(
                     db,
@@ -514,10 +546,10 @@ class MemoryCorrectionService:
 
         stored = await self.repository.get(correction_id)
         assert stored is not None
-        return AssertionCorrectionResult(
-            correction=stored,
+        return await _assertion_correction_result(
+            self.db_path,
+            stored,
             created=True,
-            current_assertion_id=correction.target_id,
             subject_revision=subject_revision,
         )
 
@@ -581,7 +613,9 @@ def _validate_assertion_command(command: ApplyAssertionCorrectionCommand) -> Non
         raise MemoryCorrectionValidationError(f"Unsupported scope fields: {unknown}")
 
 
-def _ensure_assertion_retry_matches(
+async def _ensure_assertion_retry_matches(
+    db: aiosqlite.Connection,
+    repository: MemoryCorrectionRepository,
     existing: MemoryCorrection,
     command: ApplyAssertionCorrectionCommand,
 ) -> None:
@@ -597,44 +631,33 @@ def _ensure_assertion_retry_matches(
         raise MemoryCorrectionConflictError(
             "request_id was already used for a different correction"
         )
-    expected_scope = _effective_assertion_scope(command, existing.before)
-    expected_replacement = (
-        {
-            "value": normalized_optional_text(command.replacement_value),
-            "scope": expected_scope,
-        }
-        if command.replacement_value is not None
-        else None
+    stored_fingerprint = await repository.request_fingerprint_on_connection(
+        db,
+        existing.correction_id,
     )
-    stored_replacement = (
-        {
-            "value": normalized_optional_text(existing.replacement.get("value")),
-            "scope": dict(existing.replacement.get("scope") or {}),
-        }
-        if existing.replacement is not None
-        else None
-    )
-    expected_effective_at = (
-        float(command.effective_at)
-        if command.correction_kind == CorrectionKind.SITUATION_CHANGED
-        and command.effective_at is not None
-        else None
-    )
-    if correction_request_matches(
-        existing,
+    if _assertion_request_fingerprint(command) == stored_fingerprint:
+        return
+    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+
+
+def _assertion_request_fingerprint(
+    command: ApplyAssertionCorrectionCommand,
+) -> str:
+    return correction_request_fingerprint(
         actor_id=command.actor_id,
         target_kind=CorrectionTargetKind.ASSERTION,
         target_id=command.assertion_id,
         correction_kind=command.correction_kind,
         reason=command.reason,
-        replacement=expected_replacement,
-        stored_replacement=stored_replacement,
-        effective_at=expected_effective_at,
-        scope=expected_scope,
+        replacement=(
+            {"value": normalized_optional_text(command.replacement_value)}
+            if command.replacement_value is not None
+            else None
+        ),
+        effective_at=command.effective_at,
+        scope=command.scope,
         source_event_id=command.source_event_id,
-    ):
-        return
-    raise MemoryCorrectionConflictError("request_id was already used for a different correction")
+    )
 
 
 def _effective_assertion_scope(
@@ -933,7 +956,7 @@ async def _insert_replacement_assertion(
             now,
             str(before["slot_key"]),
             claim_fingerprint,
-            f"correction:{correction_id}",
+            correction_authority_ref(correction_id),
             str(before.get("version_root_id") or before["assertion_id"]),
             str(before["assertion_id"]),
             valid_from,
@@ -1155,19 +1178,25 @@ def _assertion_evidence_event_ids(raw: Any) -> list[str]:
     return list(dict.fromkeys(event_id.strip() for event_id in parsed))
 
 
-def _result_for_existing_correction(
+async def _assertion_correction_result(
+    db_path: str,
     correction: MemoryCorrection,
+    *,
+    created: bool,
+    subject_revision: int | None,
 ) -> AssertionCorrectionResult:
-    current_assertion_id = correction.replacement_target_id
-    if correction.state == CorrectionState.REVERTED or (
-        correction.transition_cancelled_at is not None and correction.transition_applied_at is None
-    ):
-        current_assertion_id = correction.target_id
+    current_claim = await resolve_current_claim(
+        db_path,
+        correction={"correction_id": correction.correction_id},
+    )
     return AssertionCorrectionResult(
         correction=correction,
-        created=False,
-        current_assertion_id=current_assertion_id,
-        subject_revision=None,
+        created=created,
+        current_assertion_id=(
+            str(current_claim["assertion_id"]) if current_claim is not None else None
+        ),
+        subject_revision=subject_revision,
+        current_claim=current_claim,
     )
 
 

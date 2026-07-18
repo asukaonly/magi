@@ -215,6 +215,21 @@ describe('memory correction lifecycle presentation', () => {
     }, 300)).toBe('reverted');
   });
 
+  it('distinguishes an identity-merge resolution from an ordinary revert', () => {
+    const resolved = {
+      ...base,
+      state: 'reverted' as const,
+      resolution_reason: 'identity_merge_noop' as const,
+    };
+
+    expect(memoryCorrectionLifecycleStatus(resolved, 300)).toBe('reverted');
+    expect(memoryCorrectionHistoryStatus(resolved, 300)).toBe('resolved');
+    expect(memoryCorrectionHistoryStatus({
+      ...resolved,
+      state: 'active',
+    }, 300)).toBe('active');
+  });
+
   it('keeps a forget-affected correction in its real lifecycle state', () => {
     expect(memoryCorrectionLifecycleStatus({
       ...base,
@@ -253,6 +268,18 @@ describe('memory correction lifecycle presentation', () => {
       transition_applied_at: null,
       content_redacted: true,
     }, 300)).toBe('content_deleted');
+    expect(memoryCorrectionHistoryStatus({
+      ...correction,
+      revert_blocked_reason: 'identity_merge',
+    }, 300)).toBe('content_deleted');
+  });
+
+  it('labels an applied correction with converged history without calling it current', () => {
+    expect(memoryCorrectionHistoryStatus({
+      ...base,
+      correction_kind: 'record_error',
+      revert_blocked_reason: 'lineage_collision',
+    }, 300)).toBe('applied');
   });
 });
 

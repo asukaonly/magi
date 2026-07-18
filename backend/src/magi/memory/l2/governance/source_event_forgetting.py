@@ -1281,14 +1281,13 @@ async def _forgotten_events_by_claim(
         target_kind=target_kind,
         claim_fingerprints=(claim.claim_fingerprint for claim in claims.values()),
     )
-    result: dict[str, tuple[str, ...]] = {}
+    linked_by_claim: dict[str, set[str]] = {}
     for key, claim in claims.items():
         linked = {
             record.event_id
             for record in evidence_by_claim.get(claim.claim_fingerprint, ())
-            if record.event_id in target_ids
         }
-        linked.update(event_id for event_id in claim.evidence_event_ids if event_id in target_ids)
+        linked.update(claim.evidence_event_ids)
         if claim.correction_ids:
             placeholders = ", ".join("?" for _ in claim.correction_ids)
             async with db.execute(
@@ -1301,10 +1300,26 @@ async def _forgotten_events_by_claim(
                 claim.correction_ids,
             ) as cursor:
                 linked.update(
-                    str(row[0]) for row in await cursor.fetchall() if str(row[0]) in target_ids
+                    str(row[0]).strip()
+                    for row in await cursor.fetchall()
+                    if row[0] is not None and str(row[0]).strip()
                 )
-        if linked:
-            result[key] = tuple(event_id for event_id in event_ids if event_id in linked)
+        linked_by_claim[key] = linked
+
+    tombstoned_event_ids = await source_event_tombstone_ids(
+        db,
+        (
+            event_id
+            for linked in linked_by_claim.values()
+            for event_id in linked
+        ),
+    )
+    governed_event_ids = target_ids | tombstoned_event_ids
+    result: dict[str, tuple[str, ...]] = {}
+    for key, linked in linked_by_claim.items():
+        forgotten = linked & governed_event_ids
+        if forgotten:
+            result[key] = tuple(sorted(forgotten))
     return result
 
 
