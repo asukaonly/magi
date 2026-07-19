@@ -11,12 +11,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('PersonaPreviewStarterChips', () => {
-  it('renders 4 chips', () => {
+  it('renders four starter prompts', () => {
     render(<PersonaPreviewStarterChips onPick={() => {}} />);
+    expect(screen.getByTestId('persona-preview-starter-prompts')).toBeInTheDocument();
     expect(screen.getAllByRole('button')).toHaveLength(4);
   });
 
-  it('invokes onPick with the chip prompt when clicked', async () => {
+  it('invokes onPick with the starter prompt when clicked', async () => {
     const onPick = vi.fn();
     render(<PersonaPreviewStarterChips onPick={onPick} />);
     const chips = screen.getAllByRole('button');

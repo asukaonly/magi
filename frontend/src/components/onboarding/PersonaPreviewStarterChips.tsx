@@ -16,7 +16,10 @@ export function PersonaPreviewStarterChips({
 }: PersonaPreviewStarterChipsProps): JSX.Element {
   const { t } = useTranslation('onboarding');
   return (
-    <div className="flex flex-wrap gap-2">
+    <div
+      data-testid="persona-preview-starter-prompts"
+      className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2"
+    >
       {CHIP_KEYS.map((key) => {
         const label = t(key);
         return (
@@ -24,9 +27,13 @@ export function PersonaPreviewStarterChips({
             type="button"
             key={key}
             onClick={() => onPick(label)}
-            className="rounded-full border border-[#d8c9b8] bg-white px-4 py-1.5 text-sm text-[#35261f] transition hover:bg-[#f4eadf] dark:border-[#7d685a] dark:bg-transparent dark:text-[#f4eadf]"
+            className="group flex min-w-0 items-start gap-2.5 rounded-md px-2 py-2 text-left text-[13px] leading-5 text-muted-foreground transition-[background-color,color] duration-200 hover:bg-muted/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/15"
           >
-            {label}
+            <span
+              aria-hidden
+              className="mt-2.5 h-px w-3 shrink-0 origin-left scale-x-75 bg-border transition-[background-color,transform] duration-200 group-hover:scale-x-100 group-hover:bg-primary/55"
+            />
+            <span>{label}</span>
           </button>
         );
       })}
