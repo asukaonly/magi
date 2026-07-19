@@ -55,16 +55,11 @@ export function EmptyStateSensorCard({
         variant === "standard" &&
           "grid grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-4 px-4 py-3.5 hover:bg-[hsl(var(--app-chrome-surface)/0.5)]",
         isFeatured &&
-          "relative grid items-center gap-4 rounded-xl border border-primary/25 bg-primary/[0.045] p-4 shadow-[0_10px_30px_-24px_hsl(var(--primary)/0.55)] sm:grid-cols-[3rem_minmax(0,1fr)_auto]",
+          "grid items-center gap-4 rounded-xl border border-primary/25 bg-primary/[0.045] p-4 shadow-[0_10px_30px_-24px_hsl(var(--primary)/0.55)] sm:grid-cols-[3rem_minmax(0,1fr)_auto]",
         variant === "compact" &&
           "grid min-w-0 grid-cols-[2.75rem_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-border/45 bg-[hsl(var(--app-chrome-elevated)/0.32)] p-3.5 hover:bg-[hsl(var(--app-chrome-surface)/0.5)]",
       )}
     >
-      {isFeatured ? (
-        <span className="absolute -top-3 left-4 rounded-full border border-primary/20 bg-background px-2.5 py-1 text-[11px] font-semibold text-primary shadow-sm">
-          {t(keyed("emptyState.recommended"))}
-        </span>
-      ) : null}
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-background/90 shadow-[inset_0_0_0_1px_hsl(var(--border)/0.42)]">
         <PluginIcon iconId={iconId} className="h-6 w-6" />
       </span>

@@ -621,8 +621,8 @@ describe("OnboardingFlow (linear 5-step)", () => {
 
     const questionRoute = screen.getByTestId("first-context-route-question");
     const activityRoute = screen.getByTestId("first-context-route-activity");
-    expect(questionRoute).toHaveClass("min-h-[170px]");
-    expect(activityRoute).toHaveClass("min-h-[170px]");
+    expect(questionRoute).toHaveClass("h-full");
+    expect(activityRoute).toHaveClass("h-full");
     expect(screen.getByText("firstContext.kicker")).toBeInTheDocument();
     expect(
       screen.queryByTestId("empty-state-connect-chrome-history"),

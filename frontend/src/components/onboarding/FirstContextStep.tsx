@@ -3,6 +3,8 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
+  Footprints,
+  MessageCircleQuestion,
   RefreshCw,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -42,6 +44,69 @@ export function isFirstContextQuestionId(
 
 export function isFirstContextRoute(value: unknown): value is FirstContextRoute {
   return value === "choose" || value === "question" || value === "activity";
+}
+
+const KICKER_CLASS = "text-xs font-semibold tracking-[0.08em] text-primary";
+const HEADING_CLASS =
+  "text-[1.65rem] sm:text-3xl font-semibold leading-[1.3] tracking-[-0.01em] text-foreground outline-none";
+const BODY_CLASS = "mt-3 text-[15px] leading-7 text-muted-foreground";
+const BADGE_CLASS =
+  "rounded-full bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary";
+
+interface RouteOptionCardProps {
+  testId: string;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+  meta: string[];
+  onSelect: () => void;
+}
+
+function RouteOptionCard({
+  testId,
+  icon,
+  title,
+  body,
+  meta,
+  onSelect,
+}: RouteOptionCardProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card p-5 text-left transition-colors duration-200 hover:border-primary/35 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2"
+      onClick={onSelect}
+    >
+      <span className="flex items-center justify-between">
+        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+          {icon}
+        </span>
+        <ChevronRight
+          className="h-4 w-4 text-muted-foreground/50 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-primary"
+          aria-hidden="true"
+        />
+      </span>
+      <span className="mt-4 block text-[15px] font-semibold leading-6 text-foreground">
+        {title}
+      </span>
+      <span className="mt-1.5 block text-sm leading-6 text-muted-foreground">
+        {body}
+      </span>
+      <span className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-4 text-xs text-muted-foreground/75">
+        {meta.map((entry, index) => (
+          <span key={entry} className="inline-flex items-center gap-2">
+            {index > 0 ? (
+              <span
+                aria-hidden="true"
+                className="h-0.5 w-0.5 rounded-full bg-current opacity-70"
+              />
+            ) : null}
+            {entry}
+          </span>
+        ))}
+      </span>
+    </button>
+  );
 }
 
 interface FirstContextStepProps {
@@ -125,94 +190,43 @@ export function FirstContextStep({
   }, [route]);
 
   const renderRouteChooser = () => (
-    <div className="space-y-7" data-testid="first-context-route-chooser">
-      <div className="max-w-[840px]">
-        <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
-          {t("firstContext.kicker")}
-        </p>
-        <h3
-          ref={routeHeadingRef}
-          tabIndex={-1}
-          className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
-        >
+    <div className="space-y-8" data-testid="first-context-route-chooser">
+      <div className="text-center">
+        <p className={`${KICKER_CLASS} mb-2.5`}>{t("firstContext.kicker")}</p>
+        <h3 ref={routeHeadingRef} tabIndex={-1} className={HEADING_CLASS}>
           {t("firstContext.title")}
         </h3>
-        <p className="mt-3 max-w-[810px] text-base leading-7 text-muted-foreground">
+        <p className={`${BODY_CLASS} mx-auto max-w-[520px]`}>
           {t("firstContext.body")}
         </p>
       </div>
 
-      <div className="grid gap-3.5 md:grid-cols-2">
-        <button
-          type="button"
-          data-testid="first-context-route-question"
-          className="group grid min-h-[170px] grid-cols-[48px_minmax(0,1fr)_24px] items-start gap-3.5 rounded-[15px] border border-border/80 bg-card/65 px-[18px] py-[21px] text-left transition-[border-color,background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card hover:shadow-[0_16px_38px_-30px_hsl(var(--foreground)/0.56)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
-          onClick={() => onRouteChange("question")}
-        >
-          <span
-            className="grid h-[46px] w-[46px] place-items-center rounded-[15px] bg-background text-xl font-bold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.17)]"
-            aria-hidden="true"
-          >
-            {t("firstContext.routes.question.symbol")}
-          </span>
-          <span>
-            <span className="block text-base font-semibold leading-6 tracking-[-0.015em] text-foreground">
-              {t("firstContext.routes.question.title")}
-            </span>
-            <span className="mt-1.5 block text-[13px] leading-[1.65] text-muted-foreground">
-              {t("firstContext.routes.question.body")}
-            </span>
-            <span className="mt-3 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
-                {t("firstContext.routes.optional")}
-              </span>
-              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
-                {t("firstContext.routes.question.meta")}
-              </span>
-            </span>
-          </span>
-          <ChevronRight
-            className="mt-0.5 h-5 w-5 text-primary transition-transform duration-200 group-hover:translate-x-0.5"
-            aria-hidden="true"
-          />
-        </button>
-
-        <button
-          type="button"
-          data-testid="first-context-route-activity"
-          className="group grid min-h-[170px] grid-cols-[48px_minmax(0,1fr)_24px] items-start gap-3.5 rounded-[15px] border border-border/80 bg-card/65 px-[18px] py-[21px] text-left transition-[border-color,background-color,box-shadow,transform] duration-200 motion-safe:hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card hover:shadow-[0_16px_38px_-30px_hsl(var(--foreground)/0.56)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 motion-safe:active:translate-y-0 motion-reduce:transform-none"
-          onClick={() => onRouteChange("activity")}
-        >
-          <span
-            className="grid h-[46px] w-[46px] place-items-center rounded-[15px] bg-background text-xl font-bold text-primary shadow-[inset_0_0_0_1px_hsl(var(--primary)/0.17)]"
-            aria-hidden="true"
-          >
-            {t("firstContext.routes.activity.symbol")}
-          </span>
-          <span>
-            <span className="block text-base font-semibold leading-6 tracking-[-0.015em] text-foreground">
-              {t("firstContext.routes.activity.title")}
-            </span>
-            <span className="mt-1.5 block text-[13px] leading-[1.65] text-muted-foreground">
-              {t("firstContext.routes.activity.body")}
-            </span>
-            <span className="mt-3 flex flex-wrap gap-1.5">
-              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
-                {t("firstContext.routes.optional")}
-              </span>
-              <span className="rounded-full bg-background px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.75)]">
-                {t("firstContext.routes.activity.meta")}
-              </span>
-            </span>
-          </span>
-          <ChevronRight
-            className="mt-0.5 h-5 w-5 text-primary transition-transform duration-200 group-hover:translate-x-0.5"
-            aria-hidden="true"
-          />
-        </button>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <RouteOptionCard
+          testId="first-context-route-question"
+          icon={<MessageCircleQuestion className="h-5 w-5" aria-hidden="true" />}
+          title={t("firstContext.routes.question.title")}
+          body={t("firstContext.routes.question.body")}
+          meta={[
+            t("firstContext.routes.optional"),
+            t("firstContext.routes.question.meta"),
+          ]}
+          onSelect={() => onRouteChange("question")}
+        />
+        <RouteOptionCard
+          testId="first-context-route-activity"
+          icon={<Footprints className="h-5 w-5" aria-hidden="true" />}
+          title={t("firstContext.routes.activity.title")}
+          body={t("firstContext.routes.activity.body")}
+          meta={[
+            t("firstContext.routes.optional"),
+            t("firstContext.routes.activity.meta"),
+          ]}
+          onSelect={() => onRouteChange("activity")}
+        />
       </div>
 
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p className="text-center text-xs leading-5 text-muted-foreground/75">
         {t("firstContext.routes.note")}
       </p>
     </div>
@@ -226,96 +240,85 @@ export function FirstContextStep({
       .filter(Boolean)
       .join(" ");
     return (
-      <div className="space-y-5" data-testid="first-context-question-route">
-        <div className="flex items-start justify-between gap-5">
-          <div className="max-w-[840px]">
-            <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
-              {t("firstContext.story.kicker")}
-            </p>
-            <h3
-              ref={routeHeadingRef}
-              tabIndex={-1}
-              className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
-            >
-              {t("firstContext.story.title")}
-            </h3>
+      <div className="space-y-6" data-testid="first-context-question-route">
+        <div>
+          <div className="flex items-center gap-3">
+            <p className={KICKER_CLASS}>{t("firstContext.story.kicker")}</p>
+            <span className={BADGE_CLASS}>{t("firstContext.story.badge")}</span>
           </div>
-          <span className="hidden shrink-0 rounded-full bg-accent/75 px-3 py-2 text-xs font-semibold text-primary sm:inline-flex">
-            {t("firstContext.story.badge")}
-          </span>
-        </div>
-        <div className="-mt-2">
-          <p
-            id={descriptionId}
-            className="max-w-[810px] text-base leading-7 text-muted-foreground"
+          <h3
+            ref={routeHeadingRef}
+            tabIndex={-1}
+            className={`${HEADING_CLASS} mt-2.5`}
           >
+            {t("firstContext.story.title")}
+          </h3>
+          <p id={descriptionId} className={BODY_CLASS}>
             {t("firstContext.story.body")}
           </p>
         </div>
 
-        <div className="overflow-hidden rounded-2xl border border-border/80 bg-card/70">
-          <div className="px-5 py-5 sm:px-6 sm:py-6">
-            <div className="flex items-baseline justify-between gap-4">
+        <div className="rounded-2xl border border-border/60 bg-card p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
               <p
                 id={questionDescriptionId}
-                className="text-sm font-semibold leading-6 text-foreground"
+                className="text-[15px] font-semibold leading-6 text-foreground"
                 aria-live="polite"
                 data-testid={`first-context-question-${questionId}`}
               >
                 {t(`firstContext.story.questions.${questionId}`)}
               </p>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {t("firstContext.story.shortHint")}
-              </span>
-            </div>
-
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              {t("firstContext.story.inputHint")}
-            </p>
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 rounded-full px-3 text-xs font-medium text-muted-foreground shadow-[inset_0_0_0_1px_hsl(var(--border)/0.9)]"
-                onClick={onQuestionChange}
-                disabled={storySubmitting || storyLocked}
-              >
-                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                {t("firstContext.story.changeQuestion")}
-              </Button>
-            </div>
-
-            <label htmlFor="first-context-story" className="sr-only">
-              {t("firstContext.story.inputLabel")}
-            </label>
-            <textarea
-              ref={storyTextareaRef}
-              id="first-context-story"
-              data-testid="first-context-story-input"
-              rows={7}
-              value={storyDraft}
-              onChange={(event) => onStoryDraftChange(event.target.value)}
-              placeholder={t(`firstContext.story.placeholders.${questionId}`)}
-              disabled={storySubmitting || storyLocked}
-              aria-invalid={Boolean(storyError)}
-              aria-describedby={describedBy || undefined}
-              className="mt-4 min-h-[205px] w-full resize-y rounded-xl border border-input bg-background px-4 py-3.5 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/65 focus-visible:border-primary/60 focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
-            />
-            {storyError ? (
-              <p
-                id="first-context-story-error"
-                role="alert"
-                className="mt-2 flex items-start gap-2 text-sm leading-5 text-destructive"
-              >
-                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{storyError}</span>
+              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                {t("firstContext.story.inputHint")}
               </p>
-            ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 rounded-full px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
+              onClick={onQuestionChange}
+              disabled={storySubmitting || storyLocked}
+            >
+              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("firstContext.story.changeQuestion")}
+            </Button>
           </div>
+
+          <label htmlFor="first-context-story" className="sr-only">
+            {t("firstContext.story.inputLabel")}
+          </label>
+          <textarea
+            ref={storyTextareaRef}
+            id="first-context-story"
+            data-testid="first-context-story-input"
+            rows={5}
+            value={storyDraft}
+            onChange={(event) => onStoryDraftChange(event.target.value)}
+            placeholder={t(`firstContext.story.placeholders.${questionId}`)}
+            disabled={storySubmitting || storyLocked}
+            aria-invalid={Boolean(storyError)}
+            aria-describedby={describedBy || undefined}
+            className="mt-4 min-h-[132px] w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm leading-6 text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted-foreground/60 focus-visible:border-primary/60 focus-visible:ring-4 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          {storyError ? (
+            <p
+              id="first-context-story-error"
+              role="alert"
+              className="mt-2 flex items-start gap-2 text-sm leading-5 text-destructive"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              <span>{storyError}</span>
+            </p>
+          ) : (
+            <p className="mt-2 text-right text-xs text-muted-foreground/70">
+              {t("firstContext.story.shortHint")}
+            </p>
+          )}
         </div>
 
-        <div className="rounded-xl bg-accent/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+        <div className="rounded-xl bg-accent/40 px-4 py-3 text-xs leading-5 text-muted-foreground">
           <p>{t("firstContext.story.contextNote")}</p>
           <p className="mt-1 opacity-80">{t("firstContext.story.privacyNote")}</p>
         </div>
@@ -341,31 +344,25 @@ export function FirstContextStep({
 
   const renderActivityRoute = () => (
     <div className="space-y-5" data-testid="first-context-activity-route">
-      <div className="flex items-start justify-between gap-5">
-        <div className="max-w-[840px]">
-          <p className="mb-3 text-xs font-semibold tracking-[0.08em] text-primary">
-            {t("firstContext.activity.kicker")}
-          </p>
-          <h3
-            ref={routeHeadingRef}
-            tabIndex={-1}
-            className="text-[clamp(1.75rem,2.6vw,2.15rem)] font-semibold leading-[1.25] tracking-[-0.035em] text-foreground outline-none"
-          >
-            {t("firstContext.activity.title")}
-          </h3>
-          <p className="mt-3 max-w-[810px] text-base leading-7 text-muted-foreground">
-            {t("firstContext.activity.body")}
-          </p>
+      <div>
+        <div className="flex items-center gap-3">
+          <p className={KICKER_CLASS}>{t("firstContext.activity.kicker")}</p>
+          <span className={BADGE_CLASS}>{t("firstContext.activity.badge")}</span>
         </div>
-        <span className="hidden shrink-0 rounded-full bg-accent/75 px-3 py-2 text-xs font-semibold text-primary sm:inline-flex">
-          {t("firstContext.activity.badge")}
-        </span>
+        <h3
+          ref={routeHeadingRef}
+          tabIndex={-1}
+          className={`${HEADING_CLASS} mt-2.5`}
+        >
+          {t("firstContext.activity.title")}
+        </h3>
+        <p className={BODY_CLASS}>{t("firstContext.activity.body")}</p>
       </div>
 
       {memoryModelMissing ? (
         <div
           data-testid="first-context-memory-warning"
-          className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+          className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <span className="space-y-1">
@@ -379,15 +376,15 @@ export function FirstContextStep({
         </div>
       ) : null}
 
-      <div
+      <p
         data-testid="first-context-scope-note"
         className="text-xs leading-5 text-muted-foreground"
       >
         {t("firstContext.scopeHint")}
-      </div>
+      </p>
 
       {connectedCount > 0 ? (
-        <div className="flex items-start gap-3 rounded-lg border border-primary/18 bg-primary/5 px-3.5 py-3 text-sm">
+        <div className="flex items-start gap-3 rounded-xl border border-primary/18 bg-primary/5 px-3.5 py-3 text-sm">
           <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <span className="space-y-2">
             <span className="block font-medium text-foreground">
@@ -429,15 +426,23 @@ export function FirstContextStep({
         onConnectDone={onConnectDone}
       />
 
-      <p className="text-xs leading-5 text-muted-foreground">
+      <p className="text-xs leading-5 text-muted-foreground/75">
         {t("firstContext.note")}
       </p>
     </div>
   );
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-4 pb-8 pt-0 sm:px-5 lg:px-6">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <div
+        className={`mx-auto my-auto flex w-full flex-col px-4 py-6 sm:px-5 lg:px-6 ${
+          route === "activity"
+            ? "max-w-[860px]"
+            : route === "question"
+              ? "max-w-[800px]"
+              : "max-w-[840px]"
+        }`}
+      >
         {route === "choose"
           ? renderRouteChooser()
           : route === "question"

@@ -253,13 +253,11 @@
       "back": "Back to choices",
       "optional": "Optional",
       "question": {
-        "symbol": "You",
         "title": "Answer an easy question",
         "body": "Pick whichever is easiest: what to call you, an interest, or a recent moment.",
         "meta": "About 30 seconds"
       },
       "activity": {
-        "symbol": "Day",
         "title": "Connect everyday activity",
         "body": "Start with traces you naturally leave in browsing, music, photos, and more.",
         "meta": "Only connect sources you choose"
@@ -329,7 +327,6 @@
     "connect": "Enable",
     "installAndConnect": "Install & enable",
     "installing": "Installing…",
-    "recommended": "Best place to start",
     "reviewAndConnect": "Review and connect",
     "view": "Review",
     "availableReasonInstalled": "Already installed and ready to connect",

@@ -253,13 +253,11 @@
       "back": "返回选择",
       "optional": "可选",
       "question": {
-        "symbol": "说",
         "title": "回答一个轻松问题",
         "body": "从称呼、兴趣或最近的小事里，挑一个容易回答的。",
         "meta": "约 30 秒"
       },
       "activity": {
-        "symbol": "行",
         "title": "连接日常活动",
         "body": "从浏览、音乐、照片等自然留下的痕迹开始。",
         "meta": "只连接你愿意分享的来源"
@@ -329,7 +327,6 @@
     "connect": "启用",
     "installAndConnect": "安装并启用",
     "installing": "安装中…",
-    "recommended": "最适合从这里开始",
     "reviewAndConnect": "查看并连接",
     "view": "查看",
     "availableReasonInstalled": "已经安装，连接后即可读取",
