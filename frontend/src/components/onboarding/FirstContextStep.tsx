@@ -20,6 +20,9 @@ import { getMemoryModelStatus } from "./memoryModelStatus";
 import { ONBOARDING_SECONDARY_ACTION_CLASS } from "./onboardingStyles";
 
 export const FIRST_CONTEXT_QUESTION_IDS = [
+  "easy_topic",
+  "preferred_name",
+  "current_interest",
   "recent_feeling",
   "repeating_content",
   "personal_time",
@@ -293,7 +296,7 @@ export function FirstContextStep({
               rows={7}
               value={storyDraft}
               onChange={(event) => onStoryDraftChange(event.target.value)}
-              placeholder={t("firstContext.story.placeholder")}
+              placeholder={t(`firstContext.story.placeholders.${questionId}`)}
               disabled={storySubmitting || storyLocked}
               aria-invalid={Boolean(storyError)}
               aria-describedby={describedBy || undefined}

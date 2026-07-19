@@ -254,8 +254,8 @@
       "optional": "Optional",
       "question": {
         "symbol": "You",
-        "title": "Answer an everyday question",
-        "body": "No full introduction needed—take half a minute to share something from recent life.",
+        "title": "Answer an easy question",
+        "body": "Pick whichever is easiest: what to call you, an interest, or a recent moment.",
         "meta": "About 30 seconds"
       },
       "activity": {
@@ -267,30 +267,41 @@
       "note": "Neither option comes first, and you can also skip this step."
     },
     "story": {
-      "kicker": "Give Magi one small clue",
-      "title": "Share something recent that might otherwise be easy to forget",
-      "body": "It does not need to be complete or read like a journal entry. A wait, a song on repeat, or a small frustrating or happy moment is enough.",
+      "kicker": "A small introduction",
+      "title": "Let Magi know one thing about you",
+      "body": "No full introduction needed. Share what to call you, something you are into, or one small recent moment.",
       "badge": "Optional · About 30 seconds",
       "questionLabel": "A question for you",
       "questions": {
+        "easy_topic": "If we could chat about anything right now, what topic would you have the most to say about?",
+        "preferred_name": "What would you like Magi to call you? A nickname is perfectly fine.",
+        "current_interest": "What have you been choosing to spend time learning more about lately?",
         "recent_feeling": "What small thing recently changed your mood, even a little?",
         "repeating_content": "What have you found yourself watching or listening to again and again lately?",
         "personal_time": "What part of a recent day felt most like time that was truly yours?",
         "reluctant_routine": "What have you kept doing lately, even though you did not really feel like doing it?"
       },
+      "placeholders": {
+        "easy_topic": "For example: I can always talk about anime, music, and travel.",
+        "preferred_name": "For example: You can call me Asuka.",
+        "current_interest": "For example: I keep looking at city walks for somewhere to go this weekend.",
+        "recent_feeling": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
+        "repeating_content": "For example: I have played the same album from start to finish several times lately.",
+        "personal_time": "For example: Right after a shower, with notifications off and music playing.",
+        "reluctant_routine": "For example: I complain about tidying up, but I still like seeing a clear desk."
+      },
       "changeQuestion": "Try another question",
       "shortHint": "One sentence is enough",
-      "inputHint": "Not sure where to start? Try another question, or write down the first small moment that came to mind.",
-      "inputLabel": "Share something from recent life",
-      "placeholder": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
-      "contextNote": "This only helps Magi understand the reasons and feelings behind daily life. You do not need to turn yourself into a complete introduction.",
+      "inputHint": "Answer as you normally would. If this one does not fit, try another.",
+      "inputLabel": "Answer this question",
+      "contextNote": "Your answer helps Magi understand what to call you, what interests you, and what has been happening lately. You can add to it or correct it at any time.",
       "privacyNote": "This becomes your first real conversation with Magi. The chat record is stored on this device and can be deleted at any time.",
       "submit": "Tell Magi",
       "submitting": "Opening your conversation…",
       "retryEntering": "Continue to conversation",
       "continueWithoutConfirmation": "Enter Magi for now",
       "errors": {
-        "empty": "One short sentence is enough, or you can try another question.",
+        "empty": "A few words are enough, or you can try another question.",
         "runtimeNotReady": "Magi is still getting ready. Your draft is safe—please try again in a moment.",
         "sessionFailed": "Could not start the first conversation yet. Your draft is safe—please try again.",
         "sendFailed": "The conversation could not continue yet. Your answer and progress are preserved—please try again.",

@@ -631,31 +631,41 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(questionRoute);
     const input = await screen.findByTestId("first-context-story-input");
     expect(
-      screen.getByTestId("first-context-question-recent_feeling"),
-    ).toHaveTextContent("firstContext.story.questions.recent_feeling");
+      screen.getByTestId("first-context-question-easy_topic"),
+    ).toHaveTextContent("firstContext.story.questions.easy_topic");
+    expect(input).toHaveAttribute(
+      "placeholder",
+      "firstContext.story.placeholders.easy_topic",
+    );
     expect(input).toHaveAttribute(
       "aria-describedby",
       expect.stringContaining("first-context-story-question"),
     );
 
-    await user.type(input, "最近重新开始听一张旧专辑");
+    await user.type(input, "音乐、电影和旅行");
     await user.click(
       screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
     );
     expect(
-      screen.getByTestId("first-context-question-repeating_content"),
-    ).toHaveTextContent("firstContext.story.questions.repeating_content");
-    expect(input).toHaveValue("最近重新开始听一张旧专辑");
+      screen.getByTestId("first-context-question-preferred_name"),
+    ).toHaveTextContent("firstContext.story.questions.preferred_name");
+    expect(input).toHaveValue("音乐、电影和旅行");
+    expect(input).toHaveAttribute(
+      "placeholder",
+      "firstContext.story.placeholders.preferred_name",
+    );
+    await user.clear(input);
+    await user.type(input, "叫我小夏就好");
 
     await user.click(
       screen.getByRole("button", { name: "firstContext.routes.back" }),
     );
     await user.click(screen.getByTestId("first-context-route-question"));
     expect(await screen.findByTestId("first-context-story-input")).toHaveValue(
-      "最近重新开始听一张旧专辑",
+      "叫我小夏就好",
     );
     expect(
-      screen.getByTestId("first-context-question-repeating_content"),
+      screen.getByTestId("first-context-question-preferred_name"),
     ).toBeInTheDocument();
 
     const progressWrites = localStorageMock.setItem.mock.calls.filter(
@@ -667,13 +677,13 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(persisted.firstContextProgress).toEqual(
       expect.objectContaining({
         route: "question",
-        questionId: "repeating_content",
-        draft: "最近重新开始听一张旧专辑",
+        questionId: "preferred_name",
+        draft: "叫我小夏就好",
       }),
     );
   });
 
-  it("keeps an empty everyday answer on the page instead of creating a chat", async () => {
+  it("keeps an empty personal answer on the page instead of creating a chat", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -727,7 +737,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
   });
 
-  it("sends the everyday answer as one real message and enters that same chat", async () => {
+  it("sends a preferred name as one real message and enters that same chat", async () => {
     const user = userEvent.setup();
     localStorageMock.getItem.mockReturnValue(null);
     const completeOnboarding = vi
@@ -744,10 +754,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(
       screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
     );
-    await user.type(
-      screen.getByTestId("first-context-story-input"),
-      "最近总在反复听同一首歌",
-    );
+    await user.type(screen.getByTestId("first-context-story-input"), "明日香");
     await user.click(screen.getByTestId("first-context-story-submit"));
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/chat"));
@@ -761,12 +768,12 @@ describe("OnboardingFlow (linear 5-step)", () => {
       expect.objectContaining({
         user_id: "local_user",
         session_id: expect.stringMatching(/^session_/),
-        message: "最近总在反复听同一首歌",
+        message: "明日香",
         client_turn_id: expect.stringMatching(/^turn_/),
         interaction_kind: "first_context_story",
         first_context: {
-          question_id: "repeating_content",
-          question_text: "firstContext.story.questions.repeating_content",
+          question_id: "preferred_name",
+          question_text: "firstContext.story.questions.preferred_name",
         },
       }),
     );
@@ -792,7 +799,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     ).toEqual([
       expect.objectContaining({
         role: "user",
-        content: "最近总在反复听同一首歌",
+        content: "明日香",
         messageId: "first-context-message",
         turnId: request.client_turn_id,
       }),

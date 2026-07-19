@@ -130,13 +130,13 @@ async def test_send_user_message_forwards_controlled_first_context_fields(
 
     response = await messages_router.send_user_message(
         messages_router.UserMessageRequest(
-            message="还行",
+            message="明日香",
             session_id="session-first-context",
             client_turn_id="turn-first-context",
             interaction_kind="first_context_story",
             first_context={
-                "question_id": "recent_feeling",
-                "question_text": "最近有哪件小事，让你心情有一点变化？",
+                "question_id": "preferred_name",
+                "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
             },
             metadata={
                 "interaction_kind": "untrusted",
@@ -149,8 +149,8 @@ async def test_send_user_message_forwards_controlled_first_context_fields(
     assert response.data["message_id"] == "message-first-context"
     assert captured["interaction_kind"] == "first_context_story"
     assert captured["first_context"] == {
-        "question_id": "recent_feeling",
-        "question_text": "最近有哪件小事，让你心情有一点变化？",
+        "question_id": "preferred_name",
+        "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
     }
     assert captured["metadata"] == {
         "l2_batch_owner": "bootstrap:local_user:test",

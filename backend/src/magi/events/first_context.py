@@ -9,6 +9,24 @@ from typing import Any
 FIRST_CONTEXT_STORY_INTERACTION_KIND = "first_context_story"
 FIRST_CONTEXT_METADATA_KEY = "first_context"
 FIRST_CONTEXT_QUESTIONS: dict[str, frozenset[str]] = {
+    "easy_topic": frozenset(
+        {
+            "如果现在可以随便聊点什么，什么话题最容易让你有话说？",
+            "If we could chat about anything right now, what topic would you have the most to say about?",
+        }
+    ),
+    "preferred_name": frozenset(
+        {
+            "希望 Magi 平时怎么称呼你？昵称就可以。",
+            "What would you like Magi to call you? A nickname is perfectly fine.",
+        }
+    ),
+    "current_interest": frozenset(
+        {
+            "最近有什么东西，是你愿意主动花时间了解的？",
+            "What have you been choosing to spend time learning more about lately?",
+        }
+    ),
     "recent_feeling": frozenset(
         {
             "最近有哪件小事，让你心情有一点变化？",

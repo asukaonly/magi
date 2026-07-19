@@ -4,6 +4,9 @@ import enOnboarding from "@/i18n/locales/en/onboarding.json";
 import zhCnOnboarding from "@/i18n/locales/zh-CN/onboarding.json";
 
 const QUESTION_IDS = [
+  "easy_topic",
+  "preferred_name",
+  "current_interest",
   "recent_feeling",
   "repeating_content",
   "personal_time",
@@ -11,9 +14,11 @@ const QUESTION_IDS = [
 ] as const;
 
 const REQUIRED_PATHS = [
+  "kicker",
   "title",
   "body",
   "routes.back",
+  "routes.optional",
   "routes.question.title",
   "routes.question.body",
   "routes.question.meta",
@@ -21,12 +26,16 @@ const REQUIRED_PATHS = [
   "routes.activity.body",
   "routes.activity.meta",
   "routes.note",
+  "story.kicker",
   "story.title",
   "story.body",
+  "story.badge",
   "story.questionLabel",
   "story.changeQuestion",
+  "story.shortHint",
+  "story.inputHint",
   "story.inputLabel",
-  "story.placeholder",
+  "story.contextNote",
   "story.privacyNote",
   "story.submit",
   "story.submitting",
@@ -66,7 +75,7 @@ describe("first-context onboarding copy", () => {
     }
   });
 
-  it("keeps the four stable everyday question ids aligned", () => {
+  it("keeps personal and everyday question ids aligned", () => {
     expect(Object.keys(zhCnOnboarding.firstContext.story.questions)).toEqual(
       QUESTION_IDS,
     );
@@ -80,7 +89,27 @@ describe("first-context onboarding copy", () => {
       expect(
         enOnboarding.firstContext.story.questions[questionId].trim(),
       ).not.toBe("");
+      expect(
+        zhCnOnboarding.firstContext.story.placeholders[questionId].trim(),
+      ).not.toBe("");
+      expect(
+        enOnboarding.firstContext.story.placeholders[questionId].trim(),
+      ).not.toBe("");
     }
+  });
+
+  it("starts with low-effort personal questions", () => {
+    expect(QUESTION_IDS.slice(0, 3)).toEqual([
+      "easy_topic",
+      "preferred_name",
+      "current_interest",
+    ]);
+    expect(
+      zhCnOnboarding.firstContext.story.questions.preferred_name,
+    ).toContain("称呼");
+    expect(enOnboarding.firstContext.story.questions.preferred_name).toContain(
+      "call",
+    );
   });
 
   it("only promises local storage for the chat record", () => {
