@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import enOnboarding from "@/i18n/locales/en/onboarding.json";
 import zhCnOnboarding from "@/i18n/locales/zh-CN/onboarding.json";
+import enApp from "@/i18n/locales/en/app.json";
+import zhCnApp from "@/i18n/locales/zh-CN/app.json";
 
 const QUESTION_IDS = [
-  "easy_topic",
   "preferred_name",
+  "easy_topic",
   "current_interest",
-  "recent_feeling",
   "repeating_content",
+  "recent_feeling",
   "personal_time",
   "reluctant_routine",
 ] as const;
@@ -51,6 +53,18 @@ const REQUIRED_PATHS = [
   "activity.body",
 ] as const;
 
+const CONTINUATION_PATHS = [
+  "title",
+  "body",
+  "continue",
+  "startChat",
+  "optional",
+  "inputHint",
+  "dismiss",
+  "changeQuestion",
+  "attachmentsUnsupported",
+] as const;
+
 function readPath(value: unknown, path: string): unknown {
   return path.split(".").reduce<unknown>((current, segment) => {
     if (!current || typeof current !== "object") {
@@ -71,6 +85,19 @@ describe("first-context onboarding copy", () => {
           String(readPath(resource.firstContext, path)).trim(),
           path,
         ).not.toBe("");
+      }
+    }
+  });
+
+  it("keeps the optional in-chat continuation translated in both locales", () => {
+    for (const resource of [zhCnApp, enApp]) {
+      for (const path of CONTINUATION_PATHS) {
+        const value = readPath(
+          resource.chat.firstContextContinuation,
+          path,
+        );
+        expect(value, path).toEqual(expect.any(String));
+        expect(String(value).trim(), path).not.toBe("");
       }
     }
   });
@@ -100,8 +127,8 @@ describe("first-context onboarding copy", () => {
 
   it("starts with low-effort personal questions", () => {
     expect(QUESTION_IDS.slice(0, 3)).toEqual([
-      "easy_topic",
       "preferred_name",
+      "easy_topic",
       "current_interest",
     ]);
     expect(

@@ -84,6 +84,7 @@ const createFirstContextSessionId = (): string => {
 interface FirstContextProgress {
   route: FirstContextRoute;
   questionId: FirstContextQuestionId;
+  seenQuestionIds: FirstContextQuestionId[];
   draft: string;
   sessionId: string | null;
   turnId: string | null;
@@ -95,6 +96,7 @@ interface FirstContextProgress {
 const DEFAULT_FIRST_CONTEXT_PROGRESS: FirstContextProgress = {
   route: "choose",
   questionId: FIRST_CONTEXT_QUESTION_IDS[0],
+  seenQuestionIds: [FIRST_CONTEXT_QUESTION_IDS[0]],
   draft: "",
   sessionId: null,
   turnId: null,
@@ -551,13 +553,20 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         const submitted = Boolean(
           rawProgress.submitted && sessionId && turnId,
         );
+        const questionId = isFirstContextQuestionId(rawProgress.questionId)
+          ? rawProgress.questionId
+          : DEFAULT_FIRST_CONTEXT_PROGRESS.questionId;
+        const seenQuestionIds = Array.isArray(rawProgress.seenQuestionIds)
+          ? rawProgress.seenQuestionIds.filter(isFirstContextQuestionId)
+          : [];
         const restoredProgress: FirstContextProgress = {
           route: isFirstContextRoute(rawProgress.route)
             ? rawProgress.route
             : DEFAULT_FIRST_CONTEXT_PROGRESS.route,
-          questionId: isFirstContextQuestionId(rawProgress.questionId)
-            ? rawProgress.questionId
-            : DEFAULT_FIRST_CONTEXT_PROGRESS.questionId,
+          questionId,
+          seenQuestionIds: seenQuestionIds.includes(questionId)
+            ? seenQuestionIds
+            : [...seenQuestionIds, questionId],
           draft:
             typeof rawProgress.draft === "string" ? rawProgress.draft : "",
           sessionId,
@@ -1004,9 +1013,11 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     sessionId: string,
     turnId: string,
     message: string,
+    questionId: FirstContextQuestionId,
     messageId?: string | null,
   ) => {
     const normalizedMessageId = String(messageId || "").trim();
+    const questionText = t(`firstContext.story.questions.${questionId}`);
     useConversationStore.getState().upsertMessage(sessionId, {
       id: normalizedMessageId || `${turnId}-user`,
       messageId: normalizedMessageId || undefined,
@@ -1017,6 +1028,13 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       timestamp: Date.now(),
       turnId,
       traceAvailable: false,
+      payload: {
+        interaction_kind: "first_context_story",
+        first_context: {
+          question_id: questionId,
+          question_text: questionText,
+        },
+      },
     });
   };
 
@@ -1108,14 +1126,23 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   const handleFirstContextQuestionChange = () => {
     setFirstContextStoryError(null);
     updateFirstContextProgress((progress) => {
-      const currentIndex = FIRST_CONTEXT_QUESTION_IDS.indexOf(
-        progress.questionId,
+      const alternatives = FIRST_CONTEXT_QUESTION_IDS.filter(
+        (questionId) =>
+          questionId !== progress.questionId
+          && !progress.seenQuestionIds.includes(questionId),
       );
       const questionId =
-        FIRST_CONTEXT_QUESTION_IDS[
-          (currentIndex + 1) % FIRST_CONTEXT_QUESTION_IDS.length
-        ];
-      return { ...progress, questionId, turnId: null, messageId: null };
+        alternatives[Math.floor(Math.random() * alternatives.length)]
+        ?? progress.questionId;
+      return {
+        ...progress,
+        questionId,
+        seenQuestionIds: progress.seenQuestionIds.includes(questionId)
+          ? progress.seenQuestionIds
+          : [...progress.seenQuestionIds, questionId],
+        turnId: null,
+        messageId: null,
+      };
     });
   };
 
@@ -1246,6 +1273,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         sessionId,
         turnId,
         message,
+        progress.questionId,
         progress.messageId,
       );
 
@@ -1283,6 +1311,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
           sessionId,
           turnId,
           progress.draft.trim(),
+          progress.questionId,
           progress.messageId,
         );
       }

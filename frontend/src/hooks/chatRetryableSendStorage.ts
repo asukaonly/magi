@@ -19,7 +19,11 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
-export type RetryableSendDraftKind = 'normal' | 'recall_feedback' | 'pending_ask';
+export type RetryableSendDraftKind =
+  | 'normal'
+  | 'first_context'
+  | 'recall_feedback'
+  | 'pending_ask';
 
 export type RetryablePendingTurn = {
   sessionId: string;
@@ -202,6 +206,10 @@ const recallFeedbackSchema = z.object({
   target_message_id: requiredId,
   finding_ref: z.string().optional(),
 }).strict();
+const firstContextSchema = z.object({
+  question_id: requiredId,
+  question_text: requiredId,
+}).strict();
 const askMetadataSchema = z.object({
   ask_request_id: requiredId,
 }).strict();
@@ -214,6 +222,8 @@ const requestSchema = z.object({
   workspace_path: z.string().nullable().optional(),
   client_turn_id: requiredId,
   recall_feedback: recallFeedbackSchema.optional(),
+  interaction_kind: z.literal('first_context_story').optional(),
+  first_context: firstContextSchema.optional(),
   metadata: askMetadataSchema.optional(),
 }).strict();
 const turnConfirmationSchema = z.object({
@@ -237,9 +247,15 @@ const replyPreviewSchema = z.object({
   messageKind: z.string().nullable().optional(),
   contentExcerpt: z.string(),
 }).strict();
-const pendingPayloadSchema = z.object({
-  recall_feedback: recallFeedbackSchema,
-}).strict();
+const pendingPayloadSchema = z.union([
+  z.object({
+    recall_feedback: recallFeedbackSchema,
+  }).strict(),
+  z.object({
+    interaction_kind: z.literal('first_context_story'),
+    first_context: firstContextSchema,
+  }).strict(),
+]);
 const pendingTurnSchema = z.object({
   sessionId: requiredId,
   input: z.string(),
@@ -267,7 +283,7 @@ const operationSchema = z.object({
   createdAtMs: finiteNumber,
   draftIdentity: z.string(),
   draftSignature: z.string(),
-  draftKind: z.enum(['normal', 'recall_feedback', 'pending_ask']),
+  draftKind: z.enum(['normal', 'first_context', 'recall_feedback', 'pending_ask']),
   request: requestSchema,
   confirmation: confirmationSchema,
   pendingTurn: pendingTurnSchema.optional(),
@@ -302,10 +318,36 @@ const operationSchema = z.object({
       || operation.confirmation.turnId !== operation.turnId
       || !operation.pendingTurn
       || operation.request.recall_feedback
+      || operation.request.interaction_kind
+      || operation.request.first_context
       || operation.request.metadata
       || operation.askAnswer
     ) {
       addIssue('Normal operation fields are inconsistent');
+    }
+    return;
+  }
+  if (operation.draftKind === 'first_context') {
+    const pendingPayload = operation.pendingTurn?.payload;
+    const hasFirstContextPayload = Boolean(
+      pendingPayload
+      && 'interaction_kind' in pendingPayload
+      && pendingPayload.interaction_kind === 'first_context_story'
+      && 'first_context' in pendingPayload
+      && pendingPayload.first_context,
+    );
+    if (
+      operation.confirmation.kind !== 'turn'
+      || operation.confirmation.turnId !== operation.turnId
+      || !operation.pendingTurn
+      || operation.request.interaction_kind !== 'first_context_story'
+      || !operation.request.first_context
+      || !hasFirstContextPayload
+      || operation.request.recall_feedback
+      || operation.request.metadata
+      || operation.askAnswer
+    ) {
+      addIssue('First-context operation fields are inconsistent');
     }
     return;
   }
@@ -375,6 +417,8 @@ const inlineSkillOperationSchema = z.object({
     || operation.request.attachments
     || operation.request.reply_to_message_id
     || operation.request.recall_feedback
+    || operation.request.interaction_kind
+    || operation.request.first_context
     || operation.request.metadata
   ) {
     context.addIssue({

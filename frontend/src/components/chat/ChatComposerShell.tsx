@@ -43,6 +43,8 @@ export type ChatComposerShellProps = {
   answeringAsk?: boolean;
   choiceOnlyAsk?: boolean;
   validChoiceSelected?: boolean;
+  inputPlaceholder?: string;
+  attachmentsDisabled?: boolean;
   waitingForReply: boolean;
   attachmentMenuOpen: boolean;
   coreModelSupportsVision: boolean;
@@ -79,6 +81,8 @@ export const ChatComposerShell = ({
   answeringAsk = false,
   choiceOnlyAsk = false,
   validChoiceSelected = false,
+  inputPlaceholder,
+  attachmentsDisabled = false,
   waitingForReply,
   attachmentMenuOpen,
   coreModelSupportsVision,
@@ -145,7 +149,7 @@ export const ChatComposerShell = ({
               ? t('chat.askChoiceOnlyPlaceholder')
             : feedbackMode
               ? t('chat.recallFeedback.inputPlaceholder')
-              : t('chat.inputPlaceholder')}
+              : inputPlaceholder || t('chat.inputPlaceholder')}
           onKeyDown={onKeyDown}
           onPaste={feedbackMode || answeringAsk ? undefined : onPaste}
           disabled={inputDisabled}
@@ -164,7 +168,7 @@ export const ChatComposerShell = ({
             onToggle={onToggleAttachmentMenu}
             onPickImage={onPickImage}
             onPickFile={onPickFile}
-            disabled={feedbackMode || answeringAsk}
+            disabled={feedbackMode || answeringAsk || attachmentsDisabled}
           />
           <div className="relative">
             <SessionSafetyControl sessionId={sessionId} />

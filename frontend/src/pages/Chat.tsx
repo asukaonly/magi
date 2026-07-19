@@ -24,6 +24,7 @@ import { SystemSuggestionSideCard } from '@/components/chat/SystemSuggestionSide
 import { useSystemSuggestions } from '@/hooks/useSystemSuggestions';
 import type { SuggestionProposal } from '@/api/modules/systemSuggestions';
 import { ComposerAskQuickReplies } from '@/components/chat/ComposerAskQuickReplies';
+import { FirstContextContinuationCard } from '@/components/chat/FirstContextContinuationCard';
 import { ChatPageOverlays } from '@/components/chat/ChatPageOverlays';
 import { ChatTimelinePane } from '@/components/chat/ChatTimelinePane';
 import { ComposerMentionPicker } from '@/components/chat/ComposerMentionPicker';
@@ -51,6 +52,16 @@ import {
   buildSystemSuggestionTriggerText,
   type ChatTimelineMessage,
 } from '@/domain/chat/state';
+import {
+  answeredFirstContextQuestionIds,
+  canOfferFirstContextContinuation,
+  chooseAlternativeFirstContextQuestion,
+  chooseNextFirstContextQuestion,
+  loadFirstContextContinuationSelection,
+  saveFirstContextContinuationSelection,
+  type FirstContextContinuationSelection,
+  type FirstContextQuestionContext,
+} from '@/domain/chat/first-context';
 import {
   ChatTurnAdmissionCoordinator,
   type ExistingTurnAdmissionCheck,
@@ -159,6 +170,7 @@ const resolvePendingAskComposerState = (
 
 export const ChatPage: React.FC = () => {
   const { t, i18n } = useTranslation('app');
+  const { t: tOnboarding } = useTranslation('onboarding');
   const shouldReduceMotion = useReducedMotion();
   const reduceTimelineMotion = Boolean(shouldReduceMotion);
   const currentSessionId = useConversationStore((state) => state.currentSessionId);
@@ -181,6 +193,62 @@ export const ChatPage: React.FC = () => {
     () => messagesReadyForPresentation(storedMessages, presentationNowMs),
     [presentationNowMs, storedMessages],
   );
+  const [firstContextSelectionState, setFirstContextSelectionState] = useState<{
+    sessionId: string | null;
+    selection: FirstContextContinuationSelection | null;
+  }>(() => ({
+    sessionId: currentSessionId,
+    selection: loadFirstContextContinuationSelection(currentSessionId),
+  }));
+  const firstContextSelection = (
+    firstContextSelectionState.sessionId === currentSessionId
+      ? firstContextSelectionState.selection
+      : null
+  );
+  const answeredFirstContextQuestions = useMemo(
+    () => answeredFirstContextQuestionIds(messages),
+    [messages],
+  );
+  const activeFirstContextQuestion = useMemo<FirstContextQuestionContext | null>(() => {
+    if (
+      firstContextSelection?.mode !== 'active'
+      || answeredFirstContextQuestions.includes(firstContextSelection.questionId)
+    ) {
+      return null;
+    }
+    return {
+      questionId: firstContextSelection.questionId,
+      questionText: tOnboarding(
+        `firstContext.story.questions.${firstContextSelection.questionId}`,
+      ),
+    };
+  }, [answeredFirstContextQuestions, firstContextSelection, tOnboarding]);
+
+  useEffect(() => {
+    setFirstContextSelectionState({
+      sessionId: currentSessionId,
+      selection: loadFirstContextContinuationSelection(currentSessionId),
+    });
+  }, [currentSessionId]);
+
+  useEffect(() => {
+    if (
+      !currentSessionId
+      || firstContextSelection?.mode !== 'active'
+      || !answeredFirstContextQuestions.includes(firstContextSelection.questionId)
+    ) {
+      return;
+    }
+    saveFirstContextContinuationSelection(currentSessionId, null);
+    setFirstContextSelectionState({
+      sessionId: currentSessionId,
+      selection: null,
+    });
+  }, [
+    answeredFirstContextQuestions,
+    currentSessionId,
+    firstContextSelection,
+  ]);
   const appendPendingTurn = useConversationStore((state) => state.appendPendingTurn);
   const upsertMessage = useConversationStore((state) => state.upsertMessage);
   const applyMessageLabel = useConversationStore((state) => state.applyMessageLabel);
@@ -485,6 +553,7 @@ export const ChatPage: React.FC = () => {
     allowInterjection,
     coreModelSupportsVision,
     pendingAsk: activePendingAsk,
+    firstContextQuestion: activeFirstContextQuestion,
     appendPendingTurn,
     removePendingMessage: removeMessage,
     setCurrentSessionId,
@@ -819,7 +888,7 @@ export const ChatPage: React.FC = () => {
   const commands = useChatComposerCommands({
     setInputValue,
     textareaRef: composerTextareaRef,
-    allowInlineSkills: !activePendingAsk,
+    allowInlineSkills: !activePendingAsk && !activeFirstContextQuestion,
     onPickInternal: handleInternalCommand,
     onPickTool: handleToolPicked,
     onPickSkill: handleSkillPicked,
@@ -848,6 +917,77 @@ export const ChatPage: React.FC = () => {
     },
     [handleInputChangeWithMentions],
   );
+
+  const updateFirstContextSelection = React.useCallback((
+    selection: FirstContextContinuationSelection | null,
+  ) => {
+    saveFirstContextContinuationSelection(currentSessionId, selection);
+    setFirstContextSelectionState({
+      sessionId: currentSessionId,
+      selection,
+    });
+  }, [currentSessionId]);
+
+  const handleContinueFirstContext = React.useCallback(() => {
+    if (!currentSessionId) {
+      return;
+    }
+    const questionId = chooseNextFirstContextQuestion(
+      currentSessionId,
+      answeredFirstContextQuestions,
+    );
+    if (!questionId) {
+      updateFirstContextSelection({ mode: 'dismissed' });
+      return;
+    }
+    setReplyTarget(null);
+    setAttachmentMenuOpen(false);
+    updateFirstContextSelection({
+      mode: 'active',
+      questionId,
+      seenQuestionIds: [questionId],
+    });
+    window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }, [
+    answeredFirstContextQuestions,
+    currentSessionId,
+    setAttachmentMenuOpen,
+    setReplyTarget,
+    updateFirstContextSelection,
+  ]);
+
+  const handleChangeFirstContextQuestion = React.useCallback(() => {
+    if (!currentSessionId || !activeFirstContextQuestion) {
+      return;
+    }
+    const seenQuestionIds = firstContextSelection?.mode === 'active'
+      ? firstContextSelection.seenQuestionIds
+      : [activeFirstContextQuestion.questionId];
+    const questionId = chooseAlternativeFirstContextQuestion(
+      activeFirstContextQuestion.questionId,
+      currentSessionId,
+      [...answeredFirstContextQuestions, ...seenQuestionIds],
+    );
+    updateFirstContextSelection({
+      mode: 'active',
+      questionId,
+      seenQuestionIds: seenQuestionIds.includes(questionId)
+        ? seenQuestionIds
+        : [...seenQuestionIds, questionId],
+    });
+    window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }, [
+    activeFirstContextQuestion,
+    answeredFirstContextQuestions,
+    currentSessionId,
+    firstContextSelection,
+    updateFirstContextSelection,
+  ]);
+
+  const handleDismissFirstContext = React.useCallback(() => {
+    updateFirstContextSelection({ mode: 'dismissed' });
+    window.requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  }, [updateFirstContextSelection]);
 
   const handleKeyDownWithMentions = React.useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1055,7 +1195,11 @@ export const ChatPage: React.FC = () => {
       <ChatComposerPane
         composerRef={composerRef}
         textareaRef={composerTextareaRef}
-        replyTarget={recallFeedbackDraft || activePendingAsk ? null : replyTarget}
+        replyTarget={
+          recallFeedbackDraft || activePendingAsk || activeFirstContextQuestion
+            ? null
+            : replyTarget
+        }
         onCancelReply={() => setReplyTarget(null)}
         attachments={recallFeedbackDraft ? [] : draftAttachments}
         onRemoveAttachment={removeDraftAttachment}
@@ -1071,6 +1215,12 @@ export const ChatPage: React.FC = () => {
           activePendingAsk
           && activePendingAsk.options.includes(inputValue.trim())
         )}
+        inputPlaceholder={activeFirstContextQuestion
+          ? tOnboarding(
+            `firstContext.story.placeholders.${activeFirstContextQuestion.questionId}`,
+          )
+          : undefined}
+        attachmentsDisabled={Boolean(activeFirstContextQuestion)}
         waitingForReply={waitingForReply}
         attachmentMenuOpen={attachmentMenuOpen}
         coreModelSupportsVision={coreModelSupportsVision}
@@ -1104,8 +1254,29 @@ export const ChatPage: React.FC = () => {
             expiresAtMs={activePendingAsk.expiresAtMs}
             onPick={handleAskQuickReplyPicked}
           />
+        ) : !recallFeedbackDraft
+          && !waitingForReply
+          && activeFirstContextQuestion ? (
+          <FirstContextContinuationCard
+            mode="question"
+            question={activeFirstContextQuestion.questionText}
+            onContinue={handleContinueFirstContext}
+            onDismiss={handleDismissFirstContext}
+            onChangeQuestion={handleChangeFirstContextQuestion}
+          />
+        ) : !recallFeedbackDraft
+          && firstContextSelection?.mode !== 'dismissed'
+          && canOfferFirstContextContinuation(messages, waitingForReply) ? (
+          <FirstContextContinuationCard
+            mode="offer"
+            onContinue={handleContinueFirstContext}
+            onDismiss={handleDismissFirstContext}
+          />
         ) : undefined}
-        pickerSlot={recallFeedbackDraft || activePendingAsk ? undefined : (
+        pickerSlot={
+          recallFeedbackDraft || activePendingAsk || activeFirstContextQuestion
+            ? undefined
+            : (
           <>
             <ComposerMentionPicker
               open={mentions.state.open}

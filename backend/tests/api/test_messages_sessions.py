@@ -991,6 +991,57 @@ def test_get_display_history_restores_only_public_user_feedback_payload(tmp_path
     assert history[0].payload == {"recall_feedback": feedback}
 
 
+def test_get_display_history_restores_controlled_first_context_payload(tmp_path):
+    service = _build_service(tmp_path)
+    _init_chat_session_store(service._chat_db_path)
+    _insert_session(
+        service._chat_db_path,
+        session_id="s1",
+        user_id="u1",
+        title="First Context Chat",
+        created_at=1000,
+        updated_at=1000,
+        message_count=1,
+    )
+    _insert_chat_turn(
+        service._chat_db_path,
+        turn_id="turn-1",
+        session_id="s1",
+        user_id="u1",
+        created_at_ms=1000,
+        updated_at_ms=1000,
+    )
+    first_context = {
+        "question_id": "preferred_name",
+        "question_text": "希望 Magi 平时怎么称呼你？昵称就可以。",
+    }
+    _insert_chat_message(
+        service._chat_db_path,
+        message_id="msg-1",
+        session_id="s1",
+        turn_id="turn-1",
+        user_id="u1",
+        role="user",
+        message_kind="user_text",
+        content_text="明日香",
+        payload_json=json.dumps(
+            {
+                "interaction_kind": "first_context_story",
+                "first_context": first_context,
+                "internal_note": "must not reach the client",
+            }
+        ),
+        created_at_ms=1000,
+    )
+
+    history = service.get_display_history("u1", "s1", limit=10)
+
+    assert history[0].payload == {
+        "interaction_kind": "first_context_story",
+        "first_context": first_context,
+    }
+
+
 def test_get_display_history_includes_turn_run_state(tmp_path):
     service = _build_service(tmp_path)
     _init_chat_session_store(service._chat_db_path)

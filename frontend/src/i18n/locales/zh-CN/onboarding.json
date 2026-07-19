@@ -271,20 +271,20 @@
       "badge": "可选 · 约 30 秒",
       "questionLabel": "想问你",
       "questions": {
-        "easy_topic": "如果现在可以随便聊点什么，什么话题最容易让你有话说？",
         "preferred_name": "希望 Magi 平时怎么称呼你？昵称就可以。",
+        "easy_topic": "如果现在可以随便聊点什么，什么话题最容易让你有话说？",
         "current_interest": "最近有什么东西，是你愿意主动花时间了解的？",
-        "recent_feeling": "最近有哪件小事，让你心情有一点变化？",
         "repeating_content": "最近有什么内容，是你会忍不住反复看或听的？",
+        "recent_feeling": "最近有哪件小事，让你心情有一点变化？",
         "personal_time": "最近一天里，哪段时间最像是“你自己的时间”？",
         "reluctant_routine": "最近有什么事，明明不太想做，却还是一直在做？"
       },
       "placeholders": {
-        "easy_topic": "比如：聊动漫、音乐和旅行，我一般都会很有话说。",
         "preferred_name": "比如：叫我明日香就好。",
+        "easy_topic": "比如：聊动漫、音乐和旅行，我一般都会很有话说。",
         "current_interest": "比如：最近总在看城市徒步路线，想找周末能去的地方。",
-        "recent_feeling": "比如：回家路上买到了一直想喝的饮料，那一刻心情很好。",
         "repeating_content": "比如：最近又把同一张专辑从头听了好几遍。",
+        "recent_feeling": "比如：回家路上买到了一直想喝的饮料，那一刻心情很好。",
         "personal_time": "比如：洗完澡关掉消息提醒，躺着听歌的时候。",
         "reluctant_routine": "比如：每天都嫌收拾房间麻烦，但看到桌面干净又会舒服。"
       },

@@ -789,6 +789,17 @@
     "connected": "Connected",
     "disconnected": "Disconnected",
     "clear": "Clear Chat",
+    "firstContextContinuation": {
+      "title": "Let Magi get to know you a little more?",
+      "body": "You can answer one more easy question or start chatting right away.",
+      "continue": "Answer another",
+      "startChat": "Start chatting",
+      "optional": "Entirely optional",
+      "inputHint": "Type below. One sentence is enough.",
+      "dismiss": "That's enough for now",
+      "changeQuestion": "Try another question",
+      "attachmentsUnsupported": "Please answer this question with text. You can send attachments in ordinary chat afterward."
+    },
     "today": {
       "loading": "Summarizing today's signals…",
       "idle": "No sensor activity today yet",

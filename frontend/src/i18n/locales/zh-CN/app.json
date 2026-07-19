@@ -789,6 +789,17 @@
     "connected": "已连接",
     "disconnected": "未连接",
     "clear": "清空对话",
+    "firstContextContinuation": {
+      "title": "再让 Magi 认识你一点？",
+      "body": "还可以回答一个轻松问题，也可以直接开始聊天。",
+      "continue": "再回答一个",
+      "startChat": "先开始聊天",
+      "optional": "完全可选",
+      "inputHint": "在下面输入，一句话也可以。",
+      "dismiss": "先这样",
+      "changeQuestion": "换一个问题",
+      "attachmentsUnsupported": "这个问题先用文字回答就好；附件可以在之后的普通聊天里发送。"
+    },
     "today": {
       "loading": "正在汇总今日感知…",
       "idle": "今天还没有传感器数据",

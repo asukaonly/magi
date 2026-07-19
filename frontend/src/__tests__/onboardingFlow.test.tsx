@@ -635,11 +635,11 @@ describe("OnboardingFlow (linear 5-step)", () => {
     await user.click(questionRoute);
     const input = await screen.findByTestId("first-context-story-input");
     expect(
-      screen.getByTestId("first-context-question-easy_topic"),
-    ).toHaveTextContent("firstContext.story.questions.easy_topic");
+      screen.getByTestId("first-context-question-preferred_name"),
+    ).toHaveTextContent("firstContext.story.questions.preferred_name");
     expect(input).toHaveAttribute(
       "placeholder",
-      "firstContext.story.placeholders.easy_topic",
+      "firstContext.story.placeholders.preferred_name",
     );
     expect(input).toHaveAttribute(
       "aria-describedby",
@@ -647,16 +647,17 @@ describe("OnboardingFlow (linear 5-step)", () => {
     );
 
     await user.type(input, "音乐、电影和旅行");
+    vi.spyOn(Math, "random").mockReturnValue(0);
     await user.click(
       screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
     );
     expect(
-      screen.getByTestId("first-context-question-preferred_name"),
-    ).toHaveTextContent("firstContext.story.questions.preferred_name");
+      screen.getByTestId("first-context-question-easy_topic"),
+    ).toHaveTextContent("firstContext.story.questions.easy_topic");
     expect(input).toHaveValue("音乐、电影和旅行");
     expect(input).toHaveAttribute(
       "placeholder",
-      "firstContext.story.placeholders.preferred_name",
+      "firstContext.story.placeholders.easy_topic",
     );
     await user.clear(input);
     await user.type(input, "叫我小夏就好");
@@ -669,7 +670,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       "叫我小夏就好",
     );
     expect(
-      screen.getByTestId("first-context-question-preferred_name"),
+      screen.getByTestId("first-context-question-easy_topic"),
     ).toBeInTheDocument();
 
     const progressWrites = localStorageMock.setItem.mock.calls.filter(
@@ -681,7 +682,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(persisted.firstContextProgress).toEqual(
       expect.objectContaining({
         route: "question",
-        questionId: "preferred_name",
+        questionId: "easy_topic",
         draft: "叫我小夏就好",
       }),
     );
@@ -755,9 +756,6 @@ describe("OnboardingFlow (linear 5-step)", () => {
     render(<OnboardingFlow initialConfig={DEFAULT_SYSTEM_CONFIG} />);
     await enterFirstContextStep(user);
     await user.click(screen.getByTestId("first-context-route-question"));
-    await user.click(
-      screen.getByRole("button", { name: "firstContext.story.changeQuestion" }),
-    );
     await user.type(screen.getByTestId("first-context-story-input"), "明日香");
     await user.click(screen.getByTestId("first-context-story-submit"));
 
@@ -806,6 +804,13 @@ describe("OnboardingFlow (linear 5-step)", () => {
         content: "明日香",
         messageId: "first-context-message",
         turnId: request.client_turn_id,
+        payload: {
+          interaction_kind: "first_context_story",
+          first_context: {
+            question_id: "preferred_name",
+            question_text: "firstContext.story.questions.preferred_name",
+          },
+        },
       }),
     ]);
   });

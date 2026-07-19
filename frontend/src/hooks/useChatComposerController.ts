@@ -6,6 +6,7 @@ import {
 } from '@/domain/chat/recall-feedback';
 import { shouldSubmitOnEnter } from '@/domain/chat/shell-routing';
 import type { ChatTimelineReplyPreview } from '@/domain/chat/state';
+import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
 import type { PendingResponseTurnIdentity } from '@/domain/chat/turn-completion';
 import { useChatDraftAttachments } from './useChatDraftAttachments';
 import type { RunCancelOutcome } from './useChatExecutionControls';
@@ -31,6 +32,7 @@ type UseChatComposerControllerOptions = Pick<
 > & {
   coreModelSupportsVision: boolean;
   pendingAsk: PendingAskSendContext | null;
+  firstContextQuestion?: FirstContextQuestionContext | null;
   onAskAnswered: (answer: PendingAskAnswerPayload) => void;
   requestRunCancel: (turnId: string) => Promise<RunCancelOutcome>;
   markAdmissionPendingTurn: (sessionId: string, turnId: string) => void;
@@ -49,6 +51,7 @@ export function useChatComposerController({
   allowInterjection,
   coreModelSupportsVision,
   pendingAsk,
+  firstContextQuestion = null,
   appendPendingTurn,
   removePendingMessage,
   setCurrentSessionId,
@@ -133,10 +136,11 @@ export function useChatComposerController({
           currentWorkspacePath || null,
         ]
         : [
-          'normal',
+          firstContextQuestion ? 'first_context' : 'normal',
           inputValue,
           draftAttachments.map((attachment) => [attachment.kind, attachment.id]),
           replyTarget?.messageId || null,
+          firstContextQuestion?.questionId || null,
           currentWorkspacePath || null,
         ],
   );
@@ -385,6 +389,7 @@ export function useChatComposerController({
     replyTarget,
     allowInterjection,
     pendingAsk,
+    firstContextQuestion,
     recallFeedbackDraft,
     appendPendingTurn,
     removePendingMessage,

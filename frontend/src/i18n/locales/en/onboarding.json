@@ -271,20 +271,20 @@
       "badge": "Optional · About 30 seconds",
       "questionLabel": "A question for you",
       "questions": {
-        "easy_topic": "If we could chat about anything right now, what topic would you have the most to say about?",
         "preferred_name": "What would you like Magi to call you? A nickname is perfectly fine.",
+        "easy_topic": "If we could chat about anything right now, what topic would you have the most to say about?",
         "current_interest": "What have you been choosing to spend time learning more about lately?",
-        "recent_feeling": "What small thing recently changed your mood, even a little?",
         "repeating_content": "What have you found yourself watching or listening to again and again lately?",
+        "recent_feeling": "What small thing recently changed your mood, even a little?",
         "personal_time": "What part of a recent day felt most like time that was truly yours?",
         "reluctant_routine": "What have you kept doing lately, even though you did not really feel like doing it?"
       },
       "placeholders": {
-        "easy_topic": "For example: I can always talk about anime, music, and travel.",
         "preferred_name": "For example: You can call me Asuka.",
+        "easy_topic": "For example: I can always talk about anime, music, and travel.",
         "current_interest": "For example: I keep looking at city walks for somewhere to go this weekend.",
-        "recent_feeling": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
         "repeating_content": "For example: I have played the same album from start to finish several times lately.",
+        "recent_feeling": "For example: I finally found a drink I had wanted on the way home, and it lifted my mood.",
         "personal_time": "For example: Right after a shower, with notifications off and music playing.",
         "reluctant_routine": "For example: I complain about tidying up, but I still like seeing a clear desk."
       },

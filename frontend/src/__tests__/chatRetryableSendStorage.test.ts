@@ -133,6 +133,34 @@ describe('chat retryable send storage', () => {
     });
   });
 
+  it('round-trips a first-context answer with its question', () => {
+    const operation = buildOperation();
+    operation.draftKind = 'first_context';
+    operation.request.attachments = [];
+    operation.pendingTurn!.attachments = [];
+    operation.request.interaction_kind = 'first_context_story';
+    operation.request.first_context = {
+      question_id: 'current_interest',
+      question_text: '最近有什么东西，是你愿意主动花时间了解的？',
+    };
+    operation.pendingTurn!.payload = {
+      interaction_kind: 'first_context_story',
+      first_context: operation.request.first_context,
+    };
+
+    saveRetryableChatSends(
+      new Map([[operation.sessionId, operation]]),
+      window.sessionStorage,
+      NOW_MS,
+    );
+
+    expect(
+      loadRetryableChatSends(NOW_MS, window.sessionStorage).get(
+        operation.sessionId,
+      ),
+    ).toEqual(operation);
+  });
+
   it('rejects non-JSON attachment values instead of persisting File objects', () => {
     const operation = buildOperation();
     (operation.request.attachments?.[0] as Record<string, unknown>).file = (

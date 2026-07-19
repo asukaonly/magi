@@ -18,29 +18,21 @@ import { EmptyStateAvailableSensors } from "@/components/empty-state/EmptyStateA
 import { Button } from "@/components/ui/button";
 import type { PluginInstallDoneInfo } from "@/stores/pluginInstallPanel";
 import { localizedPluginText } from "@/utils/plugin-display-groups";
+import {
+  FIRST_CONTEXT_QUESTION_IDS,
+  isFirstContextQuestionId,
+  type FirstContextQuestionId,
+} from "@/domain/chat/first-context";
 import { getMemoryModelStatus } from "./memoryModelStatus";
 import { ONBOARDING_SECONDARY_ACTION_CLASS } from "./onboardingStyles";
 
-export const FIRST_CONTEXT_QUESTION_IDS = [
-  "easy_topic",
-  "preferred_name",
-  "current_interest",
-  "recent_feeling",
-  "repeating_content",
-  "personal_time",
-  "reluctant_routine",
-] as const;
-
-export type FirstContextQuestionId =
-  (typeof FIRST_CONTEXT_QUESTION_IDS)[number];
+export {
+  FIRST_CONTEXT_QUESTION_IDS,
+  isFirstContextQuestionId,
+  type FirstContextQuestionId,
+};
 
 export type FirstContextRoute = "choose" | "question" | "activity";
-
-export function isFirstContextQuestionId(
-  value: unknown,
-): value is FirstContextQuestionId {
-  return FIRST_CONTEXT_QUESTION_IDS.includes(value as FirstContextQuestionId);
-}
 
 export function isFirstContextRoute(value: unknown): value is FirstContextRoute {
   return value === "choose" || value === "question" || value === "activity";

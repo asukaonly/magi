@@ -8,6 +8,7 @@ import {
   createClientTurnId,
   type ChatTimelineReplyPreview,
 } from '@/domain/chat/state';
+import type { FirstContextQuestionContext } from '@/domain/chat/first-context';
 import {
   toRecallFeedbackReplyPreview,
   toRecallFeedbackRequest,
@@ -64,6 +65,7 @@ export type UseChatSendMessageOptions = {
   replyTarget: ChatTimelineReplyPreview | null;
   allowInterjection: boolean;
   pendingAsk: PendingAskSendContext | null;
+  firstContextQuestion?: FirstContextQuestionContext | null;
   recallFeedbackDraft: RecallFeedbackDraft | null;
   appendPendingTurn: (payload: PendingTurnPayload) => void;
   removePendingMessage: (sessionId: string, messageId: string) => void;
@@ -119,6 +121,7 @@ export function useChatSendMessage({
   replyTarget,
   allowInterjection,
   pendingAsk,
+  firstContextQuestion = null,
   recallFeedbackDraft,
   appendPendingTurn,
   removePendingMessage,
@@ -760,6 +763,11 @@ export function useChatSendMessage({
       return;
     }
 
+    if (firstContextQuestion && draftAttachments.length > 0) {
+      toast.warning(translate('chat.firstContextContinuation.attachmentsUnsupported'));
+      return;
+    }
+
     const messageContent = trimmedMessage;
 
     setSessionSending(originSessionId, true);
@@ -791,7 +799,7 @@ export function useChatSendMessage({
         createdAtMs: Date.now(),
         draftIdentity: composerDraftIdentity,
         draftSignature: composerDraftSignature,
-        draftKind: 'normal',
+        draftKind: firstContextQuestion ? 'first_context' : 'normal',
         request: {
           user_id: USER_ID,
           session_id: originSessionId,
@@ -800,6 +808,13 @@ export function useChatSendMessage({
           reply_to_message_id: replyTarget?.messageId,
           workspace_path: currentWorkspacePath ?? null,
           client_turn_id: turnId,
+          ...(firstContextQuestion ? {
+            interaction_kind: 'first_context_story' as const,
+            first_context: {
+              question_id: firstContextQuestion.questionId,
+              question_text: firstContextQuestion.questionText,
+            },
+          } : {}),
         },
         confirmation: {
           kind: 'turn',
@@ -814,6 +829,13 @@ export function useChatSendMessage({
           pendingLabel: translate('chat.trace.pending'),
           attachments: uploadedAttachments,
           replyTo: replyTarget,
+          payload: firstContextQuestion ? {
+            interaction_kind: 'first_context_story',
+            first_context: {
+              question_id: firstContextQuestion.questionId,
+              question_text: firstContextQuestion.questionText,
+            },
+          } : undefined,
         },
       };
       try {
@@ -834,6 +856,7 @@ export function useChatSendMessage({
     currentSessionId,
     currentWorkspacePath,
     draftAttachments,
+    firstContextQuestion,
     inputValue,
     pendingAsk,
     onPendingResponseFailure,
