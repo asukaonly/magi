@@ -293,7 +293,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
         name_i18n: { "zh-CN": "Chrome 浏览器历史" },
         description: "Chrome history",
         description_i18n: {},
-        icon: "brand:googlechrome",
+        icon: "data:image/svg+xml;base64,PHN2Zy8+",
         category: "browser_history",
         installed: false,
         rationale: { zh: "", en: "" },
@@ -574,6 +574,10 @@ describe("OnboardingFlow (linear 5-step)", () => {
     expect(
       screen.getByTestId("empty-state-connect-chrome-history"),
     ).toBeInTheDocument();
+    expect(screen.getByTestId("plugin-icon-asset")).toHaveAttribute(
+      "src",
+      "data:image/svg+xml;base64,PHN2Zy8+",
+    );
     expect(
       screen.queryByTestId("empty-state-connect-calendar"),
     ).not.toBeInTheDocument();
@@ -1574,7 +1578,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
       install: true,
       context: "first_context",
       onDone: expect.any(Function),
-      pluginIcon: "brand:googlechrome",
+      pluginIcon: "data:image/svg+xml;base64,PHN2Zy8+",
       pluginName: "Chrome 浏览器历史",
     }));
     expect(screen.getByText("firstContext.activity.title")).toBeInTheDocument();
@@ -1626,7 +1630,7 @@ describe("OnboardingFlow (linear 5-step)", () => {
           name_i18n: { "zh-CN": "Chrome 浏览器历史" },
           description: "Chrome history",
           description_i18n: {},
-          icon: "brand:googlechrome",
+          icon: "data:image/svg+xml;base64,PHN2Zy8+",
           category: "browser_history",
           installed: false,
           rationale: { zh: "", en: "" },

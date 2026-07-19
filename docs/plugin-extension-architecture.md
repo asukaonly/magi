@@ -153,13 +153,19 @@ Instead, lifecycle work is split across runtime services:
 ## Marketplace Registry Distribution
 
 The public marketplace registry is authored in the external `magi-plugins`
-repository, but the runtime default reads `registry.json` through jsDelivr:
+repository, but the runtime default reads the current `registry.json` directly
+from GitHub:
 
-- `https://cdn.jsdelivr.net/gh/asukaonly/magi-plugins@main/registry.json`
+- `https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json`
 
-This keeps normal marketplace browsing away from GitHub raw-file rate limits.
+The mutable `main` index deliberately avoids a long-lived CDN cache so newly
+published plugin metadata, including packaged icons, becomes visible within
+the host's five-minute registry refresh window.
+
+The host keeps a five-minute memory cache and a durable offline fallback, so
+normal marketplace browsing does not issue one raw-file request per surface.
 Operators can still override the URL with `plugins.registry_url` for internal
-mirrors, staged registries, or future dedicated CDN endpoints.
+mirrors, staged registries, or future cache-invalidation-aware CDN endpoints.
 
 First-context and empty-source recommendations reuse this same registry client
 and cache rather than maintaining a separate catalog connection. When neither

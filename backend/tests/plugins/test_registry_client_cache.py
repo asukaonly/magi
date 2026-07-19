@@ -66,8 +66,10 @@ class _FakeHttpClient:
         return _FakeResponse(self._payload)
 
 
-def test_default_registry_url_uses_jsdelivr_cdn() -> None:
-    assert DEFAULT_REGISTRY_URL == "https://cdn.jsdelivr.net/gh/asukaonly/magi-plugins@main/registry.json"
+def test_default_registry_url_reads_the_current_main_branch() -> None:
+    assert DEFAULT_REGISTRY_URL == (
+        "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json"
+    )
 
 
 @pytest.mark.asyncio

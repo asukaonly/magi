@@ -25,7 +25,9 @@ from .contracts import PluginRegistryEntry, PluginRegistryIndex
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REGISTRY_URL = "https://cdn.jsdelivr.net/gh/asukaonly/magi-plugins@main/registry.json"
+DEFAULT_REGISTRY_URL = (
+    "https://raw.githubusercontent.com/asukaonly/magi-plugins/main/registry.json"
+)
 DEFAULT_REPO_URL = "https://github.com/asukaonly/magi-plugins.git"
 INDEX_TIMEOUT = 30
 TARBALL_TIMEOUT = 120  # seconds
